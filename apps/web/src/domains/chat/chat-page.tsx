@@ -150,7 +150,9 @@ export function ChatPage() {
 
   const [restoredDraftConversationKey, setRestoredDraftConversationKey] = useState<string | null>(null);
   const [refreshEpoch, setRefreshEpoch] = useState(0);
-  const [_autoGreetPending, setAutoGreetPending] = useState(false);
+  const [autoGreetPending, setAutoGreetPending] = useState(
+    () => peekPendingInitialMessage() !== null,
+  );
   const awaitingAutoGreetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [contextWindowUsage, setContextWindowUsage] = useState<ContextWindowUsage | null>(null);
   const [transcriptPagination, setTranscriptPagination] = useState<Omit<TranscriptPaginationState, "items">>({
@@ -671,6 +673,16 @@ export function ChatPage() {
     clearPendingInitialMessage();
     void sendMessage(message);
   }, [activeConversationKey, assistantId, reachability.state.phase, sendMessage]);
+
+  // Clear the auto-greet loading gate once messages arrive (the assistant
+  // responded) or the 10-second safety timeout expires. Matches platform's
+  // awaitingAutoGreet pattern.
+  useEffect(() => {
+    if (!autoGreetPending) return;
+    if (messages.length > 0) {
+      setAutoGreetPending(false);
+    }
+  }, [autoGreetPending, messages.length]);
 
   // Derive onboardingTasksEmpty from the pending context in sessionStorage.
   // Runs once on mount — if initial message key is present, this is an
@@ -1229,7 +1241,7 @@ export function ChatPage() {
   // -------------------------------------------------------------------------
   // Loading / error guards
   // -------------------------------------------------------------------------
-  if (authLoading || assistantState.kind === "loading") {
+  if (authLoading || assistantState.kind === "loading" || autoGreetPending) {
     return (
       <div className="flex h-full items-center justify-center">
         <p className="text-[var(--text-secondary)]">Connecting…</p>
