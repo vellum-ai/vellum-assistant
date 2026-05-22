@@ -2,6 +2,7 @@ import { NavLink, Outlet, useLocation, useOutletContext } from "react-router";
 
 import { cn } from "@vellum/design-library";
 
+import { PageShell } from "@/components/page-shell.js";
 import { routes } from "@/utils/routes.js";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store.js";
 
@@ -31,7 +32,7 @@ export function IntelligenceLayout() {
   const outletContext = useOutletContext();
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] px-6 py-5">
+    <PageShell>
       <h1 className="mb-4 shrink-0 text-title-large text-[var(--content-default)]">
         About {assistantName || "Assistant"}
       </h1>
@@ -68,6 +69,6 @@ export function IntelligenceLayout() {
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         <Outlet context={outletContext} />
       </div>
-    </div>
+    </PageShell>
   );
 }
