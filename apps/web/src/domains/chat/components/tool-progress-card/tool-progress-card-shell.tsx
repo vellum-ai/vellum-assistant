@@ -83,6 +83,16 @@ export interface ToolProgressCardShellProps {
    * consumers override to preserve existing integration-test hooks.
    */
   statusIndicatorTestId?: string;
+  /**
+   * Optional action cluster rendered inside the header flex row, immediately
+   * BEFORE the step-count pill. Used by inline-card variants (e.g. the
+   * subagent inline card) to slot stop / open buttons into the header
+   * without absolute-positioning over the shell's chrome. The slot is
+   * rendered outside the surrounding `<Button>` so its interactive children
+   * don't toggle the card's expand/collapse state — callers are responsible
+   * for `stopPropagation()` on their own click handlers when needed.
+   */
+  headerActionSlot?: ReactNode;
 }
 
 function StatusIndicator({
@@ -146,6 +156,7 @@ export function ToolProgressCardShell({
   children,
   "data-testid": dataTestId = "tool-progress-card-shell",
   statusIndicatorTestId = "tool-progress-card-status-indicator",
+  headerActionSlot,
 }: ToolProgressCardShellProps) {
   const [uncontrolledExpanded, setUncontrolledExpanded] =
     useState(defaultExpanded);
@@ -181,12 +192,15 @@ export function ToolProgressCardShell({
     //     the divider + body section flow flush below.
     <div
       data-testid={dataTestId}
-      className="flex w-full flex-col rounded-[var(--radius-lg)] border-b border-[var(--border-base)] bg-[var(--surface-overlay)]"
+      className="relative flex w-full flex-col rounded-[var(--radius-lg)] border-b border-[var(--border-base)] bg-[var(--surface-overlay)]"
     >
       {/* The entire row is the toggle — clicking the label cluster, dots,
           subtext, or pill expands / collapses. The step-count pill is a
           visual-only <span>; the surrounding Button already provides the
-          interactive semantics. */}
+          interactive semantics. The optional action slot is rendered as a
+          sibling AFTER the Button (not inside it — nested <button>s are
+          invalid HTML) and aligned into the header row via absolute
+          positioning so consumers don't have to compute pixel offsets. */}
       <Button
         variant="ghost"
         size="compact"
@@ -216,7 +230,10 @@ export function ToolProgressCardShell({
             bypassDwell={state !== "loading"}
           />
         </span>
-        <span className="flex shrink-0 items-center rounded-[var(--radius-pill)] bg-[var(--surface-base)] px-[6px] py-[4px]">
+        <span
+          data-testid="tool-progress-card-step-count-pill"
+          className="flex shrink-0 items-center rounded-[var(--radius-pill)] bg-[var(--surface-base)] px-[6px] py-[4px]"
+        >
           <Typography
             variant="body-small-default"
             className="text-[var(--content-emphasised)]"
@@ -225,6 +242,26 @@ export function ToolProgressCardShell({
           </Typography>
         </span>
       </Button>
+      {/* Action slot — absolute-positioned over the right end of the header
+          row, immediately to the left of the step-count pill. Living
+          outside the Button avoids the nested-<button> HTML issue and lets
+          consumers retain their own click handlers without the surrounding
+          expand toggle eating events. Consumers should still
+          stopPropagation() inside their handlers to keep the click from
+          bubbling to the toggle. The fixed `right-[64px]` offset centralises
+          the positioning logic that previously lived in callers as a
+          fragile per-consumer pixel offset; updating the step-count pill
+          chrome later only requires a single edit here. */}
+      {headerActionSlot ? (
+        <div
+          data-testid="tool-progress-card-action-slot"
+          className="pointer-events-none absolute right-[64px] top-[14px] flex items-center gap-1"
+        >
+          <div className="pointer-events-auto flex items-center gap-1">
+            {headerActionSlot}
+          </div>
+        </div>
+      ) : null}
 
       {/* Expanded body — divider + children. Animated height-collapse honors
           prefers-reduced-motion (snap when reduced via 0-duration transition). */}

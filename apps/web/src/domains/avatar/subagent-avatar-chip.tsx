@@ -28,8 +28,16 @@ export function SubagentAvatarChip({
 }: SubagentAvatarChipProps) {
   const traits = subagentTraits(subagentId);
 
+  // `AvatarRenderer` renders a `<div>` — wrapping it in a `<span>` produces
+  // invalid HTML (block element inside an inline element) which browsers
+  // may auto-correct by closing the span early, dropping our className and
+  // aria-label. Use an inline-flex `<div>` instead so the wrapper still
+  // composes inline visually but stays a valid block container.
   return (
-    <span aria-label={`Subagent ${subagentId}`} className={className}>
+    <div
+      aria-label={`Subagent ${subagentId}`}
+      className={`inline-flex ${className ?? ""}`.trim()}
+    >
       <AvatarRenderer
         components={BUNDLED_COMPONENTS}
         bodyShapeId={traits.bodyShape}
@@ -37,6 +45,6 @@ export function SubagentAvatarChip({
         colorId={traits.color}
         size={size}
       />
-    </span>
+    </div>
   );
 }

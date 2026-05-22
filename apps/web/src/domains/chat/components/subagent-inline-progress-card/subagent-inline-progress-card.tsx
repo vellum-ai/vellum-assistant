@@ -77,8 +77,39 @@ export function SubagentInlineProgressCard({
 
   const leadingIcon = <SubagentAvatarChip subagentId={subagentId} size={16} />;
 
+  // Action cluster slotted into the shell's `headerActionSlot`. The shell
+  // positions it just to the left of the step-count pill so we no longer
+  // need fragile per-consumer pixel offsets to align with the pill chrome.
+  const hasAction = Boolean(onSubagentClick || (onStopSubagent && isRunning));
+  const actionSlot = hasAction ? (
+    <>
+      {onStopSubagent && isRunning && (
+        <button
+          type="button"
+          aria-label="Stop subagent"
+          data-testid="subagent-inline-card-stop"
+          onClick={handleStop}
+          className="flex h-5 w-5 cursor-pointer items-center justify-center rounded-[var(--radius-sm)] text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--system-negative-strong)]"
+        >
+          <Square className="h-3 w-3" fill="currentColor" />
+        </button>
+      )}
+      {onSubagentClick && (
+        <button
+          type="button"
+          aria-label="Open subagent timeline"
+          data-testid="subagent-inline-card-open"
+          onClick={handleOpen}
+          className="flex h-5 w-5 cursor-pointer items-center justify-center rounded-[var(--radius-sm)] text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--content-default)]"
+        >
+          <ExternalLink className="h-3 w-3" />
+        </button>
+      )}
+    </>
+  ) : undefined;
+
   return (
-    <div className="relative w-full" data-testid="subagent-inline-progress-card">
+    <div className="w-full" data-testid="subagent-inline-progress-card">
       <ToolProgressCardShell
         data-testid="subagent-inline-card-shell"
         statusIndicatorTestId="subagent-inline-card-status-indicator"
@@ -88,42 +119,12 @@ export function SubagentInlineProgressCard({
         currentStepInfo={data.currentStepInfo}
         stepCount={data.stepCount}
         disableExpand={data.steps.length === 0}
+        headerActionSlot={actionSlot}
       >
         <div className="flex w-full flex-col gap-3 px-3 pb-3">
           <PhaseGroupedStepList steps={data.steps} />
         </div>
       </ToolProgressCardShell>
-      {/* Right-rail action cluster — absolute-positioned over the shell's
-          header so the shell stays a pure presentational primitive. The
-          shell already exposes a "step count" pill on the right; the
-          actions render to the *left* of that pill via the absolute
-          overlay so they don't clip the existing layout. */}
-      {(onSubagentClick || (onStopSubagent && isRunning)) && (
-        <div className="pointer-events-none absolute right-[64px] top-[14px] flex items-center gap-1">
-          {onStopSubagent && isRunning && (
-            <button
-              type="button"
-              aria-label="Stop subagent"
-              data-testid="subagent-inline-card-stop"
-              onClick={handleStop}
-              className="pointer-events-auto flex h-5 w-5 cursor-pointer items-center justify-center rounded-[var(--radius-sm)] text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--system-negative-strong)]"
-            >
-              <Square className="h-3 w-3" fill="currentColor" />
-            </button>
-          )}
-          {onSubagentClick && (
-            <button
-              type="button"
-              aria-label="Open subagent timeline"
-              data-testid="subagent-inline-card-open"
-              onClick={handleOpen}
-              className="pointer-events-auto flex h-5 w-5 cursor-pointer items-center justify-center rounded-[var(--radius-sm)] text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--content-default)]"
-            >
-              <ExternalLink className="h-3 w-3" />
-            </button>
-          )}
-        </div>
-      )}
     </div>
   );
 }
