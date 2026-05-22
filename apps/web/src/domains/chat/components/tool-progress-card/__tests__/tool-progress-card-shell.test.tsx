@@ -7,11 +7,12 @@
  *  - controlled vs uncontrolled expand/collapse toggling
  *  - the optional `leadingIcon` slot only renders when supplied
  *  - `disableExpand` makes the header button non-interactive
+ *  - terminal `state` transitions bypass the header-carousel dwell throttle
  */
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { useState } from "react";
+import { act, useState } from "react";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
 import {
@@ -204,5 +205,193 @@ describe("ToolProgressCardShell — props interface export", () => {
       "error",
     ];
     expect(allStates).toHaveLength(4);
+  });
+});
+
+// Terminal-state header bypass — the shell forwards `bypassDwell` whenever
+// `state !== "loading"` so the final `(title, info)` lands in sync with
+// the status-icon swap instead of trailing the 400ms throttle. We
+// monkey-patch `setTimeout` / `Date.now` to drive virtual time (same
+// pattern as `web-search-progress-card.test`).
+
+interface TimerHandle {
+  id: number;
+  fn: () => void;
+  fireAt: number;
+  cleared: boolean;
+  fired: boolean;
+}
+
+describe("ToolProgressCardShell — terminal-state header bypass", () => {
+  let timers: TimerHandle[] = [];
+  let nextTimerId = 1;
+  let now = 1_000_000;
+  let originalSetTimeout: typeof globalThis.setTimeout;
+  let originalClearTimeout: typeof globalThis.clearTimeout;
+  let originalDateNow: typeof Date.now;
+
+  beforeEach(() => {
+    timers = [];
+    nextTimerId = 1;
+    now = 1_000_000;
+    originalSetTimeout = globalThis.setTimeout;
+    originalClearTimeout = globalThis.clearTimeout;
+    originalDateNow = Date.now;
+    Date.now = () => now;
+    globalThis.setTimeout = ((fn: (...args: unknown[]) => void, ms?: number) => {
+      const handle: TimerHandle = {
+        id: nextTimerId++,
+        fn: () => fn(),
+        fireAt: now + (ms ?? 0),
+        cleared: false,
+        fired: false,
+      };
+      timers.push(handle);
+      return handle.id as unknown as ReturnType<typeof globalThis.setTimeout>;
+    }) as typeof globalThis.setTimeout;
+    globalThis.clearTimeout = ((id: number) => {
+      const handle = timers.find((h) => h.id === id);
+      if (handle) handle.cleared = true;
+    }) as typeof globalThis.clearTimeout;
+  });
+
+  afterEach(() => {
+    globalThis.setTimeout = originalSetTimeout;
+    globalThis.clearTimeout = originalClearTimeout;
+    Date.now = originalDateNow;
+    cleanup();
+  });
+
+  function advanceTime(ms: number) {
+    now += ms;
+    let progressed = true;
+    while (progressed) {
+      progressed = false;
+      const due = timers.filter(
+        (h) => !h.cleared && !h.fired && h.fireAt <= now,
+      );
+      for (const handle of due) {
+        handle.fired = true;
+        progressed = true;
+        act(() => {
+          handle.fn();
+        });
+      }
+    }
+  }
+
+  test("loading → complete transition lands the final title + info immediately", () => {
+    const { getByText, rerender } = renderShell({
+      state: "loading",
+      currentStepTitle: "Searching the web",
+      currentStepInfo: "for tigers",
+    });
+    expect(getByText("Searching the web")).toBeTruthy();
+    expect(getByText("for tigers")).toBeTruthy();
+
+    // Transition: state flips to `complete` AND the final header content
+    // arrives in the same render. The bypass should flush the throttle so
+    // both pieces appear immediately, in sync with the green check icon.
+    rerender(
+      <ToolProgressCardShell
+        state="complete"
+        currentStepTitle="Searched the web"
+        currentStepInfo="2 sources"
+        stepCount="2 steps"
+      >
+        <div data-testid="shell-body">body content</div>
+      </ToolProgressCardShell>,
+    );
+
+    // The bypass commits via a `setDisplayed` call inside `useEffect`;
+    // `advanceTime(0)` lets the queued microtask flush.
+    advanceTime(0);
+
+    // The new title + info appear without waiting for the 400ms dwell. The
+    // exiting motion node may still hang around mid-animation (popLayout),
+    // so we only assert the new content is mounted. The cleared-throttle
+    // assertion below catches the regression directly.
+    expect(getByText("Searched the web")).toBeTruthy();
+    expect(getByText("2 sources")).toBeTruthy();
+    // No live throttle timer should remain — bypass cancels any prior
+    // dwell and never schedules a new one. (Without the bypass, the dwell
+    // would queue a setTimeout here that we'd see in the queue.)
+    expect(timers.filter((h) => !h.cleared && !h.fired)).toEqual([]);
+  });
+
+  test("loading → denied transition lands the final title + info immediately", () => {
+    const { getByText, rerender } = renderShell({
+      state: "loading",
+      currentStepTitle: "Requesting access",
+      currentStepInfo: "to calendar",
+    });
+
+    rerender(
+      <ToolProgressCardShell
+        state="denied"
+        currentStepTitle="Access denied"
+        currentStepInfo=""
+        stepCount="1 step"
+      >
+        <div data-testid="shell-body">body content</div>
+      </ToolProgressCardShell>,
+    );
+    advanceTime(0);
+
+    expect(getByText("Access denied")).toBeTruthy();
+    expect(timers.filter((h) => !h.cleared && !h.fired)).toEqual([]);
+  });
+
+  test("loading → error transition lands the final title + info immediately", () => {
+    const { getByText, rerender } = renderShell({
+      state: "loading",
+      currentStepTitle: "Calling tool",
+      currentStepInfo: "in progress",
+    });
+
+    rerender(
+      <ToolProgressCardShell
+        state="error"
+        currentStepTitle="Tool failed"
+        currentStepInfo="rate limited"
+        stepCount="1 step"
+      >
+        <div data-testid="shell-body">body content</div>
+      </ToolProgressCardShell>,
+    );
+    advanceTime(0);
+
+    expect(getByText("Tool failed")).toBeTruthy();
+    expect(getByText("rate limited")).toBeTruthy();
+    expect(timers.filter((h) => !h.cleared && !h.fired)).toEqual([]);
+  });
+
+  test("loading → loading transitions still respect the 400ms throttle", () => {
+    // Regression guard: the bypass must NOT trigger on plain loading-state
+    // updates. Rapid loading-state metadata changes still need to coalesce.
+    const { getByText, queryByText, rerender } = renderShell({
+      state: "loading",
+      currentStepTitle: "A",
+      currentStepInfo: "alpha",
+    });
+
+    rerender(
+      <ToolProgressCardShell
+        state="loading"
+        currentStepTitle="B"
+        currentStepInfo="beta"
+        stepCount="2 steps"
+      >
+        <div data-testid="shell-body">body content</div>
+      </ToolProgressCardShell>,
+    );
+
+    // Throttle holds the previous value on-screen until the dwell elapses.
+    expect(getByText("A")).toBeTruthy();
+    expect(queryByText("B")).toBeNull();
+
+    advanceTime(400);
+    expect(getByText("B")).toBeTruthy();
+    expect(getByText("beta")).toBeTruthy();
   });
 });

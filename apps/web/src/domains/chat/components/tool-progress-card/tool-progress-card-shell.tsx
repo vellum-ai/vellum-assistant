@@ -208,6 +208,12 @@ export function ToolProgressCardShell({
           <HeaderStepCarousel
             currentStepTitle={currentStepTitle}
             currentStepInfo={currentStepInfo}
+            // Terminal states (complete / denied / error) flush the header
+            // throttle so the final `(title, info)` lands in sync with the
+            // status-icon swap. Without this, the 400ms min-dwell could
+            // leave stale loading-state header text on-screen for up to
+            // 400ms after the green check appears.
+            bypassDwell={state !== "loading"}
           />
         </span>
         <span className="flex shrink-0 items-center rounded-[var(--radius-pill)] bg-[var(--surface-base)] px-[6px] py-[4px]">

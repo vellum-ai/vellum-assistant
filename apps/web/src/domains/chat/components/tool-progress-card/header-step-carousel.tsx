@@ -42,8 +42,18 @@ const HEADER_STEP_MIN_DWELL_MS = 400;
  * Used to throttle the header step (title + info tuple) so the user can
  * actually read each step before it transitions out, regardless of how
  * fast the daemon streams metadata.
+ *
+ * When `bypass` is `true`, the dwell is skipped entirely — the latest value
+ * is applied synchronously on the next effect tick and any pending timer is
+ * cancelled. Used by callers that need terminal-state values (e.g.
+ * `complete`) to land immediately instead of trailing the loading-state
+ * throttle.
  */
-function useThrottledValue<T>(value: T, minDwellMs: number): T {
+function useThrottledValue<T>(
+  value: T,
+  minDwellMs: number,
+  bypass: boolean,
+): T {
   const [displayed, setDisplayed] = useState(value);
   // `null` sentinel = "not yet initialised". Seeded lazily on the first
   // change so the initial render stays pure (no `Date.now()` during render).
@@ -55,6 +65,19 @@ function useThrottledValue<T>(value: T, minDwellMs: number): T {
     // Same value as on-screen → nothing to schedule.
     if (Object.is(displayed, value)) {
       pending.current = null;
+      return;
+    }
+    // Bypass mode flushes immediately — terminal-state header content (e.g.
+    // green check + "Searched the web") must appear in the same paint as
+    // the icon swap, not 400ms later.
+    if (bypass) {
+      if (timer.current) {
+        clearTimeout(timer.current);
+        timer.current = null;
+      }
+      pending.current = null;
+      setDisplayed(value);
+      lastChangeAt.current = Date.now();
       return;
     }
     pending.current = value;
@@ -83,7 +106,7 @@ function useThrottledValue<T>(value: T, minDwellMs: number): T {
         timer.current = null;
       }
     };
-  }, [value, displayed, minDwellMs]);
+  }, [value, displayed, minDwellMs, bypass]);
 
   return displayed;
 }
@@ -91,16 +114,32 @@ function useThrottledValue<T>(value: T, minDwellMs: number): T {
 export function HeaderStepCarousel({
   currentStepTitle,
   currentStepInfo,
+  bypassDwell = false,
 }: {
   currentStepTitle: string;
   currentStepInfo: ReactNode;
+  /**
+   * When `true`, skip the 400ms minimum-dwell throttle and apply
+   * `(currentStepTitle, currentStepInfo)` immediately on the next effect
+   * tick. Used by callers entering a terminal state (e.g. `complete`,
+   * `denied`, `error`) so the final header content paints in sync with
+   * the status-icon swap instead of trailing it.
+   *
+   * Loading-state updates should leave this `false` so rapid streamed
+   * metadata still coalesces into readable steps.
+   */
+  bypassDwell?: boolean;
 }) {
   const reduce = useReducedMotion();
   const tuple = useMemo(
     () => ({ title: currentStepTitle, info: currentStepInfo }),
     [currentStepTitle, currentStepInfo],
   );
-  const displayed = useThrottledValue(tuple, HEADER_STEP_MIN_DWELL_MS);
+  const displayed = useThrottledValue(
+    tuple,
+    HEADER_STEP_MIN_DWELL_MS,
+    bypassDwell,
+  );
 
   const transition = reduce
     ? { duration: 0 }
