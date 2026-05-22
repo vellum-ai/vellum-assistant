@@ -34,9 +34,7 @@ import {
   useBillingPortalSession,
 } from "@/domains/settings/hooks/use-billing-portal-session.js";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser.js";
-import { WWW_DOMAIN } from "@/utils/domains.js";
 
-const DOCS_URL = `https://${WWW_DOMAIN}/docs`;
 
 /**
  * Extract a user-facing message from a subscription mutation error.
@@ -438,16 +436,7 @@ export function AdjustPlanModal({ open, onClose }: AdjustPlanModalProps) {
               className="pointer-events-none absolute inset-x-0 text-center text-[var(--content-tertiary)]"
             >
               <span className="pointer-events-auto">
-                You can change or cancel your plan at any time.{" "}
-                <a
-                  href={`${DOCS_URL}/pricing`}
-                  className="underline"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Read our docs
-                </a>{" "}
-                for details.
+                You can change or cancel your plan at any time from billing settings.
               </span>
             </Typography>
             <div className="ml-auto">
