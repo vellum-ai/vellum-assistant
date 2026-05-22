@@ -142,6 +142,53 @@ export async function handleRequest(request: Request): Promise<Response> {
     return pageResponse({ kind: "session", session });
   }
 
+  // GET /api/runs/:runId/files/:name — serve a subprocess log file (plain text).
+  const apiRunFile = path.match(/^\/api\/runs\/([^/]+)\/files\/(.+)$/);
+  if (apiRunFile && method === "GET") {
+    const [, runIdEnc, fileNameEnc] = apiRunFile;
+    const runId = decodeURIComponent(runIdEnc);
+    const fileName = decodeURIComponent(fileNameEnc);
+
+    // Validate both parts to prevent path traversal.
+    if (!isValidRunId(runId)) {
+      return jsonResponse(
+        { error: `Invalid runId format: ${runId}` },
+        400,
+      );
+    }
+    // Only allow subprocess log files (safe names).
+    if (!/^subprocess-[a-z0-9\-]+\.log$/.test(fileName)) {
+      return jsonResponse(
+        { error: `Invalid file name: ${fileName}` },
+        400,
+      );
+    }
+
+    try {
+      const { readFile } = await import("node:fs/promises");
+      const { join } = await import("node:path");
+      const filePath = join(RUNS_DIR, runId, fileName);
+      const content = await readFile(filePath, "utf-8");
+      return new Response(content, {
+        status: 200,
+        headers: { "content-type": "text/plain; charset=utf-8" },
+      });
+    } catch (err) {
+      if (
+        err instanceof Error &&
+        err.message.includes("ENOENT")
+      ) {
+        return notFoundJson(`File not found: ${runId}/${fileName}`);
+      }
+      return jsonResponse(
+        {
+          error: err instanceof Error ? err.message : "Failed to read file",
+        },
+        500,
+      );
+    }
+  }
+
   // DELETE /api/runs/:runId — delete a specific run directory.
   const apiDeleteRun = path.match(/^\/api\/runs\/([^/]+)$/);
   if (apiDeleteRun && method === "DELETE") {
