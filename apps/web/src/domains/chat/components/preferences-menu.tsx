@@ -20,7 +20,7 @@ import {
 
 import { useIsMobile } from "@/hooks/use-is-mobile.js";
 import { useAuthStore } from "@/stores/auth-store.js";
-import { routes } from "@/utils/routes.js";
+import { adminUrl, routes } from "@/utils/routes.js";
 import { ShareFeedbackModal } from "@/components/share-feedback-modal.js";
 import { ThemeToggle } from "@/components/theme-toggle.js";
 
@@ -151,8 +151,7 @@ function PreferencesMenuContent({
           label="Admin"
           onSelect={() => {
             onClose();
-            // /admin is still served by the platform app, outside this Vite router.
-            window.location.href = routes.admin.root;
+            window.location.href = adminUrl();
           }}
         />
       ) : null}
