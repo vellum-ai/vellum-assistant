@@ -47,9 +47,13 @@ import type {
 
 import { useConversationStore } from "@/domains/conversations/conversation-store.js";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
-import { useTurnStore } from "@/domains/messaging/turn-store.js";
+import {
+  isSending,
+  useTurnStore,
+} from "@/domains/messaging/turn-store.js";
 import type { ChatEventStream } from "@/domains/chat/api/stream.js";
 import { useEventBusStore } from "@/stores/event-bus-store.js";
+import type { UseAssistantReachabilityResult } from "@/assistant/use-assistant-reachability.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -87,7 +91,7 @@ export interface UseEventStreamParams {
   cancelReconciliation: () => void;
 
   // Reachability
-  reachabilityProbe: () => void;
+  reachabilityProbe: UseAssistantReachabilityResult["probe"];
   reachabilityPhase: string;
   reachabilityReset: () => void;
 
@@ -159,6 +163,15 @@ export function useEventStream({
 
   const reachabilityResetRef = useRef(reachabilityReset);
   reachabilityResetRef.current = reachabilityReset;
+
+  const reachabilityPhaseRef = useRef(reachabilityPhase);
+  const backgroundReachabilityProbeRef = useRef(false);
+  useLayoutEffect(() => {
+    reachabilityPhaseRef.current = reachabilityPhase;
+    if (reachabilityPhase !== "checking") {
+      backgroundReachabilityProbeRef.current = false;
+    }
+  }, [reachabilityPhase]);
 
   // Track the latest active conversation key in a ref synced during
   // the commit phase. The bus subscriber filters against this ref
@@ -428,6 +441,7 @@ export function useEventStream({
     const unsub = useEventBusStore
       .getState()
       .subscribe("sse.closed", ({ reason }) => {
+        const hadActiveTurn = isSending(useTurnStore.getState());
         recordChatDiagnostic("sse_stream_error", {
           assistantId: capturedAssistantId,
           conversationKey: capturedConversationKey,
@@ -441,7 +455,14 @@ export function useEventStream({
             useConversationStore.getState().removeProcessingKey(convKey);
           }
         }
-        reachabilityProbeRef.current();
+        // Idle SSE drops should reopen the stream without interrupting the
+        // user; active turns still surface the reconnect state immediately.
+        if (hadActiveTurn) {
+          reachabilityProbeRef.current({ showConnectingImmediately: true });
+        } else {
+          backgroundReachabilityProbeRef.current = true;
+          reachabilityProbeRef.current({ mode: "background" });
+        }
         setMessagesRef.current((prev) => {
           const last = prev[prev.length - 1];
           if (last?.role === "assistant" && last.isStreaming) {
@@ -461,11 +482,67 @@ export function useEventStream({
   ]);
 
   // --------------------------------------------------------------------------
-  // Effect 4: Reachability retry — request a bus-level SSE bounce
-  // when the reachability probe flips back to "ready".
+  // Effect 4: Upgrade hidden background checks once a turn becomes active.
   // --------------------------------------------------------------------------
   useEffect(() => {
-    if (reachabilityPhase !== "ready") {
+    if (
+      assistantStateKind !== "active" ||
+      !assistantId ||
+      !activeConversationKey
+    ) {
+      return;
+    }
+
+    let wasSending = isSending(useTurnStore.getState());
+    return useTurnStore.subscribe((state) => {
+      const nowSending = isSending(state);
+      if (
+        !wasSending &&
+        nowSending &&
+        (backgroundReachabilityProbeRef.current ||
+          reachabilityPhaseRef.current === "checking")
+      ) {
+        backgroundReachabilityProbeRef.current = false;
+        reachabilityProbeRef.current({ showConnectingImmediately: true });
+      }
+      wasSending = nowSending;
+    });
+  }, [assistantStateKind, assistantId, activeConversationKey]);
+
+  // --------------------------------------------------------------------------
+  // Effect 5: Schedule a post-resume reconcile.
+  //
+  // The bus tears down + reopens its SSE around app.resume; we listen
+  // here so the next `sse.opened` runs the reconcile pass for the
+  // active conversation. Effect 2's `reconcileAfterNextStreamOpenRef`
+  // gate is the rendezvous point.
+  // --------------------------------------------------------------------------
+  useEffect(() => {
+    if (
+      assistantStateKind !== "active" ||
+      !assistantId ||
+      !activeConversationKey
+    ) {
+      return;
+    }
+    const unsub = useEventBusStore.getState().subscribe("app.resume", () => {
+      reconcileAfterNextStreamOpenRef.current = true;
+    });
+    return () => unsub();
+  }, [
+    assistantStateKind,
+    assistantId,
+    activeConversationKey,
+    reconcileAfterNextStreamOpenRef,
+  ]);
+
+  // --------------------------------------------------------------------------
+  // Effect 6: Reachability retry — request a bus-level SSE bounce
+  // when the reachability probe flips back to "ready" or a background
+  // probe exhausts its window and needs the bus to keep retrying.
+  // --------------------------------------------------------------------------
+  useEffect(() => {
+    if (reachabilityPhase !== "ready" && reachabilityPhase !== "retrying") {
       return;
     }
     const now = Date.now();
@@ -484,16 +561,21 @@ export function useEventStream({
       reachabilityResetRef.current();
       return;
     }
-    useTurnStore.getState().resetTurn();
-    setErrorRef.current(null);
+    if (reachabilityPhase === "ready") {
+      useTurnStore.getState().resetTurn();
+      setErrorRef.current(null);
+    }
     reconcileAfterNextStreamOpenRef.current = true;
     useEventBusStore
       .getState()
       .publish("reachability.retry-requested", {});
+    if (reachabilityPhase === "retrying") {
+      reachabilityResetRef.current();
+    }
   }, [reachabilityPhase, reconcileAfterNextStreamOpenRef]);
 
   // --------------------------------------------------------------------------
-  // Effect 5: Unmount cleanup.
+  // Effect 7: Unmount cleanup.
   // --------------------------------------------------------------------------
   useEffect(() => {
     return () => {
