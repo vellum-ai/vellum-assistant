@@ -1,14 +1,17 @@
 import { ArrowLeft, Globe } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 
 import { Button } from "@vellum/design-library/components/button";
 import { Input } from "@vellum/design-library/components/input";
 import { Modal } from "@vellum/design-library/components/modal";
 import { Notice } from "@vellum/design-library/components/notice";
 import { Typography } from "@vellum/design-library/components/typography";
-import { organizationsBillingSubscriptionOnboardingDomainCreateMutation } from "@/generated/api/@tanstack/react-query.gen.js";
+import {
+  assistantsActiveRetrieveOptions,
+  organizationsBillingSubscriptionOnboardingDomainCreateMutation,
+} from "@/generated/api/@tanstack/react-query.gen.js";
 import { useEnvironmentStore } from "@/lib/environment/environment-store.js";
 
 import { IconBadge, StepDots } from "./primitives.js";
@@ -16,7 +19,15 @@ import { DOMAIN_EXIT_DELAY_MS, extractOnboardingErrorMessage } from "./utils.js"
 
 export function DomainStep({ onBack, onExit }: { onBack: () => void; onExit: () => void }) {
   const emailRootDomain = useEnvironmentStore.use.emailRootDomain();
+  const { data: activeAssistant } = useQuery(assistantsActiveRetrieveOptions());
   const [subdomain, setSubdomain] = useState("");
+  const [prefilled, setPrefilled] = useState(false);
+
+  useEffect(() => {
+    if (prefilled || !activeAssistant?.handle) return;
+    setSubdomain(activeAssistant.handle);
+    setPrefilled(true);
+  }, [activeAssistant?.handle, prefilled]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState(false);
   const domainMutation = useMutation(
