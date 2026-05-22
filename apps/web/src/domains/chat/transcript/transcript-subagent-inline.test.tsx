@@ -50,14 +50,18 @@ mock.module(
 // ---------------------------------------------------------------------------
 
 import { Transcript } from "@/domains/chat/transcript/transcript.js";
+import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import type { TranscriptItem } from "@/domains/chat/transcript/types.js";
 
 const noop = () => {};
 
-beforeEach(() => {});
+beforeEach(() => {
+  useSubagentStore.getState().reset();
+});
 afterEach(() => {
   cleanup();
+  useSubagentStore.getState().reset();
 });
 afterAll(() => {
   mock.restore();
@@ -93,6 +97,75 @@ function assistantMessageWithSpawn(
       status: "completed" as const,
       result: JSON.stringify({ subagentId, label: `agent-${i}` }),
     })),
+  };
+  return { kind: "message", key: id, message: msg };
+}
+
+/**
+ * Assistant message with one or more `subagent_spawn` tool calls that have
+ * NOT received their `tool_result` yet (status: "running"). Mirrors what we
+ * see mid-stream and on reloads while a spawn is still in flight.
+ */
+function assistantMessageWithRunningSpawns(
+  id: string,
+  count: number,
+): TranscriptItem {
+  const msg: DisplayMessage = {
+    stableId: id,
+    id,
+    role: "assistant",
+    content: "spawning",
+    contentOrder: Array.from({ length: count }, (_, i) => ({
+      type: "toolCall",
+      id: `tc-${i}`,
+    })),
+    toolCalls: Array.from({ length: count }, (_, i) => ({
+      id: `tc-${i}`,
+      toolName: "subagent_spawn",
+      input: { label: `agent-${i}`, objective: "do a thing" },
+      status: "running" as const,
+      // No `result` — the daemon hasn't acked the spawn yet.
+    })),
+  };
+  return { kind: "message", key: id, message: msg };
+}
+
+/**
+ * Assistant message mixing completed and running `subagent_spawn` tool
+ * calls. `entries` enumerates each call in spawn order: `subagentId` when
+ * the call has resolved, or `running` when it's still in flight.
+ */
+function assistantMessageWithMixedSpawns(
+  id: string,
+  entries: Array<{ status: "running" } | { subagentId: string }>,
+): TranscriptItem {
+  const msg: DisplayMessage = {
+    stableId: id,
+    id,
+    role: "assistant",
+    content: "spawning",
+    contentOrder: entries.map((_, i) => ({
+      type: "toolCall",
+      id: `tc-${i}`,
+    })),
+    toolCalls: entries.map((entry, i) => {
+      const base = {
+        id: `tc-${i}`,
+        toolName: "subagent_spawn",
+        input: { label: `agent-${i}`, objective: "do a thing" },
+      };
+      if ("subagentId" in entry) {
+        return {
+          ...base,
+          status: "completed" as const,
+          result: JSON.stringify({
+            subagentId: entry.subagentId,
+            label: `agent-${i}`,
+          }),
+        };
+      }
+      return { ...base, status: "running" as const };
+    }),
   };
   return { kind: "message", key: id, message: msg };
 }
@@ -167,6 +240,143 @@ describe("Transcript — inline subagent rendering (PR 8)", () => {
     // when `inlineCard` is downstream of `toolCard`.
     const relation = toolCard!.compareDocumentPosition(inlineCard);
     expect(relation & Node.DOCUMENT_POSITION_FOLLOWING).toBeGreaterThan(0);
+  });
+});
+
+describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
+  test("renders inline card for a running spawn (no result) when store entry exists via parentMessageStableId", () => {
+    useSubagentStore.getState().spawnSubagent({
+      subagentId: "sa-running-1",
+      label: "agent-0",
+      objective: "do a thing",
+      status: "running",
+      timestamp: 1000,
+      parentMessageStableId: "a1",
+    });
+
+    const items: TranscriptItem[] = [
+      userMessage("u1", "spawn one"),
+      assistantMessageWithRunningSpawns("a1", 1),
+    ];
+
+    const { getAllByTestId } = render(
+      <Transcript
+        items={items}
+        onSecretSubmit={noop}
+        onConfirmationDecision={noop}
+        onSurfaceAction={noop}
+        onRetryError={noop}
+      />,
+    );
+
+    const cards = getAllByTestId("subagent-inline-card");
+    expect(cards.length).toBe(1);
+    expect(cards[0].getAttribute("data-subagent-id")).toBe("sa-running-1");
+  });
+
+  test("renders both cards for a mixed running + completed spawn group, preserving spawn order", () => {
+    // Running spawn was emitted first; the store entry exists by the time
+    // the message renders even though its tool_result hasn't arrived.
+    useSubagentStore.getState().spawnSubagent({
+      subagentId: "sa-running",
+      label: "agent-0",
+      objective: "do a thing",
+      status: "running",
+      timestamp: 1000,
+      parentMessageStableId: "a1",
+    });
+
+    const items: TranscriptItem[] = [
+      userMessage("u1", "spawn two"),
+      assistantMessageWithMixedSpawns("a1", [
+        { status: "running" },
+        { subagentId: "sa-completed" },
+      ]),
+    ];
+
+    const { getAllByTestId } = render(
+      <Transcript
+        items={items}
+        onSecretSubmit={noop}
+        onConfirmationDecision={noop}
+        onSurfaceAction={noop}
+        onRetryError={noop}
+      />,
+    );
+
+    const cards = getAllByTestId("subagent-inline-card");
+    expect(cards.map((c) => c.getAttribute("data-subagent-id"))).toEqual([
+      "sa-running",
+      "sa-completed",
+    ]);
+  });
+
+  test("renders inline card after reload via parentMessageId (daemonMessageId) match", () => {
+    // Simulates `use-conversation-history.ts` reconstructing the store from
+    // history notifications, where only `parentMessageId` is known.
+    useSubagentStore.getState().spawnSubagent({
+      subagentId: "sa-reloaded",
+      label: "agent-0",
+      objective: "",
+      status: "running",
+      timestamp: 1000,
+      parentMessageId: "daemon-uuid-123",
+    });
+
+    const msg: DisplayMessage = {
+      stableId: "different-stable-id",
+      id: "server-id",
+      daemonMessageId: "daemon-uuid-123",
+      role: "assistant",
+      content: "spawning",
+      contentOrder: [{ type: "toolCall", id: "tc-0" }],
+      toolCalls: [
+        {
+          id: "tc-0",
+          toolName: "subagent_spawn",
+          input: { label: "agent-0", objective: "" },
+          status: "running",
+        },
+      ],
+    };
+
+    const items: TranscriptItem[] = [
+      userMessage("u1", "spawn one"),
+      { kind: "message", key: "a1", message: msg },
+    ];
+
+    const { getAllByTestId } = render(
+      <Transcript
+        items={items}
+        onSecretSubmit={noop}
+        onConfirmationDecision={noop}
+        onSurfaceAction={noop}
+        onRetryError={noop}
+      />,
+    );
+
+    const cards = getAllByTestId("subagent-inline-card");
+    expect(cards.length).toBe(1);
+    expect(cards[0].getAttribute("data-subagent-id")).toBe("sa-reloaded");
+  });
+
+  test("does not render a card when a running spawn has no matching store entry", () => {
+    const items: TranscriptItem[] = [
+      userMessage("u1", "spawn one"),
+      assistantMessageWithRunningSpawns("a1", 1),
+    ];
+
+    const { queryAllByTestId } = render(
+      <Transcript
+        items={items}
+        onSecretSubmit={noop}
+        onConfirmationDecision={noop}
+        onSurfaceAction={noop}
+        onRetryError={noop}
+      />,
+    );
+
+    expect(queryAllByTestId("subagent-inline-card").length).toBe(0);
   });
 });
 

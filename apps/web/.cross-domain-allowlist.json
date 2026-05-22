@@ -45,10 +45,6 @@
   "src/domains/chat/components/subagent-inline-progress-card/subagent-inline-progress-card.tsx": [
     "avatar"
   ],
-  "src/domains/chat/components/subagent-progress-card.tsx": [
-    "avatar",
-    "subagents"
-  ],
   "src/domains/chat/components/subagent-status-badge.tsx": [
     "subagents"
   ],
@@ -116,10 +112,10 @@
   "src/domains/chat/hooks/use-voice-input.ts": [
     "voice"
   ],
-  "src/domains/chat/transcript/latest-turn-row.tsx": [
+  "src/domains/chat/transcript/transcript-message-body.tsx": [
     "subagents"
   ],
-  "src/domains/chat/transcript/transcript.tsx": [
+  "src/domains/chat/transcript/transcript-subagent-inline.test.tsx": [
     "subagents"
   ],
   "src/domains/chat/utils/debug-api.test.ts": [
