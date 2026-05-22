@@ -210,7 +210,7 @@ export function PhaseGroupedStepList({
               durationLabel={totalDuration}
               status={status}
             />
-            <div className="flex flex-col gap-1 pl-[24px]">
+            <div className="flex min-w-0 flex-wrap items-start gap-1 pl-[24px]">
               {section.steps.map((step) => {
                 const key = stepKey(step, globalIndex);
                 globalIndex += 1;
@@ -300,30 +300,69 @@ function PhaseHeaderRow({
  */
 export function DefaultStepPill({ step }: { step: ToolCallCardStep }) {
   if (step.kind === "thinking") {
-    return <StepPill>{step.text}</StepPill>;
+    return (
+      <StepPill>
+        <PillText>{step.text}</PillText>
+      </StepPill>
+    );
   }
   if (step.kind === "tool") {
     const Glyph = ICON_MAP[step.iconName] ?? Bolt;
-    const text = step.info || step.title;
+    // `info` is the canonical per-tool detail (file basename, bash command,
+    // skill name, etc). When the labeler couldn't extract one, suppress the
+    // pill entirely rather than duplicating the phase header's title — e.g.
+    // a skill call with no skill name shouldn't render a literal "Using a
+    // skill" pill underneath a "Using a skill" phase header.
+    if (!step.info) return null;
     return (
       <StepPill>
         <Glyph
           aria-hidden="true"
           className="h-3.5 w-3.5 shrink-0 text-[var(--content-secondary)]"
         />
-        <span className="min-w-0 truncate">{text}</span>
+        <PillText>{step.info}</PillText>
       </StepPill>
     );
   }
   if (step.kind === "tool_error") {
-    return <StepPill tone="error">{step.message}</StepPill>;
+    return (
+      <StepPill tone="error">
+        <PillText>{step.message}</PillText>
+      </StepPill>
+    );
   }
   if (step.kind === "web_search_error") {
-    return <StepPill tone="error">{step.errorMessage}</StepPill>;
+    return (
+      <StepPill tone="error">
+        <PillText>{step.errorMessage}</PillText>
+      </StepPill>
+    );
   }
   // step.kind === "web_search" — default rendering just shows the title;
   // consumers that need favicons supply a `renderStep` override.
-  return <StepPill>{step.title}</StepPill>;
+  return (
+    <StepPill>
+      <PillText>{step.title}</PillText>
+    </StepPill>
+  );
+}
+
+/**
+ * Wrap a string in a Typography element configured to truncate when its
+ * surrounding pill is narrower than the text. The truncate utility requires
+ * `display: block | inline-block` to fire, so the Typography variant here
+ * stays default-display rather than inline-flex (which a previous version
+ * tried, suppressing ellipsis entirely).
+ */
+function PillText({ children }: { children: ReactNode }) {
+  return (
+    <Typography
+      variant="body-small-default"
+      className="min-w-0 truncate text-inherit"
+    >
+      {children}
+    </Typography>
+  );
 }
 
 function StepPill({
@@ -340,14 +379,9 @@ function StepPill({
   return (
     <div
       data-testid="phase-step-pill"
-      className={`inline-flex max-w-full items-center gap-1 self-start rounded-full border px-[10px] py-[6px] ${toneClasses}`}
+      className={`inline-flex min-w-0 max-w-full items-center gap-1 self-start rounded-full border px-[10px] py-[6px] ${toneClasses}`}
     >
-      <Typography
-        variant="body-small-default"
-        className="inline-flex min-w-0 items-center gap-1 truncate"
-      >
-        {children}
-      </Typography>
+      {children}
     </div>
   );
 }
