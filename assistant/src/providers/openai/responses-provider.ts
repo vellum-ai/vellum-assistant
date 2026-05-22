@@ -24,7 +24,7 @@ export interface OpenAIResponsesProviderOptions {
   streamTimeoutMs?: number;
   useNativeWebSearch?: boolean;
   /** When true, target the Codex subscription endpoint and strip fields it
-   *  rejects (`max_output_tokens`, `metadata`). */
+   *  rejects (`max_output_tokens`, `reasoning`, `text`, `tools`). */
   codexSubscription?: boolean;
 }
 
@@ -162,22 +162,24 @@ export class OpenAIResponsesProvider implements Provider {
         params.max_output_tokens = maxTokens;
       }
 
-      const reasoningEffort = effort
-        ? EFFORT_TO_REASONING_EFFORT[effort]
-        : undefined;
-      if (reasoningEffort) {
-        params.reasoning = { effort: reasoningEffort };
+      if (!this.codexSubscription) {
+        const reasoningEffort = effort
+          ? EFFORT_TO_REASONING_EFFORT[effort]
+          : undefined;
+        if (reasoningEffort) {
+          params.reasoning = { effort: reasoningEffort };
+        }
+
+        if (
+          verbosity &&
+          VALID_VERBOSITIES.has(verbosity) &&
+          modelSupportsVerbosity(modelOverride ?? this.model)
+        ) {
+          params.text = { verbosity };
+        }
       }
 
-      if (
-        verbosity &&
-        VALID_VERBOSITIES.has(verbosity) &&
-        modelSupportsVerbosity(modelOverride ?? this.model)
-      ) {
-        params.text = { verbosity };
-      }
-
-      if (tools && tools.length > 0) {
+      if (tools && tools.length > 0 && !this.codexSubscription) {
         if (
           this.useNativeWebSearch &&
           tools.some((t) => t.name === "web_search")
