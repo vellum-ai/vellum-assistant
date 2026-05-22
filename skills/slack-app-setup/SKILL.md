@@ -97,6 +97,8 @@ Tell the user: in the left sidebar of your Slack app settings, go to **Install A
 
 After installing, the page will show the **Bot User OAuth Token** (starts with `xoxb-`) and optionally a **User OAuth Token** (starts with `xoxp-`).
 
+Wait until you have successfully collected this from the user before proceeding. 
+
 ### Step 2c: Bot Token
 
 Tell the user to copy the **Bot User OAuth Token** from the Install App page.
