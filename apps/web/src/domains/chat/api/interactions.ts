@@ -12,6 +12,7 @@ import type {
 import {
   assertHasResponse,
   client,
+  conversationQueryParams,
   extractErrorMessage,
   SDK_BASE_OPTIONS,
 } from "@/domains/chat/api/client.js";
@@ -33,7 +34,7 @@ export async function getPendingInteractions(
     ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/pending-interactions/",
     path: { assistant_id: assistantId },
-    query: { conversationId: conversationKey, conversationKey },
+    query: conversationQueryParams(conversationKey),
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to fetch pending interactions");

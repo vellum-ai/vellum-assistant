@@ -3,6 +3,7 @@ import { queryOptions, useQuery } from "@tanstack/react-query";
 import {
   assertHasResponse,
   client,
+  conversationQueryParams,
   extractErrorMessage,
 } from "@/domains/chat/api/client.js";
 import {
@@ -147,7 +148,7 @@ export async function fetchConversationLlmContext(
   const { data, error, response } = await client.get<LlmContextResponse>({
     url: "/v1/assistants/{assistant_id}/conversations/llm-context/",
     path: { assistant_id: assistantId },
-    query: { conversationId: conversationKey, conversationKey },
+    query: conversationQueryParams(conversationKey),
     signal,
     throwOnError: false,
   });

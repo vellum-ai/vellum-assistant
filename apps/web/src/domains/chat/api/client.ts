@@ -21,3 +21,19 @@ export const SDK_BASE_OPTIONS =
   typeof window === "undefined"
     ? ({ baseUrl: "http://localhost" } as const)
     : ({} as const);
+
+/**
+ * Build the query-param object for daemon endpoints that accept a
+ * conversation identifier. Sends `conversationId` (UUID, resolves
+ * against the `conversations` table on all DB versions) as the primary
+ * key, with `conversationKey` as a fallback for older handlers.
+ *
+ * Always use this instead of manually writing
+ * `{ conversationKey }` or `{ conversationId: conversationKey, conversationKey }`.
+ */
+export function conversationQueryParams(conversationId: string): {
+  conversationId: string;
+  conversationKey: string;
+} {
+  return { conversationId, conversationKey: conversationId };
+}

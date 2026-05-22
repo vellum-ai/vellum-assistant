@@ -1,4 +1,5 @@
 import { client } from "@/generated/api/client.gen.js";
+import { conversationQueryParams } from "@/domains/chat/api/client.js";
 
 // `/v1/assistants/{id}/suggestion` is not yet in the OpenAPI schema, so we
 // fall through to the low-level HeyAPI client until it's generated.
@@ -31,8 +32,7 @@ export async function fetchSuggestion(
       url: "/v1/assistants/{assistant_id}/suggestion",
       path: { assistant_id: assistantId },
       query: {
-        conversationId: conversationKey,
-        conversationKey,
+        ...conversationQueryParams(conversationKey),
         ...(messageId ? { messageId } : {}),
       },
       throwOnError: false,

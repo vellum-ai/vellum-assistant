@@ -10,6 +10,7 @@
 // organization header) exactly the same way `./api.ts` does.
 
 import { client } from "@/generated/api/client.gen.js";
+import { conversationQueryParams } from "@/domains/chat/api/client.js";
 import {
   ApiError,
   assertHasResponse,
@@ -157,8 +158,7 @@ export async function fetchLatestHistoryPage(
   limit: number = DEFAULT_LATEST_LIMIT,
 ): Promise<PaginatedHistoryResult> {
   return fetchPaginatedHistory(assistantId, {
-    conversationId: conversationKey,
-    conversationKey,
+    ...conversationQueryParams(conversationKey),
     page: "latest",
     limit: String(limit),
   });
@@ -177,8 +177,7 @@ export async function fetchOlderHistoryPage(
   limit: number = DEFAULT_OLDER_LIMIT,
 ): Promise<PaginatedHistoryResult> {
   return fetchPaginatedHistory(assistantId, {
-    conversationId: conversationKey,
-    conversationKey,
+    ...conversationQueryParams(conversationKey),
     beforeTimestamp: String(beforeTimestamp),
     limit: String(limit),
   });
