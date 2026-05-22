@@ -26,11 +26,8 @@
 import { ExternalLink, Square } from "lucide-react";
 import { useCallback, type MouseEvent } from "react";
 
-import { Typography } from "@vellum/design-library";
-
 import { SubagentAvatarChip } from "@/domains/avatar/subagent-avatar-chip.js";
-import { ThinkingChip } from "@/domains/chat/components/web-search/thinking-chip.js";
-import { StepRow } from "@/domains/chat/components/web-search/step-row.js";
+import { PhaseGroupedStepList } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list.js";
 import { ToolProgressCardShell } from "@/domains/chat/components/tool-progress-card/tool-progress-card-shell.js";
 import { useSubagentCardData } from "@/domains/chat/hooks/use-subagent-card-data.js";
 
@@ -96,47 +93,7 @@ export function SubagentInlineProgressCard({
         disableExpand={data.steps.length === 0}
       >
         <div className="flex w-full flex-col gap-3 px-3 pb-3">
-          {data.steps.map((step, idx) => {
-            if (step.kind === "thinking") {
-              return (
-                <StepRow key={idx} title="Thinking">
-                  <ThinkingChip>{step.text}</ThinkingChip>
-                </StepRow>
-              );
-            }
-            if (step.kind === "tool_error") {
-              return (
-                <StepRow key={idx} title="Error" tone="error">
-                  <ThinkingChip>{step.message}</ThinkingChip>
-                </StepRow>
-              );
-            }
-            if (step.kind === "tool") {
-              return (
-                <StepRow
-                  key={idx}
-                  title={step.title}
-                  durationLabel={step.durationLabel}
-                  tone={step.status === "error" ? "error" : "default"}
-                >
-                  {step.info ? (
-                    <ThinkingChip>{step.info}</ThinkingChip>
-                  ) : (
-                    <Typography
-                      variant="label-small-default"
-                      className="text-[var(--content-tertiary)]"
-                    >
-                      {step.status === "running" ? "Working…" : "Done"}
-                    </Typography>
-                  )}
-                </StepRow>
-              );
-            }
-            // `web_search` / `web_search_error` aren't produced by
-            // `useSubagentCardData` today, but the unified step union
-            // includes them — render nothing rather than crash.
-            return null;
-          })}
+          <PhaseGroupedStepList steps={data.steps} />
         </div>
       </ToolProgressCardShell>
       {/* Right-rail action cluster — absolute-positioned over the shell's

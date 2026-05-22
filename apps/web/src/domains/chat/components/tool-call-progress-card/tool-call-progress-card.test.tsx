@@ -73,7 +73,8 @@ describe("ToolCallProgressCard — non-web tool group", () => {
     // Title comes from `deriveStepLabel("bash")`, info from the `command`
     // input, and the step pill counts the single tool call. Title appears
     // twice — once in the carousel header, once in the auto-expanded
-    // `ToolStepRow` body.
+    // phase header (the body's phase-grouped layout collapses the single
+    // bash step into a "Working (bash)" phase section).
     expect(getAllByText("Working (bash)").length).toBe(2);
     expect(getAllByText("git status").length).toBeGreaterThanOrEqual(1);
     expect(getAllByText("1 step").length).toBe(1);
