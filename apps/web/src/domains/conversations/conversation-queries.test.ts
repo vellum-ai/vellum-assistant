@@ -154,19 +154,6 @@ describe("resolveDraftKey", () => {
     expect(getConversations(qc)[0]!.conversationKey).toBe("real-1");
     expect(getConversations(qc)[0]!.draft).toBe(false);
   });
-
-  it("drops the draft stub when the server already has the resolved key", () => {
-    const qc = new QueryClient();
-    seedChatContext(qc, [
-      makeConversation("draft-1", { draft: true }),
-      makeConversation("real-1", { title: "General Chat" }),
-    ]);
-    resolveDraftKey(qc, ASSISTANT_ID, "draft-1", "real-1");
-    const convs = getConversations(qc);
-    expect(convs).toHaveLength(1);
-    expect(convs[0]!.conversationKey).toBe("real-1");
-    expect(convs[0]!.title).toBe("General Chat");
-  });
 });
 
 // ---------------------------------------------------------------------------

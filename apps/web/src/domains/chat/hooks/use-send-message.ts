@@ -37,6 +37,8 @@ import { useInteractionStore } from "@/domains/interactions/interaction-store.js
 import { useConversationStore } from "@/domains/conversations/conversation-store.js";
 import {
   findConversation,
+  markDraftSendEnd,
+  markDraftSendStart,
   prependConversation,
   removeConversation,
   resolveDraftKey,
@@ -544,6 +546,7 @@ export function useSendMessage({
       needsNewBubbleRef.current = true;
 
       const isDraft = !currentConv;
+      if (isDraft) markDraftSendStart();
       let resolvedId: string | undefined;
 
       try {
@@ -572,8 +575,10 @@ export function useSendMessage({
           }
         }
 
+        if (isDraft) markDraftSendEnd();
         void refreshConversations();
       } catch (err) {
+        if (isDraft) markDraftSendEnd();
         Sentry.captureException(err, {
           tags: { context: "send_chat_message" },
         });

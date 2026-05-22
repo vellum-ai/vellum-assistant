@@ -78,21 +78,6 @@ export function useChatContextQuery(
     queryFn: getChatContext,
     enabled: enabled && Boolean(assistantId),
     staleTime: QUERY_STALE_TIME_MS,
-    structuralSharing: (oldData, newData) => {
-      if (!oldData || !newData) return newData ?? oldData;
-      const prevConvs = (oldData as ChatContext).conversations;
-      const nextConvs = (newData as ChatContext).conversations;
-      if (!prevConvs || !nextConvs) return newData;
-      const drafts = prevConvs.filter((c) => c.draft);
-      if (drafts.length === 0) return newData;
-      const serverKeys = new Set(nextConvs.map((c) => c.conversationKey));
-      const activeDrafts = drafts.filter((c) => !serverKeys.has(c.conversationKey));
-      if (activeDrafts.length === 0) return newData;
-      return {
-        ...(newData as ChatContext),
-        conversations: [...activeDrafts, ...nextConvs],
-      };
-    },
   });
 }
 
@@ -276,19 +261,6 @@ export function resolveDraftKey(
   newKey: string,
 ): void {
   updateChatContextConversations(queryClient, assistantId, (conversations) => {
-    const hasServerEntry = conversations.some(
-      (c) => c.conversationKey === newKey,
-    );
-    if (hasServerEntry) {
-      // A refetch already returned the resolved conversation — just drop
-      // the draft stub to avoid a duplicate sidebar entry.
-      const filtered = conversations.filter(
-        (c) => c.conversationKey !== oldKey,
-      );
-      return filtered.length === conversations.length
-        ? conversations
-        : filtered;
-    }
     let changed = false;
     const next = conversations.map((c) => {
       if (c.conversationKey !== oldKey) return c;
@@ -297,6 +269,32 @@ export function resolveDraftKey(
     });
     return changed ? next : conversations;
   });
+}
+
+// ---------------------------------------------------------------------------
+// Draft-send-in-flight gate
+//
+// While a draft conversation is being created (POST in flight), SSE-triggered
+// conversation list refetches must be suppressed. The server refetch would
+// replace the TanStack Query cache with data that does NOT include the
+// client-side draft entry, evicting it and degrading the active view.
+//
+// sendMessage increments before the POST and decrements after draft key
+// resolution (or on error). refreshConversations checks before refetching.
+// ---------------------------------------------------------------------------
+
+let _draftSendsInFlight = 0;
+
+export function markDraftSendStart(): void {
+  _draftSendsInFlight++;
+}
+
+export function markDraftSendEnd(): void {
+  _draftSendsInFlight = Math.max(0, _draftSendsInFlight - 1);
+}
+
+export function hasDraftSendInFlight(): boolean {
+  return _draftSendsInFlight > 0;
 }
 
 // ---------------------------------------------------------------------------

@@ -40,6 +40,7 @@ import { type Conversation } from "@/domains/chat/api/conversations.js";
 import {
   chatContextQueryKey,
   conversationGroupsQueryKey,
+  hasDraftSendInFlight,
   useChatContextQuery,
 } from "@/domains/conversations/conversation-queries.js";
 
@@ -190,6 +191,7 @@ export function useConversationLoader({
   // -------------------------------------------------------------------------
   const refreshConversations = useCallback(async () => {
     if (!assistantId) return;
+    if (hasDraftSendInFlight()) return;
     try {
       await queryClient.invalidateQueries({
         queryKey: chatContextQueryKey(assistantId),
