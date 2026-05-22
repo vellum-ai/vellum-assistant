@@ -16,7 +16,7 @@ export function DevModeVersionUnlock({
   loading,
 }: DevModeVersionUnlockProps) {
   const tapCountRef = useRef(0);
-  const dismissTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const dismissTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [message, setMessage] = useState<string | null>(null);
 
   const handleClick = useCallback(() => {
