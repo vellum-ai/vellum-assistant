@@ -477,6 +477,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
     endpoint: "memory/v2/router-prompt-template:GET",
     scopes: ["settings.read"],
   },
+  { endpoint: "memory/v2/now-text:GET", scopes: ["settings.read"] },
 
   // Trust rule listing
   { endpoint: "trust-rules/manage:GET", scopes: ["settings.read"] },
