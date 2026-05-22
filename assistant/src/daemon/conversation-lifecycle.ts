@@ -31,6 +31,7 @@ import { type AbortReason, createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import { unregisterCallNotifiers } from "./conversation-notifiers.js";
 import type { MessageQueue } from "./conversation-queue-manager.js";
+import { stripInjectionsForCompaction } from "./conversation-runtime-assembly.js";
 import { resetSkillToolProjection } from "./conversation-skill-tools.js";
 import { resolveTrustClass } from "./conversation-tool-setup.js";
 import { repairHistory } from "./history-repair.js";
@@ -188,6 +189,19 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
     ctx.contextCompactedAt = conv?.contextCompactedAt ?? null;
   }
 
+  // `/clean` persists a timestamp; messages older than this should skip
+  // metadata rehydration and have any injection prefixes still embedded in
+  // their content stripped, so the cleaned state survives reload and forks.
+  const cleanedAt = conv?.cleanedAt ?? null;
+  const slicedDbMessages = dbMessages.slice(ctx.contextCompactedMessageCount);
+  let preCleanCount = 0;
+  if (cleanedAt != null) {
+    const boundary = slicedDbMessages.findIndex(
+      (m) => m.createdAt >= cleanedAt,
+    );
+    preCleanCount = boundary === -1 ? slicedDbMessages.length : boundary;
+  }
+
   // Mirror the injection-time gate (`shouldExposePersonalMemory` in
   // `conversation-agent-loop.ts`) so background/local conversations
   // (sourceChannel `undefined` or `"vellum"`) can rehydrate the persisted
@@ -198,129 +212,141 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
     sourceChannel: ctx.trustContext?.sourceChannel,
     isTrustedActor: resolveTrustClass(ctx.trustContext) === "guardian",
   });
-  const parsedMessages: Message[] = dbMessages
-    .slice(ctx.contextCompactedMessageCount)
-    .map((m, index, arr) => {
-      const role = m.role as "user" | "assistant";
-      let content: ContentBlock[];
+  const parsedMessages: Message[] = slicedDbMessages.map((m, index, arr) => {
+    const isPreClean = index < preCleanCount;
+    const role = m.role as "user" | "assistant";
+    let content: ContentBlock[];
+    try {
+      const parsed = JSON.parse(m.content);
+      content = Array.isArray(parsed)
+        ? parsed
+        : [{ type: "text", text: m.content }];
+    } catch {
+      log.warn(
+        { conversationId: ctx.conversationId, messageId: m.id },
+        "Invalid JSON in persisted message content, replacing with safe text block",
+      );
+      content = [{ type: "text", text: m.content }];
+    }
+
+    content = reinjectImageSourcePaths(content, role, m.metadata);
+
+    // Re-inject persisted injection blocks from metadata so it survives
+    // conversation reloads (eviction, restart, fork).
+    if (role === "user" && m.metadata && !isPreClean) {
       try {
-        const parsed = JSON.parse(m.content);
-        content = Array.isArray(parsed)
-          ? parsed
-          : [{ type: "text", text: m.content }];
-      } catch {
-        log.warn(
-          { conversationId: ctx.conversationId, messageId: m.id },
-          "Invalid JSON in persisted message content, replacing with safe text block",
-        );
-        content = [{ type: "text", text: m.content }];
-      }
+        const meta = JSON.parse(m.metadata);
+        const isTail = index === arr.length - 1;
 
-      content = reinjectImageSourcePaths(content, role, m.metadata);
-
-      // Re-inject persisted injection blocks from metadata so it survives
-      // conversation reloads (eviction, restart, fork).
-      if (role === "user" && m.metadata) {
-        try {
-          const meta = JSON.parse(m.metadata);
-          const isTail = index === arr.length - 1;
-
-          // Rehydrate in reverse injection order (innermost block first)
-          // so the resulting layout matches `applyRuntimeInjections`'s
-          // after-memory-prefix splices in ascending injector order
-          // (pkb-context 30, pkb-reminder 35, memory-v2-static 38,
-          // now-md 40 — the v2 static block lands inside the memory
-          // prefix, so now-md splices *after* it):
-          //   [<workspace>, <turn_context>, <memory __injected>,
-          //    <memory>\n…</memory>, <NOW.md>, <system_reminder>,
-          //    <knowledge_base>, ...original]
-          // Required so Anthropic's prefix cache keeps matching msg[0]
-          // across daemon restart and conversation eviction. The tail
-          // row only rehydrates `memoryInjectedBlock` — the next turn
-          // re-injects the rest fresh.
-          if (!isTail && typeof meta.pkbContextBlock === "string") {
-            content = [
-              { type: "text" as const, text: meta.pkbContextBlock },
-              ...content,
-            ];
-          }
-
-          if (!isTail && typeof meta.pkbSystemReminderBlock === "string") {
-            content = [
-              { type: "text" as const, text: meta.pkbSystemReminderBlock },
-              ...content,
-            ];
-          }
-
-          if (!isTail && typeof meta.nowScratchpadBlock === "string") {
-            content = [
-              { type: "text" as const, text: meta.nowScratchpadBlock },
-              ...content,
-            ];
-          }
-
-          // The v2 static memory block (essentials/threads/recent/buffer
-          // wrapped in `<memory>…</memory>`) carries personal user memory.
-          // Trust-gated to mirror `shouldExposePersonalMemory` at injection
-          // time — untrusted-actor views must not read persisted personal
-          // memory back through metadata. Skipped on the tail row because
-          // the next turn re-injects fresh content on full-mode turns.
-          if (
-            !isTail &&
-            personalMemoryAllowed &&
-            typeof meta.memoryV2StaticBlock === "string"
-          ) {
-            content = [
-              { type: "text" as const, text: meta.memoryV2StaticBlock },
-              ...content,
-            ];
-          }
-
-          // Memory remains rehydrated on all rows (existing behavior).
-          // Strip any pre-existing wrapper before re-wrapping so historical
-          // rows persisted with the wrapper (v2 path before the
-          // injectedBlockText contract was unified with v1's unwrapped form)
-          // don't render double-wrapped after rehydrate. Only unwrap when
-          // the full <memory>...</memory> pair is present so we don't mutate
-          // legitimate unwrapped payloads that happen to start with
-          // "<memory>\n" or end with "\n</memory>".
-          if (typeof meta.memoryInjectedBlock === "string") {
-            const block = meta.memoryInjectedBlock;
-            const inner =
-              block.startsWith("<memory>\n") && block.endsWith("\n</memory>")
-                ? block.slice("<memory>\n".length, -"\n</memory>".length)
-                : block;
-            content = [
-              {
-                type: "text" as const,
-                text: `<memory>\n${inner}\n</memory>`,
-              },
-              ...content,
-            ];
-          }
-
-          if (!isTail && typeof meta.turnContextBlock === "string") {
-            content = [
-              { type: "text" as const, text: meta.turnContextBlock },
-              ...content,
-            ];
-          }
-
-          if (!isTail && typeof meta.workspaceBlock === "string") {
-            content = [
-              { type: "text" as const, text: meta.workspaceBlock },
-              ...content,
-            ];
-          }
-        } catch {
-          /* ignore parse errors — metadata may be malformed */
+        // Rehydrate in reverse injection order (innermost block first)
+        // so the resulting layout matches `applyRuntimeInjections`'s
+        // after-memory-prefix splices in ascending injector order
+        // (pkb-context 30, pkb-reminder 35, memory-v2-static 38,
+        // now-md 40 — the v2 static block lands inside the memory
+        // prefix, so now-md splices *after* it):
+        //   [<workspace>, <turn_context>, <memory __injected>,
+        //    <memory>\n…</memory>, <NOW.md>, <system_reminder>,
+        //    <knowledge_base>, ...original]
+        // Required so Anthropic's prefix cache keeps matching msg[0]
+        // across daemon restart and conversation eviction. The tail
+        // row only rehydrates `memoryInjectedBlock` — the next turn
+        // re-injects the rest fresh.
+        if (!isTail && typeof meta.pkbContextBlock === "string") {
+          content = [
+            { type: "text" as const, text: meta.pkbContextBlock },
+            ...content,
+          ];
         }
+
+        if (!isTail && typeof meta.pkbSystemReminderBlock === "string") {
+          content = [
+            { type: "text" as const, text: meta.pkbSystemReminderBlock },
+            ...content,
+          ];
+        }
+
+        if (!isTail && typeof meta.nowScratchpadBlock === "string") {
+          content = [
+            { type: "text" as const, text: meta.nowScratchpadBlock },
+            ...content,
+          ];
+        }
+
+        // The v2 static memory block (essentials/threads/recent/buffer
+        // wrapped in `<memory>…</memory>`) carries personal user memory.
+        // Trust-gated to mirror `shouldExposePersonalMemory` at injection
+        // time — untrusted-actor views must not read persisted personal
+        // memory back through metadata. Skipped on the tail row because
+        // the next turn re-injects fresh content on full-mode turns.
+        if (
+          !isTail &&
+          personalMemoryAllowed &&
+          typeof meta.memoryV2StaticBlock === "string"
+        ) {
+          content = [
+            { type: "text" as const, text: meta.memoryV2StaticBlock },
+            ...content,
+          ];
+        }
+
+        // Memory remains rehydrated on all rows (existing behavior).
+        // Strip any pre-existing wrapper before re-wrapping so historical
+        // rows persisted with the wrapper (v2 path before the
+        // injectedBlockText contract was unified with v1's unwrapped form)
+        // don't render double-wrapped after rehydrate. Only unwrap when
+        // the full <memory>...</memory> pair is present so we don't mutate
+        // legitimate unwrapped payloads that happen to start with
+        // "<memory>\n" or end with "\n</memory>".
+        if (typeof meta.memoryInjectedBlock === "string") {
+          const block = meta.memoryInjectedBlock;
+          const inner =
+            block.startsWith("<memory>\n") && block.endsWith("\n</memory>")
+              ? block.slice("<memory>\n".length, -"\n</memory>".length)
+              : block;
+          content = [
+            {
+              type: "text" as const,
+              text: `<memory>\n${inner}\n</memory>`,
+            },
+            ...content,
+          ];
+        }
+
+        if (!isTail && typeof meta.turnContextBlock === "string") {
+          content = [
+            { type: "text" as const, text: meta.turnContextBlock },
+            ...content,
+          ];
+        }
+
+        if (!isTail && typeof meta.workspaceBlock === "string") {
+          content = [
+            { type: "text" as const, text: meta.workspaceBlock },
+            ...content,
+          ];
+        }
+      } catch {
+        /* ignore parse errors — metadata may be malformed */
       }
+    }
 
-      return { role, content };
-    });
+    return { role, content };
+  });
 
-  const { messages: repairedMessages, stats } = repairHistory(parsedMessages);
+  // Strip pre-clean messages only; post-clean messages keep the fresh
+  // injections they were generated with.
+  const messagesBeforeRepair =
+    preCleanCount === 0
+      ? parsedMessages
+      : [
+          ...stripInjectionsForCompaction(
+            parsedMessages.slice(0, preCleanCount),
+          ),
+          ...parsedMessages.slice(preCleanCount),
+        ];
+
+  const { messages: repairedMessages, stats } =
+    repairHistory(messagesBeforeRepair);
   if (
     stats.assistantToolResultsMigrated > 0 ||
     stats.missingToolResultsInserted > 0 ||

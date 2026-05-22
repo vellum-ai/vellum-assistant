@@ -297,6 +297,114 @@ describe("forkConversation", () => {
     ]);
   });
 
+  test("inherits cleanedAt when forking past the clean event", async () => {
+    const source = createConversation("Clean thread");
+    await addMessage(source.id, "user", "Message 1", undefined, {
+      skipIndexing: true,
+    });
+    const preClean = await addMessage(
+      source.id,
+      "assistant",
+      "Message 2",
+      undefined,
+      { skipIndexing: true },
+    );
+
+    const cleanedAt = preClean.createdAt + 1;
+    getDb()
+      .update(conversations)
+      .set({ cleanedAt })
+      .where(eq(conversations.id, source.id))
+      .run();
+
+    const postClean = await addMessage(
+      source.id,
+      "user",
+      "Message 3",
+      undefined,
+      { skipIndexing: true },
+    );
+    expect(postClean.createdAt).toBeGreaterThanOrEqual(cleanedAt);
+
+    const fork = forkConversation({
+      conversationId: source.id,
+      throughMessageId: postClean.id,
+    });
+
+    expect(fork.cleanedAt).toBe(cleanedAt);
+  });
+
+  test("does not inherit cleanedAt when forking before the clean event", async () => {
+    const source = createConversation("Clean thread");
+    await addMessage(source.id, "user", "Message 1", undefined, {
+      skipIndexing: true,
+    });
+    const preClean = await addMessage(
+      source.id,
+      "assistant",
+      "Message 2",
+      undefined,
+      { skipIndexing: true },
+    );
+
+    const cleanedAt = preClean.createdAt + 1;
+    getDb()
+      .update(conversations)
+      .set({ cleanedAt })
+      .where(eq(conversations.id, source.id))
+      .run();
+
+    await addMessage(source.id, "user", "Message 3", undefined, {
+      skipIndexing: true,
+    });
+
+    const fork = forkConversation({
+      conversationId: source.id,
+      throughMessageId: preClean.id,
+    });
+
+    expect(fork.cleanedAt).toBeNull();
+  });
+
+  test("inherits cleanedAt on a full-history fork", async () => {
+    const source = createConversation("Clean thread");
+    await addMessage(source.id, "user", "Message 1", undefined, {
+      skipIndexing: true,
+    });
+    const last = await addMessage(
+      source.id,
+      "assistant",
+      "Message 2",
+      undefined,
+      { skipIndexing: true },
+    );
+
+    const cleanedAt = last.createdAt - 1;
+    getDb()
+      .update(conversations)
+      .set({ cleanedAt })
+      .where(eq(conversations.id, source.id))
+      .run();
+
+    const fork = forkConversation({ conversationId: source.id });
+
+    expect(fork.cleanedAt).toBe(cleanedAt);
+  });
+
+  test("leaves cleanedAt null when the source has no clean event", async () => {
+    const source = createConversation("Unclean thread");
+    await addMessage(source.id, "user", "Message 1", undefined, {
+      skipIndexing: true,
+    });
+    await addMessage(source.id, "assistant", "Message 2", undefined, {
+      skipIndexing: true,
+    });
+
+    const fork = forkConversation({ conversationId: source.id });
+
+    expect(fork.cleanedAt).toBeNull();
+  });
+
   test("rejects forks when the source conversation has no persisted messages", () => {
     const source = createConversation("Empty thread");
 

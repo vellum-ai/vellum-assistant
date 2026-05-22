@@ -190,6 +190,7 @@ export interface ConversationRow {
   contextSummary: string | null;
   contextCompactedMessageCount: number;
   contextCompactedAt: number | null;
+  cleanedAt: number | null;
   slackContextCompactionWatermarkTs: string | null;
   slackContextCompactionWatermarkAt: number | null;
   conversationType: string;
@@ -223,6 +224,7 @@ export const parseConversation = createRowMapper<
   contextSummary: "contextSummary",
   contextCompactedMessageCount: "contextCompactedMessageCount",
   contextCompactedAt: "contextCompactedAt",
+  cleanedAt: "cleanedAt",
   slackContextCompactionWatermarkTs: "slackContextCompactionWatermarkTs",
   slackContextCompactionWatermarkAt: "slackContextCompactionWatermarkAt",
   conversationType: "conversationType",
@@ -604,6 +606,16 @@ export function forkConversation(params: {
     copyBoundaryIndex >= 0
       ? sourceMessages.slice(0, copyBoundaryIndex + 1)
       : ([] as MessageRow[]);
+
+  // Inherit /clean state only when the fork boundary is at-or-after the
+  // clean event. Pre-clean forks branch from history that pre-dates the
+  // clean, so the marker would be a no-op and is misleading to copy.
+  const sourceCleanedAt = sourceConversation.cleanedAt ?? null;
+  const boundaryMessageCreatedAt = messagesToCopy.at(-1)?.createdAt ?? null;
+  const inheritsCleanedAt =
+    sourceCleanedAt != null &&
+    boundaryMessageCreatedAt != null &&
+    boundaryMessageCreatedAt >= sourceCleanedAt;
   const forkParentMessageId = messagesToCopy.at(-1)?.id ?? null;
   const forkTitle =
     params.title ?? `${sourceConversation.title ?? "Untitled"} (Fork)`;
@@ -650,6 +662,7 @@ export function forkConversation(params: {
         slackContextCompactionWatermarkAt: preserveSourceCompactionState
           ? sourceConversation.slackContextCompactionWatermarkAt
           : null,
+        cleanedAt: inheritsCleanedAt ? sourceCleanedAt : null,
         inferenceProfile: sourceConversation.inferenceProfile,
       })
       .where(eq(conversations.id, fc.id))
@@ -1432,6 +1445,20 @@ export function updateConversationContextWindow(
       contextSummary,
       contextCompactedMessageCount,
       contextCompactedAt: Date.now(),
+      updatedAt: Date.now(),
+    })
+    .where(eq(conversations.id, id))
+    .run();
+}
+
+export function setConversationCleanedAt(
+  id: string,
+  cleanedAt: number | null,
+): void {
+  const db = getDb();
+  db.update(conversations)
+    .set({
+      cleanedAt,
       updatedAt: Date.now(),
     })
     .where(eq(conversations.id, id))
