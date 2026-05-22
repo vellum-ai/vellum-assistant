@@ -1,15 +1,18 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
-import { useState } from "react";
+import { HardDrive, Loader2, RefreshCw, Server, Sparkles } from "lucide-react";
+import { useMemo, useState } from "react";
+import { useNavigate } from "react-router";
 
 import { Button } from "@vellum/design-library/components/button";
-import { Checkbox } from "@vellum/design-library/components/checkbox";
-import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog";
+import { Dropdown } from "@vellum/design-library/components/dropdown";
+import { Modal } from "@vellum/design-library/components/modal";
 import { Notice } from "@vellum/design-library/components/notice";
-import { Radio, RadioGroup } from "@vellum/design-library/components/radio";
+import { Tag } from "@vellum/design-library/components/tag";
 import { toast } from "@vellum/design-library/components/toast";
+import { CapacityBar } from "@/domains/settings/components/capacity-bar.js";
 import { SettingsCard } from "@/domains/settings/components/settings-card.js";
 import { extractResizeError } from "@/domains/settings/components/resize-errors.js";
+import { formatResourceMb } from "@/domains/settings/components/assistant-status-panel.js";
 import {
   assistantsResizeMutation,
   organizationsBillingSubscriptionOnboardingRetrieveOptions,
@@ -19,69 +22,64 @@ import type { MachineSizeEnum } from "@/generated/api/types.gen.js";
 import type { Assistant, AssistantHealthz } from "@/assistant/api.js";
 import {
   allowedMachineSizesForTier,
+  buildMachineSizeOptions,
   machineSizeRank,
-  SIZE_DESCRIPTION,
   SIZE_LABEL,
 } from "@/lib/billing/machine-sizes.js";
+import { routes } from "@/utils/routes.js";
 
 export interface ResizeCardProps {
   assistant: Assistant;
   healthz: AssistantHealthz | null;
+  healthzLoading: boolean;
   refetch: () => Promise<void> | void;
 }
 
-/**
- * Unified settings card that lets a Pro-plan user resize THIS assistant's
- * compute profile and/or persistent storage in a single action. Renders as
- * `null` for non-Pro users; the page already gates the self-hosted/local
- * fallback by only mounting for a platform assistant.
- *
- * Both dimensions are independent and optional:
- *   - Machine size: offers every size up to the org's `max_machine_tier`,
- *     upsize-only (current/smaller sizes disabled).
- *   - Storage: an "apply plan max" toggle that grows the PVC to the
- *     plan-included ceiling (`selected_storage_gib`).
- *
- * A single Apply issues exactly one `assistantsResize` call carrying ONLY the
- * changed dimension(s) (the serializer requires at least one). The restart
- * warning + confirm dialog appear ONLY when the machine size changes — PVC
- * growth is an online expansion that does not restart the pod.
- */
-export function ResizeCard({ assistant, healthz, refetch }: ResizeCardProps) {
+export function ResizeCard({
+  assistant,
+  healthz,
+  healthzLoading,
+  refetch,
+}: ResizeCardProps) {
+  const navigate = useNavigate();
   const subscriptionQuery = useQuery(
     organizationsBillingSubscriptionRetrieveOptions(),
   );
   const subscription = subscriptionQuery.data;
+  const isPlatform = !assistant.is_local;
   const isPro = subscription?.plan_id === "pro";
 
-  // Endpoint is Pro-only; skip until plan resolves so non-Pro users never
-  // fire the onboarding query.
   const onboardingQuery = useQuery({
     ...organizationsBillingSubscriptionOnboardingRetrieveOptions(),
     enabled: isPro,
   });
 
-  // `machine_size` is widened to `MachineSizeEnum | NullEnum | null`; treat
-  // null, undefined, and the empty string all as the unset/small case (the
-  // backing field is a blankable CharField and backend logic also treats ""
-  // as small).
   const currentSize: MachineSizeEnum =
     (assistant.machine_size as MachineSizeEnum) || "small";
 
   const maxMachineTier = onboardingQuery.data?.max_machine_tier ?? null;
   const allowedSizes = allowedMachineSizesForTier(maxMachineTier);
 
+  const machineSizeOptions = useMemo(
+    () =>
+      buildMachineSizeOptions(
+        allowedSizes,
+        currentSize,
+        <Tag tone="positive">Current</Tag>,
+      ),
+    [allowedSizes, currentSize],
+  );
+
   const availableGib = onboardingQuery.data?.selected_storage_gib ?? null;
-  // healthz.disk.totalMb reflects the provisioned PVC size. Mirror the MB->GiB
-  // rounding used elsewhere; absent metrics means we can't compute headroom.
   const currentGib =
     healthz?.disk != null ? Math.round(healthz.disk.totalMb / 1024) : null;
 
+  const [resizeModalOpen, setResizeModalOpen] = useState(false);
   const [selectedSize, setSelectedSize] = useState<MachineSizeEnum | null>(
     null,
   );
-  const [applyStorage, setApplyStorage] = useState(false);
-  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [storageModalOpen, setStorageModalOpen] = useState(false);
+  const [upgradeModalOpen, setUpgradeModalOpen] = useState<"storage" | "machine" | null>(null);
 
   const resizeMutation = useMutation({
     ...assistantsResizeMutation(),
@@ -90,7 +88,8 @@ export function ResizeCard({ assistant, healthz, refetch }: ResizeCardProps) {
         id: "assistant-resize",
       });
       setSelectedSize(null);
-      setApplyStorage(false);
+      setResizeModalOpen(false);
+      setStorageModalOpen(false);
       void refetch();
     },
     onError: (error) => {
@@ -104,18 +103,12 @@ export function ResizeCard({ assistant, healthz, refetch }: ResizeCardProps) {
     },
   });
 
-  // Surface a transient subscription-fetch failure rather than silently
-  // hiding the card: a failed initial subscription fetch leaves `isPro`
-  // false, which would otherwise rob a genuine Pro user of the resize
-  // affordance during an outage. Gate on missing data (not `isError` alone):
-  // React Query keeps the last good `data` during a background-refetch
-  // failure, so when cached subscription data is present we fall through to
-  // the normal isPro/non-Pro logic instead of flashing this error card.
   if (subscriptionQuery.isError && subscription == null) {
     return (
       <SettingsCard
-        title="Compute & Storage"
-        subtitle="Your Pro plan includes larger compute profiles and additional storage for this assistant."
+        id="storage-resources"
+        title="Compute & Resources"
+        subtitle="Monitor resource usage and manage your assistant's compute profile."
       >
         <Notice tone="error">
           Could not load your subscription. Please try again.
@@ -124,211 +117,340 @@ export function ResizeCard({ assistant, healthz, refetch }: ResizeCardProps) {
     );
   }
 
-  if (!isPro) {
-    return null;
-  }
-
-  const currentRank = machineSizeRank(currentSize);
-
-  // A picked size is only valid if it's still allowed and strictly larger than
-  // the current size (no downsize from this card).
   const effectiveSelectedSize =
-    selectedSize &&
+    isPro && selectedSize &&
     allowedSizes.includes(selectedSize) &&
-    machineSizeRank(selectedSize) > currentRank
+    selectedSize !== currentSize
       ? selectedSize
       : null;
 
-  // Storage can grow only when the plan ceiling is known and exceeds the
-  // current PVC size.
   const canGrowStorage =
-    availableGib != null && currentGib != null && currentGib < availableGib;
-  const effectiveStorageGib =
-    applyStorage && canGrowStorage ? availableGib : null;
+    isPro && availableGib != null && currentGib != null && currentGib < availableGib;
+
+  const canUpsize =
+    isPro &&
+    allowedSizes.length > 0 &&
+    machineSizeRank(currentSize) < machineSizeRank(allowedSizes[allowedSizes.length - 1]);
 
   const isLoading = resizeMutation.isPending;
-  const machineChanges = effectiveSelectedSize != null;
-  const storageChanges = effectiveStorageGib != null;
-  const canApply = (machineChanges || storageChanges) && !isLoading;
 
-  const submit = () => {
-    const body: { machine_size?: MachineSizeEnum; storage_gib?: number } = {};
-    if (effectiveSelectedSize != null) {
-      body.machine_size = effectiveSelectedSize;
-    }
-    if (effectiveStorageGib != null) {
-      body.storage_gib = effectiveStorageGib;
-    }
-    // Never send an empty body — the serializer requires at least one field.
-    if (body.machine_size == null && body.storage_gib == null) return;
-    resizeMutation.mutate({ path: { id: assistant.id }, body });
-  };
+  const diskBar = healthz?.disk
+    ? {
+        value: healthz.disk.usedMb,
+        max: healthz.disk.totalMb,
+        caption: `${formatResourceMb(healthz.disk.usedMb)} of ${formatResourceMb(healthz.disk.totalMb)}`,
+      }
+    : null;
 
-  const handleApply = () => {
-    // Only a machine-size change restarts the pod, so only that path needs the
-    // confirm dialog. Storage-only growth is an online PVC expansion.
-    if (machineChanges) {
-      setConfirmOpen(true);
-      return;
-    }
-    submit();
-  };
+  const cpuBar = healthz?.cpu
+    ? {
+        value: healthz.cpu.currentPercent,
+        max: 100,
+        caption: `${healthz.cpu.currentPercent.toFixed(1)}%`,
+      }
+    : null;
+
+  const memoryBar = healthz?.memory
+    ? {
+        value: healthz.memory.currentMb,
+        max: healthz.memory.maxMb,
+        caption: `${formatResourceMb(healthz.memory.currentMb)} of ${formatResourceMb(healthz.memory.maxMb)}`,
+      }
+    : null;
+
+  const diskAction = !isPlatform ? null : isPro ? (
+    canGrowStorage ? (
+      <button
+        type="button"
+        disabled={isLoading}
+        onClick={() => setStorageModalOpen(true)}
+        className="flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/15 px-3 py-1.5 text-body-small-default font-medium text-amber-400 transition-colors hover:bg-amber-500/25 disabled:opacity-50"
+      >
+        <Sparkles className="h-3.5 w-3.5" />
+        Increase Storage
+      </button>
+    ) : (
+      <Button variant="ghost" size="compact" disabled={isLoading} onClick={() => setStorageModalOpen(true)}>
+        Resize
+      </Button>
+    )
+  ) : (
+    <Button variant="ghost" size="compact" onClick={() => setUpgradeModalOpen("storage")}>
+      Resize
+    </Button>
+  );
+
+  const machineAction = !isPlatform ? null : isPro ? (
+    canUpsize ? (
+      <button
+        type="button"
+        disabled={isLoading}
+        onClick={() => setResizeModalOpen(true)}
+        className="flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/15 px-3 py-1.5 text-body-small-default font-medium text-amber-400 transition-colors hover:bg-amber-500/25 disabled:opacity-50"
+      >
+        <Sparkles className="h-3.5 w-3.5" />
+        Increase Size
+      </button>
+    ) : (
+      <Button variant="ghost" size="compact" disabled={isLoading} onClick={() => setResizeModalOpen(true)}>
+        Resize
+      </Button>
+    )
+  ) : (
+    <Button variant="ghost" size="compact" onClick={() => setUpgradeModalOpen("machine")}>
+      Resize
+    </Button>
+  );
 
   return (
     <>
       <SettingsCard
-        title="Compute & Storage"
-        subtitle="Your Pro plan includes larger compute profiles and additional storage for this assistant."
+        id="storage-resources"
+        title="Compute & Resources"
+        subtitle="Monitor resource usage and manage your assistant's compute profile."
+        compactAccessory
+        accessory={
+          <Button
+            variant="ghost"
+            size="compact"
+            iconOnly={
+              healthzLoading ? (
+                <Loader2 className="animate-spin" />
+              ) : (
+                <RefreshCw />
+              )
+            }
+            tooltip="Refresh resource metrics"
+            aria-label="Refresh resource metrics"
+            disabled={healthzLoading}
+            onClick={() => void refetch()}
+          />
+        }
       >
-        <div className="flex flex-col gap-6">
-          {onboardingQuery.isLoading ? (
-            // `allowedSizes`/`availableGib` are empty while the onboarding
-            // query is in flight (it only fires once `isPro` is true). Show a
-            // loading affordance rather than the configured states, which
-            // would otherwise flash mid-fetch.
-            <div className="flex items-center gap-2 text-[var(--content-tertiary)]">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              <span className="text-body-medium-lighter">
-                Loading resize configuration...
-              </span>
-            </div>
-          ) : onboardingQuery.isError && onboardingQuery.data == null ? (
-            // On an initial-load error we have no tier/storage data; surface an
-            // error Notice instead of the (incorrect) configured states. Gate
-            // on missing data so a background-refetch failure with valid cached
-            // values keeps the controls rendered.
-            <Notice tone="error">Failed to load resize configuration.</Notice>
-          ) : (
-            <>
-              {/* Compute profile */}
-              <div className="flex flex-col gap-3">
-                <span className="text-body-medium-lighter text-[var(--content-tertiary)]">
-                  Compute profile:{" "}
-                  <span className="text-[var(--content-default)]">
-                    {SIZE_LABEL[currentSize]}
-                  </span>
+        <div className="grid grid-cols-[1fr_2fr] gap-2">
+          {/* Disk tile */}
+          <div className="flex flex-col rounded-lg bg-[var(--surface-base)] p-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[var(--content-tertiary)]">
+                  <HardDrive className="h-3.5 w-3.5" />
                 </span>
-                {allowedSizes.length === 0 ? (
-                  <Notice tone="warning">
-                    Your subscription does not have a machine tier configured.
-                    Contact support if this is unexpected.
-                  </Notice>
-                ) : (
-                  <RadioGroup<MachineSizeEnum>
-                    name="resize-machine-size"
-                    value={effectiveSelectedSize ?? ("" as MachineSizeEnum)}
-                    onValueChange={setSelectedSize}
-                    aria-label="Compute machine size"
-                  >
-                    {allowedSizes.map((size) => {
-                      // Disable the current size and anything smaller — this
-                      // card only upsizes the current assistant.
-                      const disabled = machineSizeRank(size) <= currentRank;
-                      return (
-                        <Radio<MachineSizeEnum>
-                          key={size}
-                          value={size}
-                          label={SIZE_LABEL[size]}
-                          helperText={SIZE_DESCRIPTION[size]}
-                          disabled={disabled || isLoading}
-                        />
-                      );
-                    })}
-                  </RadioGroup>
-                )}
+                <span className="text-label-medium-default text-[var(--content-tertiary)]">
+                  Disk
+                </span>
               </div>
+              {diskAction}
+            </div>
+            <div className="mt-auto flex flex-col gap-1 pt-3">
+              <span className="text-label-medium-default text-[var(--content-tertiary)]">
+                Storage
+              </span>
+              {healthzLoading ? (
+                <div className="flex items-center gap-2 text-[var(--content-tertiary)]">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                </div>
+              ) : diskBar ? (
+                <CapacityBar
+                  value={diskBar.value}
+                  max={diskBar.max}
+                  caption={diskBar.caption}
+                />
+              ) : (
+                <span className="text-label-medium-default text-[var(--content-tertiary)]">
+                  Unavailable
+                </span>
+              )}
+            </div>
+          </div>
 
-              {/* Storage */}
-              <div className="flex flex-col gap-3">
-                <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
-                  This assistant uses{" "}
-                  <span className="text-[var(--content-default)]">
-                    {currentGib != null
-                      ? `~${currentGib} GiB`
-                      : "an unknown amount"}
-                  </span>{" "}
-                  {availableGib != null ? (
-                    <>
-                      of{" "}
-                      <span className="text-[var(--content-default)]">
-                        {availableGib} GiB
-                      </span>{" "}
-                      included in your plan.
-                    </>
-                  ) : (
-                    "of the storage included in your plan."
-                  )}
-                </p>
-                {canGrowStorage ? (
-                  <Checkbox
-                    checked={applyStorage}
-                    disabled={isLoading}
-                    onCheckedChange={(c) => setApplyStorage(c === true)}
-                    aria-label="Apply plan storage maximum"
-                    label={
-                      <>
-                        Grow storage to{" "}
-                        <span className="text-[var(--content-default)]">
-                          {availableGib} GiB
-                        </span>{" "}
-                        to use your full plan allocation.
-                      </>
-                    }
+          {/* Machine tile (CPU + Memory) */}
+          <div className="flex flex-col rounded-lg bg-[var(--surface-base)] p-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[var(--content-tertiary)]">
+                  <Server className="h-3.5 w-3.5" />
+                </span>
+                <span className="text-label-medium-default text-[var(--content-tertiary)]">
+                  Machine
+                </span>
+                <Tag tone="neutral">{SIZE_LABEL[currentSize]}</Tag>
+              </div>
+              {machineAction}
+            </div>
+            <div className="mt-auto grid grid-cols-2 gap-3 pt-3">
+              <div className="flex flex-col gap-1">
+                <span className="text-label-medium-default text-[var(--content-tertiary)]">
+                  CPU
+                </span>
+                {healthzLoading ? (
+                  <div className="flex items-center gap-2 text-[var(--content-tertiary)]">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  </div>
+                ) : cpuBar ? (
+                  <CapacityBar
+                    value={cpuBar.value}
+                    max={cpuBar.max}
+                    caption={cpuBar.caption}
                   />
                 ) : (
-                  <Notice tone="neutral">
-                    {currentGib != null && availableGib != null
-                      ? "This assistant is at its plan storage maximum."
-                      : "Your plan's included storage has been applied."}
-                  </Notice>
+                  <span className="text-label-medium-default text-[var(--content-tertiary)]">—</span>
                 )}
               </div>
-
-              {/* Apply */}
-              <div className="flex items-center justify-between gap-4">
-                {machineChanges ? (
-                  <Notice tone="warning">
-                    Resizing the compute profile will briefly make your
-                    assistant unreachable while it restarts. Storage grows
-                    online without a restart.
-                  </Notice>
+              <div className="flex flex-col gap-1">
+                <span className="text-label-medium-default text-[var(--content-tertiary)]">
+                  Memory
+                </span>
+                {healthzLoading ? (
+                  <div className="flex items-center gap-2 text-[var(--content-tertiary)]">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  </div>
+                ) : memoryBar ? (
+                  <CapacityBar
+                    value={memoryBar.value}
+                    max={memoryBar.max}
+                    caption={memoryBar.caption}
+                  />
                 ) : (
-                  <span className="text-body-medium-lighter text-[var(--content-tertiary)]">
-                    {storageChanges
-                      ? "Storage grows online without a restart."
-                      : "Select a larger compute profile or grow storage to apply."}
-                  </span>
+                  <span className="text-label-medium-default text-[var(--content-tertiary)]">—</span>
                 )}
-                <Button
-                  onClick={handleApply}
-                  disabled={!canApply}
-                  leftIcon={
-                    isLoading ? <Loader2 className="animate-spin" /> : undefined
-                  }
-                  className="shrink-0"
-                >
-                  Apply
-                </Button>
               </div>
-            </>
-          )}
+            </div>
+          </div>
         </div>
       </SettingsCard>
-      <ConfirmDialog
-        open={confirmOpen}
-        title="Resize Compute Profile"
-        message="Your assistant will briefly restart and be unreachable while the compute profile resize applies. Continue?"
-        confirmLabel="Resize"
-        onConfirm={() => {
-          // Close the dialog immediately so a slow request can't be
-          // double-submitted by repeated clicks while the mutation is
-          // pending. The button busy state and the error toast already
-          // provide adequate feedback.
-          setConfirmOpen(false);
-          submit();
+
+      {/* Upgrade modal (free plan) */}
+      <Modal.Root
+        open={upgradeModalOpen != null}
+        onOpenChange={(o) => { if (!o) setUpgradeModalOpen(null); }}
+      >
+        <Modal.Content size="sm">
+          <Modal.Header>
+            <Modal.Title>Upgrade to Pro</Modal.Title>
+            <Modal.Description>
+              {upgradeModalOpen === "storage"
+                ? "Upgrade to the Pro plan to increase your storage allocation and get more space for your assistant."
+                : "Upgrade to the Pro plan to unlock larger machine sizes with more CPU and memory for your assistant."}
+            </Modal.Description>
+          </Modal.Header>
+          <Modal.Footer>
+            <Button variant="ghost" onClick={() => setUpgradeModalOpen(null)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                setUpgradeModalOpen(null);
+                void navigate(`${routes.settings.billing}?adjust_plan=1`);
+              }}
+            >
+              Upgrade
+            </Button>
+          </Modal.Footer>
+        </Modal.Content>
+      </Modal.Root>
+
+      {/* Resize machine modal (pro plan) */}
+      <Modal.Root
+        open={resizeModalOpen}
+        onOpenChange={(o) => {
+          if (!o) {
+            setResizeModalOpen(false);
+            setSelectedSize(null);
+          }
         }}
-        onCancel={() => setConfirmOpen(false)}
-      />
+      >
+        <Modal.Content size="sm">
+          <Modal.Header>
+            <Modal.Title>Resize Machine</Modal.Title>
+            <Modal.Description>
+              Larger machine sizes are already included in your plan. Select a
+              size to resize to — your assistant will briefly restart.
+            </Modal.Description>
+          </Modal.Header>
+          <Modal.Body>
+            {allowedSizes.length === 0 ? (
+              <Notice tone="warning">
+                No machine tier configured. Contact support.
+              </Notice>
+            ) : (
+              <Dropdown
+                options={machineSizeOptions}
+                value={selectedSize ?? currentSize}
+                onChange={setSelectedSize}
+                aria-label="Compute machine size"
+                data-testid="resize-machine-size"
+              />
+            )}
+          </Modal.Body>
+          <Modal.Footer>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setResizeModalOpen(false);
+                setSelectedSize(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={effectiveSelectedSize == null || isLoading}
+              leftIcon={
+                isLoading ? <Loader2 className="animate-spin" /> : undefined
+              }
+              onClick={() => {
+                if (effectiveSelectedSize == null) return;
+                resizeMutation.mutate({
+                  path: { id: assistant.id },
+                  body: { machine_size: effectiveSelectedSize },
+                });
+              }}
+            >
+              Apply
+            </Button>
+          </Modal.Footer>
+        </Modal.Content>
+      </Modal.Root>
+
+      {/* Resize storage modal (pro plan) */}
+      <Modal.Root
+        open={storageModalOpen}
+        onOpenChange={(o) => { if (!o) setStorageModalOpen(false); }}
+      >
+        <Modal.Content size="sm">
+          <Modal.Header>
+            <Modal.Title>Resize Storage</Modal.Title>
+            <Modal.Description>
+              Your plan includes up to {availableGib} GiB of storage.
+              This will expand your disk from {currentGib ?? "?"} GiB
+              to {availableGib} GiB — your assistant will briefly restart.
+            </Modal.Description>
+          </Modal.Header>
+          <Modal.Footer>
+            <Button
+              variant="ghost"
+              onClick={() => setStorageModalOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={isLoading}
+              leftIcon={
+                isLoading ? <Loader2 className="animate-spin" /> : undefined
+              }
+              onClick={() => {
+                if (availableGib == null) return;
+                resizeMutation.mutate({
+                  path: { id: assistant.id },
+                  body: { storage_gib: availableGib },
+                });
+                setStorageModalOpen(false);
+              }}
+            >
+              Apply
+            </Button>
+          </Modal.Footer>
+        </Modal.Content>
+      </Modal.Root>
     </>
   );
 }
