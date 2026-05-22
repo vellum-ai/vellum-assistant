@@ -11,7 +11,11 @@ import { getDiskPressureStatus } from "../daemon/disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "../daemon/disk-pressure-policy.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { TrustContext } from "../daemon/trust-context.js";
-import { updateDeliveredSegmentCount } from "../memory/delivery-channels.js";
+import {
+  addSlackDmLiveDeliveredTextResponseIndex,
+  getSlackDmLiveDeliveredTextResponseIndexes,
+  updateDeliveredSegmentCount,
+} from "../memory/delivery-channels.js";
 import {
   clearPayload,
   linkMessage,
@@ -33,6 +37,7 @@ import {
 } from "./channel-reply-delivery.js";
 import { deliverChannelReply } from "./gateway-client.js";
 import type { MessageProcessor } from "./http-types.js";
+import { createSlackDmTextDeliveryController } from "./slack-dm-text-delivery.js";
 import { resolveRoutingStateFromRuntime } from "./trust-context-resolver.js";
 
 const log = getLogger("runtime-http");
@@ -258,6 +263,27 @@ export async function sweepFailedEvents(
       sourceMetadata.chatType.trim().length > 0
         ? sourceMetadata.chatType.trim()
         : undefined;
+    const replyCallbackUrl =
+      typeof payload.replyCallbackUrl === "string"
+        ? payload.replyCallbackUrl
+        : undefined;
+    const externalChatId =
+      typeof payload.externalChatId === "string"
+        ? payload.externalChatId
+        : undefined;
+    const slackDmTextDelivery = externalChatId
+      ? createSlackDmTextDeliveryController({
+          sourceChannel,
+          chatType: metadataChatType,
+          replyCallbackUrl,
+          chatId: externalChatId,
+          assistantId,
+          deliveredTextResponseIndexes:
+            getSlackDmLiveDeliveredTextResponseIndexes(event.id),
+          onTextResponseDelivered: (responseIndex) =>
+            addSlackDmLiveDeliveredTextResponseIndex(event.id, responseIndex),
+        })
+      : undefined;
     let replyMessageId: string | undefined;
     const observeAgentEvent = (msg: ServerMessage): void => {
       if (
@@ -267,6 +293,7 @@ export async function sweepFailedEvents(
       ) {
         replyMessageId = msg.messageId;
       }
+      slackDmTextDelivery?.observeEvent(msg);
     };
 
     let userMessageId: string | undefined;
@@ -304,39 +331,39 @@ export async function sweepFailedEvents(
       );
     } catch (err) {
       log.error({ err, eventId: event.id }, "Retry failed for channel event");
+      if (slackDmTextDelivery) {
+        await slackDmTextDelivery.waitForPendingDeliveries();
+      }
       recordProcessingFailure(event.id, err);
       continue;
     }
 
-    const replyCallbackUrl =
-      typeof payload.replyCallbackUrl === "string"
-        ? payload.replyCallbackUrl
-        : undefined;
     if (replyCallbackUrl) {
-      const externalChatId =
-        typeof payload.externalChatId === "string"
-          ? payload.externalChatId
-          : undefined;
       if (externalChatId) {
         try {
+          if (slackDmTextDelivery) {
+            await slackDmTextDelivery.waitForPendingDeliveries();
+          }
           // processMessage above generated a fresh assistant response, so any
-          // previously tracked segment progress belongs to the old response and
-          // must not carry over. Reset to 0 so we deliver all segments of the
-          // new response.
+          // previously tracked final-delivery progress belongs to the old
+          // response and must not carry over. Live Slack DM progress is tracked
+          // separately below so a fully live-delivered reply is not duplicated.
           updateDeliveredSegmentCount(event.id, 0);
-          await deliverReplyViaCallback(
-            event.conversationId,
-            externalChatId,
-            replyCallbackUrl,
-            assistantId,
-            {
-              messageId: replyMessageId,
-              sinceMessageId: userMessageId,
-              startFromSegment: 0,
-              onSegmentDelivered: (count) =>
-                updateDeliveredSegmentCount(event.id, count),
-            },
-          );
+          if (!slackDmTextDelivery?.wasMessageDeliveredLive(replyMessageId)) {
+            await deliverReplyViaCallback(
+              event.conversationId,
+              externalChatId,
+              replyCallbackUrl,
+              assistantId,
+              {
+                messageId: replyMessageId,
+                sinceMessageId: userMessageId,
+                startFromSegment: 0,
+                onSegmentDelivered: (count) =>
+                  updateDeliveredSegmentCount(event.id, count),
+              },
+            );
+          }
           markDeliveryDelivered(event.id);
         } catch (err) {
           log.error(

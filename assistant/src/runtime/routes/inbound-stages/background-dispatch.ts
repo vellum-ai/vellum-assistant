@@ -11,7 +11,11 @@ import type { ChannelId, InterfaceId } from "../../../channels/types.js";
 import { findGuardianForChannel } from "../../../contacts/contact-store.js";
 import type { ServerMessage } from "../../../daemon/message-protocol.js";
 import type { TrustContext } from "../../../daemon/trust-context.js";
-import { updateDeliveredSegmentCount } from "../../../memory/delivery-channels.js";
+import {
+  addSlackDmLiveDeliveredTextResponseIndex,
+  getSlackDmLiveDeliveredTextResponseIndexes,
+  updateDeliveredSegmentCount,
+} from "../../../memory/delivery-channels.js";
 import {
   linkMessage,
   storeReplyMessageId,
@@ -44,6 +48,10 @@ import type {
   MessageProcessor,
   SlackInboundMessageMetadata,
 } from "../../http-types.js";
+import {
+  createSlackDmTextDeliveryController,
+  isSlackDeliveryCallbackUrl,
+} from "../../slack-dm-text-delivery.js";
 import { resolveRoutingState } from "../../trust-context-resolver.js";
 import { deliverReplyViaCallback } from "../channel-delivery-routes.js";
 import { deliverGeneratedApprovalPrompt } from "../guardian-approval-prompt.js";
@@ -228,6 +236,17 @@ export function processChannelMessageInBackground(
             }
           : undefined;
       let replyMessageId: string | undefined;
+      const slackDmTextDelivery = createSlackDmTextDeliveryController({
+        sourceChannel,
+        chatType,
+        replyCallbackUrl,
+        chatId: externalChatId,
+        assistantId,
+        deliveredTextResponseIndexes:
+          getSlackDmLiveDeliveredTextResponseIndexes(eventId),
+        onTextResponseDelivered: (responseIndex) =>
+          addSlackDmLiveDeliveredTextResponseIndex(eventId, responseIndex),
+      });
       const observeAgentEvent = (msg: ServerMessage): void => {
         if (
           msg.type === "message_complete" &&
@@ -236,6 +255,7 @@ export function processChannelMessageInBackground(
         ) {
           replyMessageId = msg.messageId;
         }
+        slackDmTextDelivery?.observeEvent(msg);
         slackThinkingStatus?.observeEvent(msg);
       };
 
@@ -297,24 +317,33 @@ export function processChannelMessageInBackground(
           { err, conversationId },
           "Background channel message processing failed",
         );
+        if (slackDmTextDelivery) {
+          await slackDmTextDelivery.waitForPendingDeliveries();
+        }
         recordProcessingFailure(eventId, err);
         return;
       }
 
       if (replyCallbackUrl) {
         try {
-          await deliverReplyViaCallback(
-            conversationId,
-            externalChatId,
-            replyCallbackUrl,
-            assistantId,
-            {
-              messageId: replyMessageId,
-              sinceMessageId: userMessageId,
-              onSegmentDelivered: (count) =>
-                updateDeliveredSegmentCount(eventId, count),
-            },
-          );
+          if (slackDmTextDelivery) {
+            await slackDmTextDelivery.waitForPendingDeliveries();
+          }
+
+          if (!slackDmTextDelivery?.wasMessageDeliveredLive(replyMessageId)) {
+            await deliverReplyViaCallback(
+              conversationId,
+              externalChatId,
+              replyCallbackUrl,
+              assistantId,
+              {
+                messageId: replyMessageId,
+                sinceMessageId: userMessageId,
+                onSegmentDelivered: (count) =>
+                  updateDeliveredSegmentCount(eventId, count),
+              },
+            );
+          }
           markDeliveryDelivered(eventId);
         } catch (err) {
           log.error(
@@ -440,12 +469,9 @@ function shouldEmitSlackThinkingStatus(
   sourceChannel: ChannelId,
   replyCallbackUrl?: string,
 ): boolean {
-  if (sourceChannel !== "slack" || !replyCallbackUrl) return false;
-  try {
-    return new URL(replyCallbackUrl).pathname.endsWith("/deliver/slack");
-  } catch {
-    return replyCallbackUrl.endsWith("/deliver/slack");
-  }
+  return (
+    sourceChannel === "slack" && isSlackDeliveryCallbackUrl(replyCallbackUrl)
+  );
 }
 
 export function shouldStartSlackThinkingStatusImmediately(params: {
@@ -627,7 +653,9 @@ function getTaskProgressLoadingMessage(
 
   const activeStep = progress.steps[activeStepIndex]!;
   return [
-    `In progress (${activeStepIndex + 1}/${progress.steps.length}): ${activeStep.label}`,
+    `In progress (${activeStepIndex + 1}/${progress.steps.length}): ${
+      activeStep.label
+    }`,
   ];
 }
 
