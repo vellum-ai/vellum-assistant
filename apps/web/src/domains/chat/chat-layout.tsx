@@ -20,6 +20,7 @@ import { useHomeUnreadBadge } from "@/hooks/use-home-unread-badge.js";
 import type { AssistantContextValue } from "@/components/layout/assistant-context.js";
 
 import { useConversationStore } from "@/domains/conversations/conversation-store.js";
+import { createDraftConversationKey } from "@/domains/chat/utils/conversation-selection.js";
 import {
   useConversationGroupsQuery,
   useConversationListQuery,
@@ -35,7 +36,6 @@ import { OfflineBanner } from "@/components/offline-banner.js";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu.js";
 import { PreferencesMenu } from "@/domains/chat/components/preferences-menu.js";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store.js";
-import { createDraftConversationKey } from "@/domains/chat/utils/conversation-selection.js";
 import { ChatLayoutHeader } from "./chat-layout-header.js";
 
 /**
@@ -151,7 +151,7 @@ export function ChatLayout() {
   // create/rename/delete affordances are rendered here, not in ChatPage.
   // The hook is self-sufficient (cache invalidation handles rollback), so
   // it can live wherever the sidebar lives.
-  const { handleCreateGroup, handleRenameGroup, handleDeleteGroup } =
+  const { handleRenameGroup, handleDeleteGroup } =
     useConversationGroupActions({
       assistantId: lifecycle.assistantId,
       conversationGroups,
@@ -444,7 +444,6 @@ export function ChatLayout() {
         onOpenIntelligence={handleOpenIdentity}
         isLibraryActive={isLibraryActive}
         onOpenLibrary={handleOpenLibrary}
-        onCreateGroup={handleCreateGroup}
         onRenameGroup={handleRenameGroup}
         onDeleteGroup={handleDeleteGroup}
         footerBanner={footerBanner}
@@ -470,7 +469,6 @@ export function ChatLayout() {
       attentionKeys,
       handleSelectConversation,
       handleStartNewConversation,
-      handleCreateGroup,
       handleRenameGroup,
       handleDeleteGroup,
       isIdentityActive,
@@ -490,7 +488,6 @@ export function ChatLayout() {
         toggleSidebar={toggleSidebar}
         topBarCenter={topBarCenter}
         topBarRightSlot={topBarRightSlot}
-        onStartNewConversation={handleStartNewConversation}
         canGoBack={canGoBack}
         canGoForward={canGoForward}
         onGoBack={handleGoBack}

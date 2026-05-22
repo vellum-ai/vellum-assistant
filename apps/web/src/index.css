@@ -99,6 +99,18 @@ body {
   50% { opacity: 0.24; transform: scale(1.15); }
 }
 
+/* Billing onboarding modal — welcome screen staggered reveal */
+@keyframes welcome-reveal {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Billing onboarding modal — crown glow pulse */
+@keyframes welcome-crown-glow {
+  0%, 100% { opacity: 0.18; transform: scale(1); }
+  50% { opacity: 0.32; transform: scale(1.08); }
+}
+
 /* Billing onboarding modal — step content entrance */
 @keyframes onboarding-step-in {
   from { opacity: 0; transform: translateY(6px); }

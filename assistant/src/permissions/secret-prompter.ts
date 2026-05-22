@@ -71,7 +71,7 @@ export class SecretPrompter {
       const timeoutMs = getConfig().timeouts.permissionTimeoutSec * 1000;
 
       const timer = setTimeout(() => {
-        pendingInteractions.resolve(requestId);
+        pendingInteractions.resolve(requestId, "cancelled");
         this.ownedIds.delete(requestId);
         log.warn({ requestId, service, field }, "Secret prompt timed out");
         resolve({ value: null, delivery: "store" });
@@ -142,7 +142,7 @@ export class SecretPrompter {
 
   dispose(): void {
     for (const requestId of [...this.ownedIds]) {
-      const interaction = pendingInteractions.resolve(requestId);
+      const interaction = pendingInteractions.resolve(requestId, "cancelled");
       this.ownedIds.delete(requestId);
       interaction?.rpcReject?.(
         new AssistantError("Prompter disposed", ErrorCode.INTERNAL_ERROR),
