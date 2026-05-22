@@ -214,6 +214,7 @@ export function PreChatFlow() {
       tools: stripOtherPrefix([...selectedTools]),
       tasks: [...selectedTasks].sort(),
       tone: selectedGroupId ?? DEFAULT_GROUP_ID,
+      initialMessage: "Wake up, my friend!",
     };
     const trimmedUser = userName.trim();
     if (trimmedUser) context.userName = trimmedUser;

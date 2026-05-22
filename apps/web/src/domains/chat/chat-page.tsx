@@ -150,7 +150,7 @@ export function ChatPage() {
 
   const [restoredDraftConversationKey, setRestoredDraftConversationKey] = useState<string | null>(null);
   const [refreshEpoch, setRefreshEpoch] = useState(0);
-  const [autoGreetPending, setAutoGreetPending] = useState(false);
+  const [_autoGreetPending, setAutoGreetPending] = useState(false);
   const awaitingAutoGreetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [contextWindowUsage, setContextWindowUsage] = useState<ContextWindowUsage | null>(null);
   const [transcriptPagination, setTranscriptPagination] = useState<Omit<TranscriptPaginationState, "items">>({
@@ -668,23 +668,8 @@ export function ChatPage() {
     const pending = pendingOnboardingInitialMessageRef.current;
     if (!pending || !assistantId || activeConversationKey !== pending.conversationKey) return;
     pendingOnboardingInitialMessageRef.current = null;
-    autoGreetRef.current = false;
     void sendMessage(pending.content);
   }, [activeConversationKey, assistantId, sendMessage]);
-
-  // Auto-send generic onboarding greet when the pending flag fires and no
-  // content-automation initialMessage is queued (avoids double-send).
-  useEffect(() => {
-    if (!autoGreetPending || !activeConversationKey || !assistantId) return;
-    if (!autoGreetRef.current) return;
-    setAutoGreetPending(false);
-    if (awaitingAutoGreetTimeoutRef.current) {
-      clearTimeout(awaitingAutoGreetTimeoutRef.current);
-      awaitingAutoGreetTimeoutRef.current = null;
-    }
-    autoGreetRef.current = false;
-    void sendMessage("Wake up, my friend!");
-  }, [autoGreetPending, activeConversationKey, assistantId, sendMessage]);
 
   // Deep-link: ?app=<id> auto-opens the app viewer on initial load.
   const deepLinkAppConsumed = useRef(false);
