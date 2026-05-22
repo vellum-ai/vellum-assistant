@@ -7,9 +7,10 @@ import {
   RotateCcw,
   Rocket,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@vellum/design-library/components/button";
+import { Collapsible } from "@vellum/design-library/components/collapsible";
 import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { Modal } from "@vellum/design-library/components/modal";
 import { Notice } from "@vellum/design-library/components/notice";
@@ -83,7 +84,7 @@ export function PreviewReleaseChannel({
 }: PreviewReleaseChannelProps) {
   const previewChannel = useClientFeatureFlagStore.use.previewChannel();
   const queryClient = useQueryClient();
-  const detailsRef = useRef<HTMLDetailsElement>(null);
+  const [openSection, setOpenSection] = useState<string | undefined>();
   const [showOptInModal, setShowOptInModal] = useState(false);
   const [showOptOutModal, setShowOptOutModal] = useState(false);
   const [optOutMode, setOptOutMode] = useState<ModeEnum>("restore_backup");
@@ -140,9 +141,9 @@ export function PreviewReleaseChannel({
     optOutMode === "restore_backup" && !selectedRestoreBackup;
 
   useEffect(() => {
-    if (detailsRef.current) {
-      detailsRef.current.open = currentChannel === "preview";
-    }
+    setOpenSection(
+      currentChannel === "preview" ? "release-channel" : undefined,
+    );
   }, [currentChannel]);
 
   if (!previewChannel) {
@@ -212,65 +213,79 @@ export function PreviewReleaseChannel({
 
   return (
     <>
-      <details
-        id="preview-release-channel"
-        ref={detailsRef}
-        className="group mt-5 border-t border-[var(--border-base)] pt-5"
+      <Collapsible.Root
+        type="single"
+        collapsible
+        value={openSection}
+        onValueChange={(value) => setOpenSection(value || undefined)}
+        className="mt-5 border-t border-[var(--border-base)] pt-5"
       >
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
-          <span className="flex min-w-0 items-center gap-2">
-            <span className="text-body-medium-default text-[var(--content-secondary)]">
-              Release Channel
+        <Collapsible.Item value="release-channel" id="preview-release-channel">
+          <Collapsible.Trigger className="group justify-between gap-3">
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="text-body-medium-default text-[var(--content-secondary)]">
+                Release Channel
+              </span>
+              {status && (
+                <Tag
+                  tone={currentChannel === "preview" ? "warning" : "neutral"}
+                >
+                  {currentChannel === "preview" ? "Preview" : "Stable"}
+                </Tag>
+              )}
             </span>
-            {status && (
-              <Tag tone={currentChannel === "preview" ? "warning" : "neutral"}>
-                {currentChannel === "preview" ? "Preview" : "Stable"}
-              </Tag>
-            )}
-          </span>
-          <ChevronDown className="h-4 w-4 shrink-0 text-[var(--content-tertiary)] transition-transform group-open:rotate-180" />
-        </summary>
+            <ChevronDown className="h-4 w-4 shrink-0 text-[var(--content-tertiary)] transition-transform group-data-[state=open]:rotate-180" />
+          </Collapsible.Trigger>
 
-        <div className="mt-4 space-y-4">
-          {isLoading && (
-            <div className="flex items-center gap-2 text-body-medium-lighter text-[var(--content-tertiary)]">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Loading release channel...
-            </div>
-          )}
+          <Collapsible.Content>
+            <div className="mt-4 space-y-4">
+              {isLoading && (
+                <div className="flex items-center gap-2 text-body-medium-lighter text-[var(--content-tertiary)]">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading release channel...
+                </div>
+              )}
 
-          {isError && (
-            <Notice tone="error" title="Could not load release channel status">
-              Refresh this page before changing release channels.
-            </Notice>
-          )}
-
-          {status && (
-            <>
-              {statusUnavailable(status) && (
-                <Notice tone="neutral" title="Preview channel is unavailable">
-                  The Preview channel is not enabled for this assistant.
+              {isError && (
+                <Notice
+                  tone="error"
+                  title="Could not load release channel status"
+                >
+                  Refresh this page before changing release channels.
                 </Notice>
               )}
 
-              {currentChannel === "stable" ? (
-                <StablePreviewPanel
-                  status={status}
-                  isChangingChannel={isChangingChannel}
-                  optInDisabled={optInDisabled}
-                  onOptIn={() => setShowOptInModal(true)}
-                />
-              ) : (
-                <PreviewOptOutPanel
-                  status={status}
-                  isChangingChannel={isChangingChannel}
-                  onOptOut={openOptOutModal}
-                />
+              {status && (
+                <>
+                  {statusUnavailable(status) && (
+                    <Notice
+                      tone="neutral"
+                      title="Preview channel is unavailable"
+                    >
+                      The Preview channel is not enabled for this assistant.
+                    </Notice>
+                  )}
+
+                  {currentChannel === "stable" ? (
+                    <StablePreviewPanel
+                      status={status}
+                      isChangingChannel={isChangingChannel}
+                      optInDisabled={optInDisabled}
+                      onOptIn={() => setShowOptInModal(true)}
+                    />
+                  ) : (
+                    <PreviewOptOutPanel
+                      status={status}
+                      isChangingChannel={isChangingChannel}
+                      onOptOut={openOptOutModal}
+                    />
+                  )}
+                </>
               )}
-            </>
-          )}
-        </div>
-      </details>
+            </div>
+          </Collapsible.Content>
+        </Collapsible.Item>
+      </Collapsible.Root>
 
       <OptInModal
         open={showOptInModal}
@@ -415,12 +430,10 @@ function OptInModal({
               safety backup lets you restore the Stable-channel data that
               existed before opt-in.
             </Notice>
-            <ol className="space-y-2 text-body-medium-lighter text-[var(--content-secondary)]">
-              <li>1. Create and verify a Preview safety backup.</li>
-              <li>
-                2. Switch to Preview image {previewVersion ?? "latest"}.
-              </li>
-              <li>3. Run the normal upgrade path and wait for health.</li>
+            <ol className="list-decimal space-y-2 pl-5 text-body-medium-lighter text-[var(--content-secondary)]">
+              <li>Create and verify a Preview safety backup.</li>
+              <li>Switch to Preview image {previewVersion ?? "latest"}.</li>
+              <li>Run the normal upgrade path and wait for health.</li>
             </ol>
           </div>
         </Modal.Body>

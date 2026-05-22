@@ -40,7 +40,7 @@ function releaseLabel(
 
 const POLL_INTERVAL_MS = 3000;
 
-export function getVisibleReleaseChannel(
+function getVisibleReleaseChannel(
   releaseChannel: ReleaseChannelEnum | undefined,
   previewChannelEnabled: boolean,
 ): ReleaseChannelEnum {
