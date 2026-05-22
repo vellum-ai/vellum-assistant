@@ -1,10 +1,9 @@
-import { ArrowLeft, Globe } from "lucide-react";
+import { ArrowLeft, Mail } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
 
 import { Button } from "@vellum/design-library/components/button";
-import { Input } from "@vellum/design-library/components/input";
 import { Modal } from "@vellum/design-library/components/modal";
 import { Notice } from "@vellum/design-library/components/notice";
 import { Typography } from "@vellum/design-library/components/typography";
@@ -21,6 +20,7 @@ export function DomainStep({ onBack, onExit }: { onBack: () => void; onExit: () 
   const emailRootDomain = useEnvironmentStore.use.emailRootDomain();
   const { data: activeAssistant } = useQuery(assistantsActiveRetrieveOptions());
   const [subdomain, setSubdomain] = useState("");
+  const [emailUsername, setEmailUsername] = useState("hi");
   const [prefilled, setPrefilled] = useState(false);
 
   useEffect(() => {
@@ -45,7 +45,12 @@ export function DomainStep({ onBack, onExit }: { onBack: () => void; onExit: () 
   const handleSet = () => {
     if (busy || !subdomain) return;
     domainMutation.mutate(
-      { body: { subdomain } },
+      {
+        body: {
+          subdomain,
+          ...(emailUsername ? { email_username: emailUsername } : {}),
+        },
+      },
       {
         onSuccess: () => {
           setErrorMsg(null);
@@ -78,46 +83,57 @@ export function DomainStep({ onBack, onExit }: { onBack: () => void; onExit: () 
         style={{ animation: "onboarding-step-in 350ms ease-out" }}
       >
         <div className="flex flex-col items-center gap-3 pb-2 text-center">
-          <IconBadge icon={Globe} />
+          <IconBadge icon={Mail} />
           <div className="space-y-2">
             <Typography variant="title-small" as="h1">
-              Pick a custom subdomain
+              Assistant email
             </Typography>
             <Typography
               variant="body-medium-lighter"
               as="p"
               className="text-[var(--content-secondary)]"
             >
-              You&apos;ll be able to email your assistant at{" "}
-              <span className="font-mono text-[var(--content-default)]">
-                hi@{subdomain || "<subdomain>"}.{emailRootDomain}
-              </span>
+              Set up an email address for your assistant.
             </Typography>
           </div>
         </div>
 
-        <div className="flex items-end gap-2">
-          <Input
-            fullWidth
-            value={subdomain}
-            onChange={(e) =>
-              setSubdomain(e.target.value.toLowerCase().trim())
-            }
-            disabled={busy}
-            placeholder="my-assistant"
-            label="Subdomain"
-          />
+        <div className="space-y-1.5">
           <Typography
-            variant="body-medium-lighter"
-            as="span"
-            className="mb-2.5 whitespace-nowrap text-[var(--content-secondary)]"
+            variant="body-small-default"
+            as="label"
+            className="text-[var(--content-secondary)]"
           >
-            .{emailRootDomain}
+            Email address
           </Typography>
+          <div
+            className="flex h-9 w-full items-center rounded-md border border-[var(--field-border)] bg-[var(--field-bg)] text-body-medium-lighter transition-[border-color] duration-150 focus-within:border-[var(--border-active)]"
+          >
+            <input
+              value={emailUsername}
+              onChange={(e) => setEmailUsername(e.target.value.toLowerCase().trim())}
+              disabled={busy}
+              placeholder="hi"
+              aria-label="Email username"
+              size={Math.max(emailUsername.length, 2)}
+              className="h-full w-0 min-w-[2ch] flex-none bg-transparent pl-3 pr-1.5 text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] outline-none disabled:cursor-not-allowed disabled:opacity-60"
+              style={{ width: `${Math.max(emailUsername.length, 2) + 1.5}ch` }}
+            />
+            <span className="shrink-0 font-mono text-[var(--content-secondary)]">@</span>
+            <input
+              value={subdomain}
+              onChange={(e) => setSubdomain(e.target.value.toLowerCase().trim())}
+              disabled={busy}
+              placeholder="my-assistant"
+              aria-label="Subdomain"
+              className="h-full min-w-0 flex-1 bg-transparent pl-1.5 pr-1 text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] outline-none disabled:cursor-not-allowed disabled:opacity-60"
+            />
+            <span className="shrink-0 pr-3 font-mono text-[var(--content-secondary)]">.{emailRootDomain}</span>
+          </div>
         </div>
 
         <Notice tone="info">
-          This will also become your assistant&apos;s public handle.
+          <span className="font-mono">{subdomain || "<subdomain>"}</span> will also become your assistant&apos;s public handle.
           You won&apos;t be able to change it once set.
         </Notice>
 
