@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
 import { Card } from "@vellum/design-library";
@@ -18,6 +18,11 @@ import { useAuthStore } from "@/stores/auth-store.js";
  * Developer-only page for dry-running the v4 memory router with custom
  * config overrides. Hits the daemon's read-only `simulate_memory_router`
  * route — no writes to the EMA event log or activation logs.
+ *
+ * Two independent result panes share one query input. Each pane carries
+ * its own override fields and runs its own simulation; after both have
+ * run, slugs are color-coded by whether they appear in both panes or
+ * only one.
  *
  * Gated by:
  *   1. The `memoryRouterPlayground` client feature flag (default off).
@@ -42,30 +47,37 @@ export function MemoryRouterPlaygroundPage(): ReactNode {
   return <PlaygroundView />;
 }
 
+type PaneId = "A" | "B";
+
+interface PaneOverrides {
+  tier1: string;
+  tier2: string;
+  batch: string;
+}
+
+const EMPTY_OVERRIDES: PaneOverrides = { tier1: "", tier2: "", batch: "" };
+
 function PlaygroundView(): ReactNode {
   const { assistantId } = useActiveAssistantContext();
-  const mutation = useSimulateMemoryRouter(assistantId);
+  const mutationA = useSimulateMemoryRouter(assistantId);
+  const mutationB = useSimulateMemoryRouter(assistantId);
 
   const [query, setQuery] = useState("");
-  const [tier1Raw, setTier1Raw] = useState("");
-  const [tier2Raw, setTier2Raw] = useState("");
-  const [batchRaw, setBatchRaw] = useState("");
-  const [validationError, setValidationError] = useState<string | null>(null);
+  const [overridesA, setOverridesA] = useState<PaneOverrides>(EMPTY_OVERRIDES);
+  const [overridesB, setOverridesB] = useState<PaneOverrides>(EMPTY_OVERRIDES);
+  const [validationA, setValidationA] = useState<string | null>(null);
+  const [validationB, setValidationB] = useState<string | null>(null);
 
-  const runSimulation = () => {
-    setValidationError(null);
+  const runPane = (pane: PaneId) => {
+    const overrides = pane === "A" ? overridesA : overridesB;
+    const setValidation = pane === "A" ? setValidationA : setValidationB;
+    const mutation = pane === "A" ? mutationA : mutationB;
+    setValidation(null);
     let configOverrides: MemoryRouterSimulateRequest["configOverrides"];
     try {
-      configOverrides = {
-        ...maybeOverride("tier1_size", tier1Raw),
-        ...maybeOverride("tier2_size", tier2Raw),
-        ...maybeOverride("batch_size", batchRaw),
-      };
-      if (Object.keys(configOverrides).length === 0) {
-        configOverrides = undefined;
-      }
+      configOverrides = buildOverrides(overrides);
     } catch (err) {
-      setValidationError(
+      setValidation(
         err instanceof Error ? err.message : "Invalid override input"
       );
       return;
@@ -76,41 +88,80 @@ function PlaygroundView(): ReactNode {
     });
   };
 
-  const canRun = query.trim().length > 0 && !mutation.isPending;
+  const runBoth = () => {
+    runPane("A");
+    runPane("B");
+  };
+
+  const queryReady = query.trim().length > 0;
+  const canRunA = queryReady && !mutationA.isPending;
+  const canRunB = queryReady && !mutationB.isPending;
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-y-auto">
-      <div className="mx-auto flex w-full max-w-[940px] flex-col gap-6 p-6">
+      <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-6 p-6">
         <PageHeader />
-        <InputForm
-          query={query}
-          onQueryChange={setQuery}
-          tier1={tier1Raw}
-          onTier1Change={setTier1Raw}
-          tier2={tier2Raw}
-          onTier2Change={setTier2Raw}
-          batch={batchRaw}
-          onBatchChange={setBatchRaw}
-          onRun={runSimulation}
-          canRun={canRun}
-          isRunning={mutation.isPending}
-        />
-        {validationError !== null && <ErrorBanner message={validationError} />}
-        {mutation.isError && (
-          <ErrorBanner
-            message={
-              mutation.error instanceof Error
-                ? mutation.error.message
-                : "Failed to run simulation"
-            }
+        <QuerySection query={query} onChange={setQuery} />
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <PaneConfigForm
+            paneId="A"
+            overrides={overridesA}
+            onChange={setOverridesA}
+            onRun={() => runPane("A")}
+            canRun={canRunA}
+            isRunning={mutationA.isPending}
           />
-        )}
-        {mutation.data !== undefined && (
-          <ResultPanel result={mutation.data} query={query} />
-        )}
+          <PaneConfigForm
+            paneId="B"
+            overrides={overridesB}
+            onChange={setOverridesB}
+            onRun={() => runPane("B")}
+            canRun={canRunB}
+            isRunning={mutationB.isPending}
+          />
+        </div>
+        <div className="flex justify-end">
+          <RunBothButton
+            onClick={runBoth}
+            disabled={!queryReady || mutationA.isPending || mutationB.isPending}
+            isRunning={mutationA.isPending || mutationB.isPending}
+          />
+        </div>
+        <DiffLegend
+          visible={mutationA.data !== undefined && mutationB.data !== undefined}
+        />
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <PaneOutputColumn
+            paneId="A"
+            query={query}
+            mutation={mutationA}
+            otherResult={mutationB.data}
+            validation={validationA}
+          />
+          <PaneOutputColumn
+            paneId="B"
+            query={query}
+            mutation={mutationB}
+            otherResult={mutationA.data}
+            validation={validationB}
+          />
+        </div>
       </div>
     </div>
   );
+}
+
+// ── Input helpers ──────────────────────────────────────────────────────────
+
+function buildOverrides(
+  overrides: PaneOverrides
+): MemoryRouterSimulateRequest["configOverrides"] {
+  const merged = {
+    ...maybeOverride("tier1_size", overrides.tier1),
+    ...maybeOverride("tier2_size", overrides.tier2),
+    ...maybeOverride("batch_size", overrides.batch),
+  };
+  return Object.keys(merged).length === 0 ? undefined : merged;
 }
 
 function maybeOverride(
@@ -128,6 +179,8 @@ function maybeOverride(
   }
   return { [fieldName]: parsed };
 }
+
+// ── Layout components ──────────────────────────────────────────────────────
 
 function PageHeader(): ReactNode {
   return (
@@ -152,27 +205,53 @@ function PageHeader(): ReactNode {
   );
 }
 
-function InputForm({
+function QuerySection({
   query,
-  onQueryChange,
-  tier1,
-  onTier1Change,
-  tier2,
-  onTier2Change,
-  batch,
-  onBatchChange,
+  onChange,
+}: {
+  query: string;
+  onChange: (value: string) => void;
+}): ReactNode {
+  return (
+    <Card>
+      <div className="flex flex-col gap-1 p-4">
+        <label
+          htmlFor="memory-router-playground-query"
+          className="text-label-default"
+          style={{ color: "var(--content-secondary)" }}
+        >
+          Query (shared by both panes)
+        </label>
+        <textarea
+          id="memory-router-playground-query"
+          value={query}
+          onChange={(e) => onChange(e.target.value)}
+          rows={3}
+          placeholder="e.g. what should we ship next"
+          className="rounded-md border px-3 py-2 text-body-medium-default"
+          style={{
+            borderColor: "var(--border-base)",
+            background: "var(--surface-base)",
+            color: "var(--content-default)",
+            resize: "vertical",
+          }}
+        />
+      </div>
+    </Card>
+  );
+}
+
+function PaneConfigForm({
+  paneId,
+  overrides,
+  onChange,
   onRun,
   canRun,
   isRunning,
 }: {
-  query: string;
-  onQueryChange: (value: string) => void;
-  tier1: string;
-  onTier1Change: (value: string) => void;
-  tier2: string;
-  onTier2Change: (value: string) => void;
-  batch: string;
-  onBatchChange: (value: string) => void;
+  paneId: PaneId;
+  overrides: PaneOverrides;
+  onChange: (next: PaneOverrides) => void;
   onRun: () => void;
   canRun: boolean;
   isRunning: boolean;
@@ -180,44 +259,30 @@ function InputForm({
   return (
     <Card>
       <div className="flex flex-col gap-4 p-4">
-        <div className="flex flex-col gap-1">
-          <label
-            htmlFor="memory-router-playground-query"
-            className="text-label-default"
-            style={{ color: "var(--content-secondary)" }}
-          >
-            Query
-          </label>
-          <textarea
-            id="memory-router-playground-query"
-            value={query}
-            onChange={(e) => onQueryChange(e.target.value)}
-            rows={3}
-            placeholder="e.g. what should we ship next"
-            className="rounded-md border px-3 py-2 text-body-medium-default"
-            style={{
-              borderColor: "var(--border-base)",
-              background: "var(--surface-base)",
-              color: "var(--content-default)",
-              resize: "vertical",
-            }}
-          />
+        <div
+          className="text-body-medium-default"
+          style={{ color: paneAccentColor(paneId) }}
+        >
+          Config {paneId}
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <OverrideInput
+            paneId={paneId}
             label="tier1_size"
-            value={tier1}
-            onChange={onTier1Change}
+            value={overrides.tier1}
+            onChange={(v) => onChange({ ...overrides, tier1: v })}
           />
           <OverrideInput
+            paneId={paneId}
             label="tier2_size"
-            value={tier2}
-            onChange={onTier2Change}
+            value={overrides.tier2}
+            onChange={(v) => onChange({ ...overrides, tier2: v })}
           />
           <OverrideInput
+            paneId={paneId}
             label="batch_size"
-            value={batch}
-            onChange={onBatchChange}
+            value={overrides.batch}
+            onChange={(v) => onChange({ ...overrides, batch: v })}
           />
         </div>
         <div className="flex justify-end">
@@ -237,7 +302,7 @@ function InputForm({
               cursor: canRun ? "pointer" : "not-allowed",
             }}
           >
-            {isRunning ? "Running…" : "Run simulation"}
+            {isRunning ? "Running…" : `Run ${paneId}`}
           </button>
         </div>
       </div>
@@ -246,25 +311,28 @@ function InputForm({
 }
 
 function OverrideInput({
+  paneId,
   label,
   value,
   onChange,
 }: {
+  paneId: PaneId;
   label: string;
   value: string;
   onChange: (value: string) => void;
 }): ReactNode {
+  const inputId = `memory-router-playground-${paneId}-${label}`;
   return (
     <div className="flex flex-col gap-1">
       <label
-        htmlFor={`memory-router-playground-${label}`}
+        htmlFor={inputId}
         className="text-label-default"
         style={{ color: "var(--content-secondary)" }}
       >
         {label}
       </label>
       <input
-        id={`memory-router-playground-${label}`}
+        id={inputId}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder="inherit"
@@ -279,17 +347,159 @@ function OverrideInput({
   );
 }
 
-function ResultPanel({
-  result,
-  query,
+function RunBothButton({
+  onClick,
+  disabled,
+  isRunning,
 }: {
-  result: MemoryRouterSimulateResponse;
-  query: string;
+  onClick: () => void;
+  disabled: boolean;
+  isRunning: boolean;
 }): ReactNode {
-  const groups = groupSlugsBySource(result);
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="rounded-md px-4 py-2 text-body-medium-default transition-colors"
+      style={{
+        background: disabled ? "var(--surface-overlay)" : "var(--primary-base)",
+        color: disabled
+          ? "var(--content-disabled)"
+          : "var(--content-on-primary)",
+        border: "none",
+        cursor: disabled ? "not-allowed" : "pointer",
+      }}
+    >
+      {isRunning ? "Running…" : "Run both"}
+    </button>
+  );
+}
+
+function DiffLegend({ visible }: { visible: boolean }): ReactNode {
+  if (!visible) return null;
+  return (
+    <div
+      className="flex flex-wrap items-center gap-4 rounded-md px-4 py-2 text-label-default"
+      style={{
+        background: "var(--surface-overlay)",
+        color: "var(--content-secondary)",
+      }}
+    >
+      <LegendItem
+        marker="●"
+        markerColor="var(--content-default)"
+        label="in both"
+      />
+      <LegendItem
+        marker="◆"
+        markerColor={paneAccentColor("A")}
+        label="A only"
+      />
+      <LegendItem
+        marker="◇"
+        markerColor={paneAccentColor("B")}
+        label="B only"
+      />
+    </div>
+  );
+}
+
+function LegendItem({
+  marker,
+  markerColor,
+  label,
+}: {
+  marker: string;
+  markerColor: string;
+  label: string;
+}): ReactNode {
+  return (
+    <span className="flex items-center gap-1">
+      <span style={{ color: markerColor }}>{marker}</span>
+      <span>{label}</span>
+    </span>
+  );
+}
+
+// ── Result rendering ───────────────────────────────────────────────────────
+
+type SlugDiff = "both" | "only-here";
+
+function PaneOutputColumn({
+  paneId,
+  query,
+  mutation,
+  otherResult,
+  validation,
+}: {
+  paneId: PaneId;
+  query: string;
+  mutation: ReturnType<typeof useSimulateMemoryRouter>;
+  otherResult: MemoryRouterSimulateResponse | undefined;
+  validation: string | null;
+}): ReactNode {
+  return (
+    <div className="flex flex-col gap-3">
+      <PaneHeader paneId={paneId} />
+      {validation !== null && <ErrorBanner message={validation} />}
+      {mutation.isError && (
+        <ErrorBanner
+          message={
+            mutation.error instanceof Error
+              ? mutation.error.message
+              : "Failed to run simulation"
+          }
+        />
+      )}
+      {mutation.data !== undefined && (
+        <ResultPanel
+          paneId={paneId}
+          query={query}
+          result={mutation.data}
+          otherResult={otherResult}
+        />
+      )}
+    </div>
+  );
+}
+
+function PaneHeader({ paneId }: { paneId: PaneId }): ReactNode {
+  return (
+    <div
+      className="text-body-medium-default"
+      style={{ color: paneAccentColor(paneId) }}
+    >
+      Pane {paneId}
+    </div>
+  );
+}
+
+function ResultPanel({
+  paneId,
+  query,
+  result,
+  otherResult,
+}: {
+  paneId: PaneId;
+  query: string;
+  result: MemoryRouterSimulateResponse;
+  otherResult: MemoryRouterSimulateResponse | undefined;
+}): ReactNode {
+  const diff = useMemo(() => classifySlugs(result, otherResult), [
+    result,
+    otherResult,
+  ]);
+  const groups = useMemo(() => groupSlugsBySource(result), [result]);
+  const counts = useMemo(() => countDiff(diff), [diff]);
   return (
     <div className="flex flex-col gap-4">
-      <SummaryCard result={result} query={query} />
+      <SummaryCard
+        result={result}
+        query={query}
+        otherResult={otherResult}
+        counts={counts}
+      />
       <ConfigCard result={result} />
       {result.failureReason !== null && (
         <ErrorBanner message={`Router failure: ${result.failureReason}`} />
@@ -300,9 +510,11 @@ function ResultPanel({
         groups.map((group) => (
           <TierSectionCard
             key={group.source}
+            paneId={paneId}
             source={group.source}
             slugs={group.slugs}
             scores={result.scores}
+            diff={diff}
           />
         ))
       )}
@@ -310,13 +522,66 @@ function ResultPanel({
   );
 }
 
+function classifySlugs(
+  own: MemoryRouterSimulateResponse,
+  other: MemoryRouterSimulateResponse | undefined
+): Map<string, SlugDiff> {
+  const out = new Map<string, SlugDiff>();
+  if (other === undefined) {
+    for (const slug of own.selectedSlugs) out.set(slug, "both");
+    return out;
+  }
+  const otherSet = new Set(other.selectedSlugs);
+  for (const slug of own.selectedSlugs) {
+    out.set(slug, otherSet.has(slug) ? "both" : "only-here");
+  }
+  return out;
+}
+
+interface DiffCounts {
+  total: number;
+  shared: number;
+  unique: number;
+}
+
+function countDiff(diff: Map<string, SlugDiff>): DiffCounts {
+  let shared = 0;
+  let unique = 0;
+  for (const cls of diff.values()) {
+    if (cls === "both") shared++;
+    else unique++;
+  }
+  return { total: diff.size, shared, unique };
+}
+
 function SummaryCard({
   result,
   query,
+  otherResult,
+  counts,
 }: {
   result: MemoryRouterSimulateResponse;
   query: string;
+  otherResult: MemoryRouterSimulateResponse | undefined;
+  counts: DiffCounts;
 }): ReactNode {
+  const rows: Array<{ label: string; value: string }> = [
+    { label: "Query", value: query },
+    {
+      label: "Total candidate pages",
+      value: result.totalCandidatePages.toLocaleString(),
+    },
+    {
+      label: "Selected",
+      value: `${result.selectedSlugs.length} / ${result.effectiveConfig.max_page_ids}`,
+    },
+  ];
+  if (otherResult !== undefined) {
+    rows.push({
+      label: "Diff",
+      value: `${counts.shared} shared · ${counts.unique} unique to this pane`,
+    });
+  }
   return (
     <Card>
       <div className="flex flex-col gap-3 p-4">
@@ -326,19 +591,7 @@ function SummaryCard({
         >
           Summary
         </span>
-        <MetaGrid
-          rows={[
-            { label: "Query", value: query },
-            {
-              label: "Total candidate pages",
-              value: result.totalCandidatePages.toLocaleString(),
-            },
-            {
-              label: "Selected",
-              value: `${result.selectedSlugs.length} / ${result.effectiveConfig.max_page_ids}`,
-            },
-          ]}
-        />
+        <MetaGrid rows={rows} />
       </div>
     </Card>
   );
@@ -423,14 +676,35 @@ function formatSourceLabel(source: RouterSource): string {
   return source;
 }
 
+function paneAccentColor(paneId: PaneId): string {
+  return paneId === "A" ? "var(--system-mid-strong)" : "var(--primary-base)";
+}
+
+function slugStyle(
+  paneId: PaneId,
+  diff: SlugDiff
+): { color: string; marker: string } {
+  if (diff === "both") {
+    return { color: "var(--content-default)", marker: "●" };
+  }
+  return {
+    color: paneAccentColor(paneId),
+    marker: paneId === "A" ? "◆" : "◇",
+  };
+}
+
 function TierSectionCard({
+  paneId,
   source,
   slugs,
   scores,
+  diff,
 }: {
+  paneId: PaneId;
   source: RouterSource;
   slugs: string[];
   scores: Record<string, number>;
+  diff: Map<string, SlugDiff>;
 }): ReactNode {
   return (
     <Card>
@@ -450,27 +724,31 @@ function TierSectionCard({
           </span>
         </div>
         <ul className="flex flex-col gap-1">
-          {slugs.map((slug) => (
-            <li
-              key={slug}
-              className="flex items-baseline justify-between gap-3"
-            >
-              <code
-                className="text-body-medium-default"
-                style={{ color: "var(--content-default)" }}
+          {slugs.map((slug) => {
+            const slugClass = diff.get(slug) ?? "only-here";
+            const { color, marker } = slugStyle(paneId, slugClass);
+            return (
+              <li
+                key={slug}
+                className="flex items-baseline justify-between gap-3"
               >
-                {slug}
-              </code>
-              {source === "tier2" && (
-                <span
-                  className="tabular-nums text-label-default"
-                  style={{ color: "var(--content-secondary)" }}
-                >
-                  EMA {(scores[slug] ?? 0).toFixed(3)}
+                <span className="flex items-baseline gap-2">
+                  <span style={{ color }}>{marker}</span>
+                  <code className="text-body-medium-default" style={{ color }}>
+                    {slug}
+                  </code>
                 </span>
-              )}
-            </li>
-          ))}
+                {source === "tier2" && (
+                  <span
+                    className="tabular-nums text-label-default"
+                    style={{ color: "var(--content-secondary)" }}
+                  >
+                    EMA {(scores[slug] ?? 0).toFixed(3)}
+                  </span>
+                )}
+              </li>
+            );
+          })}
         </ul>
       </div>
     </Card>
