@@ -351,7 +351,7 @@
       "key": "query-complexity-routing",
       "label": "Query Complexity Routing",
       "description": "Automatically route user messages to the most appropriate inference profile based on query complexity. Simple queries use the speed profile, complex queries escalate to the quality profile. The user is notified of each switch and can opt out by pinning a profile on the conversation.",
-      "defaultEnabled": true
+      "defaultEnabled": false
     },
     {
       "id": "queue-steering",
