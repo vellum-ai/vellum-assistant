@@ -31,6 +31,7 @@ import { QuestionPromptCard } from "@/domains/chat/components/question-prompt-ca
 import { SecretPromptCard } from "@/domains/chat/components/secret-prompt-card.js";
 import { usePullRefresh } from "@/domains/chat/hooks/use-pull-refresh.js";
 import { useRefreshLatestMessages as _useRefreshLatestMessages } from "@/domains/chat/hooks/use-refresh-latest-messages.js";
+import { useConversationStarters } from "@/domains/chat/hooks/use-conversation-starters.js";
 import type { TranscriptHandle, TranscriptProps } from "@/domains/chat/transcript/transcript.js";
 import { useTranscriptScroll } from "@/domains/chat/transcript/use-transcript-scroll.js";
 import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat-utils.js";
@@ -59,7 +60,6 @@ import { useOnboardingChoice } from "@/domains/chat/hooks/use-onboarding-choice.
 import { useIsNativePlatform } from "@/runtime/native-auth.js";
 
 import { Link } from "react-router";
-import type { ConversationStarter } from "@/domains/chat/utils/conversation-starters.js";
 
 import { buildEditAppGreeting, buildEditAppStarters } from "@/domains/chat/utils/edit-app-empty-state.js";
 import { pickRandomPlaceholder } from "@/domains/chat/utils/empty-state-constants.js";
@@ -282,9 +282,6 @@ export interface ChatRouteContentProps {
   // Avatar
   avatar: AvatarData;
 
-  // Starters
-  conversationStarters: ConversationStarter[];
-
   // Context window
   contextWindowUsage: ContextWindowUsage | null;
 
@@ -400,7 +397,6 @@ export function ChatRouteContent({
   saveDraft,
   clearDraft,
   avatar,
-  conversationStarters,
   contextWindowUsage,
   compactionCircuitOpenUntil,
   setCompactionCircuitOpenUntil,
@@ -506,6 +502,11 @@ export function ChatRouteContent({
 
     reconcileAfterNextStreamOpenRef: _reconcileAfterNextStreamOpenRef,
   } = refs;
+
+  // -------------------------------------------------------------------------
+  // Conversation starters (only needed for chat empty-state)
+  // -------------------------------------------------------------------------
+  const { starters: conversationStarters } = useConversationStarters(assistantId);
 
   // -------------------------------------------------------------------------
   // Turn state (read from Zustand store)
