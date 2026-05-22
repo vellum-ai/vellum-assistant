@@ -34,10 +34,9 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
   let shuttingDown = false;
   let exitCode = 0;
 
-  const shutdown = async (signal?: NodeJS.Signals) => {
+  const shutdown = async (_signal?: NodeJS.Signals) => {
     if (shuttingDown) return;
     shuttingDown = true;
-    log.warn({ signal: signal ?? "unknown" }, "Daemon shutdown initiated");
 
     // Force exit if graceful shutdown takes too long.
     // Set this BEFORE awaiting heartbeat stop so it covers all
@@ -156,9 +155,29 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     process.exit(exitCode);
   };
 
-  for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {
-    process.on(sig, () => shutdown(sig));
-  }
+  process.on("SIGTERM", () => {
+    log.warn(
+      { signal: "SIGTERM", pid: process.pid, uptime: process.uptime() },
+      "Received SIGTERM — process termination requested",
+    );
+    void shutdown("SIGTERM");
+  });
+
+  process.on("SIGINT", () => {
+    log.warn(
+      { signal: "SIGINT", pid: process.pid, uptime: process.uptime() },
+      "Received SIGINT — user interrupt",
+    );
+    void shutdown("SIGINT");
+  });
+
+  process.on("SIGHUP", () => {
+    log.warn(
+      { signal: "SIGHUP", pid: process.pid, uptime: process.uptime() },
+      "Received SIGHUP — terminal hangup",
+    );
+    void shutdown("SIGHUP");
+  });
 
   process.on("unhandledRejection", (reason) => {
     log.error(
