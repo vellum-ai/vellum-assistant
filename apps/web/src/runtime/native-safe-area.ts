@@ -34,8 +34,12 @@ export async function initSafeAreaBridge(): Promise<void> {
   try {
     const { SafeArea } = await import("capacitor-plugin-safe-area");
 
-    const { insets } = await SafeArea.getSafeAreaInsets();
-    applyInsets(insets);
+    try {
+      const { insets } = await SafeArea.getSafeAreaInsets();
+      applyInsets(insets);
+    } catch {
+      // Initial read failed — listener below may still deliver insets.
+    }
 
     await SafeArea.addListener("safeAreaChanged", ({ insets: next }) => {
       applyInsets(next);
