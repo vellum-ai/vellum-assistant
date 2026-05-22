@@ -53,20 +53,15 @@ Note: `user_token` is optional. Missing `user_token` is **not** blocking — set
 
 ## Step 1: Create Slack App (One-Click)
 
-Generate the manifest creation URL immediately. Do not ask the user to confirm the Slack bot name or description first.
-
-Infer the Slack app identity yourself before running the manifest generator:
-
-- Bot name: use your actual assigned name if you have it already; otherwise encourage the user to assign you a name first. 
-- Description: use `{guardianName}'s Assistant`, where `{guardianName}` is the guardian/user name from the current user context / `users/default.md`.
+Ask the user what they'd like to name their Slack bot and optionally provide a short description. Then generate the manifest creation URL.
 
 **MANDATORY — you MUST run the script below to build the manifest URL.** Do NOT write your own manifest. Do NOT show YAML or JSON to the user. Do NOT tell the user to paste a manifest. The script contains the complete, correct manifest with all required scopes, event subscriptions, and socket mode settings. Running it produces a single pre-filled URL that creates the app with everything configured.
 
-Run this `bash` command, replacing `<inferred_bot_name>` and `<inferred_description>` with the values you inferred above:
+Run this `bash` command, replacing `<user_name>` and `<user_description>` with the user's chosen values:
 
 ```
 bash {
-  command: "bun skills/slack-app-setup/generate-manifest-url.ts '<inferred_bot_name>' '<inferred_description>'"
+  command: "bun skills/slack-app-setup/generate-manifest-url.ts '<user_name>' '<user_description>'"
   activity: "to generate the Slack app manifest link"
 }
 ```
