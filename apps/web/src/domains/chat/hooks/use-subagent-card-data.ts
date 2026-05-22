@@ -227,11 +227,10 @@ export function computeSubagentCardData(
     currentStepInfo,
     stepCount,
     steps,
-    // Subagent cards don't use the web-search carousel or the
-    // leading-icon slot exposed by `ToolCallCardData`. The inline
-    // renderer slots its own `SubagentAvatarChip` into the shell.
+    // Subagent cards don't use the web-search carousel — the inline
+    // renderer slots its own `SubagentAvatarChip` into the shell via
+    // `ToolProgressCardShell.leadingIcon` directly.
     carouselItems: [],
-    leadingIcon: null,
   };
 }
 

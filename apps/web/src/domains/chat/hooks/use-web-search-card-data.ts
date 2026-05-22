@@ -57,7 +57,6 @@ export { formatMs, WEB_TOOL_NAMES };
  * `ToolCallCardData` field-for-field but:
  *   - `steps` is the narrower `StepDescriptor[]` (no `tool` variant).
  *   - `state` is narrower (`"loading" | "complete"` only).
- *   - `leadingIcon` is omitted (web-only path never sets it).
  */
 export interface WebSearchCardData {
   currentStepTitle: string;

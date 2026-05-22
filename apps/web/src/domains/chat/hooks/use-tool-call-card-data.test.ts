@@ -287,13 +287,67 @@ describe("computeToolCallCardData — state transitions", () => {
   });
 });
 
-describe("computeToolCallCardData — leadingIcon", () => {
-  test("leadingIcon is null for non-subagent groups (PR 7 will populate)", () => {
+describe("computeToolCallCardData — subagent_spawn filtering", () => {
+  test("a subagent_spawn-only group produces zero steps", () => {
+    // Inline `SubagentInlineProgressCard` renders the spawned subagent
+    // at the transcript level — surfacing a step inside the unified card
+    // would render the spawn twice.
     const toolCalls = [
-      makeToolCall({ id: "tc-1", toolName: "bash", status: "completed" }),
+      makeToolCall({
+        id: "tc-1",
+        toolName: "subagent_spawn",
+        status: "running",
+        input: { label: "Investigate logs" },
+      }),
     ];
     const data = computeToolCallCardData(toolCalls, {}, null);
-    expect(data.leadingIcon).toBeNull();
+    expect(data.steps).toHaveLength(0);
+    expect(data.stepCount).toBe("0 steps");
+  });
+
+  test("multiple subagent_spawn calls in one group still produce zero steps", () => {
+    // Multi-spawn used to slip past the dispatcher's `length === 1` guard
+    // and render "Spawning subagent" rows inside the unified card alongside
+    // the inline cards — a double render.
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        toolName: "subagent_spawn",
+        status: "running",
+        input: { label: "First" },
+      }),
+      makeToolCall({
+        id: "tc-2",
+        toolName: "subagent_spawn",
+        status: "running",
+        input: { label: "Second" },
+      }),
+    ];
+    const data = computeToolCallCardData(toolCalls, {}, null);
+    expect(data.steps).toHaveLength(0);
+  });
+
+  test("mixed group keeps non-subagent_spawn steps and drops the spawn", () => {
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        toolName: "subagent_spawn",
+        status: "running",
+        input: { label: "Investigate" },
+      }),
+      makeToolCall({
+        id: "tc-2",
+        toolName: "bash",
+        status: "running",
+        input: { command: "ls" },
+      }),
+    ];
+    const data = computeToolCallCardData(toolCalls, {}, null);
+    expect(data.steps).toHaveLength(1);
+    expect(data.steps[0]!.kind).toBe("tool");
+    // Header derivation also ignores the filtered spawn so the carousel
+    // reflects only the bash call.
+    expect(data.currentStepTitle).toBe("Working (bash)");
   });
 });
 
