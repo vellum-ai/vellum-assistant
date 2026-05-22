@@ -36,6 +36,7 @@ import {
   updateMetaFile,
 } from "../memory/conversation-disk-view.js";
 import {
+  buildSlackTimezoneMetadata,
   type SlackMessageMetadata,
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
@@ -267,11 +268,6 @@ export function buildSlackMetaForPersistence(params: {
   ) {
     return null;
   }
-  const actorTimezoneOffsetSeconds =
-    typeof candidate.actorTimezoneOffsetSeconds === "number" &&
-    Number.isFinite(candidate.actorTimezoneOffsetSeconds)
-      ? candidate.actorTimezoneOffsetSeconds
-      : undefined;
   const slackMeta: SlackMessageMetadata = {
     source: "slack",
     channelId: candidate.channelId,
@@ -283,24 +279,7 @@ export function buildSlackMetaForPersistence(params: {
     ...(candidate.actorExternalUserId
       ? { actorExternalUserId: candidate.actorExternalUserId }
       : {}),
-    ...(candidate.actorTimezone
-      ? { actorTimezone: candidate.actorTimezone }
-      : {}),
-    ...(candidate.actorTimezoneLabel
-      ? { actorTimezoneLabel: candidate.actorTimezoneLabel }
-      : {}),
-    ...(actorTimezoneOffsetSeconds !== undefined
-      ? { actorTimezoneOffsetSeconds }
-      : {}),
-    ...(candidate.timestampTimezone
-      ? { timestampTimezone: candidate.timestampTimezone }
-      : {}),
-    ...(candidate.timestampTimezoneLabel
-      ? { timestampTimezoneLabel: candidate.timestampTimezoneLabel }
-      : {}),
-    ...(candidate.speakerTimezoneLabel
-      ? { speakerTimezoneLabel: candidate.speakerTimezoneLabel }
-      : {}),
+    ...buildSlackTimezoneMetadata(candidate),
   };
   return writeSlackMetadata(slackMeta);
 }
