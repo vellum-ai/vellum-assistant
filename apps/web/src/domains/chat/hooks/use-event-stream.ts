@@ -304,6 +304,24 @@ export function useEventStream({
             const reconcileResult =
               syncReconnectResult?.activeConversationMessages ??
               (await reconcileActiveConversationRef.current());
+            // Stale-epoch guard: two close-together reopens can race —
+            // if a newer sse.opened has bumped the epoch while we were
+            // awaiting, this completion is for a superseded epoch and
+            // must not touch the reconciliation loop or emit Sentry
+            // diagnostics that would mislead the rescue metric.
+            // Without this, calling startReconciliationLoop(staleEpoch)
+            // would cancel the newer loop and then exit as stale,
+            // leaving no active loop running.
+            if (epoch !== streamEpochRef.current) {
+              recordChatDiagnostic("sse_post_reconnect_stale", {
+                assistantId: capturedAssistantId,
+                conversationKey: capturedConversationKey,
+                epoch,
+                currentEpoch: streamEpochRef.current,
+                cause,
+              });
+              return;
+            }
             startReconciliationLoopRef.current(epoch);
             if (cause !== "watchdog") return;
             const latencyMs = Date.now() - startedAt;

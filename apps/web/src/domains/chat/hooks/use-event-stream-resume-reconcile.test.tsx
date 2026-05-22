@@ -162,4 +162,70 @@ describe("useEventStream — sse.opened reconcile triggers", () => {
     });
     expect(reconcile).not.toHaveBeenCalled();
   });
+
+  test("does not restart the reconciliation loop with a stale epoch when two watchdog reopens race", async () => {
+    // Regression: two close-together cause="watchdog" reopens each
+    // launch their own async IIFE. If the older one's reconcile
+    // resolves last, it would call startReconciliationLoop(staleEpoch)
+    // — and startReconciliationLoop's first action is
+    // cancelReconciliation(), which would kill the newer loop and
+    // then exit the older loop as stale, leaving NO active loop.
+    let resolveFirst!: (value: {
+      changed: boolean;
+      messagesAdded: number;
+      assistantProgress: boolean;
+    }) => void;
+    let resolveSecond!: (value: {
+      changed: boolean;
+      messagesAdded: number;
+      assistantProgress: boolean;
+    }) => void;
+    let reconcileCalls = 0;
+    const reconcile = mock(() => {
+      reconcileCalls += 1;
+      return new Promise<{
+        changed: boolean;
+        messagesAdded: number;
+        assistantProgress: boolean;
+      }>((resolve) => {
+        if (reconcileCalls === 1) {
+          resolveFirst = resolve;
+        } else {
+          resolveSecond = resolve;
+        }
+      });
+    });
+    const startReconciliationLoop = mock((_epoch: number) => {});
+    renderEventStream({
+      activeConversationKey: "conv-A",
+      reconcileActiveConversation: reconcile as never,
+      startReconciliationLoop,
+    });
+
+    // First reopen — bumps epoch, launches async IIFE.
+    useEventBusStore.getState().publish("sse.opened", {
+      assistantId: "asst-1",
+      cause: "watchdog",
+    });
+    // Second reopen — bumps epoch again, launches another async IIFE.
+    useEventBusStore.getState().publish("sse.opened", {
+      assistantId: "asst-1",
+      cause: "watchdog",
+    });
+
+    // Drain microtasks so both IIFEs reach the
+    // reconcileActiveConversation await and assign the resolvers.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // The newer (second) reconcile resolves first.
+    resolveSecond({ changed: true, messagesAdded: 1, assistantProgress: true });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // The older (first) reconcile resolves second — its epoch is now
+    // stale and the stale-epoch guard must skip startReconciliationLoop.
+    resolveFirst({ changed: false, messagesAdded: 0, assistantProgress: false });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // Loop is started exactly once — by the newer epoch only.
+    expect(startReconciliationLoop).toHaveBeenCalledTimes(1);
+  });
 });
