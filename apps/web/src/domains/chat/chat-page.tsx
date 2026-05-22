@@ -648,20 +648,29 @@ export function ChatPage() {
     void sendMessage(prompt);
   }, [searchParams, activeConversationKey, sendMessage]);
 
-  // Auto-send onboarding initial message once the conversation is ready.
-  // Peek at sessionStorage without consuming — only clear after the send
-  // Auto-send onboarding initial message — matches the ?prompt= pattern
-  // above (no reachability gate). sendMessage and the streaming layer
-  // handle unreachable state internally.
+  // Kick off a background reachability probe immediately when a pending
+  // onboarding message exists, instead of waiting for a 502 from
+  // getChatContext to trigger the unreachable-bus.
+  useEffect(() => {
+    if (!assistantId) return;
+    const message = peekPendingInitialMessage();
+    if (!message) return;
+    if (reachability.state.phase === "idle") {
+      reachability.probe({ mode: "background" });
+    }
+  }, [assistantId, reachability]);
+
+  // Auto-send onboarding initial message once the daemon is reachable.
   const initialMessageConsumedRef = useRef(false);
   useEffect(() => {
     if (initialMessageConsumedRef.current || !assistantId || !activeConversationKey) return;
+    if (reachability.state.phase !== "ready") return;
     const message = peekPendingInitialMessage();
     if (!message) return;
     initialMessageConsumedRef.current = true;
     clearPendingInitialMessage();
     void sendMessage(message);
-  }, [activeConversationKey, assistantId, sendMessage]);
+  }, [activeConversationKey, assistantId, reachability.state.phase, sendMessage]);
 
   // Derive onboardingTasksEmpty from the pending context in sessionStorage.
   // Runs once on mount — if initial message key is present, this is an
