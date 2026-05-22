@@ -5058,6 +5058,57 @@ paths:
                 includeArchived:
                   type: boolean
               additionalProperties: false
+  /v1/conversations/cli/slack/detach:
+    post:
+      operationId: conversations_cli_slack_detach_post
+      summary: Detach the assistant from a Slack thread (CLI)
+      description: Stops Slack active-thread listening for a Slack thread. The CLI resolves current conversation defaults.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detached:
+                    type: boolean
+                  channelId:
+                    type: string
+                  threadTs:
+                    type: string
+                  source:
+                    type: string
+                    enum:
+                      - explicit
+                      - conversation_binding
+                  conversationId:
+                    type: string
+                required:
+                  - detached
+                  - channelId
+                  - threadTs
+                  - source
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversationId:
+                  type: string
+                  minLength: 1
+                channelId:
+                  type: string
+                  minLength: 1
+                threadTs:
+                  type: string
+                  minLength: 1
+              additionalProperties: false
   /v1/conversations/fork:
     post:
       operationId: conversations_fork_post
