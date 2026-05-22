@@ -43,7 +43,7 @@ import type { TranscriptHandle } from "@/domains/chat/transcript/transcript.js";
 import type { TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
 import { buildTranscriptItems } from "@/domains/chat/transcript/build-items.js";
 import { getThinkingStatusText, shouldShowThinkingIndicator, type UIContext } from "@/domains/messaging/turn-selectors.js";
-import { consumePendingPreChatContext, type PreChatOnboardingContext } from "@/domains/onboarding/prechat.js";
+import { consumePendingInitialMessage, consumePendingPreChatContext, type PreChatOnboardingContext } from "@/domains/onboarding/prechat.js";
 import { createDraftConversationKey } from "@/domains/chat/utils/conversation-selection.js";
 import type { WebSyncRouter } from "@/lib/sync/web-sync-router.js";
 import type { SyncChangedEvent } from "@/lib/sync/types.js";
@@ -663,12 +663,17 @@ export function ChatPage() {
     void sendMessage(prompt);
   }, [searchParams, activeConversationKey, sendMessage]);
 
-  // Auto-send onboarding initial message once the draft conversation is ready
+  // Auto-send onboarding initial message once the conversation is ready.
+  // The message is read from sessionStorage (not a ref) because ChatPage
+  // unmounts and remounts during the onboarding redirect (index route →
+  // /conversations/:key), which resets all refs.
+  const initialMessageConsumedRef = useRef(false);
   useEffect(() => {
-    const pending = pendingOnboardingInitialMessageRef.current;
-    if (!pending || !assistantId || activeConversationKey !== pending.conversationKey) return;
-    pendingOnboardingInitialMessageRef.current = null;
-    void sendMessage(pending.content);
+    if (initialMessageConsumedRef.current || !assistantId || !activeConversationKey) return;
+    const message = consumePendingInitialMessage();
+    if (!message) return;
+    initialMessageConsumedRef.current = true;
+    void sendMessage(message);
   }, [activeConversationKey, assistantId, sendMessage]);
 
   // Deep-link: ?app=<id> auto-opens the app viewer on initial load.
