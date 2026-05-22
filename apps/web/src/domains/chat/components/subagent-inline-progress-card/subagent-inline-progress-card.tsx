@@ -1,0 +1,175 @@
+/**
+ * Inline subagent progress card rendered per-subagent in the assistant
+ * transcript. Built on `ToolProgressCardShell` with the
+ * `SubagentAvatarChip` slotted into the leading-icon slot per
+ * Figma node `4922-103839`.
+ *
+ * Subscribes to the subagent store via `useSubagentCardData(subagentId)`.
+ * Returns `null` when the entry isn't in the store yet — handles the
+ * spawn race where the assistant message containing the inline card
+ * mounts a hair before the `subagent_spawned` SSE event lands. PR 8
+ * wires this into the transcript; this PR ships the component standalone.
+ *
+ * Interaction model:
+ *   - Clicking the card header expands/collapses the body inline (the
+ *     shell's default behaviour).
+ *   - The "open" affordance in the right rail opens the subagent's full
+ *     timeline panel via `onSubagentClick` — matches the existing
+ *     `SubagentProgressCard` interaction so users with deep timelines
+ *     keep the side-panel route. We keep both behaviours per the PR
+ *     plan so users don't lose the panel during the inline-card rollout.
+ *   - Stop is exposed via `onStopSubagent`; the shell renders a small
+ *     stop chip in the right rail next to the open button while the
+ *     subagent is in-flight.
+ */
+
+import { ExternalLink, Square } from "lucide-react";
+import { useCallback, type MouseEvent } from "react";
+
+import { Typography } from "@vellum/design-library";
+
+import { SubagentAvatarChip } from "@/domains/avatar/subagent-avatar-chip.js";
+import { ThinkingChip } from "@/domains/chat/components/web-search/thinking-chip.js";
+import { StepRow } from "@/domains/chat/components/web-search/step-row.js";
+import { ToolProgressCardShell } from "@/domains/chat/components/tool-progress-card/tool-progress-card-shell.js";
+import { useSubagentCardData } from "@/domains/chat/hooks/use-subagent-card-data.js";
+
+export interface SubagentInlineProgressCardProps {
+  subagentId: string;
+  /**
+   * Invoked when the user activates the "open full timeline" button in
+   * the right rail. Routes to the subagent detail panel — same contract
+   * as `SubagentProgressCard.onSubagentClick`.
+   */
+  onSubagentClick?: (subagentId: string) => void;
+  /**
+   * Invoked when the user activates the stop button while the subagent
+   * is in-flight. Omitted callers hide the button entirely.
+   */
+  onStopSubagent?: (subagentId: string) => void;
+}
+
+export function SubagentInlineProgressCard({
+  subagentId,
+  onSubagentClick,
+  onStopSubagent,
+}: SubagentInlineProgressCardProps) {
+  const data = useSubagentCardData(subagentId);
+  // The shell's `loading` state subsumes running / pending / awaiting_input
+  // (see `deriveCardState` in use-subagent-card-data) — exactly the window
+  // where stopping the subagent is a meaningful action.
+  const isRunning = data?.state === "loading";
+
+  const handleOpen = useCallback(
+    (e: MouseEvent) => {
+      e.stopPropagation();
+      onSubagentClick?.(subagentId);
+    },
+    [onSubagentClick, subagentId],
+  );
+
+  const handleStop = useCallback(
+    (e: MouseEvent) => {
+      e.stopPropagation();
+      onStopSubagent?.(subagentId);
+    },
+    [onStopSubagent, subagentId],
+  );
+
+  // Spawn-race: assistant message references a subagent before the
+  // `subagent_spawned` event lands. Render `null` rather than a blank
+  // shell so the transcript doesn't flicker an empty card.
+  if (!data) return null;
+
+  const leadingIcon = <SubagentAvatarChip subagentId={subagentId} size={16} />;
+
+  return (
+    <div className="relative w-full" data-testid="subagent-inline-progress-card">
+      <ToolProgressCardShell
+        data-testid="subagent-inline-card-shell"
+        statusIndicatorTestId="subagent-inline-card-status-indicator"
+        state={data.state}
+        leadingIcon={leadingIcon}
+        currentStepTitle={data.currentStepTitle}
+        currentStepInfo={data.currentStepInfo}
+        stepCount={data.stepCount}
+        disableExpand={data.steps.length === 0}
+      >
+        <div className="flex w-full flex-col gap-3 px-3 pb-3">
+          {data.steps.map((step, idx) => {
+            if (step.kind === "thinking") {
+              return (
+                <StepRow key={idx} title="Thinking">
+                  <ThinkingChip>{step.text}</ThinkingChip>
+                </StepRow>
+              );
+            }
+            if (step.kind === "tool_error") {
+              return (
+                <StepRow key={idx} title="Error" tone="error">
+                  <ThinkingChip>{step.message}</ThinkingChip>
+                </StepRow>
+              );
+            }
+            if (step.kind === "tool") {
+              return (
+                <StepRow
+                  key={idx}
+                  title={step.title}
+                  durationLabel={step.durationLabel}
+                  tone={step.status === "error" ? "error" : "default"}
+                >
+                  {step.info ? (
+                    <ThinkingChip>{step.info}</ThinkingChip>
+                  ) : (
+                    <Typography
+                      variant="label-small-default"
+                      className="text-[var(--content-tertiary)]"
+                    >
+                      {step.status === "running" ? "Working…" : "Done"}
+                    </Typography>
+                  )}
+                </StepRow>
+              );
+            }
+            // `web_search` / `web_search_error` aren't produced by
+            // `useSubagentCardData` today, but the unified step union
+            // includes them — render nothing rather than crash.
+            return null;
+          })}
+        </div>
+      </ToolProgressCardShell>
+      {/* Right-rail action cluster — absolute-positioned over the shell's
+          header so the shell stays a pure presentational primitive. The
+          shell already exposes a "step count" pill on the right; the
+          actions render to the *left* of that pill via the absolute
+          overlay so they don't clip the existing layout. */}
+      {(onSubagentClick || (onStopSubagent && isRunning)) && (
+        <div className="pointer-events-none absolute right-[64px] top-[14px] flex items-center gap-1">
+          {onStopSubagent && isRunning && (
+            <button
+              type="button"
+              aria-label="Stop subagent"
+              data-testid="subagent-inline-card-stop"
+              onClick={handleStop}
+              className="pointer-events-auto flex h-5 w-5 cursor-pointer items-center justify-center rounded-[var(--radius-sm)] text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--system-negative-strong)]"
+            >
+              <Square className="h-3 w-3" fill="currentColor" />
+            </button>
+          )}
+          {onSubagentClick && (
+            <button
+              type="button"
+              aria-label="Open subagent timeline"
+              data-testid="subagent-inline-card-open"
+              onClick={handleOpen}
+              className="pointer-events-auto flex h-5 w-5 cursor-pointer items-center justify-center rounded-[var(--radius-sm)] text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--content-default)]"
+            >
+              <ExternalLink className="h-3 w-3" />
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
