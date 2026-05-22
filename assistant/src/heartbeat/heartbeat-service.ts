@@ -107,6 +107,19 @@ export interface HeartbeatDeps {
   getCurrentHour?: () => number;
 }
 
+export interface ManagedWakeHeartbeatRunOptions {
+  now?: number;
+  toleranceMs?: number;
+  assumeDue?: boolean;
+  scheduledFor?: number;
+}
+
+export interface ManagedWakeHeartbeatRunResult {
+  due: boolean;
+  completed: number;
+  skipped: number;
+}
+
 export class HeartbeatService {
   private static instance?: HeartbeatService;
 
@@ -151,6 +164,40 @@ export class HeartbeatService {
   /** Epoch-ms timestamp of the next scheduled heartbeat run. */
   get nextRunAt(): number | null {
     return this._nextRunAt;
+  }
+
+  async runManagedWakeIfDue(
+    options: ManagedWakeHeartbeatRunOptions = {},
+  ): Promise<ManagedWakeHeartbeatRunResult> {
+    const now = options.now ?? Date.now();
+    const toleranceMs = options.toleranceMs ?? 0;
+    const dueByLocalTimer =
+      this._nextRunAt != null && this._nextRunAt <= now + toleranceMs;
+
+    if (!dueByLocalTimer && options.assumeDue !== true) {
+      return { due: false, completed: 0, skipped: 0 };
+    }
+
+    if (!dueByLocalTimer) {
+      if (this._pendingRunId) {
+        supersedePendingRun(this._pendingRunId);
+        this._pendingRunId = null;
+      }
+      this._nextRunAt = options.scheduledFor ?? now;
+      this._pendingRunId = insertPendingHeartbeatRun(this._nextRunAt);
+    }
+
+    const completed = await this.runOnce({ force: false });
+
+    if (this.cronMode && !this.stopped) {
+      this.scheduleNextCronRun(getConfig().heartbeat);
+    }
+
+    return {
+      due: true,
+      completed: completed ? 1 : 0,
+      skipped: completed ? 0 : 1,
+    };
   }
 
   start(): void {

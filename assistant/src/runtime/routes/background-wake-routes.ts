@@ -1,12 +1,17 @@
 import { z } from "zod";
 
-import { computeNextBackgroundWakeIntent } from "../../background-wake/next-wake.js";
+import {
+  type BackgroundWakeIntent,
+  computeNextBackgroundWakeIntent,
+} from "../../background-wake/next-wake.js";
 import { getBackgroundWakeRuntime } from "../../background-wake/runtime-registry.js";
+import type { SchedulerDueWorkResult } from "../../schedule/scheduler.js";
 import { BadRequestError, ServiceUnavailableError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const PREPARE_SLEEP_DEFER_WINDOW_MS = 60_000;
 const HEARTBEAT_DUE_TOLERANCE_MS = 1_000;
+const MIN_DRAIN_START_BUDGET_MS = 5_000;
 
 let computeWakeIntent = computeNextBackgroundWakeIntent;
 const timestampInputSchema = z.union([z.number(), z.string()]);
@@ -103,11 +108,54 @@ async function handleDrainDue(body: Record<string, unknown>) {
   }
 
   const now = Date.now();
+  const currentIntent = computeWakeIntent(now);
   const heartbeatDue =
-    runtime.heartbeat.nextRunAt != null &&
-    runtime.heartbeat.nextRunAt <= now + HEARTBEAT_DUE_TOLERANCE_MS;
-  const heartbeatRan = heartbeatDue ? await runtime.heartbeat.runOnce() : false;
-  const scheduledCount = await runtime.scheduler.runOnce();
+    reasonIncludesSource(request.reason, "heartbeat") ||
+    intentHasDueSource(currentIntent, "heartbeat", now);
+  const schedulerDue =
+    reasonIncludesSource(request.reason, "schedule") ||
+    intentHasDueSource(currentIntent, "schedule", now);
+
+  let heartbeatCompleted = 0;
+  let heartbeatSkipped = 0;
+  let heartbeatDueRemaining = false;
+  if (heartbeatDue) {
+    if (hasStartBudget(request.deadlineAt)) {
+      const heartbeatResult = await runtime.heartbeat.runManagedWakeIfDue({
+        now,
+        toleranceMs: HEARTBEAT_DUE_TOLERANCE_MS,
+        assumeDue: reasonIncludesSource(request.reason, "heartbeat"),
+        scheduledFor: request.startedAt,
+      });
+      heartbeatCompleted = heartbeatResult.completed;
+      heartbeatSkipped = heartbeatResult.skipped;
+      heartbeatDueRemaining =
+        heartbeatResult.due && heartbeatResult.completed === 0;
+    } else {
+      heartbeatSkipped = 1;
+      heartbeatDueRemaining = true;
+    }
+  }
+
+  const schedulerResult = schedulerDue
+    ? await runtime.scheduler.runDueWorkOnce({
+        deadlineAt: request.deadlineAt,
+        minStartBudgetMs: MIN_DRAIN_START_BUDGET_MS,
+        includeStillPending: true,
+      })
+    : emptySchedulerDueWorkResult();
+  const nextIntent = computeWakeIntent();
+  const completed = heartbeatCompleted + schedulerResult.completed;
+  const failed = schedulerResult.failed;
+  const skipped = heartbeatSkipped + schedulerResult.skipped;
+  const schedulerProcessed =
+    schedulerResult.completed +
+    schedulerResult.failed +
+    schedulerResult.skipped;
+  const dueWorkRemaining =
+    heartbeatDueRemaining ||
+    schedulerResult.stillPending > 0 ||
+    intentIsDue(nextIntent);
 
   return {
     leaseId: request.leaseId,
@@ -116,11 +164,60 @@ async function handleDrainDue(body: Record<string, unknown>) {
     startedAt: request.startedAt,
     deadlineAt: request.deadlineAt,
     counts: {
-      heartbeat: heartbeatRan ? 1 : 0,
-      scheduler: scheduledCount,
-      total: (heartbeatRan ? 1 : 0) + scheduledCount,
+      heartbeat: heartbeatCompleted,
+      scheduler: schedulerProcessed,
+      total: heartbeatCompleted + schedulerProcessed,
+      completed,
+      failed,
+      skipped,
+      claimed: schedulerResult.claimed,
+      stillPending: schedulerResult.stillPending,
     },
-    nextIntent: computeWakeIntent(),
+    completed,
+    failed,
+    skipped,
+    nextIntent,
+    dueWorkRemaining,
+  };
+}
+
+function reasonIncludesSource(
+  reason: string,
+  source: "heartbeat" | "schedule",
+): boolean {
+  return reason === "mixed" || reason === source;
+}
+
+function intentHasDueSource(
+  intent: BackgroundWakeIntent | null,
+  source: "heartbeat" | "schedule",
+  now: number,
+): boolean {
+  return (
+    intent != null &&
+    intent.actualNextDueAt <= now + HEARTBEAT_DUE_TOLERANCE_MS &&
+    reasonIncludesSource(intent.reason, source)
+  );
+}
+
+function intentIsDue(intent: BackgroundWakeIntent | null): boolean {
+  return (
+    intent != null &&
+    intent.actualNextDueAt <= Date.now() + HEARTBEAT_DUE_TOLERANCE_MS
+  );
+}
+
+function hasStartBudget(deadlineAt: number): boolean {
+  return deadlineAt - Date.now() >= MIN_DRAIN_START_BUDGET_MS;
+}
+
+function emptySchedulerDueWorkResult(): SchedulerDueWorkResult {
+  return {
+    claimed: 0,
+    completed: 0,
+    failed: 0,
+    skipped: 0,
+    stillPending: 0,
   };
 }
 
@@ -180,8 +277,17 @@ export const ROUTES: RouteDefinition[] = [
         heartbeat: z.number(),
         scheduler: z.number(),
         total: z.number(),
+        completed: z.number(),
+        failed: z.number(),
+        skipped: z.number(),
+        claimed: z.number(),
+        stillPending: z.number(),
       }),
+      completed: z.number(),
+      failed: z.number(),
+      skipped: z.number(),
       nextIntent: wakeIntentSchema,
+      dueWorkRemaining: z.boolean(),
     }),
     handler: ({ body }: RouteHandlerArgs) => handleDrainDue(body ?? {}),
   },
