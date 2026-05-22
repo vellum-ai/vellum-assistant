@@ -25,10 +25,14 @@ mock.module("../util/logger.js", () => ({
   getLogger: () => makeLoggerStub(),
 }));
 
-import { setIngressPublicBaseUrl } from "../config/env.js";
+import {
+  setIngressPublicBaseUrl,
+  setPlatformAssistantId,
+} from "../config/env.js";
 import { IngressConfigSchema } from "../config/schemas/ingress.js";
 import {
   getOAuthCallbackUrl,
+  getPlatformPublicCallbackBase,
   getPublicBaseUrl,
   getTelegramWebhookUrl,
   getTwilioConnectActionUrl,
@@ -37,6 +41,107 @@ import {
   getTwilioStatusCallbackUrl,
   getTwilioVoiceWebhookUrl,
 } from "../inbound/public-ingress-urls.js";
+
+// ---------------------------------------------------------------------------
+// getPlatformPublicCallbackBase
+// ---------------------------------------------------------------------------
+
+describe("getPlatformPublicCallbackBase", () => {
+  afterEach(() => {
+    delete process.env.IS_PLATFORM;
+    delete process.env.VELLUM_PLATFORM_URL;
+    setPlatformAssistantId(undefined);
+  });
+
+  test("returns the correct URL when IS_PLATFORM=true with valid platform URL and assistant ID", () => {
+    process.env.IS_PLATFORM = "true";
+    process.env.VELLUM_PLATFORM_URL = "https://test-platform.vellum.ai";
+    setPlatformAssistantId("ast_test123");
+
+    const result = getPlatformPublicCallbackBase();
+    expect(result).toBe(
+      "https://test-platform.vellum.ai/v1/gateway/callbacks/ast_test123",
+    );
+  });
+
+  test("returns undefined when IS_PLATFORM is not set", () => {
+    delete process.env.IS_PLATFORM;
+    process.env.VELLUM_PLATFORM_URL = "https://test-platform.vellum.ai";
+    setPlatformAssistantId("ast_test123");
+
+    expect(getPlatformPublicCallbackBase()).toBeUndefined();
+  });
+
+  test("returns undefined when assistant ID is empty", () => {
+    process.env.IS_PLATFORM = "true";
+    process.env.VELLUM_PLATFORM_URL = "https://test-platform.vellum.ai";
+    setPlatformAssistantId("");
+
+    expect(getPlatformPublicCallbackBase()).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// platform fallback in getPublicBaseUrl
+// ---------------------------------------------------------------------------
+
+describe("platform fallback", () => {
+  beforeEach(() => {
+    process.env.IS_PLATFORM = "true";
+    process.env.VELLUM_PLATFORM_URL = "https://test-platform.vellum.ai";
+    setPlatformAssistantId("ast_test123");
+    setIngressPublicBaseUrl(undefined);
+  });
+
+  afterEach(() => {
+    delete process.env.IS_PLATFORM;
+    delete process.env.VELLUM_PLATFORM_URL;
+    setPlatformAssistantId(undefined);
+    setIngressPublicBaseUrl(undefined);
+  });
+
+  test("getPublicBaseUrl returns platform-derived URL when ingress.publicBaseUrl is empty", () => {
+    const result = getPublicBaseUrl({
+      ingress: { publicBaseUrl: "" },
+    });
+    expect(result).toBe(
+      "https://test-platform.vellum.ai/v1/gateway/callbacks/ast_test123",
+    );
+  });
+
+  test("explicit ingress.publicBaseUrl takes precedence over platform derivation", () => {
+    const result = getPublicBaseUrl({
+      ingress: { publicBaseUrl: "https://custom.example.com" },
+    });
+    expect(result).toBe("https://custom.example.com");
+  });
+
+  test("module-level ingress state takes precedence over platform derivation", () => {
+    setIngressPublicBaseUrl("https://tunnel.example.com");
+    const result = getPublicBaseUrl({
+      ingress: { publicBaseUrl: "" },
+    });
+    expect(result).toBe("https://tunnel.example.com");
+  });
+
+  test("throws when IS_PLATFORM is not set", () => {
+    delete process.env.IS_PLATFORM;
+    setPlatformAssistantId(undefined);
+
+    expect(() => getPublicBaseUrl({ ingress: { publicBaseUrl: "" } })).toThrow(
+      /No public base URL configured/,
+    );
+  });
+
+  test("throws when getPlatformAssistantId() returns empty string even though IS_PLATFORM=true", () => {
+    process.env.IS_PLATFORM = "true";
+    setPlatformAssistantId("");
+
+    expect(() => getPublicBaseUrl({ ingress: { publicBaseUrl: "" } })).toThrow(
+      /No public base URL configured/,
+    );
+  });
+});
 
 // ---------------------------------------------------------------------------
 // IngressConfigSchema
@@ -66,7 +171,6 @@ describe("IngressConfigSchema", () => {
       }),
     ).toThrow(/ingress\.publicBaseUrl must be an absolute URL/);
   });
-
 });
 
 // ---------------------------------------------------------------------------
