@@ -21,7 +21,7 @@ mock.module("../../../../oauth/oauth-store.js", () => ({
   isProviderConnected: async () => false,
 }));
 
-const findContactChannelMock = mock(() => undefined);
+const findContactChannelMock = mock((): unknown => undefined);
 const upsertContactChannelMock = mock(() => {});
 mock.module("../../../../contacts/contact-store.js", () => ({
   findContactChannel: findContactChannelMock,
@@ -30,9 +30,13 @@ mock.module("../../../../contacts/contacts-write.js", () => ({
   upsertContactChannel: upsertContactChannelMock,
 }));
 
-import { slackProvider } from "../adapter.js";
+import {
+  __resetSlackUserInfoCacheForTests,
+  slackProvider,
+} from "../adapter.js";
 
 const originalFetch = globalThis.fetch;
+let userInfoCalls: string[] = [];
 
 function installFetchStub() {
   globalThis.fetch = (async (
@@ -60,6 +64,42 @@ function fakeSlackResponse(url: string): Record<string, unknown> {
   const method = parsed.pathname.split("/").at(-1);
 
   if (method === "conversations.history") {
+    if (parsed.searchParams.get("channel") === "C_USERINFO_FAIL") {
+      return {
+        ok: true,
+        has_more: false,
+        messages: [
+          {
+            type: "message",
+            ts: "1700000006.000700",
+            user: "UMISSING",
+            text: "Fallback sender message",
+          },
+        ],
+      };
+    }
+
+    if (parsed.searchParams.get("channel") === "C_TIMEZONE_CACHE") {
+      return {
+        ok: true,
+        has_more: false,
+        messages: [
+          {
+            type: "message",
+            ts: "1700000004.000500",
+            user: "USENDER",
+            text: "First timezone-bearing message",
+          },
+          {
+            type: "message",
+            ts: "1700000005.000600",
+            user: "USENDER",
+            text: "Second timezone-bearing message",
+          },
+        ],
+      };
+    }
+
     if (parsed.searchParams.get("channel") === "C_BOT_HISTORY") {
       return {
         ok: true,
@@ -133,7 +173,9 @@ function fakeSlackResponse(url: string): Record<string, unknown> {
   }
 
   if (method === "users.info") {
-    return fakeUserInfoResponse(parsed.searchParams.get("user") ?? "");
+    const userId = parsed.searchParams.get("user") ?? "";
+    userInfoCalls.push(userId);
+    return fakeUserInfoResponse(userId);
   }
 
   return { ok: true };
@@ -157,6 +199,9 @@ function fakeUserInfoResponse(userId: string): Record<string, unknown> {
       user: {
         id: "USENDER",
         name: "sender",
+        tz: "America/New_York",
+        tz_label: "Eastern Time",
+        tz_offset: -18000,
         profile: { display_name: "Sender" },
       },
     };
@@ -178,6 +223,8 @@ function fakeUserInfoResponse(userId: string): Record<string, unknown> {
 
 describe("Slack adapter mention rendering", () => {
   beforeEach(async () => {
+    __resetSlackUserInfoCacheForTests();
+    userInfoCalls = [];
     getSecureKeyAsyncMock.mockReset();
     getSecureKeyAsyncMock.mockImplementation(async (key: string) => {
       if (key === credentialKey("slack_channel", "bot_token")) {
@@ -215,6 +262,72 @@ describe("Slack adapter mention rendering", () => {
       isBot: true,
       slackBotId: "B_ASSISTANT",
     });
+  });
+
+  test("getHistory caches Slack user info and maps timezone metadata", async () => {
+    const messages = await slackProvider.getHistory(
+      undefined,
+      "C_TIMEZONE_CACHE",
+    );
+
+    expect(messages).toHaveLength(2);
+    expect(userInfoCalls.filter((userId) => userId === "USENDER")).toHaveLength(
+      1,
+    );
+    expect(messages.map((message) => message.sender)).toEqual([
+      { id: "USENDER", name: "Sender" },
+      { id: "USENDER", name: "Sender" },
+    ]);
+    expect(messages.map((message) => message.metadata)).toEqual([
+      {
+        actorTimezone: "America/New_York",
+        actorTimezoneLabel: "Eastern Time",
+        actorTimezoneOffsetSeconds: -18000,
+      },
+      {
+        actorTimezone: "America/New_York",
+        actorTimezoneLabel: "Eastern Time",
+        actorTimezoneOffsetSeconds: -18000,
+      },
+    ]);
+  });
+
+  test("getHistory prefers contact display names while still fetching Slack timezone facts", async () => {
+    findContactChannelMock.mockImplementationOnce(() => ({
+      contact: { displayName: "Saved Sender" },
+    }));
+
+    const messages = await slackProvider.getHistory(
+      undefined,
+      "C_TIMEZONE_CACHE",
+    );
+
+    expect(userInfoCalls.filter((userId) => userId === "USENDER")).toHaveLength(
+      1,
+    );
+    expect(messages[0].sender).toEqual({
+      id: "USENDER",
+      name: "Saved Sender",
+    });
+    expect(messages[0].metadata).toEqual({
+      actorTimezone: "America/New_York",
+      actorTimezoneLabel: "Eastern Time",
+      actorTimezoneOffsetSeconds: -18000,
+    });
+  });
+
+  test("getHistory falls back when Slack user info lookup fails", async () => {
+    const messages = await slackProvider.getHistory(
+      undefined,
+      "C_USERINFO_FAIL",
+    );
+
+    expect(messages).toHaveLength(1);
+    expect(
+      userInfoCalls.filter((userId) => userId === "UMISSING"),
+    ).toHaveLength(1);
+    expect(messages[0].sender).toEqual({ id: "UMISSING", name: "UMISSING" });
+    expect(messages[0].metadata).toBeUndefined();
   });
 
   test("getThreadReplies renders Slack user mentions for model-facing text without changing sender identity", async () => {
