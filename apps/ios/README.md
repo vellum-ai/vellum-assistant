@@ -253,6 +253,78 @@ On first build after pulling:
 - [ ] Xcode → App target → General → Bundle Identifier reads
       `ai.vocify-inc.vellum-assistant-ios`
 
+## Debugging the live WKWebView
+
+The iOS shell is in `server.url` mode (see [`server.url` mode, not static
+export](#serverurl-mode-not-static-export)), so the WKWebView runs the
+live web app from `dev-assistant.vellum.ai/assistant`. Two tools cover
+the full sign-in flow between them.
+
+### Safari Web Inspector (WKWebView network + console)
+
+Best tool for inspecting requests, cookies, console output, and storage
+in the WKWebView. **Does not** see inside `ASWebAuthenticationSession`
+(the Safari sheet that hosts the WorkOS login) — that's a separate
+process and out of reach. It does see everything before the sheet opens
+and everything after it closes, which is where the cookie-handoff and
+post-callback navigation live.
+
+1. **On the iOS device**: Settings → Safari → Advanced → Web Inspector
+   = on. (On a simulator this is enabled by default.)
+2. **On the Mac**: Safari → Settings → Advanced → "Show features for
+   web developers" (older macOS: "Show Develop menu in menu bar") = on.
+3. Plug the device in via USB and trust the Mac if prompted.
+4. Launch the Vellum (Dev) app on the device.
+5. In Safari on the Mac: Develop menu → \[device name\] → choose the
+   WKWebView (it'll be labelled with the page URL).
+6. Reproduce the sign-in flow. Tabs of interest:
+   - **Network**: confirm `/_allauth/browser/v1/auth/session` and the
+     post-callback `/assistant` request fire and what their request
+     cookies look like. Anonymous responses here are the smoking gun
+     for the cookie-handoff theory.
+   - **Storage → Cookies**: verify `sessionid` actually lands in the
+     cookie store after `installSessionCookies()`.
+   - **Console**: catch JS errors. The web app already logs through
+     the same logger used in the browser.
+
+Tips:
+
+- If the WKWebView doesn't appear in the Develop menu, force-quit the
+  app and re-launch — Web Inspector attaches at WKWebView creation.
+- Reload-on-attach (`⌘R` in the inspector) reloads the SPA inside the
+  shell without restarting the app.
+- The Safari sheet (`ASWebAuthenticationSession`) shows its URL in the
+  address bar. Read that directly on the device; that's your visibility
+  into the WorkOS round-trip and the custom-scheme callback.
+
+### Xcode Console (native plugin logs)
+
+The Swift side (`NativeAuthPlugin.swift`, `AppDelegate.swift`) logs via
+`os_log` / `print`. Surface those with:
+
+1. Xcode → Window → Devices and Simulators → pick the device → "Open
+   Console".
+2. Filter by process name (`App`, `App Dev`, or `App Staging`
+   depending on scheme) or by subsystem if you've set one.
+3. Run the sign-in flow. Look for the `NativeAuthPlugin` start /
+   callback / exchange log lines — they bracket the
+   `ASWebAuthenticationSession` round-trip and tell you whether the
+   custom-scheme callback was received and what code was exchanged.
+
+Alternative: `Console.app` on the Mac (with the device attached and
+unlocked) shows the same stream — useful for long captures or for
+sharing a log dump.
+
+### Quick triage matrix
+
+| Symptom in WKWebView (Web Inspector)                | Probable layer        |
+| --------------------------------------------------- | --------------------- |
+| `/_allauth/.../session` returns anonymous           | Cookie handoff / WKWebView cookie store |
+| `/assistant` post-nav request lacks `sessionid`     | Cookie flush race or LB stripping cookie |
+| No `NativeAuthPlugin` callback in Xcode Console     | Custom-scheme mismatch or `ASWebAuthenticationSession` never returned |
+| Sheet itself 404s / errors before WorkOS loads      | Server-side `/accounts/native/*` route or scheme allowlist |
+| Sheet returns cleanly, app reloads `/account/login` | Cookie-flush race or post-nav routing |
+
 ## Gotchas
 
 - **`open App.xcworkspace` doesn't exist** — we're on SPM, not
