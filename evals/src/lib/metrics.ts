@@ -1,4 +1,11 @@
-import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import {
+  appendFile,
+  mkdir,
+  readdir,
+  readFile,
+  writeFile,
+} from "node:fs/promises";
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { AgentEvent, AgentMessage } from "./adapter";
@@ -336,22 +343,35 @@ export async function runMetrics(input: {
   );
 }
 
+/** Default scavenger threshold: heartbeats older than this flip to `abandoned`. */
+export const DEFAULT_HEARTBEAT_TIMEOUT_MS = 60_000;
+
+export interface ScavengeOptions {
+  /** Heartbeats older than this (ms) flip the run to `abandoned`. Defaults to 60s. */
+  heartbeatTimeoutMs?: number;
+  /** Injectable clock — tests pass a deterministic value. */
+  now?: () => Date;
+}
+
 /**
- * Scans `.runs/` for any metadata with `status: "running"` and a heartbeat
- * older than the given threshold (in ms). Flips those to `status: "abandoned"`
- * with an error message indicating the last heartbeat time.
+ * Scan `.runs/` for any run whose `run.json` reports `status: "running"` but
+ * whose heartbeat is older than `heartbeatTimeoutMs`. Flip those to
+ * `status: "abandoned"` with an error message naming the last heartbeat time
+ * so the report-server UI can show what happened.
  *
- * Called on startup and periodically during normal operation to prevent
- * processes that exit uncleanly (killed, deadlocked, etc.) from dangling in
- * "running" forever.
+ * Called on startup of `evals run`/`evals server`, on every index page load,
+ * and any time we suspect runs may have died uncleanly. Idempotent — once a
+ * run is flipped it's no longer `running`, so a second scavenge pass is a no-op.
  */
 export async function scavengeAbandonedRuns(
-  heartbeatTimeoutMs: number = 60_000,
+  options: ScavengeOptions = {},
 ): Promise<{ count: number; skipped: number }> {
-  const runDirs = await readdir(RUNS_DIR).catch(() => []);
+  const heartbeatTimeoutMs =
+    options.heartbeatTimeoutMs ?? DEFAULT_HEARTBEAT_TIMEOUT_MS;
+  const now = options.now ? options.now() : new Date();
+  const runDirs = await readdir(RUNS_DIR).catch(() => [] as string[]);
   let count = 0;
   let skipped = 0;
-  const now = new Date();
 
   for (const runDir of runDirs) {
     const metadata = await readRunMetadata(runDir).catch(() => undefined);
@@ -379,13 +399,69 @@ export async function scavengeAbandonedRuns(
 }
 
 /**
+ * Synchronous variant of `scavengeAbandonedRuns` for use from signal
+ * handlers. Forces every `status: "running"` run to `abandoned` regardless
+ * of heartbeat age — when a SIGINT/SIGTERM lands, every in-flight run is
+ * about to be killed by `process.exit`, so the threshold is meaningless.
+ *
+ * Uses `*Sync` FS APIs because the caller (`commands/run.ts` signal handler)
+ * needs to complete before `process.exit` flushes the loop.
+ */
+export function abandonAllRunningRunsSync(input: {
+  signal: NodeJS.Signals | "exit";
+  now?: () => Date;
+}): number {
+  const now = input.now ? input.now() : new Date();
+  let runDirs: string[];
+  try {
+    runDirs = readdirSync(RUNS_DIR);
+  } catch {
+    return 0;
+  }
+  let count = 0;
+  for (const runDir of runDirs) {
+    const metadataPath = join(RUNS_DIR, runDir, "run.json");
+    let metadata: RunMetadata | undefined;
+    try {
+      const raw = readFileSync(metadataPath, "utf8");
+      metadata = JSON.parse(raw) as RunMetadata;
+    } catch {
+      continue;
+    }
+    if (!metadata || metadata.status !== "running") continue;
+    const next: RunMetadata = {
+      ...metadata,
+      status: "abandoned",
+      completedAt: now.toISOString(),
+      error:
+        input.signal === "exit"
+          ? "Process exited before run completed"
+          : `Received signal ${input.signal} — process terminated before run completed`,
+    };
+    try {
+      writeFileSync(metadataPath, JSON.stringify(next, null, 2));
+      count += 1;
+    } catch {
+      // best-effort — the scavenger or `evals server` startup will pick
+      // this up next time around.
+    }
+  }
+  return count;
+}
+
+/**
  * Updates the `lastHeartbeatAt` timestamp on a run's metadata to now.
- * Called during progress events and periodically via setInterval to keep
- * the heartbeat fresh while a run is in flight.
+ * Called from `appendProgressEvent` and from the per-run heartbeat ticker
+ * so the scavenger can tell a live process from a dead one.
+ *
+ * Skips the write entirely if the run is no longer `running`, so the
+ * 5s background ticker doesn't fight the catch/finally writers for the
+ * final `status: "failed"` / `status: "completed"` value.
  */
 export async function updateHeartbeat(runId: string): Promise<void> {
-  const metadata = await readRunMetadata(runId);
+  const metadata = await readRunMetadata(runId).catch(() => undefined);
   if (!metadata) return;
+  if (metadata.status !== "running") return;
   await writeRunMetadata(runId, {
     ...metadata,
     lastHeartbeatAt: new Date().toISOString(),

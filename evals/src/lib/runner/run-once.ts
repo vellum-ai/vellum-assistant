@@ -236,36 +236,19 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
   const simulator =
     input.simulator ?? new UserSimulator({ maxTurns: input.maxTurns });
 
-  // Set up heartbeat and signal handlers to prevent runs from dangling in
-  // "running" if the process is killed or exits uncleanly.
-  const heartbeatInterval = setInterval(async () => {
+  // Per-run heartbeat ticker. Cleared in the `finally` so the timer never
+  // outlives a return/throw — and so we never accumulate Node listeners
+  // across multiple runs in the same `evals run` invocation (the SIGINT/
+  // SIGTERM handlers live one level up in `commands/run.ts` and only
+  // register once per process, not once per run).
+  const heartbeatInterval = setInterval(() => {
     void updateHeartbeat(input.runId).catch(() => undefined);
   }, 5_000);
-
-  const cleanup = async () => {
-    clearInterval(heartbeatInterval);
-  };
-
-  const handleSignal = async (signal: NodeJS.Signals) => {
-    const metadata = await readRunMetadata(input.runId);
-    if (metadata && metadata.status === "running") {
-      await writeRunMetadata(input.runId, {
-        ...metadata,
-        status: "abandoned",
-        completedAt: new Date().toISOString(),
-        error: `Received signal ${signal} (process terminated by user or system)`,
-      });
-    }
-  };
-
-  process.on("SIGINT", async () => {
-    await handleSignal("SIGINT");
-    process.exit(130); // SIGINT exit code
-  });
-  process.on("SIGTERM", async () => {
-    await handleSignal("SIGTERM");
-    process.exit(143); // SIGTERM exit code
-  });
+  // setInterval would keep the event loop alive past a normal completion
+  // because Node treats every active timer as a reason to stay up. Using
+  // unref() removes that contribution so a successful run still exits
+  // cleanly; clearInterval() in the finally is still the primary stop.
+  heartbeatInterval.unref();
 
   progress({
     step: "artifacts",
@@ -514,7 +497,7 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
     }
     throw err;
   } finally {
-    await cleanup();
+    clearInterval(heartbeatInterval);
     progress({
       step: "shutdown",
       status: "start",

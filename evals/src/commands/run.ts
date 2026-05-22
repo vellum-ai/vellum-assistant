@@ -1,5 +1,12 @@
 /** `evals run` — Cartesian profile × test runner. */
 import type { Command } from "commander";
+import {
+  readFileSync,
+  writeFileSync,
+  readdirSync,
+  existsSync,
+} from "node:fs";
+import { join } from "node:path";
 
 import { runEvalOnce } from "../lib/runner/run-once";
 import {
@@ -10,6 +17,8 @@ import { scavengeAbandonedRuns } from "../lib/metrics";
 import { loadProfile } from "../lib/profile";
 import { loadTestDef } from "../lib/test-def";
 import { openInBrowser, startReportServer } from "./server";
+
+const RUNS_DIR = ".runs";
 
 function splitCsv(raw: string): string[] {
   return raw
@@ -41,6 +50,40 @@ function sessionId(label: string | undefined, timestamp: string): string {
 
 function runId(profileId: string, testId: string, timestamp: string): string {
   return `eval-${profileId}-${testId}-${timestamp}`;
+}
+
+/**
+ * Mark all runs in the current session as abandoned due to signal reception.
+ * Uses sync I/O because this runs in a signal handler (async operations are
+ * unsafe in signal context). Called via process.once so it only fires once
+ * per process, not once per run.
+ */
+function markAllRunsAbandoned(signal: NodeJS.Signals): void {
+  try {
+    if (!existsSync(RUNS_DIR)) return;
+
+    const runs = readdirSync(RUNS_DIR).filter((f) => !f.startsWith("."));
+    const now = new Date().toISOString();
+
+    for (const run of runs) {
+      try {
+        const metaPath = join(RUNS_DIR, run, "metadata.json");
+        if (!existsSync(metaPath)) continue;
+
+        const meta = JSON.parse(readFileSync(metaPath, "utf-8"));
+        if (meta.status === "running") {
+          meta.status = "abandoned";
+          meta.completedAt = now;
+          meta.error = `Received signal ${signal} (process terminated by user or system)`;
+          writeFileSync(metaPath, JSON.stringify(meta, null, 2));
+        }
+      } catch {
+        // Ignore per-run errors; continue with others
+      }
+    }
+  } catch {
+    // Ignore any failure during signal cleanup
+  }
 }
 
 export function registerRunCommand(program: Command): void {
@@ -79,6 +122,19 @@ export function registerRunCommand(program: Command): void {
         quiet?: boolean;
         serve?: boolean;
       }) => {
+        // Register global signal handlers. We use process.once so they only
+        // fire once per `evals run` invocation (not once per run), and they
+        // mark all in-flight runs as abandoned before exit. This prevents
+        // runs from dangling in "running" if the entire command is killed.
+        process.once("SIGINT", () => {
+          markAllRunsAbandoned("SIGINT");
+          process.exit(130); // SIGINT exit code
+        });
+        process.once("SIGTERM", () => {
+          markAllRunsAbandoned("SIGTERM");
+          process.exit(143); // SIGTERM exit code
+        });
+
         // Before starting a new run, clean up any stale runs that crashed
         // or were killed without properly finalizing their status.
         await scavengeAbandonedRuns();
