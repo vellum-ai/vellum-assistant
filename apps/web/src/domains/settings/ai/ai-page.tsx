@@ -63,6 +63,8 @@ import { CallSiteOverridesModal, type CallSiteOverrideDraft } from "@/domains/se
 import { ManageProfilesModal } from "@/domains/settings/ai/manage-profiles-modal.js";
 import { ManageProvidersModal } from "@/domains/settings/ai/manage-providers-modal.js";
 import { profilePickerLabel, visibleProfilesForPicker } from "@/domains/settings/ai/profile-pickers.js";
+import { readSecret } from "@/domains/settings/ai/provider-connections-client.js";
+import { maskSecretForDisplay } from "@/domains/settings/ai/secret-mask.js";
 
 // ---------------------------------------------------------------------------
 // Constants (mirrored from desktop SettingsStore)
@@ -1450,6 +1452,12 @@ export function AiPage() {
     getLocalSetting(LS_WEB_SEARCH_PROVIDER, "inference-provider-native"),
   );
   const [webSearchApiKey, setWebSearchApiKey] = useState("");
+  const [webSearchStoredKeyMasked, setWebSearchStoredKeyMasked] = useState<
+    string | null
+  >(null);
+  const [webSearchStoredKeyLoading, setWebSearchStoredKeyLoading] = useState(false);
+  const [webSearchSecretReadRevision, setWebSearchSecretReadRevision] = useState(0);
+  const webSearchSecretProviderRef = useRef<string | null>(null);
 
   // -- Image Generation state --
   const [imageGenMode, setImageGenMode] = useState<ServiceMode>(
@@ -1463,6 +1471,14 @@ export function AiPage() {
   // -- Derived --
   const webSearchNeedsApiKey =
     WEB_SEARCH_BYOK_PROVIDER_IDS.has(webSearchProvider);
+  const webSearchApiKeyHelperText =
+    webSearchApiKey.trim().length > 0
+      ? "Saving will replace the stored key."
+      : webSearchStoredKeyMasked
+        ? `Saved key: ${webSearchStoredKeyMasked}`
+        : webSearchStoredKeyLoading
+          ? "Checking for a saved key..."
+          : undefined;
   const orderedProfiles = useMemo(() => {
     const ordered = profileOrder
       .filter((name) => name in profiles)
@@ -1508,6 +1524,50 @@ export function AiPage() {
     if (reconciled.webSearchProvider) setWebSearchProvider(reconciled.webSearchProvider);
     if (reconciled.imageGenMode) setImageGenMode(reconciled.imageGenMode);
   }, [daemonConfig]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const providerChanged =
+      webSearchSecretProviderRef.current !== webSearchProvider;
+    webSearchSecretProviderRef.current = webSearchProvider;
+
+    void (async () => {
+      await Promise.resolve();
+      if (cancelled) return;
+
+      if (!assistantId || !webSearchNeedsApiKey) {
+        setWebSearchStoredKeyMasked(null);
+        setWebSearchStoredKeyLoading(false);
+        return;
+      }
+
+      setWebSearchStoredKeyLoading(true);
+      if (providerChanged) {
+        setWebSearchStoredKeyMasked(null);
+      }
+
+      try {
+        const result = await readSecret(assistantId, "api_key", webSearchProvider);
+        if (cancelled) return;
+        setWebSearchStoredKeyMasked(result.found ? result.masked : null);
+      } catch (error) {
+        if (cancelled) return;
+        setWebSearchStoredKeyMasked(null);
+        reportError(error, { context: "settings-ai-web-search-read-secret" });
+      } finally {
+        if (!cancelled) setWebSearchStoredKeyLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    assistantId,
+    webSearchNeedsApiKey,
+    webSearchProvider,
+    webSearchSecretReadRevision,
+  ]);
 
   // -- Handlers --
 
@@ -1617,6 +1677,8 @@ export function AiPage() {
         if (storageKey) {
           setLocalSetting(storageKey, trimmed);
         }
+        setWebSearchStoredKeyMasked(maskSecretForDisplay(trimmed));
+        setWebSearchSecretReadRevision((revision) => revision + 1);
         setWebSearchApiKey("");
       }
       toast.success("Web search settings saved.");
@@ -1635,6 +1697,7 @@ export function AiPage() {
     if (storageKey) {
       removeLocalSetting(storageKey);
     }
+    setWebSearchStoredKeyMasked(null);
     setWebSearchApiKey("");
     setWebSearchProvider("inference-provider-native");
     setLocalSetting(LS_WEB_SEARCH_PROVIDER, "inference-provider-native");
@@ -1824,6 +1887,7 @@ export function AiPage() {
                 value={webSearchApiKey}
                 onChange={(e) => setWebSearchApiKey(e.target.value)}
                 placeholder={WEB_SEARCH_PROVIDER_KEY_PLACEHOLDERS[webSearchProvider] ?? "Enter your API key"}
+                helperText={webSearchApiKeyHelperText}
                 fullWidth
               />
             )}
