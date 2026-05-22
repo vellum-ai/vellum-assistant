@@ -271,6 +271,7 @@ export function ChatPage() {
   const initialPageOldestTsRef = useRef<number | null>(null);
   const conversationListInvalidatedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingInitialMessageRef = useRef<{ conversationKey: string; content: string } | null>(null);
+  const pendingOnboardingInitialMessageRef = useRef<{ conversationKey: string; content: string } | null>(null);
   const expandedToolCallIdsRef = useRef<Set<string>>(new Set());
   const contextWindowUsageByConversationRef = useRef<Map<string, ContextWindowUsage>>(new Map());
   const syncRouterRef = useRef<WebSyncRouter | null>(null);
@@ -491,6 +492,12 @@ export function ChatPage() {
       setOnboardingTasksEmpty(
         pendingOnboardingContextRef.current.tasks.length === 0,
       );
+      if (pendingOnboardingContextRef.current.initialMessage) {
+        pendingOnboardingInitialMessageRef.current = {
+          conversationKey: onboardingDraftKey,
+          content: pendingOnboardingContextRef.current.initialMessage,
+        };
+      }
     }
     void navigate(routes.conversation(onboardingDraftKey), { replace: true });
     return () => {
@@ -659,6 +666,14 @@ export function ChatPage() {
     promptConsumedRef.current = prompt;
     void sendMessage(prompt);
   }, [searchParams, activeConversationKey, sendMessage]);
+
+  // Auto-send onboarding initial message once the draft conversation is ready
+  useEffect(() => {
+    const pending = pendingOnboardingInitialMessageRef.current;
+    if (!pending || activeConversationKey !== pending.conversationKey) return;
+    pendingOnboardingInitialMessageRef.current = null;
+    void sendMessage(pending.content);
+  }, [activeConversationKey, sendMessage]);
 
   // Deep-link: ?app=<id> auto-opens the app viewer on initial load.
   const deepLinkAppConsumed = useRef(false);
