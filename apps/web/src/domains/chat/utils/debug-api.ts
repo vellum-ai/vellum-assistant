@@ -56,7 +56,7 @@ type TerminalReason =
   | "session_error"
   | null;
 
-interface TurnState {
+export interface TurnState {
   phase: TurnPhase;
   pendingQueuedCount: number;
   activeToolCallCount: number;
