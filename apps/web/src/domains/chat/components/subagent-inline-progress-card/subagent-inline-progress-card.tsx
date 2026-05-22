@@ -14,10 +14,8 @@
  *   - Clicking the card header expands/collapses the body inline (the
  *     shell's default behaviour).
  *   - The "open" affordance in the right rail opens the subagent's full
- *     timeline panel via `onSubagentClick` — matches the existing
- *     `SubagentProgressCard` interaction so users with deep timelines
- *     keep the side-panel route. We keep both behaviours per the PR
- *     plan so users don't lose the panel during the inline-card rollout.
+ *     timeline panel via `onSubagentClick` — preserves the side-panel
+ *     route users had before the inline-card rollout.
  *   - Stop is exposed via `onStopSubagent`; the shell renders a small
  *     stop chip in the right rail next to the open button while the
  *     subagent is in-flight.
@@ -38,8 +36,7 @@ export interface SubagentInlineProgressCardProps {
   subagentId: string;
   /**
    * Invoked when the user activates the "open full timeline" button in
-   * the right rail. Routes to the subagent detail panel — same contract
-   * as `SubagentProgressCard.onSubagentClick`.
+   * the right rail. Routes to the subagent detail panel.
    */
   onSubagentClick?: (subagentId: string) => void;
   /**

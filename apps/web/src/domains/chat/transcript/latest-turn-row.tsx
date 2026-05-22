@@ -1,8 +1,6 @@
 
 import { Fragment, memo, type ReactNode } from "react";
 
-import { SubagentProgressCard } from "@/domains/chat/components/subagent-progress-card.js";
-import type { SubagentEntry } from "@/domains/subagents/subagent-store.js";
 import type { MessageItem, TranscriptItem } from "@/domains/chat/transcript/types.js";
 
 import { TranscriptRow } from "@/domains/chat/transcript/transcript-row.js";
@@ -66,12 +64,10 @@ export interface LatestTurnRowProps {
   onOpenApp?: (appId: string) => void;
   onOpenDocument?: (documentSurfaceId: string) => void;
   assistantId?: string | null;
-  /** Subagent entries grouped by parentMessageStableId. Built by Transcript
-   *  so the same lookup serves both history and latest-turn rendering. */
-  subagentsByParent?: Map<string, SubagentEntry[]> | null;
-  /** Click handler when the user clicks a subagent row. */
+  /** Click handler when the user clicks the "open timeline" button on an
+   *  inline subagent progress card. */
   onSubagentClick?: (subagentId: string) => void;
-  /** Callback to abort/stop a running subagent. */
+  /** Callback to abort/stop a running subagent from an inline card. */
   onStopSubagent?: (subagentId: string) => void;
   /** Slot rendered after the latest assistant response inside the
    *  latest-turn cluster. Used by AssistantPageClient (PR 3) to mount
@@ -107,7 +103,6 @@ export const LatestTurnRow = memo(function LatestTurnRow({
   onOpenApp,
   onOpenDocument,
   assistantId,
-  subagentsByParent,
   onSubagentClick,
   onStopSubagent,
   avatarSlot,
@@ -143,6 +138,8 @@ export const LatestTurnRow = memo(function LatestTurnRow({
         onOpenApp={onOpenApp}
         onOpenDocument={onOpenDocument}
         assistantId={assistantId}
+        onSubagentClick={onSubagentClick}
+        onStopSubagent={onStopSubagent}
       />
       {responseItems.map((response) => (
         <Fragment key={response.key}>
@@ -171,16 +168,9 @@ export const LatestTurnRow = memo(function LatestTurnRow({
             onOpenApp={onOpenApp}
             onOpenDocument={onOpenDocument}
             assistantId={assistantId}
+            onSubagentClick={onSubagentClick}
+            onStopSubagent={onStopSubagent}
           />
-          {response.kind === "message" &&
-            subagentsByParent?.get(response.key) &&
-            onSubagentClick && (
-              <SubagentProgressCard
-                entries={subagentsByParent.get(response.key)!}
-                onSubagentClick={onSubagentClick}
-                onStopSubagent={onStopSubagent}
-              />
-            )}
         </Fragment>
       ))}
       {avatarSlot && (

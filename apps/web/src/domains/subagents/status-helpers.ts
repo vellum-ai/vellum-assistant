@@ -1,7 +1,7 @@
 /**
  * Pure status-display helpers for subagent entries.
  *
- * Shared by subagent-progress-card, subagent-detail-panel, and subagent-status-badge.
+ * Shared by subagent-inline-progress-card, subagent-detail-panel, and subagent-status-badge.
  */
 
 import type { SubagentStatus } from "@/domains/chat/api/event-types.js";

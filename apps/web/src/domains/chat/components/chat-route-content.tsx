@@ -70,7 +70,7 @@ import { getChatBillingBannerDecision, shouldShowGenericChatErrorNotice } from "
 import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
 import { useDeployStore } from "@/domains/chat/deploy-store.js";
 import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
-import type { SubagentEntry, SubagentState } from "@/domains/subagents/subagent-store.js";
+import type { SubagentState } from "@/domains/subagents/subagent-store.js";
 import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 
 import { buildTranscriptItems } from "@/domains/chat/transcript/build-items.js";
@@ -350,7 +350,6 @@ export interface ChatRouteContentProps {
   handleInspectMessage?: (messageId: string) => void;
 
   // Subagent
-  subagentEntries: SubagentEntry[];
   subagentState: SubagentState;
   activeSubagentId: string | null;
   onSubagentClick: (subagentId: string) => void;
@@ -438,7 +437,6 @@ export function ChatRouteContent({
   handleDeployApp,
   handleForkConversation,
   handleInspectMessage,
-  subagentEntries,
   subagentState,
   activeSubagentId,
   onSubagentClick,
@@ -1207,7 +1205,6 @@ export function ChatRouteContent({
       showScrollToLatest: scrollCoordinator.showScrollToLatest,
       shouldLoadOlder: false, // Not exposed by scroll coordinator; safe default
     },
-    subagentEntries,
     onSubagentClick,
     onStopSubagent,
     renderOnboardingChoice: () => (

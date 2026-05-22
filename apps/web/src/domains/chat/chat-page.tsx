@@ -223,10 +223,6 @@ export function ChatPage() {
   const isDeploying = useDeployStore.use.isDeploying();
   const isTokenDialogOpen = useDeployStore.use.isTokenDialogOpen();
   const complexDeployApp = useDeployStore.use.complexDeployApp();
-  const subagentEntries = useMemo(
-    () => subagentState.orderedIds.map((id) => subagentState.byId[id]!).filter(Boolean),
-    [subagentState.byId, subagentState.orderedIds],
-  );
 
   // -------------------------------------------------------------------------
   // Pin-sync side-effect
@@ -1538,7 +1534,6 @@ export function ChatPage() {
     } : undefined,
     handleForkConversation,
     handleInspectMessage: showLlmInspector ? handleInspectMessage : undefined,
-    subagentEntries,
     subagentState,
     activeSubagentId: viewerState.activeSubagentId,
     onSubagentClick: (id: string) => { useViewerStore.getState().openSubagentDetail(id); },

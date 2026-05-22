@@ -10,8 +10,6 @@ import {
   type ReactNode,
 } from "react";
 
-import { SubagentProgressCard } from "@/domains/chat/components/subagent-progress-card.js";
-import type { SubagentEntry } from "@/domains/subagents/subagent-store.js";
 import { partitionLatestTurn } from "@/domains/chat/transcript/partition-latest-turn.js";
 import type { TranscriptItem } from "@/domains/chat/transcript/types.js";
 
@@ -92,12 +90,10 @@ export interface TranscriptProps {
   onOpenDocument?: (documentSurfaceId: string) => void;
   /** Forwarded to inline app surfaces so they can render live preview iframes. */
   assistantId?: string | null;
-  /** Ordered subagent entries to render via SubagentProgressCard on assistant
-   *  messages. When empty or undefined, no progress card renders. */
-  subagentEntries?: SubagentEntry[];
-  /** Click handler when the user clicks a subagent row in the progress card. */
+  /** Click handler when the user clicks the "open timeline" button on an
+   *  inline subagent progress card. */
   onSubagentClick?: (subagentId: string) => void;
-  /** Callback to abort/stop a running subagent. */
+  /** Callback to abort/stop a running subagent from an inline card. */
   onStopSubagent?: (subagentId: string) => void;
   /** Optional render-prop that produces the chat avatar element to mount
    *  at the bottom of the latest assistant cluster (forwarded to
@@ -171,35 +167,6 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
 
     const partition = useMemo(() => partitionLatestTurn(items), [items]);
 
-    const subagentsByParent = useMemo(() => {
-      if (!rest.subagentEntries?.length) return null;
-
-      // Build a reverse lookup from daemon message UUID → item key.
-      // Used to resolve subagent entries reconstructed from history where
-      // parentMessageId (stable UUID) is set but parentMessageStableId
-      // (ephemeral, regenerated each load) won't match.
-      const messageIdToItemKey = new Map<string, string>();
-      for (const item of items) {
-        if (item.kind === "message" && item.message.id) {
-          messageIdToItemKey.set(item.message.id, item.key);
-        }
-      }
-
-      const groups = new Map<string, SubagentEntry[]>();
-      for (const entry of rest.subagentEntries) {
-        const itemKey =
-          entry.parentMessageStableId ??
-          (entry.parentMessageId
-            ? messageIdToItemKey.get(entry.parentMessageId)
-            : undefined);
-        if (!itemKey) continue;
-        const list = groups.get(itemKey) ?? [];
-        list.push(entry);
-        groups.set(itemKey, list);
-      }
-      return groups.size > 0 ? groups : null;
-    }, [rest.subagentEntries, items]);
-
     useImperativeHandle(
       ref,
       (): TranscriptHandle => ({
@@ -269,6 +236,8 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
       onOpenApp: rest.onOpenApp,
       onOpenDocument: rest.onOpenDocument,
       assistantId: rest.assistantId,
+      onSubagentClick: rest.onSubagentClick,
+      onStopSubagent: rest.onStopSubagent,
     };
 
     return (
@@ -288,15 +257,6 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
             <Fragment key={item.key}>
               <div className="mx-auto w-full max-w-[var(--chat-max-width)] contain-content px-4 sm:px-6">
                 <TranscriptRow item={item} {...rowProps} />
-                {item.kind === "message" &&
-                  subagentsByParent?.get(item.key) &&
-                  rest.onSubagentClick && (
-                    <SubagentProgressCard
-                      entries={subagentsByParent.get(item.key)!}
-                      onSubagentClick={rest.onSubagentClick}
-                      onStopSubagent={rest.onStopSubagent}
-                    />
-                  )}
               </div>
             </Fragment>
           ))}
@@ -308,9 +268,6 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
                 responseItems={partition.responseItems}
                 viewportMinHeight={viewportMinHeight}
                 avatarSlot={rest.renderAvatar ? rest.renderAvatar() : undefined}
-                subagentsByParent={subagentsByParent}
-                onSubagentClick={rest.onSubagentClick}
-                onStopSubagent={rest.onStopSubagent}
                 {...rowProps}
               />
             </div>
