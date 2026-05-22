@@ -31,7 +31,9 @@ export function shouldDeliverSlackDmTextResponses(params: {
 export type SlackDmTextDeliveryController = {
   observeEvent: (msg: ServerMessage) => void;
   waitForPendingDeliveries: () => Promise<void>;
-  wasMessageDeliveredLive: (messageId: string | undefined) => boolean;
+  getFinalDeliveryResumeOptions: (
+    messageId: string | undefined,
+  ) => { startFromSegment: number; messageTs?: string } | undefined;
 };
 
 export function createSlackDmTextDeliveryController(params: {
@@ -52,6 +54,7 @@ export function createSlackDmTextDeliveryController(params: {
     params.deliveredTextResponseIndexes ?? [],
   );
   const messageIdToResponseIndexes = new Map<string, number[]>();
+  const responseIndexToMessageTs = new Map<number, string>();
   const messagesWithUndeliveredText = new Set<string>();
   let textResponseIndex = 0;
   let pendingText = "";
@@ -87,8 +90,9 @@ export function createSlackDmTextDeliveryController(params: {
     deliveryChain = deliveryChain
       .catch(() => undefined)
       .then(async () => {
+        let result: Awaited<ReturnType<typeof deliverChannelReply>>;
         try {
-          await deliverChannelReply(replyCallbackUrl, {
+          result = await deliverChannelReply(replyCallbackUrl, {
             chatId: params.chatId,
             text: deliverableText,
             assistantId: params.assistantId,
@@ -102,6 +106,9 @@ export function createSlackDmTextDeliveryController(params: {
           return;
         }
 
+        if (result.ts) {
+          responseIndexToMessageTs.set(currentResponseIndex, result.ts);
+        }
         deliveredTextResponseIndexes.add(currentResponseIndex);
         try {
           params.onTextResponseDelivered?.(currentResponseIndex);
@@ -140,20 +147,28 @@ export function createSlackDmTextDeliveryController(params: {
       }
     },
     waitForPendingDeliveries: () => deliveryChain,
-    wasMessageDeliveredLive: (messageId) => {
-      if (
-        typeof messageId !== "string" ||
-        messagesWithUndeliveredText.has(messageId)
-      ) {
-        return false;
+    getFinalDeliveryResumeOptions: (messageId) => {
+      if (typeof messageId !== "string") {
+        return undefined;
       }
       const responseIndexes = messageIdToResponseIndexes.get(messageId) ?? [];
-      return (
-        responseIndexes.length > 0 &&
-        responseIndexes.every((responseIndex) =>
-          deliveredTextResponseIndexes.has(responseIndex),
-        )
-      );
+      let deliveredPrefixCount = 0;
+      for (const responseIndex of responseIndexes) {
+        if (!deliveredTextResponseIndexes.has(responseIndex)) break;
+        deliveredPrefixCount += 1;
+      }
+      if (deliveredPrefixCount === 0) return undefined;
+
+      const firstLiveResponseIndex = responseIndexes[0];
+      const messageTs =
+        !messagesWithUndeliveredText.has(messageId) &&
+        firstLiveResponseIndex !== undefined
+          ? responseIndexToMessageTs.get(firstLiveResponseIndex)
+          : undefined;
+      return {
+        startFromSegment: deliveredPrefixCount,
+        ...(messageTs ? { messageTs } : {}),
+      };
     },
   };
 }

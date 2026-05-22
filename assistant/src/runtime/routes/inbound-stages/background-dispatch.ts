@@ -329,21 +329,22 @@ export function processChannelMessageInBackground(
           if (slackDmTextDelivery) {
             await slackDmTextDelivery.waitForPendingDeliveries();
           }
+          const liveDeliveryResumeOptions =
+            slackDmTextDelivery?.getFinalDeliveryResumeOptions(replyMessageId);
 
-          if (!slackDmTextDelivery?.wasMessageDeliveredLive(replyMessageId)) {
-            await deliverReplyViaCallback(
-              conversationId,
-              externalChatId,
-              replyCallbackUrl,
-              assistantId,
-              {
-                messageId: replyMessageId,
-                sinceMessageId: userMessageId,
-                onSegmentDelivered: (count) =>
-                  updateDeliveredSegmentCount(eventId, count),
-              },
-            );
-          }
+          await deliverReplyViaCallback(
+            conversationId,
+            externalChatId,
+            replyCallbackUrl,
+            assistantId,
+            {
+              messageId: replyMessageId,
+              sinceMessageId: userMessageId,
+              ...liveDeliveryResumeOptions,
+              onSegmentDelivered: (count) =>
+                updateDeliveredSegmentCount(eventId, count),
+            },
+          );
           markDeliveryDelivered(eventId);
         } catch (err) {
           log.error(

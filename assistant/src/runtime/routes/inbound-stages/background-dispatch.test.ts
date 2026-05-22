@@ -15,7 +15,11 @@ const storedReplyMessageIds: Array<{
   eventId: string;
   replyMessageId: string;
 }> = [];
-const replyDeliveryCalls: Array<{ messageId?: string }> = [];
+const replyDeliveryCalls: Array<{
+  messageId?: string;
+  startFromSegment?: number;
+  messageTs?: string;
+}> = [];
 let deliverChannelReplyImpl: (
   callbackUrl: string,
   payload: Record<string, unknown>,
@@ -83,8 +87,19 @@ mock.module("../../gateway-client.js", () => ({
 
 mock.module("../channel-delivery-routes.js", () => ({
   deliverReplyViaCallback: async (...args: unknown[]) => {
-    const options = args[4] as { messageId?: string } | undefined;
-    replyDeliveryCalls.push({ messageId: options?.messageId });
+    const options = args[4] as
+      | { messageId?: string; startFromSegment?: number; messageTs?: string }
+      | undefined;
+    const call: (typeof replyDeliveryCalls)[number] = {
+      messageId: options?.messageId,
+    };
+    if (options?.startFromSegment !== undefined) {
+      call.startFromSegment = options.startFromSegment;
+    }
+    if (options?.messageTs !== undefined) {
+      call.messageTs = options.messageTs;
+    }
+    replyDeliveryCalls.push(call);
     return deliverReplyViaCallbackImpl(...args);
   },
 }));
@@ -362,6 +377,11 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
         conversationId,
         toolUseId: "toolu_1",
       });
+      options?.onEvent?.({
+        type: "message_complete",
+        conversationId,
+        messageId: "assistant-msg-pre-tool",
+      });
 
       await flush();
       expect(
@@ -425,6 +445,10 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
   test("does not redeliver a Slack DM assistant message already posted live", async () => {
     const conversationId = "conv-dm-live-only";
     const channelId = "D-LIVE-ONLY";
+    deliverChannelReplyImpl = async () => ({
+      ok: true,
+      ts: "1700000000.000033",
+    });
 
     const processMessage: MessageProcessor = async (
       _conversationId,
@@ -473,7 +497,13 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
         .map((entry) => entry.payload.text)
         .filter(Boolean),
     ).toEqual(["Live response before the tool."]);
-    expect(replyDeliveryCalls).toEqual([]);
+    expect(replyDeliveryCalls).toEqual([
+      {
+        messageId: "assistant-msg-live-only",
+        startFromSegment: 1,
+        messageTs: "1700000000.000033",
+      },
+    ]);
     expect(storedReplyMessageIds).toEqual([
       {
         eventId: "evt-live-only",
