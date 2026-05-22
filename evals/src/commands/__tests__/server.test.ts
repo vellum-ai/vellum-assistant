@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 
 import {
   handleRequest,
@@ -10,6 +12,7 @@ import {
   ensureRunArtifacts,
   writeMetricResults,
   writeRunMetadata,
+  RUNS_DIR,
 } from "../../lib/metrics";
 
 async function seedRun(input: {
@@ -149,6 +152,56 @@ describe("evals server routing", () => {
     await seedRun({ sessionId, profileId: "p1", testId: "t1" });
     const res = await handleRequest(req(`/sessions/${sessionId}/`));
     expect(res.status).toBe(200);
+  });
+
+  test("GET /api/runs/:runId/files/:name serves subprocess log files", async () => {
+    const sessionId = `session-route-file-${Date.now()}`;
+    const runId = await seedRun({ sessionId, profileId: "p1", testId: "t1" });
+
+    // Write a subprocess log file
+    const logContent = "Subprocess hatch started at 2026-05-22T13:00:00Z";
+    await writeFile(
+      join(RUNS_DIR, runId, "subprocess-hatch.log"),
+      logContent,
+    );
+
+    // Request the file
+    const res = await handleRequest(
+      req(`/api/runs/${encodeURIComponent(runId)}/files/subprocess-hatch.log`),
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/plain");
+    const text = await res.text();
+    expect(text).toBe(logContent);
+  });
+
+  test("GET /api/runs/:runId/files/:name rejects invalid filenames", async () => {
+    const sessionId = `session-route-file-invalid-${Date.now()}`;
+    const runId = await seedRun({ sessionId, profileId: "p1", testId: "t1" });
+
+    // Try to request a file outside the subprocess-*.log pattern
+    const res = await handleRequest(
+      req(
+        `/api/runs/${encodeURIComponent(runId)}/files/../../../../etc/passwd`,
+      ),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toContain("Invalid file name");
+  });
+
+  test("GET /api/runs/:runId/files/:name returns 404 for missing files", async () => {
+    const sessionId = `session-route-file-404-${Date.now()}`;
+    const runId = await seedRun({ sessionId, profileId: "p1", testId: "t1" });
+
+    const res = await handleRequest(
+      req(
+        `/api/runs/${encodeURIComponent(runId)}/files/subprocess-nonexistent.log`,
+      ),
+    );
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toContain("File not found");
   });
 });
 
