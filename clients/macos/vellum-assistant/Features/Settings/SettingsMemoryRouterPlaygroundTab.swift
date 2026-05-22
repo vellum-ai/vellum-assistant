@@ -6,6 +6,11 @@ import VellumAssistantShared
 /// under custom `tier1_size`, `tier2_size`, and `batch_size` overrides —
 /// without touching the live EMA event log or activation log.
 ///
+/// Two independent result panes share one query input. Each pane carries
+/// its own override fields and runs its own simulation; after both have
+/// run, slugs are color-coded by whether they appear in both panes or
+/// only one.
+///
 /// Gated by:
 ///   1. `settings-developer-nav` (developer-nav visibility)
 ///   2. `memory-router-playground` (this tab)
@@ -19,25 +24,36 @@ struct SettingsMemoryRouterPlaygroundTab: View {
     private let client = MemoryRouterPlaygroundClient()
 
     @State private var query: String = ""
-    @State private var tier1Raw: String = ""
-    @State private var tier2Raw: String = ""
-    @State private var batchRaw: String = ""
-    @State private var isRunning: Bool = false
-    @State private var validationError: String?
-    @State private var clientError: String?
-    @State private var lastResult: MemoryRouterSimulateResponse?
     @State private var lastQuery: String = ""
+    @State private var paneA = PaneState()
+    @State private var paneB = PaneState()
+
+    enum PaneId { case a, b }
+
+    struct PaneState {
+        var tier1: String = ""
+        var tier2: String = ""
+        var batch: String = ""
+        var isRunning: Bool = false
+        var validationError: String?
+        var clientError: String?
+        var lastResult: MemoryRouterSimulateResponse?
+    }
+
+    enum SlugDiff { case both, onlyHere }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: VSpacing.lg) {
                 header
-                formCard
-                if let err = validationError ?? clientError {
-                    errorBanner(err)
+                queryCard
+                runBothRow
+                if paneA.lastResult != nil && paneB.lastResult != nil {
+                    diffLegend
                 }
-                if let result = lastResult {
-                    resultSection(result)
+                HStack(alignment: .top, spacing: VSpacing.md) {
+                    paneColumn(pane: .a)
+                    paneColumn(pane: .b)
                 }
             }
             .padding(VSpacing.lg)
@@ -61,42 +77,107 @@ struct SettingsMemoryRouterPlaygroundTab: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    // MARK: - Form
+    // MARK: - Shared query
 
-    private var formCard: some View {
+    private var queryCard: some View {
+        VStack(alignment: .leading, spacing: VSpacing.xs) {
+            Text("Query (shared by both panes)")
+                .font(VFont.labelDefault)
+                .foregroundStyle(VColor.contentSecondary)
+            TextEditor(text: $query)
+                .font(VFont.bodyMediumDefault)
+                .foregroundStyle(VColor.contentDefault)
+                .scrollContentBackground(.hidden)
+                .padding(VSpacing.sm)
+                .frame(minHeight: 80)
+                .background(VColor.surfaceBase)
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .stroke(VColor.borderBase, lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        }
+        .padding(VSpacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .vCard()
+    }
+
+    private var runBothRow: some View {
+        HStack {
+            Spacer()
+            VButton(
+                label: (paneA.isRunning || paneB.isRunning) ? "Running…" : "Run both",
+                style: .primary,
+                isDisabled: !canRunBoth
+            ) {
+                runPane(.a)
+                runPane(.b)
+            }
+        }
+    }
+
+    private var diffLegend: some View {
+        HStack(spacing: VSpacing.md) {
+            legendItem(marker: "●", color: VColor.contentDefault, label: "in both")
+            legendItem(marker: "◆", color: paneAccentColor(.a), label: "A only")
+            legendItem(marker: "◇", color: paneAccentColor(.b), label: "B only")
+            Spacer()
+        }
+        .padding(.horizontal, VSpacing.md)
+        .padding(.vertical, VSpacing.sm)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(VColor.surfaceBase)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+    }
+
+    private func legendItem(marker: String, color: Color, label: String) -> some View {
+        HStack(spacing: VSpacing.xs) {
+            Text(marker).foregroundStyle(color)
+            Text(label).foregroundStyle(VColor.contentSecondary)
+        }
+        .font(VFont.labelDefault)
+    }
+
+    // MARK: - Per-pane column
+
+    @ViewBuilder
+    private func paneColumn(pane: PaneId) -> some View {
+        let state = paneState(pane)
+        let otherState = paneState(otherPane(pane))
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text("Query")
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(VColor.contentSecondary)
-                TextEditor(text: $query)
-                    .font(VFont.bodyMediumDefault)
-                    .foregroundStyle(VColor.contentDefault)
-                    .scrollContentBackground(.hidden)
-                    .padding(VSpacing.sm)
-                    .frame(minHeight: 80)
-                    .background(VColor.surfaceBase)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.md)
-                            .stroke(VColor.borderBase, lineWidth: 1)
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            Text("Pane \(paneLabel(pane))")
+                .font(VFont.titleSmall)
+                .foregroundStyle(paneAccentColor(pane))
+            paneFormCard(pane: pane)
+            if let err = state.validationError ?? state.clientError {
+                errorBanner(err)
             }
-
-            HStack(alignment: .top, spacing: VSpacing.md) {
-                overrideField(label: "tier1_size", value: $tier1Raw)
-                overrideField(label: "tier2_size", value: $tier2Raw)
-                overrideField(label: "batch_size", value: $batchRaw)
+            if let result = state.lastResult {
+                paneResultSection(
+                    result: result,
+                    pane: pane,
+                    otherResult: otherState.lastResult
+                )
             }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
 
+    private func paneFormCard(pane: PaneId) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            HStack(alignment: .top, spacing: VSpacing.sm) {
+                overrideField(label: "tier1_size", binding: tier1Binding(pane))
+                overrideField(label: "tier2_size", binding: tier2Binding(pane))
+                overrideField(label: "batch_size", binding: batchBinding(pane))
+            }
             HStack {
                 Spacer()
                 VButton(
-                    label: isRunning ? "Running…" : "Run simulation",
-                    style: .primary,
-                    isDisabled: !canRun
+                    label: paneState(pane).isRunning ? "Running…" : "Run \(paneLabel(pane))",
+                    style: .outlined,
+                    isDisabled: !canRun(pane)
                 ) {
-                    runSimulation()
+                    runPane(pane)
                 }
             }
         }
@@ -105,12 +186,12 @@ struct SettingsMemoryRouterPlaygroundTab: View {
         .vCard()
     }
 
-    private func overrideField(label: String, value: Binding<String>) -> some View {
+    private func overrideField(label: String, binding: Binding<String>) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             Text(label)
                 .font(VFont.labelDefault)
                 .foregroundStyle(VColor.contentSecondary)
-            TextField("inherit", text: value)
+            TextField("inherit", text: binding)
                 .textFieldStyle(.plain)
                 .font(VFont.bodyMediumDefault)
                 .foregroundStyle(VColor.contentDefault)
@@ -126,11 +207,16 @@ struct SettingsMemoryRouterPlaygroundTab: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    // MARK: - Result Section
+    // MARK: - Result section
 
     @ViewBuilder
-    private func resultSection(_ result: MemoryRouterSimulateResponse) -> some View {
-        summaryCard(result)
+    private func paneResultSection(
+        result: MemoryRouterSimulateResponse,
+        pane: PaneId,
+        otherResult: MemoryRouterSimulateResponse?
+    ) -> some View {
+        let diff = classifySlugs(own: result, other: otherResult)
+        summaryCard(result: result, otherResult: otherResult, diff: diff)
         configCard(result)
         if let reason = result.failureReason {
             errorBanner("Router failure: \(reason)")
@@ -140,13 +226,18 @@ struct SettingsMemoryRouterPlaygroundTab: View {
             emptyResultCard
         } else {
             ForEach(groups, id: \.source) { group in
-                tierCard(group: group, scores: result.scores)
+                tierCard(group: group, scores: result.scores, pane: pane, diff: diff)
             }
         }
     }
 
-    private func summaryCard(_ result: MemoryRouterSimulateResponse) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
+    private func summaryCard(
+        result: MemoryRouterSimulateResponse,
+        otherResult: MemoryRouterSimulateResponse?,
+        diff: [String: SlugDiff]
+    ) -> some View {
+        let counts = countDiff(diff)
+        return VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Summary")
                 .font(VFont.titleSmall)
                 .foregroundStyle(VColor.contentDefault)
@@ -159,6 +250,12 @@ struct SettingsMemoryRouterPlaygroundTab: View {
                 label: "Selected",
                 value: "\(result.selectedSlugs.count) / \(result.effectiveConfig.maxPageIds)"
             )
+            if otherResult != nil {
+                metaRow(
+                    label: "Diff",
+                    value: "\(counts.shared) shared · \(counts.unique) unique to this pane"
+                )
+            }
         }
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -203,7 +300,9 @@ struct SettingsMemoryRouterPlaygroundTab: View {
 
     private func tierCard(
         group: SourceGroup,
-        scores: [String: Double]
+        scores: [String: Double],
+        pane: PaneId,
+        diff: [String: SlugDiff]
     ) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             HStack {
@@ -217,24 +316,38 @@ struct SettingsMemoryRouterPlaygroundTab: View {
             }
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 ForEach(group.slugs, id: \.self) { slug in
-                    HStack {
-                        Text(slug)
-                            .font(VFont.bodyMediumDefault)
-                            .foregroundStyle(VColor.contentDefault)
-                            .textSelection(.enabled)
-                        Spacer()
-                        if group.source == "tier2" {
-                            Text("EMA \(formatScore(scores[slug] ?? 0))")
-                                .font(VFont.labelDefault)
-                                .foregroundStyle(VColor.contentSecondary)
-                        }
-                    }
+                    slugRow(slug: slug, pane: pane, diff: diff, source: group.source, scores: scores)
                 }
             }
         }
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .vCard()
+    }
+
+    private func slugRow(
+        slug: String,
+        pane: PaneId,
+        diff: [String: SlugDiff],
+        source: String,
+        scores: [String: Double]
+    ) -> some View {
+        let cls = diff[slug] ?? .onlyHere
+        let color: Color = cls == .both ? VColor.contentDefault : paneAccentColor(pane)
+        let marker: String = cls == .both ? "●" : (pane == .a ? "◆" : "◇")
+        return HStack(alignment: .firstTextBaseline, spacing: VSpacing.xs) {
+            Text(marker).foregroundStyle(color)
+            Text(slug)
+                .font(VFont.bodyMediumDefault)
+                .foregroundStyle(color)
+                .textSelection(.enabled)
+            Spacer()
+            if source == "tier2" {
+                Text("EMA \(formatScore(scores[slug] ?? 0))")
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentSecondary)
+            }
+        }
     }
 
     private var emptyResultCard: some View {
@@ -263,11 +376,144 @@ struct SettingsMemoryRouterPlaygroundTab: View {
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
     }
 
-    // MARK: - Helpers
+    // MARK: - Pane state helpers
 
-    private var canRun: Bool {
-        !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isRunning
+    private func paneState(_ pane: PaneId) -> PaneState {
+        pane == .a ? paneA : paneB
     }
+
+    private func otherPane(_ pane: PaneId) -> PaneId {
+        pane == .a ? .b : .a
+    }
+
+    private func paneLabel(_ pane: PaneId) -> String {
+        pane == .a ? "A" : "B"
+    }
+
+    private func paneAccentColor(_ pane: PaneId) -> Color {
+        pane == .a ? VColor.systemMidStrong : VColor.primaryBase
+    }
+
+    private func tier1Binding(_ pane: PaneId) -> Binding<String> {
+        pane == .a ? $paneA.tier1 : $paneB.tier1
+    }
+
+    private func tier2Binding(_ pane: PaneId) -> Binding<String> {
+        pane == .a ? $paneA.tier2 : $paneB.tier2
+    }
+
+    private func batchBinding(_ pane: PaneId) -> Binding<String> {
+        pane == .a ? $paneA.batch : $paneB.batch
+    }
+
+    private func canRun(_ pane: PaneId) -> Bool {
+        !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !paneState(pane).isRunning
+    }
+
+    private var canRunBoth: Bool {
+        !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !paneA.isRunning && !paneB.isRunning
+    }
+
+    // MARK: - Run
+
+    private func runPane(_ pane: PaneId) {
+        // Clear per-pane error state on entry.
+        switch pane {
+        case .a:
+            paneA.validationError = nil
+            paneA.clientError = nil
+        case .b:
+            paneB.validationError = nil
+            paneB.clientError = nil
+        }
+
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedQuery.isEmpty else { return }
+
+        let state = paneState(pane)
+        let tier1Override: MemoryRouterOverride
+        let tier2Override: MemoryRouterOverride
+        let batchOverride: MemoryRouterOverride
+        do {
+            tier1Override = try parseOverride(field: "tier1_size", raw: state.tier1)
+            tier2Override = try parseOverride(field: "tier2_size", raw: state.tier2)
+            batchOverride = try parseOverride(field: "batch_size", raw: state.batch)
+        } catch {
+            setValidationError(pane: pane, message: error.localizedDescription)
+            return
+        }
+
+        let input = MemoryRouterSimulateInput(
+            query: trimmedQuery,
+            tier1Size: tier1Override,
+            tier2Size: tier2Override,
+            batchSize: batchOverride
+        )
+
+        setIsRunning(pane: pane, value: true)
+        lastQuery = trimmedQuery
+        Task {
+            defer { setIsRunning(pane: pane, value: false) }
+            do {
+                let result = try await client.simulate(input: input)
+                setLastResult(pane: pane, result: result)
+                setClientError(pane: pane, message: nil)
+            } catch MemoryRouterPlaygroundError.memoryV2Disabled {
+                setClientError(
+                    pane: pane,
+                    message: "Memory v2 is not enabled on this assistant — set memory.v2.enabled to true in workspace config."
+                )
+                setLastResult(pane: pane, result: nil)
+            } catch MemoryRouterPlaygroundError.notAvailable {
+                setClientError(
+                    pane: pane,
+                    message: "Simulate route is not available — the daemon may need to be updated."
+                )
+                setLastResult(pane: pane, result: nil)
+            } catch let MemoryRouterPlaygroundError.http(statusCode, body) {
+                setClientError(
+                    pane: pane,
+                    message: "HTTP \(statusCode): \(body.isEmpty ? "Failed to run simulation" : body)"
+                )
+                setLastResult(pane: pane, result: nil)
+            } catch {
+                setClientError(pane: pane, message: error.localizedDescription)
+                setLastResult(pane: pane, result: nil)
+            }
+        }
+    }
+
+    private func setIsRunning(pane: PaneId, value: Bool) {
+        switch pane {
+        case .a: paneA.isRunning = value
+        case .b: paneB.isRunning = value
+        }
+    }
+
+    private func setLastResult(pane: PaneId, result: MemoryRouterSimulateResponse?) {
+        switch pane {
+        case .a: paneA.lastResult = result
+        case .b: paneB.lastResult = result
+        }
+    }
+
+    private func setValidationError(pane: PaneId, message: String?) {
+        switch pane {
+        case .a: paneA.validationError = message
+        case .b: paneB.validationError = message
+        }
+    }
+
+    private func setClientError(pane: PaneId, message: String?) {
+        switch pane {
+        case .a: paneA.clientError = message
+        case .b: paneB.clientError = message
+        }
+    }
+
+    // MARK: - Helpers (shared)
 
     private func metaRow(label: String, value: String) -> some View {
         HStack(alignment: .firstTextBaseline) {
@@ -296,56 +542,6 @@ struct SettingsMemoryRouterPlaygroundTab: View {
         String(format: "%.3f", value)
     }
 
-    private func runSimulation() {
-        validationError = nil
-        clientError = nil
-
-        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedQuery.isEmpty else { return }
-
-        let tier1Override: MemoryRouterOverride
-        let tier2Override: MemoryRouterOverride
-        let batchOverride: MemoryRouterOverride
-        do {
-            tier1Override = try parseOverride(field: "tier1_size", raw: tier1Raw)
-            tier2Override = try parseOverride(field: "tier2_size", raw: tier2Raw)
-            batchOverride = try parseOverride(field: "batch_size", raw: batchRaw)
-        } catch {
-            validationError = error.localizedDescription
-            return
-        }
-
-        let input = MemoryRouterSimulateInput(
-            query: trimmedQuery,
-            tier1Size: tier1Override,
-            tier2Size: tier2Override,
-            batchSize: batchOverride
-        )
-
-        isRunning = true
-        lastQuery = trimmedQuery
-        Task {
-            defer { isRunning = false }
-            do {
-                let result = try await client.simulate(input: input)
-                lastResult = result
-                clientError = nil
-            } catch MemoryRouterPlaygroundError.memoryV2Disabled {
-                clientError = "Memory v2 is not enabled on this assistant — set memory.v2.enabled to true in workspace config."
-                lastResult = nil
-            } catch MemoryRouterPlaygroundError.notAvailable {
-                clientError = "Simulate route is not available — the daemon may need to be updated."
-                lastResult = nil
-            } catch let MemoryRouterPlaygroundError.http(statusCode, body) {
-                clientError = "HTTP \(statusCode): \(body.isEmpty ? "Failed to run simulation" : body)"
-                lastResult = nil
-            } catch {
-                clientError = error.localizedDescription
-                lastResult = nil
-            }
-        }
-    }
-
     private func parseOverride(field: String, raw: String) throws -> MemoryRouterOverride {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return .inherit }
@@ -354,6 +550,28 @@ struct SettingsMemoryRouterPlaygroundTab: View {
             throw MemoryRouterPlaygroundInputError.invalidOverride(field: field, raw: trimmed)
         }
         return .value(parsed)
+    }
+
+    private func classifySlugs(
+        own: MemoryRouterSimulateResponse,
+        other: MemoryRouterSimulateResponse?
+    ) -> [String: SlugDiff] {
+        guard let other = other else {
+            return Dictionary(uniqueKeysWithValues: own.selectedSlugs.map { ($0, .both) })
+        }
+        let otherSet = Set(other.selectedSlugs)
+        return Dictionary(uniqueKeysWithValues: own.selectedSlugs.map {
+            ($0, otherSet.contains($0) ? .both : .onlyHere)
+        })
+    }
+
+    private func countDiff(_ diff: [String: SlugDiff]) -> (shared: Int, unique: Int) {
+        var shared = 0
+        var unique = 0
+        for cls in diff.values {
+            if cls == .both { shared += 1 } else { unique += 1 }
+        }
+        return (shared, unique)
     }
 
     private struct SourceGroup {
