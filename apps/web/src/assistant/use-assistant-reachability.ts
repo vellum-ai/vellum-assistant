@@ -35,10 +35,16 @@ export const MAX_WINDOW_MS = 60_000;
 // ready -- from immediately re-opening the connecting overlay.
 export const BUS_REENTRY_COOLDOWN_MS = 5_000;
 
-export type ReachabilityPhase = "idle" | "connecting" | "ready" | "failed";
+export type ReachabilityPhase =
+  | "idle"
+  | "checking"
+  | "connecting"
+  | "ready"
+  | "failed";
 
 export type ReachabilityState =
   | { phase: "idle" }
+  | { phase: "checking" }
   | {
       phase: "connecting";
       attempt: number;
@@ -57,8 +63,24 @@ export type ConnectionServerState = AssistantsConnectionStatusResponse["state"];
 
 export interface UseAssistantReachabilityResult {
   state: ReachabilityState;
-  probe: (options?: { showConnectingImmediately?: boolean }) => void;
+  probe: (options?: ReachabilityProbeOptions) => void;
   reset: () => void;
+}
+
+export interface ReachabilityProbeOptions {
+  showConnectingImmediately?: boolean;
+  /** @internal Used by passive probes that should not interrupt the user. */
+  mode?: ReachabilityProbeMode;
+  /** @internal Used by passive probes to hide one transient miss. */
+  silentGracePeriod?: boolean;
+}
+
+export type ReachabilityProbeMode = "visible" | "background";
+
+interface RunProbeOptions {
+  keepIdleOnReady: boolean;
+  mode: ReachabilityProbeMode;
+  silentGracePeriod: boolean;
 }
 
 /**
@@ -110,15 +132,15 @@ export function useAssistantReachability(
   const readyAtRef = useRef<number>(0);
   const dismissedAtRef = useRef<number>(0);
   const activeAssistantIdRef = useRef<string | null>(null);
-  // True while a probe cycle is in flight — including during the silent
-  // grace period when the phase is still "idle". Prevents the
+  // True while a probe cycle is in flight — including during silent
+  // visible grace periods and background checks. Prevents the
   // unreachable-bus subscriber from restarting probe cycles on every
   // 502/503/504, which would reset attemptsRef and cancel the pending
   // timer, trapping the hook in the first-silent-failure path forever.
   const probingRef = useRef(false);
   const runProbeRef = useRef<(
     generation: number,
-    options: { keepIdleOnReady: boolean; silentGracePeriod: boolean },
+    options: RunProbeOptions,
   ) => Promise<void>>(async () => {});
 
   const clearTimer = useCallback(() => {
@@ -144,7 +166,7 @@ export function useAssistantReachability(
   const runProbe = useCallback(
     async (
       generation: number,
-      options: { keepIdleOnReady: boolean; silentGracePeriod: boolean },
+      options: RunProbeOptions,
     ) => {
       const id = activeAssistantIdRef.current;
       if (!id) {
@@ -186,10 +208,15 @@ export function useAssistantReachability(
       if (shouldFailReachabilityImmediately(serverState, response)) {
         clearTimer();
         probingRef.current = false;
+        if (options.mode === "background") {
+          setState({ phase: "idle" });
+          return;
+        }
         setState({
           phase: "failed",
           isPodWaking: false,
-          lastServerState: serverState === "crash_loop" ? serverState : "crash_loop",
+          lastServerState:
+            serverState === "crash_loop" ? serverState : "crash_loop",
           detail: response?.detail ?? null,
         });
         return;
@@ -206,6 +233,10 @@ export function useAssistantReachability(
       if (budgetExhausted) {
         clearTimer();
         probingRef.current = false;
+        if (options.mode === "background") {
+          setState({ phase: "idle" });
+          return;
+        }
         setState({
           phase: "failed",
           isPodWaking,
@@ -219,6 +250,7 @@ export function useAssistantReachability(
       // first non-ready result, including a one-off "waking" response, so a
       // transient PENDING pod observation does not flash the modal.
       if (
+        options.mode === "background" ||
         shouldDeferReachabilityOverlay({
           probeResponseCount,
           silentGracePeriod: options.silentGracePeriod,
@@ -248,14 +280,11 @@ export function useAssistantReachability(
     runProbeRef.current = runProbe;
   }, [runProbe]);
 
-  const probe = useCallback((options?: {
-    showConnectingImmediately?: boolean;
-    /** @internal Used by the unreachable-bus subscriber. */
-    silentGracePeriod?: boolean;
-  }) => {
+  const probe = useCallback((options?: ReachabilityProbeOptions) => {
     if (!assistantId) {
       return;
     }
+    const mode = options?.mode ?? "visible";
     clearTimer();
     generationRef.current += 1;
     attemptsRef.current = 0;
@@ -263,7 +292,8 @@ export function useAssistantReachability(
     startedAtRef.current = Date.now();
     activeAssistantIdRef.current = assistantId;
     probingRef.current = true;
-    const showConnectingImmediately = options?.showConnectingImmediately ?? true;
+    const showConnectingImmediately =
+      mode === "visible" && (options?.showConnectingImmediately ?? true);
     if (showConnectingImmediately) {
       setState({
         phase: "connecting",
@@ -271,11 +301,14 @@ export function useAssistantReachability(
         isPodWaking: false,
         lastServerState: null,
       });
+    } else if (mode === "background") {
+      setState({ phase: "checking" });
     }
     const silentGracePeriod =
       options?.silentGracePeriod ?? !showConnectingImmediately;
     void runProbe(generationRef.current, {
-      keepIdleOnReady: !showConnectingImmediately,
+      keepIdleOnReady: mode === "visible" && !showConnectingImmediately,
+      mode,
       silentGracePeriod,
     });
   }, [assistantId, clearTimer, runProbe]);

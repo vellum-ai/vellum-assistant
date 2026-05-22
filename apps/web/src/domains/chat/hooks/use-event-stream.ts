@@ -43,9 +43,13 @@ import type {
 
 import { useConversationStore } from "@/domains/conversations/conversation-store.js";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
-import { useTurnStore } from "@/domains/messaging/turn-store.js";
+import {
+  isSending,
+  useTurnStore,
+} from "@/domains/messaging/turn-store.js";
 import type { ChatEventStream } from "@/domains/chat/api/stream.js";
 import { useEventBusStore } from "@/stores/event-bus-store.js";
+import type { UseAssistantReachabilityResult } from "@/assistant/use-assistant-reachability.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -83,7 +87,7 @@ export interface UseEventStreamParams {
   cancelReconciliation: () => void;
 
   // Reachability
-  reachabilityProbe: () => void;
+  reachabilityProbe: UseAssistantReachabilityResult["probe"];
   reachabilityPhase: string;
   reachabilityReset: () => void;
 
@@ -369,6 +373,7 @@ export function useEventStream({
     const unsub = useEventBusStore
       .getState()
       .subscribe("sse.closed", ({ reason }) => {
+        const hadActiveTurn = isSending(useTurnStore.getState());
         recordChatDiagnostic("sse_stream_error", {
           assistantId: capturedAssistantId,
           conversationKey: capturedConversationKey,
@@ -382,7 +387,13 @@ export function useEventStream({
             useConversationStore.getState().removeProcessingKey(convKey);
           }
         }
-        reachabilityProbeRef.current();
+        // Idle SSE drops should reopen the stream without interrupting the
+        // user; active turns still surface the reconnect state immediately.
+        reachabilityProbeRef.current(
+          hadActiveTurn
+            ? { showConnectingImmediately: true }
+            : { mode: "background" },
+        );
         setMessagesRef.current((prev) => {
           const last = prev[prev.length - 1];
           if (last?.role === "assistant" && last.isStreaming) {
