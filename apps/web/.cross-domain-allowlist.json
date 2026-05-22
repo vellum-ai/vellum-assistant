@@ -158,6 +158,9 @@
   "src/domains/conversations/use-attention-tracking.ts": [
     "chat"
   ],
+  "src/domains/conversations/use-conversation-actions-archive-optimistic.test.tsx": [
+    "chat"
+  ],
   "src/domains/conversations/use-conversation-actions.test.ts": [
     "chat"
   ],
