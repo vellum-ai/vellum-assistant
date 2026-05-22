@@ -9,6 +9,8 @@ const processingFailureEvents: string[] = [];
 const deliveredEvents: string[] = [];
 const deliveryFailureEvents: string[] = [];
 const deliveredSegmentCounts: Array<{ eventId: string; count: number }> = [];
+const liveDeliveredTextResponseIndexes = new Map<string, number[]>();
+const operationOrder: string[] = [];
 const storedReplyMessageIds: Array<{
   eventId: string;
   replyMessageId: string;
@@ -30,6 +32,17 @@ mock.module("../../../util/logger.js", () => ({
 }));
 
 mock.module("../../../memory/delivery-channels.js", () => ({
+  addSlackDmLiveDeliveredTextResponseIndex: (
+    eventId: string,
+    responseIndex: number,
+  ) => {
+    operationOrder.push(`live:${responseIndex}`);
+    const indexes = liveDeliveredTextResponseIndexes.get(eventId) ?? [];
+    if (!indexes.includes(responseIndex)) indexes.push(responseIndex);
+    liveDeliveredTextResponseIndexes.set(eventId, indexes);
+  },
+  getSlackDmLiveDeliveredTextResponseIndexes: (eventId: string) =>
+    liveDeliveredTextResponseIndexes.get(eventId) ?? [],
   updateDeliveredSegmentCount: (eventId: string, count: number) => {
     deliveredSegmentCounts.push({ eventId, count });
   },
@@ -53,6 +66,7 @@ mock.module("../../../memory/delivery-status.js", () => ({
     deliveryFailureEvents.push(eventId);
   },
   recordProcessingFailure: (eventId: string) => {
+    operationOrder.push("processing-failure");
     processingFailureEvents.push(eventId);
   },
 }));
@@ -96,6 +110,8 @@ beforeEach(() => {
   deliveredEvents.length = 0;
   deliveryFailureEvents.length = 0;
   deliveredSegmentCounts.length = 0;
+  liveDeliveredTextResponseIndexes.clear();
+  operationOrder.length = 0;
   storedReplyMessageIds.length = 0;
   replyDeliveryCalls.length = 0;
   deliverChannelReplyImpl = async () => ({ ok: true });
@@ -555,6 +571,65 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
     expect(deliveredEvents).toEqual(["evt-live-failure-recovery"]);
     expect(deliveredSegmentCounts).toEqual([
       { eventId: "evt-live-failure-recovery", count: 1 },
+    ]);
+
+    clearThreadTs(conversationId);
+  });
+
+  test("persists Slack DM live text progress before processing failures", async () => {
+    const conversationId = "conv-dm-processing-failure-after-live";
+    const channelId = "D-PROCESSING-FAILURE-AFTER-LIVE";
+
+    const processMessage: MessageProcessor = async (
+      _conversationId,
+      _content,
+      _attachmentIds,
+      options,
+    ) => {
+      options?.onEvent?.({
+        type: "assistant_text_delta",
+        text: "Live response before failure.",
+        conversationId,
+      });
+      options?.onEvent?.({
+        type: "tool_use_start",
+        toolName: "web_search",
+        input: { query: "example" },
+        conversationId,
+        toolUseId: "toolu_1",
+      });
+      throw new Error("processing failed after live text");
+    };
+
+    processChannelMessageInBackground({
+      processMessage,
+      conversationId,
+      eventId: "evt-live-before-processing-failure",
+      content: "please do the thing",
+      sourceChannel: "slack",
+      sourceInterface: "slack",
+      externalChatId: channelId,
+      trustCtx,
+      metadataHints: [],
+      chatType: "im",
+      replyCallbackUrl: `https://example.test/deliver/slack?channel=${channelId}`,
+    });
+
+    await flush();
+
+    expect(
+      deliveredChannelReplies
+        .map((entry) => entry.payload.text)
+        .filter(Boolean),
+    ).toEqual(["Live response before failure."]);
+    expect(
+      liveDeliveredTextResponseIndexes.get(
+        "evt-live-before-processing-failure",
+      ),
+    ).toEqual([1]);
+    expect(operationOrder).toEqual(["live:1", "processing-failure"]);
+    expect(processingFailureEvents).toEqual([
+      "evt-live-before-processing-failure",
     ]);
 
     clearThreadTs(conversationId);

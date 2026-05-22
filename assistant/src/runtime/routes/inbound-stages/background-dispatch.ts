@@ -11,7 +11,11 @@ import type { ChannelId, InterfaceId } from "../../../channels/types.js";
 import { findGuardianForChannel } from "../../../contacts/contact-store.js";
 import type { ServerMessage } from "../../../daemon/message-protocol.js";
 import type { TrustContext } from "../../../daemon/trust-context.js";
-import { updateDeliveredSegmentCount } from "../../../memory/delivery-channels.js";
+import {
+  addSlackDmLiveDeliveredTextResponseIndex,
+  getSlackDmLiveDeliveredTextResponseIndexes,
+  updateDeliveredSegmentCount,
+} from "../../../memory/delivery-channels.js";
 import {
   linkMessage,
   storeReplyMessageId,
@@ -44,6 +48,10 @@ import type {
   MessageProcessor,
   SlackInboundMessageMetadata,
 } from "../../http-types.js";
+import {
+  createSlackDmTextDeliveryController,
+  isSlackDeliveryCallbackUrl,
+} from "../../slack-dm-text-delivery.js";
 import { resolveRoutingState } from "../../trust-context-resolver.js";
 import { deliverReplyViaCallback } from "../channel-delivery-routes.js";
 import { deliverGeneratedApprovalPrompt } from "../guardian-approval-prompt.js";
@@ -231,6 +239,10 @@ export function processChannelMessageInBackground(
         replyCallbackUrl,
         chatId: externalChatId,
         assistantId,
+        deliveredTextResponseIndexes:
+          getSlackDmLiveDeliveredTextResponseIndexes(eventId),
+        onTextResponseDelivered: (responseIndex) =>
+          addSlackDmLiveDeliveredTextResponseIndex(eventId, responseIndex),
       });
       const observeAgentEvent = (msg: ServerMessage): void => {
         if (
@@ -301,6 +313,9 @@ export function processChannelMessageInBackground(
           { err, conversationId },
           "Background channel message processing failed",
         );
+        if (slackDmTextDelivery) {
+          await slackDmTextDelivery.waitForPendingDeliveries();
+        }
         recordProcessingFailure(eventId, err);
         return;
       }
@@ -427,88 +442,6 @@ const NO_RESPONSE_SENTINEL_FORMS = [
   "<no_response />",
   "<no_response>",
 ] as const;
-
-function isSlackDeliveryCallbackUrl(replyCallbackUrl?: string): boolean {
-  if (!replyCallbackUrl) return false;
-  try {
-    return new URL(replyCallbackUrl).pathname.endsWith("/deliver/slack");
-  } catch {
-    return replyCallbackUrl.endsWith("/deliver/slack");
-  }
-}
-
-export function shouldDeliverSlackDmTextResponses(params: {
-  sourceChannel: ChannelId;
-  chatType?: string;
-  replyCallbackUrl?: string;
-}): boolean {
-  return (
-    params.sourceChannel === "slack" &&
-    params.chatType === "im" &&
-    isSlackDeliveryCallbackUrl(params.replyCallbackUrl)
-  );
-}
-
-type SlackDmTextDeliveryController = {
-  observeEvent: (msg: ServerMessage) => void;
-  waitForPendingDeliveries: () => Promise<void>;
-};
-
-function createSlackDmTextDeliveryController(params: {
-  sourceChannel: ChannelId;
-  chatType?: string;
-  replyCallbackUrl?: string;
-  chatId: string;
-  assistantId?: string;
-}): SlackDmTextDeliveryController | undefined {
-  const { replyCallbackUrl } = params;
-  if (!shouldDeliverSlackDmTextResponses(params) || !replyCallbackUrl) {
-    return undefined;
-  }
-
-  let pendingText = "";
-  let deliveryChain = Promise.resolve();
-
-  const flushPendingText = (): void => {
-    const text = pendingText;
-    pendingText = "";
-
-    const deliverableText = text.replace(NO_RESPONSE_INLINE_RE, "").trim();
-    if (deliverableText.length === 0) return;
-
-    deliveryChain = deliveryChain
-      .catch(() => undefined)
-      .then(async () => {
-        try {
-          await deliverChannelReply(replyCallbackUrl, {
-            chatId: params.chatId,
-            text: deliverableText,
-            assistantId: params.assistantId,
-            useBlocks: true,
-          });
-        } catch (err) {
-          log.warn(
-            { err, chatId: params.chatId },
-            "Failed to deliver intermediate Slack DM assistant text",
-          );
-        }
-      });
-  };
-
-  return {
-    observeEvent(msg) {
-      if (msg.type === "assistant_text_delta") {
-        pendingText += msg.text;
-        return;
-      }
-
-      if (msg.type === "tool_use_start") {
-        flushPendingText();
-      }
-    },
-    waitForPendingDeliveries: () => deliveryChain,
-  };
-}
 
 function isPotentialNoResponsePrefix(text: string): boolean {
   const lower = text.toLowerCase();
