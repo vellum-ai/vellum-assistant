@@ -16,6 +16,7 @@
  */
 
 import {
+  AlertTriangle,
   Bolt,
   Check,
   Code,
@@ -108,21 +109,36 @@ function sumDurationLabels(labels: string[]): string {
   return formatMs(total);
 }
 
-/** True when every step in the section is `status === "completed"`. */
-function isPhaseAllCompleted(steps: ToolCallCardStep[]): boolean {
-  if (steps.length === 0) return false;
+/**
+ * Header status states a phase can render. "Running" wins over "failed" so
+ * an in-flight retry inside a phase that has already produced a failure
+ * still reads as in-progress.
+ */
+type PhaseHeaderStatus = "completed" | "failed" | "running";
+
+/**
+ * Classify a phase's overall status for header icon rendering.
+ *
+ * Precedence: any running step → "running"; otherwise any failure
+ * (`tool_error` / `web_search_error` / `tool` status `error`|`denied`) →
+ * "failed"; otherwise → "completed". `thinking` / `web_search` have no
+ * per-step status — they're neutral and don't influence the bucket.
+ */
+function phaseHeaderStatus(steps: ToolCallCardStep[]): PhaseHeaderStatus {
+  if (steps.length === 0) return "running";
+  let failed = false;
   for (const step of steps) {
     if (step.kind === "tool") {
-      if (step.status !== "completed") return false;
+      if (step.status === "running") return "running";
+      if (step.status === "error" || step.status === "denied") failed = true;
       continue;
     }
     if (step.kind === "tool_error" || step.kind === "web_search_error") {
-      return false;
+      failed = true;
     }
-    // `thinking` / `web_search` have no per-step status — treat as completed
-    // once they've been emitted (they only appear after a tool finishes).
+    // `thinking` / `web_search` are neutral — see docstring.
   }
-  return true;
+  return failed ? "failed" : "completed";
 }
 
 /** Phase-grouped section as consumed by the renderer. */
@@ -171,7 +187,7 @@ export function PhaseGroupedStepList({
             "durationLabel" in s ? s.durationLabel : "",
           ),
         );
-        const allCompleted = isPhaseAllCompleted(section.steps);
+        const status = phaseHeaderStatus(section.steps);
         return (
           <div
             key={`${section.label}-${sectionIdx}`}
@@ -182,7 +198,7 @@ export function PhaseGroupedStepList({
             <PhaseHeaderRow
               label={section.label}
               durationLabel={totalDuration}
-              allCompleted={allCompleted}
+              status={status}
             />
             <div className="flex flex-col gap-1 pl-[24px]">
               {section.steps.map((step) => {
@@ -211,11 +227,11 @@ function stepKey(step: ToolCallCardStep, idx: number): string {
 function PhaseHeaderRow({
   label,
   durationLabel,
-  allCompleted,
+  status,
 }: {
   label: string;
   durationLabel: string;
-  allCompleted: boolean;
+  status: PhaseHeaderStatus;
 }) {
   return (
     <div
@@ -223,12 +239,19 @@ function PhaseHeaderRow({
       className="flex items-center justify-between py-[2px]"
     >
       <div className="flex items-center gap-1">
-        {allCompleted ? (
+        {status === "completed" ? (
           <Check
             aria-hidden="true"
             data-testid="phase-header-status-icon"
             data-status="completed"
             className="h-[14px] w-[14px] text-[#277E41]"
+          />
+        ) : status === "failed" ? (
+          <AlertTriangle
+            aria-hidden="true"
+            data-testid="phase-header-status-icon"
+            data-status="failed"
+            className="h-[14px] w-[14px] text-[var(--system-negative-strong)]"
           />
         ) : (
           <ThreeDotIndicator

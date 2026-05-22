@@ -108,6 +108,51 @@ describe("PhaseGroupedStepList — phase header status icon", () => {
     // It exposes 3 dot children (matches `ThreeDotIndicator`'s contract).
     expect(icons[0]!.children.length).toBe(3);
   });
+
+  test("phase with a tool_error step renders the failed icon", () => {
+    const steps: ToolCallCardStep[] = [
+      { kind: "tool_error", message: "context window exceeded" },
+    ];
+    const { getAllByTestId } = render(<PhaseGroupedStepList steps={steps} />);
+    const icons = getAllByTestId("phase-header-status-icon");
+    expect(icons.length).toBe(1);
+    expect(icons[0]!.getAttribute("data-status")).toBe("failed");
+  });
+
+  test("phase with a tool step status='error' renders the failed icon", () => {
+    const steps: ToolCallCardStep[] = [
+      bash("ls", "completed", "1s", "tc-a"),
+      bash("rm -rf /nope", "error", "1s", "tc-b"),
+    ];
+    const { getAllByTestId } = render(<PhaseGroupedStepList steps={steps} />);
+    const icons = getAllByTestId("phase-header-status-icon");
+    expect(icons.length).toBe(1);
+    expect(icons[0]!.getAttribute("data-status")).toBe("failed");
+  });
+
+  test("phase with a tool step status='denied' renders the failed icon", () => {
+    const steps: ToolCallCardStep[] = [
+      bash("sudo rm -rf /", "denied", "", "tc-a"),
+    ];
+    const { getAllByTestId } = render(<PhaseGroupedStepList steps={steps} />);
+    const icons = getAllByTestId("phase-header-status-icon");
+    expect(icons.length).toBe(1);
+    expect(icons[0]!.getAttribute("data-status")).toBe("failed");
+  });
+
+  test("phase with a failed step and a running step renders three-dot (running wins)", () => {
+    const steps: ToolCallCardStep[] = [
+      bash("rm -rf /nope", "error", "1s", "tc-a"),
+      bash("sleep 5", "running", "", "tc-b"),
+    ];
+    const { getAllByTestId } = render(<PhaseGroupedStepList steps={steps} />);
+    const icons = getAllByTestId("phase-header-status-icon");
+    expect(icons.length).toBe(1);
+    // Running takes precedence: no failed/completed data-status, three-dot
+    // exposes 3 children.
+    expect(icons[0]!.getAttribute("data-status")).toBeNull();
+    expect(icons[0]!.children.length).toBe(3);
+  });
 });
 
 describe("PhaseGroupedStepList — renderStep override", () => {
