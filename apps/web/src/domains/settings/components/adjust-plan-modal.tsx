@@ -23,6 +23,7 @@ import type {
 import {
   organizationsBillingPlansRetrieveOptions,
   organizationsBillingPlansRetrieveQueryKey,
+  organizationsBillingSubscriptionOnboardingRetrieveQueryKey,
   organizationsBillingSubscriptionRetrieveOptions,
   organizationsBillingSubscriptionRetrieveQueryKey,
   organizationsBillingSubscriptionUpgradeCreateMutation,
@@ -133,6 +134,14 @@ export function AdjustPlanModal({ open, onClose }: AdjustPlanModalProps) {
       });
       void queryClient.invalidateQueries({
         queryKey: organizationsBillingPlansRetrieveQueryKey(),
+      });
+      // The onboarding endpoint carries the per-org tier ceilings
+      // (`max_machine_tier`, `selected_storage_gib`) that the Storage &
+      // Resources ResizeCard renders as its limits. A tier change updates those
+      // ceilings server-side, so its cache must be invalidated too — otherwise
+      // the card keeps showing the pre-upgrade limits until a hard reload.
+      void queryClient.invalidateQueries({
+        queryKey: organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
       });
       onClose();
     });
