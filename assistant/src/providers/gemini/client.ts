@@ -1,5 +1,5 @@
 import type * as genai from "@google/genai";
-import { ApiError, GoogleGenAI } from "@google/genai";
+import { ApiError, GoogleGenAI, ThinkingLevel } from "@google/genai";
 
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/cache-boundary.js";
 import { isAbortReason } from "../../util/abort-reasons.js";
@@ -32,6 +32,47 @@ const GEMINI_3_UNSIGNED_TOOL_CALL_THOUGHT_SIGNATURE =
 
 function isGemini3Model(model: string): boolean {
   return model.startsWith("gemini-3") || model.startsWith("models/gemini-3");
+}
+
+const THINKING_LEVEL_BY_NAME: Record<string, ThinkingLevel> = {
+  minimal: ThinkingLevel.MINIMAL,
+  low: ThinkingLevel.LOW,
+  medium: ThinkingLevel.MEDIUM,
+  high: ThinkingLevel.HIGH,
+};
+
+/**
+ * Translate the resolved wire-shape `thinking` config into Gemini's
+ * `thinkingConfig`. Returns `undefined` when no thinking config was supplied,
+ * which lets Google's per-model default apply (e.g. `gemini-3.5-flash`
+ * defaults to dynamic medium-level thinking).
+ *
+ * `enabled: false` maps to `thinkingLevel: MINIMAL` because Gemini 3.x cannot
+ * fully disable thinking — `"minimal"` is the floor. `includeThoughts` is
+ * gated on `streamThinking` so callers that opted out of streaming thoughts
+ * don't pay for thought tokens in the response.
+ */
+function buildThinkingConfig(
+  thinking: Record<string, unknown> | undefined,
+): genai.ThinkingConfig | undefined {
+  if (!thinking) return undefined;
+  if (thinking.type === "disabled") {
+    return {
+      thinkingLevel: ThinkingLevel.MINIMAL,
+      includeThoughts: false,
+    };
+  }
+  if (thinking.type !== "adaptive") return undefined;
+
+  const result: genai.ThinkingConfig = {};
+  if (typeof thinking.level === "string") {
+    const mapped = THINKING_LEVEL_BY_NAME[thinking.level];
+    if (mapped) result.thinkingLevel = mapped;
+  }
+  if (typeof thinking.streamThinking === "boolean") {
+    result.includeThoughts = thinking.streamThinking;
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
 }
 
 function stripGeminiHttpOptions(
@@ -175,6 +216,9 @@ export class GeminiProvider implements Provider {
     const usageAttributionHeaders = configObj?.usageAttributionHeaders as
       | Record<string, string>
       | undefined;
+    const thinkingConfig = buildThinkingConfig(
+      configObj?.thinking as Record<string, unknown> | undefined,
+    );
     const activeModel = modelOverride ?? this.model;
 
     try {
@@ -190,6 +234,9 @@ export class GeminiProvider implements Provider {
       }
       if (maxTokens) {
         geminiConfig.maxOutputTokens = maxTokens;
+      }
+      if (thinkingConfig) {
+        geminiConfig.thinkingConfig = thinkingConfig;
       }
       if (tools && tools.length > 0) {
         geminiConfig.tools = [
