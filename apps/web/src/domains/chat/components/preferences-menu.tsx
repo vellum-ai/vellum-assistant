@@ -5,6 +5,7 @@ import {
   LogOut,
   MessageSquareText,
   Settings as SettingsIcon,
+  Shield,
   SlidersHorizontal,
 } from "lucide-react";
 import { useState } from "react";
@@ -109,6 +110,7 @@ function PreferencesMenuContent({
 }: PreferencesMenuContentProps) {
   const navigate = useNavigate();
   const logout = useAuthStore.use.logout();
+  const user = useAuthStore.use.user();
 
   return (
     <>
@@ -142,6 +144,18 @@ function PreferencesMenuContent({
           onShareFeedback();
         }}
       />
+
+      {user?.isStaff ? (
+        <PanelItem
+          icon={Shield}
+          label="Admin"
+          onSelect={() => {
+            onClose();
+            // /admin is still served by the platform app, outside this Vite router.
+            window.location.href = routes.admin.root;
+          }}
+        />
+      ) : null}
 
       <PanelItem
         icon={LogOut}
