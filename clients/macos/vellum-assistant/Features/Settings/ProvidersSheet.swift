@@ -1304,7 +1304,7 @@ struct ProvidersSheet: View {
 
         let auth = ProviderConnectionAuth(
             type: draft.authType,
-            credential: draft.authType == "api_key" ? credentialRef : nil
+            credential: (draft.authType == "api_key" || draft.authType == "oauth_subscription") ? credentialRef : nil
         )
         let label: String? = draft.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : draft.label.trimmingCharacters(in: .whitespacesAndNewlines)
         let status = draft.status
