@@ -16,6 +16,7 @@ import { MessageHoverActions } from "@/domains/chat/components/message-hover-act
 import { SubagentInlineProgressCard } from "@/domains/chat/components/subagent-inline-progress-card/subagent-inline-progress-card.js";
 import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router.js";
 import { ToolCallProgressCard } from "@/domains/chat/components/tool-call-progress-card/tool-call-progress-card.js";
+import { getLeadingThinkingText } from "@/domains/chat/components/tool-progress-card/get-leading-thinking-text.js";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import { getSlackLinkUrl, type Surface } from "@/domains/chat/types/types.js";
 import { isPointerCoarse } from "@/utils/pointer.js";
@@ -512,6 +513,7 @@ export function TranscriptMessageBody({
                     unknownNudgeToolCallIds={unknownNudgeToolCallIds}
                     onDismissUnknownNudge={onDismissUnknownNudge}
                     isStreaming={message.isStreaming ?? false}
+                    leadingThinkingText={getLeadingThinkingText(message, gi)}
                   />
                   {renderInlineSubagentCards(toolCalls)}
                 </Fragment>
