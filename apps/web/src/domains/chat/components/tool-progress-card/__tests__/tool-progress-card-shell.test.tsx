@@ -195,6 +195,40 @@ describe("ToolProgressCardShell — disableExpand", () => {
   });
 });
 
+describe("ToolProgressCardShell — headerActionSlot", () => {
+  test("renders the headerActionSlot when provided", () => {
+    const { getByTestId } = renderShell({
+      headerActionSlot: (
+        <button data-testid="action-button" type="button">
+          stop
+        </button>
+      ),
+    });
+    expect(getByTestId("tool-progress-card-action-slot")).toBeTruthy();
+    expect(getByTestId("action-button")).toBeTruthy();
+  });
+
+  test("omits the action slot when headerActionSlot is undefined", () => {
+    const { queryByTestId } = renderShell();
+    expect(queryByTestId("tool-progress-card-action-slot")).toBeNull();
+  });
+
+  test("action-slot children are NOT nested inside the toggle button", () => {
+    // Regression guard for the nested-<button> HTML invalidity. The action
+    // slot must render as a sibling of the toggle Button, not a descendant.
+    const { getByTestId, getByRole } = renderShell({
+      headerActionSlot: (
+        <button data-testid="action-button" type="button">
+          stop
+        </button>
+      ),
+    });
+    const toggle = getByRole("button", { name: /expand steps/i });
+    const actionButton = getByTestId("action-button");
+    expect(toggle.contains(actionButton)).toBe(false);
+  });
+});
+
 describe("ToolProgressCardShell — props interface export", () => {
   test("ToolProgressCardState union enumerates the four supported states", () => {
     // Compile-time check: the union is `loading | complete | denied | error`.

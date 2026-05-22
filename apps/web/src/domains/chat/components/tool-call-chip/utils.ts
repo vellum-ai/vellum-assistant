@@ -3,6 +3,8 @@
  * Ported from the macOS desktop app's ChatBubbleToolHelpers.swift.
  */
 
+import { truncate as truncateShared } from "@/domains/chat/utils/truncate.js";
+
 /** Extract just the filename from a file path string. */
 function extractFileName(path: string): string | null {
   if (!path) {
@@ -18,10 +20,7 @@ function extractFileName(path: string): string | null {
 
 /** Truncate a string to `max` characters, appending "..." if truncated. */
 function truncate(str: string, max: number): string {
-  if (str.length <= max) {
-    return str;
-  }
-  return str.slice(0, max - 3) + "...";
+  return truncateShared(str, max, "...");
 }
 
 /**
@@ -465,14 +464,20 @@ export function progressiveLabels(toolName: string): string[] {
 }
 
 /**
- * Title Case a snake_case tool name for use as a fallback display label.
- * Splits on underscores, capitalizes the first letter of each word, and joins
- * with spaces.
+ * Title Case a snake_case / kebab-case tool name for use as a fallback display
+ * label. Splits on `_` and `-` (one or more), filters out empty segments
+ * produced by repeated separators, capitalizes the first letter of each word
+ * and lowercases the remainder, then joins with spaces.
+ *
+ * Exported for reuse by the unified tool-progress card and the subagent
+ * inline card so a single helper produces the "Tool Name" mapping across
+ * the chat domain.
  */
-function titleCaseToolName(toolName: string): string {
+export function titleCaseToolName(toolName: string): string {
   return toolName
-    .split("_")
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .split(/[_-]+/)
+    .filter((word) => word.length > 0)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
     .join(" ");
 }
 

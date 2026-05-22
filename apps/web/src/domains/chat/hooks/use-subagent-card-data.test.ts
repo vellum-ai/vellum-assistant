@@ -141,10 +141,40 @@ describe("computeSubagentCardData — step mapping", () => {
     const step = data.steps[0]!;
     expect(step.kind).toBe("tool");
     if (step.kind === "tool") {
-      expect(step.title).toBe("Using File Read");
+      // `file_read` isn't a known branch in `deriveStepLabelFromName`, so
+      // it falls through to the default "Running <Name>" path with the
+      // bolt icon.
+      expect(step.title).toBe("Running File Read");
       expect(step.info).toBe("src/foo.ts");
       expect(step.status).toBe("running");
       expect(step.toolCallId).toBe("tu-file-1");
+      expect(step.iconName).toBe("bolt");
+    }
+  });
+
+  test("tool_call for bash uses tool-specific title + icon (Fix 1)", () => {
+    // Regression guard: before Fix 1, every tool step in the subagent
+    // inline card rendered the bolt icon and a generic "Using <Tool>"
+    // title. After Fix 1, `mapToolEventToStep` routes through the shared
+    // `deriveStepLabelFromName` so bash → "Working (bash)" / code icon.
+    const data = computeSubagentCardData(
+      makeEntry({
+        events: [
+          makeEvent({
+            type: "tool_call",
+            toolName: "bash",
+            toolUseId: "tu-bash-1",
+            content: "ls -la",
+          }),
+        ],
+      }),
+    );
+    const step = data.steps[0]!;
+    expect(step.kind).toBe("tool");
+    if (step.kind === "tool") {
+      expect(step.title).toBe("Working (bash)");
+      expect(step.iconName).toBe("code");
+      expect(step.info).toBe("ls -la");
     }
   });
 
@@ -456,7 +486,7 @@ describe("computeSubagentCardData — step count", () => {
 // ---------------------------------------------------------------------------
 
 describe("mapToolEventToStep", () => {
-  test("derives a Using <Tool> title from snake_case names", () => {
+  test("derives a tool-specific title + icon for bash/host_bash (Fix 1)", () => {
     const step = mapToolEventToStep({
       id: "te-1",
       type: "tool_call",
@@ -465,20 +495,100 @@ describe("mapToolEventToStep", () => {
       toolUseId: "tu-1",
       timestamp: 0,
     });
-    expect(step.title).toBe("Using Host Bash");
+    // host_bash routes through `deriveStepLabelFromName`'s bash branch.
+    expect(step.title).toBe("Working (bash)");
+    expect(step.iconName).toBe("code");
     expect(step.info).toBe("summary");
     expect(step.status).toBe("running");
     expect(step.toolCallId).toBe("tu-1");
   });
 
-  test("falls back to a generic title when toolName is missing", () => {
+  test("unknown tools fall through to the Running <Name> default with the bolt icon", () => {
     const step = mapToolEventToStep({
       id: "te-2",
+      type: "tool_call",
+      content: "details",
+      toolName: "some_custom_tool",
+      toolUseId: "tu-custom",
+      timestamp: 0,
+    });
+    expect(step.title).toBe("Running Some Custom Tool");
+    expect(step.iconName).toBe("bolt");
+    // The default branch produces an empty info; the timeline summary is
+    // surfaced as the info fallback so the pill still shows context.
+    expect(step.info).toBe("details");
+  });
+
+  test("falls back to a generic title when toolName is missing", () => {
+    const step = mapToolEventToStep({
+      id: "te-3",
       type: "tool_call",
       content: "",
       timestamp: 0,
     });
     expect(step.title).toBe("Running tool");
     expect(step.toolCallId).toBe("");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// error event tool-step correlation (Fix 2)
+// ---------------------------------------------------------------------------
+
+describe("computeSubagentCardData — error event toolUseId correlation", () => {
+  test("error with toolUseId closes only the matching parallel tool step", () => {
+    // Two bash calls in-flight (tu-A first, tu-B second). An error event
+    // for tu-A arrives while tu-B is still running. Only the tu-A step
+    // should flip to "error"; tu-B remains "running".
+    const data = computeSubagentCardData(
+      makeEntry({
+        events: [
+          makeEvent(
+            {
+              type: "tool_call",
+              toolName: "bash",
+              toolUseId: "tu-A",
+              content: "first",
+            },
+            0,
+          ),
+          makeEvent(
+            {
+              type: "tool_call",
+              toolName: "bash",
+              toolUseId: "tu-B",
+              content: "second",
+            },
+            1,
+          ),
+          makeEvent(
+            {
+              type: "error",
+              toolName: "bash",
+              toolUseId: "tu-A",
+              content: "boom",
+            },
+            2,
+          ),
+        ],
+      }),
+    );
+    // 2 tool steps + 1 tool_error step.
+    expect(data.steps).toHaveLength(3);
+    const first = data.steps[0]!;
+    const second = data.steps[1]!;
+    if (first.kind === "tool") {
+      expect(first.toolCallId).toBe("tu-A");
+      expect(first.status).toBe("error");
+    }
+    if (second.kind === "tool") {
+      expect(second.toolCallId).toBe("tu-B");
+      expect(second.status).toBe("running");
+    }
+    const err = data.steps[2]!;
+    expect(err.kind).toBe("tool_error");
+    if (err.kind === "tool_error") {
+      expect(err.message).toBe("boom");
+    }
   });
 });
