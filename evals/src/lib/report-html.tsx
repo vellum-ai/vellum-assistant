@@ -187,8 +187,75 @@ button { padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border);
 button:hover { background: rgba(139,92,246,.18); border-color: rgba(139,92,246,.4); }
 button.bad { color: var(--bad); border-color: rgba(251,113,133,.4); }
 button.bad:hover { background: rgba(251,113,133,.15); border-color: var(--bad); }
+.panel-actions { display: flex; justify-content: flex-end; gap: 12px; margin-bottom: 16px; }
+.artifact-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.artifact-list li { padding: 10px 14px; border-radius: 12px; background: rgba(0,0,0,.28); border: 1px solid var(--border); transition: .15s ease; }
+.artifact-list li:hover { border-color: rgba(34,211,238,.4); background: rgba(34,211,238,.06); }
+.artifact-link { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; color: var(--accent2); display: inline-flex; align-items: center; gap: 8px; word-break: break-all; }
+.artifact-link::before { content: "↗"; opacity: .65; font-size: 12px; }
+.artifact-link:hover { color: var(--text); text-decoration: underline; }
 @media (max-width: 980px) { .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 620px) { .shell { padding: 18px; } .cards { grid-template-columns: 1fr; } .hero { display: block; } }
+`;
+
+// Delegated click handler for delete buttons. We can't use React onClick={}
+// because the page is server-rendered via renderToStaticMarkup and ships zero
+// React runtime — synthetic handlers are silently stripped. Wiring through
+// data-* attributes + one document-level listener keeps it hydration-free.
+const PAGE_SCRIPT = `
+(function () {
+  function onClick(e) {
+    var target = e.target;
+    if (!(target instanceof Element)) return;
+
+    var deleteRunBtn = target.closest("[data-delete-run]");
+    if (deleteRunBtn) {
+      e.preventDefault();
+      var runId = deleteRunBtn.getAttribute("data-delete-run");
+      var backTo = deleteRunBtn.getAttribute("data-back-to-session");
+      if (!runId) return;
+      if (!window.confirm("Delete run " + runId + "? This cannot be undone.")) return;
+      deleteRunBtn.setAttribute("disabled", "true");
+      fetch("/api/runs/" + encodeURIComponent(runId), { method: "DELETE" })
+        .then(function (r) {
+          return r.json().then(function (j) { return { ok: r.ok, body: j }; });
+        })
+        .then(function (res) {
+          if (!res.ok) throw new Error(res.body && res.body.error ? res.body.error : "Delete failed");
+          window.location.href = backTo ? "/sessions/" + encodeURIComponent(backTo) : "/";
+        })
+        .catch(function (err) {
+          deleteRunBtn.removeAttribute("disabled");
+          window.alert("Failed to delete run: " + (err && err.message ? err.message : String(err)));
+        });
+      return;
+    }
+
+    var deleteAllBtn = target.closest("[data-delete-all]");
+    if (deleteAllBtn) {
+      e.preventDefault();
+      if (!window.confirm("Delete every non-running run on disk? This cannot be undone.")) return;
+      deleteAllBtn.setAttribute("disabled", "true");
+      fetch("/api/runs", { method: "DELETE" })
+        .then(function (r) {
+          return r.json().then(function (j) { return { ok: r.ok, body: j }; });
+        })
+        .then(function (res) {
+          if (!res.ok) throw new Error(res.body && res.body.error ? res.body.error : "Delete failed");
+          var msg = "Deleted " + res.body.deleted + " run(s)";
+          if (res.body.skipped) msg += "; skipped " + res.body.skipped + " still running";
+          window.alert(msg + ".");
+          window.location.reload();
+        })
+        .catch(function (err) {
+          deleteAllBtn.removeAttribute("disabled");
+          window.alert("Failed to delete runs: " + (err && err.message ? err.message : String(err)));
+        });
+      return;
+    }
+  }
+  document.addEventListener("click", onClick);
+})();
 `;
 
 function StatusBadge({ status }: { status: string }) {
@@ -299,11 +366,18 @@ function IndexPage({ sessions }: { sessions: ReportSessionSummary[] }) {
             first.
           </div>
         ) : (
-          <div className="session-list">
-            {sessions.map((session) => (
-              <SessionCard key={session.sessionId} session={session} />
-            ))}
-          </div>
+          <>
+            <div className="panel-actions">
+              <button className="bad" data-delete-all="true">
+                Delete all non-running
+              </button>
+            </div>
+            <div className="session-list">
+              {sessions.map((session) => (
+                <SessionCard key={session.sessionId} session={session} />
+              ))}
+            </div>
+          </>
         )}
       </section>
     </>
@@ -768,10 +842,13 @@ function ExecutionPage({ run }: { run: ReportRunDetail }) {
         <StatCard label="Cost" value={formatCost(run.totalCostUsd)} />
       </div>
 
-      {(run.status === "abandoned" || run.metadata?.lastHeartbeatAt) && (
+      {(run.status === "abandoned" ||
+        run.status === "failed" ||
+        run.metadata?.error ||
+        run.metadata?.lastHeartbeatAt) && (
         <section className="section debug-section">
           <h2>Debug info</h2>
-          {run.status === "abandoned" && run.metadata?.error && (
+          {run.metadata?.error && (
             <div className="debug-item bad">
               <strong>Error:</strong>
               <code>{run.metadata.error}</code>
@@ -786,23 +863,61 @@ function ExecutionPage({ run }: { run: ReportRunDetail }) {
           <div className="action-buttons">
             <button
               className="bad"
-              onClick={() => {
-                if (
-                  confirm(
-                    "Delete this run and all its artifacts? This cannot be undone.",
-                  )
-                ) {
-                  fetch(`/api/runs/${encodeURIComponent(run.runId)}`, {
-                    method: "DELETE",
-                  }).then(() => {
-                    window.location.href = `/sessions/${encodeURIComponent(run.sessionId)}`;
-                  });
-                }
-              }}
+              data-delete-run={run.runId}
+              data-back-to-session={run.sessionId}
             >
               Delete run
             </button>
           </div>
+        </section>
+      )}
+
+      {run.dockerArtifacts.length > 0 && (
+        <section className="section debug-section">
+          <h2>Docker snapshot</h2>
+          <p className="section-subtle">
+            Container forensics captured at hatch failure, before{" "}
+            <code>vellum retire</code> removed the container.
+          </p>
+          <ul className="artifact-list">
+            {run.dockerArtifacts.map((name) => (
+              <li key={name}>
+                <a
+                  className="artifact-link"
+                  href={`/api/runs/${encodeURIComponent(run.runId)}/files/${encodeURIComponent(name)}`}
+                  target="_blank"
+                  rel="noopener"
+                >
+                  {name}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {run.subprocessLogs.length > 0 && (
+        <section className="section">
+          <h2>Subprocess logs</h2>
+          <p className="section-subtle">
+            Raw stdout/stderr from every CLI subprocess the adapter spawned —
+            useful when a hatch or setup step failed silently and the error
+            message alone doesn't tell you why.
+          </p>
+          <ul className="artifact-list">
+            {run.subprocessLogs.map((name) => (
+              <li key={name}>
+                <a
+                  className="artifact-link"
+                  href={`/api/runs/${encodeURIComponent(run.runId)}/files/${encodeURIComponent(name)}`}
+                  target="_blank"
+                  rel="noopener"
+                >
+                  {name}
+                </a>
+              </li>
+            ))}
+          </ul>
         </section>
       )}
 
@@ -965,6 +1080,7 @@ function ReportDocument({ input }: { input: ReportPageInput }) {
         <div className="shell">
           <PageBody input={input} />
         </div>
+        <script dangerouslySetInnerHTML={{ __html: PAGE_SCRIPT }} />
       </body>
     </html>
   );

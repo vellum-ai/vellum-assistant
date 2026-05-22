@@ -144,6 +144,8 @@ const executionDetail: ReportRunDetail = {
       emittedAt: "2026-05-15T12:00:00.500Z",
     },
   ],
+  subprocessLogs: [],
+  dockerArtifacts: [],
 };
 
 describe("report html", () => {
@@ -298,5 +300,95 @@ describe("report html", () => {
     expect(html).not.toContain("Cost pricing");
     expect(html).not.toContain("Partial pricing");
     expect(html).not.toContain("Cost unavailable");
+  });
+
+  // -- no-silent-stuck UI surfaces -------------------------------------------
+
+  test("index page renders a Delete-all button only when there are sessions", () => {
+    const populated = renderReportPage({
+      kind: "index",
+      sessions: [sessionSummary],
+    });
+    expect(populated).toContain('data-delete-all="true"');
+    expect(populated).toContain("Delete all non-running");
+
+    const empty = renderReportPage({ kind: "index", sessions: [] });
+    // The script tag's selector contains "data-delete-all" as a CSS
+    // selector — that doesn't count. We're asserting no actual rendered
+    // attribute, which always carries the `="true"` value when present.
+    expect(empty).not.toContain('data-delete-all="true"');
+    expect(empty).not.toContain("Delete all non-running");
+  });
+
+  test("every page injects the delegated click-handler script", () => {
+    // The script is hydration-free: it lives on the document and dispatches
+    // on data-delete-run / data-delete-all. If it stops getting injected,
+    // the delete buttons revert to silent no-ops (the bug we just fixed).
+    const html = renderReportPage({ kind: "index", sessions: [sessionSummary] });
+    expect(html).toContain('document.addEventListener("click"');
+    expect(html).toContain('data-delete-run');
+    expect(html).toContain('data-delete-all');
+    // And critically — no React-synthetic onClick attributes survived
+    // server rendering. renderToStaticMarkup strips them but if anyone
+    // ever switches to renderToString without hydration it would leak.
+    expect(html).not.toMatch(/\sonClick=/i);
+  });
+
+  test("execution page surfaces docker forensics artifacts as links to the file endpoint", () => {
+    const html = renderReportPage({
+      kind: "execution",
+      run: {
+        ...executionDetail,
+        status: "failed",
+        dockerArtifacts: ["docker-inspect.json", "docker-logs.txt"],
+      },
+    });
+    expect(html).toContain("Docker snapshot");
+    expect(html).toContain("docker-inspect.json");
+    expect(html).toContain(
+      `/api/runs/${encodeURIComponent(executionDetail.runId)}/files/docker-inspect.json`,
+    );
+    expect(html).toContain(
+      `/api/runs/${encodeURIComponent(executionDetail.runId)}/files/docker-logs.txt`,
+    );
+  });
+
+  test("execution page surfaces subprocess logs as links to the file endpoint", () => {
+    const html = renderReportPage({
+      kind: "execution",
+      run: {
+        ...executionDetail,
+        status: "failed",
+        subprocessLogs: ["subprocess-hatch.log", "subprocess-setup-1.log"],
+      },
+    });
+    expect(html).toContain("Subprocess logs");
+    expect(html).toContain("subprocess-hatch.log");
+    expect(html).toContain("subprocess-setup-1.log");
+    expect(html).toContain(
+      `/api/runs/${encodeURIComponent(executionDetail.runId)}/files/subprocess-hatch.log`,
+    );
+  });
+
+  test("execution page omits Docker/Subprocess sections when there are no artifacts", () => {
+    const html = renderReportPage({ kind: "execution", run: executionDetail });
+    expect(html).not.toContain("Docker snapshot");
+    expect(html).not.toContain("Subprocess logs");
+  });
+
+  test("execution page exposes Delete-run with both data-delete-run and data-back-to-session attrs when the run failed", () => {
+    // Debug section only fires for non-completed runs or when there's an
+    // error/heartbeat to surface — gate it explicitly with `failed`.
+    const html = renderReportPage({
+      kind: "execution",
+      run: { ...executionDetail, status: "failed" },
+    });
+    expect(html).toContain(`data-delete-run="${executionDetail.runId}"`);
+    expect(html).toContain(
+      `data-back-to-session="${executionDetail.sessionId}"`,
+    );
+    // The button text and class still ship.
+    expect(html).toContain("Delete run");
+    expect(html).toContain('class="bad"');
   });
 });
