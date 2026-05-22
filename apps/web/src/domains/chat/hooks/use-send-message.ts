@@ -37,12 +37,11 @@ import { useInteractionStore } from "@/domains/interactions/interaction-store.js
 import { useConversationStore } from "@/domains/conversations/conversation-store.js";
 import {
   findConversation,
-  markDraftSendEnd,
-  markDraftSendStart,
   prependConversation,
   removeConversation,
   resolveDraftKey,
 } from "@/domains/conversations/conversation-queries.js";
+import { markDraftSendEnd, markDraftSendStart } from "@/lib/draft-send-gate.js";
 import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
 import {
   consumePendingPreChatContext,

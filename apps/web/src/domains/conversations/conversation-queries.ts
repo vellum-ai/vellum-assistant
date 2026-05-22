@@ -271,31 +271,6 @@ export function resolveDraftKey(
   });
 }
 
-// ---------------------------------------------------------------------------
-// Draft-send-in-flight gate
-//
-// While a draft conversation is being created (POST in flight), SSE-triggered
-// conversation list refetches must be suppressed. The server refetch would
-// replace the TanStack Query cache with data that does NOT include the
-// client-side draft entry, evicting it and degrading the active view.
-//
-// sendMessage increments before the POST and decrements after draft key
-// resolution (or on error). refreshConversations checks before refetching.
-// ---------------------------------------------------------------------------
-
-let _draftSendsInFlight = 0;
-
-export function markDraftSendStart(): void {
-  _draftSendsInFlight++;
-}
-
-export function markDraftSendEnd(): void {
-  _draftSendsInFlight = Math.max(0, _draftSendsInFlight - 1);
-}
-
-export function hasDraftSendInFlight(): boolean {
-  return _draftSendsInFlight > 0;
-}
 
 // ---------------------------------------------------------------------------
 // Cache helpers — groups

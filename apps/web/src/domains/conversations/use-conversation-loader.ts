@@ -40,9 +40,9 @@ import { type Conversation } from "@/domains/chat/api/conversations.js";
 import {
   chatContextQueryKey,
   conversationGroupsQueryKey,
-  hasDraftSendInFlight,
   useChatContextQuery,
 } from "@/domains/conversations/conversation-queries.js";
+import { hasDraftSendInFlight } from "@/lib/draft-send-gate.js";
 
 // ---------------------------------------------------------------------------
 // Module constants

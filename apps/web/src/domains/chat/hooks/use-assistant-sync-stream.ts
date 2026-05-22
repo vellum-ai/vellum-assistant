@@ -32,7 +32,7 @@ import {
   type SyncChangedEvent,
 } from "@/lib/sync/types.js";
 import { useEventBusStore } from "@/stores/event-bus-store.js";
-import { hasDraftSendInFlight } from "@/domains/conversations/conversation-queries.js";
+import { hasDraftSendInFlight } from "@/lib/draft-send-gate.js";
 
 const CONVERSATION_LIST_DEBOUNCE_MS = 250;
 
