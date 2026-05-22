@@ -5,9 +5,8 @@ import { Button } from "@vellum/design-library/components/button";
 import { SegmentControl } from "@vellum/design-library/components/segment-control";
 import { AssistantPicker } from "@/domains/settings/components/assistant-picker.js";
 import { AssistantSleepPolicy } from "@/domains/settings/components/assistant-sleep-policy.js";
-import { AssistantStorageCard } from "@/domains/settings/components/assistant-storage-card.js";
 import { AssistantUpgrades } from "@/domains/settings/components/assistant-upgrades.js";
-import { ComputeUpgradeCard } from "@/domains/settings/components/compute-upgrade-card.js";
+import { ResizeCard } from "@/domains/settings/components/resize-card.js";
 import { DeleteAccountSection } from "@/domains/settings/components/delete-account-section.js";
 import { IOSAppCard } from "@/domains/settings/components/ios-app-card.js";
 import { MediaEmbedsCard } from "@/domains/settings/components/media-embeds-card.js";
@@ -203,15 +202,11 @@ export function GeneralPage() {
       )}
 
       {platformAssistant && (
-        <AssistantStorageCard
+        <ResizeCard
           assistant={platformAssistant}
           healthz={healthz}
           refetch={refetch}
         />
-      )}
-
-      {platformAssistant && (
-        <ComputeUpgradeCard assistant={platformAssistant} refetch={refetch} />
       )}
 
       <ThemeCard />

@@ -11,6 +11,21 @@ export const TIER_TO_SIZES: Record<string, MachineSizeEnum[]> = {
   xl: ["small", "medium", "large", "extra_large"],
 };
 
+/**
+ * Allowed machine sizes for an org's tier, in ascending order. A null/undefined
+ * or unrecognized tier returns an empty list — callers must handle the empty
+ * case (e.g. a "no tier configured" warning) rather than silently defaulting to
+ * a tier the org may not actually have.
+ *
+ * Accepts a plain string because the generated `max_machine_tier` field is
+ * typed `string | null`; unknown values fall through to the empty list.
+ */
+export function allowedMachineSizesForTier(
+  tier: string | null | undefined,
+): MachineSizeEnum[] {
+  return tier ? (TIER_TO_SIZES[tier] ?? []) : [];
+}
+
 export const SIZE_LABEL: Record<MachineSizeEnum, string> = {
   small: "Small",
   medium: "Medium",
