@@ -6,6 +6,7 @@
  * / `uploadChatAttachment` / `deleteQueuedMessage` write operations.
  */
 
+import * as Sentry from "@sentry/react";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types.js";
 import type {
   DisplayMessage,
@@ -522,7 +523,9 @@ export async function postChatMessage(
     body.onboarding = onboardingDict;
   }
   if (normalizedOnboarding) {
-    await persistPreChatOnboardingProfile(assistantId, normalizedOnboarding);
+    void persistPreChatOnboardingProfile(assistantId, normalizedOnboarding).catch(
+      (err) => Sentry.captureException(err, { tags: { operation: "persistPreChatOnboardingProfile" } }),
+    );
   }
   const {
     data,

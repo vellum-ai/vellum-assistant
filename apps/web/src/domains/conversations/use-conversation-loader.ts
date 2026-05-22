@@ -370,12 +370,27 @@ export function useConversationLoader({
   // routing logic run as soon as data is available, even if the *most
   // recent* fetch failed (we still have last-known-good data to land on).
   // -------------------------------------------------------------------------
+  const lastAppliedUrlKeyRef = useRef<string | null>(null);
   useEffect(() => {
     if (assistantStateKind !== "active") return;
     if (!chatContext) return;
 
     const explicitKey =
       urlConversationKey ?? searchParams.get("conversationKey");
+
+    // When only chatContext changed (e.g. from resolveDraftKey's
+    // setQueryData) but the URL hasn't changed, the URL key is stale —
+    // a programmatic navigate() is in flight. Trust the store's
+    // activeConversationKey and let the URL catch up.
+    if (
+      explicitKey != null &&
+      explicitKey === lastAppliedUrlKeyRef.current &&
+      assistantIdRef.current === chatContext.assistantId
+    ) {
+      return;
+    }
+    lastAppliedUrlKeyRef.current = explicitKey;
+
     let onboardingDraftConversationKey: string | null = null;
     if (searchParams.get("onboarding") === "1") {
       onboardingDraftConversationKeyRef.current ??= createDraftConversationKey();
@@ -394,12 +409,6 @@ export function useConversationLoader({
 
     setAssistantId(chatContext.assistantId);
 
-    // Set the active key in the client store and reflect it in the URL so
-    // the page is deep-linkable from the moment it loads. `replace` avoids
-    // a spurious history entry. This also moves ChatPage from the index
-    // route (where it renders inside ConversationKeyRedirect) to the
-    // canonical conversations/:key route before any user interaction,
-    // preventing a remount when draft keys resolve during sendMessage.
     useConversationStore.getState().setActiveKey(key);
     if (key) {
       void navigate(routes.conversation(key), { replace: true });
