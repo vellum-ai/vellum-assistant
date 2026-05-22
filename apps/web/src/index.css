@@ -93,6 +93,18 @@ body {
   opacity: 1;
 }
 
+/* Billing onboarding modal — pulsing glow behind the loading spinner */
+@keyframes onboarding-glow {
+  0%, 100% { opacity: 0.12; transform: scale(1); }
+  50% { opacity: 0.24; transform: scale(1.15); }
+}
+
+/* Billing onboarding modal — step content entrance */
+@keyframes onboarding-step-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 /* App shell sizing guards: keep routed pages from collapsing inside flex
  * main containers. */
 .app-shell {

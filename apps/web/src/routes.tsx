@@ -38,7 +38,6 @@ import { DebugPage } from "@/domains/settings/pages/debug-page.js";
 import { DeveloperPage } from "@/domains/settings/pages/developer-page.js";
 import { AdvancedPage } from "@/domains/settings/pages/advanced-page.js";
 import { BillingPage } from "@/domains/settings/billing/billing-page.js";
-import { BillingOnboardingPage } from "@/domains/settings/billing/onboarding-page.js";
 import { UpgradeCancelPage } from "@/domains/settings/billing/upgrade-cancel-page.js";
 import { UpgradeSuccessPage } from "@/domains/settings/billing/upgrade-success-page.js";
 import { DangerZoneRedirectPage } from "@/domains/settings/pages/danger-zone-redirect-page.js";
@@ -164,7 +163,6 @@ export const router = createBrowserRouter(
             { path: "privacy", element: <PrivacyPage /> },
             { path: "archive", element: <ArchivePage /> },
             { path: "billing", element: <BillingPage /> },
-            { path: "billing/onboarding", element: <BillingOnboardingPage /> },
             { path: "billing/upgrade/cancel", element: <UpgradeCancelPage /> },
             {
               path: "billing/upgrade/success",
