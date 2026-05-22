@@ -54,7 +54,6 @@ import { VercelTokenDialog } from "@/components/vercel-token-dialog.js";
 import { useSyncChatStore } from "@/domains/chat/chat-store.js";
 import { useChatAttachments } from "@/domains/chat/components/chat-attachments/use-chat-attachments.js";
 import { useVoiceInput } from "@/domains/chat/hooks/use-voice-input.js";
-import { useConversationStarters } from "@/domains/chat/hooks/use-conversation-starters.js";
 import { useAssistantAvatar } from "@/domains/avatar/use-assistant-avatar.js";
 import { useAssistantReachability } from "@/assistant/use-assistant-reachability.js";
 import { useDiskPressureMonitor } from "@/assistant/use-disk-pressure-monitor.js";
@@ -344,11 +343,6 @@ export function ChatPage() {
     setVoiceInterim,
     handleRetryMicPermission,
   } = useVoiceInput({ assistantId, inputRef, setInput });
-
-  // -------------------------------------------------------------------------
-  // Conversation starters
-  // -------------------------------------------------------------------------
-  const { starters: conversationStarters } = useConversationStarters(assistantId);
 
   // -------------------------------------------------------------------------
   // Avatar
@@ -1179,7 +1173,6 @@ export function ChatPage() {
       avatarTraits: avatar.traits,
       avatarImageUrl: avatar.customImageUrl,
     },
-    conversationStarters,
     contextWindowUsage,
     compactionCircuitOpenUntil,
     setCompactionCircuitOpenUntil,
