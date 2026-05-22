@@ -1,4 +1,5 @@
 import { renderSlackTextForModel } from "@vellumai/slack-text";
+import { createHash } from "node:crypto";
 import type { GatewayConfig } from "../config.js";
 import { fetchImpl } from "../fetch.js";
 import { resolveAssistant, isRejection } from "../routing/resolve-assistant.js";
@@ -16,7 +17,7 @@ interface SlackUserInfo {
   timezoneOffsetSeconds?: number;
 }
 
-type SlackUserActorFields = Pick<
+export type SlackUserActorFields = Pick<
   SlackUserInfo,
   | "displayName"
   | "username"
@@ -59,6 +60,11 @@ const inFlightChannelFetches = new Map<
   string,
   Promise<SlackChannelInfo | undefined>
 >();
+
+function slackUserCacheKey(userId: string, botToken: string): string {
+  const authScope = createHash("sha256").update(botToken).digest("hex");
+  return `${authScope}:${userId}`;
+}
 
 function evictExpired<T>(cache: Map<string, CacheEntry<T>>): void {
   const now = Date.now();
@@ -118,11 +124,12 @@ export async function resolveSlackUser(
   userId: string,
   botToken: string,
 ): Promise<SlackUserInfo | undefined> {
-  const cached = cacheGet(userInfoCache, userId);
+  const cacheKey = slackUserCacheKey(userId, botToken);
+  const cached = cacheGet(userInfoCache, cacheKey);
   if (cached) return cached;
 
   // If another caller is already fetching this user, reuse that promise
-  const existing = inFlightUserFetches.get(userId);
+  const existing = inFlightUserFetches.get(cacheKey);
   if (existing) return existing;
 
   const fetchPromise = (async (): Promise<SlackUserInfo | undefined> => {
@@ -176,7 +183,7 @@ export async function resolveSlackUser(
       };
       cacheSet(
         userInfoCache,
-        userId,
+        cacheKey,
         info,
         USER_CACHE_TTL_MS,
         USER_CACHE_MAX_SIZE,
@@ -187,11 +194,11 @@ export async function resolveSlackUser(
     }
   })();
 
-  inFlightUserFetches.set(userId, fetchPromise);
+  inFlightUserFetches.set(cacheKey, fetchPromise);
   try {
     return await fetchPromise;
   } finally {
-    inFlightUserFetches.delete(userId);
+    inFlightUserFetches.delete(cacheKey);
   }
 }
 
@@ -266,8 +273,9 @@ export function resolveSlackUserSync(
   userId: string,
   botToken: string,
 ): SlackUserInfo | undefined {
-  const cached = cacheGet(userInfoCache, userId);
-  if (!cached && !inFlightUserFetches.has(userId)) {
+  const cacheKey = slackUserCacheKey(userId, botToken);
+  const cached = cacheGet(userInfoCache, cacheKey);
+  if (!cached && !inFlightUserFetches.has(cacheKey)) {
     // Fire-and-forget: warm the cache for next time
     resolveSlackUser(userId, botToken).catch(() => {});
   }
@@ -426,7 +434,9 @@ function renderSlackInboundText(
   });
 }
 
-function slackUserActorFields(userInfo: SlackUserInfo): SlackUserActorFields {
+export function slackUserActorFields(
+  userInfo: SlackUserInfo,
+): SlackUserActorFields {
   return {
     displayName: userInfo.displayName,
     username: userInfo.username,
