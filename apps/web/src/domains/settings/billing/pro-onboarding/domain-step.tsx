@@ -24,10 +24,10 @@ export function DomainStep({ onBack, onExit }: { onBack: () => void; onExit: () 
   const [prefilled, setPrefilled] = useState(false);
 
   useEffect(() => {
-    if (prefilled || !activeAssistant?.handle) return;
+    if (prefilled || !activeAssistant?.handle || subdomain) return;
     setSubdomain(activeAssistant.handle);
     setPrefilled(true);
-  }, [activeAssistant?.handle, prefilled]);
+  }, [activeAssistant?.handle, prefilled, subdomain]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState(false);
   const domainMutation = useMutation(
