@@ -1,3 +1,5 @@
+import { join } from "node:path";
+
 import type {
   AgentEvent,
   AgentHatchInput,
@@ -276,17 +278,26 @@ export class HermesAgent implements BaseAgent {
       await this.runner
         .run("docker", ["rm", "-f", this.containerName])
         .catch(() => undefined);
-      const create = await this.runner.run("docker", [
-        "run",
-        "-d",
-        "--name",
-        this.containerName,
-        "--label",
-        "evals.vellum.ai/species=hermes",
-        ...this.providerEnvFlags,
-        this.dockerImage,
-        ...this.daemonArgs,
-      ]);
+      const create = await this.runner.run(
+        "docker",
+        [
+          "run",
+          "-d",
+          "--name",
+          this.containerName,
+          "--label",
+          "evals.vellum.ai/species=hermes",
+          ...this.providerEnvFlags,
+          this.dockerImage,
+          ...this.daemonArgs,
+        ],
+        {
+          logPath: join(
+            runArtifacts(this.id).runDir,
+            "subprocess-hatch.log",
+          ),
+        },
+      );
       assertSuccess(create, `start Hermes container for ${this.profile.id}`);
       containerStarted = true;
 
@@ -295,14 +306,23 @@ export class HermesAgent implements BaseAgent {
         recordingDir: runArtifacts(this.id).runDir,
       });
 
-      for (const command of setupCommands(this.profile)) {
-        const setup = await this.runner.run("docker", [
-          "exec",
-          "--env",
-          `PATH=${EXEC_PATH}`,
-          this.containerName,
-          ...shellWords(command),
-        ]);
+      for (const [idx, command] of setupCommands(this.profile).entries()) {
+        const setup = await this.runner.run(
+          "docker",
+          [
+            "exec",
+            "--env",
+            `PATH=${EXEC_PATH}`,
+            this.containerName,
+            ...shellWords(command),
+          ],
+          {
+            logPath: join(
+              runArtifacts(this.id).runDir,
+              `subprocess-setup-${idx + 1}.log`,
+            ),
+          },
+        );
         assertSuccess(setup, `setup command for profile ${this.profile.id}`);
       }
 
