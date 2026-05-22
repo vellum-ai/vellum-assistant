@@ -1,0 +1,245 @@
+/**
+ * Tests for the unified `ToolCallProgressCard` dispatcher.
+ *
+ * Covers the post-unification rendering contract:
+ *  - Non-web tool groups (bash, read, MCP, etc.) render via the shared
+ *    `ToolProgressCardShell` with `useToolCallCardData`-derived header text
+ *    and step pill.
+ *  - Web-only groups continue to render through `WebSearchProgressCard` for
+ *    regression parity.
+ *  - Mixed groups (web + non-web) render through the unified shell with one
+ *    step per tool call in the expanded body.
+ *  - A pending confirmation in the group short-circuits to the inline
+ *    approve/deny UI rather than the progress-card chrome.
+ *  - A `subagent_spawn`-only group renders `null` (PR 8 wires the inline
+ *    subagent card; until then the legacy bottom card handles spawned
+ *    subagents).
+ */
+
+import { afterEach, describe, expect, test } from "bun:test";
+
+import { cleanup, render } from "@testing-library/react";
+
+import { ToolCallProgressCard } from "@/domains/chat/components/tool-call-progress-card/tool-call-progress-card.js";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types.js";
+
+afterEach(() => {
+  cleanup();
+});
+
+function makeToolCall(
+  overrides: Partial<ChatMessageToolCall> & {
+    id: string;
+    toolName: string;
+  },
+): ChatMessageToolCall {
+  return {
+    input: {},
+    status: "completed",
+    ...overrides,
+  };
+}
+
+function renderCard(
+  toolCalls: ChatMessageToolCall[],
+  overrides: Partial<
+    React.ComponentProps<typeof ToolCallProgressCard>
+  > = {},
+) {
+  return render(
+    <ToolCallProgressCard
+      toolCalls={toolCalls}
+      expandedToolCallIds={new Set()}
+      onExpandChange={() => {}}
+      expandedCardIds={new Map()}
+      {...overrides}
+    />,
+  );
+}
+
+describe("ToolCallProgressCard — non-web tool group", () => {
+  test("renders the unified shell with the bash carousel header + step pill", () => {
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        toolName: "bash",
+        status: "running",
+        input: { command: "git status" },
+      }),
+    ];
+    const { getAllByText, getByTestId } = renderCard(toolCalls);
+    // The unified card mounts the shared shell wrapper.
+    expect(getByTestId("tool-progress-card-shell")).toBeTruthy();
+    // Title comes from `deriveStepLabel("bash")`, info from the `command`
+    // input, and the step pill counts the single tool call. Title appears
+    // twice — once in the carousel header, once in the auto-expanded
+    // `ToolStepRow` body.
+    expect(getAllByText("Working (bash)").length).toBe(2);
+    expect(getAllByText("git status").length).toBeGreaterThanOrEqual(1);
+    expect(getAllByText("1 step").length).toBe(1);
+  });
+
+  test("auto-expands while loading so step rows are visible without a click", () => {
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        toolName: "bash",
+        status: "running",
+        input: { command: "git status" },
+      }),
+    ];
+    const { getAllByText } = renderCard(toolCalls);
+    // Title appears once in the header and once in the expanded body row.
+    expect(getAllByText("Working (bash)").length).toBeGreaterThanOrEqual(1);
+  });
+
+  test("uses the loading indicator while any tool is running", () => {
+    const toolCalls = [
+      makeToolCall({ id: "tc-1", toolName: "bash", status: "running" }),
+    ];
+    const { getByTestId } = renderCard(toolCalls);
+    const indicator = getByTestId("tool-progress-card-status-indicator");
+    expect(indicator.tagName).toBe("SPAN");
+  });
+
+  test("uses the complete indicator once every tool call is terminal", () => {
+    const toolCalls = [
+      makeToolCall({ id: "tc-1", toolName: "bash", status: "completed" }),
+    ];
+    const { getByTestId } = renderCard(toolCalls);
+    const indicator = getByTestId("tool-progress-card-status-indicator");
+    expect(indicator.tagName.toLowerCase()).toBe("svg");
+    expect(indicator.getAttribute("data-state")).toBe("complete");
+  });
+});
+
+describe("ToolCallProgressCard — web tool group regression", () => {
+  test("web_search-only groups still render through WebSearchProgressCard", () => {
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        toolName: "web_search",
+        status: "running",
+        input: { query: "tigers" },
+      }),
+    ];
+    const { getByTestId, queryByTestId } = renderCard(toolCalls);
+    expect(getByTestId("web-search-progress-card")).toBeTruthy();
+    // Unified shell is NOT used for purely-web groups — they continue to
+    // flow through the dedicated web-search card.
+    expect(queryByTestId("tool-progress-card-shell")).toBeNull();
+  });
+});
+
+describe("ToolCallProgressCard — mixed group", () => {
+  test("web_search + bash falls through to the unified shell with one step per call", () => {
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        toolName: "web_search",
+        status: "running",
+        input: { query: "tigers" },
+      }),
+      makeToolCall({
+        id: "tc-2",
+        toolName: "bash",
+        status: "running",
+        input: { command: "ls" },
+      }),
+    ];
+    const { getByText, getByTestId } = renderCard(toolCalls);
+    // Unified shell — the legacy web-search card bails on mixed groups.
+    expect(getByTestId("tool-progress-card-shell")).toBeTruthy();
+    expect(getByText("2 steps")).toBeTruthy();
+  });
+});
+
+describe("ToolCallProgressCard — confirmation short-circuit", () => {
+  test("pendingConfirmationToolCallId renders the inline approve/deny UI, not the progress card", () => {
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        toolName: "bash",
+        status: "running",
+        input: { command: "rm -rf /" },
+        pendingConfirmation: {
+          requestId: "req-1",
+          title: "Allow bash command?",
+        },
+      }),
+    ];
+    const { getByText, queryByTestId } = renderCard(toolCalls, {
+      pendingConfirmationToolCallId: "tc-1",
+      isSubmittingConfirmation: false,
+      onConfirmationSubmit: () => {},
+    });
+    // The inline confirmation card is mounted via ToolCallChip — its title
+    // and Allow/Deny buttons should appear.
+    expect(getByText("Allow bash command?")).toBeTruthy();
+    expect(getByText("Allow")).toBeTruthy();
+    expect(getByText("Deny")).toBeTruthy();
+    // The unified shell is NOT mounted — confirmation has its own chrome.
+    expect(queryByTestId("tool-progress-card-shell")).toBeNull();
+  });
+});
+
+describe("ToolCallProgressCard — subagent_spawn-only group", () => {
+  test("renders null pending the inline subagent card in PR 8", () => {
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        toolName: "subagent_spawn",
+        status: "running",
+        input: { label: "Investigate logs" },
+      }),
+    ];
+    const { container, queryByTestId } = renderCard(toolCalls);
+    expect(queryByTestId("tool-progress-card-shell")).toBeNull();
+    expect(queryByTestId("web-search-progress-card")).toBeNull();
+    // No DOM produced at all.
+    expect(container.firstChild).toBeNull();
+  });
+
+  test("subagent_spawn alongside another tool DOES render the unified shell", () => {
+    // Regression guard — the null short-circuit is intentionally tight
+    // (length === 1 && first is subagent_spawn). Any other shape, including
+    // multiple subagent_spawn calls, must render the unified shell so the
+    // user still sees activity.
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        toolName: "subagent_spawn",
+        status: "running",
+        input: { label: "Investigate logs" },
+      }),
+      makeToolCall({
+        id: "tc-2",
+        toolName: "bash",
+        status: "running",
+        input: { command: "ls" },
+      }),
+    ];
+    const { getByTestId } = renderCard(toolCalls);
+    expect(getByTestId("tool-progress-card-shell")).toBeTruthy();
+  });
+});
+
+describe("ToolCallProgressCard — leadingThinkingText", () => {
+  test("prepends a thinking step to the expanded body when supplied", () => {
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        toolName: "bash",
+        status: "running",
+        input: { command: "ls" },
+      }),
+    ];
+    const { getByText, getByText: getByText2 } = renderCard(toolCalls, {
+      leadingThinkingText: "Let me check the directory first.",
+    });
+    // The thinking text appears as a separate step row in the expanded body.
+    expect(getByText("Let me check the directory first.")).toBeTruthy();
+    // The step count reflects the prepended thinking step.
+    expect(getByText2("2 steps")).toBeTruthy();
+  });
+});
