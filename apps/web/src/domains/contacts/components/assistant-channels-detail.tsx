@@ -6,6 +6,7 @@ import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog"
 import { Input } from "@vellum/design-library/components/input";
 
 import { ContactTypeBadge } from "@/domains/contacts/components/contact-type-badge.js";
+import { ShareConnectionLinkButton } from "@/domains/contacts/components/share-connection-link-button.js";
 import { SettingsCard } from "@/domains/settings/components/settings-card.js";
 import type { AssistantChannelState } from "@/domains/contacts/types.js";
 
@@ -20,6 +21,7 @@ interface AssistantChannelsDetailProps {
   onSaveTelegramToken?: (botToken: string) => Promise<void>;
   onSaveSlackConfig?: (botToken: string, appToken: string) => Promise<void>;
   onSaveTwilioCredentials?: (accountSid: string, authToken: string) => Promise<void>;
+  onGenerateInviteLink?: () => void;
 }
 
 const CHANNEL_META: Record<
@@ -55,6 +57,7 @@ export function AssistantChannelsDetail({
   onSaveTelegramToken,
   onSaveSlackConfig,
   onSaveTwilioCredentials,
+  onGenerateInviteLink,
 }: AssistantChannelsDetailProps) {
   const displayName = assistantName.trim() || "your assistant";
   const [pendingDisconnect, setPendingDisconnect] = useState<ChannelKey | null>(null);
@@ -112,6 +115,8 @@ export function AssistantChannelsDetail({
           ))}
         </div>
       </SettingsCard>
+
+      {onGenerateInviteLink ? <ShareConnectionLinkButton onClick={onGenerateInviteLink} /> : null}
 
       <ConfirmDialog
         open={pendingDisconnect !== null}
