@@ -316,13 +316,15 @@ function ChannelRow({
             {verifyLoading ? "Verifying…" : "Verify"}
           </Button>
         ) : actionState.kind === "setup" ? (
-          <Button
-            variant="outlined"
-            onClick={onSetup}
-            disabled={!onSetup}
-          >
-            {info.id === "a2a" ? "Connect" : setupLabel}
-          </Button>
+          info.id === "a2a" ? null : (
+            <Button
+              variant="outlined"
+              onClick={onSetup}
+              disabled={!onSetup}
+            >
+              {setupLabel}
+            </Button>
+          )
         ) : null}
       </div>
     </div>
