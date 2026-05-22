@@ -173,7 +173,7 @@ describe("useAssistantSyncStream", () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  test("per-conversation metadata/messages tags schedule a debounced list refresh", async () => {
+  test("per-conversation metadata tags schedule a debounced list refresh", async () => {
     const queryClient = freshQueryClient();
     const spy = mock(() => Promise.resolve());
     queryClient.invalidateQueries = spy as never;
@@ -181,9 +181,7 @@ describe("useAssistantSyncStream", () => {
       wrapper: createWrapper(queryClient),
     });
     emit(syncEvent(["conversation:abc:metadata"]));
-    emit(syncEvent(["conversation:abc:messages"]));
-    // Both tags fall into the default branch and trigger the
-    // debounced sidebar refresh — coalesced into a single invalidate.
+    emit(syncEvent(["conversation:abc:metadata"]));
     await new Promise((resolve) => setTimeout(resolve, 350));
     const listCalls = (spy.mock.calls as unknown as Array<[unknown]>).filter(
       (call) => {
@@ -192,6 +190,30 @@ describe("useAssistantSyncStream", () => {
       },
     );
     expect(listCalls.length).toBe(1);
+  });
+
+  test("per-conversation messages tags do NOT refetch the sidebar list", async () => {
+    // `:messages` tags fire on every message persist. Repaginating
+    // the full conversation list each time was the 14-request swarm
+    // this PR exists to eliminate. The default branch must filter
+    // those tags out before reaching `scheduleConversationListRefetch`.
+    const queryClient = freshQueryClient();
+    const spy = mock(() => Promise.resolve());
+    queryClient.invalidateQueries = spy as never;
+    renderHook(() => useAssistantSyncStream("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    emit(syncEvent(["conversation:abc:messages"]));
+    emit(syncEvent(["conversation:def:messages"]));
+    emit(syncEvent(["conversation:ghi:messages"]));
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    const listCalls = (spy.mock.calls as unknown as Array<[unknown]>).filter(
+      (call) => {
+        const arg = call[0] as { queryKey: readonly unknown[] } | undefined;
+        return arg?.queryKey?.[0] === chatContextQueryKey("asst-1")[0];
+      },
+    );
+    expect(listCalls.length).toBe(0);
   });
 
   test("invalidates home-feed queries on home_feed_updated and relationship_state_updated", async () => {
