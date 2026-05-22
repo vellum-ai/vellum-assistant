@@ -18,11 +18,10 @@ import type { Database } from "bun:sqlite";
 import { ensureVellumGuardianBinding } from "./auth/guardian-bootstrap.js";
 import { getGatewayDb, type GatewayDb } from "./db/connection.js";
 import { runDataMigrations } from "./db/data-migrations/index.js";
-import {
-  IpcTransportError,
-  ipcCallAssistant,
-} from "./ipc/assistant-client.js";
+import { IpcTransportError, ipcCallAssistant } from "./ipc/assistant-client.js";
 import { getLogger } from "./logger.js";
+import { startOutboundVoiceVerificationSync } from "./verification/outbound-voice-verification-sync.js";
+import { startVoiceApprovalSync } from "./verification/voice-approval-sync.js";
 
 const log = getLogger("post-assistant-ready");
 
@@ -77,4 +76,9 @@ export async function runPostAssistantReady(): Promise<void> {
   } catch (err) {
     log.warn({ err }, "Post-ready guardian binding backfill failed");
   }
+
+  // 3. Voice verification syncs — these poll the assistant DB via IPC,
+  // so they must start after the assistant is confirmed ready.
+  startVoiceApprovalSync();
+  startOutboundVoiceVerificationSync();
 }
