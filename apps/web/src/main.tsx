@@ -13,18 +13,23 @@ import "./index.css";
 
 import { initSafeAreaBridge } from "@/runtime/native-safe-area.js";
 
-initSafeAreaBridge();
-setupOrganizationStore();
-useAuthStore.getState().initSession();
-setupAuthListeners();
+async function boot() {
+  await initSafeAreaBridge();
 
-const rootEl = document.getElementById("root");
-if (!rootEl) throw new Error("Root element #root not found");
+  setupOrganizationStore();
+  useAuthStore.getState().initSession();
+  setupAuthListeners();
 
-createRoot(rootEl).render(
-  <StrictMode>
-    <AppProviders>
-      <RouterProvider router={router} />
-    </AppProviders>
-  </StrictMode>,
-);
+  const rootEl = document.getElementById("root");
+  if (!rootEl) throw new Error("Root element #root not found");
+
+  createRoot(rootEl).render(
+    <StrictMode>
+      <AppProviders>
+        <RouterProvider router={router} />
+      </AppProviders>
+    </StrictMode>,
+  );
+}
+
+boot();

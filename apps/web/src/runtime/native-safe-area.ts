@@ -1,5 +1,4 @@
 import { Capacitor } from "@capacitor/core";
-import { SafeArea } from "capacitor-plugin-safe-area";
 
 function applyInsets(insets: {
   top: number;
@@ -16,23 +15,32 @@ function applyInsets(insets: {
 
 let initialized = false;
 
+/**
+ * Read device safe-area insets from the native layer via
+ * `capacitor-plugin-safe-area` and expose them as CSS custom properties
+ * on `<html>`. Must be awaited before first render so the layout never
+ * paints with zero-inset padding.
+ *
+ * No-op outside the Capacitor shell — browser consumers fall through to
+ * `env(safe-area-inset-*)` which works correctly in Safari / Chrome.
+ *
+ * Ported from vellum-assistant-platform's SafeAreaBridge.tsx.
+ */
 export async function initSafeAreaBridge(): Promise<void> {
   if (initialized) return;
   if (typeof window === "undefined" || !Capacitor.isNativePlatform()) return;
   initialized = true;
 
   try {
+    const { SafeArea } = await import("capacitor-plugin-safe-area");
+
     const { insets } = await SafeArea.getSafeAreaInsets();
     applyInsets(insets);
-  } catch {
-    // Plugin unavailable or not registered — fall through to env() fallback.
-  }
 
-  try {
-    await SafeArea.addListener("safeAreaChanged", ({ insets }) => {
-      applyInsets(insets);
+    await SafeArea.addListener("safeAreaChanged", ({ insets: next }) => {
+      applyInsets(next);
     });
   } catch {
-    // Listener registration failed — initial insets are still applied.
+    // Plugin unavailable — fall through to env() fallback.
   }
 }
