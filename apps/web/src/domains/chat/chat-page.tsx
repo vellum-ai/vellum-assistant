@@ -43,7 +43,7 @@ import type { TranscriptHandle } from "@/domains/chat/transcript/transcript.js";
 import type { TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
 import { buildTranscriptItems } from "@/domains/chat/transcript/build-items.js";
 import { getThinkingStatusText, shouldShowThinkingIndicator, type UIContext } from "@/domains/messaging/turn-selectors.js";
-import { consumePendingInitialMessage, consumePendingPreChatContext, type PreChatOnboardingContext } from "@/domains/onboarding/prechat.js";
+import { consumePendingInitialMessage, type PreChatOnboardingContext } from "@/domains/onboarding/prechat.js";
 import { createDraftConversationKey } from "@/domains/chat/utils/conversation-selection.js";
 import type { WebSyncRouter } from "@/lib/sync/web-sync-router.js";
 import type { SyncChangedEvent } from "@/lib/sync/types.js";
@@ -476,26 +476,10 @@ export function ChatPage() {
     onboardingDraftConversationKeyRef.current = onboardingDraftKey;
     setOnboardingConversationKey(onboardingDraftKey);
     useConversationStore.getState().setActiveKey(onboardingDraftKey);
-    // Drain pending PreChat context from sessionStorage at the same moment
-    // the auto-greet is armed so the payload rides along the single greet
-    // send and doesn't leak onto a later message.
-    //
-    // React strict-mode double-fires effects in dev; guard so the second
-    // invocation is a no-op (sessionStorage was already drained).
-    if (pendingOnboardingContextRef.current === null) {
-      pendingOnboardingContextRef.current = consumePendingPreChatContext();
-    }
-    if (pendingOnboardingContextRef.current) {
-      setOnboardingTasksEmpty(
-        pendingOnboardingContextRef.current.tasks.length === 0,
-      );
-      if (pendingOnboardingContextRef.current.initialMessage) {
-        pendingOnboardingInitialMessageRef.current = {
-          conversationKey: onboardingDraftKey,
-          content: pendingOnboardingContextRef.current.initialMessage,
-        };
-      }
-    }
+    // Do NOT drain sessionStorage here — this ChatPage instance unmounts
+    // when we navigate to /conversations/:key (different route entry),
+    // losing all refs. Leave the context in sessionStorage so the new
+    // mount's sendMessage hook and auto-send effect can consume it.
     void navigate(routes.conversation(onboardingDraftKey), { replace: true });
     return () => {
       if (awaitingAutoGreetTimeoutRef.current) {
@@ -665,20 +649,33 @@ export function ChatPage() {
   }, [searchParams, activeConversationKey, sendMessage]);
 
   // Auto-send onboarding initial message once the conversation is ready.
-  // The message is read from sessionStorage (not a ref) because ChatPage
-  // unmounts and remounts during the onboarding redirect (index route →
-  // /conversations/:key), which resets all refs. Gate on reachability so
-  // we don't consume the message before the daemon can accept it — the
-  // POST would fail and the message would be lost.
+  // Read from sessionStorage (not a ref) because ChatPage remounts during
+  // the onboarding redirect. No reachability gate — matches the ?prompt=
+  // pattern above; sendMessage handles unreachable state internally.
   const initialMessageConsumedRef = useRef(false);
   useEffect(() => {
-    if (initialMessageConsumedRef.current || !assistantId || !activeConversationKey) return;
-    if (reachability.state.phase !== "ready") return;
+    if (initialMessageConsumedRef.current || !activeConversationKey) return;
     const message = consumePendingInitialMessage();
     if (!message) return;
     initialMessageConsumedRef.current = true;
     void sendMessage(message);
-  }, [activeConversationKey, assistantId, reachability.state.phase, sendMessage]);
+  }, [activeConversationKey, sendMessage]);
+
+  // Derive onboardingTasksEmpty from the pending context in sessionStorage.
+  // Runs once on mount — if initial message key is present, this is an
+  // onboarding mount, so peek at the context for the tasks-empty flag.
+  useEffect(() => {
+    try {
+      const raw = globalThis.sessionStorage?.getItem("onboarding.prechat.pendingContext");
+      if (!raw) return;
+      const ctx = JSON.parse(raw) as { tasks?: string[] };
+      if (Array.isArray(ctx.tasks) && ctx.tasks.length === 0) {
+        setOnboardingTasksEmpty(true);
+      }
+    } catch {
+      // Storage or parse failure — ignore.
+    }
+  }, []);
 
   // Deep-link: ?app=<id> auto-opens the app viewer on initial load.
   const deepLinkAppConsumed = useRef(false);
