@@ -162,6 +162,10 @@ export function useEventStream({
 
   const reachabilityPhaseRef = useRef(reachabilityPhase);
   reachabilityPhaseRef.current = reachabilityPhase;
+  const backgroundReachabilityProbeRef = useRef(false);
+  if (reachabilityPhase !== "checking") {
+    backgroundReachabilityProbeRef.current = false;
+  }
 
   // Track the latest active conversation key in a ref updated during
   // render. The bus subscriber filters against this ref instead of the
@@ -392,11 +396,12 @@ export function useEventStream({
         }
         // Idle SSE drops should reopen the stream without interrupting the
         // user; active turns still surface the reconnect state immediately.
-        reachabilityProbeRef.current(
-          hadActiveTurn
-            ? { showConnectingImmediately: true }
-            : { mode: "background" },
-        );
+        if (hadActiveTurn) {
+          reachabilityProbeRef.current({ showConnectingImmediately: true });
+        } else {
+          backgroundReachabilityProbeRef.current = true;
+          reachabilityProbeRef.current({ mode: "background" });
+        }
         setMessagesRef.current((prev) => {
           const last = prev[prev.length - 1];
           if (last?.role === "assistant" && last.isStreaming) {
@@ -433,8 +438,10 @@ export function useEventStream({
       if (
         !wasSending &&
         nowSending &&
-        reachabilityPhaseRef.current === "checking"
+        (backgroundReachabilityProbeRef.current ||
+          reachabilityPhaseRef.current === "checking")
       ) {
+        backgroundReachabilityProbeRef.current = false;
         reachabilityProbeRef.current({ showConnectingImmediately: true });
       }
       wasSending = nowSending;
