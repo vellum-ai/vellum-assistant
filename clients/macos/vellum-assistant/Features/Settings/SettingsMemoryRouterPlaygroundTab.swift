@@ -291,7 +291,7 @@ struct SettingsMemoryRouterPlaygroundTab: View {
             )
             metaRow(
                 label: "Selected",
-                value: "\(result.selectedSlugs.count) / \(result.effectiveConfig.maxPageIds)"
+                value: "\(result.selectedSlugs.count)  (live max_page_ids: \(result.effectiveConfig.maxPageIds))"
             )
             if otherResult != nil {
                 metaRow(

@@ -651,7 +651,7 @@ function SummaryCard({
     },
     {
       label: "Selected",
-      value: `${result.selectedSlugs.length} / ${result.effectiveConfig.max_page_ids}`,
+      value: `${result.selectedSlugs.length}  (live max_page_ids: ${result.effectiveConfig.max_page_ids})`,
     },
   ];
   if (otherResult !== undefined) {
