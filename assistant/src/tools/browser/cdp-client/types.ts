@@ -34,6 +34,25 @@ export interface CdpClient {
    * is allowed but should surface as an error.
    */
   dispose(): void;
+
+  /**
+   * Update the `cdpSessionId` used on subsequent {@link CdpClient.send}
+   * calls. Backends that don't multiplex commands across multiple
+   * targets (local Playwright, cdp-inspect) may implement this as a
+   * no-op. The extension backend uses this after opening a new tab
+   * (via the `Vellum.createTab` pseudo-CDP method) to route
+   * follow-on commands to the freshly-created tab instead of the
+   * currently-active one.
+   *
+   * Pass `undefined` to clear an existing pinned session and revert
+   * to default routing (i.e. dispatcher resolves the active tab).
+   * Used in the `Vellum.createTab` no-tabId fallback path to avoid
+   * sending follow-on commands to a stale/dead tab when the previous
+   * pin is no longer valid.
+   *
+   * Optional — callers should null-check before invoking.
+   */
+  setCdpSessionId?(cdpSessionId: string | undefined): void;
 }
 
 /**
@@ -97,6 +116,23 @@ export interface ScopedCdpClient extends CdpClient {
   readonly kind: CdpClientKind;
   /** Stable conversation id this client is bound to. */
   readonly conversationId: string;
+  /**
+   * Re-target follow-on CDP commands at a specific tab/target. Calling
+   * this updates the underlying client's `cdpSessionId`. This is used by
+   * the navigator executor after `Vellum.createTab` returns to ensure the
+   * subsequent `Page.navigate` and all follow-on commands on this
+   * conversation route to the newly-created tab instead of the
+   * previously-active tab.
+   *
+   * Pass `undefined` to clear an existing pinned session on the chained
+   * client and on the underlying client (if it supports the method).
+   * Used in the `Vellum.createTab` no-tabId fallback path.
+   *
+   * If the underlying client doesn't implement this method (e.g., local
+   * or cdp-inspect clients), the call is silently ignored via optional
+   * chaining.
+   */
+  setCdpSessionId(cdpSessionId: string | undefined): void;
 }
 
 /**

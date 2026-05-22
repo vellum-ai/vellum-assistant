@@ -10,7 +10,7 @@ import { TrustRules } from "@/domains/settings/components/trust-rules/trust-rule
 import {
   getLocalSetting,
   setLocalSetting,
-} from "@/domains/settings/local-settings.js";
+} from "@/lib/local-settings.js";
 
 const LS_SHARE_ANALYTICS = "vellum_share_analytics";
 const LS_SHARE_DIAGNOSTICS = "vellum_share_diagnostics";

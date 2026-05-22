@@ -24,7 +24,7 @@ import { ChevronDown } from "lucide-react";
 
 import { useIsMobile } from "@/hooks/use-is-mobile.js";
 import { useAuthStore } from "@/stores/auth-store.js";
-import { useAssistantContext } from "@/domains/chat/assistant-context.js";
+import { useAssistantContext } from "@/components/layout/assistant-context.js";
 import { useShallow } from "zustand/shallow";
 import { useConversationStore } from "@/domains/conversations/conversation-store.js";
 import {
@@ -35,7 +35,8 @@ import { useViewerStore } from "@/stores/viewer-store.js";
 import { useDeployStore } from "@/domains/chat/deploy-store.js";
 import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
 import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
-import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
+import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
+import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
 import { useIsNativePlatform } from "@/runtime/native-auth.js";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store.js";
 
@@ -43,9 +44,9 @@ import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import type { ChatError } from "@/domains/chat/types.js";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 import type { TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
-import type { PreChatOnboardingContext } from "@/domains/onboarding/prechat.js";
+import { consumePendingPreChatContext, type PreChatOnboardingContext } from "@/domains/onboarding/prechat.js";
+import { createDraftConversationKey } from "@/domains/chat/utils/conversation-selection.js";
 import type { WebSyncRouter } from "@/lib/sync/web-sync-router.js";
-import type { RefreshSettleHandle } from "@/domains/chat/hooks/use-pull-refresh.js";
 import type { SyncChangedEvent } from "@/lib/sync/types.js";
 
 import { Button, ConfirmDialog } from "@vellum/design-library";
@@ -53,15 +54,16 @@ import { VercelTokenDialog } from "@/components/vercel-token-dialog.js";
 import { useSyncChatStore } from "@/domains/chat/chat-store.js";
 import { useChatAttachments } from "@/domains/chat/components/chat-attachments/use-chat-attachments.js";
 import { useVoiceInput } from "@/domains/chat/hooks/use-voice-input.js";
-import { useConversationStarters } from "@/domains/chat/hooks/use-conversation-starters.js";
 import { useAssistantAvatar } from "@/domains/avatar/use-assistant-avatar.js";
 import { useAssistantReachability } from "@/assistant/use-assistant-reachability.js";
 import { useDiskPressureMonitor } from "@/assistant/use-disk-pressure-monitor.js";
 import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure.js";
 import { useAppNudges } from "@/domains/chat/hooks/use-app-nudges.js";
 import { useConversationLoader } from "@/domains/conversations/use-conversation-loader.js";
+import { useContextWindowUsageHydration } from "@/domains/chat/hooks/use-context-window-usage-hydration.js";
 import { useConversationActions } from "@/domains/conversations/use-conversation-actions.js";
 import { useConversationSecondaryActions } from "@/domains/chat/hooks/use-conversation-secondary-actions.js";
+import { canUseLlmInspector } from "@/domains/chat/inspector/access.js";
 import { useCommandPaletteSections } from "@/domains/chat/hooks/use-command-palette-sections.js";
 import { useMessageReconciliation } from "@/domains/chat/hooks/use-message-reconciliation.js";
 import { useStreamEventHandler } from "@/domains/chat/hooks/use-stream-event-handler.js";
@@ -69,15 +71,24 @@ import { useSendMessage } from "@/domains/chat/hooks/use-send-message.js";
 import { useInteractionActions } from "@/domains/chat/hooks/use-interaction-actions.js";
 import { useEventStream } from "@/domains/chat/hooks/use-event-stream.js";
 import { useActiveAppPinSync } from "@/domains/chat/hooks/use-active-app-pin-sync.js";
+import { useDraftInput } from "@/domains/chat/components/chat-composer/use-draft-input.js";
+import { useRefreshLatestMessages } from "@/domains/chat/hooks/use-refresh-latest-messages.js";
 
+import { SetupScreen } from "@/domains/chat/components/setup-screen.js";
+import { CleanupScreen } from "@/domains/chat/components/cleanup-screen.js";
+import { PlatformHostedScreen } from "@/domains/chat/components/platform-hosted-screen.js";
+import { SelfHostedScreen } from "@/domains/chat/components/self-hosted-screen.js";
+import { VersionSelectionScreen } from "@/domains/chat/components/version-selection-screen.js";
+import { ConnectingToAssistant } from "@/domains/chat/components/connecting-to-assistant.js";
+import { fetchSuggestion } from "@/domains/chat/api/suggestion-api.js";
 import { createWebSyncRouter } from "@/lib/sync/web-sync-router.js";
 import { fetchAssistantIdentity } from "@/assistant/identity.js";
 import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/utils/error-classification.js";
 import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat-utils.js";
 import { isSurfaceInteractive } from "@/domains/chat/types/types.js";
-import type { UIContext } from "@/domains/chat/utils/turn-selectors.js";
+import type { UIContext } from "@/domains/messaging/turn-selectors.js";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel.js";
-import { buildMoveToGroupTargets } from "@/domains/chat/utils/groupConversations.js";
+import { buildMoveToGroupTargets } from "@/domains/chat/utils/group-conversations.js";
 import { ConversationActionsMenu } from "@/domains/chat/components/conversation-actions-menu.js";
 import { ConversationAssetsPill } from "@/domains/chat/components/conversation-assets-pill.js";
 import { CommandPalette } from "@/components/command-palette/command-palette.js";
@@ -91,6 +102,7 @@ import { routes } from "@/utils/routes.js";
 import { haptic } from "@/utils/haptics.js";
 import type { AssistantIdentity } from "@/assistant/identity.js";
 import type { ChatEventStream } from "@/domains/chat/api/stream.js";
+import { installVellumDebugApi } from "@/domains/chat/api/debug-api.js";
 import {
   ChatRouteContent,
   type ChatRouteContentProps,
@@ -102,7 +114,8 @@ import {
 
 export function ChatPage() {
   const authLoading = useAuthStore.use.isLoading();
-  const isLoggedIn = useAuthStore.use.isLoggedIn();
+  const authUser = useAuthStore.use.user();
+  const showLlmInspector = canUseLlmInspector(authUser);
   const isMobile = useIsMobile();
   const isNative = useIsNativePlatform();
   const navigate = useNavigate();
@@ -112,31 +125,40 @@ export function ChatPage() {
     assistantId,
     assistantState,
     checkAssistant,
+    retryAssistant,
+    hatchVersion,
     setAssistantId,
     setTopBarCenter,
     setTopBarRightSlot,
     setOnSearchClick,
+    setFooterBanner,
   } = useAssistantContext();
-  const chatPullToRefresh = useFeatureFlagStore.use.chatPullToRefresh();
-  const deployToVercel = useFeatureFlagStore.use.deployToVercel();
-  const doctor = useFeatureFlagStore.use.doctor();
-  const conversationGroupsUI = useFeatureFlagStore.use.conversationGroupsUI();
+  const chatPullToRefreshEnabled = useClientFeatureFlagStore.use.chatPullToRefreshEnabled();
+  const deployToVercel = useAssistantFeatureFlagStore.use.deployToVercel();
+  const doctor = useClientFeatureFlagStore.use.doctor();
+  const conversationGroupsUI = useAssistantFeatureFlagStore.use.conversationGroupsUI();
 
   // -------------------------------------------------------------------------
   // Local state
   // -------------------------------------------------------------------------
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
-  const [input, setInput] = useState("");
   const [error, setError] = useState<ChatError | null>(null);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [compactionCircuitOpenUntil, setCompactionCircuitOpenUntil] = useState<Date | null>(null);
   const [suggestion, setSuggestion] = useState<string | null>(null);
   const [showAddCreditsModal, setShowAddCreditsModal] = useState(false);
   void showAddCreditsModal;
+
+  // -------------------------------------------------------------------------
+  // Debug API — once on mount (idempotent, safe under StrictMode)
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    installVellumDebugApi();
+  }, []);
   const [restoredDraftConversationKey, setRestoredDraftConversationKey] = useState<string | null>(null);
   const [refreshEpoch, setRefreshEpoch] = useState(0);
-  const [streamRetryNonce, setStreamRetryNonce] = useState(0);
   const [_autoGreetPending, setAutoGreetPending] = useState(false);
+  const awaitingAutoGreetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [contextWindowUsage, setContextWindowUsage] = useState<ContextWindowUsage | null>(null);
   const [transcriptPagination, setTranscriptPagination] = useState<Omit<TranscriptPaginationState, "items">>({
     hasMore: false,
@@ -146,6 +168,7 @@ export function ChatPage() {
   });
   const [assetsRefreshKey, setAssetsRefreshKey] = useState(0);
   const [assistantIdentity, setAssistantIdentity] = useState<AssistantIdentity | null>(null);
+  const [overlayTarget, setOverlayTarget] = useState<HTMLElement | null>(null);
   const prePinGroupIdsRef = useRef<Map<string, string | undefined>>(new Map());
 
   // -------------------------------------------------------------------------
@@ -229,6 +252,9 @@ export function ChatPage() {
   const dismissedSurfaceIdsRef = useRef<Set<string>>(new Set());
   const pendingOnboardingContextRef = useRef<PreChatOnboardingContext | null>(null);
   const onboardingDraftConversationKeyRef = useRef<string | null>(null);
+  const [didOnboarding, setDidOnboarding] = useState(false);
+  const [onboardingTasksEmpty, setOnboardingTasksEmpty] = useState(false);
+  const [onboardingConversationKey, setOnboardingConversationKey] = useState<string | null>(null);
   const draftKeyResolutionRef = useRef(false);
   const previousConversationKeyRef = useRef<string | null>(null);
   const pendingQueuedStableIdsRef = useRef<string[]>([]);
@@ -239,17 +265,18 @@ export function ChatPage() {
   const lastSuggestionMsgIdRef = useRef<string | null>(null);
   const autoGreetRef = useRef(false);
   const initialPageOldestTsRef = useRef<number | null>(null);
-  const isLoadingOlderRef = useRef(false);
-  const historyLoadedRef = useRef(false);
   const conversationListInvalidatedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const loadEpochRef = useRef(0);
   const pendingInitialMessageRef = useRef<{ conversationKey: string; content: string } | null>(null);
   const expandedToolCallIdsRef = useRef<Set<string>>(new Set());
-  const draftsRef = useRef<Map<string, string>>(new Map());
-  const conversationCacheRef = useRef<Map<string, { messages: DisplayMessage[]; pagination: { hasMore: boolean; oldestTimestamp: number | null } }>>(new Map());
   const contextWindowUsageByConversationRef = useRef<Map<string, ContextWindowUsage>>(new Map());
-  const refreshSettleRef = useRef<RefreshSettleHandle | null>(null);
   const syncRouterRef = useRef<WebSyncRouter | null>(null);
+
+  useContextWindowUsageHydration({
+    assistantId,
+    activeConversationKey,
+    contextWindowUsageByConversationRef,
+    setContextWindowUsage,
+  });
 
   // -------------------------------------------------------------------------
   // Routing
@@ -285,6 +312,18 @@ export function ChatPage() {
   });
 
   // -------------------------------------------------------------------------
+  // Draft input — owns composer `input` state and per-conversation draft
+  // persistence to localStorage. Replaces the old manual `draftsRef` that was
+  // threaded through useConversationLoader → useConversationHistory.
+  // -------------------------------------------------------------------------
+  const { input, setInput, saveDraft, clearDraft } = useDraftInput({
+    assistantId,
+    activeConversationKey,
+    draftKeyResolutionRef,
+    onDraftRestored: setRestoredDraftConversationKey,
+  });
+
+  // -------------------------------------------------------------------------
   // Attachments
   // -------------------------------------------------------------------------
   const {
@@ -313,11 +352,6 @@ export function ChatPage() {
     setVoiceInterim,
     handleRetryMicPermission,
   } = useVoiceInput({ assistantId, inputRef, setInput });
-
-  // -------------------------------------------------------------------------
-  // Conversation starters
-  // -------------------------------------------------------------------------
-  const { starters: conversationStarters } = useConversationStarters(assistantId);
 
   // -------------------------------------------------------------------------
   // Avatar
@@ -352,6 +386,7 @@ export function ChatPage() {
     switchConversation: rawSwitchConversation,
     startNewConversation: rawStartNewConversation,
     conversationExistsOnServer,
+    historyResult,
   } = useConversationLoader({
     assistantId,
     assistantStateKind: assistantState.kind,
@@ -360,19 +395,14 @@ export function ChatPage() {
     searchParams,
     navigate,
     conversations,
-    transcriptPagination,
     conversationGroupsUI,
     refreshEpoch,
     reachabilityReadyEpoch,
     assistantIdRef,
-    conversationCacheRef,
     draftKeyResolutionRef,
     previousConversationKeyRef,
     onboardingDraftConversationKeyRef,
     activeConversationKeyRef,
-    inputRef,
-    draftsRef,
-    messagesRef,
     contextWindowUsageByConversationRef,
     dismissedSurfaceIdsRef,
     needsNewBubbleRef,
@@ -381,14 +411,9 @@ export function ChatPage() {
     requestIdToStableIdRef,
     pendingLocalDeletionsRef,
     confirmationToolCallMapRef,
-    refreshSettleRef,
     lastSuggestionMsgIdRef,
     autoGreetRef,
-    initialPageOldestTsRef,
-    isLoadingOlderRef,
-    historyLoadedRef,
     conversationListInvalidatedTimerRef,
-    loadEpochRef,
     pendingInitialMessageRef,
     setAssistantId,
     setMessages,
@@ -399,12 +424,16 @@ export function ChatPage() {
     setContextWindowUsage,
     setSuggestion,
     setCompactionCircuitOpenUntil,
-    setInput,
     resetChatAttachments,
     syncNeedsNewBubbleFromMessages,
-    onDraftRestored: setRestoredDraftConversationKey,
     shouldSuppressGenericChatErrorNotice,
   });
+
+  // Keep initialPageOldestTsRef in sync with TQ pagination data — used by
+  // useMessageReconciliation to scope reconciliation to the loaded window.
+  useEffect(() => {
+    initialPageOldestTsRef.current = historyResult.pagination.latestPageOldestTimestamp;
+  }, [historyResult.pagination.latestPageOldestTimestamp]);
 
   // Wrap conversation-switching to reset subagent state eagerly
   const switchConversation = useCallback(
@@ -421,6 +450,52 @@ export function ChatPage() {
     },
     [rawStartNewConversation],
   );
+
+  // -------------------------------------------------------------------------
+  // Onboarding signal consumption
+  // -------------------------------------------------------------------------
+  // Consume the `?onboarding=1` signal left by `/onboarding/hatching` when
+  // it forwards the user after a successful hatch. Flipping `autoGreetRef`
+  // mirrors the existing auto-greet paths so the first assistant message
+  // fires once the chat history loads. The flag is stripped from the URL
+  // immediately so a page refresh doesn't re-trigger the greet.
+  useEffect(() => {
+    if (searchParams.get("onboarding") !== "1") return;
+    autoGreetRef.current = true;
+    setDidOnboarding(true);
+    setAutoGreetPending(true);
+    if (awaitingAutoGreetTimeoutRef.current) {
+      clearTimeout(awaitingAutoGreetTimeoutRef.current);
+    }
+    awaitingAutoGreetTimeoutRef.current = setTimeout(() => {
+      setAutoGreetPending(false);
+    }, 10_000);
+    const onboardingDraftKey =
+      onboardingDraftConversationKeyRef.current ?? createDraftConversationKey();
+    onboardingDraftConversationKeyRef.current = onboardingDraftKey;
+    setOnboardingConversationKey(onboardingDraftKey);
+    // Drain pending PreChat context from sessionStorage at the same moment
+    // the auto-greet is armed so the payload rides along the single greet
+    // send and doesn't leak onto a later message.
+    //
+    // React strict-mode double-fires effects in dev; guard so the second
+    // invocation is a no-op (sessionStorage was already drained).
+    if (pendingOnboardingContextRef.current === null) {
+      pendingOnboardingContextRef.current = consumePendingPreChatContext();
+    }
+    if (pendingOnboardingContextRef.current) {
+      setOnboardingTasksEmpty(
+        pendingOnboardingContextRef.current.tasks.length === 0,
+      );
+    }
+    void navigate(routes.conversation(onboardingDraftKey), { replace: true });
+    return () => {
+      if (awaitingAutoGreetTimeoutRef.current) {
+        clearTimeout(awaitingAutoGreetTimeoutRef.current);
+        awaitingAutoGreetTimeoutRef.current = null;
+      }
+    };
+  }, [searchParams, navigate]);
 
   // -------------------------------------------------------------------------
   // Message reconciliation
@@ -534,6 +609,7 @@ export function ChatPage() {
     queuedMessages,
     handleCancelQueuedMessage,
     handleCancelAllQueued,
+    handleSteerMessage,
     handleEditQueueTail,
   } = useSendMessage({
     assistantId,
@@ -558,7 +634,6 @@ export function ChatPage() {
     confirmationToolCallMapRef,
     setMessages,
     setError,
-    setStreamRetryNonce,
     setInput,
     startReconciliationLoop,
     cancelReconciliation,
@@ -642,14 +717,19 @@ export function ChatPage() {
     reachabilityReset: reachability.reset,
     setMessages,
     setError,
-    streamRetryNonce,
-    setStreamRetryNonce,
-    refreshEpoch,
     syncRouterRef,
     conversationListInvalidatedTimerRef,
-    isLoggedIn,
-    isLoading: authLoading,
-    checkAssistant,
+  });
+
+  // -------------------------------------------------------------------------
+  // Non-destructive refresh for the chat title chevron's Refresh menu item.
+  // -------------------------------------------------------------------------
+  const refreshLatestMessages = useRefreshLatestMessages({
+    assistantId,
+    activeConversationKeyRef,
+    messagesRef,
+    setMessages,
+    dismissedSurfaceIdsRef,
   });
 
   // -------------------------------------------------------------------------
@@ -709,6 +789,7 @@ export function ChatPage() {
     handleAnalyzeConversation,
     handleOpenInNewWindow,
     handleInspectConversation,
+    handleInspectMessage,
     handleCopyConversation,
   } = useConversationSecondaryActions({
     assistantId,
@@ -812,13 +893,18 @@ export function ChatPage() {
             : undefined
         }
         onInspect={
-          activeConversation.conversationKey
+          showLlmInspector && activeConversation.conversationKey
             ? () => handleInspectConversation(activeConversation)
             : undefined
         }
         onCopyConversation={
           messages.length > 0
             ? handleCopyConversation
+            : undefined
+        }
+        onRefresh={
+          activeConversation.conversationKey != null
+            ? refreshLatestMessages
             : undefined
         }
         moveToGroups={moveToGroups}
@@ -873,6 +959,7 @@ export function ChatPage() {
     handleForkConversationFromMenu,
     handleOpenInNewWindow,
     handleInspectConversation,
+    showLlmInspector,
     handleCopyConversation,
     handleMoveToGroup,
     handleRemoveFromGroup,
@@ -880,12 +967,40 @@ export function ChatPage() {
     handleMarkConversationRead,
     hasPersistedMessage,
     messages.length,
+    refreshLatestMessages,
   ]);
 
   useEffect(() => {
     setTopBarCenter(topBarCenterContent);
     return () => { setTopBarCenter(null); };
   }, [topBarCenterContent, setTopBarCenter]);
+
+  // Open an app from inside a chat (assets pill, "Open App" on a message).
+  // On macOS this enters side-by-side editing mode (chat + app preview);
+  // we mirror that here by transitioning the viewer to `app-editing` once
+  // the load lands, keeping the current conversation as the edit chat.
+  // Bail if the load failed or a newer open superseded this one.
+  const handleOpenAppFromChat = useCallback(
+    async (appId: string) => {
+      if (!assistantId) return;
+      haptic.light();
+      await useViewerStore.getState().loadApp(assistantId, appId);
+      const { activeAppId, openedAppState } = useViewerStore.getState();
+      if (activeConversationKey && openedAppState && activeAppId === appId) {
+        useConversationStore.getState().setEditingKey(activeConversationKey);
+        useViewerStore.getState().enterAppEditing();
+      }
+    },
+    [assistantId, activeConversationKey],
+  );
+
+  const handleOpenDocument = useCallback(
+    (surfaceId: string) => {
+      haptic.light();
+      if (assistantId) void useViewerStore.getState().loadDocument(assistantId, surfaceId);
+    },
+    [assistantId],
+  );
 
   const topBarRightContent = useMemo(() => {
     if (!activeConversation?.conversationKey || !assistantId) return null;
@@ -894,22 +1009,58 @@ export function ChatPage() {
         assistantId={assistantId}
         conversationId={activeConversation.conversationKey}
         refreshKey={assetsRefreshKey}
-        onOpenApp={(appId) => {
-          haptic.light();
-          if (assistantId) void useViewerStore.getState().loadApp(assistantId, appId);
-        }}
-        onOpenDocument={(surfaceId) => {
-          haptic.light();
-          if (assistantId) void useViewerStore.getState().loadDocument(assistantId, surfaceId);
-        }}
+        onOpenApp={handleOpenAppFromChat}
+        onOpenDocument={handleOpenDocument}
       />
     );
-  }, [activeConversation?.conversationKey, assistantId, assetsRefreshKey]);
+  }, [activeConversation?.conversationKey, assistantId, assetsRefreshKey, handleOpenAppFromChat, handleOpenDocument]);
 
   useEffect(() => {
     setTopBarRightSlot(topBarRightContent);
     return () => { setTopBarRightSlot(null); };
   }, [topBarRightContent, setTopBarRightSlot]);
+
+  // -------------------------------------------------------------------------
+  // Mobile overlay portal — resolve after DOM commit (CONVENTIONS.md §SSR)
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    setOverlayTarget(
+      isMobile ? document.getElementById("viewport-overlays") : null,
+    );
+  }, [isMobile]);
+
+  // -------------------------------------------------------------------------
+  // Ghost-text suggestion: fetch after each completed assistant turn
+  // -------------------------------------------------------------------------
+  const inputSnapshotRef = useRef(input);
+  useEffect(() => { inputSnapshotRef.current = input; }, [input]);
+
+  useEffect(() => {
+    const lastMsg = messages[messages.length - 1];
+    if (!lastMsg || lastMsg.role !== "assistant" || lastMsg.isStreaming) return;
+    if (!assistantId || !activeConversationKey) return;
+    const msgId = lastMsg.id ?? null;
+    if (msgId === lastSuggestionMsgIdRef.current) return;
+    lastSuggestionMsgIdRef.current = msgId;
+
+    const controller = new AbortController();
+    void fetchSuggestion(assistantId, activeConversationKey, lastMsg.id, controller.signal)
+      .then((r) => {
+        if (controller.signal.aborted) return;
+        if (inputSnapshotRef.current) return;
+        setSuggestion(r.suggestion);
+      })
+      .catch(() => {});
+    return () => { controller.abort(); };
+  }, [messages, assistantId, activeConversationKey, setSuggestion]);
+
+  // -------------------------------------------------------------------------
+  // Nudge sidebar footer banner — push into the layout via outlet context
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    setFooterBanner(nudges.sidebarBanner);
+    return () => { setFooterBanner(null); };
+  }, [nudges.sidebarBanner, setFooterBanner]);
 
   // -------------------------------------------------------------------------
   // Derived UI state
@@ -933,11 +1084,15 @@ export function ChatPage() {
 
   const pendingSecret = useInteractionStore.use.pendingSecret();
   const pendingConfirmation = useInteractionStore.use.pendingConfirmation();
+  const pendingQuestion = useInteractionStore.use.pendingQuestion();
+  const pendingContactRequest = useInteractionStore.use.pendingContactRequest();
 
   const _uiContext: UIContext = {
     hasStreamingAssistantMessage: messages.some((m) => m.isStreaming),
     hasPendingSecret: !!pendingSecret,
     hasPendingConfirmation: !!pendingConfirmation,
+    hasPendingQuestion: !!pendingQuestion,
+    hasPendingContactRequest: !!pendingContactRequest,
     hasUncompletedVisibleSurface,
     activeConversationIsProcessing,
     hasPendingAssistantResponse: activeConversationHasPendingAssistantResponse,
@@ -957,14 +1112,51 @@ export function ChatPage() {
 
   if (assistantState.kind === "error") {
     return (
-      <div className="flex h-full items-center justify-center p-8 text-center">
+      <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
         <p className="text-[var(--text-secondary)]">{assistantState.message}</p>
+        <Button variant="primary" onClick={retryAssistant}>
+          Try again
+        </Button>
+      </div>
+    );
+  }
+
+  if (assistantState.kind === "initializing") {
+    return <SetupScreen />;
+  }
+
+  if (assistantState.kind === "cleaning_up") {
+    return <CleanupScreen />;
+  }
+
+  if (assistantState.kind === "platform_hosted") {
+    return <PlatformHostedScreen />;
+  }
+
+  if (assistantState.kind === "self_hosted") {
+    return <SelfHostedScreen />;
+  }
+
+  if (assistantState.kind === "awaiting_version_selection") {
+    return <VersionSelectionScreen onHatch={hatchVersion} />;
+  }
+
+  if (assistantState.kind === "retired") {
+    return (
+      <div className="flex h-full flex-col items-center justify-center p-8 text-center">
+        <p className="text-title-medium text-[var(--content-default)]">
+          This assistant has been retired
+        </p>
+        <p className="mt-2 max-w-md text-body-medium-lighter text-[var(--content-tertiary)]">
+          This assistant is no longer active. You can create a new one from the
+          settings page.
+        </p>
       </div>
     );
   }
 
   // -------------------------------------------------------------------------
-  // Props assembly
+  // Props assembly (only reached when assistantState.kind === "active")
   // -------------------------------------------------------------------------
   const handleReviewDiskUsage = () => {
     haptic.light();
@@ -978,7 +1170,7 @@ export function ChatPage() {
     assistantId,
     assistantState,
     assistantIdentity,
-    chatPullToRefresh,
+    chatPullToRefreshEnabled,
     deployToVercel,
     doctor,
     isMobile,
@@ -1000,12 +1192,13 @@ export function ChatPage() {
     editingConversationKey,
     restoredDraftConversationKey,
     setRestoredDraftConversationKey,
+    saveDraft,
+    clearDraft,
     avatar: {
       avatarComponents: avatar.components,
       avatarTraits: avatar.traits,
       avatarImageUrl: avatar.customImageUrl,
     },
-    conversationStarters,
     contextWindowUsage,
     compactionCircuitOpenUntil,
     setCompactionCircuitOpenUntil,
@@ -1069,6 +1262,7 @@ export function ChatPage() {
       queuedMessages,
       handleCancelQueuedMessage,
       handleCancelAllQueued,
+      handleSteerMessage,
       handleEditQueueTail,
     },
     interactionActions: {
@@ -1084,14 +1278,8 @@ export function ChatPage() {
       unknownNudgeToolCallIds: interactionActions.unknownNudgeToolCallIds,
       setUnknownNudgeToolCallIds: interactionActions.setUnknownNudgeToolCallIds,
     },
-    handleOpenApp: (appId: string) => {
-      haptic.light();
-      if (assistantId) void useViewerStore.getState().loadApp(assistantId, appId);
-    },
-    handleOpenDocument: (surfaceId: string) => {
-      haptic.light();
-      if (assistantId) void useViewerStore.getState().loadDocument(assistantId, surfaceId);
-    },
+    handleOpenApp: handleOpenAppFromChat,
+    handleOpenDocument,
     handleCloseDocument: () => {
       useViewerStore.getState().closeDocument();
     },
@@ -1127,6 +1315,7 @@ export function ChatPage() {
       if (app && assistantId) void useDeployStore.getState().deployApp(assistantId, app.appId, app.name, app.html);
     } : undefined,
     handleForkConversation,
+    handleInspectMessage: showLlmInspector ? handleInspectMessage : undefined,
     subagentEntries,
     subagentState,
     activeSubagentId: viewerState.activeSubagentId,
@@ -1144,7 +1333,7 @@ export function ChatPage() {
     pushToAiSettings,
     checkAssistant,
     setRefreshEpoch,
-    streamRetryNonce,
+    historyPagination: historyResult.pagination,
     refs: {
       inputRef,
       messagesRef,
@@ -1152,16 +1341,10 @@ export function ChatPage() {
       assistantIdRef,
       streamContextRef,
       expandedToolCallIdsRef,
-      draftsRef,
-      conversationCacheRef,
       dismissedSurfaceIdsRef,
-      isLoadingOlderRef,
-      initialPageOldestTsRef,
       contextWindowUsageByConversationRef,
-      refreshSettleRef,
       streamRef,
       streamEpochRef,
-      historyLoadedRef,
       pendingQueuedStableIdsRef,
       requestIdToStableIdRef,
       pendingLocalDeletionsRef,
@@ -1169,21 +1352,19 @@ export function ChatPage() {
       reconcileAfterNextStreamOpenRef,
     },
     isChannelReadonly,
+    onboardingTasksEmpty,
+    didOnboarding,
+    onboardingConversationKey,
   };
-
-  // -------------------------------------------------------------------------
-  // Mobile overlay portal — resolve after DOM commit (CONVENTIONS.md §SSR)
-  // -------------------------------------------------------------------------
-  const [overlayTarget, setOverlayTarget] = useState<HTMLElement | null>(null);
-  useEffect(() => {
-    setOverlayTarget(
-      isMobile ? document.getElementById("viewport-overlays") : null,
-    );
-  }, [isMobile]);
 
   return (
     <>
       <ChatRouteContent {...chatRouteProps} />
+      <ConnectingToAssistant
+        state={reachability.state}
+        onRetry={() => reachability.probe({ showConnectingImmediately: true })}
+        onDismiss={reachability.reset}
+      />
       <CommandPalette
         isOpen={commandPalette.isOpen}
         onClose={commandPalette.close}

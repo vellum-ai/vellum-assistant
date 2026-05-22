@@ -29,6 +29,7 @@ import { ROUTES as CHANNEL_AVAILABILITY_ROUTES } from "./channel-availability-ro
 import { ROUTES as CHANNEL_READINESS_ROUTES } from "./channel-readiness-routes.js";
 import { CHANNEL_ROUTES } from "./channel-route-definitions.js";
 import { ROUTES as CHANNEL_VERIFICATION_ROUTES } from "./channel-verification-routes.js";
+import { ROUTES as CHATGPT_SUBSCRIPTION_AUTH_ROUTES } from "./chatgpt-subscription-auth-routes.js";
 import { ROUTES as CLIENT_ROUTES } from "./client-routes.js";
 import { ROUTES as CONSOLIDATION_ROUTES } from "./consolidation-routes.js";
 import { CONTACT_PROMPT_ROUTES } from "./contact-prompt-routes.js";
@@ -75,7 +76,7 @@ import { ROUTES as INFERENCE_PROFILE_SESSION_ROUTES } from "./inference-profile-
 import { ROUTES as INFERENCE_PROVIDER_CONNECTION_ROUTES } from "./inference-provider-connection-routes.js";
 import { ROUTES as INFERENCE_SEND_ROUTES } from "./inference-send-routes.js";
 import { ROUTES as A2A_ROUTES } from "./integrations/a2a.js";
-import { ROUTES as SLACK_CHANNEL_ROUTES } from "./integrations/slack/channel.js";
+import { ROUTES as SLACK_CHANNEL_CONFIG_ROUTES } from "./integrations/slack/channel.js";
 import { ROUTES as SLACK_SHARE_ROUTES } from "./integrations/slack/share.js";
 import { ROUTES as TELEGRAM_ROUTES } from "./integrations/telegram.js";
 import { ROUTES as TWILIO_ROUTES } from "./integrations/twilio.js";
@@ -109,6 +110,7 @@ import { ROUTES as SECRET_ROUTES } from "./secret-routes.js";
 import { ROUTES as SEQUENCE_ROUTES } from "./sequence-routes.js";
 import { ROUTES as SETTINGS_ROUTES } from "./settings-routes.js";
 import { ROUTES as SKILL_ROUTES } from "./skills-routes.js";
+import { ROUTES as SLACK_CHANNEL_RESOLVE_ROUTES } from "./slack-channel-routes.js";
 import { ROUTES as STT_ROUTES } from "./stt-routes.js";
 import { ROUTES as SUBAGENT_ROUTES } from "./subagents-routes.js";
 import { ROUTES as SUGGEST_TRUST_RULE_ROUTES } from "./suggest-trust-rule-routes.js";
@@ -148,6 +150,7 @@ export const ROUTES: RouteDefinition[] = [
   ...BOOKMARK_ROUTES,
   ...CACHE_ROUTES,
   ...CALL_ROUTES,
+  ...CHATGPT_SUBSCRIPTION_AUTH_ROUTES,
   ...CHANNEL_ROUTES,
   ...CHANNEL_VERIFICATION_ROUTES,
   ...CHANNEL_AVAILABILITY_ROUTES,
@@ -229,7 +232,8 @@ export const ROUTES: RouteDefinition[] = [
   ...SETTINGS_ROUTES,
   ...SKILL_ROUTES,
   ...A2A_ROUTES,
-  ...SLACK_CHANNEL_ROUTES,
+  ...SLACK_CHANNEL_CONFIG_ROUTES,
+  ...SLACK_CHANNEL_RESOLVE_ROUTES,
   ...SLACK_SHARE_ROUTES,
   ...STT_ROUTES,
   ...SUGGEST_TRUST_RULE_ROUTES,

@@ -190,8 +190,8 @@ public enum HistoryReconstructionService {
 
     // MARK: - Content order parsing
 
-    /// Parse string-encoded content order entries ("text:0", "tool:1", "surface:0")
-    /// into ContentBlockRef values.
+    /// Parse string-encoded content order entries ("text:0", "tool:1",
+    /// "surface:0", "thinking:0", "attachment:0") into ContentBlockRef values.
     nonisolated static func parseContentOrder(_ strings: [String]) -> [ContentBlockRef] {
         strings.compactMap { str in
             let parts = str.split(separator: ":", maxSplits: 1)
@@ -201,6 +201,7 @@ public enum HistoryReconstructionService {
             case "tool": return .toolCall(idx)
             case "surface": return .surface(idx)
             case "thinking": return .thinking(idx)
+            case "attachment": return .attachment(idx)
             default: return nil
             }
         }

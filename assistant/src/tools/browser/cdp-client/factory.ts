@@ -11,6 +11,7 @@ import { getConfig } from "../../../config/loader.js";
 import { HostBrowserProxy } from "../../../daemon/host-browser-proxy.js";
 import { getLogger } from "../../../util/logger.js";
 import type { ToolContext } from "../../types.js";
+import { getPinnedTab } from "../pinned-tabs.js";
 import { createCdpInspectClient } from "./cdp-inspect-client.js";
 import { CdpError } from "./errors.js";
 import { createExtensionCdpClient } from "./extension-cdp-client.js";
@@ -222,7 +223,14 @@ export function buildPinnedCandidateList(
             const client = createExtensionCdpClient(
               hostBrowserProxy,
               conversationId,
-              undefined,
+              // Conversation pins are scoped to "default routing on
+              // this conversation". When `target_client_id` is an
+              // explicit override, the caller is taking over routing
+              // and the pin (which may point at a tab on a different
+              // host client) must not be applied — otherwise we'd
+              // send tabId from host A to host B and get
+              // cdp_session_not_found.
+              targetClientId ? undefined : getPinnedTab(conversationId),
               sourceActorPrincipalId,
               targetClientId,
             );
@@ -330,6 +338,11 @@ export function buildCandidateList(context: ToolContext, targetClientId?: string
         kind: "extension",
         reason: `target_client_id override: ${targetClientId}`,
         create() {
+          // Explicit target_client_id override → ignore the
+          // conversation's pinned tab. Pins are conversation-scoped
+          // (not host-client-scoped) and would route a tabId from
+          // a different host to this one, producing
+          // cdp_session_not_found.
           const client = createExtensionCdpClient(
             hostBrowserProxy,
             conversationId,
@@ -358,7 +371,9 @@ export function buildCandidateList(context: ToolContext, targetClientId?: string
         const client = createExtensionCdpClient(
           hostBrowserProxy,
           conversationId,
-          undefined,
+          // See comment above the pinned-mode call site for why pins
+          // are skipped under explicit target_client_id override.
+          targetClientId ? undefined : getPinnedTab(conversationId),
           sourceActorPrincipalId,
           targetClientId,
         );
@@ -484,12 +499,33 @@ export function buildChainedClient(
     kind: CdpClientKind;
     manager: BrowserSessionManager;
     sessionId: string;
+    /**
+     * Reference to the underlying CdpClient (returned from
+     * `candidate.create()`). Held so callers can reach methods that
+     * aren't routed through `manager.send()` — specifically
+     * {@link CdpClient.setCdpSessionId}, which re-targets follow-on
+     * CDP commands at a specific tab/target. Without this we'd have
+     * no way to call setCdpSessionId on the materialised client
+     * since `backend` only exposes the send/dispose surface.
+     */
+    client: CdpClient;
   } | null = null;
 
   /** Set to true after the first successful CDP command. */
   let sticky = false;
 
   let disposed = false;
+
+  /**
+   * setCdpSessionId may be called BEFORE the first send (i.e. before
+   * `active` is populated). When that happens we stash the value
+   * here and apply it to `active.client` as soon as a backend becomes
+   * sticky. In the current --new-tab flow this can't trigger (the
+   * createTab send establishes sticky first, then setCdpSessionId is
+   * called), but supporting the pre-sticky case keeps the contract
+   * simple for future callers.
+   */
+  let pendingCdpSessionId: string | undefined;
 
   /**
    * Track all materialised backends so dispose() can tear them all
@@ -545,6 +581,16 @@ export function buildChainedClient(
           active = established;
           sticky = true;
           currentKind = established.kind;
+          // Flush any pre-sticky setCdpSessionId call onto the
+          // freshly-materialised client. See pendingCdpSessionId
+          // comment above for why this exists.
+          if (
+            pendingCdpSessionId !== undefined &&
+            established.client.setCdpSessionId
+          ) {
+            established.client.setCdpSessionId(pendingCdpSessionId);
+            pendingCdpSessionId = undefined;
+          }
         },
         () => disposed,
         conversationId,
@@ -560,6 +606,31 @@ export function buildChainedClient(
       }
       materialisedManagers.length = 0;
       active = null;
+    },
+
+    /**
+     * Re-target follow-on CDP commands at a specific tab/target by
+     * updating the underlying client's `cdpSessionId`. The navigate
+     * executor calls this after `Vellum.createTab` returns so the
+     * subsequent `Page.navigate` (and every command on this
+     * conversation thereafter) routes to the new tab instead of the
+     * currently-active tab.
+     *
+     * Behaviour by state:
+     * - Sticky backend already established → forward to
+     *   `active.client.setCdpSessionId` if the underlying client
+     *   implements it (extension does; local/cdp-inspect don't and
+     *   the optional chain no-ops).
+     * - No sticky backend yet → stash the value; it gets applied
+     *   in the `onEstablished` callback when the first send walks
+     *   the candidate list.
+     */
+    setCdpSessionId(cdpSessionId: string | undefined): void {
+      if (active?.client.setCdpSessionId) {
+        active.client.setCdpSessionId(cdpSessionId);
+        return;
+      }
+      pendingCdpSessionId = cdpSessionId;
     },
   };
 
@@ -591,6 +662,7 @@ async function sendWithFailover<T>(
     kind: CdpClientKind;
     manager: BrowserSessionManager;
     sessionId: string;
+    client: CdpClient;
   }) => void,
   isDisposed: () => boolean,
   conversationId: string,
@@ -619,9 +691,16 @@ async function sendWithFailover<T>(
     );
 
     let backend: BrowserBackend;
+    let underlyingClient: CdpClient;
     try {
       const created = candidate.create();
       backend = created.backend;
+      // Hold the underlying CdpClient so we can forward
+      // setCdpSessionId calls to it after the backend becomes
+      // sticky. Without this the scopedClient's setCdpSessionId
+      // method has no way to reach the materialised client (the
+      // BrowserSessionManager only exposes a send/dispose surface).
+      underlyingClient = created.client;
     } catch (err) {
       // Backend construction failed -- treat as transport error and
       // try the next candidate.
@@ -810,7 +889,12 @@ async function sendWithFailover<T>(
       { conversationId, candidateKind: candidate.kind, method },
       "CDP factory: candidate succeeded, backend is now sticky",
     );
-    onEstablished({ kind: candidate.kind, manager, sessionId: session.id });
+    onEstablished({
+      kind: candidate.kind,
+      manager,
+      sessionId: session.id,
+      client: underlyingClient,
+    });
     return envelope.result as T;
   }
 

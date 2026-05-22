@@ -1,5 +1,7 @@
-import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf.js";
-import { getActiveOrganizationIdForRequests } from "@/stores/organization-store.js";
+import {
+  buildVellumHeaders,
+  buildVellumMutatingHeaders,
+} from "@/lib/auth/request-headers.js";
 
 /** Custom OAuth app stored on the daemon (encrypted on-disk). */
 export interface OAuthApp {
@@ -42,36 +44,6 @@ interface DaemonErrorBody {
   message?: string;
 }
 
-function buildHeaders(extra?: Record<string, string>): HeadersInit {
-  const headers: Record<string, string> = { ...(extra ?? {}) };
-  const organizationId = getActiveOrganizationIdForRequests();
-  if (organizationId) {
-    headers["Vellum-Organization-Id"] = organizationId;
-  }
-  return headers;
-}
-
-/**
- * Build headers for a mutating request (POST/PUT/PATCH/DELETE) against
- * the Django-proxied daemon routes. Django's SessionAuthentication enforces
- * CSRF on these methods, so we bootstrap the cookie and forward the token in
- * `X-CSRFToken` — same pattern the HeyAPI request interceptor uses for
- * generated clients (see `@/lib/vellum-api/client`).
- */
-async function buildMutatingHeaders(
-  extra?: Record<string, string>,
-): Promise<HeadersInit> {
-  const headers: Record<string, string> = {
-    ...(buildHeaders(extra) as Record<string, string>),
-  };
-  await ensureCsrfCookie();
-  const csrfToken = getCsrfToken();
-  if (csrfToken) {
-    headers["X-CSRFToken"] = csrfToken;
-  }
-  return headers;
-}
-
 async function readError(res: Response, fallback: string): Promise<string> {
   try {
     const body = (await res.json()) as DaemonErrorBody;
@@ -102,7 +74,7 @@ export async function listOAuthApps(
   providerKey: string,
 ): Promise<OAuthApp[]> {
   const url = `/v1/assistants/${assistantId}/oauth/apps/?provider_key=${encodeURIComponent(providerKey)}`;
-  const res = await fetch(url, { headers: buildHeaders() });
+  const res = await fetch(url, { headers: buildVellumHeaders() });
   if (!res.ok) {
     throw new Error(await readError(res, "Failed to load OAuth apps"));
   }
@@ -121,7 +93,7 @@ export async function createOAuthApp(
   const url = `/v1/assistants/${assistantId}/oauth/apps/`;
   const res = await fetch(url, {
     method: "POST",
-    headers: await buildMutatingHeaders({
+    headers: await buildVellumMutatingHeaders({
       "Content-Type": "application/json",
     }),
     body: JSON.stringify(input),
@@ -139,7 +111,7 @@ export async function deleteOAuthApp(
   const url = `/v1/assistants/${assistantId}/oauth/apps/${appId}/`;
   const res = await fetch(url, {
     method: "DELETE",
-    headers: await buildMutatingHeaders(),
+    headers: await buildVellumMutatingHeaders(),
   });
   if (!res.ok) {
     throw new Error(await readError(res, "Failed to delete OAuth app"));
@@ -151,7 +123,7 @@ export async function listOAuthAppConnections(
   appId: string,
 ): Promise<OAuthAppConnection[]> {
   const url = `/v1/assistants/${assistantId}/oauth/apps/${appId}/connections/`;
-  const res = await fetch(url, { headers: buildHeaders() });
+  const res = await fetch(url, { headers: buildVellumHeaders() });
   if (!res.ok) {
     throw new Error(
       await readError(res, "Failed to load OAuth app connections"),
@@ -168,7 +140,7 @@ export async function deleteOAuthAppConnection(
   const url = `/v1/assistants/${assistantId}/oauth/connections/${connectionId}/`;
   const res = await fetch(url, {
     method: "DELETE",
-    headers: await buildMutatingHeaders(),
+    headers: await buildVellumMutatingHeaders(),
   });
   if (!res.ok) {
     throw new Error(await readError(res, "Failed to disconnect OAuth account"));
@@ -183,7 +155,7 @@ export async function startOAuthAppConnect(
   const url = `/v1/assistants/${assistantId}/oauth/apps/${appId}/connect/`;
   const res = await fetch(url, {
     method: "POST",
-    headers: await buildMutatingHeaders({
+    headers: await buildVellumMutatingHeaders({
       "Content-Type": "application/json",
     }),
     body: JSON.stringify({

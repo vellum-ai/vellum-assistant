@@ -145,3 +145,17 @@ describe("memory_v2_list_concept_pages handler", () => {
     expect(result.pages.map((p) => p.slug)).toEqual(["valid-page"]);
   });
 });
+
+describe("memory_v2_ema_scores route registration", () => {
+  test("route is registered with the expected operationId and POST endpoint", () => {
+    const route = ROUTES.find((r) => r.operationId === "memory_v2_ema_scores");
+    expect(route).toBeDefined();
+    expect(route!.method).toBe("POST");
+    expect(route!.endpoint).toBe("memory/v2/ema-scores");
+    expect(route!.tags).toContain("memory");
+    // Schema rejects unknown keys so accidental request-body fields fail
+    // loudly during route adapter parsing rather than silently propagating.
+    expect(() => route!.requestBody!.parse({ extra: true })).toThrow();
+    expect(() => route!.requestBody!.parse({})).not.toThrow();
+  });
+});

@@ -194,6 +194,19 @@ export const MemoryV2ConfigSchema = z
       .describe(
         "Hours between scheduled consolidation runs that synthesize buffered memories into concept pages",
       ),
+    consolidation_max_buffer_lines: z
+      .number({
+        error: "memory.v2.consolidation_max_buffer_lines must be a number",
+      })
+      .int("memory.v2.consolidation_max_buffer_lines must be an integer")
+      .positive(
+        "memory.v2.consolidation_max_buffer_lines must be a positive integer",
+      )
+      .nullable()
+      .default(100)
+      .describe(
+        "Size-based trigger for consolidation. When `memory/buffer.md` reaches this many non-empty lines, consolidation runs even if the time-based interval hasn't elapsed. Defaults to 100. Set to `null` to disable the size trigger and rely solely on `consolidation_interval_hours`.",
+      ),
     max_page_chars: z
       .number({ error: "memory.v2.max_page_chars must be a number" })
       .int("memory.v2.max_page_chars must be an integer")
@@ -282,8 +295,42 @@ export const MemoryV2ConfigSchema = z
           .describe(
             "Optional path to a file whose contents replace the bundled router prompt. Absolute paths are used as-is, a leading `~/` is expanded to the home directory, otherwise the path is resolved under the workspace root. The loaded contents may include `{{ASSISTANT_NAME}}`, `{{USER_NAME}}`, and `{{PAGE_INDEX}}`, which are substituted at runtime. If the file is missing, unreadable, or empty, the bundled prompt is used and a warning is logged.",
           ),
+        batch_size: z
+          .number()
+          .int()
+          .min(1)
+          .nullable()
+          .default(null)
+          .describe(
+            "Target batch size for parallel page-index routing. `null` (default) sends the entire page index in one call — identical to v3 behavior. When set, pages are split into `ceil(N / batch_size)` batches by stable FNV-1a hash on slug (so adding/removing a single page only invalidates one batch's KV cache), routed in parallel, and the selected slugs are unioned. A failure in one batch does not abort the turn as long as at least one batch succeeds.",
+          ),
+        tier1_size: z
+          .number()
+          .int()
+          .min(1)
+          .nullable()
+          .default(null)
+          .describe(
+            "Pool size for the tier-1 'recently modified' batch. `null` (default) disables tier 1 entirely — all pages flow through tier 3 batching. When set, the top-N concept pages by file mtime become their own dedicated parallel batch with mtime-desc ordering; everything else is partitioned into tier 3 batches by `batch_size`. Synthetic entries (skills, CLI commands) have mtime=0 and naturally rank below real concept pages so they don't crowd tier 1.",
+          ),
+        tier2_size: z
+          .number()
+          .int()
+          .min(1)
+          .nullable()
+          .default(null)
+          .describe(
+            "Pool size for the tier-2 'useful' batch. `null` (default) disables tier 2 — pages skip straight from tier 1 to tier 3. When set, the top-M pages by injection-frequency EMA (excluding tier 1) become their own parallel batch ordered by score desc. Pages with score 0 (never selected since EMA tracking began) are ineligible for tier 2 and stay in tier 3 regardless of `tier2_size`. Score is the time-decayed sum `Σ exp(-λ(now - tᵢ))` with 3-day half-life, computed on read from `memory_v2_injection_events`.",
+          ),
       })
-      .default({ enabled: true, max_page_ids: 25, router_prompt_path: null })
+      .default({
+        enabled: true,
+        max_page_ids: 25,
+        router_prompt_path: null,
+        batch_size: null,
+        tier1_size: null,
+        tier2_size: null,
+      })
       .describe(
         "LLM router configuration. When enabled, a single router LLM call replaces spreading activation for per-turn page selection.",
       ),

@@ -64,12 +64,17 @@ export interface SessionProfileAggregate {
   failedCount: number;
   runningCount: number;
   scoreTotal: number;
-  scoreAverage: number;
 }
 
 /** One test row inside a session detail page. */
 export interface SessionTestEntry {
   testId: string;
+  /**
+   * Equal-weighted mean score across every metric of every run that
+   * belongs to this test in the session (see `aggregateScore`). The view
+   * should render this, not a per-profile sum.
+   */
+  scoreTotal: number;
   profiles: Array<{
     profileId: string;
     runId: string;
@@ -115,7 +120,9 @@ export interface ReportTestInSession {
 }
 
 function scoreTotal(metrics: MetricResult[]): number {
-  return metrics.reduce((sum, metric) => sum + metric.score, 0);
+  if (metrics.length === 0) return 0;
+  const weight = 1 / metrics.length;
+  return metrics.reduce((sum, metric) => sum + metric.score * weight, 0);
 }
 
 function fallbackStatus(
@@ -269,6 +276,15 @@ function latest(values: Array<string | undefined>): string | undefined {
   return defined.sort().slice(-1)[0];
 }
 
+function aggregateScore(runs: ReportRunSummary[]): number {
+  const metricCount = runs.reduce((sum, run) => sum + run.metricCount, 0);
+  if (metricCount === 0) return 0;
+  return (
+    runs.reduce((sum, run) => sum + run.scoreTotal * run.metricCount, 0) /
+    metricCount
+  );
+}
+
 function summarizeSession(runs: ReportRunSummary[]): ReportSessionSummary {
   const first = runs[0];
   return {
@@ -287,7 +303,7 @@ function summarizeSession(runs: ReportRunSummary[]): ReportSessionSummary {
     ).sort(),
     startedAt: earliest(runs.map((run) => run.startedAt)),
     completedAt: latest(runs.map((run) => run.completedAt)),
-    scoreTotal: runs.reduce((sum, run) => sum + run.scoreTotal, 0),
+    scoreTotal: aggregateScore(runs),
     status: deriveSessionStatus(runs),
   };
 }
@@ -332,25 +348,16 @@ function aggregateByProfile(
     else groups.set(key, [run]);
   }
   return Array.from(groups.entries())
-    .map(([profileId, profileRuns]) => {
-      const scoreTotalValue = profileRuns.reduce(
-        (sum, run) => sum + run.scoreTotal,
-        0,
-      );
-      return {
-        profileId,
-        runCount: profileRuns.length,
-        completedCount: profileRuns.filter((run) => run.status === "completed")
-          .length,
-        failedCount: profileRuns.filter((run) => run.status === "failed")
-          .length,
-        runningCount: profileRuns.filter((run) => run.status === "running")
-          .length,
-        scoreTotal: scoreTotalValue,
-        scoreAverage:
-          profileRuns.length === 0 ? 0 : scoreTotalValue / profileRuns.length,
-      };
-    })
+    .map(([profileId, profileRuns]) => ({
+      profileId,
+      runCount: profileRuns.length,
+      completedCount: profileRuns.filter((run) => run.status === "completed")
+        .length,
+      failedCount: profileRuns.filter((run) => run.status === "failed").length,
+      runningCount: profileRuns.filter((run) => run.status === "running")
+        .length,
+      scoreTotal: aggregateScore(profileRuns),
+    }))
     .sort((a, b) => a.profileId.localeCompare(b.profileId));
 }
 
@@ -365,6 +372,7 @@ function buildTestEntries(runs: ReportRunSummary[]): SessionTestEntry[] {
   return Array.from(groups.entries())
     .map(([testId, testRuns]) => ({
       testId,
+      scoreTotal: aggregateScore(testRuns),
       profiles: testRuns
         .map((run) => ({
           profileId: run.profileId ?? "unknown",

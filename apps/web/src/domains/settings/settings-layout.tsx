@@ -1,7 +1,8 @@
 import { useMemo } from "react";
 import { Outlet, useLocation } from "react-router";
 
-import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
+import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
+import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
 import { routes } from "@/utils/routes.js";
 import { SETTINGS_SIDEBAR } from "@/domains/settings/navigation.js";
 import { SettingsShell } from "@/domains/settings/components/settings-shell.js";
@@ -17,9 +18,9 @@ import { useSettingsSync } from "@/domains/settings/hooks/use-settings-sync.js";
  * fresh while the user is on any settings page.
  */
 export function SettingsLayout() {
-  const developerSettings = useFeatureFlagStore.use.developerSettings();
-  const platformNotifications = useFeatureFlagStore.use.platformNotifications();
-  const sounds = useFeatureFlagStore.use.sounds();
+  const settingsDeveloperNav = useAssistantFeatureFlagStore.use.settingsDeveloperNav();
+  const platformNotifications = useClientFeatureFlagStore.use.platformNotifications();
+  const sounds = useAssistantFeatureFlagStore.use.sounds();
   const { pathname } = useLocation();
 
   const filteredItems = useMemo(
@@ -41,10 +42,10 @@ export function SettingsLayout() {
 
   const bottomItems = useMemo(
     () =>
-      developerSettings
+      settingsDeveloperNav
         ? SETTINGS_SIDEBAR.filter((item) => item.id === "developer")
         : [],
-    [developerSettings],
+    [settingsDeveloperNav],
   );
 
   const pageTitle = useMemo(() => {
@@ -52,7 +53,13 @@ export function SettingsLayout() {
       (item) =>
         pathname === item.href || pathname.startsWith(item.href + "/"),
     );
-    return match?.label ?? "Settings";
+    if (match) return match.label;
+    // Index route (/assistant/settings) renders GeneralPage but doesn't
+    // match any sidebar href — use the first sidebar item's label.
+    if (pathname === routes.settings.root) {
+      return SETTINGS_SIDEBAR[0]?.label ?? "Settings";
+    }
+    return "Settings";
   }, [pathname]);
 
   useSettingsSync();

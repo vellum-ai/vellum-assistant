@@ -1,0 +1,121 @@
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { cleanup, renderHook } from "@testing-library/react";
+import { useRef, type MutableRefObject } from "react";
+
+import type { AssistantEvent } from "@/domains/chat/api/event-types.js";
+import type { ChatEventStream } from "@/domains/chat/api/stream.js";
+import {
+  __resetEventBusForTesting,
+  useEventBusStore,
+} from "@/stores/event-bus-store.js";
+
+import { useEventStream } from "@/domains/chat/hooks/use-event-stream.js";
+
+type StreamContext = { assistantId: string; conversationKey: string };
+
+function renderEventStream(
+  activeConversationKey: string,
+  handleStreamEvent: (event: AssistantEvent, epoch: number) => void,
+) {
+  return renderHook(
+    ({ key }: { key: string }) => {
+      const streamRef = useRef<ChatEventStream | null>(null);
+      const streamEpochRef = useRef(0);
+      const reconcileAfterNextStreamOpenRef = useRef(false);
+      const streamContextRef = useRef<StreamContext | null>(null);
+      const syncRouterRef = useRef(null) as MutableRefObject<
+        null
+      > as never;
+      const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+      useEventStream({
+        assistantStateKind: "active",
+        assistantId: "asst-1",
+        activeConversationKey: key,
+        conversationExistsOnServer: true,
+        streamRef,
+        streamEpochRef,
+        reconcileAfterNextStreamOpenRef,
+        streamContextRef,
+        handleStreamEvent,
+        reconcileActiveConversation: async () =>
+          ({
+            changed: false,
+            messagesAdded: 0,
+            assistantProgress: 0,
+          }) as never,
+        startReconciliationLoop: () => {},
+        cancelReconciliation: () => {},
+        reachabilityProbe: () => {},
+        reachabilityPhase: "ready",
+        reachabilityReset: () => {},
+        setMessages: () => {},
+        setError: () => {},
+        syncRouterRef,
+        conversationListInvalidatedTimerRef: timerRef,
+      });
+    },
+    { initialProps: { key: activeConversationKey } },
+  );
+}
+
+function publishDelta(conversationKey: string): void {
+  useEventBusStore.getState().publish("sse.event", {
+    type: "assistant_text_delta",
+    conversationKey,
+    delta: "hi",
+  } as unknown as AssistantEvent);
+}
+
+beforeEach(() => {
+  __resetEventBusForTesting();
+});
+
+afterEach(() => {
+  cleanup();
+  __resetEventBusForTesting();
+});
+
+describe("useEventStream — conversation-switch filtering", () => {
+  test("forwards events whose conversationKey matches the active key", () => {
+    const handler = mock(() => {});
+    renderEventStream("conv-A", handler);
+    publishDelta("conv-A");
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  test("drops events for a non-active conversation", () => {
+    const handler = mock(() => {});
+    renderEventStream("conv-A", handler);
+    publishDelta("conv-B");
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  test("rejects in-flight events for the previous conversation as soon as the active key changes", () => {
+    const handler = mock(() => {});
+    const { rerender } = renderEventStream("conv-A", handler);
+    publishDelta("conv-A");
+    expect(handler).toHaveBeenCalledTimes(1);
+
+    // Conversation switch: re-render with the new active key. The
+    // effect cleanup + re-subscribe has not necessarily run yet on
+    // the bus side, but the latest-key ref must already gate further
+    // deliveries for the previous conversation.
+    rerender({ key: "conv-B" });
+    publishDelta("conv-A");
+    expect(handler).toHaveBeenCalledTimes(1);
+
+    // Events for the new active key still flow through.
+    publishDelta("conv-B");
+    expect(handler).toHaveBeenCalledTimes(2);
+  });
+
+  test("forwards assistant-broadcast events that omit conversationKey", () => {
+    const handler = mock(() => {});
+    renderEventStream("conv-A", handler);
+    useEventBusStore.getState().publish("sse.event", {
+      type: "sync_changed",
+      tags: ["assistant:self:identity"],
+    } as unknown as AssistantEvent);
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+});

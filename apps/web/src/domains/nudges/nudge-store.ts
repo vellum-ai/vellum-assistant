@@ -10,10 +10,6 @@
  *
  * - The persist middleware serialises the whole nudge slice into a
  *   single localStorage key, `vellum:nudge-prefs`.
- * - On first load (no `vellum:nudge-prefs` key present), the initial
- *   state is seeded from per-key boolean/number entries under
- *   `app.githubNudge.*` / `app.discordNudge.*` so a returning user
- *   keeps their dismissals.
  * - Cross-tab updates: the persist middleware doesn't sync across tabs
  *   on its own. We listen for `storage` events on `vellum:nudge-prefs`
  *   and call `persist.rehydrate()` to pull in the other tab's write.
@@ -28,10 +24,6 @@ import { persist, createJSONStorage } from "zustand/middleware";
 
 import { createSelectors } from "@/utils/create-selectors.js";
 
-import {
-  readBooleanPref,
-  readNumberPref,
-} from "@/domains/nudges/nudge-prefs.js";
 import {
   KEY_GITHUB_NUDGE_STARRED,
   KEY_GITHUB_NUDGE_BANNER_DISMISSED,
@@ -76,21 +68,19 @@ export interface NudgeActions {
 export type NudgeStore = NudgeState & NudgeActions;
 
 // ---------------------------------------------------------------------------
-// Initial state — seeded from per-key localStorage entries on first load
+// Initial state
 // ---------------------------------------------------------------------------
 
-function computeInitialFromLegacy(): NudgeState {
-  return {
-    githubStarred: readBooleanPref(KEY_GITHUB_NUDGE_STARRED, false),
-    githubBannerDismissed: readBooleanPref(KEY_GITHUB_NUDGE_BANNER_DISMISSED, false),
-    githubBannerDismissedAt: readNumberPref(KEY_GITHUB_NUDGE_BANNER_DISMISSED_AT, 0),
-    githubSidebarDismissed: readBooleanPref(KEY_GITHUB_NUDGE_SIDEBAR_DISMISSED, false),
-    discordJoined: readBooleanPref(KEY_DISCORD_NUDGE_JOINED, false),
-    discordBannerDismissed: readBooleanPref(KEY_DISCORD_NUDGE_BANNER_DISMISSED, false),
-    discordSidebarDismissed: readBooleanPref(KEY_DISCORD_NUDGE_SIDEBAR_DISMISSED, false),
-    discordFirstSeenAt: readNumberPref(KEY_DISCORD_NUDGE_FIRST_SEEN_AT, 0),
-  };
-}
+const INITIAL_STATE: NudgeState = {
+  githubStarred: false,
+  githubBannerDismissed: false,
+  githubBannerDismissedAt: 0,
+  githubSidebarDismissed: false,
+  discordJoined: false,
+  discordBannerDismissed: false,
+  discordSidebarDismissed: false,
+  discordFirstSeenAt: 0,
+};
 
 // ---------------------------------------------------------------------------
 // Store
@@ -101,7 +91,7 @@ const NUDGE_STORE_KEY = "vellum:nudge-prefs";
 const useNudgeStoreBase = create<NudgeStore>()(
   persist(
     (set, get) => ({
-      ...computeInitialFromLegacy(),
+      ...INITIAL_STATE,
 
       markGitHubStarred: () => set({ githubStarred: true }),
       dismissGitHubBanner: () =>
@@ -152,4 +142,43 @@ if (typeof window !== "undefined") {
       void useNudgeStoreBase.persist.rehydrate();
     }
   });
+}
+
+// ---------------------------------------------------------------------------
+// One-shot legacy cleanup
+// ---------------------------------------------------------------------------
+
+// LUM-1716 originally seeded this store from the platform's per-key
+// localStorage entries to preserve dismissals across the platform →
+// vellum-assistant cutover. Post-cutover, the persist middleware owns the
+// state via `vellum:nudge-prefs`, so the legacy keys are orphaned bytes
+// sitting on every user's device. Removing them on first load.
+const LEGACY_CLEANUP_FLAG = "app.nudgeLegacy.cleaned";
+
+const LEGACY_KEYS = [
+  KEY_GITHUB_NUDGE_STARRED,
+  KEY_GITHUB_NUDGE_BANNER_DISMISSED,
+  KEY_GITHUB_NUDGE_BANNER_DISMISSED_AT,
+  KEY_GITHUB_NUDGE_SIDEBAR_DISMISSED,
+  KEY_DISCORD_NUDGE_JOINED,
+  KEY_DISCORD_NUDGE_BANNER_DISMISSED,
+  KEY_DISCORD_NUDGE_SIDEBAR_DISMISSED,
+  KEY_DISCORD_NUDGE_FIRST_SEEN_AT,
+];
+
+if (typeof window !== "undefined") {
+  try {
+    if (localStorage.getItem(LEGACY_CLEANUP_FLAG) !== "true") {
+      // Calling localStorage.removeItem directly (rather than going through
+      // `removeLocalSetting` in domains/settings/) keeps this cleanup
+      // self-contained — nothing listens for the `vellum:pref-changed`
+      // event on these specific legacy keys.
+      for (const key of LEGACY_KEYS) {
+        localStorage.removeItem(key);
+      }
+      localStorage.setItem(LEGACY_CLEANUP_FLAG, "true");
+    }
+  } catch {
+    // Storage unavailable (private mode, quota, etc.) — re-attempt next load.
+  }
 }

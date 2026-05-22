@@ -1,3 +1,4 @@
+/* eslint-disable no-restricted-syntax -- LUM-1768: file contains dark: pairs pending semantic-token migration */
 
 import { ChevronDown, ChevronRight, Phone, PhoneMissed, PhoneOff } from "lucide-react";
 import { useState } from "react";

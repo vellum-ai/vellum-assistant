@@ -17,11 +17,11 @@ import {
   Pencil,
   Video,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { Button } from "@vellum/design-library/components/button";
 import { client } from "@/generated/api/client.gen.js";
-import { FileMarkdown, isMarkdown } from "@/domains/intelligence/components/file-markdown.js";
+import { FileMarkdown, isMarkdown } from "@/components/file-markdown.js";
 import { isJson, prettifyJson } from "@/domains/workspace/utils/file-json.js";
 import { formatFileSize } from "@/domains/workspace/utils/format-file-size.js";
 
@@ -143,7 +143,7 @@ function FileHeader({
   name: string;
   mimeType: string;
   size?: number;
-  rightContent?: React.ReactNode;
+  rightContent?: ReactNode;
 }) {
   return (
     <div

@@ -13,6 +13,7 @@ import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/utils/rec
 import type { Surface } from "@/domains/chat/types/types.js";
 import { newStableId } from "@/domains/chat/utils/stable-id.js";
 import type { AllowlistOption, ChatMessageToolCall, DirectoryScopeOption, ScopeOption } from "@/domains/chat/api/event-types.js";
+import type { ToolActivityMetadata } from "@/assistant/web-activity-types.js";
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -460,6 +461,12 @@ export function applyToolResult(
     allowlistOptions?: AllowlistOption[];
     scopeOptions?: ScopeOption[];
     directoryScopeOptions?: DirectoryScopeOption[];
+    /**
+     * Structured activity metadata from the tool_result event. Persisted on
+     * the tool call so the new `WebSearchProgressCard` can keep rendering
+     * after the active turn ends and `liveWebActivity` is cleared.
+     */
+    activityMetadata?: ToolActivityMetadata;
   },
 ): DisplayMessage[] {
   const msgIdx = prev.findLastIndex(
@@ -496,7 +503,57 @@ export function applyToolResult(
     allowlistOptions: opts.allowlistOptions,
     scopeOptions: opts.scopeOptions,
     directoryScopeOptions: opts.directoryScopeOptions,
+    // Preserve any pre-existing metadata when the new event omits it
+    // (no overwrite with undefined on re-applied tool results).
+    ...(opts.activityMetadata !== undefined
+      ? { activityMetadata: opts.activityMetadata }
+      : {}),
     completedAt: Date.now(),
+  };
+
+  const updated = [...prev];
+  updated[msgIdx] = { ...msg, toolCalls: updatedToolCalls };
+  return updated;
+}
+
+// ---------------------------------------------------------------------------
+// tool_progress
+// ---------------------------------------------------------------------------
+
+/** Apply a tool_progress heartbeat to the matching running tool call. */
+export function applyToolProgress(
+  prev: DisplayMessage[],
+  opts: {
+    toolUseId?: string;
+    elapsedSec: number;
+    timeoutSec: number;
+  },
+): DisplayMessage[] {
+  const msgIdx = prev.findLastIndex(
+    (m) => m.role === "assistant" && m.toolCalls && m.toolCalls.length > 0,
+  );
+  if (msgIdx === -1) return prev;
+
+  const msg = prev[msgIdx];
+  if (!msg?.toolCalls) return prev;
+
+  let tcIdx = opts.toolUseId
+    ? msg.toolCalls.findIndex((tc) => tc.id === opts.toolUseId)
+    : -1;
+  if (tcIdx === -1) {
+    tcIdx = msg.toolCalls.findLastIndex((tc) => tc.status === "running");
+  }
+  if (tcIdx === -1) return prev;
+
+  const existingTc = msg.toolCalls[tcIdx];
+  if (!existingTc || existingTc.status !== "running") return prev;
+
+  const updatedToolCalls = [...msg.toolCalls];
+  updatedToolCalls[tcIdx] = {
+    ...existingTc,
+    progressElapsedSec: opts.elapsedSec,
+    progressTimeoutSec: opts.timeoutSec,
+    lastProgressAt: Date.now(),
   };
 
   const updated = [...prev];

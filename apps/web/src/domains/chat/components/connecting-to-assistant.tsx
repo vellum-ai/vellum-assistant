@@ -9,7 +9,7 @@ import type {
   ReachabilityState,
 } from "@/assistant/use-assistant-reachability.js";
 import { MAX_ATTEMPTS } from "@/assistant/use-assistant-reachability.js";
-import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
+import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
 import { routes } from "@/utils/routes.js";
 
 interface ConnectingToAssistantProps {
@@ -115,7 +115,7 @@ const FailureBody: FC<FailureBodyProps> = ({
   lastServerState,
   onRetry,
 }) => {
-  const doctorEnabled = useFeatureFlagStore.use.doctor();
+  const doctorEnabled = useClientFeatureFlagStore.use.doctor();
   const isCrashLoop = lastServerState === "crash_loop";
 
   const title = isCrashLoop

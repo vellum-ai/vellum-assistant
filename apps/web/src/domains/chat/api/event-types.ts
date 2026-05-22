@@ -8,6 +8,7 @@
 
 import type { DiskPressureStatus } from "@/assistant/types.js";
 import type { Surface } from "@/domains/chat/types/types.js";
+import type { ToolActivityMetadata } from "@/assistant/web-activity-types.js";
 import type { SyncChangedEvent } from "@/lib/sync/types.js";
 
 /** Data needed to render an inline permission prompt inside a ToolCallChip. */
@@ -53,6 +54,22 @@ export interface ChatMessageToolCall {
   completedAt?: number;
   /** Explicit decision made during the confirmation flow ("approved" | "denied" | "timed_out"). */
   confirmationDecision?: "approved" | "denied" | "timed_out";
+  /**
+   * Structured tool activity metadata (e.g. web_search, web_fetch) persisted
+   * alongside the tool call so the new `WebSearchProgressCard` can keep
+   * rendering after the active turn ends and the live `liveWebActivity`
+   * map is cleared. Set by `applyToolResult` when the `tool_result` event
+   * carries `activityMetadata`. Absent on historical reopens that arrive
+   * via reconcile (the server snapshot doesn't carry this field). See
+   * `web-activity-types.ts`.
+   */
+  activityMetadata?: ToolActivityMetadata;
+  /** Seconds elapsed since tool started, updated by tool_progress events. */
+  progressElapsedSec?: number;
+  /** Configured timeout in seconds, updated by tool_progress events (0 if unknown). */
+  progressTimeoutSec?: number;
+  /** ms since epoch of the last tool_progress event for this tool call. */
+  lastProgressAt?: number;
 }
 
 export interface ChatMessage {
@@ -324,6 +341,27 @@ export interface ToolResultEvent {
   allowlistOptions?: AllowlistOption[];
   scopeOptions?: ScopeOption[];
   directoryScopeOptions?: DirectoryScopeOption[];
+  /**
+   * Structured metadata describing tool activity (e.g. web_search,
+   * web_fetch). Optional — present only for tools that emit it (currently
+   * Anthropic-native web_search). See web-activity-types.ts.
+   */
+  activityMetadata?: ToolActivityMetadata;
+}
+
+/**
+ * Periodic progress heartbeat emitted by the daemon while a tool is executing.
+ * Fires every ~10s so the client can show a live "Still working..." indicator
+ * even when no other SSE events are flowing.
+ */
+export interface ToolProgressEvent {
+  type: "tool_progress";
+  toolName: string;
+  elapsedSec: number;
+  timeoutSec: number;
+  conversationId?: string;
+  toolUseId?: string;
+  conversationKey?: string;
 }
 
 /**
@@ -503,6 +541,14 @@ export interface DocumentCommentDeletedSseEvent
   conversationKey?: string;
 }
 
+export interface DocumentEditorUpdateEvent {
+  type: "document_editor_update";
+  surfaceId: string;
+  markdown: string;
+  mode: string;
+  conversationKey?: string;
+}
+
 export interface UnknownEvent {
   type: "unknown";
   rawType: string;
@@ -644,6 +690,32 @@ export interface AssistantSyncChangedEvent extends SyncChangedEvent {
   conversationKey?: string;
 }
 
+/**
+ * Lifecycle outcome reported alongside `interaction_resolved`. Mirrors the
+ * daemon-side `InteractionResolutionState` union.
+ */
+export type InteractionResolutionState =
+  | "approved"
+  | "rejected"
+  | "answered"
+  | "cancelled"
+  | "superseded";
+
+/**
+ * Emitted when a daemon-side pending interaction (confirmation, secret,
+ * question, host-proxy request) transitions to a resolved state. Drives
+ * push-based attention reconciliation in the sidebar.
+ */
+export interface InteractionResolvedEvent {
+  type: "interaction_resolved";
+  requestId: string;
+  /** Conversation key the resolved interaction was registered against. */
+  conversationKey: string;
+  state: InteractionResolutionState;
+  /** Kind of the resolved interaction (e.g. `"confirmation"`, `"secret"`). */
+  kind: string;
+}
+
 export type AssistantEvent =
   | AssistantTextDeltaEvent
   | MessageCompleteEvent
@@ -659,6 +731,7 @@ export type AssistantEvent =
   | UISurfaceCompleteEvent
   | ToolUseStartEvent
   | ToolResultEvent
+  | ToolProgressEvent
   | ConversationListInvalidatedEvent
   | ConversationTitleUpdatedEvent
   | NotificationIntentEvent
@@ -687,4 +760,6 @@ export type AssistantEvent =
   | DocumentCommentResolvedSseEvent
   | DocumentCommentReopenedSseEvent
   | DocumentCommentDeletedSseEvent
+  | DocumentEditorUpdateEvent
+  | InteractionResolvedEvent
   | UnknownEvent;

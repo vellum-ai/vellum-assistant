@@ -4,10 +4,10 @@ import {
   useElements,
   useStripe,
 } from "@stripe/react-stripe-js";
-import { loadStripe, type Stripe } from "@stripe/stripe-js";
+import { loadStripe, type Appearance, type Stripe } from "@stripe/stripe-js";
 import { useMutation } from "@tanstack/react-query";
 import { AlertCircle, Loader2 } from "lucide-react";
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 
 import { Button } from "@vellum/design-library/components/button";
 import { Modal } from "@vellum/design-library/components/modal";
@@ -28,6 +28,13 @@ function getStripePromise() {
     stripePromise = loadStripe(STRIPE_PK);
   }
   return stripePromise;
+}
+
+function getStripeAppearance(): Appearance {
+  const isDark =
+    typeof document !== "undefined" &&
+    document.documentElement.classList.contains("dark");
+  return isDark ? { theme: "night" } : { theme: "stripe" };
 }
 
 export interface AutoTopUpPaymentMethodModalProps {
@@ -98,6 +105,10 @@ export function AutoTopUpPaymentMethodModal({
 
   const clientSecret = setupIntentMutation.data?.client_secret ?? null;
 
+  // Resolve Stripe appearance once per modal open (keyed on clientSecret) so
+  // Elements picks up the active light/dark theme without a stale cache.
+  const stripeAppearance = useMemo(() => getStripeAppearance(), [clientSecret]);
+
   return (
     <Modal.Root
       open={open}
@@ -107,9 +118,9 @@ export function AutoTopUpPaymentMethodModal({
     >
       <Modal.Content size="sm">
         <Modal.Header>
-          <Modal.Title>Save payment method</Modal.Title>
+          <Modal.Title>Save Payment Method</Modal.Title>
         </Modal.Header>
-        <Modal.Body>
+        <Modal.Body className="min-h-[260px]">
           {!STRIPE_PK ? (
             // Short-circuit: when the publishable key is missing the
             // mutation is also skipped (see `useEffect` above), so the
@@ -118,7 +129,7 @@ export function AutoTopUpPaymentMethodModal({
             <MissingStripeKeyNotice />
           ) : setupIntentMutation.isPending || (!clientSecret && !setupIntentMutation.isError) ? (
             <div
-              className="flex items-center justify-center py-8"
+              className="flex min-h-[260px] items-center justify-center"
               data-testid="auto-top-up-pm-modal-spinner"
             >
               <Loader2 className="h-6 w-6 animate-spin text-[var(--content-tertiary)]" />
@@ -131,7 +142,6 @@ export function AutoTopUpPaymentMethodModal({
               <div className="flex justify-end">
                 <Button
                   variant="primary"
-                  size="compact"
                   onClick={() => createSetupIntent({})}
                 >
                   Try again
@@ -143,7 +153,7 @@ export function AutoTopUpPaymentMethodModal({
               stripe={getStripePromise()}
               options={{
                 clientSecret,
-                appearance: { theme: "stripe" },
+                appearance: stripeAppearance,
               }}
             >
               <SetupCardForm
@@ -233,8 +243,14 @@ function SetupCardForm({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <PaymentElement onReady={() => setElementReady(true)} />
+    <form onSubmit={handleSubmit} className="space-y-6 pt-4">
+      <PaymentElement
+        onReady={() => setElementReady(true)}
+        options={{
+          layout: { type: "tabs", defaultCollapsed: false },
+          paymentMethodOrder: ["card", "us_bank_account"],
+        }}
+      />
       {error && (
         <div
           className="flex items-center gap-2 text-body-small-default text-[var(--system-negative-strong)]"
@@ -247,7 +263,6 @@ function SetupCardForm({
       <div className="flex justify-end gap-2">
         <Button
           variant="ghost"
-          size="compact"
           type="button"
           onClick={onCancel}
           disabled={submitting}
@@ -256,12 +271,11 @@ function SetupCardForm({
         </Button>
         <Button
           variant="primary"
-          size="compact"
           type="submit"
           disabled={submitting || !stripe || !elements || !elementReady}
           leftIcon={submitting ? <Loader2 className="animate-spin" /> : undefined}
         >
-          Save payment method
+          Save
         </Button>
       </div>
     </form>

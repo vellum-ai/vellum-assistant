@@ -217,11 +217,19 @@ export {
 export { migrateProviderConnectionBaseUrlAndModels } from "./250-provider-connection-base-url-and-models.js";
 export { downA2ATasks, migrateA2ATasks } from "./251-a2a-tasks.js";
 export { migrateLlmRequestLogAgentLoopExitReason } from "./252-llm-request-log-agent-loop-exit-reason.js";
+export { migrateConversationLastNotifiedProfile } from "./253-conversation-last-notified-profile.js";
 export { migrateCreateDocumentComments } from "./253-document-comments.js";
 export {
   downExternalConversationBindingChatName,
   migrateExternalConversationBindingChatName,
 } from "./254-external-conversation-binding-chat-name.js";
+export { migrateChannelInboundDeliveryAttempts } from "./255-channel-inbound-delivery-attempts.js";
+export {
+  downMemoryV2InjectionEvents,
+  migrateMemoryV2InjectionEvents,
+} from "./256-memory-v2-injection-events.js";
+export { migrateStripBaseUrlNonOpenaiCompatible } from "./257-strip-base-url-non-openai-compatible.js";
+export { migrateOnboardingEventsPriorAssistants } from "./258-onboarding-events-prior-assistants.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

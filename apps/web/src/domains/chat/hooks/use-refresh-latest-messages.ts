@@ -9,7 +9,7 @@ import {
 
 import {
   filterDismissedSurfaces,
-} from "@/domains/chat/utils/dismissedSurfacesStorage.js";
+} from "@/domains/chat/utils/dismissed-surfaces-storage.js";
 import { fetchLatestHistoryPage } from "@/domains/chat/api/history.js";
 import { fetchSurfaceContent } from "@/domains/chat/api/surfaces.js";
 import {

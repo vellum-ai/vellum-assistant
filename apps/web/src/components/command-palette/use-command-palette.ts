@@ -1,5 +1,5 @@
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 
 import type { GlobalSearchResponse } from "@/domains/chat/api/global-search.js";
 import { searchGlobal } from "@/domains/chat/api/global-search.js";
@@ -26,7 +26,7 @@ export interface UseCommandPaletteReturn {
   toggle: () => void;
   setQuery: (value: string) => void;
   /** Key-down handler to attach to the palette container or input. */
-  handleKeyDown: (e: React.KeyboardEvent) => void;
+  handleKeyDown: (e: KeyboardEvent) => void;
 }
 
 const DEBOUNCE_MS = 150;
@@ -151,7 +151,7 @@ export function useCommandPalette({
   }, []);
 
   const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
+    (e: KeyboardEvent) => {
       // Cmd+K / Ctrl+K toggles the palette closed even when input is focused.
       if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();

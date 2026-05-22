@@ -6,7 +6,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { Card } from "@vellum/design-library/components/card";
 import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog";
@@ -780,7 +780,7 @@ function TabButton({
 }: {
   active: boolean;
   onClick: () => void;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <button

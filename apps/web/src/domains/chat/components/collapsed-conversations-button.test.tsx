@@ -10,7 +10,7 @@
  */
 
 import { describe, expect, mock, test } from "bun:test";
-import { createElement, type ReactNode } from "react";
+import { createElement, type FC, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 // Mock design library components
@@ -36,7 +36,7 @@ const mockPanelItem = ({
       ...rest,
     },
     Icon
-      ? createElement(Icon as React.FC<Record<string, unknown>>, { size: 14 })
+      ? createElement(Icon as FC<Record<string, unknown>>, { size: 14 })
       : null,
     label as string,
     badge != null ? createElement("span", { "data-testid": "badge" }, String(badge)) : null,

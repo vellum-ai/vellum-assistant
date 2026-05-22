@@ -1,4 +1,4 @@
-import { getActiveOrganizationIdForRequests } from "@/stores/organization-store.js";
+import { buildVellumHeaders } from "@/lib/auth/request-headers.js";
 
 /** Provider summary returned by the runtime catalog endpoint. */
 export interface OAuthProviderSummary {
@@ -22,15 +22,8 @@ interface OAuthProviderCatalogResponse {
 export async function fetchOAuthProviders(
   assistantId: string,
 ): Promise<OAuthProviderSummary[]> {
-  // The wildcard runtime proxy is excluded from OpenAPI, so the generated HeyAPI client cannot reach this endpoint.
-  const headers: HeadersInit = {};
-  const organizationId = getActiveOrganizationIdForRequests();
-  if (organizationId) {
-    headers["Vellum-Organization-Id"] = organizationId;
-  }
-
   const res = await fetch(`/v1/assistants/${assistantId}/oauth/providers/`, {
-    headers,
+    headers: buildVellumHeaders(),
   });
   if (!res.ok) {
     throw new Error(`Failed to fetch OAuth providers (HTTP ${res.status})`);

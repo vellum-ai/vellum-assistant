@@ -84,6 +84,82 @@ describe("renderHistoryContent", () => {
     );
   });
 
+  test("emits attachment:N entries in contentOrder for interleaved file blocks", () => {
+    const output = renderHistoryContent([
+      { type: "text", text: "first paragraph" },
+      {
+        type: "file",
+        source: {
+          type: "base64",
+          media_type: "text/markdown",
+          filename: "dream-015.md",
+          data: Buffer.from("a").toString("base64"),
+        },
+        _attachmentId: "att-015",
+      },
+      {
+        type: "file",
+        source: {
+          type: "base64",
+          media_type: "text/markdown",
+          filename: "dream-016.md",
+          data: Buffer.from("b").toString("base64"),
+        },
+        _attachmentId: "att-016",
+      },
+      { type: "text", text: "trailing paragraph" },
+    ]);
+
+    expect(output.contentOrder).toEqual([
+      "text:0",
+      "attachment:0",
+      "attachment:1",
+      "text:1",
+    ]);
+    expect(output.attachments).toEqual([
+      {
+        attachmentId: "att-015",
+        filename: "dream-015.md",
+        mimeType: "text/markdown",
+        sizeBytes: 1,
+      },
+      {
+        attachmentId: "att-016",
+        filename: "dream-016.md",
+        mimeType: "text/markdown",
+        sizeBytes: 1,
+      },
+    ]);
+    // Trailing-segment summary is preserved for legacy channel-reply
+    // delivery (Slack/Telegram outbound text) and iOS rehydrate.
+    expect(output.textSegments[1]).toContain("[File attachment] dream-015.md");
+  });
+
+  test("omits attachmentId when file block has no _attachmentId", () => {
+    const output = renderHistoryContent([
+      {
+        type: "file",
+        source: {
+          type: "base64",
+          media_type: "application/pdf",
+          filename: "legacy.pdf",
+          data: Buffer.from("x").toString("base64"),
+        },
+      },
+    ]);
+
+    // attachment:0 marks the file's inline position; text:0 follows because
+    // the legacy summary append (for Slack/iOS) opens a trailing segment.
+    expect(output.contentOrder).toEqual(["attachment:0", "text:0"]);
+    expect(output.attachments).toEqual([
+      {
+        filename: "legacy.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 1,
+      },
+    ]);
+  });
+
   test("falls back to string conversion for non-array content", () => {
     expect(renderHistoryContent("raw string").text).toBe("raw string");
     expect(renderHistoryContent(null).text).toBe("");
@@ -320,14 +396,17 @@ describe("renderHistoryContent", () => {
     expect(output.toolCallsBeforeText).toBe(false);
   });
 
-  test("handles orphan tool_result without matching tool_use", () => {
+  test("drops orphan tool_result without matching tool_use", () => {
     const output = renderHistoryContent([
       { type: "tool_result", tool_use_id: "missing", content: "some result" },
     ]);
 
-    expect(output.toolCalls).toEqual([
-      { name: "unknown", input: {}, result: "some result", isError: false },
-    ]);
+    // Orphans are dropped — without the parent tool_use we can't tell the user
+    // what tool ran, so the result is meaningless. See shared.ts comment.
+    expect(output.toolCalls).toEqual([]);
+    expect(output.text).toBe("");
+    expect(output.textSegments).toEqual([]);
+    expect(output.contentOrder).toEqual([]);
   });
 
   test("produces textSegments for text-tool-text interleaving", () => {

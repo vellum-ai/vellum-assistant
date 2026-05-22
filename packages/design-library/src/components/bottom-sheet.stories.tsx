@@ -4,28 +4,49 @@ import { Share } from "lucide-react";
 import { Button } from "./button.js";
 import { BottomSheet } from "./bottom-sheet.js";
 
-const meta: Meta = {
+interface BottomSheetStoryArgs {
+  title: string;
+  description: string;
+  showIcon: boolean;
+  triggerLabel: string;
+}
+
+const meta: Meta<BottomSheetStoryArgs> = {
   title: "Components/BottomSheet",
   parameters: {
     layout: "centered",
   },
+  argTypes: {
+    title: { control: "text" },
+    description: { control: "text" },
+    showIcon: { control: "boolean" },
+    triggerLabel: { control: "text" },
+  },
 };
 
 export default meta;
-type Story = StoryObj;
+type Story = StoryObj<BottomSheetStoryArgs>;
 
 export const Default: Story = {
-  render: () => (
+  args: {
+    triggerLabel: "Open Bottom Sheet",
+    title: "Select an Option",
+    description: "Choose one of the actions below.",
+    showIcon: false,
+  },
+  render: ({ triggerLabel, title, description, showIcon }) => (
     <BottomSheet.Root>
       <BottomSheet.Trigger asChild>
-        <Button>Open Bottom Sheet</Button>
+        <Button>{triggerLabel}</Button>
       </BottomSheet.Trigger>
       <BottomSheet.Content>
         <BottomSheet.Header>
-          <BottomSheet.Title>Select an Option</BottomSheet.Title>
-          <BottomSheet.Description>
-            Choose one of the actions below.
-          </BottomSheet.Description>
+          <BottomSheet.Title icon={showIcon ? Share : undefined}>
+            {title}
+          </BottomSheet.Title>
+          {description ? (
+            <BottomSheet.Description>{description}</BottomSheet.Description>
+          ) : null}
         </BottomSheet.Header>
         <BottomSheet.Body>
           <div className="flex flex-col gap-2">
@@ -51,14 +72,25 @@ export const Default: Story = {
 };
 
 export const WithIcon: Story = {
-  render: () => (
+  args: {
+    triggerLabel: "Share",
+    title: "Share with",
+    description: "",
+    showIcon: true,
+  },
+  render: ({ triggerLabel, title, description, showIcon }) => (
     <BottomSheet.Root>
       <BottomSheet.Trigger asChild>
-        <Button variant="outlined">Share</Button>
+        <Button variant="outlined">{triggerLabel}</Button>
       </BottomSheet.Trigger>
       <BottomSheet.Content>
         <BottomSheet.Header>
-          <BottomSheet.Title icon={Share}>Share with</BottomSheet.Title>
+          <BottomSheet.Title icon={showIcon ? Share : undefined}>
+            {title}
+          </BottomSheet.Title>
+          {description ? (
+            <BottomSheet.Description>{description}</BottomSheet.Description>
+          ) : null}
         </BottomSheet.Header>
         <BottomSheet.Body>
           <div className="flex flex-col gap-2">

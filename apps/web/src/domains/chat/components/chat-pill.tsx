@@ -18,10 +18,20 @@ import { type ReactNode } from "react";
  */
 export type ChatPillTone = "default" | "negative";
 
+/**
+ * "compact" — 12 px label, py-1.5. Original size, used by
+ * `RefreshFeedbackPill`.
+ * "regular" — 14 px body-medium, py-2. Matches the Figma "Go to Newest"
+ * pill spec at node 5010:103945.
+ */
+export type ChatPillSize = "compact" | "regular";
+
 interface ChatPillProps {
   children: ReactNode;
   /** Visual tone. Defaults to "default" (lifted neutral surface). */
   tone?: ChatPillTone;
+  /** Visual size. Defaults to "compact". */
+  size?: ChatPillSize;
   /** When provided, the pill renders as a button with this handler. */
   onClick?: () => void;
   /** Accessible label. Required when `onClick` is set. */
@@ -37,7 +47,12 @@ interface ChatPillProps {
 }
 
 const BASE_CHROME =
-  "pointer-events-auto inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-label-small-default shadow-md";
+  "pointer-events-auto inline-flex items-center gap-1 rounded-full shadow-md";
+
+const SIZE_CLASSES: Record<ChatPillSize, string> = {
+  compact: "px-3 py-1.5 text-label-small-default",
+  regular: "px-3 py-2 text-body-medium-default",
+};
 
 const TONE_CLASSES: Record<ChatPillTone, string> = {
   default: "bg-[var(--surface-lift)] text-[var(--content-secondary)]",
@@ -48,13 +63,19 @@ const TONE_CLASSES: Record<ChatPillTone, string> = {
 export function ChatPill({
   children,
   tone = "default",
+  size = "compact",
   onClick,
   ariaLabel,
   role,
   ariaLive,
   className,
 }: ChatPillProps) {
-  const merged = clsx(BASE_CHROME, TONE_CLASSES[tone], className);
+  const merged = clsx(
+    BASE_CHROME,
+    SIZE_CLASSES[size],
+    TONE_CLASSES[tone],
+    className,
+  );
 
   if (onClick) {
     return (

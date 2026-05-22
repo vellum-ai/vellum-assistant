@@ -1,10 +1,10 @@
 /**
- * Pure chronological thread-tag rendering for Slack transcripts.
+ * Pure chronological transcript rendering for Slack transcripts.
  *
  * Given a list of stored messages (post-upgrade rows with structured metadata
  * AND legacy pre-upgrade rows with `metadata === null`), produces a flat
- * `{role, content}[]` chronologically ordered with compact thread tags so
- * the model can reason across sibling threads in one channel.
+ * `{role, content}[]` chronologically ordered with compact Slack tags so the
+ * model can reason across sibling threads in one channel.
  *
  * The function is pure: no I/O, no implicit clock reads. Time is taken from
  * `opts.now` only when needed for relative formatting. Sort and tag rendering
@@ -242,22 +242,17 @@ function maxNullableSlackTs(a: string | null, b: string | null): string | null {
  * is preserved without carrying a mimickable timestamp.
  *
  * Tradeoffs deliberately accepted by this simplification:
- * - Thread arrows (`→ Mxxxxxx`) are dropped from assistant rows. In the
- *   common single-thread-at-a-time case, role alternation + chronological
- *   adjacency tells the model which user turn each assistant reply answers,
- *   so no attribution is lost. The degenerate case is a channel where the
- *   assistant is fielding two thread conversations in parallel and the
- *   model has to disambiguate which reply lands in which thread from the
- *   full chronological transcript — the bracketed arrow previously carried
- *   that signal and is now absent. The `<active_thread>` focus block
- *   (single thread by construction) is unaffected.
+ * - Thread arrows (`→ Mxxxxxx`) are dropped from message-row tag lines. The
+ *   common single-thread-at-a-time case still has role alternation +
+ *   chronological adjacency, and the `<active_thread>` focus block remains a
+ *   single-thread view by construction.
  * - Edited assistant rows render only the latest content, not an edit
  *   marker. Edits are rare for the assistant and the latest content is the
  *   only replayable signal anyway.
  *
- * Any alternative "subtle" marker (e.g. an unbracketed `→ Mxxxxxx`) would
- * reintroduce a consistent, mimickable prefix pattern — the very problem
- * this function is designed to avoid — so we keep the content-only form.
+ * Any alternative "subtle" assistant marker would reintroduce a consistent,
+ * mimickable prefix pattern — the very problem this function is designed to
+ * avoid — so we keep the content-only form.
  */
 function renderMessage(msg: RenderableSlackMessage): string {
   if (msg.role === "assistant") {
@@ -268,7 +263,7 @@ function renderMessage(msg: RenderableSlackMessage): string {
   const meta = msg.metadata;
   const senderPart = msg.senderLabel ? ` ${msg.senderLabel}` : "";
   if (!meta) {
-    // Legacy pre-upgrade row: flat render, no thread tag.
+    // Legacy pre-upgrade row: flat render, no Slack metadata-derived fields.
     const time = formatEpochMs(msg.createdAt);
     return `[${time}${senderPart}]: ${renderModelBodyWithSlackFiles(msg, undefined)}`;
   }
@@ -281,9 +276,6 @@ function renderMessage(msg: RenderableSlackMessage): string {
   }
 
   let head = `[${time}${senderPart}`;
-  if (meta.threadTs && meta.threadTs !== meta.channelTs) {
-    head += ` → ${parentAlias(meta.threadTs)}`;
-  }
   if (meta.editedAt !== undefined) {
     head += `, edited ${formatEpochMs(meta.editedAt)}`;
   }
@@ -444,7 +436,7 @@ function buildMessageContentBlocks(
 }
 
 /**
- * Render a chronological transcript with compact thread tags.
+ * Render a chronological transcript with compact Slack tags.
  *
  * Sort is stable: messages with identical sort keys preserve their input
  * order so callers controlling input ordering can break ties deterministically.

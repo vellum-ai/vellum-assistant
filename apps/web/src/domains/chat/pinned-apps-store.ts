@@ -18,7 +18,7 @@ import {
   pinApp,
   unpinApp,
   type PinnedAppEntry,
-} from "@/domains/chat/utils/appPinStorage.js";
+} from "@/domains/chat/utils/app-pin-storage.js";
 
 // ---------------------------------------------------------------------------
 // Unpin event listeners

@@ -729,6 +729,12 @@ public struct ConversationInferenceProfileUpdatedMessage: Decodable, Sendable {
     }
 }
 
+public struct TurnProfileAutoRoutedMessage: Decodable, Sendable {
+    public let conversationId: String
+    public let profile: String
+    public let profileLabel: String
+}
+
 /// Server push — tells clients their sidebar conversation list is stale.
 public struct ConversationListInvalidatedMessage: Decodable, Sendable {
     public let reason: String
@@ -964,6 +970,16 @@ public typealias MessageQueuedDeletedMessage = MessageQueuedDeleted
 extension MessageQueuedDeleted {
     public init(conversationId: String, requestId: String) {
         self.init(type: "message_queued_deleted", conversationId: conversationId, requestId: requestId)
+    }
+}
+
+/// Notifies client that a queued message was steered (promoted to head of queue).
+/// Backed by generated `MessageSteered`.
+public typealias MessageSteeredMessage = MessageSteered
+
+extension MessageSteered {
+    public init(conversationId: String, requestId: String) {
+        self.init(type: "message_steered", conversationId: conversationId, requestId: requestId)
     }
 }
 
@@ -2901,6 +2917,7 @@ public enum ServerMessage: Decodable, Sendable {
     case messageComplete(MessageCompleteMessage)
     case conversationInfo(ConversationInfoMessage)
     case conversationInferenceProfileUpdated(ConversationInferenceProfileUpdatedMessage)
+    case turnProfileAutoRouted(TurnProfileAutoRoutedMessage)
     case conversationTitleUpdated(ConversationTitleUpdatedMessage)
     case conversationListResponse(ConversationListResponseMessage)
     case conversationListInvalidated(ConversationListInvalidatedMessage)
@@ -2928,6 +2945,7 @@ public enum ServerMessage: Decodable, Sendable {
     case messageDequeued(MessageDequeuedMessage)
     case messageRequestComplete(MessageRequestCompleteMessage)
     case messageQueuedDeleted(MessageQueuedDeletedMessage)
+    case messageSteered(MessageSteeredMessage)
     case skillsListResponse(SkillsListResponseMessage)
     case skillDetailResponse(SkillDetailResponseMessage)
     case skillStateChanged(SkillStateChangedMessage)
@@ -3121,6 +3139,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "conversation_inference_profile_updated":
             let message = try ConversationInferenceProfileUpdatedMessage(from: decoder)
             self = .conversationInferenceProfileUpdated(message)
+        case "turn_profile_auto_routed":
+            let message = try TurnProfileAutoRoutedMessage(from: decoder)
+            self = .turnProfileAutoRouted(message)
         case "conversation_title_updated":
             let message = try ConversationTitleUpdatedMessage(from: decoder)
             self = .conversationTitleUpdated(message)
@@ -3211,6 +3232,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "message_queued_deleted":
             let message = try MessageQueuedDeletedMessage(from: decoder)
             self = .messageQueuedDeleted(message)
+        case "message_steered":
+            let message = try MessageSteeredMessage(from: decoder)
+            self = .messageSteered(message)
         case "skills_list_response":
             let message = try SkillsListResponseMessage(from: decoder)
             self = .skillsListResponse(message)

@@ -41,7 +41,7 @@ function HomePageSkeleton() {
 }
 
 export interface HomePageProps {
-  assistantId: string | null;
+  assistantId: string;
   onStartNewChat: () => void;
   onOpenConversation: (conversationId: string) => void;
   onSuggestionSelected: (prompt: string) => void;
@@ -89,6 +89,9 @@ export function HomePage({
   const handleRestoreItem = useCallback(
     (itemId: string) => {
       feedQuery.updateStatus.mutate({ itemId, status: "seen" });
+      setSelectedItem((prev) =>
+        prev?.id === itemId ? { ...prev, status: "seen" } : prev,
+      );
     },
     [feedQuery.updateStatus],
   );
@@ -126,8 +129,20 @@ export function HomePage({
         avatarComponents={avatar.components}
         avatarTraits={avatar.traits}
         avatarImageUrl={avatar.customImageUrl}
+        greeting={feedQuery.data?.contextBanner?.greeting}
         onStartNewChat={onStartNewChat}
       />
+      {feedQuery.isError ? (
+        <div
+          role="alert"
+          className="rounded-md border border-[var(--system-negative-weak)] bg-[var(--system-negative-weak)] px-[var(--app-spacing-lg)] py-[var(--app-spacing-md)] text-[var(--system-negative-strong)]"
+        >
+          Couldn't load home feed
+          {feedQuery.error instanceof Error
+            ? `: ${feedQuery.error.message}`
+            : "."}
+        </div>
+      ) : null}
       <HomeSuggestionPillBar
         suggestions={feedQuery.data?.suggestedPrompts ?? []}
         onSelect={handleSuggestionSelect}
@@ -149,6 +164,7 @@ export function HomePage({
           onClose={handleCloseDetail}
           onGoToThread={handleGoToThread}
           onUpdateStatus={handleUpdateStatus}
+          onDismiss={handleDismissItem}
         />
       </div>
     );
@@ -172,6 +188,7 @@ export function HomePage({
             onClose={handleCloseDetail}
             onGoToThread={handleGoToThread}
             onUpdateStatus={handleUpdateStatus}
+            onDismiss={handleDismissItem}
           />
         }
       />

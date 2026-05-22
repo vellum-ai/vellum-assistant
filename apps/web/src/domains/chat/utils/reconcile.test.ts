@@ -7,7 +7,11 @@ import {
   reconcileMessages,
 } from "@/domains/chat/utils/reconcile.js";
 import { newStableId } from "@/domains/chat/utils/stable-id.js";
-import { classifySurfaceDisplay, type Surface } from "@/domains/chat/types/types.js";
+import {
+  classifySurfaceDisplay,
+  type SlackRuntimeMessage,
+  type Surface,
+} from "@/domains/chat/types/types.js";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types.js";
 import type { RuntimeMessage } from "@/domains/chat/api/messages.js";
 
@@ -19,6 +23,29 @@ function makeLocal(overrides: Omit<DisplayMessage, "stableId"> & { stableId?: st
   return {
     stableId: stableId ?? newStableId("test"),
     ...rest,
+  };
+}
+
+function makeSlackMessage(
+  overrides: Partial<SlackRuntimeMessage> = {},
+): SlackRuntimeMessage {
+  return {
+    channelId: "C123",
+    channelName: "triage",
+    channelTs: "1710000000.000200",
+    threadTs: "1710000000.000100",
+    sender: {
+      id: "U123",
+      displayName: "Ada Lovelace",
+      username: "ada",
+    },
+    messageLink: {
+      webUrl: "https://example.slack.com/archives/C123/p1710000000000200",
+    },
+    threadLink: {
+      webUrl: "https://example.slack.com/archives/C123/p1710000000000100",
+    },
+    ...overrides,
   };
 }
 
@@ -1708,5 +1735,91 @@ describe("dedupeDisplayMessages", () => {
     ];
 
     expect(dedupeDisplayMessages(messages)).toBe(messages);
+  });
+});
+
+describe("reconcileMessages — Slack metadata", () => {
+  test("adds server Slack metadata to an existing local message", () => {
+    const slackMessage = makeSlackMessage();
+    const local: DisplayMessage[] = [
+      makeLocal({ id: "m1", role: "user", content: "Slack reply" }),
+    ];
+    const server: RuntimeMessage[] = [
+      {
+        id: "m1",
+        role: "user",
+        content: "Slack reply",
+        slackMessage,
+      },
+    ];
+
+    const result = reconcileMessages(local, server);
+
+    expect(result).not.toBe(local);
+    expect(result[0]).toMatchObject({
+      id: "m1",
+      role: "user",
+      content: "Slack reply",
+      slackMessage,
+    });
+  });
+
+  test("returns same reference when Slack metadata is unchanged", () => {
+    const slackMessage = makeSlackMessage();
+    const local: DisplayMessage[] = [
+      makeLocal({
+        id: "m1",
+        role: "user",
+        content: "Slack reply",
+        slackMessage,
+      }),
+    ];
+    const server: RuntimeMessage[] = [
+      {
+        id: "m1",
+        role: "user",
+        content: "Slack reply",
+        slackMessage,
+      },
+    ];
+
+    const result = reconcileMessages(local, server);
+
+    expect(result).toBe(local);
+  });
+
+  test("updates when Slack link or sender metadata changes", () => {
+    const localSlackMessage = makeSlackMessage();
+    const serverSlackMessage = makeSlackMessage({
+      sender: {
+        id: "U123",
+        displayName: "Ada Byron",
+        username: "ada",
+      },
+      messageLink: {
+        webUrl: "https://example.slack.com/archives/C123/p1710000000000300",
+      },
+    });
+    const local: DisplayMessage[] = [
+      makeLocal({
+        id: "m1",
+        role: "user",
+        content: "Slack reply",
+        slackMessage: localSlackMessage,
+      }),
+    ];
+    const server: RuntimeMessage[] = [
+      {
+        id: "m1",
+        role: "user",
+        content: "Slack reply",
+        slackMessage: serverSlackMessage,
+      },
+    ];
+
+    const result = reconcileMessages(local, server);
+
+    expect(result).not.toBe(local);
+    expect(result[0]!.slackMessage).toEqual(serverSlackMessage);
   });
 });

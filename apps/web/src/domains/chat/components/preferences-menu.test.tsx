@@ -36,16 +36,20 @@ mock.module("@/stores/auth-store.js", () => {
   return { useAuthStore: store };
 });
 
-const flagsRef = { referralCodes: false, referralCodesAdmin: false };
+const flagsRef = {};
 
-mock.module("@/lib/feature-flags/feature-flag-store.js", () => {
+mock.module("@/lib/feature-flags/client-feature-flag-store.js", () => {
   const store = () => null;
-  store.use = {
-    referralCodes: () => flagsRef.referralCodes,
-    referralCodesAdmin: () => flagsRef.referralCodesAdmin,
-  };
+  store.use = {};
   store.getState = () => flagsRef;
-  return { useFeatureFlagStore: store };
+  return { useClientFeatureFlagStore: store };
+});
+
+mock.module("@/lib/feature-flags/assistant-feature-flag-store.js", () => {
+  const store = () => null;
+  store.use = {};
+  store.getState = () => flagsRef;
+  return { useAssistantFeatureFlagStore: store };
 });
 
 const billingRef = { data: undefined as { effective_balance: string } | undefined };
@@ -85,7 +89,6 @@ beforeEach(() => {
   isMobileRef.value = false;
   authRef.isLoggedIn = true;
   authRef.user = { id: "u1", email: "user@example.com", isStaff: false, username: null, firstName: "", lastName: "" };
-  flagsRef.referralCodes = false;
   billingRef.data = undefined;
 });
 

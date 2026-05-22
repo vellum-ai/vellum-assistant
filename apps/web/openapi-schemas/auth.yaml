@@ -2721,6 +2721,31 @@ paths:
         '
       tags:
       - 'Authentication: Current Session'
+  /_allauth/{client}/v1/auth/sessions:
+    delete:
+      parameters:
+      - $ref: '#/components/parameters/Client'
+      - $ref: '#/components/parameters/SessionToken'
+      requestBody:
+        $ref: '#/components/requestBodies/EndSessions'
+      responses:
+        '200':
+          $ref: '#/components/responses/Sessions'
+        '401':
+          $ref: '#/components/responses/Authentication'
+      summary: End one or more sessions
+      tags:
+      - Sessions
+    get:
+      parameters:
+      - $ref: '#/components/parameters/Client'
+      - $ref: '#/components/parameters/SessionToken'
+      responses:
+        '200':
+          $ref: '#/components/responses/Sessions'
+      summary: List sessions
+      tags:
+      - Sessions
   /_allauth/{client}/v1/config:
     get:
       description: 'There are many configuration options that alter the functionality
@@ -2784,6 +2809,9 @@ x-tagGroups:
   - 'Account: Providers'
   - 'Account: 2FA'
   - 'Account: WebAuthn'
+- name: Sessions
+  tags:
+  - Sessions
 - name: Tokens
   tags:
   - Tokens

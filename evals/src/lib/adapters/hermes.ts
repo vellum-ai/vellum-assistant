@@ -6,6 +6,7 @@ import type {
 } from "../adapter";
 import type { Profile } from "../profile";
 import type { TestSetupCommand } from "../setup-command";
+import { runArtifacts } from "../metrics";
 import {
   applyDockerEgressJail,
   type DockerEgressJail,
@@ -291,6 +292,7 @@ export class HermesAgent implements BaseAgent {
 
       this.jail = await applyDockerEgressJail(this.runner, {
         containerName: this.containerName,
+        recordingDir: runArtifacts(this.id).runDir,
       });
 
       for (const command of setupCommands(this.profile)) {
@@ -375,6 +377,10 @@ export class HermesAgent implements BaseAgent {
     return normalizeHermesEventStream(
       parseNdjson<AgentEvent>(this.eventsProcess.stdout),
     );
+  }
+
+  async readUsageRecords(): Promise<Array<Record<string, unknown>>> {
+    return this.jail?.readUsageRecords() ?? [];
   }
 
   async shutdown(): Promise<void> {

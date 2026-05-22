@@ -6,6 +6,7 @@
     "messaging"
   ],
   "src/domains/chat/chat-layout.tsx": [
+    "avatar",
     "conversations",
     "subagents"
   ],
@@ -13,6 +14,7 @@
     "avatar",
     "conversations",
     "interactions",
+    "messaging",
     "onboarding",
     "subagents"
   ],
@@ -59,8 +61,12 @@
   "src/domains/chat/hooks/use-conversation-history.ts": [
     "conversations",
     "interactions",
-    "messaging",
     "subagents"
+  ],
+  "src/domains/chat/hooks/use-conversation-switch.ts": [
+    "conversations",
+    "interactions",
+    "messaging"
   ],
   "src/domains/chat/hooks/use-event-stream.ts": [
     "conversations",
@@ -95,8 +101,8 @@
   "src/domains/chat/hooks/use-voice-input.ts": [
     "voice"
   ],
-  "src/domains/chat/inspector/components/tabs/prompt-tab.tsx": [
-    "intelligence"
+  "src/domains/chat/hooks/use-web-search-card-data.ts": [
+    "messaging"
   ],
   "src/domains/chat/transcript/latest-turn-row.tsx": [
     "subagents"
@@ -128,9 +134,6 @@
   "src/domains/chat/utils/stream-handlers/types.ts": [
     "messaging"
   ],
-  "src/domains/chat/utils/turn-selectors.ts": [
-    "messaging"
-  ],
   "src/domains/contacts/components/assistant-channels-detail.tsx": [
     "settings"
   ],
@@ -139,12 +142,6 @@
   ],
   "src/domains/contacts/components/guardian-detail-view.tsx": [
     "settings"
-  ],
-  "src/domains/contacts/connect-page.tsx": [
-    "chat"
-  ],
-  "src/domains/contacts/contacts-page.tsx": [
-    "chat"
   ],
   "src/domains/conversations/conversation-queries.test.ts": [
     "chat"
@@ -191,9 +188,6 @@
   "src/domains/intelligence/components/identity-tab.tsx": [
     "avatar"
   ],
-  "src/domains/intelligence/identity-page.tsx": [
-    "chat"
-  ],
   "src/domains/interactions/interaction-store.ts": [
     "chat"
   ],
@@ -202,7 +196,6 @@
     "intelligence"
   ],
   "src/domains/library/library-page.tsx": [
-    "chat",
     "intelligence"
   ],
   "src/domains/logs/components/logs-tab.tsx": [
@@ -226,23 +219,11 @@
   "src/domains/logs/pages/usage-page.tsx": [
     "settings"
   ],
-  "src/domains/messaging/turn-store.test.ts": [
-    "chat"
-  ],
-  "src/domains/nudges/nudge-prefs.ts": [
-    "settings"
-  ],
-  "src/domains/onboarding/onboarding-store.ts": [
-    "settings"
-  ],
   "src/domains/onboarding/pages/hatching-screen.tsx": [
     "avatar"
   ],
   "src/domains/onboarding/pages/pre-chat-flow.tsx": [
     "nudges"
-  ],
-  "src/domains/onboarding/prefs.ts": [
-    "settings"
   ],
   "src/domains/onboarding/screens/get-ios-app-screen.tsx": [
     "nudges"
@@ -271,12 +252,6 @@
   "src/domains/settings/components/risk-tolerance-settings.tsx": [
     "chat"
   ],
-  "src/domains/settings/components/voice-panel.tsx": [
-    "voice"
-  ],
-  "src/domains/settings/hooks/use-settings-sync.ts": [
-    "chat"
-  ],
   "src/domains/settings/pages/archive-page.tsx": [
     "chat"
   ],
@@ -290,12 +265,6 @@
     "chat"
   ],
   "src/domains/subagents/subagent-store.ts": [
-    "chat"
-  ],
-  "src/domains/workspace/components/workspace-file-viewer.tsx": [
-    "intelligence"
-  ],
-  "src/domains/workspace/workspace-page.tsx": [
     "chat"
   ]
 }

@@ -19,7 +19,7 @@ import {
   getLocalSetting,
   removeLocalSetting,
   setLocalSetting,
-} from "@/domains/settings/local-settings.js";
+} from "@/lib/local-settings.js";
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store.js";
 
 // ---------------------------------------------------------------------------

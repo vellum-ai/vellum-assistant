@@ -196,7 +196,10 @@ export class PermissionPrompter {
     }
     // The prompter owns deregistration; all callers use get() to peek before
     // routing to resolveConfirmation, which fires the rpcResolve callback.
-    const interaction = pendingInteractions.resolve(requestId);
+    const interaction = pendingInteractions.resolve(
+      requestId,
+      decision === "allow" ? "approved" : "rejected",
+    );
     this.ownedIds.delete(requestId);
     (interaction?.rpcResolve as ((v: ConfirmResult) => void) | undefined)?.(
       { decision, selectedPattern, selectedScope, decisionContext },
@@ -210,7 +213,7 @@ export class PermissionPrompter {
    */
   denyAllPending(): void {
     for (const requestId of [...this.ownedIds]) {
-      const interaction = pendingInteractions.resolve(requestId);
+      const interaction = pendingInteractions.resolve(requestId, "superseded");
       this.ownedIds.delete(requestId);
       (interaction?.rpcResolve as ((v: ConfirmResult) => void) | undefined)?.(
         {

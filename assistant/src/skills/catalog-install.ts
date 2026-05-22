@@ -111,7 +111,9 @@ export async function fetchCatalog(): Promise<CatalogSkill[]> {
   if (!Array.isArray(manifest.skills)) {
     throw new Error("Platform catalog has invalid skills array");
   }
-  return manifest.skills;
+  return manifest.skills.filter(
+    (s): s is CatalogSkill => !!s && typeof s.id === "string",
+  );
 }
 
 export function readLocalCatalog(repoSkillsDir: string): CatalogSkill[] {
@@ -119,7 +121,9 @@ export function readLocalCatalog(repoSkillsDir: string): CatalogSkill[] {
     const raw = readFileSync(join(repoSkillsDir, "catalog.json"), "utf-8");
     const manifest = JSON.parse(raw) as CatalogManifest;
     if (!Array.isArray(manifest.skills)) return [];
-    return manifest.skills;
+    return manifest.skills.filter(
+      (s): s is CatalogSkill => !!s && typeof s.id === "string",
+    );
   } catch {
     return [];
   }

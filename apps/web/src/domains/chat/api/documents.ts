@@ -117,6 +117,28 @@ export async function listDocuments(
   return payload?.documents ?? [];
 }
 
+export async function saveDocumentContent(
+  assistantId: string,
+  surfaceId: string,
+  conversationId: string,
+  title: string,
+  content: string,
+): Promise<void> {
+  const wordCount = content.trim().split(/\s+/).filter((w) => w.length > 0).length;
+  const { error, response } = await client.post<unknown, unknown>({
+    ...SDK_BASE_OPTIONS,
+    url: "/v1/assistants/{assistant_id}/documents",
+    path: { assistant_id: assistantId },
+    body: { surfaceId, conversationId, title, content, wordCount },
+    throwOnError: false,
+  });
+  assertHasResponse(response, error, "Failed to save document.");
+  if (!response.ok) {
+    const msg = extractErrorMessage(error, response, "Failed to save document.");
+    throw new ApiError(response.status, msg);
+  }
+}
+
 export async function linkDocumentConversation(
   assistantId: string,
   documentSurfaceId: string,

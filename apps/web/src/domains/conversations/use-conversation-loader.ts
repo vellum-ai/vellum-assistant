@@ -18,11 +18,10 @@ import {
   createDraftConversationKey,
   resolveBootstrappedConversationKey,
 } from "@/domains/chat/utils/conversation-selection.js";
-import { loadContextWindowUsageMap } from "@/domains/chat/utils/contextWindowStorage.js";
 import {
   loadLastViewedConversationKey,
   saveLastViewedConversationKey,
-} from "@/domains/chat/utils/lastViewedConversationStorage.js";
+} from "@/domains/chat/utils/last-viewed-conversation-storage.js";
 import type { TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 
@@ -32,12 +31,8 @@ import { haptic } from "@/utils/haptics.js";
 import { routes } from "@/utils/routes.js";
 import type { NavigateFunction } from "react-router";
 
-import type { RefreshSettleHandle } from "@/domains/chat/hooks/use-pull-refresh.js";
 import type { AssistantStateKind, ChatError } from "@/domains/chat/types.js";
-import {
-  useConversationHistory,
-  type HistoryPaginationSnapshot,
-} from "@/domains/chat/hooks/use-conversation-history.js";
+import { useConversationHistory } from "@/domains/chat/hooks/use-conversation-history.js";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { getChatContext } from "@/domains/chat/api/assistant.js";
@@ -47,13 +42,6 @@ import {
   chatContextQueryKey,
   conversationGroupsQueryKey,
 } from "@/domains/conversations/conversation-queries.js";
-
-// Re-export for consumers that import from this module
-export {
-  MAX_CACHED_CONVERSATIONS,
-  type HistoryPaginationSnapshot,
-  getPaginationAfterLatestHistory,
-} from "@/domains/chat/hooks/use-conversation-history.js";
 
 // ---------------------------------------------------------------------------
 // Module constants
@@ -81,7 +69,6 @@ interface UseConversationLoaderParams {
 
   // Collections
   conversations: Conversation[];
-  transcriptPagination: Omit<TranscriptPaginationState, "items">;
 
   // Feature flags / epochs
   conversationGroupsUI: boolean;
@@ -90,16 +77,10 @@ interface UseConversationLoaderParams {
 
   // Refs (owned by parent, read/written by this hook)
   assistantIdRef: MutableRefObject<string | null>;
-  conversationCacheRef: MutableRefObject<
-    Map<string, { messages: DisplayMessage[]; pagination: HistoryPaginationSnapshot }>
-  >;
   draftKeyResolutionRef: MutableRefObject<boolean>;
   previousConversationKeyRef: MutableRefObject<string | null>;
   onboardingDraftConversationKeyRef: MutableRefObject<string | null>;
   activeConversationKeyRef: MutableRefObject<string | null>;
-  inputRef: MutableRefObject<HTMLTextAreaElement | null>;
-  draftsRef: MutableRefObject<Map<string, string>>;
-  messagesRef: MutableRefObject<DisplayMessage[]>;
   contextWindowUsageByConversationRef: MutableRefObject<Map<string, ContextWindowUsage>>;
   dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
   needsNewBubbleRef: MutableRefObject<boolean>;
@@ -108,14 +89,9 @@ interface UseConversationLoaderParams {
   requestIdToStableIdRef: MutableRefObject<Map<string, string>>;
   pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
   confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
-  refreshSettleRef: MutableRefObject<RefreshSettleHandle | null>;
   lastSuggestionMsgIdRef: MutableRefObject<string | null>;
   autoGreetRef: MutableRefObject<boolean>;
-  initialPageOldestTsRef: MutableRefObject<number | null>;
-  isLoadingOlderRef: MutableRefObject<boolean>;
-  historyLoadedRef: MutableRefObject<boolean>;
   conversationListInvalidatedTimerRef: MutableRefObject<ReturnType<typeof setTimeout> | null>;
-  loadEpochRef: MutableRefObject<number>;
   pendingInitialMessageRef: MutableRefObject<{ conversationKey: string; content: string } | null>;
 
   // State setters
@@ -128,21 +104,10 @@ interface UseConversationLoaderParams {
   setContextWindowUsage: Dispatch<SetStateAction<ContextWindowUsage | null>>;
   setSuggestion: Dispatch<SetStateAction<string | null>>;
   setCompactionCircuitOpenUntil: Dispatch<SetStateAction<Date | null>>;
-  setInput: Dispatch<SetStateAction<string>>;
-
 
   // Callbacks
   resetChatAttachments: () => void;
   syncNeedsNewBubbleFromMessages: (nextMessages: DisplayMessage[]) => void;
-
-  /**
-   * Fires after a non-empty saved draft is restored into the composer on a
-   * conversation switch. Receives the conversation key the draft belongs to.
-   * Used by the page to render a transient "Draft restored" notice so the
-   * user does not mistake the restored text for a stale unsent message (see
-   * LUM-1516). Optional — omit to suppress the notice (e.g. in tests).
-   */
-  onDraftRestored?: (conversationKey: string) => void;
 
   // Error classification
   shouldSuppressGenericChatErrorNotice: (prev: ChatError | null) => boolean;
@@ -177,19 +142,14 @@ export function useConversationLoader({
   searchParams,
   navigate,
   conversations,
-  transcriptPagination,
   conversationGroupsUI,
   refreshEpoch,
   reachabilityReadyEpoch,
   assistantIdRef,
-  conversationCacheRef,
   draftKeyResolutionRef,
   previousConversationKeyRef,
   onboardingDraftConversationKeyRef,
   activeConversationKeyRef,
-  inputRef,
-  draftsRef,
-  messagesRef,
   contextWindowUsageByConversationRef,
   dismissedSurfaceIdsRef,
   needsNewBubbleRef,
@@ -198,14 +158,9 @@ export function useConversationLoader({
   requestIdToStableIdRef,
   pendingLocalDeletionsRef,
   confirmationToolCallMapRef,
-  refreshSettleRef,
   lastSuggestionMsgIdRef,
   autoGreetRef,
-  initialPageOldestTsRef,
-  isLoadingOlderRef,
-  historyLoadedRef,
   conversationListInvalidatedTimerRef,
-  loadEpochRef,
   pendingInitialMessageRef,
   setAssistantId,
   setMessages,
@@ -216,17 +171,14 @@ export function useConversationLoader({
   setContextWindowUsage,
   setSuggestion,
   setCompactionCircuitOpenUntil,
-  setInput,
   resetChatAttachments,
   syncNeedsNewBubbleFromMessages,
-  onDraftRestored,
   shouldSuppressGenericChatErrorNotice,
 }: UseConversationLoaderParams) {
   // -------------------------------------------------------------------------
   // Internal refs
   // -------------------------------------------------------------------------
   const refreshConversationsRef = useRef<() => Promise<void>>(async () => {});
-  const hydratedAssistantIdRef = useRef<string | null>(null);
   const queryClient = useQueryClient();
 
   // -------------------------------------------------------------------------
@@ -277,30 +229,6 @@ export function useConversationLoader({
       refreshConversationsRef.current();
     }, CONVERSATION_LIST_INVALIDATED_DEBOUNCE_MS);
   }, [conversationListInvalidatedTimerRef]);
-
-  // -------------------------------------------------------------------------
-  // Context window usage hydration from localStorage
-  // -------------------------------------------------------------------------
-  useEffect(() => {
-    if (!assistantId) return;
-    if (hydratedAssistantIdRef.current === assistantId) return;
-    hydratedAssistantIdRef.current = assistantId;
-    const stored = loadContextWindowUsageMap(assistantId);
-    if (stored.size === 0) return;
-    const merged = new Map(contextWindowUsageByConversationRef.current);
-    for (const [key, value] of stored) {
-      if (!merged.has(key)) {
-        merged.set(key, value);
-      }
-    }
-    contextWindowUsageByConversationRef.current = merged;
-    if (activeConversationKey) {
-      const cached = merged.get(activeConversationKey);
-      if (cached) {
-        setContextWindowUsage(cached);
-      }
-    }
-  }, [assistantId, activeConversationKey, contextWindowUsageByConversationRef, setContextWindowUsage]);
 
   // -------------------------------------------------------------------------
   // Init effect -- fetch conversations when the assistant becomes active
@@ -443,18 +371,12 @@ export function useConversationLoader({
   // -------------------------------------------------------------------------
   // Delegate: conversation history loading and caching
   // -------------------------------------------------------------------------
-  useConversationHistory({
+  const historyResult = useConversationHistory({
     assistantId,
     assistantStateKind,
     activeConversationKey,
-    refreshEpoch,
-    transcriptPagination,
-    conversationCacheRef,
     draftKeyResolutionRef,
     previousConversationKeyRef,
-    inputRef,
-    draftsRef,
-    messagesRef,
     contextWindowUsageByConversationRef,
     dismissedSurfaceIdsRef,
     needsNewBubbleRef,
@@ -463,13 +385,8 @@ export function useConversationLoader({
     requestIdToStableIdRef,
     pendingLocalDeletionsRef,
     confirmationToolCallMapRef,
-    refreshSettleRef,
     lastSuggestionMsgIdRef,
     autoGreetRef,
-    initialPageOldestTsRef,
-    isLoadingOlderRef,
-    historyLoadedRef,
-    loadEpochRef,
     setMessages,
     setTranscriptPagination,
     setIsLoadingHistory,
@@ -478,8 +395,6 @@ export function useConversationLoader({
     setContextWindowUsage,
     setSuggestion,
     setCompactionCircuitOpenUntil,
-    setInput,
-    onDraftRestored,
     resetChatAttachments,
     syncNeedsNewBubbleFromMessages,
     shouldSuppressGenericChatErrorNotice,
@@ -520,5 +435,6 @@ export function useConversationLoader({
     switchConversation,
     startNewConversation,
     conversationExistsOnServer,
+    historyResult,
   };
 }

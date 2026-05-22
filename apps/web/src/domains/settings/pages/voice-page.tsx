@@ -1,3 +1,4 @@
+/* eslint-disable no-restricted-syntax -- LUM-1768: file contains dark: pairs pending semantic-token migration */
 import { ArrowUpRight, Info } from "lucide-react";
 import {
   useCallback,
@@ -15,7 +16,7 @@ import { SettingsCard } from "@/domains/settings/components/settings-card.js";
 import {
   getLocalSetting,
   setLocalSetting,
-} from "@/domains/settings/local-settings.js";
+} from "@/lib/local-settings.js";
 import {
   LS_PTT_ACTIVATION_KEY,
   activatorDisplayName,

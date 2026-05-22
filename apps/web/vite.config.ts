@@ -19,7 +19,7 @@ export default defineConfig(({ mode }) => {
   const sentryUploadEnabled = !!env.SENTRY_AUTH_TOKEN;
 
   return {
-    base: "/",
+    base: "/assistant/",
     plugins: [
       tailwindcss(),
       react(),

@@ -331,15 +331,22 @@ async function runForkBasedRetrospective(
   const priorRemembers =
     collectPriorRetrospectiveRemembers(sourceConversationId);
 
+  // Pin the fork to `cutoffMessageId` so messages arriving between the slice
+  // read above and this call don't sneak into the fork. Without
+  // `throughMessageId`, the fork snapshots the latest source message at fork
+  // time and this run would process turns past the cutoff while state only
+  // advances to `cutoffMessageId`, causing the next retrospective to
+  // reprocess (and potentially re-`remember`) those same turns.
+  //
   // `forkConversation` inherits `contextSummary` /
   // `contextCompactedMessageCount` / `contextCompactedAt` when the fork
-  // point sits within the visible window — always true here since no
-  // `throughMessageId` means fork through latest. Compacted source ⇒
-  // compacted fork ⇒ summary + tail visible to the agent natively.
+  // point sits within the visible window. Compacted source ⇒ compacted
+  // fork ⇒ summary + tail visible to the agent natively.
   let forkConversationRow: ReturnType<typeof forkConversation>;
   try {
     forkConversationRow = forkConversation({
       conversationId: sourceConversationId,
+      throughMessageId: cutoffMessageId,
       source: MEMORY_RETROSPECTIVE_FORK_SOURCE,
       title: `${sourceConversation.title ?? "Untitled"} (Retrospective)`,
       conversationType: "background",
@@ -556,30 +563,18 @@ function collectPriorRetrospectiveRemembers(
   const priorConv = getConversation(prior.id);
   if (priorConv?.source === MEMORY_RETROSPECTIVE_FORK_SOURCE) {
     // For fork-kind rows, prior `remember` calls live in the post-fork
-    // tail (messages created after the last copied source message).
-    // `cloneForkMessageMetadata` stamps every copied message with
-    // `forkSourceMessageId`; the cloned row whose stamp equals
-    // `forkParentMessageId` sits at the boundary, and the fork preserves
-    // `createdAt` on cloned messages, so everything strictly greater than
-    // that timestamp is post-fork.
-    if (priorConv.forkParentMessageId == null) {
-      log.warn(
-        { priorConversationId: prior.id },
-        "memory-retrospective: fork-kind prior has null forkParentMessageId; treating dedup as empty",
-      );
-      return [];
-    }
-    const boundaryCreatedAt = findForkBoundaryCreatedAt(
-      messages,
-      priorConv.forkParentMessageId,
-    );
+    // tail. `cloneForkMessageMetadata` stamps every copied message with
+    // `forkSourceMessageId` (preserving any existing value when the source
+    // was itself a fork), so the LAST message in the fork carrying
+    // `forkSourceMessageId` is the boundary — its value can point to any
+    // ancestor when the source was a nested fork, so we can't match it
+    // against `forkParentMessageId`. Everything strictly past that
+    // timestamp is post-fork.
+    const boundaryCreatedAt = findForkBoundaryCreatedAt(messages);
     if (boundaryCreatedAt == null) {
       log.warn(
-        {
-          priorConversationId: prior.id,
-          forkParentMessageId: priorConv.forkParentMessageId,
-        },
-        "memory-retrospective: fork-kind prior's boundary message missing; treating dedup as empty",
+        { priorConversationId: prior.id },
+        "memory-retrospective: fork-kind prior has no message with forkSourceMessageId metadata; treating dedup as empty",
       );
       return [];
     }
@@ -593,10 +588,13 @@ function collectPriorRetrospectiveRemembers(
 
 /**
  * Locate the boundary timestamp between the fork's prefix and its post-fork
- * tail. The cloned row with `metadata.forkSourceMessageId === forkParentMessageId`
- * marks the last copied source message; its `createdAt` is the boundary.
- * Returns `null` only if the stamp is missing — which indicates corrupted
- * fork metadata (caller logs + degrades).
+ * tail. Scans from the end for the last message whose metadata carries a
+ * `forkSourceMessageId` stamp (the last copied source message); its
+ * `createdAt` is the boundary. The stamp's value may point at any ancestor
+ * when the source was itself a fork (`cloneForkMessageMetadata` preserves
+ * pre-existing values), so we only check for presence, not equality.
+ * Returns `null` only if no copied messages remain (corrupted fork metadata
+ * or empty fork — caller logs + degrades).
  */
 function findForkBoundaryCreatedAt(
   forkMessages: Array<{
@@ -604,15 +602,15 @@ function findForkBoundaryCreatedAt(
     createdAt: number;
     metadata: string | null;
   }>,
-  forkParentMessageId: string,
 ): number | null {
-  for (const row of forkMessages) {
+  for (let i = forkMessages.length - 1; i >= 0; i--) {
+    const row = forkMessages[i]!;
     if (!row.metadata) continue;
     try {
       const parsed = JSON.parse(row.metadata) as {
-        forkSourceMessageId?: string;
+        forkSourceMessageId?: unknown;
       };
-      if (parsed.forkSourceMessageId === forkParentMessageId) {
+      if (typeof parsed.forkSourceMessageId === "string") {
         return row.createdAt;
       }
     } catch {

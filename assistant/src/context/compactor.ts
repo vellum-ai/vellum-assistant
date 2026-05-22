@@ -846,7 +846,7 @@ export async function runAssistantDrivenCompaction(
     thresholdTokens,
     compactedMessages: compactableMessages.length,
     compactedPersistedMessages,
-    preservedTailMessages: tailMessages.length,
+    preservedTailMessages: args.messages.length - tailIndex,
     summaryCalls: 1,
     summaryInputTokens: response.usage.inputTokens,
     summaryOutputTokens: response.usage.outputTokens,

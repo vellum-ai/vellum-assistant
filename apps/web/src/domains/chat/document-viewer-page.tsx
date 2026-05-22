@@ -12,7 +12,7 @@ import { useNavigate, useParams } from "react-router";
 import { Loader2 } from "lucide-react";
 import { Typography } from "@vellum/design-library";
 
-import { useAssistantContext } from "@/domains/chat/assistant-context.js";
+import { useAssistantContext } from "@/components/layout/assistant-context.js";
 import { getEditChatKey, setEditChatKey } from "@/domains/chat/utils/edit-chat-session.js";
 import { useViewerStore } from "@/stores/viewer-store.js";
 import { routes } from "@/utils/routes.js";
@@ -23,7 +23,7 @@ import {
   linkDocumentConversation,
 } from "./api/documents.js";
 import { useDocumentCommentEvents } from "./hooks/use-document-comment-events.js";
-import { subscribeChatEvents } from "./api/stream.js";
+import { useBusSubscription } from "@/hooks/use-bus-subscription.js";
 import {
   DocumentViewerContainer,
   type DocumentViewerContainerHandle,
@@ -93,23 +93,7 @@ export function DocumentViewerPage() {
     onCommentsChanged: handleCommentsChanged,
   });
 
-  useEffect(() => {
-    if (!surfaceId || !assistantId) return;
-
-    const stream = subscribeChatEvents(
-      assistantId,
-      null,
-      handleSseEvent,
-      () => {
-        // SSE error — the stream handler manages reconnects; we only need
-        // to handle events when they arrive.
-      },
-    );
-
-    return () => {
-      stream.cancel();
-    };
-  }, [surfaceId, assistantId, handleSseEvent]);
+  useBusSubscription("sse.event", handleSseEvent);
 
   // -------------------------------------------------------------------------
   // Navigation & export

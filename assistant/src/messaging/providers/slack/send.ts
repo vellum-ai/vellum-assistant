@@ -275,13 +275,19 @@ export async function sendSlackAssistantThreadStatus(
   channel: string,
   threadTs: string,
   status: string,
+  loadingMessages?: string[],
 ): Promise<void> {
   try {
-    await callSlackApi("assistant.threads.setStatus", {
+    const body: Record<string, unknown> = {
       channel_id: channel,
       thread_ts: threadTs,
       status,
-    });
+    };
+    if (loadingMessages !== undefined) {
+      body.loading_messages = loadingMessages;
+    }
+
+    await callSlackApi("assistant.threads.setStatus", body);
     return;
   } catch {
     log.warn(

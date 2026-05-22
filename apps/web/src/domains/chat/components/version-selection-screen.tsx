@@ -37,7 +37,6 @@ export function VersionSelectionScreen({ onHatch }: VersionSelectionScreenProps)
         style={{ animation: "fadeInUp 0.5s ease-out forwards" }}
       >
         {/* typography: off-scale — emoji hero sized via text-3xl */}
-        { }
         <span className="text-3xl" role="img" aria-label="seedling">
           &#x1F331;
         </span>

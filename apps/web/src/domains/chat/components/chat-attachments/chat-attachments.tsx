@@ -5,9 +5,9 @@ import { useCallback, useRef, useState } from "react";
 
 import { Button } from "@vellum/design-library";
 
-import { AttachmentChip } from "@/domains/chat/components/chat-attachments/AttachmentChip.js";
-import { AttachmentLoadingChip } from "@/domains/chat/components/chat-attachments/AttachmentLoadingChip.js";
-import { AttachmentPreviewModal } from "@/domains/chat/components/chat-attachments/AttachmentPreviewModal.js";
+import { AttachmentChip } from "@/domains/chat/components/chat-attachments/attachment-chip.js";
+import { AttachmentLoadingChip } from "@/domains/chat/components/chat-attachments/attachment-loading-chip.js";
+import { AttachmentPreviewModal } from "@/domains/chat/components/chat-attachments/attachment-preview-modal.js";
 import type { ChatAttachment, UploadedAttachment } from "@/domains/chat/components/chat-attachments/use-chat-attachments.js";
 import { formatAttachmentSize, middleTruncate } from "@/domains/chat/components/chat-attachments/utils.js";
 

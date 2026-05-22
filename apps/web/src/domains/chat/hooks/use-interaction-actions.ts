@@ -659,7 +659,7 @@ export function useInteractionActions({
 
       useTurnStore.getState().requestSend();
 
-      const ONE_SHOT_SURFACE_TYPES = ["form", "confirmation", "file_upload", "card", "list", "table", "browser_view"];
+      const ONE_SHOT_SURFACE_TYPES = ["form", "confirmation", "file_upload", "card", "list", "table", "browser_view", "task_preferences"];
       setMessages((prev: DisplayMessage[]) => {
         for (let i = prev.length - 1; i >= 0; i--) {
           const surface = prev[i]!.surfaces?.find((s) => s.surfaceId === surfaceId);

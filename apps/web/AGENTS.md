@@ -8,6 +8,7 @@ Read these before making changes:
 
 - **[`docs/CONVENTIONS.md`](./docs/CONVENTIONS.md)** — Architecture, code organization, component patterns, framework strategy, data fetching, testing.
 - **[`docs/STATE_MANAGEMENT.md`](./docs/STATE_MANAGEMENT.md)** — Zustand stores, atomic selectors, TanStack Query, the no-`useReducer` rule.
+- **[`docs/EVENT_BUS.md`](./docs/EVENT_BUS.md)** — Cross-domain push signals (SSE, app lifecycle, network). Single connection, typed events, no per-component `visibilitychange` handlers.
 - **[`docs/STYLE_GUIDE.md`](./docs/STYLE_GUIDE.md)** — Naming, imports, TypeScript, component authoring, formatting.
 - **[`docs/CAPACITOR.md`](./docs/CAPACITOR.md)** — Capacitor / iOS patterns: lazy plugin imports, native auth, deep links, autogrowing textareas, streaming watchdogs, OS permission UI, capability detection, keyboard-only affordances. Mandatory reading if any code path you're touching might run inside the iOS WKWebView shell.
 
@@ -33,7 +34,8 @@ pattern (`assistant/docs/`, `docs/` at the repo root).
 - No `basename` on the router — `/account/*` and `/assistant/*` are explicit top-level branches
 - URL paths are part of the contract — bookmarks and deep links depend on them. Don't rename URL patterns without a deprecation period.
 - **Route protection**: uses React Router v7 [middleware](https://reactrouter.com/how-to/middleware) (`v8_middleware` future flag), not layout gate components or `useEffect` redirects. Auth is always required — the middleware redirects unauthenticated users to `/account/login`. See [`docs/CONVENTIONS.md` — Route protection via middleware](./docs/CONVENTIONS.md#route-protection-via-middleware).
-- **Assistant lifecycle**: owned by `ChatLayout`, passed to child routes via [outlet context](https://reactrouter.com/start/framework/outlet). Child routes consume the resolved `assistantId` via `useAssistantContext()` — never hardcode or independently resolve it.
+- **Assistant lifecycle**: owned by `RootLayout` and passed down via [outlet context](https://reactrouter.com/start/framework/outlet). `ChatLayout` reads it via `useRootOutletContext()` and re-publishes the chat-scoped slice as `AssistantContextValue` for its own children. Routes under `ChatLayout` keep consuming the resolved `assistantId` via `useAssistantContext()` — never hardcode or independently resolve it.
+- **Active-assistant gating**: routes that require a working assistant (queries against `/v1/assistants/{id}/...`, anything that reads or writes per-assistant state) are mounted under `<ActiveAssistantGate>` in `src/routes.tsx`. The gate defers child rendering until `assistantId` is non-null AND `assistantState.kind === "active"`, then re-provides a narrowed outlet context. Inside the gate, call `useActiveAssistantContext()` instead of `useAssistantContext()` — the returned `assistantId` is typed `string` (non-null). **Do not add `if (!assistantId) return null;` guards in gated routes** — the gate makes them unreachable. Routes that intentionally render across non-active states (today: `ChatPage`, `DocumentViewerPage`) live outside the gate and keep using `useAssistantContext()`.
 
 ## Commands
 

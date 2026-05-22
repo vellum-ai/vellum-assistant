@@ -242,6 +242,7 @@ export const onboardingEvents = sqliteTable("onboarding_events", {
   tone: text("tone"),
   googleConnected: integer("google_connected", { mode: "boolean" }),
   googleScopesJson: text("google_scopes_json"),
+  priorAssistantsJson: text("prior_assistants_json"),
   abVariant: text("ab_variant"),
 });
 

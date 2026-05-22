@@ -1,27 +1,9 @@
-import {
-  Calendar,
-  Check,
-  ChevronLeft,
-  ClipboardList,
-  Pencil,
-  Search,
-  User,
-  Wrench,
-  type LucideIcon,
-} from "lucide-react";
+import { Check, ChevronLeft } from "lucide-react";
 
 import { Button } from "@vellum/design-library/components/button";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout.js";
-import { PRECHAT_TASKS } from "@/domains/onboarding/prechat-tasks.js";
-
-const TASK_ICONS = {
-  wrench: Wrench,
-  pencil: Pencil,
-  search: Search,
-  clipboardList: ClipboardList,
-  calendar: Calendar,
-  user: User,
-} as const satisfies Record<string, LucideIcon>;
+import { TASK_ICONS } from "@/components/prechat-task-icons.js";
+import { PRECHAT_TASKS } from "@/types/prechat-tasks.js";
 
 interface TaskToneSelectionScreenProps {
   selectedTasks: Set<string>;
@@ -83,8 +65,7 @@ export function TaskToneSelectionScreen({
           style={{ animation: "fadeInUp 0.3s ease-out 0.2s both" }}
         >
           {PRECHAT_TASKS.map((task) => {
-            const Icon =
-              TASK_ICONS[task.iconKey as keyof typeof TASK_ICONS];
+            const Icon = TASK_ICONS[task.iconKey];
             const isSelected = selectedTasks.has(task.id);
             return (
               <button

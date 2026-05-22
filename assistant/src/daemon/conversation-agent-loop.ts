@@ -26,12 +26,16 @@ import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import {
   contextWindowConfigFromEffective,
   type EffectiveContextWindow,
   resolveEffectiveContextWindow,
 } from "../config/llm-context-resolution.js";
-import { resolveCallSiteConfig } from "../config/llm-resolver.js";
+import {
+  resolveCallSiteConfig,
+  resolveDefaultProfileKey,
+} from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { ContextWindowConfig } from "../config/types.js";
@@ -64,6 +68,7 @@ import {
   getLastUserTimestampBefore,
   getMessageById,
   provenanceFromTrustContext,
+  setLastNotifiedInferenceProfile,
   updateConversationContextWindow,
   updateConversationSlackContextWatermark,
 } from "../memory/conversation-crud.js";
@@ -217,6 +222,10 @@ import {
   SYNC_TAGS,
 } from "./message-types/sync.js";
 import { parseActualTokensFromError } from "./parse-actual-tokens-from-error.js";
+import {
+  classifyQueryComplexity,
+  complexityTierToProfileKey,
+} from "./query-complexity-router.js";
 import type { TraceEmitter } from "./trace-emitter.js";
 import type { TrustContext } from "./trust-context.js";
 import { stripHistoricalWebSearchResults } from "./web-search-history.js";
@@ -537,7 +546,6 @@ export interface AgentLoopConversationContext {
   assistantId?: string;
   voiceCallControlPrompt?: string;
   transportHints?: string[];
-  slackRuntimeContextNotice?: string;
   clientTimezone?: string;
 
   readonly coreToolNames: Set<string>;
@@ -673,8 +681,9 @@ export async function runAgentLoopImpl(
   let yieldedForHandoff = false;
   let yieldedForBudget = false;
   let pendingCheckpointYield: "budget" | "handoff" | null = null;
-  let emitTerminalExit: ((reason: AgentLoopExitReason) => Promise<void>) | null =
-    null;
+  let emitTerminalExit:
+    | ((reason: AgentLoopExitReason) => Promise<void>)
+    | null = null;
 
   // Default user-initiated turns to the `mainAgent` call site. Other
   // invocation contexts (heartbeat, filing, analyze, etc.) pass their own
@@ -696,15 +705,57 @@ export async function runAgentLoopImpl(
   // spawned subagent's background conversation) wins over the row read
   // so the agent loop's own background-skip rule doesn't zero out an
   // explicitly inherited override.
-  const readCurrentOverrideProfile = (): string | undefined =>
-    options?.overrideProfile ??
-    getConversationOverrideProfileFromRow(getConversation(ctx.conversationId));
-
-  const turnOverrideProfile =
+  const userExplicitOverride =
     options?.overrideProfile ??
     getConversationOverrideProfileFromRow(turnStartConversation);
 
   const config = getConfig();
+
+  // Query complexity routing: when no explicit user override is set and the
+  // feature flag is enabled, classify the query and route to the appropriate
+  // profile for this turn. The override is ephemeral (not persisted).
+  let turnOverrideProfile = userExplicitOverride;
+  if (
+    !userExplicitOverride &&
+    turnCallSite === "mainAgent" &&
+    isAssistantFeatureFlagEnabled("query-complexity-routing", config)
+  ) {
+    const tier = await classifyQueryComplexity(content);
+    if (tier && tier !== "balanced") {
+      const routedProfile = complexityTierToProfileKey(tier);
+      if (config.llm.profiles?.[routedProfile]) {
+        turnOverrideProfile = routedProfile;
+      }
+    }
+  }
+
+  // Notify clients when the auto-router selected a non-default profile.
+  if (turnOverrideProfile && turnOverrideProfile !== userExplicitOverride) {
+    const profileEntry = config.llm.profiles?.[turnOverrideProfile];
+    const label = profileEntry?.label ?? turnOverrideProfile;
+    broadcastMessage({
+      type: "turn_profile_auto_routed",
+      conversationId: ctx.conversationId,
+      profile: turnOverrideProfile,
+      profileLabel: label,
+    });
+  }
+
+  // Only use the complexity-routed profile as a fallback — not the initial
+  // explicit override. If a mid-turn session expiry clears the conversation
+  // override, the old behavior (return undefined → revert to workspace
+  // defaults) must be preserved for non-routed turns.
+  const complexityRoutedProfile =
+    turnOverrideProfile !== userExplicitOverride
+      ? turnOverrideProfile
+      : undefined;
+  const readCurrentOverrideProfile = (): string | undefined =>
+    options?.overrideProfile ??
+    getConversationOverrideProfileFromRow(
+      getConversation(ctx.conversationId),
+    ) ??
+    complexityRoutedProfile;
+
   const effectiveContextWindow = resolveEffectiveContextWindow({
     llm: config.llm,
     callSite: turnCallSite,
@@ -1519,6 +1570,26 @@ export async function runAgentLoopImpl(
       }
     }
 
+    // Resolve the effective profile key for this turn and detect changes.
+    // Only inject model_profile into the turn context when the profile
+    // changed since the last turn (or on the first turn of a conversation)
+    // to avoid per-turn token cost.
+    const effectiveProfileKey =
+      turnOverrideProfile ??
+      config.llm.activeProfile ??
+      resolveDefaultProfileKey("mainAgent", config.llm);
+    const lastNotified = turnStartConversation?.lastNotifiedInferenceProfile;
+    let modelProfileStr: string | null = null;
+    if (effectiveProfileKey != null && effectiveProfileKey !== lastNotified) {
+      const profileEntry = config.llm.profiles?.[effectiveProfileKey];
+      const resolved = resolveCallSiteConfig(turnCallSite, config.llm, {
+        overrideProfile: turnOverrideProfile ?? undefined,
+      });
+      const label = profileEntry?.label ?? effectiveProfileKey;
+      modelProfileStr = resolved.model ? `${label} (${resolved.model})` : label;
+      setLastNotifiedInferenceProfile(ctx.conversationId, effectiveProfileKey);
+    }
+
     const baseTurnContext = {
       timestamp,
       interfaceName,
@@ -1527,6 +1598,7 @@ export async function runAgentLoopImpl(
       clientTimezone: timezoneContext.clientTimezone,
       detectedTimezone: timezoneContext.detectedTimezone,
       timeSinceLastMessage,
+      modelProfile: modelProfileStr,
     };
     const unifiedTurnContextStr = buildUnifiedTurnContextBlock(
       isGuardian
@@ -1683,7 +1755,6 @@ export async function runAgentLoopImpl(
       nowScratchpad,
       voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
       transportHints: ctx.transportHints ?? null,
-      slackRuntimeContextNotice: ctx.slackRuntimeContextNotice ?? null,
       isNonInteractive: !isInteractiveResolved,
       isBackgroundConversation: isBackgroundConversationType(
         turnStartConversation?.conversationType,
@@ -3436,7 +3507,6 @@ export async function runAgentLoopImpl(
     ctx.diskPressureCleanupModeActive = false;
     ctx.preactivatedSkillIds = undefined;
     ctx.currentTurnOverrideProfile = undefined;
-    ctx.slackRuntimeContextNotice = undefined;
     // Channel command intents (e.g. Telegram /start) are single-turn metadata.
     // Clear at turn end so they never leak into subsequent unrelated messages.
     ctx.commandIntent = undefined;

@@ -1,24 +1,26 @@
-// Pull-to-refresh gesture hook for the column-reverse chat transcript.
+// Pull-to-refresh gesture hook for the chronological-order chat
+// transcript (flex-col, latest at the visual bottom).
 //
 // Eligibility window: the user must be at the visual bottom of the
-// transcript (latest message). In column-reverse, that means
-// |scrollTop| is small. We use a tighter eligibility threshold than the
-// scroll coordinator's `PINNED_THRESHOLD_PX` because the gesture is
-// disruptive and should only fire when the user is unambiguously
-// looking at the latest message.
+// transcript (latest message). In flex-col, that means
+// `scrollHeight − clientHeight − scrollTop` is small. We use a tighter
+// eligibility threshold than the scroll coordinator's
+// `PINNED_THRESHOLD_PX` because the gesture is disruptive and should
+// only fire when the user is unambiguously looking at the latest
+// message.
 //
-// Drag direction (CRITICAL — this is inverted from a standard PTR):
-// At the visual bottom of a column-reverse transcript the iOS-native
-// pull-to-refresh gesture is an UPWARD finger motion. The latest
-// message sits anchored just above the composer; pulling the finger
-// up opens rubber-band space between the latest bubble and the
-// composer where the spinner reveals itself. A downward finger motion
-// at the visual bottom is the user starting to scroll back through
-// history, NOT a refresh request, and is treated as ineligible.
+// Drag direction: at the visual bottom of a flex-col chat the
+// iOS-native pull-to-refresh gesture is a DOWNWARD finger motion —
+// the same direction Mail/Messages use to refresh the latest. The
+// latest message sits anchored just above the composer; pulling the
+// finger down opens rubber-band space below the latest bubble where
+// the spinner reveals itself. An upward finger motion at the visual
+// bottom is the user starting to scroll back through history, NOT a
+// refresh request, and is treated as ineligible.
 //
-// Concretely: clientY DECREASES when the finger moves up the screen,
-// so we compute pull extent as (startY - currentY). Positive extent
-// means the finger has traveled upward — i.e., the user is pulling.
+// Concretely: clientY INCREASES when the finger moves down the screen,
+// so we compute pull extent as (currentY − startY). Positive extent
+// means the finger has traveled downward — i.e., the user is pulling.
 
 import { useEffect, useRef, useState, type RefObject } from "react";
 
@@ -47,29 +49,44 @@ export interface PullClassification {
 }
 
 /** Compute the pull extent (in px) given the touch's starting and
- *  current Y coordinates. At the visual bottom of a column-reverse
- *  transcript, the pull-to-refresh gesture is an UPWARD finger motion
- *  (clientY decreases). We invert so positive extent means "user is
- *  pulling for refresh." Exposed for direct unit testing — this is
- *  the single source of truth for gesture direction. */
+ *  current Y coordinates. At the visual bottom of a flex-col
+ *  transcript, the pull-to-refresh gesture is a DOWNWARD finger motion
+ *  (clientY increases). Positive extent means the user is pulling
+ *  for refresh. Exposed for direct unit testing — this is the single
+ *  source of truth for gesture direction. */
 export function computePullExtent(args: {
   startY: number;
   currentY: number;
 }): number {
-  return args.startY - args.currentY;
+  return args.currentY - args.startY;
+}
+
+/** Distance (in px) from the visual bottom of the transcript. In
+ *  flex-col layout this is `max(0, scrollHeight − clientHeight −
+ *  scrollTop)`. Clamped at 0 so iOS rubber-band (scrollTop briefly
+ *  above max) doesn't report a negative distance. */
+export function distanceFromBottom(args: {
+  scrollTop: number;
+  scrollHeight: number;
+  clientHeight: number;
+}): number {
+  const max = Math.max(0, args.scrollHeight - args.clientHeight);
+  return Math.max(0, max - args.scrollTop);
 }
 
 /** Pure classification of the current touch state during a drag.
  *  `dragDistance` is the pull extent — positive means the finger
- *  has moved upward from its start (a real pull); non-positive
- *  means the finger is still or has moved downward (no pull).
+ *  has moved downward from its start (a real pull); non-positive
+ *  means the finger is still or has moved upward (no pull).
  *  Exposed for direct unit testing. */
 export function classifyPull(args: {
   scrollTop: number;
+  scrollHeight: number;
+  clientHeight: number;
   dragDistance: number;
 }): PullClassification {
-  const distanceFromBottom = Math.abs(args.scrollTop);
-  const eligible = distanceFromBottom <= PULL_ELIGIBLE_BOTTOM_DISTANCE_PX;
+  const dfb = distanceFromBottom(args);
+  const eligible = dfb <= PULL_ELIGIBLE_BOTTOM_DISTANCE_PX;
   if (!eligible || args.dragDistance <= 0) {
     return { phase: "ineligible", progress: 0, atThreshold: false };
   }
@@ -96,9 +113,11 @@ export function shouldFireThresholdHaptic(args: {
 export function canStartPull(args: {
   isRefreshing: boolean;
   scrollTop: number;
+  scrollHeight: number;
+  clientHeight: number;
 }): boolean {
   if (args.isRefreshing) return false;
-  return Math.abs(args.scrollTop) <= PULL_ELIGIBLE_BOTTOM_DISTANCE_PX;
+  return distanceFromBottom(args) <= PULL_ELIGIBLE_BOTTOM_DISTANCE_PX;
 }
 
 /** Map raw drag distance to the visual pull height. Past the threshold
@@ -204,6 +223,8 @@ export function usePullToRefresh({
       if (!canStartPull({
         isRefreshing: isRefreshingRef.current,
         scrollTop: el.scrollTop,
+        scrollHeight: el.scrollHeight,
+        clientHeight: el.clientHeight,
       })) {
         return;
       }
@@ -237,18 +258,22 @@ export function usePullToRefresh({
       });
       const cls = classifyPull({
         scrollTop: el.scrollTop,
+        scrollHeight: el.scrollHeight,
+        clientHeight: el.clientHeight,
         dragDistance: pullExtent,
       });
       if (cls.phase === "ineligible") {
         // The user scrolled off the bottom (e.g. momentum carried them
-        // past the eligibility window) or is moving the finger downward
-        // (the wrong direction for our reverse PTR). Only treat as a
-        // real cancel if the visual already showed a pull — otherwise
-        // let touchend decide.
-        if (
-          pullExtent < 0 ||
-          Math.abs(el.scrollTop) > PULL_ELIGIBLE_BOTTOM_DISTANCE_PX
-        ) {
+        // past the eligibility window) or is moving the finger upward
+        // (the wrong direction for PTR-at-bottom). Only treat as a real
+        // cancel if the visual already showed a pull — otherwise let
+        // touchend decide.
+        const dfb = distanceFromBottom({
+          scrollTop: el.scrollTop,
+          scrollHeight: el.scrollHeight,
+          clientHeight: el.clientHeight,
+        });
+        if (pullExtent < 0 || dfb > PULL_ELIGIBLE_BOTTOM_DISTANCE_PX) {
           resetVisuals();
         }
         return;
@@ -265,6 +290,15 @@ export function usePullToRefresh({
       }
       setPullDistance(visualPullHeight(pullExtent));
       setIsAtThreshold(cls.atThreshold);
+      // Spinner is the last DOM child of the scroll content (flex-col),
+      // so its growing height extends scrollHeight *below* the current
+      // viewport. Without an explicit follow-scroll the user never sees
+      // the spinner during the pull — in flex-col-reverse this was free
+      // because the visual bottom was anchored to scrollTop=0. Mirror
+      // that anchoring here by pinning to the new bottom on every
+      // touchmove that advances the pull. Cheap (no layout thrash —
+      // scrollTo doesn't force layout when only scrollTop changes).
+      el.scrollTop = el.scrollHeight - el.clientHeight;
     };
 
     const handleTouchEnd = (event: TouchEvent) => {
@@ -283,9 +317,13 @@ export function usePullToRefresh({
           break;
         }
       }
-      const distanceFromBottom = Math.abs(el.scrollTop);
+      const dfb = distanceFromBottom({
+        scrollTop: el.scrollTop,
+        scrollHeight: el.scrollHeight,
+        clientHeight: el.clientHeight,
+      });
       const committed =
-        distanceFromBottom <= PULL_ELIGIBLE_BOTTOM_DISTANCE_PX &&
+        dfb <= PULL_ELIGIBLE_BOTTOM_DISTANCE_PX &&
         finalPullExtent >= PULL_THRESHOLD_PX;
 
       if (!committed) {

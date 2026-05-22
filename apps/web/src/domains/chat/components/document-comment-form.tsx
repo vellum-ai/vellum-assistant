@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { Send } from "lucide-react";
 import { Button } from "@vellum/design-library";
 
@@ -23,7 +23,7 @@ export function DocumentCommentForm({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const handleSubmit = useCallback(
-    async (event: React.FormEvent) => {
+    async (event: FormEvent) => {
       event.preventDefault();
       const trimmed = content.trim();
       if (!trimmed || submitting) return;
@@ -41,7 +41,7 @@ export function DocumentCommentForm({
   );
 
   const handleKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    (event: KeyboardEvent<HTMLTextAreaElement>) => {
       if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
         event.preventDefault();
         void handleSubmit(event);

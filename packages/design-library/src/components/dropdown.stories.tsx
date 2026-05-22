@@ -2,17 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Globe, Lock, Users } from "lucide-react";
 import { useState } from "react";
 
-import { Dropdown, type DropdownOption } from "./dropdown.js";
-
-const meta: Meta = {
-  title: "Components/Dropdown",
-  parameters: {
-    layout: "centered",
-  },
-};
-
-export default meta;
-type Story = StoryObj;
+import { Dropdown, type DropdownOption, type DropdownProps } from "./dropdown.js";
 
 const fruits: DropdownOption<string>[] = [
   { value: "apple", label: "Apple" },
@@ -22,16 +12,41 @@ const fruits: DropdownOption<string>[] = [
   { value: "elderberry", label: "Elderberry" },
 ];
 
+const meta: Meta<DropdownProps<string>> = {
+  title: "Components/Dropdown",
+  component: Dropdown,
+  parameters: {
+    layout: "centered",
+  },
+  argTypes: {
+    placeholder: { control: "text" },
+    disabled: { control: "boolean" },
+    menuAlign: { control: "select", options: ["start", "center", "end"] },
+    menuMaxHeight: { control: "number" },
+    menuMinWidth: { control: "number" },
+    "aria-label": { control: "text" },
+    options: { control: false },
+    value: { control: false },
+    onChange: { control: false },
+  },
+};
+
+export default meta;
+type Story = StoryObj<DropdownProps<string>>;
+
 export const Default: Story = {
-  render: function DefaultDropdown() {
+  args: {
+    "aria-label": "Fruit",
+  },
+  render: function DefaultDropdown(args) {
     const [value, setValue] = useState("apple");
     return (
       <div className="w-64">
         <Dropdown
+          {...args}
           options={fruits}
           value={value}
           onChange={setValue}
-          aria-label="Fruit"
         />
       </div>
     );
@@ -39,16 +54,19 @@ export const Default: Story = {
 };
 
 export const WithPlaceholder: Story = {
-  render: function PlaceholderDropdown() {
+  args: {
+    placeholder: "Select a fruit…",
+    "aria-label": "Fruit",
+  },
+  render: function PlaceholderDropdown(args) {
     const [value, setValue] = useState("");
     return (
       <div className="w-64">
         <Dropdown
+          {...args}
           options={fruits}
           value={value}
           onChange={setValue}
-          placeholder="Select a fruit…"
-          aria-label="Fruit"
         />
       </div>
     );
@@ -66,15 +84,18 @@ const visibilityOptions: DropdownOption<"public" | "team" | "private">[] = [
 ];
 
 export const WithIcons: Story = {
-  render: function IconDropdown() {
+  args: {
+    "aria-label": "Visibility",
+  },
+  render: function IconDropdown(args) {
     const [value, setValue] = useState<"public" | "team" | "private">("public");
     return (
       <div className="w-64">
         <Dropdown
+          {...(args as DropdownProps<"public" | "team" | "private">)}
           options={visibilityOptions}
           value={value}
           onChange={setValue}
-          aria-label="Visibility"
         />
       </div>
     );
@@ -82,14 +103,17 @@ export const WithIcons: Story = {
 };
 
 export const Disabled: Story = {
-  render: () => (
+  args: {
+    disabled: true,
+    "aria-label": "Fruit",
+  },
+  render: (args) => (
     <div className="w-64">
       <Dropdown
+        {...args}
         options={fruits}
         value="banana"
         onChange={() => {}}
-        disabled
-        aria-label="Fruit"
       />
     </div>
   ),
@@ -104,16 +128,19 @@ const manyOptions: DropdownOption<string>[] = Array.from(
 );
 
 export const LongList: Story = {
-  render: function LongListDropdown() {
+  args: {
+    menuMaxHeight: 200,
+    "aria-label": "Option",
+  },
+  render: function LongListDropdown(args) {
     const [value, setValue] = useState("option-1");
     return (
       <div className="w-64">
         <Dropdown
+          {...args}
           options={manyOptions}
           value={value}
           onChange={setValue}
-          menuMaxHeight={200}
-          aria-label="Option"
         />
       </div>
     );
@@ -121,17 +148,20 @@ export const LongList: Story = {
 };
 
 export const EndAligned: Story = {
-  render: function EndAlignedDropdown() {
+  args: {
+    menuAlign: "end",
+    "aria-label": "Fruit",
+  },
+  render: function EndAlignedDropdown(args) {
     const [value, setValue] = useState("apple");
     return (
       <div className="flex w-96 justify-end">
         <div className="w-48">
           <Dropdown
+            {...args}
             options={fruits}
             value={value}
             onChange={setValue}
-            menuAlign="end"
-            aria-label="Fruit"
           />
         </div>
       </div>

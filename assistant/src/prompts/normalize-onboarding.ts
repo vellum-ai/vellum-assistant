@@ -20,6 +20,20 @@ export const TOOL_DISPLAY_NAMES: Record<string, string> = {
 };
 
 /**
+ * Map of known prior-assistant IDs (from the client onboarding UI) to display names.
+ * Unknown IDs pass through with first-letter capitalization via `normalizePriorAssistants`.
+ */
+export const PRIOR_ASSISTANT_DISPLAY_NAMES: Record<string, string> = {
+  chatgpt: "ChatGPT",
+  claude: "Claude",
+  openclaw: "OpenClaw",
+  hermes: "Hermes",
+  manus: "Manus",
+  gemini: "Gemini",
+  copilot: "Copilot",
+};
+
+/**
  * Map of known task IDs to plain-language labels describing what the assistant
  * does for each task category.
  */
@@ -56,12 +70,23 @@ export function normalizeTasks(tasks: string[]): string[] {
   return tasks.map((id) => TASK_DISPLAY_LABELS[id] ?? id);
 }
 
+/**
+ * Maps each prior-assistant ID through `PRIOR_ASSISTANT_DISPLAY_NAMES`,
+ * falling back to first-letter capitalization for unknown IDs.
+ */
+export function normalizePriorAssistants(assistants: string[]): string[] {
+  return assistants.map(
+    (id) => PRIOR_ASSISTANT_DISPLAY_NAMES[id] ?? capitalizeFirst(id),
+  );
+}
+
 export interface NormalizedOnboarding {
   preferredName?: string;
   commonWork: string[];
   dailyTools: string[];
   tone?: string;
   assistantName?: string;
+  priorAssistants?: string[];
   googleConnected?: boolean;
   googleServices?: string[];
   cohort?: string;
@@ -105,6 +130,9 @@ export function normalizeOnboardingContext(
     googleConnected: ctx.googleConnected,
     googleServices: ctx.googleConnected
       ? deriveGoogleServices(ctx.googleScopes)
+      : undefined,
+    priorAssistants: ctx.priorAssistants?.length
+      ? normalizePriorAssistants(ctx.priorAssistants)
       : undefined,
     cohort: ctx.cohort,
     websiteUrl:

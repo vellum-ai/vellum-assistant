@@ -9,7 +9,7 @@ import { SettingsDivider } from "@/domains/settings/components/settings-divider.
 import {
   getLocalSetting,
   setLocalSetting,
-} from "@/domains/settings/local-settings.js";
+} from "@/lib/local-settings.js";
 
 const ENABLED_KEY = "vellum_media_embeds_enabled";
 const ALLOWLIST_KEY = "vellum_media_embed_domains";

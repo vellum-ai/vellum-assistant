@@ -2,9 +2,11 @@ import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router";
 import { type ReactNode } from "react";
 
-import { useAssistantContext } from "@/domains/chat/assistant-context.js";
+import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate.js";
 import { fetchConversationMessages } from "@/domains/chat/api/messages.js";
+import { canUseLlmInspector } from "@/domains/chat/inspector/access.js";
 import { MessageInspectorView } from "@/domains/chat/inspector/components/message-inspector-view.js";
+import { useAuthStore } from "@/stores/auth-store.js";
 
 /**
  * `/assistant/inspect` page. Reads `?conversationKey=...&messageId=...`
@@ -13,9 +15,22 @@ import { MessageInspectorView } from "@/domains/chat/inspector/components/messag
  * conversation.
  */
 export function InspectPage(): ReactNode {
+  const user = useAuthStore.use.user();
+  const authLoading = useAuthStore.use.isLoading();
   const [searchParams] = useSearchParams();
   const conversationKey = searchParams.get("conversationKey");
   const messageId = searchParams.get("messageId");
+
+  if (authLoading) {
+    return <CenteredMessage tone="muted">Loading...</CenteredMessage>;
+  }
+  if (!canUseLlmInspector(user)) {
+    return (
+      <CenteredMessage tone="muted">
+        Inspector is available to Vellum developers only.
+      </CenteredMessage>
+    );
+  }
 
   if (!conversationKey) {
     return <MissingConversationKeyState />;
@@ -38,7 +53,7 @@ function ResolveLatestMessage({
 }: {
   conversationKey: string;
 }): ReactNode {
-  const { assistantId } = useAssistantContext();
+  const { assistantId } = useActiveAssistantContext();
 
   const {
     data: latestAssistantMessageId,
@@ -53,7 +68,6 @@ function ResolveLatestMessage({
       "latest-assistant-message-id",
     ] as const,
     queryFn: async (): Promise<string | null> => {
-      if (!assistantId) return null;
       const messages = await fetchConversationMessages(
         assistantId,
         conversationKey,
@@ -66,12 +80,11 @@ function ResolveLatestMessage({
       }
       return null;
     },
-    enabled: Boolean(assistantId),
     staleTime: 30_000,
   });
 
   if (isLoading) {
-    return <CenteredMessage tone="muted">Loading…</CenteredMessage>;
+    return <CenteredMessage tone="muted">Loading...</CenteredMessage>;
   }
   if (isError) {
     return (

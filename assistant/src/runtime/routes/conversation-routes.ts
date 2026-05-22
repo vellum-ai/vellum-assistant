@@ -24,6 +24,7 @@ import { createApprovalConversationGenerator } from "../../daemon/approval-gener
 import type { Conversation } from "../../daemon/conversation.js";
 import {
   buildModelInfoEvent,
+  formatCleanResult,
   formatCompactResult,
   isModelSlashCommand,
 } from "../../daemon/conversation-process.js";
@@ -45,6 +46,7 @@ import {
   preactivateHostProxySkills,
   shouldAttachHostProxyForCapability,
 } from "../../daemon/host-proxy-preactivation.js";
+import { getAssistantName } from "../../daemon/identity-helpers.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
 import type {
   HostProxyTransportMetadata,
@@ -69,6 +71,7 @@ import {
 } from "../../memory/canonical-guardian-store.js";
 import {
   addMessage,
+  getConversation,
   getMessages,
   getMessagesPaginated,
   hasMessages,
@@ -126,6 +129,7 @@ const log = getLogger("conversation-routes");
 
 /** Matches the `<no_response/>` sentinel used by channel delivery suppression. */
 const NO_RESPONSE_INLINE_RE = /<no_response\s*\/?>/g;
+const ATTACHMENT_ENTRY_RE = /^attachment:(\d+)$/;
 
 const SUGGESTION_CACHE_MAX = 100;
 const VALID_RISK_THRESHOLDS = ["none", "low", "medium", "high"] as const;
@@ -155,6 +159,7 @@ function isHiddenMessage(metadata: string | null): boolean {
 
 function buildSlackHistoryMessage(
   slackMeta: SlackMessageMetadata | null,
+  opts?: { role?: string; assistantDisplayName?: string },
 ): RuntimeMessagePayload["slackMessage"] | undefined {
   if (!slackMeta) return undefined;
 
@@ -178,18 +183,20 @@ function buildSlackHistoryMessage(
         messageTs: replyThreadTs,
       })
     : undefined;
+  const assistantDisplayName =
+    opts?.role === "assistant" ? opts.assistantDisplayName : undefined;
+  const senderDisplayName =
+    slackMeta.displayName?.trim() || assistantDisplayName;
 
   return {
     channelId: slackMeta.channelId,
     ...(slackMeta.channelName ? { channelName: slackMeta.channelName } : {}),
     channelTs: slackMeta.channelTs,
     ...(slackMeta.threadTs ? { threadTs: slackMeta.threadTs } : {}),
-    ...(slackMeta.displayName || slackMeta.actorExternalUserId
+    ...(senderDisplayName || slackMeta.actorExternalUserId
       ? {
           sender: {
-            ...(slackMeta.displayName
-              ? { displayName: slackMeta.displayName }
-              : {}),
+            ...(senderDisplayName ? { displayName: senderDisplayName } : {}),
             ...(slackMeta.actorExternalUserId
               ? { externalUserId: slackMeta.actorExternalUserId }
               : {}),
@@ -423,8 +430,20 @@ export function handleListMessages({
   if (conversationId) {
     resolvedConversationId = conversationId;
   } else if (conversationKey) {
+    // Dual lookup, key-first: prefer the `conversation_keys` table — the
+    // canonical channel/external → internal-id mapping — so legacy or
+    // externally-sourced keys keep their explicit mapping precedence and
+    // never collide with an unrelated `conversations.id`. Fall back to a
+    // direct id lookup only when no mapping exists, which covers
+    // background/scheduled conversations bootstrapped without a
+    // `conversation_keys` row (web clients use the conversation list's
+    // `id` as `conversationKey` for those).
     const mapping = getConversationByKey(conversationKey);
-    resolvedConversationId = mapping?.conversationId;
+    if (mapping) {
+      resolvedConversationId = mapping.conversationId;
+    } else if (getConversation(conversationKey)) {
+      resolvedConversationId = conversationKey;
+    }
   } else {
     throw new BadRequestError(
       "conversationKey or conversationId query parameter is required",
@@ -480,24 +499,31 @@ export function handleListMessages({
   let rawMessages: MessageRow[];
   let hasMore = false;
 
+  // Drop messages flagged as hidden in metadata (e.g. internal scaffolding
+  // like retrospective instructions). The LLM-side history loader
+  // (`getMessages` in memory/conversation-crud.ts) intentionally does not
+  // filter — hidden messages remain in agent context but are suppressed from
+  // the UI list. Filtering is pushed into the paginated query so `hasMore`
+  // and the cursor reflect visible rows; otherwise a fully-hidden page would
+  // return `hasMore: true` with no cursor and stall the web client.
+  // Hidden tool_use/tool_result pairs must be hidden together — if a hidden
+  // assistant message has tool_use blocks but its matching user tool_result
+  // is left visible, the result will render as a standalone orphan because
+  // `mergeToolResultsIntoAssistantMessages` has nothing to merge it into.
+  const visibleFilter = (m: MessageRow) => !isHiddenMessage(m.metadata);
+
   if (isPaginated) {
     const result = getMessagesPaginated(
       resolvedConversationId,
       limit,
       beforeTimestamp,
+      visibleFilter,
     );
     rawMessages = result.messages;
     hasMore = result.hasMore;
   } else {
-    rawMessages = getMessages(resolvedConversationId);
+    rawMessages = getMessages(resolvedConversationId).filter(visibleFilter);
   }
-
-  // Drop messages flagged as hidden in metadata (e.g. internal scaffolding
-  // like retrospective instructions). The LLM-side history loader
-  // (`getMessages` in memory/conversation-crud.ts) intentionally does not
-  // filter — hidden messages remain in agent context but are suppressed from
-  // the UI list.
-  rawMessages = rawMessages.filter((m) => !isHiddenMessage(m.metadata));
 
   // During streaming, tool_use (assistant) and tool_result (user) events are
   // assembled client-side into a single assistant ChatMessage. On reload, they
@@ -515,6 +541,7 @@ export function handleListMessages({
   // (consecutive tool refs grouped together).
   const { messages: consolidatedMessages, mergedIdMap } =
     mergeConsecutiveAssistantMessages(mergedMessages);
+  const assistantSlackDisplayName = getAssistantName()?.trim() || undefined;
 
   // Parse content blocks and extract text + tool calls
   const parsed = consolidatedMessages.map((msg) => {
@@ -566,6 +593,10 @@ export function handleListMessages({
     }
     const slackMessage = buildSlackHistoryMessage(
       readSlackMetadataFromMessageMetadata(msg.metadata),
+      {
+        role: msg.role,
+        assistantDisplayName: assistantSlackDisplayName,
+      },
     );
 
     // Strip <no_response/> markers from assistant messages so web/API
@@ -606,6 +637,7 @@ export function handleListMessages({
         textSegments: filteredSegments,
         contentOrder: filteredContentOrder,
         surfaces: rendered.surfaces,
+        attachmentRefs: rendered.attachments,
         slackMessage,
         ...(rendered.thinkingSegments.length > 0
           ? { thinkingSegments: rendered.thinkingSegments }
@@ -625,6 +657,7 @@ export function handleListMessages({
       textSegments: rendered.textSegments,
       contentOrder: rendered.contentOrder,
       surfaces: rendered.surfaces,
+      attachmentRefs: rendered.attachments,
       slackMessage,
       ...(rendered.thinkingSegments.length > 0
         ? { thinkingSegments: rendered.thinkingSegments }
@@ -680,6 +713,78 @@ export function handleListMessages({
       }
     }
 
+    // Align msgAttachments order with the file-block order captured by
+    // renderHistoryContent. When a file block was persisted with
+    // `_attachmentId`, we can join on that id to position the chip inline
+    // (the `attachment:N` entries in contentOrder index into msgAttachments).
+    // DB rows without a matching ref go to the tail as orphan chips;
+    // unmatched refs drop their contentOrder entry and trigger a remap.
+    let alignedContentOrder = m.contentOrder;
+    if (
+      m.attachmentRefs.length > 0 &&
+      msgAttachments.length > 0 &&
+      m.contentOrder.length > 0
+    ) {
+      const byId = new Map<string, number>();
+      msgAttachments.forEach((att, idx) => {
+        if (att.id) byId.set(att.id, idx);
+      });
+      const consumed = new Set<number>();
+      const orderedRowIdx: Array<number | null> = m.attachmentRefs.map(
+        (ref) => {
+          if (!ref.attachmentId) return null;
+          const idx = byId.get(ref.attachmentId);
+          if (idx === undefined || consumed.has(idx)) return null;
+          consumed.add(idx);
+          return idx;
+        },
+      );
+      const matchedRows = orderedRowIdx.filter(
+        (idx): idx is number => idx !== null,
+      );
+      if (matchedRows.length > 0) {
+        const orphanRows: number[] = [];
+        for (let i = 0; i < msgAttachments.length; i++) {
+          if (!consumed.has(i)) orphanRows.push(i);
+        }
+        msgAttachments = [
+          ...matchedRows.map((i) => msgAttachments[i]),
+          ...orphanRows.map((i) => msgAttachments[i]),
+        ];
+        const refToNewIdx = new Map<number, number>();
+        let nextIdx = 0;
+        orderedRowIdx.forEach((rowIdx, refIdx) => {
+          if (rowIdx !== null) {
+            refToNewIdx.set(refIdx, nextIdx);
+            nextIdx++;
+          }
+        });
+        alignedContentOrder = m.contentOrder
+          .map((entry) => {
+            const match = entry.match(ATTACHMENT_ENTRY_RE);
+            if (!match) return entry;
+            const remapped = refToNewIdx.get(Number(match[1]));
+            return remapped !== undefined
+              ? `attachment:${remapped}`
+              : undefined;
+          })
+          .filter((e): e is string => e !== undefined);
+      } else {
+        // No refs carried an attachmentId we could match — strip any
+        // attachment:N entries so the client doesn't try to position
+        // attachments inline against a misaligned array.
+        alignedContentOrder = m.contentOrder.filter(
+          (entry) => !ATTACHMENT_ENTRY_RE.test(entry),
+        );
+      }
+    } else if (m.attachmentRefs.length > 0 && msgAttachments.length === 0) {
+      // Refs were captured but no DB rows came back — drop the
+      // contentOrder entries to avoid out-of-bounds renders.
+      alignedContentOrder = m.contentOrder.filter(
+        (entry) => !ATTACHMENT_ENTRY_RE.test(entry),
+      );
+    }
+
     // Use sentAt (actual event time) for the display timestamp when
     // available, falling back to createdAt (persistence time).
     // Note: clients use this display timestamp as their pagination cursor
@@ -705,7 +810,9 @@ export function handleListMessages({
       ...(m.thinkingSegments?.length
         ? { thinkingSegments: m.thinkingSegments }
         : {}),
-      ...(m.contentOrder.length > 0 ? { contentOrder: m.contentOrder } : {}),
+      ...(alignedContentOrder.length > 0
+        ? { contentOrder: alignedContentOrder }
+        : {}),
       ...(m.subagentNotification
         ? { subagentNotification: m.subagentNotification }
         : {}),
@@ -1074,6 +1181,7 @@ export function persistOnboardingArtifacts(onboarding: {
   tone: string;
   userName?: string;
   assistantName?: string;
+  priorAssistants?: string[];
   cohort?: string;
   websiteUrl?: string;
   contentSourceUrl?: string;
@@ -1154,6 +1262,7 @@ export async function handleSendMessage(
       assistantName?: string;
       googleConnected?: boolean;
       googleScopes?: string[];
+      priorAssistants?: string[];
       cohort?: string;
       websiteUrl?: string;
       contentSourceUrl?: string;
@@ -1511,6 +1620,10 @@ export async function handleSendMessage(
       : ("content-source" as const);
     effectiveContent = buildScanFirstMessage(scanUrl, scanVariant);
     // Fall through to normal inference path below
+  } else if (isWakeUp && body.onboarding?.cohort === "content-automation") {
+    effectiveContent = "I want to write articles that rank better in GEO";
+    // Fall through to normal inference path — the bootstrap template
+    // and geo-writing skill handle this message.
   } else if (isWakeUp) {
     const cannedGreeting = getCannedFirstGreeting(body.onboarding ?? undefined);
 
@@ -1575,6 +1688,7 @@ export async function handleSendMessage(
             tone: body.onboarding!.tone,
             googleConnected: body.onboarding!.googleConnected,
             googleScopes: body.onboarding!.googleScopes,
+            priorAssistants: body.onboarding!.priorAssistants,
           });
         } catch (err) {
           log.warn({ err }, "Failed to record onboarding telemetry event");
@@ -1629,6 +1743,7 @@ export async function handleSendMessage(
         tone: body.onboarding!.tone,
         googleConnected: body.onboarding!.googleConnected,
         googleScopes: body.onboarding!.googleScopes,
+        priorAssistants: body.onboarding!.priorAssistants,
       });
     } catch (err) {
       log.warn({ err }, "Failed to record onboarding telemetry event");
@@ -1765,6 +1880,7 @@ export async function handleSendMessage(
       accepted: true,
       queued: true,
       conversationId: mapping.conversationId,
+      requestId,
     };
   }
 
@@ -2017,6 +2133,82 @@ export async function handleSendMessage(
         );
       }
     })();
+
+    return {
+      accepted: true,
+      messageId: persisted.id,
+      conversationId,
+    };
+  }
+
+  if (slashResult.kind === "clean") {
+    conversation.processing = true;
+    const provenance = provenanceFromTrustContext(conversation.trustContext);
+    const channelMeta = {
+      ...provenance,
+      userMessageChannel: sourceChannel,
+      assistantMessageChannel: sourceChannel,
+      userMessageInterface: sourceInterface,
+      assistantMessageInterface: sourceInterface,
+    };
+    const cleanMsg = createUserMessage(rawContent, attachments);
+    const persisted = await addMessage(
+      mapping.conversationId,
+      "user",
+      JSON.stringify(cleanMsg.content),
+      channelMeta,
+    );
+    conversation.getMessages().push(cleanMsg);
+
+    const conversationId = mapping.conversationId;
+
+    let assistantMessagePersisted = false;
+    try {
+      broadcastMessage({
+        type: "user_message_echo",
+        text: rawContent,
+        conversationId,
+        messageId: persisted.id,
+        clientMessageId,
+      });
+      publishConversationMessagesChanged(conversationId);
+
+      const result = await conversation.forceClean();
+      const responseText = formatCleanResult(result);
+
+      const assistantMsg = createAssistantMessage(responseText);
+      await addMessage(
+        conversationId,
+        "assistant",
+        JSON.stringify(assistantMsg.content),
+        channelMeta,
+      );
+      assistantMessagePersisted = true;
+      conversation.getMessages().push(assistantMsg);
+
+      broadcastMessage({
+        type: "assistant_text_delta",
+        text: responseText,
+        conversationId,
+      });
+      broadcastMessage({ type: "message_complete", conversationId });
+      publishConversationMessagesChanged(conversationId);
+    } catch (err) {
+      if (assistantMessagePersisted) {
+        publishConversationMessagesChanged(conversationId);
+      }
+      log.error({ err, conversationId }, "Clean command failed");
+      broadcastMessage({
+        type: "conversation_error",
+        conversationId,
+        code: "UNKNOWN",
+        userMessage: `Clean failed: ${err instanceof Error ? err.message : String(err)}`,
+        retryable: true,
+      });
+    } finally {
+      conversation.processing = false;
+      silentlyWithLog(conversation.drainQueue(), "clean-command queue drain");
+    }
 
     return {
       accepted: true,

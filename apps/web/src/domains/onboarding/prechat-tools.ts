@@ -14,6 +14,8 @@
  * dark-on-light by default).
  */
 
+import { publicAsset } from "@/lib/public-asset.js";
+
 export interface PreChatToolItem {
   id: string;
   label: string;
@@ -24,46 +26,46 @@ export interface PreChatToolItem {
 export const GOOGLE_TOOL_IDS = new Set(["gmail", "google-calendar", "google-drive"]);
 
 export const PRECHAT_TOOLS: PreChatToolItem[] = [
-  { id: "gmail", label: "Gmail", logoSrc: "/images/integrations/gmail.svg" },
+  { id: "gmail", label: "Gmail", logoSrc: publicAsset("/images/integrations/gmail.svg") },
   {
     id: "outlook",
     label: "Outlook",
-    logoSrc: "/images/integrations/outlook.png",
+    logoSrc: publicAsset("/images/integrations/outlook.png"),
   },
   {
     id: "google-calendar",
     label: "Google Calendar",
-    logoSrc: "/images/integrations/google-calendar.svg",
+    logoSrc: publicAsset("/images/integrations/google-calendar.svg"),
   },
-  { id: "slack", label: "Slack", logoSrc: "/images/integrations/slack.svg" },
-  { id: "notion", label: "Notion", logoSrc: "/images/integrations/notion.svg" },
+  { id: "slack", label: "Slack", logoSrc: publicAsset("/images/integrations/slack.svg") },
+  { id: "notion", label: "Notion", logoSrc: publicAsset("/images/integrations/notion.svg") },
   {
     id: "linear",
     label: "Linear",
-    logoSrc: "/images/integrations/linear-light-logo.svg",
+    logoSrc: publicAsset("/images/integrations/linear-light-logo.svg"),
   },
   {
     id: "jira",
     label: "Jira",
-    logoSrc: "/images/integrations/jira.svg",
+    logoSrc: publicAsset("/images/integrations/jira.svg"),
   },
   {
     id: "github",
     label: "GitHub",
-    logoSrc: "/images/integrations/github.svg",
-    logoSrcDark: "/images/integrations/github-dark.svg",
+    logoSrc: publicAsset("/images/integrations/github.svg"),
+    logoSrcDark: publicAsset("/images/integrations/github-dark.svg"),
   },
-  { id: "figma", label: "Figma", logoSrc: "/images/integrations/figma.svg" },
+  { id: "figma", label: "Figma", logoSrc: publicAsset("/images/integrations/figma.svg") },
   {
     id: "google-drive",
     label: "Google Drive",
-    logoSrc: "/images/integrations/google-drive.svg",
+    logoSrc: publicAsset("/images/integrations/google-drive.svg"),
   },
-  { id: "excel", label: "Excel", logoSrc: "/images/integrations/excel.svg" },
+  { id: "excel", label: "Excel", logoSrc: publicAsset("/images/integrations/excel.svg") },
   {
     id: "apple-notes",
     label: "Apple Notes",
-    logoSrc: "/images/integrations/apple-notes.svg",
+    logoSrc: publicAsset("/images/integrations/apple-notes.svg"),
   },
 ];
 

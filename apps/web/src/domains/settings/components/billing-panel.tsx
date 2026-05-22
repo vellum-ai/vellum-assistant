@@ -132,7 +132,7 @@ export function BillingPanel() {
           variant="body-small-default"
           className="mt-2 text-[var(--content-tertiary)]"
         >
-          Quick overview of your balances and other things
+          An overview of your credit balance and pending charges.
         </Typography>
       </div>
       <Button

@@ -3878,6 +3878,15 @@ final class MockConversationQueueClient: ConversationQueueClientProtocol, @unche
         }
         return deleteResult
     }
+
+    var steerResult: Bool = true
+
+    func steerQueuedMessage(conversationId: String, requestId: String) async -> Bool {
+        queue.sync {
+            _calls.append(Call(conversationId: conversationId, requestId: requestId))
+        }
+        return steerResult
+    }
 }
 
 private struct FakeSubagentClient: SubagentClientProtocol {

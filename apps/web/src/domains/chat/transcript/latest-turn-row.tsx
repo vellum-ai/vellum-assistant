@@ -38,9 +38,11 @@ export interface LatestTurnRowProps {
   onConfirmationDecision: (requestId: string, decision: string) => void;
   onRetryError: () => void;
   onForkConversation?: (messageId: string) => void;
+  onInspectMessage?: (messageId: string) => void;
   renderPendingSecret?: (requestId: string) => ReactNode;
   renderPendingConfirmation?: (requestId: string) => ReactNode;
   renderPendingContactRequest?: (requestId: string) => ReactNode;
+  renderOnboardingChoice?: () => ReactNode;
   onOpenRuleEditor?: (context: {
     toolName: string;
     riskLevel?: string;
@@ -88,9 +90,11 @@ export const LatestTurnRow = memo(function LatestTurnRow({
   onConfirmationDecision,
   onRetryError,
   onForkConversation,
+  onInspectMessage,
   renderPendingSecret,
   renderPendingConfirmation,
   renderPendingContactRequest,
+  renderOnboardingChoice,
   onOpenRuleEditor,
   unknownNudgeToolCallIds,
   onDismissUnknownNudge,
@@ -121,9 +125,11 @@ export const LatestTurnRow = memo(function LatestTurnRow({
         onConfirmationDecision={onConfirmationDecision}
         onRetryError={onRetryError}
         onForkConversation={onForkConversation}
+        onInspectMessage={onInspectMessage}
         renderPendingSecret={renderPendingSecret}
         renderPendingConfirmation={renderPendingConfirmation}
         renderPendingContactRequest={renderPendingContactRequest}
+        renderOnboardingChoice={renderOnboardingChoice}
         onOpenRuleEditor={onOpenRuleEditor}
         unknownNudgeToolCallIds={unknownNudgeToolCallIds}
         onDismissUnknownNudge={onDismissUnknownNudge}
@@ -146,9 +152,11 @@ export const LatestTurnRow = memo(function LatestTurnRow({
             onConfirmationDecision={onConfirmationDecision}
             onRetryError={onRetryError}
             onForkConversation={onForkConversation}
+            onInspectMessage={onInspectMessage}
             renderPendingSecret={renderPendingSecret}
             renderPendingConfirmation={renderPendingConfirmation}
             renderPendingContactRequest={renderPendingContactRequest}
+            renderOnboardingChoice={renderOnboardingChoice}
             onOpenRuleEditor={onOpenRuleEditor}
             unknownNudgeToolCallIds={unknownNudgeToolCallIds}
             onDismissUnknownNudge={onDismissUnknownNudge}
@@ -171,7 +179,15 @@ export const LatestTurnRow = memo(function LatestTurnRow({
             )}
         </Fragment>
       ))}
-      {avatarSlot && responseItems.length > 0 && (
+      {avatarSlot && (
+        // Render whenever a slot is provided — including the "user just
+        // sent, response hasn't streamed yet" gap. Gating on
+        // `responseItems.length > 0` here causes the avatar to unmount
+        // and remount across the turn boundary, replaying the
+        // ChatAvatar entrance spring as a visible flicker. Keeping the
+        // slot mounted preserves DOM identity; the avatar's already-
+        // wired `isStreaming` prop drives the "thinking" beat while V
+        // composes a reply.
         <div
           data-latest-assistant-avatar="true"
           className="flex justify-start pl-1 pt-3 pb-2"

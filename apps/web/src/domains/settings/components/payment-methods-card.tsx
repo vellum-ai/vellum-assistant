@@ -39,8 +39,7 @@ function PaymentMethodHeading() {
         variant="body-small-default"
         className="mt-2 text-[var(--content-tertiary)]"
       >
-        This is mostly required for auto-top ups, which don&rsquo;t redirect
-        you to Stripe.
+        This is the payment method that will be used for automated credit reloads.
       </Typography>
     </div>
   );
@@ -154,19 +153,9 @@ export function PaymentMethodsCard() {
         <div className="flex flex-col gap-4">
           <PaymentMethodHeading />
           {!config.has_payment_method ? (
-            <SkillRow
-              icon={<CreditCard className="h-3.5 w-3.5" aria-hidden />}
-              title="No payment method"
-              subtitle="Add a card to enable automatic top-ups"
-              action={
-                <Button
-                  variant="outlined"
-                  onClick={() => setPmModalOpen(true)}
-                >
-                  Add payment method
-                </Button>
-              }
-            />
+            <Button className="self-start" onClick={() => setPmModalOpen(true)}>
+              Add Card
+            </Button>
           ) : (
             <SkillRow
               icon={<CreditCard className="h-3.5 w-3.5" aria-hidden />}

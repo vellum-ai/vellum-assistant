@@ -1,5 +1,5 @@
 
-import { Pencil, X } from "lucide-react";
+import { ArrowUp, Pencil, X } from "lucide-react";
 import { useCallback, type ReactNode } from "react";
 
 import { Button } from "@vellum/design-library";
@@ -13,6 +13,8 @@ export interface QueuedMessagesDrawerProps {
   queuedMessages: DisplayMessage[];
   onCancelMessage: (stableId: string) => void;
   onCancelAll: () => void;
+  onSteer: (stableId: string) => void;
+  showSteer: boolean;
   onEditTail: () => void;
 }
 
@@ -25,6 +27,8 @@ interface QueuedMessageRowProps {
   position: number;
   isTail: boolean;
   onCancel: () => void;
+  onSteer: () => void;
+  showSteer: boolean;
   onEdit: () => void;
 }
 
@@ -33,6 +37,8 @@ function QueuedMessageRow({
   position,
   isTail,
   onCancel,
+  onSteer,
+  showSteer,
   onEdit,
 }: QueuedMessageRowProps) {
   return (
@@ -52,6 +58,16 @@ function QueuedMessageRow({
 
       {/* Action icons */}
       <div className="flex shrink-0 items-center gap-0.5">
+        {showSteer && (
+          <Button
+            variant="ghost"
+            size="compact"
+            className="max-md:h-6 max-md:w-6 max-md:bg-transparent max-md:rounded-md"
+            iconOnly={<ArrowUp className="h-3.5 w-3.5" />}
+            onClick={onSteer}
+            aria-label="Push to agent"
+          />
+        )}
         {isTail && (
           <Button
             variant="ghost"
@@ -83,6 +99,8 @@ export function QueuedMessagesDrawer({
   queuedMessages,
   onCancelMessage,
   onCancelAll,
+  onSteer,
+  showSteer,
   onEditTail,
 }: QueuedMessagesDrawerProps): ReactNode {
   const handleCancelMessage = useCallback(
@@ -123,6 +141,8 @@ export function QueuedMessagesDrawer({
               position={idx + 1}
               isTail={idx === queuedMessages.length - 1}
               onCancel={() => handleCancelMessage(msg.stableId)}
+              onSteer={() => onSteer(msg.stableId)}
+              showSteer={showSteer}
               onEdit={onEditTail}
             />
           ))}

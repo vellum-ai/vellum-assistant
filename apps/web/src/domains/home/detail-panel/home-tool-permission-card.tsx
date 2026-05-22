@@ -47,7 +47,7 @@ export function HomeToolPermissionCard({
         variant="body-medium-default"
         className="text-[var(--content-secondary)]"
       >
-        {item.title}
+        {item.title ?? item.summary}
       </Typography>
     );
   }

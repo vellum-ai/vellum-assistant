@@ -4,7 +4,7 @@ import { type MutableRefObject, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { patchConversation } from "@/domains/conversations/conversation-queries.js";
-import { isSlackConversation } from "@/domains/chat/utils/groupConversations.js";
+import { isSlackConversation } from "@/domains/chat/utils/group-conversations.js";
 
 import { haptic } from "@/utils/haptics.js";
 

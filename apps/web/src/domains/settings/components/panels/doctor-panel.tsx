@@ -28,9 +28,11 @@ import {
 } from "@/generated/api/@tanstack/react-query.gen.js";
 import { assistantsMaintenanceModeExitCreate } from "@/generated/api/sdk.gen.js";
 import { getAssistant } from "@/assistant/api.js";
-import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf.js";
+import {
+  buildVellumHeaders,
+  buildVellumMutatingHeaders,
+} from "@/lib/auth/request-headers.js";
 import { reportError } from "@/lib/errors/report.js";
-import { getActiveOrganizationIdForRequests } from "@/stores/organization-store.js";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity.js";
 import { isPointerCoarse } from "@/utils/pointer.js";
 import { ShareFeedbackModal } from "@/components/share-feedback-modal.js";
@@ -50,6 +52,14 @@ import {
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+
+const APPROVAL_RESPONSES = new Set([
+  "approve",
+  "approve all exec",
+  "approve all future exec commands",
+  "approve_all_exec",
+  "deny",
+]);
 
 type DoctorEvent =
   | { type: "message"; content: string }
@@ -87,15 +97,9 @@ function nextId(): string {
 }
 
 async function doctorFetch(url: string, init?: RequestInit): Promise<Response> {
-  await ensureCsrfCookie();
-  const csrfToken = getCsrfToken();
-  const orgId = getActiveOrganizationIdForRequests();
-
-  const headers: Record<string, string> = {
+  const headers = await buildVellumMutatingHeaders({
     "Content-Type": "application/json",
-    ...(csrfToken ? { "X-CSRFToken": csrfToken } : {}),
-    ...(orgId ? { "Vellum-Organization-Id": orgId } : {}),
-  };
+  });
 
   return fetch(url, {
     ...init,
@@ -300,6 +304,7 @@ function ApprovalBlock({
   const [showDetails, setShowDetails] = useState(false);
 
   const hasDetails = !!toolName || !!description || !!input;
+  const canApproveFutureExecCommands = toolName === "exec_command";
 
   return (
     <div className="rounded-lg border border-[var(--border-base)] bg-[var(--surface-lift)] p-4">
@@ -320,6 +325,16 @@ function ApprovalBlock({
           >
             Allow once
           </button>
+          {canApproveFutureExecCommands && (
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() => onRespond("approve all exec")}
+              className="flex items-center gap-1.5 rounded-md border border-[var(--system-positive-strong)] bg-[var(--surface-lift)] px-3 py-1.5 text-body-small-default text-[var(--system-positive-strong)] transition-colors hover:bg-[var(--system-positive-weak)] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Always Allow
+            </button>
+          )}
           <button
             type="button"
             disabled={disabled}
@@ -591,16 +606,10 @@ export function DoctorPanel({
           const response = await fetch(url, {
             signal: controller.signal,
             credentials: "include",
-            headers: {
+            headers: buildVellumHeaders({
               Accept: "text/event-stream",
               ...getClientRegistrationHeaders(),
-              ...(getActiveOrganizationIdForRequests()
-                ? {
-                    "Vellum-Organization-Id":
-                      getActiveOrganizationIdForRequests()!,
-                  }
-                : {}),
-            },
+            }),
           });
 
           if (!isCurrentStream()) return;
@@ -929,7 +938,7 @@ export function DoctorPanel({
       appendEntry({ kind: "user", content: text });
       setInputValue("");
 
-      if (text.toLowerCase() === "approve" || text.toLowerCase() === "deny") {
+      if (APPROVAL_RESPONSES.has(text.toLowerCase())) {
         setPendingApproval(false);
       }
 

@@ -29,6 +29,7 @@ export interface BuildTranscriptItemsInput {
   /** Daemon-provided activity label for the thinking indicator. */
   thinkingLabel?: string | null;
   errorNotice: string | null;
+  showOnboardingChoice?: boolean;
 }
 
 /**
@@ -149,6 +150,12 @@ export function buildTranscriptItems(
     });
   }
 
+  if (input.showOnboardingChoice) {
+    items.push({
+      kind: "onboardingChoice",
+      key: "onboarding-choice",
+    });
+  }
 
   return items;
 }

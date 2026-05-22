@@ -736,21 +736,25 @@ describe("SlackSocketModeClient thread tracking", () => {
     }
   });
 
-  test("forwards resolved channel name in runtime source metadata", async () => {
+  test("emits a plain app mention without resolving the event channel name", async () => {
     const { rawDb, store } = createSlackStore();
     const config = makeConfig();
     const emitted: NormalizedSlackEvent[] = [];
     const client = createHarness(store, (event) => emitted.push(event));
     const ws = makeOpenSocket();
+    const conversationInfoChannels: string[] = [];
 
     fetchMock = mock(async (input) => {
       const url = new URL(String(input));
       if (url.pathname.endsWith("/conversations.info")) {
-        expect(url.searchParams.get("channel")).toBe("C-thread");
+        const channelId = url.searchParams.get("channel");
+        if (channelId) {
+          conversationInfoChannels.push(channelId);
+        }
         return new Response(
           JSON.stringify({
             ok: true,
-            channel: { id: "C-thread", name: "support-triage" },
+            channel: { id: channelId, name: "support-triage" },
           }),
           { status: 200, headers: { "content-type": "application/json" } },
         );
@@ -779,16 +783,15 @@ describe("SlackSocketModeClient thread tracking", () => {
       await flushAsyncEventEmission();
 
       expect(emitted).toHaveLength(1);
-      expect(emitted[0].event.source.channelName).toBe("support-triage");
+      expect(emitted[0].event.source.channelName).toBeUndefined();
+      expect(conversationInfoChannels).toEqual([]);
 
       await handleInbound(config, emitted[0].event, {
         routingOverride: emitted[0].routing,
       });
 
       expect(runtimePayloads).toHaveLength(1);
-      expect(runtimePayloads[0].sourceMetadata?.channelName).toBe(
-        "support-triage",
-      );
+      expect(runtimePayloads[0].sourceMetadata?.channelName).toBeUndefined();
     } finally {
       rawDb.close();
     }
@@ -843,7 +846,7 @@ describe("SlackSocketModeClient thread tracking", () => {
       expect(emitted[0].event.message.content).toBe(
         "@Example User continue in #visible-name",
       );
-      expect(conversationInfoChannels).toEqual(["C-thread"]);
+      expect(conversationInfoChannels).toEqual([]);
     } finally {
       rawDb.close();
     }

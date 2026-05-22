@@ -12,6 +12,7 @@ import { useConversationStore } from "@/domains/conversations/conversation-store
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import { useTurnStore } from "@/domains/messaging/turn-store.js";
+import { useViewerStore } from "@/stores/viewer-store.js";
 import type { DiskPressureStatusEventPayload } from "@/assistant/use-disk-pressure-monitor.js";
 import {
   recordChatDiagnostic,
@@ -25,23 +26,36 @@ import {
 import {
   handleOpenUrl,
   handleNavigateSettings,
+} from "@/domains/chat/utils/stream-handlers/navigation-handlers.js";
+import {
   handleAssistantTextDelta,
   handleAssistantActivityState,
   handleMessageComplete,
   handleGenerationHandoff,
   handleGenerationCancelled,
+} from "@/domains/chat/utils/stream-handlers/message-handlers.js";
+import {
   handleStreamError,
   handleConversationErrorEvent,
+} from "@/domains/chat/utils/stream-handlers/error-handlers.js";
+import {
   handleSecretRequest,
   handleConfirmationRequest,
   handleContactRequest,
   handleQuestionRequest,
+} from "@/domains/chat/utils/stream-handlers/interaction-handlers.js";
+import {
   handleUISurfaceShow,
   handleUISurfaceUpdate,
   handleUISurfaceDismiss,
   handleUISurfaceComplete,
+} from "@/domains/chat/utils/stream-handlers/surface-handlers.js";
+import {
   handleToolUseStart,
+  handleToolProgress,
   handleToolResult,
+} from "@/domains/chat/utils/stream-handlers/tool-call-handlers.js";
+import {
   handleUsageUpdate,
   handleConversationListInvalidated,
   handleConversationTitleUpdated,
@@ -51,16 +65,22 @@ import {
   handleDiskPressureStatusChanged,
   handleIdentityChanged,
   handleAvatarUpdated,
+} from "@/domains/chat/utils/stream-handlers/metadata-handlers.js";
+import {
   handleMessageQueued,
   handleMessageDequeued,
   handleMessageQueuedDeleted,
   handleMessageRequestComplete,
+} from "@/domains/chat/utils/stream-handlers/queue-handlers.js";
+import {
   handleSubagentSpawned,
   handleSubagentStatusChanged,
   handleSubagentEvent,
-  type StreamHandlerContext,
-  type StreamContext,
-} from "@/domains/chat/utils/stream-handlers/index.js";
+} from "@/domains/chat/utils/stream-handlers/subagent-handlers.js";
+import type {
+  StreamHandlerContext,
+  StreamContext,
+} from "@/domains/chat/utils/stream-handlers/types.js";
 
 export type {
   ChatError,
@@ -353,6 +373,9 @@ export function useStreamEventHandler(
         case "tool_use_start":
           handleToolUseStart(event, ctx);
           break;
+        case "tool_progress":
+          handleToolProgress(event, ctx);
+          break;
         case "tool_result":
           handleToolResult(event, ctx);
           break;
@@ -413,10 +436,22 @@ export function useStreamEventHandler(
         case "sync_changed":
           dispatchSyncChanged(event);
           break;
+        case "document_editor_update":
+          useViewerStore.getState().updateDocumentContent(
+            event.surfaceId,
+            event.markdown,
+            event.mode,
+          );
+          break;
         case "document_comment_created":
         case "document_comment_resolved":
         case "document_comment_reopened":
         case "document_comment_deleted":
+        case "interaction_resolved":
+          // Attention reconciliation lives in `useAttentionTracking`, which
+          // subscribes to the event bus directly. The chat-stream handler
+          // is intentionally a no-op here.
+          break;
         case "unknown":
           break;
         default: {

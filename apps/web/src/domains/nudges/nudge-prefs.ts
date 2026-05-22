@@ -9,7 +9,7 @@
 import {
   getLocalSetting,
   setLocalSetting,
-} from "@/domains/settings/local-settings.js";
+} from "@/lib/local-settings.js";
 
 export function readBooleanPref(key: string, defaultValue: boolean): boolean {
   if (typeof window === "undefined") return defaultValue;

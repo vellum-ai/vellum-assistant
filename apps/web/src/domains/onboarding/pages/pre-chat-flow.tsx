@@ -1,6 +1,6 @@
 import * as Sentry from "@sentry/browser";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { useIsIOSWeb } from "@/domains/nudges/ios-app-platform.js";
@@ -11,6 +11,7 @@ import { GetIOSAppScreen } from "@/domains/onboarding/screens/get-ios-app-screen
 import { GetMacOSAppScreen } from "@/domains/onboarding/screens/get-macos-app-screen.js";
 import { GoogleConnectScreen } from "@/domains/onboarding/screens/google-connect-screen.js";
 import { NameExchangeScreen } from "@/domains/onboarding/screens/name-exchange-screen.js";
+import { PriorAssistantSelectionScreen } from "@/domains/onboarding/screens/prior-assistant-selection-screen.js";
 import { NameStepScreen } from "@/domains/onboarding/screens/name-step-screen.js";
 import { TaskToneSelectionScreen } from "@/domains/onboarding/screens/task-tone-selection-screen.js";
 import { ToolSelectionScreen } from "@/domains/onboarding/screens/tool-selection-screen.js";
@@ -39,6 +40,7 @@ import {
   clearPrivacyConsent,
   hasRecentPrivacyConsent,
 } from "@/domains/onboarding/signals.js";
+import { resolveUserCohort } from "@/domains/onboarding/utm-cohort.js";
 import { useIsNativePlatform } from "@/runtime/native-auth.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 import { routes } from "@/utils/routes.js";
@@ -48,10 +50,11 @@ import { routes } from "@/utils/routes.js";
  *   0 = NameExchange
  *   1 = TaskTone
  *   2 = ToolSelection
- *   3 = GoogleOAuth
- *   4 = GetApp (conditional — shown only on iOS/macOS web)
+ *   3 = PriorAssistants
+ *   4 = GoogleOAuth
+ *   5 = GetApp (conditional — shown only on iOS/macOS web)
  */
-type Screen = 0 | 1 | 2 | 3 | 4;
+type Screen = 0 | 1 | 2 | 3 | 4 | 5;
 
 const IOS_TOTAL_STEPS = 3;
 
@@ -65,6 +68,7 @@ export function PreChatFlow() {
   const lastName = user?.lastName ?? "";
   const isNative = useIsNativePlatform();
   const [, setOnboardingCompleted] = useOnboardingCompleted();
+  const [cohort, setCohort] = useState<string | null>(null);
 
   const isMacOSWeb = useIsMacOSWeb();
   const isIOSWeb = useIsIOSWeb();
@@ -72,11 +76,34 @@ export function PreChatFlow() {
     (isIOSWeb && !readIOSAppDownloaded()) ||
     (isMacOSWeb && !readMacOsAppDownloaded());
 
+  // Native pre-chat restores its position across reloads via sessionStorage
+  // — without this, an iOS user who's tapped through to the vibe step and
+  // hot-reloads (or returns after the OS reclaims memory) is silently
+  // dropped back to the name step. The key is user-scoped so a stale value
+  // from user A doesn't bleed into user B if they log in next in the same
+  // webview session — `useLayoutEffect` restores before paint once `userId`
+  // is known, so the user never sees an incorrect step momentarily.
+  const screenStorageKey = userId ? `prechat_native_screen:${userId}` : null;
   const [screen, setScreen] = useState<Screen>(0);
+  useLayoutEffect(() => {
+    if (!screenStorageKey) return;
+    try {
+      const saved = sessionStorage.getItem(screenStorageKey);
+      if (saved === "1") setScreen(1);
+    } catch {
+      // sessionStorage can throw under privacy modes — ignore.
+    }
+    // Restore only when the active user changes (mount, or logout→login).
+    // Intentionally omitting `screen` from deps so we don't re-restore mid-flow.
+  }, [screenStorageKey]);
+
   const [selectedTools, setSelectedTools] = useState<Set<string>>(
     () => new Set(),
   );
   const [selectedTasks, setSelectedTasks] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [selectedPriorAssistants, setSelectedPriorAssistants] = useState<Set<string>>(
     () => new Set(),
   );
   const { value: userName, onChange: handleUserNameChange } =
@@ -120,6 +147,15 @@ export function PreChatFlow() {
   }, [consent, isAuthLoading, isLoggedIn, userId]);
 
   useEffect(() => {
+    if (isAuthLoading || !isLoggedIn) return;
+    let cancelled = false;
+    void resolveUserCohort().then((resolved) => {
+      if (!cancelled && resolved) setCohort(resolved);
+    });
+    return () => { cancelled = true; };
+  }, [isAuthLoading, isLoggedIn]);
+
+  useEffect(() => {
     if (isAuthLoading) return;
     if (!isLoggedIn) {
       void navigate(routes.account.login, { replace: true });
@@ -144,6 +180,34 @@ export function PreChatFlow() {
     userId,
   ]);
 
+  // ── Content-automation cohort: skip all pre-chat screens (web only) ──
+  const autoSkippedRef = useRef(false);
+  useEffect(() => {
+    if (cohort !== "content-automation" || isNative) return;
+    if (isAuthLoading || !isLoggedIn || consentDecision !== "ok") return;
+    if (readOnboardingCompleted()) return;
+    if (autoSkippedRef.current) return;
+    autoSkippedRef.current = true;
+
+    const context: PreChatOnboardingContext = {
+      tools: [],
+      tasks: ["writing", "research", "project-management"],
+      tone: DEFAULT_GROUP_ID,
+      googleConnected: false,
+      cohort: "content-automation",
+    };
+    setPendingPreChatContext(context);
+    try {
+      setOnboardingCompleted(true);
+    } catch (err) {
+      Sentry.captureException(err, {
+        tags: { context: "prechat_auto_skip_content_automation" },
+      });
+    }
+    clearPrivacyConsent();
+    void navigate(`${routes.assistant}?onboarding=1`, { replace: true });
+  }, [cohort, isNative, isAuthLoading, isLoggedIn, consentDecision, navigate, setOnboardingCompleted]);
+
   function finish(connectedScopes?: string[]): void {
     const context: PreChatOnboardingContext = {
       tools: stripOtherPrefix([...selectedTools]),
@@ -162,6 +226,9 @@ export function PreChatFlow() {
       context.googleScopes = googleScopes;
     } else {
       context.googleConnected = false;
+    }
+    if (selectedPriorAssistants.size > 0) {
+      context.priorAssistants = stripOtherPrefix([...selectedPriorAssistants]);
     }
 
     setPendingPreChatContext(context);
@@ -187,9 +254,26 @@ export function PreChatFlow() {
     return null;
   }
 
+  if (cohort === "content-automation" && !isNative) {
+    return null;
+  }
+
   // ── iOS native flow: NameStep → VibeStep → Privacy → Hatching → Chat ──
   if (isNative) {
     if (screen === 0) {
+      // Both Continue and Skip advance to the vibe step and persist the
+      // position so the user lands back here on reload — shared closure
+      // keeps the two callsites from drifting.
+      const goToVibeStep = () => {
+        setScreen(1);
+        if (screenStorageKey) {
+          try {
+            sessionStorage.setItem(screenStorageKey, "1");
+          } catch {
+            // ignore — see initial-state comment.
+          }
+        }
+      };
       return (
         <NameStepScreen
           userName={userName}
@@ -197,8 +281,8 @@ export function PreChatFlow() {
           displayedAssistantNames={displayedAssistantNames}
           onUserNameChange={handleUserNameChange}
           onAssistantNameChange={setAssistantName}
-          onContinue={() => setScreen(1)}
-          onSkip={() => setScreen(1)}
+          onContinue={goToVibeStep}
+          onSkip={goToVibeStep}
           currentStep={0}
           totalSteps={IOS_TOTAL_STEPS}
         />
@@ -223,13 +307,29 @@ export function PreChatFlow() {
       if (trimmedAssistant) {
         setPendingAssistantName(trimmedAssistant);
       }
+      if (screenStorageKey) {
+        try {
+          sessionStorage.removeItem(screenStorageKey);
+        } catch {
+          // ignore — see initial-state comment.
+        }
+      }
       void navigate(routes.onboarding.privacy);
     };
     return (
       <VibeStepScreen
         selectedGroupId={selectedGroupId}
         onGroupChange={setSelectedGroupId}
-        onBack={() => setScreen(0)}
+        onBack={() => {
+          setScreen(0);
+          if (screenStorageKey) {
+            try {
+              sessionStorage.removeItem(screenStorageKey);
+            } catch {
+              // ignore — see initial-state comment.
+            }
+          }
+        }}
         onContinue={finishNativePreChat}
         onSkip={finishNativePreChat}
         currentStep={1}
@@ -238,7 +338,7 @@ export function PreChatFlow() {
     );
   }
 
-  // ── Web flow: NameExchange → TaskTone → Tools → Google → App ──
+  // ── Web flow: NameExchange → TaskTone → Tools → PriorAssistants → Google → App ──
 
   if (screen === 0) {
     return (
@@ -271,10 +371,14 @@ export function PreChatFlow() {
   const hasGoogleTool = [...selectedTools].some((id) => GOOGLE_TOOL_IDS.has(id));
 
   const advancePastToolSelection = () => {
+    setScreen(3);
+  };
+
+  const advancePastPriorAssistants = () => {
     if (hasGoogleTool) {
-      setScreen(3);
-    } else if (showAppStep) {
       setScreen(4);
+    } else if (showAppStep) {
+      setScreen(5);
     } else {
       finish();
     }
@@ -293,6 +397,21 @@ export function PreChatFlow() {
   }
 
   if (screen === 3) {
+    return (
+      <PriorAssistantSelectionScreen
+        selectedAssistants={selectedPriorAssistants}
+        onChange={setSelectedPriorAssistants}
+        onBack={() => setScreen(2)}
+        onContinue={advancePastPriorAssistants}
+        onSkip={() => {
+          setSelectedPriorAssistants(new Set());
+          advancePastPriorAssistants();
+        }}
+      />
+    );
+  }
+
+  if (screen === 4) {
     if (!activeAssistant) {
       return null;
     }
@@ -305,18 +424,18 @@ export function PreChatFlow() {
           setGoogleConnected(true);
           setGoogleScopes(scopes);
           if (showAppStep) {
-            setScreen(4);
+            setScreen(5);
           } else {
             finish(scopes);
           }
         }}
-        onSkip={showAppStep ? () => setScreen(4) : () => finish()}
-        onBack={() => setScreen(2)}
+        onSkip={showAppStep ? () => setScreen(5) : () => finish()}
+        onBack={() => setScreen(3)}
       />
     );
   }
 
-  if (screen === 4) {
+  if (screen === 5) {
     if (isIOSWeb) return <GetIOSAppScreen onComplete={() => finish()} />;
     return <GetMacOSAppScreen onComplete={() => finish()} />;
   }

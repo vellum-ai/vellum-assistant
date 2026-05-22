@@ -31,6 +31,12 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
     _conversationId?: string,
     options?: unknown,
   ) => {
+    // `interaction_resolved` envelopes are emitted by the pending-interactions
+    // tracker for every resolution. They are orthogonal to the host-proxy
+    // wire messages these tests assert on, so swallow them here.
+    if ((msg as { type?: string } | null)?.type === "interaction_resolved") {
+      return;
+    }
     sentMessages.push(msg);
     sentMessageOptions.push(options);
   },

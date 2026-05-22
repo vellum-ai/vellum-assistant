@@ -15,7 +15,7 @@ import {
   updateConnection,
 } from "@/domains/settings/ai/provider-connections-client.js";
 import { ProviderEditorContent } from "@/domains/settings/ai/provider-editor-modal.js";
-import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
+import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -25,6 +25,8 @@ function formatAuthSummary(auth: ProviderConnection["auth"]): string {
   switch (auth.type) {
     case "api_key":
       return `API key · ${auth.credential}`;
+    case "oauth_subscription":
+      return "ChatGPT Subscription";
     case "platform":
       return "Managed proxy";
     case "none":
@@ -57,7 +59,8 @@ export function ManageProvidersModal({
   assistantId,
   onClose,
 }: ManageProvidersModalProps) {
-  const openAICompatibleEndpoints = useFeatureFlagStore.use.openAICompatibleEndpoints();
+  const openAICompatibleEndpoints = useAssistantFeatureFlagStore.use.openAICompatibleEndpoints();
+  const chatgptSubscriptionAuth = useAssistantFeatureFlagStore.use.chatgptSubscriptionAuth();
   const [connections, setConnections] = useState<ProviderConnection[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -157,6 +160,7 @@ export function ManageProvidersModal({
             assistantId={assistantId}
             existingNames={existingNames}
             openAICompatibleEndpointsEnabled={openAICompatibleEndpoints}
+            chatgptSubscriptionEnabled={chatgptSubscriptionAuth}
             onSave={handleEditorSave}
             onCancel={cancelEditor}
           />

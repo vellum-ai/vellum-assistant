@@ -2838,6 +2838,18 @@ public struct MessageQueuedDeleted: Codable, Sendable {
     }
 }
 
+public struct MessageSteered: Codable, Sendable {
+    public let type: String
+    public let conversationId: String
+    public let requestId: String
+
+    public init(type: String, conversationId: String, requestId: String) {
+        self.type = type
+        self.conversationId = conversationId
+        self.requestId = requestId
+    }
+}
+
 /// Request-level terminal signal for a user message lifecycle.
 /// 
 /// Unlike `message_complete`, this does not imply the active assistant turn

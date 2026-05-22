@@ -1,14 +1,22 @@
-// Scroll coordinator hook for the column-reverse transcript. Owns:
+// Scroll coordinator hook for the chronological-order transcript. Owns:
 //
-//   1. Pinned-to-latest detection + scroll-to-latest affordance visibility.
+//   1. Pinned-to-latest detection + "Go to Newest" affordance visibility.
 //   2. Anchor-preserving older-page prepends.
-//   3. Streaming-growth auto-follow (pinned -> stick to bottom; otherwise
-//      preserve the reader's viewport).
+//   3. Conversation-switch reset: scroll the reused container back to the
+//      latest message so the new conversation does not inherit the
+//      previous conversation's scrollTop.
 //
-// In column-reverse layout, scrollTop = 0 is the visual bottom (latest
-// messages). Scrolling UP to older messages increases the negative
-// scrollTop magnitude (scrollTop becomes more negative in some browsers)
-// but we use the absolute scrollTop value as `distanceFromBottom`.
+// The coordinator deliberately does NOT auto-follow streaming growth.
+// As a response streams in, the viewport stays put and the "Go to Newest"
+// pill surfaces so the user can catch up on their own — see the
+// `LatestTurnRow` min-height spacer for the layout half of this pattern.
+//
+// The transcript uses plain `flex-col` (NOT column-reverse): oldest items
+// first, latest at the bottom. scrollTop = 0 is the visual top (oldest);
+// scrollTop = scrollHeight − clientHeight is the visual bottom (latest).
+// Switching off column-reverse is what makes the "stay put while streaming"
+// behavior possible — column-reverse's intrinsic bottom-anchoring fights
+// every attempt to keep the viewport still.
 //
 // The hook only issues scroll commands through the `TranscriptHandle`
 // interface — it never touches `scrollIntoView` directly.
@@ -34,18 +42,17 @@ export type { TranscriptHandle };
 // ---------------------------------------------------------------------------
 
 /** Distance from bottom (in px) at or below which the transcript is
- *  considered pinned to latest. In column-reverse, this is the absolute
- *  value of scrollTop. */
+ *  considered pinned to latest. In flex-col, this is
+ *  `scrollHeight − clientHeight − scrollTop`. */
 export const PINNED_THRESHOLD_PX = 64;
 
-/** Distance from bottom (in px) above which the scroll-to-latest
+/** Distance from bottom (in px) above which the "Go to Newest"
  *  affordance is shown. */
 export const SHOW_SCROLL_BUTTON_THRESHOLD_PX = 240;
 
 /** Distance from the TOP of scrollable content (in px) at or below which
- *  an older-page load is triggered. In column-reverse, the top of
- *  scrollable content (oldest messages) is at
- *  `scrollHeight - clientHeight - scrollTop`. */
+ *  an older-page load is triggered. In flex-col, the top of scrollable
+ *  content (oldest messages) is at `scrollTop = 0`. */
 export const LOAD_OLDER_THRESHOLD_PX = 200;
 
 // ---------------------------------------------------------------------------
@@ -59,7 +66,6 @@ export interface UseTranscriptScrollArgs {
   hasMore: boolean;
   isLoadingOlder: boolean;
   onLoadOlder: () => void;
-  onStickToLatest?: () => void;
 }
 
 export interface UseTranscriptScrollReturn {
@@ -89,24 +95,26 @@ export interface ScrollClassification {
 /** Pure classification of a scroll position against the load-bearing
  *  thresholds above.
  *
- *  In column-reverse layout, scrollTop = 0 is the visual bottom (latest
- *  messages). As the user scrolls UP toward older messages, scrollTop
- *  increases. So:
- *    - distanceFromBottom = scrollTop
- *    - distanceFromTop = scrollHeight - clientHeight - scrollTop
+ *  In flex-col (chronological) layout:
+ *    - distanceFromTop    = scrollTop
+ *    - distanceFromBottom = scrollHeight − clientHeight − scrollTop
+ *
+ *  iOS rubber-band can briefly push scrollTop outside [0, max], so we
+ *  clamp distanceFromBottom at 0 to avoid spurious pill flicker.
  */
 export function classifyScrollPosition(
   metrics: ScrollMetrics,
   flags: { hasMore: boolean; isLoadingOlder: boolean; hasConversation: boolean },
 ): ScrollClassification {
-  // In column-reverse containers, browsers report negative scrollTop when
-  // scrolled away from the bottom. Use Math.abs to normalize.
-  const distanceFromBottom = Math.abs(metrics.scrollTop);
+  const maxScrollTop = Math.max(
+    0,
+    metrics.scrollHeight - metrics.clientHeight,
+  );
+  const distanceFromBottom = Math.max(0, maxScrollTop - metrics.scrollTop);
+  const distanceFromTop = Math.max(0, metrics.scrollTop);
   const isPinned = distanceFromBottom <= PINNED_THRESHOLD_PX;
   const showScrollToLatest =
     distanceFromBottom > SHOW_SCROLL_BUTTON_THRESHOLD_PX;
-  const distanceFromTop =
-    metrics.scrollHeight - metrics.clientHeight - distanceFromBottom;
   const shouldLoadOlder =
     flags.hasConversation &&
     flags.hasMore &&
@@ -135,19 +143,28 @@ export function findAnchorIndex(
 export interface AnchorSnapshot {
   key: string;
   scrollTop: number;
+  /** scrollHeight captured at the moment the anchor was saved. The
+   *  hook restores `scrollTop + (newScrollHeight − savedScrollHeight)`
+   *  after the older-page prepend lands, so the user's view stays on
+   *  the same row regardless of how many pixels of older content were
+   *  inserted above it. */
+  scrollHeight: number;
 }
 
 export type ItemsChangeAction =
   | { kind: "none" }
-  | { kind: "anchor-correct"; newIndex: number; scrollTop: number }
-  | { kind: "stick-to-latest" };
+  | {
+      kind: "anchor-correct";
+      newIndex: number;
+      savedScrollTop: number;
+      savedScrollHeight: number;
+    };
 
 export interface ItemsChangeContext {
   items: readonly TranscriptItem[];
   previousItems: readonly TranscriptItem[];
   conversationKey: string | null;
   savedAnchor: AnchorSnapshot | null;
-  isPinnedToLatest: boolean;
 }
 
 /** Decide what the scroll coordinator should do in response to an
@@ -155,35 +172,33 @@ export interface ItemsChangeContext {
  *  (calling into the TranscriptHandle) and for updating the
  *  `savedAnchor` bookkeeping state.
  *
- *  Note: "open-to-latest" is not needed in column-reverse because the
- *  browser naturally starts at scrollTop=0 (the visual bottom). */
+ *  Notes:
+ *  - "open-to-latest" on conversation switch is handled by the
+ *    conversation-reset effect, not here.
+ *  - Streaming growth deliberately returns `none` here. The viewport
+ *    stays put so the reader is in control; the "Go to Newest" pill
+ *    appears once distance-from-bottom crosses its threshold. */
 export function decideItemsChangeAction(
   ctx: ItemsChangeContext,
 ): ItemsChangeAction {
   // When there's no active conversation we have nothing to coordinate.
   if (ctx.conversationKey === null) return { kind: "none" };
 
-  // 1. Anchor-preserving prepend correction has highest priority — the
-  //    reader is scrolled up, a page of older messages just landed, and
-  //    we need to keep their viewport anchored on the row they were
-  //    looking at.
+  // Anchor-preserving prepend correction — the reader is scrolled up,
+  // a page of older messages just landed, and we need to keep their
+  // viewport anchored on the row they were looking at. The handler
+  // adds (newScrollHeight − savedScrollHeight) to savedScrollTop, since
+  // the new content was inserted above the anchor in flex-col DOM.
   if (ctx.savedAnchor && ctx.items.length > 0) {
     const newIndex = findAnchorIndex(ctx.items, ctx.savedAnchor.key);
     if (newIndex >= 0) {
       return {
         kind: "anchor-correct",
         newIndex,
-        scrollTop: ctx.savedAnchor.scrollTop,
+        savedScrollTop: ctx.savedAnchor.scrollTop,
+        savedScrollHeight: ctx.savedAnchor.scrollHeight,
       };
     }
-  }
-
-  // 2. Streaming growth — stick to latest only when already pinned.
-  const changed =
-    ctx.items.length !== ctx.previousItems.length ||
-    ctx.items.some((item, i) => item !== ctx.previousItems[i]);
-  if (changed && ctx.isPinnedToLatest) {
-    return { kind: "stick-to-latest" };
   }
 
   return { kind: "none" };
@@ -203,7 +218,6 @@ export function useTranscriptScroll(
     hasMore,
     isLoadingOlder,
     onLoadOlder,
-    onStickToLatest,
   } = args;
 
   const [isPinnedToLatest, setIsPinnedToLatest] = useState(true);
@@ -217,7 +231,6 @@ export function useTranscriptScroll(
     isLoadingOlder,
     conversationKey,
     onLoadOlder,
-    onStickToLatest,
     isPinnedToLatest,
     showScrollToLatest,
   });
@@ -228,7 +241,6 @@ export function useTranscriptScroll(
       isLoadingOlder,
       conversationKey,
       onLoadOlder,
-      onStickToLatest,
       isPinnedToLatest,
       showScrollToLatest,
     };
@@ -238,7 +250,6 @@ export function useTranscriptScroll(
     isLoadingOlder,
     conversationKey,
     onLoadOlder,
-    onStickToLatest,
     isPinnedToLatest,
     showScrollToLatest,
   ]);
@@ -249,9 +260,57 @@ export function useTranscriptScroll(
   // ---------- Previous items ref (for change detection) -----------------
   const previousItemsRef = useRef<TranscriptItem[]>(items);
 
+  // ---------- Auto-pin window --------------------------------------------
+  // While `shouldAutoPinRef` is true, every layout change of the scroll
+  // content re-pins the viewport to the bottom. This is what makes the
+  // initial render of a new conversation land at the latest message
+  // even when content height keeps growing across multiple frames —
+  // `useViewportMinHeight`'s deferred `setHeight`, late image/font
+  // loads, etc. The flag is engaged briefly on intentful events
+  // (conversation switch, "Go to Newest", user submit) and auto-
+  // disengages on a 500 ms timer or on the first user-input scroll —
+  // whichever comes first. The window is intentionally short so a
+  // streaming response (which takes the HTTP round-trip plus first
+  // token to *start*) does not trigger auto-follow.
+  const shouldAutoPinRef = useRef(false);
+  const autoPinTimeoutRef = useRef<number | null>(null);
+
+  const disengageAutoPin = useCallback(() => {
+    shouldAutoPinRef.current = false;
+    if (autoPinTimeoutRef.current !== null) {
+      clearTimeout(autoPinTimeoutRef.current);
+      autoPinTimeoutRef.current = null;
+    }
+  }, []);
+
+  const engageAutoPin = useCallback(() => {
+    shouldAutoPinRef.current = true;
+    if (autoPinTimeoutRef.current !== null) {
+      clearTimeout(autoPinTimeoutRef.current);
+    }
+    autoPinTimeoutRef.current = window.setTimeout(() => {
+      shouldAutoPinRef.current = false;
+      autoPinTimeoutRef.current = null;
+    }, 500);
+  }, []);
+
+  // Always clear the timer on unmount.
+  useEffect(
+    () => () => {
+      if (autoPinTimeoutRef.current !== null) {
+        clearTimeout(autoPinTimeoutRef.current);
+      }
+    },
+    [],
+  );
+
   // -----------------------------------------------------------------------
-  // Conversation switch: reset pinned state.
-  // Wrapped in startTransition so the reset doesn't block urgent updates.
+  // Conversation switch: reset pinned state and engage the auto-pin
+  // window. The items effect + content ResizeObserver will land the
+  // viewport on the latest message once the new content is in the DOM,
+  // and keep re-pinning across the async layout-settling phase
+  // (useViewportMinHeight, late image loads). The window auto-expires
+  // before any streaming response could start.
   // -----------------------------------------------------------------------
   useLayoutEffect(() => {
     startTransition(() => {
@@ -259,11 +318,9 @@ export function useTranscriptScroll(
       setShowScrollToLatest(false);
     });
     savedAnchorRef.current = null;
-    // Reset previousItemsRef so the new conversation's first items aren't
-    // interpreted as a "growth" event.
     previousItemsRef.current = [];
-    // Intentionally only depend on conversationKey.
-  }, [conversationKey]);
+    engageAutoPin();
+  }, [conversationKey, engageAutoPin]);
 
   // -----------------------------------------------------------------------
   // Items change handler — runs in useLayoutEffect so the anchor correction
@@ -278,37 +335,75 @@ export function useTranscriptScroll(
       previousItems: prev,
       conversationKey,
       savedAnchor: savedAnchorRef.current,
-      isPinnedToLatest: latestRef.current.isPinnedToLatest,
     });
 
     switch (action.kind) {
       case "anchor-correct": {
         const scrollElement = transcriptRef.current?.getScrollElement();
         if (scrollElement) {
-          scrollElement.scrollTop = action.scrollTop;
+          const heightDelta =
+            scrollElement.scrollHeight - action.savedScrollHeight;
+          scrollElement.scrollTop = action.savedScrollTop + heightDelta;
         }
         savedAnchorRef.current = null;
-        break;
-      }
-      case "stick-to-latest": {
-        transcriptRef.current?.scrollToLatest({ behavior: "auto" });
-        latestRef.current.onStickToLatest?.();
         break;
       }
       case "none":
       default:
         break;
     }
+
+    // First-pass pin during the auto-pin window. The content
+    // ResizeObserver will catch any subsequent height changes (async
+    // min-height settle, late image loads) and re-pin until the
+    // window expires.
+    if (
+      shouldAutoPinRef.current &&
+      items.length > 0 &&
+      transcriptRef.current
+    ) {
+      transcriptRef.current.scrollToLatest({ behavior: "auto" });
+    }
+
+    // After every items change re-classify the scroll position. The
+    // browser does NOT fire a scroll event when scrollHeight grows under
+    // a stationary scrollTop (the streaming case), so without this the
+    // "Go to Newest" pill would only surface once the user touched the
+    // scroll wheel. Reading via the latestRef avoids putting the
+    // hasMore/isLoadingOlder/conversationKey flags in the dep array.
+    const el = transcriptRef.current?.getScrollElement();
+    if (el) {
+      const classification = classifyScrollPosition(
+        {
+          scrollTop: el.scrollTop,
+          scrollHeight: el.scrollHeight,
+          clientHeight: el.clientHeight,
+        },
+        {
+          hasMore: latestRef.current.hasMore,
+          isLoadingOlder: latestRef.current.isLoadingOlder,
+          hasConversation: latestRef.current.conversationKey !== null,
+        },
+      );
+      if (classification.isPinned !== latestRef.current.isPinnedToLatest) {
+        setIsPinnedToLatest(classification.isPinned);
+      }
+      if (
+        classification.showScrollToLatest !==
+        latestRef.current.showScrollToLatest
+      ) {
+        setShowScrollToLatest(classification.showScrollToLatest);
+      }
+    }
   }, [items, conversationKey, transcriptRef]);
 
   // -----------------------------------------------------------------------
   // Container resize re-pin. When the scroll container resizes (e.g. the
-  // document panel opens and squeezes the chat pane), content reflows and
-  // the scroll position may shift. Re-pin to the bottom when the user was
-  // already pinned so the "scroll to latest" button doesn't appear
-  // spuriously. Combined with `overflow-anchor: none` on the scroll
-  // container (Transcript.tsx), this keeps the coordinator — not the
-  // browser — in control of scroll position during layout changes.
+  // document panel opens and squeezes the chat pane), `scrollHeight −
+  // clientHeight` shifts and the max scrollTop changes. Re-pin to the
+  // bottom when the user was already pinned so the "Go to Newest" pill
+  // doesn't appear spuriously after a layout change the user didn't
+  // initiate.
   //
   // The observer lifecycle is managed via refs so that we only
   // disconnect/reconnect when the underlying DOM node actually changes
@@ -348,6 +443,69 @@ export function useTranscriptScroll(
   }, []);
 
   // -----------------------------------------------------------------------
+  // Content resize re-pin. The *content* element (inner wrapper around
+  // all rendered rows) changes size whenever scroll content grows:
+  //   - `useViewportMinHeight` setting min-height after first paint
+  //   - Late image / web-font loads
+  //   - Streaming response items appended
+  //   - User-submitted messages adding a new turn
+  // While `shouldAutoPinRef` is true, every fire snaps scrollTop back
+  // to the visual bottom so the viewport stays at the latest message
+  // through all of those async height changes. The 500 ms window
+  // ensures streaming alone (which starts after first token / HTTP
+  // round-trip) never auto-follows.
+  // -----------------------------------------------------------------------
+  const contentObserverRef = useRef<ResizeObserver | null>(null);
+  const observedContentElRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (typeof ResizeObserver === "undefined") return;
+
+    const el = transcriptRef.current?.getContentElement?.() ?? null;
+    if (el === observedContentElRef.current) return;
+
+    contentObserverRef.current?.disconnect();
+    observedContentElRef.current = el;
+
+    if (!el) {
+      contentObserverRef.current = null;
+      return;
+    }
+
+    const observer = new ResizeObserver(() => {
+      if (shouldAutoPinRef.current) {
+        transcriptRef.current?.scrollToLatest({ behavior: "auto" });
+      }
+    });
+    observer.observe(el);
+    contentObserverRef.current = observer;
+  }, [items, transcriptRef]);
+
+  useEffect(() => () => {
+    contentObserverRef.current?.disconnect();
+  }, []);
+
+  // -----------------------------------------------------------------------
+  // User-input scroll cancels the auto-pin window. Any of these gestures
+  // means the user has taken control of the viewport — we stop fighting
+  // them. We listen on the scroll element rather than the scroll event
+  // because the scroll event also fires from our own programmatic pins,
+  // which would otherwise disengage their own window mid-pin.
+  // -----------------------------------------------------------------------
+  useEffect(() => {
+    const el = transcriptRef.current?.getScrollElement() ?? null;
+    if (!el) return;
+    el.addEventListener("wheel", disengageAutoPin, { passive: true });
+    el.addEventListener("touchmove", disengageAutoPin, { passive: true });
+    el.addEventListener("keydown", disengageAutoPin, { passive: true });
+    return () => {
+      el.removeEventListener("wheel", disengageAutoPin);
+      el.removeEventListener("touchmove", disengageAutoPin);
+      el.removeEventListener("keydown", disengageAutoPin);
+    };
+  }, [items, transcriptRef, disengageAutoPin]);
+
+  // -----------------------------------------------------------------------
   // Stable scroll handler. Reads latest props via the ref pattern.
   // -----------------------------------------------------------------------
   const handleScroll = useCallback((event: Event) => {
@@ -373,13 +531,16 @@ export function useTranscriptScroll(
     }
 
     if (classification.shouldLoadOlder) {
-      // Capture the top-most visible item so we can restore the reader's
-      // viewport after the prepend lands.
+      // Capture the top-most visible item AND the current scrollHeight so
+      // the items-effect can restore the reader's viewport after the
+      // older-page prepend lands. The restore is
+      // `savedScrollTop + (newScrollHeight − savedScrollHeight)`.
       const firstItem = latest.items[0];
       if (firstItem) {
         savedAnchorRef.current = {
           key: firstItem.key,
           scrollTop: metrics.scrollTop,
+          scrollHeight: metrics.scrollHeight,
         };
       }
       latest.onLoadOlder();
@@ -387,16 +548,19 @@ export function useTranscriptScroll(
   }, []);
 
   // -----------------------------------------------------------------------
-  // Exposed scrollToLatest — thin pass-through.
+  // Exposed scrollToLatest — engages the auto-pin window so any async
+  // layout settling after the scroll (image loads, etc.) stays anchored
+  // at the bottom too.
   // -----------------------------------------------------------------------
   const scrollToLatest = useCallback(
     (opts?: { behavior?: "auto" | "smooth" }) => {
       savedAnchorRef.current = null;
+      engageAutoPin();
       transcriptRef.current?.scrollToLatest({
         behavior: opts?.behavior ?? "smooth",
       });
     },
-    [transcriptRef],
+    [transcriptRef, engageAutoPin],
   );
 
   return {

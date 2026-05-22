@@ -97,6 +97,7 @@ export const deprecateBackgroundConversationOverrideMigration: WorkspaceMigratio
           { err, from: deprecatedPath, to: overridePath },
           "Failed to restore background-conversation override",
         );
+        throw err;
       }
     },
   };

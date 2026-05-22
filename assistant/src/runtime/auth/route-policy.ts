@@ -153,6 +153,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "conversations/undo", scopes: ["chat.write"] },
   { endpoint: "conversations/regenerate", scopes: ["chat.write"] },
   { endpoint: "conversations/attention", scopes: ["chat.read"] },
+  { endpoint: "conversations/slack-channel/resolve", scopes: ["chat.read"] },
   { endpoint: "conversations/seen", scopes: ["chat.write"] },
   { endpoint: "conversations/unread", scopes: ["chat.write"] },
   { endpoint: "conversations/import", scopes: ["chat.write"] },
@@ -468,6 +469,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "memory/v2/list-concept-pages:POST", scopes: ["settings.read"] },
   { endpoint: "memory/v2/reembed-skills:POST", scopes: ["settings.write"] },
   { endpoint: "memory/v2/concept-frequency:POST", scopes: ["settings.read"] },
+  { endpoint: "memory/v2/ema-scores:POST", scopes: ["settings.read"] },
 
   // Trust rule listing
   { endpoint: "trust-rules/manage:GET", scopes: ["settings.read"] },

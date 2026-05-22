@@ -7,7 +7,7 @@
  * read from the exact same on-disk format.
  */
 
-import { client } from "@/lib/api-client.js";
+import { client } from "@/generated/api/client.gen.js";
 import { assertHasResponse } from "@/lib/api-errors.js";
 
 import {

@@ -16,7 +16,7 @@ describe("parseAssistantEvent", () => {
     });
   });
 
-  test("maps assistant_text_delta conversationId to conversationKey", () => {
+  test("does not conflate conversationId with conversationKey", () => {
     const event = parseAssistantEvent("assistant_text_delta", {
       text: "Hello",
       messageId: "msg-1",
@@ -26,7 +26,6 @@ describe("parseAssistantEvent", () => {
       type: "assistant_text_delta",
       text: "Hello",
       messageId: "msg-1",
-      conversationKey: "conversation-1",
     });
   });
 
@@ -184,6 +183,55 @@ describe("parseAssistantEvent", () => {
     });
   });
 
+  test("parses interaction_resolved with explicit conversationKey", () => {
+    const event = parseAssistantEvent("interaction_resolved", {
+      requestId: "req-1",
+      conversationKey: "conv-1",
+      state: "approved",
+      kind: "confirmation",
+    });
+    expect(event).toEqual({
+      type: "interaction_resolved",
+      requestId: "req-1",
+      conversationKey: "conv-1",
+      state: "approved",
+      kind: "confirmation",
+    });
+  });
+
+  test("interaction_resolved falls back to conversationId when conversationKey is absent", () => {
+    const event = parseAssistantEvent("interaction_resolved", {
+      requestId: "req-2",
+      conversationId: "conv-internal",
+      state: "answered",
+      kind: "secret",
+    });
+    expect(event).toMatchObject({
+      type: "interaction_resolved",
+      requestId: "req-2",
+      conversationKey: "conv-internal",
+      state: "answered",
+    });
+  });
+
+  test("interaction_resolved with an invalid state degrades to unknown", () => {
+    const event = parseAssistantEvent("interaction_resolved", {
+      requestId: "req-3",
+      conversationKey: "conv-3",
+      state: "exploded",
+      kind: "confirmation",
+    });
+    expect(event.type).toBe("unknown");
+  });
+
+  test("interaction_resolved without a requestId degrades to unknown", () => {
+    const event = parseAssistantEvent("interaction_resolved", {
+      conversationKey: "conv-4",
+      state: "cancelled",
+    });
+    expect(event.type).toBe("unknown");
+  });
+
   test("returns unknown event for unrecognized type", () => {
     const data = { foo: "bar" };
     const event = parseAssistantEvent("some_future_event", data);
@@ -234,7 +282,7 @@ describe("parseAssistantEvent", () => {
 
   test("parses assistant_activity_state idle", () => {
     const event = parseAssistantEvent("assistant_activity_state", {
-      conversationId: "conv-1",
+      conversationKey: "conv-1",
       activityVersion: 7,
       phase: "idle",
       anchor: "global",
@@ -254,7 +302,7 @@ describe("parseAssistantEvent", () => {
 
   test("parses assistant_activity_state thinking with statusText", () => {
     const event = parseAssistantEvent("assistant_activity_state", {
-      conversationId: "conv-1",
+      conversationKey: "conv-1",
       activityVersion: 3,
       phase: "thinking",
       anchor: "assistant_turn",
@@ -277,7 +325,7 @@ describe("parseAssistantEvent", () => {
     // follow-up message_complete. The web handler must treat this as
     // terminal so the loading indicator clears.
     const event = parseAssistantEvent("assistant_activity_state", {
-      conversationId: "conv-1",
+      conversationKey: "conv-1",
       activityVersion: 1,
       phase: "idle",
       anchor: "global",
@@ -295,7 +343,7 @@ describe("parseAssistantEvent", () => {
 
   test("returns unknown for assistant_activity_state with invalid phase", () => {
     const data = {
-      conversationId: "conv-1",
+      conversationKey: "conv-1",
       activityVersion: 1,
       phase: "definitely_not_a_phase",
       anchor: "global",
@@ -312,7 +360,7 @@ describe("parseAssistantEvent", () => {
 
   test("returns unknown for assistant_activity_state with invalid reason", () => {
     const data = {
-      conversationId: "conv-1",
+      conversationKey: "conv-1",
       activityVersion: 1,
       phase: "idle",
       anchor: "global",

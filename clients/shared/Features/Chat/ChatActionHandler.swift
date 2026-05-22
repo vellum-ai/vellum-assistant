@@ -215,6 +215,10 @@ final class ChatActionHandler {
             guard belongsToConversation(msg.conversationId) else { return }
             vm.applyQueuedMessageDeletion(requestId: msg.requestId)
 
+        case .messageSteered(let msg):
+            guard belongsToConversation(msg.conversationId) else { return }
+            vm.applyMessageSteered(requestId: msg.requestId)
+
         case .messageDequeued(let msg):
             handleMessageDequeued(msg, vm: vm)
 

@@ -20,6 +20,8 @@ Create and edit long-form documents using the built-in rich text editor. Documen
 - **document_update** - Updates content in an open document editor by `surface_id`. Supports `replace` (overwrite) and `append` (add to end) modes.
 - **document_read** - Reads the current content of a document by `surface_id` when it belongs to the current conversation, or when the current actor is the guardian/local user. Use to verify content before editing.
 - **document_list** - Lists documents. Without `query`, lists the current conversation's documents. With `query`, searches by title; guardian/local users can search across conversations, while other actors are scoped to the current conversation.
+- **document_find** - Searches a document for text or regex patterns. Returns matching lines with line numbers, match positions, and matched text.
+- **document_replace_text** - Targeted find-and-replace within a document. Supports literal and regex patterns (with backreferences). Optionally limit the number of replacements.
 - **document_delete** - Deletes a document by `surface_id`. Use to clean up unwanted documents.
 
 ## Retrieving existing documents
@@ -44,7 +46,51 @@ When the user requests changes to a document:
 
 1. Find the `surface_id` from the `<active_documents>` context block.
 2. Use `document_update` with the existing `surface_id` — do NOT call `document_create` again.
-3. Use `mode: "replace"` for full rewrites or `mode: "append"` for additions.
+3. **Choose the right editing tool:**
+   - `document_update` with `mode: "append"` — adding new content to the end.
+   - `document_update` with `mode: "replace"` — ONLY for full rewrites where the majority of the document is changing.
+   - `document_find` + `document_replace_text` — **for everything else**. Fixing typos, renaming terms, swapping sections, reordering content, adjusting formatting, or any edit that touches only part of the document. This is the default choice for edits. It avoids rewriting the entire document and eliminates the risk of accidentally dropping content.
+4. **Do NOT use `document_update` with `mode: "replace"` for targeted edits.** Rewriting the entire document to change a few words or rearrange sections is wasteful and error-prone.
+
+## Find & Replace
+
+Use `document_find` and `document_replace_text` for surgical edits that target specific text patterns without rewriting the entire document.
+
+### document_find
+
+Search a document for literal text or regex patterns. Parameters:
+
+- `surface_id` (required) — the document to search
+- `query` (required) — the search string or regex pattern
+- `regex` (optional, default `false`) — treat `query` as a regular expression
+- `case_sensitive` (optional, default `false`) — match case exactly
+
+Returns a list of matches with line numbers, line content, match positions, and matched text. Use this to preview what will be affected before making replacements.
+
+### document_replace_text
+
+Targeted find-and-replace within a document. Parameters:
+
+- `surface_id` (required) — the document to modify
+- `find` (required) — the search string or regex pattern
+- `replace` (required) — the replacement string (supports `$1`, `$2` backreferences when `regex` is `true`)
+- `regex` (optional, default `false`) — treat `find` as a regular expression
+- `case_sensitive` (optional, default `false`) — match case exactly
+- `max_replacements` (optional) — limit the number of replacements made
+
+Returns the number of replacements made and whether the content changed.
+
+### Workflow
+
+1. Call `document_find` to preview matches and confirm the pattern is correct.
+2. Call `document_replace_text` to apply the changes.
+
+**Examples:**
+
+- **Fix a recurring typo**: Find `"recieve"`, replace with `"receive"`.
+- **Rename a term throughout**: Find `"widget"` (case-insensitive), replace with `"component"`.
+- **Reformat dates with regex**: Find `(\d{2})/(\d{2})/(\d{4})` with `regex: true`, replace with `$3-$1-$2` to convert `MM/DD/YYYY` to `YYYY-MM-DD`.
+- **Swap or reorder sections**: Use `document_read` to get the content, identify the sections to swap, then call `document_replace_text` to replace the first section with the second and vice versa. For complex rearrangements, use multiple `document_replace_text` calls with `max_replacements: 1`.
 
 ## Comments
 

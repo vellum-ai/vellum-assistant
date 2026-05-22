@@ -21,7 +21,13 @@ export function LogsLayout() {
       (item) =>
         pathname === item.href || pathname.startsWith(item.href + "/"),
     );
-    return match?.label ?? "Logs";
+    if (match) return match.label;
+    // Index route (/assistant/logs) renders UsagePage but doesn't match
+    // any sidebar href — use the first sidebar item's label.
+    if (pathname === routes.logs.root) {
+      return LOGS_SIDEBAR[0]?.label ?? "Logs & Usage";
+    }
+    return "Logs & Usage";
   }, [pathname]);
 
   return (

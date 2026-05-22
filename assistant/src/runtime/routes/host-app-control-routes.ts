@@ -105,7 +105,7 @@ function handleHostAppControlResult({ body, headers }: RouteHandlerArgs) {
     });
   }
 
-  const interaction = pendingInteractions.resolve(requestId)!;
+  const interaction = pendingInteractions.resolve(requestId, "answered")!;
   const conversation = findConversation(interaction.conversationId);
   if (!conversation) {
     return { accepted: true };

@@ -4391,6 +4391,51 @@ paths:
               required:
                 - conversationKey
               additionalProperties: false
+  /v1/conversations/{conversationId}/slack-channel/resolve:
+    post:
+      operationId: conversations_by_conversationId_slackchannel_resolve_post
+      summary: Resolve Slack channel name
+      description: Resolve and persist a friendly Slack channel name for an external conversation binding.
+      tags:
+        - conversations
+        - slack
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  channelId:
+                    type: string
+                  channelName:
+                    type: string
+                  cached:
+                    type: boolean
+                  resolved:
+                    type: boolean
+                  reason:
+                    type: string
+                    enum:
+                      - auth
+                      - dm
+                      - no_name
+                      - not_found
+                      - permission
+                      - rate_limit
+                      - slack_error
+                required:
+                  - channelId
+                  - cached
+                  - resolved
+                additionalProperties: false
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/conversations/{id}:
     delete:
       operationId: conversations_by_id_delete
@@ -9089,6 +9134,68 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/inference/chatgpt-subscription/auth:
+    post:
+      operationId: inference_chatgptsubscription_auth_post
+      summary: Start ChatGPT subscription OAuth PKCE flow
+      description:
+        Generate a PKCE authorize URL for ChatGPT subscription auth. Returns the URL and state for the client to
+        open in a browser.
+      tags:
+        - inference
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  authorize_url:
+                    type: string
+                  state:
+                    type: string
+                required:
+                  - authorize_url
+                  - state
+                additionalProperties: false
+  /v1/inference/chatgpt-subscription/auth/exchange:
+    post:
+      operationId: inference_chatgptsubscription_auth_exchange_post
+      summary: Exchange ChatGPT subscription OAuth authorization code
+      description:
+        Accept an authorization code and state from the OAuth redirect, exchange it for tokens, store them in CES,
+        and upsert the provider connection.
+      tags:
+        - inference
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required:
+                  - ok
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                code:
+                  type: string
+                state:
+                  type: string
+              required:
+                - code
+                - state
+              additionalProperties: false
   /v1/inference/provider-connections:
     get:
       operationId: inference_providerconnections_get
@@ -10878,6 +10985,28 @@ paths:
               required:
                 - slug
               additionalProperties: false
+  /v1/memory/v2/ema-scores:
+    post:
+      operationId: memory_v2_emascores_post
+      summary: List every concept page with its injection-frequency EMA score
+      description:
+        Computes the time-decayed injection frequency (3-day half-life) for every entry in the current page index
+        by reading memory_v2_injection_events. Returns entries sorted by score descending then slug ASCII, including
+        zero-score pages so callers can decide whether to filter. Read-only; tier 2 of the v4 router uses the same
+        computation to pick its top-M.
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: {}
+              additionalProperties: false
   /v1/memory/v2/list-concept-pages:
     post:
       operationId: memory_v2_listconceptpages_post
@@ -11124,6 +11253,28 @@ paths:
       operationId: messages_queued_by_id_delete
       summary: Delete a queued message
       description: Remove a pending message from the conversation queue before it is processed.
+      tags:
+        - messages
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: conversationId
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Conversation ID (required)
+  /v1/messages/queued/{id}/steer:
+    post:
+      operationId: messages_queued_by_id_steer_post
+      summary: Steer to a queued message
+      description: Promote a queued message to the head of the queue and abort the current generation so it is processed next.
       tags:
         - messages
       responses:

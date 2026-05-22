@@ -41,6 +41,7 @@ export const conversations = sqliteTable(
     inferenceProfile: text("inference_profile"),
     inferenceProfileSessionId: text("inference_profile_session_id"),
     inferenceProfileExpiresAt: integer("inference_profile_expires_at"),
+    lastNotifiedInferenceProfile: text("last_notified_inference_profile"),
   },
   (table) => [
     index("idx_conversations_updated_at").on(table.updatedAt),
@@ -150,6 +151,7 @@ export const channelInboundEvents = sqliteTable("channel_inbound_events", {
   deliveryStatus: text("delivery_status").notNull().default("pending"),
   processingStatus: text("processing_status").notNull().default("pending"),
   processingAttempts: integer("processing_attempts").notNull().default(0),
+  deliveryAttempts: integer("delivery_attempts").notNull().default(0),
   lastProcessingError: text("last_processing_error"),
   retryAfter: integer("retry_after"),
   rawPayload: text("raw_payload"),

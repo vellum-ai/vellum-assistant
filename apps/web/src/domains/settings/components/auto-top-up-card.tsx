@@ -139,12 +139,12 @@ export function AutoTopUpCard() {
   const [showNoPmNotice, setShowNoPmNotice] = useState(false);
 
   // Auto-dismiss the no-PM notice once a PM appears (e.g. after the user
-  // adds one in PaymentMethodsCard below). Declared before the early-return
+  // adds one in PaymentMethodsCard). Declared before the early-return
   // branches to satisfy rules-of-hooks; reads through `configQuery.data`
   // since `config` isn't bound until after the loading/error guards below.
   useEffect(() => {
     if (showNoPmNotice && configQuery.data?.has_payment_method) {
-      // auto-dismiss the gate notice once the user adds a PM in PaymentMethodsCard below
+      // auto-dismiss the gate notice once the user adds a PM in PaymentMethodsCard
       setShowNoPmNotice(false);
     }
   }, [showNoPmNotice, configQuery.data?.has_payment_method]);
@@ -310,7 +310,7 @@ export function AutoTopUpCard() {
   const handleToggleChange = (next: boolean) => {
     if (next && !enabled) {
       if (!config.has_payment_method) {
-        // Block enable — PM must be added in the Payment Methods card below.
+        // Block enable — PM must be added in the Payment Methods card.
         setShowNoPmNotice(true);
         return;
       }
@@ -382,12 +382,17 @@ export function AutoTopUpCard() {
         )}
       </div>
 
-      {showNoPmNotice && (
-        <Notice tone="warning" className="mt-3">
-          Please add a payment method in the Payment Methods section below to
-          enable automatic top-ups.
-        </Notice>
-      )}
+      <div
+        className="grid transition-[grid-template-rows] duration-200 ease-in-out"
+        style={{ gridTemplateRows: showNoPmNotice ? "1fr" : "0fr" }}
+      >
+        <div className="overflow-hidden">
+          <Notice tone="warning" className="mt-3">
+            You must first add a Payment Method before you can enable automatic
+            credit reloads.
+          </Notice>
+        </div>
+      </div>
 
       {showGenericUpdateError && (
         <Notice
@@ -429,8 +434,7 @@ export function AutoTopUpCard() {
 
       {enabled && !config.has_payment_method && (
         <Notice tone="warning" className="mt-3" data-testid="auto-top-up-no-pm">
-          No payment method configured. Add one in the Payment Methods section
-          below.
+          You must add a Payment Method.
         </Notice>
       )}
 

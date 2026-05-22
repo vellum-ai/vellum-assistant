@@ -1,0 +1,210 @@
+/**
+ * Conversation-switch lifecycle — reset all per-conversation state when the
+ * user navigates to a different conversation.
+ *
+ * Owns the two refs (`switchResetRef`, `lastAppliedDataRef`) that mediate
+ * between a switch happening and the downstream TanStack Query data-apply
+ * step: the switch flips `switchResetRef` so the apply effect knows to
+ * replace messages rather than reconcile, and resets
+ * `lastAppliedDataRef` so the next TQ update is treated as the first one
+ * for the new conversation.
+ */
+
+import {
+  type Dispatch,
+  type MutableRefObject,
+  type SetStateAction,
+  useEffect,
+  useRef,
+} from "react";
+
+import { useTurnStore } from "@/domains/messaging/turn-store.js";
+import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
+import { useConversationStore } from "@/domains/conversations/conversation-store.js";
+import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics.js";
+import { loadDismissedSurfaceIds } from "@/domains/chat/utils/dismissed-surfaces-storage.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
+import type { TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
+import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
+import type { AssistantStateKind, ChatError } from "@/domains/chat/types.js";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export interface UseConversationSwitchParams {
+  assistantId: string | null;
+  assistantStateKind: AssistantStateKind;
+  activeConversationKey: string | null;
+
+  // Refs owned by the parent that the reset clears or refreshes.
+  draftKeyResolutionRef: MutableRefObject<boolean>;
+  previousConversationKeyRef: MutableRefObject<string | null>;
+  needsNewBubbleRef: MutableRefObject<boolean>;
+  streamingMessageIdsRef: MutableRefObject<Set<string>>;
+  pendingQueuedStableIdsRef: MutableRefObject<string[]>;
+  requestIdToStableIdRef: MutableRefObject<Map<string, string>>;
+  pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
+  confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
+  lastSuggestionMsgIdRef: MutableRefObject<string | null>;
+  contextWindowUsageByConversationRef: MutableRefObject<Map<string, ContextWindowUsage>>;
+  dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
+
+  // Setters wired into the surrounding chat-page state.
+  setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
+  setTranscriptPagination: Dispatch<SetStateAction<Omit<TranscriptPaginationState, "items">>>;
+  setIsLoadingHistory: Dispatch<SetStateAction<boolean>>;
+  setError: Dispatch<SetStateAction<ChatError | null>>;
+  setAutoGreetPending: Dispatch<SetStateAction<boolean>>;
+  setContextWindowUsage: Dispatch<SetStateAction<ContextWindowUsage | null>>;
+  setSuggestion: Dispatch<SetStateAction<string | null>>;
+  setCompactionCircuitOpenUntil: Dispatch<SetStateAction<Date | null>>;
+
+  resetChatAttachments: () => void;
+  shouldSuppressGenericChatErrorNotice: (prev: ChatError | null) => boolean;
+}
+
+export interface ConversationSwitchHandles {
+  /** True when the most recent switch-reset has fired and the data-apply
+   *  effect hasn't yet consumed it. Consumers should set this to `false`
+   *  after using it so subsequent background refetches reconcile instead
+   *  of replace. */
+  switchResetRef: MutableRefObject<boolean>;
+  /** Timestamp (matching TanStack Query's `dataUpdatedAt`) of the last
+   *  history payload the consumer applied. Reset to `0` on every switch
+   *  so the next payload always triggers an apply for the new
+   *  conversation. */
+  lastAppliedDataRef: MutableRefObject<number>;
+}
+
+// ---------------------------------------------------------------------------
+// Hook
+// ---------------------------------------------------------------------------
+
+export function useConversationSwitch({
+  assistantId,
+  assistantStateKind,
+  activeConversationKey,
+  draftKeyResolutionRef,
+  previousConversationKeyRef,
+  needsNewBubbleRef,
+  streamingMessageIdsRef,
+  pendingQueuedStableIdsRef,
+  requestIdToStableIdRef,
+  pendingLocalDeletionsRef,
+  confirmationToolCallMapRef,
+  lastSuggestionMsgIdRef,
+  contextWindowUsageByConversationRef,
+  dismissedSurfaceIdsRef,
+  setMessages,
+  setTranscriptPagination,
+  setIsLoadingHistory,
+  setError,
+  setAutoGreetPending,
+  setContextWindowUsage,
+  setSuggestion,
+  setCompactionCircuitOpenUntil,
+  resetChatAttachments,
+  shouldSuppressGenericChatErrorNotice,
+}: UseConversationSwitchParams): ConversationSwitchHandles {
+  const switchResetRef = useRef(false);
+  const lastAppliedDataRef = useRef(0);
+
+  useEffect(() => {
+    if (assistantStateKind !== "active" || !assistantId || !activeConversationKey) {
+      return;
+    }
+
+    // Draft-key resolution (draft→server ID) is not a real switch.
+    if (draftKeyResolutionRef.current) {
+      draftKeyResolutionRef.current = false;
+      return;
+    }
+
+    // Track outgoing conversation's attention state.
+    const outgoingKey = previousConversationKeyRef.current;
+    const isConversationSwitch = Boolean(
+      outgoingKey && outgoingKey !== activeConversationKey,
+    );
+    if (isConversationSwitch && outgoingKey) {
+      const interactionSnapshot = useInteractionStore.getState();
+      if (interactionSnapshot.pendingSecret || interactionSnapshot.pendingConfirmation) {
+        useConversationStore.getState().addAttentionKey(outgoingKey);
+      }
+    }
+    previousConversationKeyRef.current = activeConversationKey;
+
+    recordChatDiagnostic("conversation_switch_reset", {
+      assistantId,
+      conversationKey: activeConversationKey,
+      outgoingConversationKey: outgoingKey ?? null,
+    });
+
+    // Reset all per-conversation state so nothing leaks between threads.
+    useTurnStore.getState().resetTurn();
+    setIsLoadingHistory(true);
+    needsNewBubbleRef.current = true;
+    setMessages([]);
+    streamingMessageIdsRef.current.clear();
+    pendingQueuedStableIdsRef.current = [];
+    requestIdToStableIdRef.current.clear();
+    pendingLocalDeletionsRef.current.clear();
+    setTranscriptPagination({
+      hasMore: false,
+      oldestTimestamp: null,
+      isLoadingOlder: false,
+      isPinnedToLatest: true,
+    });
+    useInteractionStore.getState().resetAll();
+    confirmationToolCallMapRef.current.clear();
+    setAutoGreetPending(false);
+    resetChatAttachments();
+    setSuggestion(null);
+    setCompactionCircuitOpenUntil(null);
+    lastSuggestionMsgIdRef.current = null;
+    setContextWindowUsage(
+      contextWindowUsageByConversationRef.current.get(activeConversationKey) ?? null,
+    );
+    dismissedSurfaceIdsRef.current = loadDismissedSurfaceIds(
+      assistantId,
+      activeConversationKey,
+    );
+    setError((prev) =>
+      shouldSuppressGenericChatErrorNotice(prev) ? prev : null,
+    );
+
+    // Signal that we're in a fresh-switch state — the data-apply effect
+    // should replace messages rather than reconcile.
+    switchResetRef.current = true;
+    lastAppliedDataRef.current = 0;
+  }, [
+    assistantStateKind,
+    assistantId,
+    activeConversationKey,
+    resetChatAttachments,
+    // Refs (stable references, listed for completeness):
+    draftKeyResolutionRef,
+    previousConversationKeyRef,
+    contextWindowUsageByConversationRef,
+    dismissedSurfaceIdsRef,
+    needsNewBubbleRef,
+    streamingMessageIdsRef,
+    pendingQueuedStableIdsRef,
+    requestIdToStableIdRef,
+    pendingLocalDeletionsRef,
+    confirmationToolCallMapRef,
+    lastSuggestionMsgIdRef,
+    // Setters (stable references):
+    setMessages,
+    setTranscriptPagination,
+    setIsLoadingHistory,
+    setError,
+    setAutoGreetPending,
+    setContextWindowUsage,
+    setSuggestion,
+    setCompactionCircuitOpenUntil,
+    shouldSuppressGenericChatErrorNotice,
+  ]);
+
+  return { switchResetRef, lastAppliedDataRef };
+}

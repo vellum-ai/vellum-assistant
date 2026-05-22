@@ -16,7 +16,7 @@ const sessionSummary: ReportSessionSummary = {
   testIds: ["t1"],
   startedAt: "2026-05-15T12:00:00.000Z",
   completedAt: "2026-05-15T12:00:02.000Z",
-  scoreTotal: 1.5,
+  scoreTotal: 0.75,
   status: "completed",
 };
 
@@ -30,7 +30,6 @@ const sessionDetail: ReportSessionDetail = {
       failedCount: 0,
       runningCount: 0,
       scoreTotal: 1,
-      scoreAverage: 1,
     },
     {
       profileId: "p2",
@@ -39,12 +38,12 @@ const sessionDetail: ReportSessionDetail = {
       failedCount: 0,
       runningCount: 0,
       scoreTotal: 0.5,
-      scoreAverage: 0.5,
     },
   ],
   tests: [
     {
       testId: "t1",
+      scoreTotal: 0.75,
       profiles: [
         {
           profileId: "p1",
@@ -217,12 +216,18 @@ describe("report html", () => {
     expect(html).toContain('href="/"');
   });
 
-  test("metric scores render as percentages by default (round-3 evals feedback)", () => {
+  test("metric and aggregate scores render as percentages", () => {
     // accuracy: 0.5 → 50.00%, 1.0 → 100.00%. The previous raw rendering
     // ("0.5000", "1.0000") is what Vargas asked us to fix.
     const html = renderReportPage({ kind: "test", test: testInSession });
     expect(html).toContain("100.00%");
     expect(html).toContain("50.00%");
+
+    const executionHtml = renderReportPage({
+      kind: "execution",
+      run: executionDetail,
+    });
+    expect(executionHtml).toContain(">100.00%</div>");
   });
 
   test("metrics with unit: 'raw' opt out of percent rendering", () => {

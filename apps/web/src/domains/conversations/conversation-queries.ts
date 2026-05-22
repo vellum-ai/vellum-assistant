@@ -44,16 +44,19 @@ import {
 // Query keys
 // ---------------------------------------------------------------------------
 
-export const CHAT_CONTEXT_QUERY_KEY = "chat-context" as const;
-export const CONVERSATION_GROUPS_QUERY_KEY = "conversation-groups" as const;
+import {
+  CHAT_CONTEXT_QUERY_KEY,
+  CONVERSATION_GROUPS_QUERY_KEY,
+  chatContextQueryKey,
+  conversationGroupsQueryKey,
+} from "@/lib/sync/query-tags.js";
 
-export function chatContextQueryKey(assistantId: string | null) {
-  return [CHAT_CONTEXT_QUERY_KEY, assistantId ?? ""] as const;
-}
-
-export function conversationGroupsQueryKey(assistantId: string | null) {
-  return [CONVERSATION_GROUPS_QUERY_KEY, assistantId ?? ""] as const;
-}
+export {
+  CHAT_CONTEXT_QUERY_KEY,
+  CONVERSATION_GROUPS_QUERY_KEY,
+  chatContextQueryKey,
+  conversationGroupsQueryKey,
+};
 
 // ---------------------------------------------------------------------------
 // Queries

@@ -1,10 +1,16 @@
 import { newStableId } from "@/domains/chat/utils/stable-id.js";
 import {
+  applyToolProgress,
   applyToolResult,
   upsertToolCall,
 } from "@/domains/chat/hooks/stream-message-updaters.js";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types.js";
-import type { ChatMessageToolCall, ToolResultEvent, ToolUseStartEvent } from "@/domains/chat/api/event-types.js";
+import type {
+  ChatMessageToolCall,
+  ToolProgressEvent,
+  ToolResultEvent,
+  ToolUseStartEvent,
+} from "@/domains/chat/api/event-types.js";
 
 export function handleToolUseStart(
   event: ToolUseStartEvent,
@@ -33,11 +39,35 @@ export function handleToolUseStart(
   );
 }
 
+export function handleToolProgress(
+  event: ToolProgressEvent,
+  ctx: StreamHandlerContext,
+): void {
+  ctx.setMessages((prev) =>
+    applyToolProgress(prev, {
+      toolUseId: event.toolUseId,
+      elapsedSec: event.elapsedSec,
+      timeoutSec: event.timeoutSec,
+    }),
+  );
+}
+
 export function handleToolResult(
   event: ToolResultEvent,
   ctx: StreamHandlerContext,
 ): void {
   ctx.turnActions.onToolResult();
+  // Forward structured tool activity metadata (web_search / web_fetch) onto
+  // the turn store so the new WebSearchProgressCard can render during the
+  // active turn. Metadata is live-only — the store clears it on idle
+  // transitions; historical reopens continue through the existing
+  // `result: string` flow below (parsed for fallback chips).
+  if (event.activityMetadata && event.toolUseId) {
+    ctx.turnActions.onToolActivityMetadata(
+      event.toolUseId,
+      event.activityMetadata,
+    );
+  }
   ctx.setMessages((prev) =>
     applyToolResult(prev, {
       toolUseId: event.toolUseId,
@@ -52,6 +82,7 @@ export function handleToolResult(
       allowlistOptions: event.allowlistOptions,
       scopeOptions: event.scopeOptions,
       directoryScopeOptions: event.directoryScopeOptions,
+      activityMetadata: event.activityMetadata,
     }),
   );
 }

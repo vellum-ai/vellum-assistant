@@ -1,7 +1,11 @@
 import { runtimeAttachmentsToDisplay } from "@/domains/chat/utils/attachment-mapping.js";
 import { parseAttachmentSummariesFromContent } from "@/domains/chat/utils/parse-attachment-summaries.js";
 import { newStableId } from "@/domains/chat/utils/stable-id.js";
-import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/types/types.js";
+import type {
+  DisplayAttachment,
+  DisplayMessage,
+  SlackRuntimeMessage,
+} from "@/domains/chat/types/types.js";
 import { mapRuntimeToolCalls, normalizeContentOrder, normalizeTextSegments, type RuntimeMessage } from "@/domains/chat/api/messages.js";
 
 /**
@@ -25,6 +29,7 @@ export interface PreparedRuntimeMessage {
     | undefined;
   normalizedContentOrder: Array<{ type: string; id: string }> | undefined;
   toolCalls: ReturnType<typeof mapRuntimeToolCalls> | undefined;
+  slackMessage: SlackRuntimeMessage | undefined;
   timestamp: number | undefined;
 }
 
@@ -98,6 +103,7 @@ export function prepareServerMessage(m: RuntimeMessage): PreparedRuntimeMessage 
     normalizedSegments,
     normalizedContentOrder,
     toolCalls,
+    slackMessage: m.slackMessage,
     timestamp,
   };
 }
@@ -124,6 +130,7 @@ export function mapRuntimeToDisplayMessage(m: RuntimeMessage): DisplayMessage {
   if (prepared.normalizedContentOrder) msg.contentOrder = prepared.normalizedContentOrder;
   if (m.metadata) msg.metadata = m.metadata;
   if (m.subagentNotification) msg.isSubagentNotification = true;
+  if (prepared.slackMessage) msg.slackMessage = prepared.slackMessage;
   if (prepared.toolCalls) msg.toolCalls = prepared.toolCalls;
   if (prepared.timestamp != null) msg.timestamp = prepared.timestamp;
 

@@ -43,6 +43,7 @@ import {
   isCliCommandSlug,
 } from "./cli-command-store.js";
 import { getEdgeIndex } from "./edge-index.js";
+import { recordInjectionEvents } from "./injection-events.js";
 import { readPage, renderPageContent } from "./page-store.js";
 import { runRouter } from "./router.js";
 import { getSkillCapability, isSkillSlug } from "./skill-store.js";
@@ -552,8 +553,18 @@ async function injectViaRouter(args: {
     nowText,
     priorEverInjected,
     config,
+    database,
     ...(signal ? { signal } : {}),
   });
+
+  // Record router selections to the EMA event log. The router decided these
+  // slugs are relevant THIS turn (regardless of whether they're newly
+  // rendered or re-picked from prior context). The helper swallows its own
+  // errors — a SQLite write must not abort the turn on top of a successful
+  // routing decision the rest of this function depends on.
+  if (routerResult.failureReason === null) {
+    recordInjectionEvents(database, routerResult.selectedSlugs, Date.now());
+  }
 
   if (routerResult.failureReason !== null) {
     log.warn(
@@ -603,12 +614,12 @@ async function injectViaRouter(args: {
 
   // Build minimal telemetry rows for the union of router-selected slugs and
   // prior `everInjected` slugs. Router-mode rows zero out every activation
-  // value (no spreading activation runs). Slugs the router picked this turn
-  // get `source: "router"`; prior-everInjected slugs the router did NOT
-  // re-pick get `source: "carry_over"`. The `status` placeholder is
-  // overwritten by `finalizeInjection`.
-  const routerPicked = new Set(routerResult.selectedSlugs);
-  const telemetrySlugs = new Set<string>(routerPicked);
+  // value (no spreading activation runs). Slugs the router picked carry
+  // their batch's tier tag from `routerResult.sourceBySlug` (e.g. `tier1`,
+  // `tier3:2`); prior-everInjected slugs the router did NOT re-pick get
+  // `source: "carry_over"`. The `status` placeholder is overwritten by
+  // `finalizeInjection`.
+  const telemetrySlugs = new Set<string>(routerResult.selectedSlugs);
   for (const entry of priorEverInjected) telemetrySlugs.add(entry.slug);
   const telemetryRows: MemoryV2ConceptRowRecord[] = [...telemetrySlugs].map(
     (slug) => ({
@@ -623,7 +634,7 @@ async function injectViaRouter(args: {
       simAssistantRerankBoost: 0,
       inRerankPool: false,
       spreadContribution: 0,
-      source: routerPicked.has(slug) ? "router" : "carry_over",
+      source: routerResult.sourceBySlug.get(slug) ?? "carry_over",
       status: "not_injected",
     }),
   );

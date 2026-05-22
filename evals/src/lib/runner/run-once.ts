@@ -1,4 +1,4 @@
-import type { AgentEvent, AgentMessage } from "../adapter";
+import type { AgentEvent, AgentMessage, BaseAgent } from "../adapter";
 import {
   appendAssistantEvents,
   appendProgressEvent,
@@ -6,6 +6,7 @@ import {
   appendTranscriptTurn,
   ensureRunArtifacts,
   readTranscript,
+  readUsage,
   runMetrics,
   type MetricResult,
   writeMetricResults,
@@ -15,7 +16,7 @@ import {
 import type { Profile } from "../profile";
 import type { TestDef } from "../test-def";
 import type { TranscriptTurn } from "../transcript";
-import { summarizeAssistantUsage } from "../usage";
+import { mergeUsageSummaries, summarizeAssistantUsage } from "../usage";
 import {
   SimulatorParseError,
   UserSimulator,
@@ -95,12 +96,46 @@ export function assistantContent(event: AgentEvent): string | undefined {
   return event.message.text ?? event.message.chunk;
 }
 
-async function collectAndPersistEvents(input: {
+export interface CollectAndPersistEventsResult {
+  /**
+   * Total number of events the collector returned. Zero means the
+   * assistant produced no events at all during the quiet/max window —
+   * a pipeline failure (no model response, dead event stream, …) that
+   * the caller should treat as a hard error.
+   */
+  eventCount: number;
+  /**
+   * Number of events that contributed a transcript turn (i.e. carried
+   * non-empty `text`/`chunk` after adapter-side normalization).
+   * `transcriptTurnCount === 0` with `eventCount > 0` is legitimate:
+   * the assistant responded with tool-use-only events that don't have
+   * a textual payload.
+   */
+  transcriptTurnCount: number;
+}
+
+/**
+ * Collect the next batch of assistant events from the live stream,
+ * append them to the cumulative `assistantEvents` array and the on-disk
+ * event log, optionally emit transcript turns for events that carry
+ * text, and rewrite the persisted usage summary.
+ *
+ * **The usage write is an overwrite, not a merge.** `input.assistantEvents`
+ * is the cumulative-across-turns array (every turn pushes into it),
+ * so `summarizeAssistantUsage(input.assistantEvents)` is the complete
+ * event-sourced usage state for the run. Merging it with the on-disk
+ * value would double-count every prior turn's records (Codex bot +
+ * Devin bot caught this on PR #31348; the recording-sidecar usage
+ * lands separately via `mergeRecordedUsage` once at end-of-run).
+ *
+ * Exported for unit-tests; only `runEvalOnce` calls it in production.
+ */
+export async function collectAndPersistEvents(input: {
   runId: string;
   collector: AgentEventCollector;
   assistantEvents: AgentEvent[];
   includeInTranscript: boolean;
-}): Promise<void> {
+}): Promise<CollectAndPersistEventsResult> {
   const events = await input.collector.collectUntilQuiet({
     quietMs: EVENT_QUIET_MS,
     maxMs: EVENT_MAX_MS,
@@ -108,6 +143,7 @@ async function collectAndPersistEvents(input: {
   input.assistantEvents.push(...events);
   await appendAssistantEvents(input.runId, events);
 
+  let transcriptTurnCount = 0;
   if (input.includeInTranscript) {
     for (const event of events) {
       const content = assistantContent(event);
@@ -117,11 +153,29 @@ async function collectAndPersistEvents(input: {
           content: content.trim(),
           emittedAt: event.emittedAt ?? new Date().toISOString(),
         });
+        transcriptTurnCount += 1;
       }
     }
   }
 
   await writeUsage(input.runId, summarizeAssistantUsage(input.assistantEvents));
+  return { eventCount: events.length, transcriptTurnCount };
+}
+
+async function mergeRecordedUsage(input: {
+  runId: string;
+  agent: BaseAgent;
+}): Promise<void> {
+  const records = await input.agent.readUsageRecords?.();
+  if (!records || records.length === 0) return;
+  const existingUsage = await readUsage(input.runId);
+  const recordedUsage = summarizeAssistantUsage(
+    records.map((usage) => ({ message: { type: "usage", usage } })),
+  );
+  await writeUsage(
+    input.runId,
+    mergeUsageSummaries(existingUsage, recordedUsage),
+  );
 }
 
 async function sendAndPersistSimulatorMessage(input: {
@@ -306,19 +360,40 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
         message: "Waiting for assistant response",
         turn: simulatorTurns + 1,
       });
-      await collectAndPersistEvents({
-        runId: input.runId,
-        collector,
-        assistantEvents,
-        includeInTranscript: true,
-      });
+      const { eventCount, transcriptTurnCount } = await collectAndPersistEvents(
+        {
+          runId: input.runId,
+          collector,
+          assistantEvents,
+          includeInTranscript: true,
+        },
+      );
+      // A zero-event window means the event stream went silent for the
+      // full quiet/max budget without delivering anything — a pipeline
+      // failure (dead subscription, model never replied). Throw so the
+      // run fails loudly instead of dribbling into metrics with no
+      // assistant response.
+      //
+      // We deliberately do NOT throw on `transcriptTurnCount === 0`
+      // alone: tool-use-only responses (assistant emits a tool_use_*
+      // event sequence with no `assistant_text_delta`) are legitimate
+      // and produce zero transcript turns while still being a real
+      // response. Devin caught this regression on PR #31348.
+      if (eventCount === 0) {
+        throw new Error(
+          `assistant response collection produced no events for turn ${simulatorTurns + 1}`,
+        );
+      }
       progress({
         step: "events",
         status: "done",
         message: "Assistant response collected",
+        detail: `${eventCount} event${eventCount === 1 ? "" : "s"} · ${transcriptTurnCount} transcript turn${transcriptTurnCount === 1 ? "" : "s"}`,
         turn: simulatorTurns + 1,
       });
     }
+
+    await mergeRecordedUsage({ runId: input.runId, agent });
 
     progress({
       step: "metrics",

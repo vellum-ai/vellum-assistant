@@ -73,10 +73,13 @@ export interface ChatBodyProps {
    */
   isKeyboardOpen: boolean;
 
-  /** True when the scroll-to-latest button should be shown above the composer. */
+  /** True when the "Go to Newest" pill should be shown above the composer. */
   showScrollToLatest: boolean;
-  /** Click handler for the scroll-to-latest button. */
+  /** Click handler for the "Go to Newest" pill. */
   onScrollToLatest: () => void;
+  /** True when an assistant response is currently streaming — drives the
+   *  animated dots indicator inside the "Go to Newest" pill. */
+  isStreaming?: boolean;
 
   /** Active refresh-feedback pill, or `null` when no pill is shown. */
   refreshFeedback: RefreshFeedback | null;
@@ -116,6 +119,12 @@ export interface ChatBodyProps {
    * question is pending and the user has not yet responded.
    */
   questionPromptSlot?: ReactNode;
+
+  /**
+   * Optional pre-rendered footer rendered inside the max-width wrapper
+   * immediately above the composer or read-only banner.
+   */
+  channelFooterSlot?: ReactNode;
 
   /**
    * Optional conversation-starter chip grid rendered inside the max-width
@@ -167,6 +176,7 @@ export function ChatBody({
   isKeyboardOpen,
   showScrollToLatest,
   onScrollToLatest,
+  isStreaming = false,
   refreshFeedback,
   onDismissRefreshFeedback,
   onRetryRefresh,
@@ -176,6 +186,7 @@ export function ChatBody({
   bannerSlot,
   queuedDrawerSlot,
   questionPromptSlot,
+  channelFooterSlot,
   startersSlot,
 }: ChatBodyProps) {
   const isEmptyState = scrollAreaProps.showEmptyState;
@@ -219,7 +230,7 @@ export function ChatBody({
           on first send (LUM-1506 / LUM-1516). */}
       <div
         className={`relative px-3 pt-2 sm:px-6 sm:pb-0 ${
-          isKeyboardOpen ? "pb-1" : "pb-4"
+          isKeyboardOpen ? "pb-2" : "pb-4"
         }`}
       >
         {refreshFeedback && (
@@ -235,7 +246,10 @@ export function ChatBody({
           <div className="pointer-events-none absolute inset-x-0 bottom-full z-10 flex flex-col items-center">
             {showScrollToLatest && (
               <div className="pointer-events-auto pb-2.5">
-                <ScrollToLatestButton onClick={onScrollToLatest} />
+                <ScrollToLatestButton
+                  onClick={onScrollToLatest}
+                  isStreaming={isStreaming}
+                />
               </div>
             )}
             {bannerSlot}
@@ -249,6 +263,7 @@ export function ChatBody({
           )}
           {queuedDrawerSlot}
           {questionPromptSlot}
+          {channelFooterSlot}
           {isChannelReadonly ? (
             <ChatReadonlyBanner
               canStopGenerating={canStopGenerating}
@@ -257,7 +272,7 @@ export function ChatBody({
           ) : (
             <ChatComposer {...composerProps} />
           )}
-          {startersSlot}
+          {!isKeyboardOpen && startersSlot}
         </div>
       </div>
       {isAttachmentDragOver && (

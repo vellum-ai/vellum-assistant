@@ -700,6 +700,16 @@ export class CdpInspectClient implements ScopedCdpClient {
     }
   }
 
+  /**
+   * CdpInspectClient doesn't support re-targeting to a specific tab/session.
+   * It connects directly to a remote CDP endpoint, which manages targets
+   * globally. This method is a no-op to satisfy the {@link ScopedCdpClient}
+   * interface.
+   */
+  setCdpSessionId(): void {
+    // no-op
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;

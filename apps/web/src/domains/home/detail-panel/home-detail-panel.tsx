@@ -1,6 +1,13 @@
-import { Circle, CircleCheck, X } from "lucide-react";
+import {
+  CircleX,
+  Mail,
+  MailOpen,
+  MoreVertical,
+  RotateCcw,
+  X,
+} from "lucide-react";
 
-import { Button, Typography } from "@vellum/design-library";
+import { Button, Menu, Typography } from "@vellum/design-library";
 import { CATEGORY_STYLES } from "../home-feed-filter-bar.js";
 import { HomeGenericDetail } from "./home-generic-detail.js";
 import { HomeToolPermissionCard } from "./home-tool-permission-card.js";
@@ -18,6 +25,7 @@ export interface HomeDetailPanelProps {
   onClose: () => void;
   onGoToThread: (conversationId: string) => void;
   onUpdateStatus: (itemId: string, status: FeedItemStatus) => void;
+  onDismiss: (itemId: string) => void;
 }
 
 export function HomeDetailPanel({
@@ -25,13 +33,17 @@ export function HomeDetailPanel({
   onClose,
   onGoToThread,
   onUpdateStatus,
+  onDismiss,
 }: HomeDetailPanelProps) {
-  if (!item) return null;
+  if (!item) {
+    return null;
+  }
 
   const panelKind = item.detailPanel?.kind;
   const categoryStyle = resolveCategoryStyle(item.category);
   const CategoryIcon = categoryStyle.icon;
   const isUnread = item.status === "new";
+  const isDismissed = item.status === "dismissed";
 
   return (
     <div className="flex h-full flex-col rounded-[var(--radius-lg)] border border-[var(--border-base)] bg-[var(--surface-overlay)]">
@@ -57,29 +69,64 @@ export function HomeDetailPanel({
           variant="title-small"
           className="min-w-0 flex-1 truncate text-[var(--content-default)]"
         >
-          {item.title}
+          {item.title ?? item.summary}
         </Typography>
 
-        <Button
-          variant="outlined"
-          size="compact"
-          iconOnly={isUnread ? <CircleCheck /> : <Circle />}
-          onClick={() =>
-            onUpdateStatus(item.id, isUnread ? "seen" : "new")
-          }
-          aria-label={isUnread ? "Mark as read" : "Mark as unread"}
-          title={isUnread ? "Mark as read" : "Mark as unread"}
-        />
-
+        {/* Go to Convo button — only when conversationId exists */}
         {item.conversationId ? (
           <Button
             variant="outlined"
             size="compact"
             onClick={() => onGoToThread(item.conversationId!)}
           >
-            Go to Thread
+            Go to Convo
           </Button>
         ) : null}
+
+        {/* Overflow menu — mark-as-read toggle + dismiss */}
+        <Menu.Root>
+          <Menu.Trigger>
+            <Button
+              variant="outlined"
+              size="compact"
+              iconOnly={<MoreVertical />}
+              aria-label="More actions"
+            />
+          </Menu.Trigger>
+          <Menu.Content align="end">
+            {isDismissed ? (
+              <Menu.Item
+                onSelect={() => onUpdateStatus(item.id, "seen")}
+                leftIcon={<RotateCcw className="size-4" />}
+              >
+                Restore
+              </Menu.Item>
+            ) : (
+              <>
+                <Menu.Item
+                  onSelect={() =>
+                    onUpdateStatus(item.id, isUnread ? "seen" : "new")
+                  }
+                  leftIcon={
+                    isUnread ? (
+                      <MailOpen className="size-4" />
+                    ) : (
+                      <Mail className="size-4" />
+                    )
+                  }
+                >
+                  {isUnread ? "Mark as read" : "Mark as unread"}
+                </Menu.Item>
+                <Menu.Item
+                  onSelect={() => onDismiss(item.id)}
+                  leftIcon={<CircleX className="size-4" />}
+                >
+                  Dismiss
+                </Menu.Item>
+              </>
+            )}
+          </Menu.Content>
+        </Menu.Root>
 
         <Button
           variant="outlined"

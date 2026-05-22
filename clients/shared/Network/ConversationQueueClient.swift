@@ -6,6 +6,7 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Conve
 /// Focused client for message queue operations routed through the gateway.
 public protocol ConversationQueueClientProtocol {
     func deleteQueuedMessage(conversationId: String, requestId: String) async -> Bool
+    func steerQueuedMessage(conversationId: String, requestId: String) async -> Bool
 }
 
 /// Gateway-backed implementation of ``ConversationQueueClientProtocol``.
@@ -26,6 +27,24 @@ public struct ConversationQueueClient: ConversationQueueClientProtocol {
             return true
         } catch {
             log.error("deleteQueuedMessage error: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    public func steerQueuedMessage(conversationId: String, requestId: String) async -> Bool {
+        do {
+            let encoded = requestId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? requestId
+            let response = try await GatewayHTTPClient.post(
+                path: "messages/queued/\(encoded)/steer?conversationId=\(conversationId)",
+                timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("steerQueuedMessage failed (HTTP \(response.statusCode))")
+                return false
+            }
+            return true
+        } catch {
+            log.error("steerQueuedMessage error: \(error.localizedDescription)")
             return false
         }
     }

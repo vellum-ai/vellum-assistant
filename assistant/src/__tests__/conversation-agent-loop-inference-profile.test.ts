@@ -169,6 +169,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   getConversationOriginChannel: () => null,
   getMessageById: () => null,
   getLastUserTimestampBefore: () => 0,
+  setLastNotifiedInferenceProfile: () => {},
 }));
 
 mock.module("../memory/conversation-disk-view.js", () => ({

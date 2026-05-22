@@ -311,7 +311,7 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
 }));
 
 mock.module("../providers/registry.js", () => ({
-  initializeProviders: () => {},
+  initializeProviders: async () => {},
 }));
 
 import {

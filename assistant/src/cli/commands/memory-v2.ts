@@ -22,6 +22,7 @@ import { cliIpcCall } from "../../ipc/cli-client.js";
 import type {
   MemoryV2BackfillOp,
   MemoryV2BackfillResult,
+  MemoryV2EmaScoresResult,
   MemoryV2ReembedSkillsResult,
   MemoryV2ValidateResult,
 } from "../../runtime/routes/memory-v2-routes.js";
@@ -252,6 +253,121 @@ Examples:
             process.exitCode = 1;
           }
         });
+
+      // ── ema ───────────────────────────────────────────────────────────────
+
+      v2.command("ema")
+        .description(
+          "List concept pages by injection-frequency EMA score (read-only)",
+        )
+        .option(
+          "-n, --limit <count>",
+          "Maximum rows to print (default 25; ignored with --all)",
+          "25",
+        )
+        .option("--all", "Print every page, including zero-score pages")
+        .option(
+          "--include-zeros",
+          "Include pages with score 0 in the default-limited view",
+        )
+        .option("--json", "Emit raw JSON instead of a formatted table")
+        .addHelpText(
+          "after",
+          `
+EMA score is the time-decayed sum Σ exp(-λ × (now - tᵢ)) with a 3-day
+half-life, computed from memory_v2_injection_events. A score of 1.0 means
+roughly one router selection in the last few minutes; 0.5 means a single
+selection ~3 days ago. Pages that have never been router-selected since
+EMA tracking began report 0.
+
+Examples:
+  $ assistant memory v2 ema
+  $ assistant memory v2 ema -n 100
+  $ assistant memory v2 ema --all --json | jq '.entries | length'`,
+        )
+        .action(
+          async (opts: {
+            limit: string;
+            all?: boolean;
+            includeZeros?: boolean;
+            json?: boolean;
+          }) => {
+            const result = await cliIpcCall<MemoryV2EmaScoresResult>(
+              "memory_v2_ema_scores",
+              { body: {} },
+            );
+
+            if (!result.ok) {
+              log.error(result.error ?? "Failed to fetch EMA scores");
+              process.exitCode = 1;
+              return;
+            }
+
+            const allEntries = result.result!.entries;
+            const includeZeros =
+              opts.all === true || opts.includeZeros === true;
+            const visible = includeZeros
+              ? allEntries
+              : allEntries.filter((e) => e.score > 0);
+
+            const limit =
+              opts.all === true ? visible.length : Number(opts.limit);
+            if (!opts.all && (!Number.isFinite(limit) || limit < 1)) {
+              log.error(
+                `--limit must be a positive integer (got "${opts.limit}")`,
+              );
+              process.exitCode = 1;
+              return;
+            }
+            const rows = visible.slice(0, limit);
+
+            if (opts.json === true) {
+              log.info(
+                JSON.stringify(
+                  {
+                    entries: rows,
+                    totalScored: allEntries.filter((e) => e.score > 0).length,
+                    totalPages: allEntries.length,
+                  },
+                  null,
+                  2,
+                ),
+              );
+              return;
+            }
+
+            if (rows.length === 0) {
+              log.info(
+                "No concept pages have any EMA signal yet. Send a few turns through the router and try again.",
+              );
+              return;
+            }
+
+            const slugWidth = Math.min(
+              60,
+              Math.max(...rows.map((r) => r.slug.length)),
+            );
+            const header = `${"slug".padEnd(slugWidth)}  ${"score".padStart(8)}  modified`;
+            log.info(header);
+            log.info("-".repeat(header.length));
+            for (const row of rows) {
+              const slug =
+                row.slug.length > slugWidth
+                  ? row.slug.slice(0, slugWidth - 1) + "…"
+                  : row.slug.padEnd(slugWidth);
+              const score = row.score.toFixed(3).padStart(8);
+              const modified =
+                row.modifiedAt > 0
+                  ? new Date(row.modifiedAt).toISOString().slice(0, 10)
+                  : "—";
+              log.info(`${slug}  ${score}  ${modified}`);
+            }
+            const totalScored = allEntries.filter((e) => e.score > 0).length;
+            log.info(
+              `\n${rows.length} of ${visible.length} shown (${totalScored} total with score > 0, ${allEntries.length} pages indexed).`,
+            );
+          },
+        );
     },
   });
 }

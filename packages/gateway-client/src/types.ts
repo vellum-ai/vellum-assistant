@@ -79,6 +79,8 @@ export interface ChannelReplyPayload {
     channel: string;
     threadTs: string;
     status: string;
+    /** Serialized to Slack as `loading_messages`. */
+    loadingMessages?: string[];
   };
 }
 

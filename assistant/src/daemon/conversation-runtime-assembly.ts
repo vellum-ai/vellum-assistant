@@ -680,27 +680,24 @@ export function injectChannelCapabilityContext(
       "- Do NOT reference the dashboard UI, settings panels, or visual preference pickers.",
     );
     if (!caps.supportsDynamicUi) {
-      lines.push(
-        "- Do NOT use ui_show, ui_update, or app_create — this channel cannot render them.",
-      );
+      if (caps.channel === "slack") {
+        lines.push(
+          '- Do NOT use app_create. Only use ui_show/ui_update for card surfaces with template: "task_progress"; present all other information as text.',
+        );
+      } else {
+        lines.push(
+          "- Do NOT use ui_show, ui_update, or app_create — this channel cannot render them.",
+        );
+      }
       lines.push(
         "- Present information as well-formatted text instead of dynamic UI.",
       );
     }
-    lines.push(
-      "- Defer dashboard-specific actions (e.g. accent color selection) by telling the user",
-    );
-    lines.push("  they can complete those steps later from the desktop app.");
-
     if (caps.channel === "whatsapp") {
       lines.push(
         "- Do NOT use markdown tables — use bullet lists instead. No markdown headers — use **bold** or CAPS for emphasis.",
       );
     }
-  }
-
-  if (!caps.supportsVoiceInput) {
-    lines.push("- Do NOT ask the user to use voice or microphone input.");
   }
 
   // Inject group chat etiquette only when the chat type indicates a multi-party
@@ -798,6 +795,13 @@ export interface UnifiedTurnContextOptions {
    * the model can acknowledge long absences; otherwise omitted.
    */
   timeSinceLastMessage?: string | null;
+  /**
+   * Human-readable model profile description. Only populated when the active
+   * inference profile changed since the last turn (or on the first turn of a
+   * conversation) so the model knows which profile/model it is using without
+   * paying per-turn token cost.
+   */
+  modelProfile?: string | null;
 }
 
 /**
@@ -855,6 +859,9 @@ export function buildUnifiedTurnContextBlock(
   }
   if (options.timeSinceLastMessage) {
     lines.push(`time_since_last_message: ${options.timeSinceLastMessage}`);
+  }
+  if (options.modelProfile) {
+    lines.push(`model_profile: ${options.modelProfile}`);
   }
   if (options.interfaceName) {
     lines.push(`interface: ${options.interfaceName}`);
@@ -973,6 +980,9 @@ export function buildUnifiedTurnContextBlock(
     lines.push(
       `response_discretion: Not every message in a channel thread requires your response. If a message is clearly not directed at you (e.g. people talking among themselves, acknowledgements, reactions), output exactly <no_response/> as your entire reply to stay silent.`,
     );
+    if (options.channelName === "slack") {
+      lines.push("if you are going to do work, use task_progress");
+    }
   }
 
   lines.push("</turn_context>");
@@ -1026,17 +1036,6 @@ export function stripChannelCapabilityContext(messages: Message[]): Message[] {
 
 function injectTransportHints(message: Message, hints: string[]): Message {
   const block = `<transport_hints>\n${hints.join("\n")}\n</transport_hints>`;
-  return {
-    ...message,
-    content: [{ type: "text", text: block }, ...message.content],
-  };
-}
-
-function injectSlackRuntimeContextNotice(
-  message: Message,
-  notice: string,
-): Message {
-  const block = `<slack_context_notice>\n${notice}\n</slack_context_notice>`;
   return {
     ...message,
     content: [{ type: "text", text: block }, ...message.content],
@@ -1703,7 +1702,6 @@ const RUNTIME_INJECTION_PREFIXES = [
   "<pkb>", // backward-compat: strip legacy tag from pre-rename history
   "<system_reminder>",
   "<transport_hints>",
-  "<slack_context_notice>",
   // The Slack active-thread focus block is non-persisted and injected on
   // the FINAL user turn only. Strip it here so re-assembly during compaction
   // and overflow recovery does not duplicate it across turns.
@@ -1997,7 +1995,6 @@ export interface RuntimeInjectionOptions {
    */
   isBackgroundConversation?: boolean;
   transportHints?: string[] | null;
-  slackRuntimeContextNotice?: string | null;
   /**
    * Pre-rendered Slack chronological transcript that replaces the
    * default `runMessages` history for any Slack conversation (channels
@@ -2334,23 +2331,6 @@ export async function applyRuntimeInjections(
       result = [
         ...result.slice(0, -1),
         injectChannelCapabilityContext(userTail, options.channelCapabilities),
-      ];
-    }
-  }
-
-  if (
-    mode === "full" &&
-    slackConversation &&
-    options.slackRuntimeContextNotice
-  ) {
-    const userTail = result[result.length - 1];
-    if (userTail && userTail.role === "user") {
-      result = [
-        ...result.slice(0, -1),
-        injectSlackRuntimeContextNotice(
-          userTail,
-          options.slackRuntimeContextNotice,
-        ),
       ];
     }
   }

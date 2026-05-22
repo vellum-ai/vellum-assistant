@@ -6,8 +6,12 @@
  * / `uploadChatAttachment` / `deleteQueuedMessage` write operations.
  */
 
-import type { ChatMessage, ChatMessageToolCall } from "@/domains/chat/api/event-types.js";
-import type { Surface } from "@/domains/chat/types/types.js";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types.js";
+import type {
+  DisplayMessage,
+  SlackRuntimeMessage,
+  Surface,
+} from "@/domains/chat/types/types.js";
 import {
   assertHasResponse,
   client,
@@ -87,11 +91,12 @@ export interface RuntimeMessage {
   textSegments?: Array<{ type: string; content: string; [key: string]: unknown }>;
   contentOrder?: Array<{ type: string; id: string }>;
   metadata?: Record<string, unknown>;
+  slackMessage?: SlackRuntimeMessage;
   toolCalls?: RuntimeToolCall[];
   /** Structured attachment metadata from the daemon's history endpoint. */
   attachments?: RuntimeAttachment[];
-  /** Server-provided timestamp in milliseconds since epoch. */
-  timestamp?: number;
+  /** Server-provided timestamp as epoch milliseconds or an ISO string. */
+  timestamp?: number | string;
   /** Subagent notification attached to this history message by the daemon. */
   subagentNotification?: RuntimeSubagentNotification;
 }
@@ -102,6 +107,10 @@ interface SendMessageResponse {
   queued?: boolean;
   conversationId?: string;
   assistantMessage?: RuntimeMessage;
+  /** Set when `queued` is true — the daemon's request id for the
+   *  queued message, used by the steer/cancel endpoints. Added by
+   *  #7484 (queue steering) but the interface field was missed. */
+  requestId?: string;
 }
 
 interface ListMessagesResponse {
@@ -242,7 +251,7 @@ export function normalizeTextSegments(
 }
 
 export type ChatHistoryResult =
-  | { ok: true; messages: ChatMessage[] }
+  | { ok: true; messages: DisplayMessage[] }
   | { ok: false; status: number; error: string };
 
 export async function getChatHistory(
@@ -268,22 +277,12 @@ export async function getChatHistory(
       };
     }
 
-    const messages: ChatMessage[] = (Array.isArray(data?.messages) ? data.messages : [])
+    const { mapRuntimeToDisplayMessage } = await import(
+      "@/domains/chat/utils/map-runtime-message.js"
+    );
+    const messages = (Array.isArray(data?.messages) ? data.messages : [])
       .filter((m) => m.role === "user" || m.role === "assistant")
-      .map((m) => {
-        const msg: ChatMessage = { id: m.id, role: m.role, content: m.content };
-        if (m.surfaces) msg.surfaces = m.surfaces;
-        const normalizedSegments = normalizeTextSegments(m.textSegments as unknown[]);
-        if (normalizedSegments) msg.textSegments = normalizedSegments;
-        const normalizedOrder = normalizeContentOrder(m.contentOrder as unknown[]);
-        if (normalizedOrder) msg.contentOrder = normalizedOrder;
-        if (m.metadata) msg.metadata = m.metadata;
-        if (m.toolCalls && m.toolCalls.length > 0) {
-          msg.toolCalls = mapRuntimeToolCalls(m.toolCalls, m.id);
-        }
-        if (m.timestamp) msg.timestamp = m.timestamp;
-        return msg;
-      });
+      .map(mapRuntimeToDisplayMessage);
 
     return { ok: true, messages };
   } catch (err) {
@@ -333,6 +332,7 @@ export type PostMessageResult =
     assistantId: string;
     conversationKey: string;
     resolvedConversationId?: string;
+    requestId?: string;
   }
   | { ok: false; status: number; error: { code?: string; detail?: string } };
 
@@ -455,6 +455,8 @@ export async function postChatMessage(
     if (normalizedOnboarding.assistantName !== undefined) onboardingDict.assistantName = normalizedOnboarding.assistantName;
     if (normalizedOnboarding.googleConnected !== undefined) onboardingDict.googleConnected = normalizedOnboarding.googleConnected;
     if (normalizedOnboarding.googleScopes !== undefined) onboardingDict.googleScopes = normalizedOnboarding.googleScopes;
+    if (normalizedOnboarding.priorAssistants !== undefined) onboardingDict.priorAssistants = normalizedOnboarding.priorAssistants;
+    if (normalizedOnboarding.cohort !== undefined) onboardingDict.cohort = normalizedOnboarding.cohort;
     body.onboarding = onboardingDict;
   }
   if (normalizedOnboarding) {
@@ -523,6 +525,7 @@ export async function postChatMessage(
       assistantId,
       conversationKey,
       resolvedConversationId,
+      requestId: typeof sendData.requestId === "string" ? sendData.requestId : undefined,
     };
   }
 
@@ -541,6 +544,30 @@ export async function postChatMessage(
     messageId: sendData.messageId,
     resolvedConversationId,
   };
+}
+
+/**
+ * Steer the assistant to a queued message by aborting the current
+ * generation and promoting the message to the head of the queue.
+ */
+export async function steerToMessage(
+  assistantId: string,
+  conversationKey: string,
+  requestId: string,
+): Promise<boolean> {
+  try {
+    const encoded = encodeURIComponent(requestId);
+    const { response } = await client.post<unknown, unknown>({
+      ...SDK_BASE_OPTIONS,
+      url: `/v1/assistants/{assistant_id}/messages/queued/${encoded}/steer`,
+      path: { assistant_id: assistantId },
+      query: { conversationId: conversationKey },
+      throwOnError: false,
+    });
+    return response?.ok ?? false;
+  } catch {
+    return false;
+  }
 }
 
 /**

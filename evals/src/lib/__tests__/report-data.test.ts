@@ -141,7 +141,7 @@ describe("report data", () => {
       testId: "t1",
       status: "completed",
       metricCount: 2,
-      scoreTotal: 0.9,
+      scoreTotal: 0.45,
       transcriptTurns: 1,
       assistantEventCount: 1,
       simulatorMessageCount: 1,
@@ -214,7 +214,7 @@ describe("report data", () => {
       status: "completed",
       profileIds: ["p1", "p2"],
       testIds: ["t1"],
-      scoreTotal: 1.5,
+      scoreTotal: 0.75,
     };
     expect(match).toMatchObject(expected);
   });
@@ -267,15 +267,20 @@ describe("report data", () => {
     const p1 = session?.profiles.find((p) => p.profileId === "p1");
     expect(p1).toMatchObject({
       runCount: 2,
-      scoreTotal: 1,
-      scoreAverage: 0.5,
+      scoreTotal: 0.5,
       completedCount: 1,
       failedCount: 1,
     });
+    expect(p1).not.toHaveProperty("scoreAverage");
 
     expect(session?.tests).toHaveLength(2);
     const t1 = session?.tests.find((t) => t.testId === "t1");
     expect(t1?.profiles.map((p) => p.profileId)).toEqual(["p1", "p2"]);
+    // t1 has two runs at 1.0 and 0.6 → equal-weighted mean is 0.8, NOT
+    // 1.6 (the old per-profile sum that would render as 160%).
+    expect(t1?.scoreTotal).toBeCloseTo(0.8, 10);
+    const t2 = session?.tests.find((t) => t.testId === "t2");
+    expect(t2?.scoreTotal).toBe(0);
   });
 
   test("readTestInSession exposes per-profile metrics for the test page", async () => {
@@ -315,7 +320,7 @@ describe("report data", () => {
     expect(test).toBeDefined();
     expect(test?.profiles).toHaveLength(2);
     const p2 = test?.profiles.find((p) => p.profileId === "p2");
-    expect(p2?.scoreTotal).toBe(0.3);
+    expect(p2?.scoreTotal).toBe(0.15);
     expect(p2?.metrics.map((m) => m.name)).toEqual(["acc", "cost"]);
   });
 

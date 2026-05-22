@@ -196,7 +196,6 @@ function makeTestConversation() {
         metadata,
         displayContent,
       ),
-    setSlackRuntimeContextNotice: () => {},
     runAgentLoop,
     updateClient: () => {},
     getCurrentSender: () => undefined,
@@ -361,6 +360,7 @@ describe("processMessage displayContent", () => {
     expect(persistedBlocks).toEqual([
       {
         type: "file",
+        _attachmentId: "att-1",
         source: {
           type: "base64",
           media_type: "application/pdf",
@@ -370,21 +370,26 @@ describe("processMessage displayContent", () => {
       },
     ]);
     expect(addMessageCalls[0]!.content).not.toContain("<external_content");
-    expect(conversation.getMessages()[0]).toEqual({
-      role: "user",
-      content: [
-        { type: "text", text: modelContent },
-        {
-          type: "file",
-          source: {
-            type: "base64",
-            media_type: "application/pdf",
-            data: Buffer.from("pdf bytes").toString("base64"),
-            filename: "attachment.pdf",
-          },
-          extracted_text: undefined,
-        },
-      ],
+    const inMemoryMessage = conversation.getMessages()[0]!;
+    expect(inMemoryMessage.role).toBe("user");
+    expect(inMemoryMessage.content[0]).toEqual({
+      type: "text",
+      text: modelContent,
+    });
+    const inMemoryFileBlock = inMemoryMessage.content[1] as unknown as Record<
+      string,
+      unknown
+    >;
+    expect(inMemoryFileBlock._attachmentId).toBe("att-1");
+    expect(inMemoryFileBlock).toMatchObject({
+      type: "file",
+      source: {
+        type: "base64",
+        media_type: "application/pdf",
+        data: Buffer.from("pdf bytes").toString("base64"),
+        filename: "attachment.pdf",
+      },
+      extracted_text: undefined,
     });
   });
 

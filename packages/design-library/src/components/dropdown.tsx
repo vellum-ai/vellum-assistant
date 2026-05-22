@@ -30,6 +30,12 @@ export interface DropdownOption<T extends string> {
   readonly value: T;
   readonly label: string;
   readonly icon?: ReactNode;
+  /**
+   * When true, the option renders dimmed and cannot be selected (by click,
+   * keyboard, or hover-highlight). The option still occupies a row so the
+   * list reads consistently. Defaults to selectable.
+   */
+  readonly disabled?: boolean;
 }
 
 export interface DropdownProps<T extends string> {
@@ -111,8 +117,10 @@ export function Dropdown<T extends string>({
       return;
     }
     setIsOpen(true);
-    setHighlightedIndex(selectedIndex >= 0 ? selectedIndex : 0);
-  }, [disabled, selectedIndex]);
+    setHighlightedIndex(
+      selectedIndex >= 0 ? selectedIndex : findEnabledIndex(options, 0, 1),
+    );
+  }, [disabled, selectedIndex, options]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -181,6 +189,9 @@ export function Dropdown<T extends string>({
 
   const selectOption = useCallback(
     (option: DropdownOption<T>) => {
+      if (option.disabled) {
+        return;
+      }
       onChange(option.value);
       close();
       triggerRef.current?.focus();
@@ -214,27 +225,33 @@ export function Dropdown<T extends string>({
       if (event.key === "ArrowDown") {
         event.preventDefault();
         setHighlightedIndex((prev: number) => {
-          const next = prev + 1;
-          return next >= options.length ? 0 : next;
+          const next = findEnabledIndex(options, prev + 1, 1);
+          return next === -1 ? prev : next;
         });
         return;
       }
       if (event.key === "ArrowUp") {
         event.preventDefault();
         setHighlightedIndex((prev: number) => {
-          const next = prev - 1;
-          return next < 0 ? options.length - 1 : next;
+          const next = findEnabledIndex(options, prev - 1, -1);
+          return next === -1 ? prev : next;
         });
         return;
       }
       if (event.key === "Home") {
         event.preventDefault();
-        setHighlightedIndex(0);
+        setHighlightedIndex((prev: number) => {
+          const next = findEnabledIndex(options, 0, 1);
+          return next === -1 ? prev : next;
+        });
         return;
       }
       if (event.key === "End") {
         event.preventDefault();
-        setHighlightedIndex(options.length - 1);
+        setHighlightedIndex((prev: number) => {
+          const next = findEnabledIndex(options, options.length - 1, -1);
+          return next === -1 ? prev : next;
+        });
         return;
       }
       if (event.key === "Enter" || event.key === " ") {
@@ -291,20 +308,29 @@ export function Dropdown<T extends string>({
     >
       {options.map((option, index) => {
         const isSelected = option.value === value;
-        const isHighlighted = index === highlightedIndex;
+        const isDisabled = Boolean(option.disabled);
+        const isHighlighted = !isDisabled && index === highlightedIndex;
         return (
           <li
             key={option.value}
             id={`${triggerId}-option-${index}`}
             role="option"
             aria-selected={isSelected}
+            aria-disabled={isDisabled}
             data-slot="dropdown-option"
-            onMouseEnter={() => setHighlightedIndex(index)}
+            onMouseEnter={() => {
+              if (!isDisabled) {
+                setHighlightedIndex(index);
+              }
+            }}
             onMouseDown={(event: ReactMouseEvent) => {
               event.preventDefault();
             }}
             onClick={() => selectOption(option)}
-            className="flex cursor-pointer items-center gap-2 px-3 py-2 text-body-medium-default transition-colors"
+            className={cn(
+              "flex items-center gap-2 px-3 py-2 text-body-medium-default transition-colors",
+              isDisabled ? "cursor-not-allowed opacity-50" : "cursor-pointer",
+            )}
             style={{
               background: isHighlighted
                 ? "var(--surface-hover)"
@@ -395,6 +421,36 @@ export function Dropdown<T extends string>({
         : menuNode}
     </div>
   );
+}
+
+/**
+ * Find the first selectable (non-disabled) option index, scanning from `start`
+ * in `direction` (+1 forward, -1 backward) and wrapping around the list.
+ * Checks `start` itself first, then steps. Returns -1 when every option is
+ * disabled (or the list is empty), which the caller treats as "no highlight".
+ *
+ * Keyboard navigation uses this so the active descendant never lands on a
+ * disabled row — otherwise the highlight would be suppressed while
+ * `aria-activedescendant` still pointed at it, stranding keyboard users on a
+ * row where Enter silently does nothing.
+ */
+export function findEnabledIndex<T extends string>(
+  options: ReadonlyArray<DropdownOption<T>>,
+  start: number,
+  direction: 1 | -1,
+): number {
+  const count = options.length;
+  if (count === 0) {
+    return -1;
+  }
+  let index = ((start % count) + count) % count;
+  for (let step = 0; step < count; step++) {
+    if (!options[index]?.disabled) {
+      return index;
+    }
+    index = ((index + direction) % count + count) % count;
+  }
+  return -1;
 }
 
 export function resolveDropdownMenuPosition(

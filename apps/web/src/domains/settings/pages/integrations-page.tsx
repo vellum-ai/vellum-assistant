@@ -1,3 +1,5 @@
+/* eslint-disable no-restricted-syntax -- LUM-1768: file contains dark: pairs pending semantic-token migration */
+
 import { useQuery } from "@tanstack/react-query";
 import {
   ChevronDown,
@@ -29,7 +31,7 @@ import { routes } from "@/utils/routes.js";
 import {
   getLocalSetting,
   setLocalSetting,
-} from "@/domains/settings/local-settings.js";
+} from "@/lib/local-settings.js";
 
 const BANNER_STORAGE_KEY = "integrations.bannerDismissed";
 

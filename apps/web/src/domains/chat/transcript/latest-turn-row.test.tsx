@@ -31,7 +31,7 @@ mock.module("@/components/assistant/surfaces", () => ({
   SurfaceRouter: () => <div data-testid="surface-router" />,
 }));
 
-mock.module("@/domains/chat/components/chat-attachments/index.js", () => ({
+mock.module("@/domains/chat/components/chat-attachments/message-attachments.js", () => ({
   MessageAttachments: () => <div data-testid="message-attachments" />,
 }));
 
@@ -182,7 +182,7 @@ describe("LatestTurnRow avatar slot", () => {
     expect(avatarIdx).toBeLessThan(edgeIdx);
   });
 
-  test("with avatarSlot + empty responseItems → no avatar marker is rendered", () => {
+  test("with avatarSlot + empty responseItems → avatar still renders so it persists across the user-send → response boundary without flicker", () => {
     const anchor = userMessageItem("u1", "question");
     const html = renderToStaticMarkup(
       <LatestTurnRow
@@ -192,9 +192,12 @@ describe("LatestTurnRow avatar slot", () => {
         {...sharedProps}
       />,
     );
-    expect(html).not.toContain('data-latest-assistant-avatar="true"');
-    // The avatar contents shouldn't have been rendered either.
-    expect(html).not.toContain("AVATAR_SLOT_MARKER");
+    // After a user sends, the new user message becomes the anchor and
+    // responseItems is empty until V streams. Keeping the avatar
+    // mounted in this window prevents the ChatAvatar entrance spring
+    // from replaying as a visible flicker.
+    expect(html).toContain('data-latest-assistant-avatar="true"');
+    expect(html).toContain("AVATAR_SLOT_MARKER");
   });
 });
 

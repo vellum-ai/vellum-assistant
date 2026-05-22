@@ -1,7 +1,7 @@
 import { createBrowserRouter, Navigate, useNavigate, useSearchParams } from "react-router";
 
 import { authMiddleware } from "@/lib/auth/auth-middleware.js";
-import { RootLayout } from "@/components/layout/root-layout.js";
+import { RootLayout } from "@/root-layout.js";
 import { ChatLayout } from "@/domains/chat/chat-layout.js";
 import { ChatPage } from "@/domains/chat/chat-page.js";
 import { DocumentViewerPage } from "@/domains/chat/document-viewer-page.js";
@@ -9,6 +9,8 @@ import { HomePage } from "@/domains/home/home-page.js";
 import { LibraryPage } from "@/domains/library/library-page.js";
 import { LibraryDetailPage } from "@/domains/library/library-detail-page.js";
 import { IdentityPage } from "@/domains/intelligence/identity-page.js";
+import { IntelligenceLayout } from "@/domains/intelligence/intelligence-layout.js";
+import { SkillsPage } from "@/domains/intelligence/skills-page.js";
 import { ConnectPage } from "@/domains/contacts/connect-page.js";
 import { ContactsPage } from "@/domains/contacts/contacts-page.js";
 import { WorkspacePage } from "@/domains/workspace/workspace-page.js";
@@ -44,7 +46,8 @@ import { DesktopOAuthCompletePage } from "@/domains/account/pages/desktop-oauth-
 import { LogoutPage } from "@/domains/account/pages/logout-page.js";
 import { OAuthPopupCompletePage } from "@/domains/account/pages/oauth-popup-complete-page.js";
 import { PasswordResetPage } from "@/domains/account/pages/password-reset-page.js";
-import { useAssistantContext } from "@/domains/chat/assistant-context.js";
+import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate.js";
+import { ActiveAssistantGate } from "@/components/layout/active-assistant-gate.js";
 import { HatchingScreen } from "@/domains/onboarding/pages/hatching-screen.js";
 import { PreChatFlow } from "@/domains/onboarding/pages/pre-chat-flow.js";
 import { PrivacyScreen } from "@/domains/onboarding/pages/privacy-screen.js";
@@ -74,7 +77,7 @@ function ConversationKeyRedirect() {
 
 function HomePageRoute() {
   const navigate = useNavigate();
-  const { assistantId } = useAssistantContext();
+  const { assistantId } = useActiveAssistantContext();
   return (
     <HomePage
       assistantId={assistantId}
@@ -164,7 +167,7 @@ export const router = createBrowserRouter([
         path: "logs",
         element: <LogsLayout />,
         children: [
-          { index: true, element: <TracePage /> },
+          { index: true, element: <UsagePage /> },
           { path: "trace", element: <TracePage /> },
           { path: "usage", element: <UsagePage /> },
           { path: "system-events", element: <SystemEventsPage /> },
@@ -175,17 +178,36 @@ export const router = createBrowserRouter([
       {
         element: <ChatLayout />,
         children: [
+          // ChatPage / DocumentViewerPage own their own lifecycle UI
+          // (loading screens, hatching, version-selection, errors) and
+          // must render in every assistant state — they are NOT placed
+          // under <ActiveAssistantGate>.
           { index: true, element: <ConversationKeyRedirect /> },
           { path: "conversations/:conversationKey", element: <ChatPage /> },
           { path: "documents/:surfaceId", element: <DocumentViewerPage /> },
-          { path: "home", element: <HomePageRoute /> },
-          { path: "library", element: <LibraryPage /> },
-          { path: "library/:appId", element: <LibraryDetailPage /> },
-          { path: "identity", element: <IdentityPage /> },
-          { path: "workspace", element: <WorkspacePage /> },
-          { path: "contacts", element: <ContactsPage /> },
-          { path: "connect", element: <ConnectPage /> },
-          { path: "inspect", element: <InspectPage /> },
+          // Everything below requires a resolved assistantId AND an
+          // active daemon. The gate defers child rendering until the
+          // lifecycle resolves so route components can rely on a
+          // non-null assistantId via useActiveAssistantContext().
+          {
+            element: <ActiveAssistantGate />,
+            children: [
+              { path: "home", element: <HomePageRoute /> },
+              {
+                element: <IntelligenceLayout />,
+                children: [
+                  { path: "identity", element: <IdentityPage /> },
+                  { path: "skills", element: <SkillsPage /> },
+                  { path: "library", element: <LibraryPage /> },
+                  { path: "workspace", element: <WorkspacePage /> },
+                  { path: "contacts", element: <ContactsPage /> },
+                ],
+              },
+              { path: "library/:appId", element: <LibraryDetailPage /> },
+              { path: "connect", element: <ConnectPage /> },
+              { path: "inspect", element: <InspectPage /> },
+            ],
+          },
         ],
       },
 

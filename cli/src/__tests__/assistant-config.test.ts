@@ -10,6 +10,10 @@ process.env.VELLUM_LOCKFILE_DIR = testDir;
 import {
   loadLatestAssistant,
   findAssistantByName,
+  formatAssistantLookupError,
+  formatAssistantReference,
+  getAssistantDisplayName,
+  lookupAssistantByIdentifier,
   removeAssistantEntry,
   loadAllAssistants,
   saveAssistantEntry,
@@ -85,6 +89,110 @@ describe("assistant-config", () => {
     const result = findAssistantByName("beta");
     expect(result).not.toBeNull();
     expect(result!.assistantId).toBe("beta");
+  });
+
+  test("getAssistantDisplayName prefers platform and legacy display names", () => {
+    expect(
+      getAssistantDisplayName(
+        makeEntry("assistant-1", undefined, { name: "Alice" }),
+      ),
+    ).toBe("Alice");
+    expect(
+      getAssistantDisplayName(
+        makeEntry("assistant-2", undefined, { assistantName: "Legacy Alice" }),
+      ),
+    ).toBe("Legacy Alice");
+    expect(getAssistantDisplayName(makeEntry("assistant-3"))).toBe(
+      "assistant-3",
+    );
+  });
+
+  test("findAssistantByName only resolves assistant IDs", () => {
+    writeLockfile({
+      assistants: [
+        makeEntry("assistant-1", "http://localhost:7821", { name: "Alice" }),
+        makeEntry("assistant-2", "http://localhost:7822", { name: "Bob" }),
+      ],
+    });
+
+    expect(findAssistantByName("Alice")).toBeNull();
+    expect(findAssistantByName("assistant-1")?.assistantId).toBe("assistant-1");
+  });
+
+  test("lookupAssistantByIdentifier resolves a unique display name", () => {
+    writeLockfile({
+      assistants: [
+        makeEntry("assistant-1", "http://localhost:7821", { name: "Alice" }),
+        makeEntry("assistant-2", "http://localhost:7822", { name: "Bob" }),
+      ],
+    });
+
+    const result = lookupAssistantByIdentifier("Alice");
+    expect(result.status).toBe("found");
+    expect(result.status === "found" ? result.entry.assistantId : null).toBe(
+      "assistant-1",
+    );
+  });
+
+  test("lookupAssistantByIdentifier resolves a unique legacy assistantName", () => {
+    writeLockfile({
+      assistants: [
+        makeEntry("assistant-1", "http://localhost:7821", {
+          assistantName: "Legacy Alice",
+        }),
+      ],
+    });
+
+    const result = lookupAssistantByIdentifier("Legacy Alice");
+    expect(result.status).toBe("found");
+    expect(result.status === "found" ? result.entry.assistantId : null).toBe(
+      "assistant-1",
+    );
+  });
+
+  test("assistant ID lookup wins over a display name match", () => {
+    writeLockfile({
+      assistants: [
+        makeEntry("Alice", "http://localhost:7821", { name: "Primary" }),
+        makeEntry("assistant-2", "http://localhost:7822", { name: "Alice" }),
+      ],
+    });
+
+    const result = lookupAssistantByIdentifier("Alice");
+    expect(result.status).toBe("found");
+    expect(result.status === "found" ? result.entry.assistantId : null).toBe(
+      "Alice",
+    );
+  });
+
+  test("ambiguous display name lookup is explicit", () => {
+    writeLockfile({
+      assistants: [
+        makeEntry("assistant-1", "http://localhost:7821", { name: "Alice" }),
+        makeEntry("assistant-2", "http://localhost:7822", { name: "Alice" }),
+      ],
+    });
+
+    const result = lookupAssistantByIdentifier("Alice");
+    expect(result.status).toBe("ambiguous");
+    expect(findAssistantByName("Alice")).toBeNull();
+    expect(formatAssistantLookupError("Alice", result)).toContain(
+      "assistant-1",
+    );
+    expect(formatAssistantLookupError("Alice", result)).toContain(
+      "assistant-2",
+    );
+  });
+
+  test("formatAssistantReference includes distinct display name and id", () => {
+    expect(
+      formatAssistantReference(
+        makeEntry("assistant-1", undefined, { name: "Alice" }),
+      ),
+    ).toBe("Alice (assistant-1)");
+    expect(formatAssistantReference(makeEntry("assistant-2"))).toBe(
+      "assistant-2",
+    );
   });
 
   test("findAssistantByName returns null for non-existent name", () => {

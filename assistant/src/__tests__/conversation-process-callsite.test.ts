@@ -43,7 +43,7 @@ mock.module("../memory/guardian-action-store.js", () => ({
 const mockProviderStub = { name: "mock-provider" };
 mock.module("../providers/registry.js", () => ({
   getProvider: () => mockProviderStub,
-  initializeProviders: () => {},
+  initializeProviders: async () => {},
   listProviders: () => ["anthropic", "openai", "gemini"],
   resolveProviderFromConnection: async () => mockProviderStub,
 }));

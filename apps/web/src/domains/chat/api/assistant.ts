@@ -92,4 +92,3 @@ export async function getChatContext(): Promise<ChatContext | null> {
 
   return { assistantId, conversations, conversationKey };
 }
-

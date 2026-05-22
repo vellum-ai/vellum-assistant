@@ -1,13 +1,10 @@
-import { useQuery } from "@tanstack/react-query";
 import {
   ChartColumn,
   ChevronDown,
   ChevronUp,
-  Gift,
   LogOut,
   MessageSquareText,
   Settings as SettingsIcon,
-  Shield,
   SlidersHorizontal,
 } from "lucide-react";
 import { useState } from "react";
@@ -15,54 +12,32 @@ import { useNavigate } from "react-router";
 
 import {
   BottomSheet,
-  Button,
   PanelItem,
   Popover,
   SideMenu,
 } from "@vellum/design-library";
 
 import { useIsMobile } from "@/hooks/use-is-mobile.js";
-import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 import { routes } from "@/utils/routes.js";
-import { organizationsBillingSummaryRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen.js";
 import { ShareFeedbackModal } from "@/components/share-feedback-modal.js";
-import { EarnCreditsModal } from "@/components/earn-credits-modal.js";
 import { ThemeToggle } from "@/components/theme-toggle.js";
 
-/**
- * Preferences menu rendered inside the assistant sidebar footer.
- *
- * Owns both its trigger (a `SideMenu.Item` labelled "Preferences") and
- * its popover content. The trigger flips to its active state while the
- * popover is open and its chevron swaps from Up → Down to signal the
- * expansion direction (popover opens *above* the trigger since it's
- * pinned to the bottom of the rail).
- *
- * Content mirrors `UserMenu`'s dropdown — Theme, Credits, Earn credits,
- * Settings, Usage, Share Feedback, Admin, Log Out — but rendered
- * with `PanelItem` for every row except the two custom ones (Theme
- * toggle group + Credits / Add credits row). Those two have bespoke
- * layout that doesn't map onto a generic icon + label + badge row.
- *
- * **Mobile parity**: when `useIsMobile()` is true, the same content is
- * rendered inside a `BottomSheet` (Radix Dialog) so it slides up from the
- * bottom edge full-width. Desktop keeps the existing `Popover` behavior.
- */
 export interface PreferencesMenuProps {
   assistantId?: string | null;
   assistantVersion?: string | null;
+  activeConversationKey?: string | null;
 }
 
 export function PreferencesMenu({
   assistantId,
   assistantVersion,
+  activeConversationKey,
 }: PreferencesMenuProps) {
   const isLoggedIn = useAuthStore.use.isLoggedIn();
   const isMobile = useIsMobile();
   const [isOpen, setIsOpen] = useState(false);
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
-  const [isEarnCreditsOpen, setIsEarnCreditsOpen] = useState(false);
 
   if (!isLoggedIn) {
     return null;
@@ -83,7 +58,6 @@ export function PreferencesMenu({
     <PreferencesMenuContent
       onClose={closeMenu}
       onShareFeedback={() => setIsFeedbackOpen(true)}
-      onEarnCredits={() => setIsEarnCreditsOpen(true)}
     />
   );
 
@@ -118,11 +92,7 @@ export function PreferencesMenu({
         onClose={() => setIsFeedbackOpen(false)}
         assistantId={assistantId}
         assistantVersion={assistantVersion}
-      />
-
-      <EarnCreditsModal
-        open={isEarnCreditsOpen}
-        onClose={() => setIsEarnCreditsOpen(false)}
+        activeConversationKey={activeConversationKey}
       />
     </>
   );
@@ -131,69 +101,20 @@ export function PreferencesMenu({
 interface PreferencesMenuContentProps {
   onClose: () => void;
   onShareFeedback: () => void;
-  onEarnCredits: () => void;
 }
 
 function PreferencesMenuContent({
   onClose,
   onShareFeedback,
-  onEarnCredits,
 }: PreferencesMenuContentProps) {
   const navigate = useNavigate();
-  const user = useAuthStore.use.user();
   const logout = useAuthStore.use.logout();
-  const referralCodes = useFeatureFlagStore.use.referralCodes();
-
-  const isAdmin = user?.isStaff ?? false;
-
-  const { data: billingSummary } = useQuery({
-    ...organizationsBillingSummaryRetrieveOptions(),
-  });
-  const effectiveBalance = billingSummary?.effective_balance ?? null;
 
   return (
     <>
       <ThemeToggle className="px-2 pt-0" />
 
       <MenuDivider />
-
-      {effectiveBalance !== null ? (
-        <>
-          <div className="flex items-center justify-between gap-3 py-2 pl-[8px]">
-            <span
-              className="text-body-medium-lighter"
-              style={{ color: "var(--content-default)" }}
-            >
-              {formatWholeCredits(effectiveBalance)} credits
-            </span>
-            <Button
-              variant="ghost"
-              size="compact"
-              onClick={() => {
-                onClose();
-                navigate(routes.settings.billing);
-              }}
-            >
-              Add credits
-            </Button>
-          </div>
-          <MenuDivider />
-        </>
-      ) : null}
-
-      {referralCodes ? (
-        <>
-          <PanelItem
-            icon={Gift}
-            label="Earn credits"
-            onSelect={() => {
-              onClose();
-              onEarnCredits();
-            }}
-          />
-          <MenuDivider />
-        </>
-      ) : null}
 
       <PanelItem
         icon={SettingsIcon}
@@ -222,17 +143,6 @@ function PreferencesMenuContent({
         }}
       />
 
-      {isAdmin ? (
-        <PanelItem
-          icon={Shield}
-          label="Admin"
-          onSelect={() => {
-            onClose();
-            navigate(routes.admin.root);
-          }}
-        />
-      ) : null}
-
       <PanelItem
         icon={LogOut}
         label="Log Out"
@@ -244,17 +154,6 @@ function PreferencesMenuContent({
       />
     </>
   );
-}
-
-function formatWholeCredits(value: string): string {
-  const num = parseFloat(value);
-  if (!Number.isFinite(num)) {
-    return value;
-  }
-  return num.toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
 }
 
 function MenuDivider() {

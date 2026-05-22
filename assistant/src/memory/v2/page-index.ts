@@ -17,7 +17,7 @@
  */
 
 import { getLogger } from "../../util/logger.js";
-import { listPages, readPage } from "./page-store.js";
+import { getPageMtimeMs, listPages, readPage } from "./page-store.js";
 
 // Dynamic import for `./skill-store.js` happens inside `getPageIndex` so that
 // modules that only need `invalidatePageIndex` (page-store.ts,
@@ -55,6 +55,12 @@ export interface PageIndexEntry {
   summary: string;
   /** Numeric IDs of outgoing edges, in sorted order. */
   edges: number[];
+  /**
+   * File mtime in epoch ms; 0 for synthetic entries (skills, CLI commands)
+   * that have no on-disk source file. Used by `splitTier1` to rank pages
+   * by recency.
+   */
+  modifiedAt: number;
 }
 
 /**
@@ -94,18 +100,25 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
 
   const slugs = await listPages(workspaceDir);
 
-  // Read pages in parallel; pages whose read rejects are dropped with a warn
-  // so a single broken page never blocks the rest of the index.
+  // Read pages and stat their mtimes in parallel. Pages whose read rejects
+  // are dropped with a warn so a single broken page never blocks the rest
+  // of the index. mtime is stat'd alongside readPage so tier-1 sorting has
+  // recency without a second pass over the filesystem.
   const settled = await Promise.allSettled(
-    slugs.map((slug) => readPage(workspaceDir, slug)),
+    slugs.map(async (slug) => {
+      const [page, mtimeMs] = await Promise.all([
+        readPage(workspaceDir, slug),
+        getPageMtimeMs(workspaceDir, slug),
+      ]);
+      return { page, mtimeMs };
+    }),
   );
 
-  // Intermediate shape used while we still need the raw outgoing slugs to
-  // resolve into numeric IDs after sorting.
   interface DraftEntry {
     slug: string;
     summary: string;
     outgoingSlugs: string[];
+    modifiedAt: number;
   }
 
   const [
@@ -143,7 +156,7 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
       );
       continue;
     }
-    const page = result.value;
+    const { page, mtimeMs } = result.value;
     if (!page) continue;
     if (skillSlugs.has(slug)) {
       log.warn(
@@ -164,6 +177,7 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
       slug,
       summary: normalizeSummary(summarySource),
       outgoingSlugs: page.frontmatter.edges,
+      modifiedAt: mtimeMs,
     });
   }
 
@@ -172,6 +186,7 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
       slug: `${SKILL_SLUG_PREFIX}${entry.id}`,
       summary: normalizeSummary(entry.content),
       outgoingSlugs: [],
+      modifiedAt: 0,
     });
   }
 
@@ -180,6 +195,7 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
       slug: `${CLI_COMMAND_SLUG_PREFIX}${entry.id}`,
       summary: normalizeSummary(entry.description),
       outgoingSlugs: [],
+      modifiedAt: 0,
     });
   }
 
@@ -194,6 +210,7 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
       slug: draft.slug,
       summary: draft.summary,
       edges: [],
+      modifiedAt: draft.modifiedAt,
     };
     bySlug.set(entry.slug, entry);
     byId.set(entry.id, entry);
@@ -243,4 +260,189 @@ function renderIndex(entries: readonly PageIndexEntry[]): string {
     return `${head} (edges: ${entry.edges.join(", ")})`;
   });
   return lines.length > 0 ? `${lines.join("\n")}\n` : "";
+}
+
+// FNV-1a 32-bit. Stable across runtimes — never change the constants or
+// future releases will silently reshuffle batches and torch every batch's
+// KV cache simultaneously.
+function fnv1aHash(input: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < input.length; i++) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+/**
+ * Split a global `PageIndex` into batches of approximately `batchSize`
+ * entries for parallel routing. Each batch is a self-contained `PageIndex`
+ * with batch-local 1-based IDs and a re-rendered prompt block.
+ *
+ * `batchSize === null` or `entries.length <= batchSize` short-circuits to
+ * `[pageIndex]` (the same object) so single-batch callers send a request
+ * bit-identical to the pre-batching code path and reuse v3's KV cache
+ * untouched.
+ *
+ * Assignment uses FNV-1a on the slug: adding or removing one page only
+ * invalidates the KV cache of the one batch it lands in, instead of
+ * cascading through every batch the way index-modulo chunking would.
+ *
+ * Edges are re-resolved to batch-local IDs — edges pointing to pages in
+ * other batches drop silently (the model can't reference them anyway).
+ */
+export function partitionPageIndex(
+  pageIndex: PageIndex,
+  batchSize: number | null,
+): PageIndex[] {
+  if (batchSize === null || pageIndex.entries.length <= batchSize) {
+    return [pageIndex];
+  }
+  const batchCount = Math.ceil(pageIndex.entries.length / batchSize);
+  const buckets: PageIndexEntry[][] = Array.from(
+    { length: batchCount },
+    () => [],
+  );
+  for (const entry of pageIndex.entries) {
+    buckets[fnv1aHash(entry.slug) % batchCount].push(entry);
+  }
+  return buckets
+    .filter((b) => b.length > 0)
+    .map((entries) => buildLocalPageIndex(entries, pageIndex));
+}
+
+/**
+ * Build a self-contained `PageIndex` from a subset of another index's
+ * entries. Local entries get fresh 1-based IDs in input order, edges are
+ * remapped through the source index's `byId` to local IDs (cross-batch
+ * edges drop silently), and the prompt block is re-rendered.
+ */
+function buildLocalPageIndex(
+  entries: readonly PageIndexEntry[],
+  source: PageIndex,
+): PageIndex {
+  const localBySlug = new Map<string, PageIndexEntry>();
+  const localById = new Map<number, PageIndexEntry>();
+  const localEntries: PageIndexEntry[] = entries.map((src, i) => {
+    const local: PageIndexEntry = {
+      id: i + 1,
+      slug: src.slug,
+      summary: src.summary,
+      edges: [],
+      modifiedAt: src.modifiedAt,
+    };
+    localBySlug.set(local.slug, local);
+    localById.set(local.id, local);
+    return local;
+  });
+  for (let i = 0; i < localEntries.length; i++) {
+    const localEdges: number[] = [];
+    for (const globalEdgeId of entries[i].edges) {
+      const target = source.byId.get(globalEdgeId);
+      if (!target) continue;
+      const localTarget = localBySlug.get(target.slug);
+      if (localTarget) localEdges.push(localTarget.id);
+    }
+    localEdges.sort((a, b) => a - b);
+    localEntries[i].edges = localEdges;
+  }
+  return {
+    entries: localEntries,
+    bySlug: localBySlug,
+    byId: localById,
+    rendered: renderIndex(localEntries),
+  };
+}
+
+/**
+ * Carve the top-N most recently modified pages into their own batch (tier
+ * 1 in the v4 router architecture) and return the leftover as a second
+ * `PageIndex` for downstream partitioning.
+ *
+ * `tier1Size === null` is a no-op — `{ tier1: null, rest: pageIndex }`
+ * with the original index reference preserved so the single-batch path
+ * stays bit-identical to v3 and the KV cache survives.
+ *
+ * Tier 1 entries are sorted by `modifiedAt` descending; ties break by
+ * slug ASCII so the order is deterministic when several pages share a
+ * mtime (e.g. fresh workspaces). Synthetic entries (mtime=0) sort to the
+ * bottom and only enter tier 1 when there aren't enough real pages to
+ * fill the pool. The rest is sorted by slug ASCII so downstream
+ * hash-bucketing produces stable batches across mtime churn.
+ */
+export function splitTier1(
+  pageIndex: PageIndex,
+  tier1Size: number | null,
+): { tier1: PageIndex | null; rest: PageIndex } {
+  if (tier1Size === null || pageIndex.entries.length === 0) {
+    return { tier1: null, rest: pageIndex };
+  }
+  const sortedByRecency = [...pageIndex.entries].sort((a, b) => {
+    if (a.modifiedAt !== b.modifiedAt) return b.modifiedAt - a.modifiedAt;
+    return a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0;
+  });
+  const tier1Entries = sortedByRecency.slice(0, tier1Size);
+  const tier1Slugs = new Set(tier1Entries.map((e) => e.slug));
+  const restEntries = pageIndex.entries.filter((e) => !tier1Slugs.has(e.slug));
+
+  const tier1 = buildLocalPageIndex(tier1Entries, pageIndex);
+  if (restEntries.length === 0) {
+    return { tier1, rest: emptyPageIndex() };
+  }
+  return { tier1, rest: buildLocalPageIndex(restEntries, pageIndex) };
+}
+
+/**
+ * Carve the top-M highest-EMA pages into their own batch (tier 2 in the
+ * v4 router architecture). Caller computes `scores` via
+ * `computeInjectionScores`; this function stays pure so unit tests don't
+ * need a database.
+ *
+ * `tier2Size === null` is a no-op. Pages with `score <= 0` (no events in
+ * the read window) are ineligible regardless of `tier2Size` — a stale
+ * page with zero score belongs in tier 3, not in the "useful" pool.
+ * Ordering is score desc, slug-ASCII tiebreak.
+ *
+ * Expected call shape: orchestrator passes the *post-tier-1* `PageIndex`,
+ * so we never re-promote a tier-1 page to tier 2.
+ */
+export function splitTier2(
+  pageIndex: PageIndex,
+  tier2Size: number | null,
+  scores: ReadonlyMap<string, number>,
+): { tier2: PageIndex | null; rest: PageIndex } {
+  if (tier2Size === null || pageIndex.entries.length === 0) {
+    return { tier2: null, rest: pageIndex };
+  }
+  const eligible = pageIndex.entries
+    .map((entry) => ({ entry, score: scores.get(entry.slug) ?? 0 }))
+    .filter((x) => x.score > 0)
+    .sort((a, b) => {
+      if (a.score !== b.score) return b.score - a.score;
+      return a.entry.slug < b.entry.slug
+        ? -1
+        : a.entry.slug > b.entry.slug
+          ? 1
+          : 0;
+    });
+  const tier2Entries = eligible.slice(0, tier2Size).map((x) => x.entry);
+  if (tier2Entries.length === 0) {
+    return { tier2: null, rest: pageIndex };
+  }
+  const tier2Slugs = new Set(tier2Entries.map((e) => e.slug));
+  const restEntries = pageIndex.entries.filter((e) => !tier2Slugs.has(e.slug));
+  const tier2 = buildLocalPageIndex(tier2Entries, pageIndex);
+  if (restEntries.length === 0) {
+    return { tier2, rest: emptyPageIndex() };
+  }
+  return { tier2, rest: buildLocalPageIndex(restEntries, pageIndex) };
+}
+
+function emptyPageIndex(): PageIndex {
+  return {
+    entries: [],
+    bySlug: new Map(),
+    byId: new Map(),
+    rendered: "",
+  };
 }

@@ -249,8 +249,6 @@ Examples:
                 }
               }
 
-              const sourceContextId = opts.sessionId ?? `cli-${Date.now()}`;
-
               // Validate --conversation-id if provided
               const conversationId = opts.conversationId?.trim();
               if (opts.conversationId != null && !conversationId) {
@@ -266,6 +264,21 @@ Examples:
               // so deferred-emit can buffer notifications when called from a
               // background job that hasn't confirmed success yet.
               const originatingConversationId = tryResolveConversationId();
+
+              // The signal's `sourceContextId` doubles as the home-feed's
+              // navigation target — `resolveHomeFeedMirror` looks it up via
+              // `getConversation()` and only renders a "Go to Convo" button
+              // when it resolves to a real row. Prefer the conversation the
+              // CLI was invoked from (env-derived) so notifications emitted
+              // by background jobs and skills link back to their producing
+              // convo; an explicit --session-id still wins to preserve
+              // caller intent, and --conversation-id is the last resort
+              // before the unresolvable `cli-<ts>` sentinel.
+              const sourceContextId =
+                opts.sessionId ??
+                originatingConversationId ??
+                conversationId ??
+                `cli-${Date.now()}`;
 
               const result = await cliIpcCall<{
                 signalId: string;

@@ -2,10 +2,10 @@
  * Zustand auth store.
  *
  * Session lifecycle: probes the allauth session on `initSession()`,
- * re-validates on window focus / visibility change, and synchronizes
- * logout across tabs via BroadcastChannel. Middleware, loaders, and
- * API interceptors read state synchronously via
- * `useAuthStore.getState()`.
+ * re-validates when the app resumes (foreground / visibility / online,
+ * delivered via the layout-scoped event bus), and synchronizes logout
+ * across tabs via BroadcastChannel. Middleware, loaders, and API
+ * interceptors read state synchronously via `useAuthStore.getState()`.
  *
  * References:
  * - https://zustand.docs.pmnd.rs/guides/reading-and-writing-state-outside-components
@@ -20,6 +20,7 @@ import {
   logout as allauthLogout,
 } from "@/lib/auth/allauth-client.js";
 import { clearOrganization } from "@/stores/organization-store.js";
+import { useEventBusStore } from "@/stores/event-bus-store.js";
 
 export interface AuthUser {
   id: string | null;
@@ -135,8 +136,12 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
 export const useAuthStore = createSelectors(useAuthStoreBase);
 
 /**
- * Subscribe to window focus / visibility changes and cross-tab
- * BroadcastChannel messages. Call once at app startup.
+ * Subscribe to app-resume signals on the layout-scoped event bus and to
+ * cross-tab BroadcastChannel messages. Call once at app startup.
+ *
+ * The bus's `"app.resume"` payload fans in page visibility flipping to
+ * "visible", a Capacitor `appStateChange` going active on native, and
+ * `window.online`, so a single subscription drives the session refresh.
  */
 export function setupAuthListeners(): () => void {
   const { refreshSession } = useAuthStore.getState();
@@ -147,17 +152,12 @@ export function setupAuthListeners(): () => void {
       console.warn("auth.refreshSession failed", err),
     );
 
-  const onFocus = () => safeRefresh();
-  const onVisibilityChange = () => {
-    if (document.visibilityState === "visible") safeRefresh();
-  };
-
-  window.addEventListener("focus", onFocus);
-  document.addEventListener("visibilitychange", onVisibilityChange);
-  cleanups.push(() => {
-    window.removeEventListener("focus", onFocus);
-    document.removeEventListener("visibilitychange", onVisibilityChange);
-  });
+  const unsubResume = useEventBusStore
+    .getState()
+    .subscribe("app.resume", () => {
+      void safeRefresh();
+    });
+  cleanups.push(unsubResume);
 
   if (typeof BroadcastChannel !== "undefined") {
     broadcastChannel = new BroadcastChannel("auth");

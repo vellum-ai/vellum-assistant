@@ -11,10 +11,13 @@ import { Outlet, useLocation, useNavigate } from "react-router";
 import { haptic } from "@/utils/haptics.js";
 import { routes } from "@/utils/routes.js";
 import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile.js";
-import { useAuthStore } from "@/stores/auth-store.js";
-import { useAssistantLifecycle } from "@/domains/chat/hooks/use-assistant-lifecycle.js";
+import { useAssistantSyncStream } from "@/domains/chat/hooks/use-assistant-sync-stream.js";
+import { useRootOutletContext } from "@/root-layout.js";
 import { useAssistantIdentityInit } from "@/hooks/use-assistant-identity-init.js";
-import type { AssistantContextValue } from "@/domains/chat/assistant-context.js";
+import { useAssistantAvatar } from "@/domains/avatar/use-assistant-avatar.js";
+import { useDynamicFavicon } from "@/domains/avatar/use-dynamic-favicon.js";
+import { useHomeUnreadBadge } from "@/hooks/use-home-unread-badge.js";
+import type { AssistantContextValue } from "@/components/layout/assistant-context.js";
 
 import { useConversationStore } from "@/domains/conversations/conversation-store.js";
 import {
@@ -23,7 +26,8 @@ import {
 } from "@/domains/conversations/conversation-queries.js";
 import { useAttentionTracking } from "@/domains/conversations/use-attention-tracking.js";
 import { useConversationGroupActions } from "@/domains/conversations/use-conversation-group-actions.js";
-import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
+import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
+import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
 import { useViewerStore } from "@/stores/viewer-store.js";
 import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
 
@@ -31,6 +35,7 @@ import { OfflineBanner } from "@/components/offline-banner.js";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu.js";
 import { PreferencesMenu } from "@/domains/chat/components/preferences-menu.js";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store.js";
+import { createDraftConversationKey } from "@/domains/chat/utils/conversation-selection.js";
 import { ChatLayoutHeader } from "./chat-layout-header.js";
 
 /**
@@ -114,22 +119,14 @@ interface SideMenuRenderArgs {
 export function ChatLayout() {
   const navigate = useNavigate();
   const location = useLocation();
-  const isLoggedIn = useAuthStore.use.isLoggedIn();
-  const authLoading = useAuthStore.use.isLoading();
-
-  const lifecycle = useAssistantLifecycle({
-    isLoggedIn,
-    isLoading: authLoading,
-    isRetired: false,
-    isNonProduction: false,
-    onRedirect: navigate,
-  });
+  const { lifecycle } = useRootOutletContext();
 
   // Subscribe to the sidebar conversation list at the layout level so every
   // chat-layout child route (home, library, contacts, identity, chat)
   // inherits a populated sidebar on direct navigation — not just /assistant.
   // TanStack Query handles dedup with any other consumer using the same key.
-  const conversationGroupsUI = useFeatureFlagStore.use.conversationGroupsUI();
+  const conversationGroupsUI = useAssistantFeatureFlagStore.use.conversationGroupsUI();
+  const homePageEnabled = useClientFeatureFlagStore.use.homePage();
   const isAssistantActive = lifecycle.assistantState.kind === "active";
   const { conversations } = useConversationListQuery(
     lifecycle.assistantId,
@@ -170,9 +167,35 @@ export function ChatLayout() {
     assistantStateKind: lifecycle.assistantState.kind,
   });
 
+  // Sync the browser favicon to the assistant's avatar across every
+  // chat-layout child route — not just ChatPage. Mounting this in the
+  // layout keeps the favicon live while the user is on identity,
+  // library, workspace, contacts, or home (where ChatPage isn't
+  // mounted). The hook is a no-op when assistantId is null.
+  const layoutAvatar = useAssistantAvatar(lifecycle.assistantId);
+  useDynamicFavicon(
+    layoutAvatar.customImageUrl,
+    layoutAvatar.components,
+    layoutAvatar.traits,
+  );
+
+  // Routes assistant-global sync events from `bus.sse.event` into the
+  // avatar / identity / config / sounds / schedules / conversation
+  // list query caches so the sidebar stays live on every chat-layout
+  // child route.
+  useAssistantSyncStream(lifecycle.assistantId, isAssistantActive);
+
+  // Home page unread indicator — drives the red dot on the Home button in
+  // the layout header. Gated on the homePage feature flag so the hook
+  // doesn't fire its query when the home route is disabled.
+  const { hasUnreadHome } = useHomeUnreadBadge(
+    homePageEnabled ? lifecycle.assistantId : null,
+  );
+
   // --- Layout slot state for child route content ---
   const [topBarCenter, setTopBarCenter] = useState<ReactNode>(null);
   const [topBarRightSlot, setTopBarRightSlot] = useState<ReactNode>(null);
+  const [footerBanner, setFooterBanner] = useState<ReactNode>(null);
   const onSearchClickRef = useRef<(() => void) | null>(null);
   const setOnSearchClick = useCallback((cb: (() => void) | null) => {
     onSearchClickRef.current = cb;
@@ -194,6 +217,7 @@ export function ChatLayout() {
       setTopBarCenter,
       setTopBarRightSlot,
       setOnSearchClick,
+      setFooterBanner,
     }),
     [
       lifecycle.assistantId,
@@ -204,6 +228,7 @@ export function ChatLayout() {
       lifecycle.setAssistantId,
       lifecycle.autoGreetRef,
       setOnSearchClick,
+      setFooterBanner,
     ],
   );
 
@@ -225,11 +250,19 @@ export function ChatLayout() {
   const canGoForward = historyIndexRef.current < maxHistoryIndexRef.current;
 
   const handleStartNewConversation = useCallback(() => {
-    navigate(routes.assistant);
+    haptic.light();
+    useViewerStore.getState().setMainView("chat");
+    const draftKey = createDraftConversationKey();
+    useConversationStore.getState().setActiveKey(draftKey);
+    void navigate(routes.conversation(draftKey));
   }, [navigate]);
 
   const handleOpenHome = useCallback(() => {
     navigate(routes.home);
+  }, [navigate]);
+
+  const handleOpenIdentity = useCallback(() => {
+    navigate(routes.identity);
   }, [navigate]);
 
   const handleGoBack = useCallback(() => {
@@ -241,6 +274,11 @@ export function ChatLayout() {
   }, [navigate]);
 
   const isHomeActive = location.pathname === routes.home;
+  const isIdentityActive =
+    location.pathname === routes.identity ||
+    location.pathname === routes.skills ||
+    location.pathname === routes.workspace ||
+    location.pathname.startsWith(routes.contacts.root);
 
   // --- Sidebar collapsed / drawer state ---
   const [collapsed, setCollapsed] = useState<boolean>(readPersistedCollapsed);
@@ -403,17 +441,19 @@ export function ChatLayout() {
         attentionConversationKeys={attentionKeys}
         onSelectConversation={handleSelectConversation}
         onStartNewConversation={handleStartNewConversation}
-        isIntelligenceActive={isHomeActive}
-        onOpenIntelligence={handleOpenHome}
+        isIntelligenceActive={isIdentityActive}
+        onOpenIntelligence={handleOpenIdentity}
         isLibraryActive={isLibraryActive}
         onOpenLibrary={handleOpenLibrary}
         onCreateGroup={handleCreateGroup}
         onRenameGroup={handleRenameGroup}
         onDeleteGroup={handleDeleteGroup}
+        footerBanner={footerBanner}
         footerAction={
           <PreferencesMenu
             assistantId={lifecycle.assistantId}
             assistantVersion={assistantVersion}
+            activeConversationKey={activeConversationKey}
           />
         }
         onClose={args.onClose}
@@ -434,10 +474,11 @@ export function ChatLayout() {
       handleCreateGroup,
       handleRenameGroup,
       handleDeleteGroup,
-      isHomeActive,
-      handleOpenHome,
+      isIdentityActive,
+      handleOpenIdentity,
       isLibraryActive,
       handleOpenLibrary,
+      footerBanner,
     ],
   );
 
@@ -457,6 +498,7 @@ export function ChatLayout() {
         onGoForward={handleGoForward}
         onOpenHome={handleOpenHome}
         isHomeActive={isHomeActive}
+        hasUnreadHome={hasUnreadHome}
         onSearchClick={() => onSearchClickRef.current?.()}
       />
 

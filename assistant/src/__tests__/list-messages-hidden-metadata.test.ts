@@ -110,4 +110,108 @@ describe("handleListMessages metadata.hidden filtering", () => {
 
     expect(body.messages).toHaveLength(2);
   });
+
+  test("pagination skips hidden rows so hasMore and oldest cursor reflect visible rows", async () => {
+    const conv = createConversation();
+    // 4 visible older rows, then a block of 3 hidden rows, then 2 visible newer.
+    // With limit=2 and page=latest we should get the 2 newest visible rows,
+    // hasMore=true (older visible rows exist), and a cursor pointing at the
+    // oldest visible row in the page rather than null.
+    for (let i = 0; i < 4; i++) {
+      await addMessage(
+        conv.id,
+        "user",
+        JSON.stringify([{ type: "text", text: `old visible ${i}` }]),
+      );
+    }
+    for (let i = 0; i < 3; i++) {
+      await addMessage(
+        conv.id,
+        "assistant",
+        JSON.stringify([{ type: "text", text: `hidden ${i}` }]),
+        { hidden: true },
+      );
+    }
+    for (let i = 0; i < 2; i++) {
+      await addMessage(
+        conv.id,
+        "user",
+        JSON.stringify([{ type: "text", text: `new visible ${i}` }]),
+      );
+    }
+
+    const latest = handleListMessages({
+      queryParams: { conversationId: conv.id, page: "latest", limit: "2" },
+    }) as {
+      messages: MessagePayload[];
+      hasMore: boolean;
+      oldestTimestamp: number | null;
+      oldestMessageId: string | null;
+    };
+
+    expect(latest.messages.map((m) => m.content)).toEqual([
+      "new visible 0",
+      "new visible 1",
+    ]);
+    expect(latest.hasMore).toBe(true);
+    expect(latest.oldestTimestamp).not.toBeNull();
+    expect(latest.oldestMessageId).not.toBeNull();
+
+    // Older page request — anchored before the latest page's oldest row —
+    // should skip the hidden block entirely and return the next 2 visible rows.
+    const older = handleListMessages({
+      queryParams: {
+        conversationId: conv.id,
+        beforeTimestamp: String(latest.oldestTimestamp),
+        limit: "2",
+      },
+    }) as {
+      messages: MessagePayload[];
+      hasMore: boolean;
+    };
+
+    expect(older.messages.map((m) => m.content)).toEqual([
+      "old visible 2",
+      "old visible 3",
+    ]);
+    expect(older.hasMore).toBe(true);
+  });
+
+  test("pagination drains DB when every row in a page is hidden", async () => {
+    const conv = createConversation();
+    // 5 hidden rows then 2 visible older rows. With limit=2, the naive
+    // implementation fetches 3 newest (all hidden), filters to 0 visible, and
+    // returns hasMore=true with no cursor. We expect the loop to keep going
+    // and surface the visible rows instead.
+    for (let i = 0; i < 2; i++) {
+      await addMessage(
+        conv.id,
+        "user",
+        JSON.stringify([{ type: "text", text: `old visible ${i}` }]),
+      );
+    }
+    for (let i = 0; i < 5; i++) {
+      await addMessage(
+        conv.id,
+        "assistant",
+        JSON.stringify([{ type: "text", text: `hidden ${i}` }]),
+        { hidden: true },
+      );
+    }
+
+    const latest = handleListMessages({
+      queryParams: { conversationId: conv.id, page: "latest", limit: "2" },
+    }) as {
+      messages: MessagePayload[];
+      hasMore: boolean;
+      oldestTimestamp: number | null;
+    };
+
+    expect(latest.messages.map((m) => m.content)).toEqual([
+      "old visible 0",
+      "old visible 1",
+    ]);
+    expect(latest.hasMore).toBe(false);
+    expect(latest.oldestTimestamp).not.toBeNull();
+  });
 });

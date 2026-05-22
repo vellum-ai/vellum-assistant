@@ -33,6 +33,22 @@ let fetchCallCount = 0;
 // The messages module has side-effect-heavy imports (HeyAPI client, CSRF, etc.)
 // that can't load in a test environment. We mock the entire module, providing
 // the pure functions that reconcile.ts needs plus our controllable fetch stub.
+//
+// `mock.module()` mutates a process-global module registry, so this mock
+// shadows the real module for every test file that runs in the same Bun
+// process. The CI runner (`bun run test:ci` → `scripts/run-tests.ts`)
+// isolates each file in its own subprocess. A naive `bun test src/...`
+// over a directory will pollute later suites — every export of
+// `messages.ts` is stubbed below so cross-loaded tests fail with a
+// pointer back here rather than an opaque "Export not found".
+const moduleScopeStub = (name: string) => () => {
+  throw new Error(
+    `[use-message-reconciliation.test.tsx] '${name}' was called via the ` +
+      `process-global mock.module shadow. Run this test file in isolation ` +
+      `(\`bun test path/to/file.test.ts\`) or via \`bun run test:ci\`.`,
+  );
+};
+
 mock.module("@/domains/chat/api/messages", () => ({
   fetchConversationMessages: async (_assistantId: string, _conversationKey: string) => {
     fetchCallCount++;
@@ -40,6 +56,14 @@ mock.module("@/domains/chat/api/messages", () => ({
     if (mockFetchError) throw mockFetchError;
     return mockFetchResult;
   },
+  // Stubs for the rest of the real module's surface. Provided so dependent
+  // test files that import these still get *something* under the global
+  // mock shadow; calling any of them surfaces a clear error.
+  pollForResponse: moduleScopeStub("pollForResponse"),
+  getChatHistory: moduleScopeStub("getChatHistory"),
+  uploadChatAttachment: moduleScopeStub("uploadChatAttachment"),
+  postChatMessage: moduleScopeStub("postChatMessage"),
+  deleteQueuedMessage: moduleScopeStub("deleteQueuedMessage"),
   mapRuntimeToolCalls: (
     toolCalls: Array<{ name: string; input?: unknown; result?: unknown; isError?: boolean }>,
     messageId: string,
@@ -325,6 +349,7 @@ describe("reconcileActiveConversation", () => {
       activeTurnId: "turn-42",
       lastTerminalReason: null,
       statusText: null,
+      liveWebActivity: {},
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
@@ -349,6 +374,7 @@ describe("reconcileActiveConversation", () => {
       activeTurnId: null,
       lastTerminalReason: null,
       statusText: null,
+      liveWebActivity: {},
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
@@ -372,6 +398,7 @@ describe("reconcileActiveConversation", () => {
       activeTurnId: "turn-42",
       lastTerminalReason: null,
       statusText: null,
+      liveWebActivity: {},
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
@@ -394,6 +421,7 @@ describe("reconcileActiveConversation", () => {
       activeTurnId: "turn-42",
       lastTerminalReason: null,
       statusText: null,
+      liveWebActivity: {},
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
@@ -423,6 +451,7 @@ describe("reconcileActiveConversation", () => {
       activeTurnId: "turn-42",
       lastTerminalReason: null,
       statusText: null,
+      liveWebActivity: {},
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
@@ -450,6 +479,7 @@ describe("reconcileActiveConversation", () => {
       activeTurnId: "turn-42",
       lastTerminalReason: null,
       statusText: null,
+      liveWebActivity: {},
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
@@ -476,6 +506,7 @@ describe("reconcileActiveConversation", () => {
       activeTurnId: "turn-42",
       lastTerminalReason: null,
       statusText: null,
+      liveWebActivity: {},
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
@@ -509,6 +540,7 @@ describe("reconcileActiveConversation", () => {
       activeTurnId: "turn-42",
       lastTerminalReason: null,
       statusText: null,
+      liveWebActivity: {},
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
@@ -542,6 +574,7 @@ describe("reconcileActiveConversation", () => {
       activeTurnId: "turn-42",
       lastTerminalReason: null,
       statusText: null,
+      liveWebActivity: {},
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
@@ -586,6 +619,7 @@ describe("reconcileActiveConversation", () => {
         activeTurnId: "turn-old",
         lastTerminalReason: null,
         statusText: null,
+        liveWebActivity: {},
       },
     });
     await reconcileActiveConversation();
@@ -609,6 +643,7 @@ describe("reconcileActiveConversation", () => {
       activeTurnId: null,
       lastTerminalReason: null,
       statusText: null,
+      liveWebActivity: {},
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
@@ -639,6 +674,7 @@ describe("reconcileActiveConversation", () => {
       activeTurnId: "turn-42",
       lastTerminalReason: null,
       statusText: null,
+      liveWebActivity: {},
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
@@ -680,6 +716,7 @@ describe("reconcileActiveConversation", () => {
         activeTurnId: "turn-99",
         lastTerminalReason: null,
       statusText: null,
+      liveWebActivity: {},
       };
       const { reconcileActiveConversation } = createHarness({
         streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
@@ -708,6 +745,7 @@ describe("reconcileActiveConversation — fetch failure", () => {
       activeTurnId: "turn-stuck",
       lastTerminalReason: null,
       statusText: null,
+      liveWebActivity: {},
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
@@ -766,7 +804,8 @@ describe("startReconciliationLoop", () => {
           activeToolCallCount: 0,
           activeTurnId: "turn-resume",
           lastTerminalReason: null,
-      statusText: null,
+          statusText: null,
+          liveWebActivity: {},
         },
       });
 

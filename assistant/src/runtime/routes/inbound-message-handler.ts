@@ -15,6 +15,7 @@ import {
   isChannelId,
   parseInterfaceId,
 } from "../../channels/types.js";
+import { getConfig } from "../../config/loader.js";
 import {
   createApprovalConversationGenerator,
   createApprovalCopyGenerator,
@@ -55,7 +56,10 @@ import {
 import { markProcessed } from "../../memory/delivery-status.js";
 import { upsertBinding } from "../../memory/external-conversation-store.js";
 import type { Message as ProviderMessage } from "../../messaging/provider-types.js";
-import { withSlackBotToken } from "../../messaging/providers/slack/adapter.js";
+import {
+  resolveSlackBotUserId,
+  withSlackBotToken,
+} from "../../messaging/providers/slack/adapter.js";
 import {
   backfillDm,
   backfillThreadWindowPage,
@@ -772,7 +776,6 @@ export async function handleChannelInbound({
           typeof hint === "string" && hint.trim().length > 0,
       )
     : [];
-  let slackRuntimeContextNotice: string | undefined;
 
   // Inject channel-scoped permission hints for Slack channel messages
   if (sourceChannel === "slack") {
@@ -1118,12 +1121,10 @@ export async function handleChannelInbound({
       // the inbound reply; later turns use a delta window after the latest
       // stored thread ts and before the inbound ts. Awaited (mirrors the DM
       // cold-start path above) so the agent loop dispatched immediately
-      // afterwards observes hydrated context. A late-join notice is added only
-      // to the current turn's runtime context, not persisted as durable Slack
-      // metadata. Failures are swallowed inside the helper so they never block
-      // dispatch.
+      // afterwards observes hydrated context. Failures are swallowed inside
+      // the helper so they never block dispatch.
       if (slackThreadTs) {
-        const backfillResult = await triggerSlackThreadBackfillIfNeeded({
+        await triggerSlackThreadBackfillIfNeeded({
           conversationId: result.conversationId,
           channelId: conversationExternalId,
           threadTs: slackThreadTs,
@@ -1131,8 +1132,6 @@ export async function handleChannelInbound({
           account: slackAccount,
           guardianExternalUserId: trustCtx.guardianExternalUserId,
         });
-        const lateJoinNotice = buildSlackLateJoinNotice(backfillResult);
-        if (lateJoinNotice) slackRuntimeContextNotice = lateJoinNotice;
       }
 
       // Wrap non-guardian inbound content in external_content boundaries so
@@ -1165,7 +1164,6 @@ export async function handleChannelInbound({
         externalChatId: conversationExternalId,
         trustCtx,
         metadataHints,
-        slackRuntimeContextNotice,
         metadataUxBrief,
         commandIntent,
         sourceLanguageCode,
@@ -1458,9 +1456,10 @@ function readStoredSlackThreadState(
  *
  * Shared insertion point for any path that hydrates Slack history lazily
  * (DM cold-start backfill, thread gap/delta backfill, etc.). Backfilled Slack
- * rows are always persisted as `user` history: `assistant` rows are reserved
- * for messages produced by the local assistant loop, not third-party channel
- * replay.
+ * rows normally persist as `user` history, but rows authored by this
+ * assistant's configured Slack bot are replayed as assistant history so prior
+ * assistant messages do not enter model context wrapped as external user
+ * content.
  * Caller is responsible for dedup checks before invoking; this helper
  * performs no idempotency check itself.
  */
@@ -1498,7 +1497,12 @@ async function persistBackfilledSlackMessage(params: {
     message,
     params.guardianExternalUserId,
   );
-  const role = "user";
+  const role = (await isBackfilledSlackAssistantMessage(
+    message,
+    params.account,
+  ))
+    ? "assistant"
+    : "user";
 
   const rawText = message.text ?? "";
 
@@ -1638,6 +1642,47 @@ function isSlackAssistantThreadPlaceholder(message: ProviderMessage): boolean {
     message.text.replace(/\s+/g, " ").trim() ===
     SLACK_ASSISTANT_THREAD_PLACEHOLDER_TEXT
   );
+}
+
+async function isBackfilledSlackAssistantMessage(
+  message: ProviderMessage,
+  account: string | undefined,
+): Promise<boolean> {
+  if (message.metadata?.isBot !== true) return false;
+
+  const botUserId = getConfig().slack.botUserId.trim();
+  const rawSenderId = message.sender?.id?.trim();
+  if (!botUserId) return false;
+
+  if (rawSenderId && slackIdentityMatches(rawSenderId, botUserId)) return true;
+
+  const rawBotId =
+    typeof message.metadata.slackBotId === "string"
+      ? message.metadata.slackBotId.trim()
+      : "";
+  if (!rawBotId) return false;
+
+  try {
+    const resolvedBotUserId = await resolveSlackBotUserId(account, rawBotId);
+    return (
+      typeof resolvedBotUserId === "string" &&
+      slackIdentityMatches(resolvedBotUserId, botUserId)
+    );
+  } catch (err) {
+    log.warn(
+      { err, slackBotId: rawBotId, channelTs: message.id },
+      "Failed to resolve Slack bot id for backfilled assistant detection",
+    );
+    return false;
+  }
+}
+
+function slackIdentityMatches(left: string, right: string): boolean {
+  const canonicalSender =
+    canonicalizeInboundIdentity("slack", left) ?? left.trim();
+  const canonicalBot =
+    canonicalizeInboundIdentity("slack", right) ?? right.trim();
+  return canonicalSender === canonicalBot;
 }
 
 /**
@@ -2187,18 +2232,6 @@ function sortSlackProviderMessages(
     if (compared !== null) return compared;
     return left.id.localeCompare(right.id);
   });
-}
-
-function buildSlackLateJoinNotice(
-  result: SlackThreadBackfillResult,
-): string | null {
-  if (result.reason !== "thread_late_join" || result.persisted === 0) {
-    return null;
-  }
-  const omitted = result.omittedMiddle
-    ? " Some middle thread messages were intentionally omitted from this turn's hydrated context to keep latency bounded."
-    : "";
-  return `Slack context note: this turn joined an existing thread. ${result.persisted} earlier thread message${result.persisted === 1 ? " was" : "s were"} backfilled before the current message.${omitted}`;
 }
 
 /**

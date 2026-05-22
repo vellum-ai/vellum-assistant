@@ -2,6 +2,11 @@
 @import "@vellum/design-library/tokens.css";
 @source "../node_modules/@vellum/design-library/src/**/*.tsx";
 
+/* Base element styles — theme-aware defaults inherited by all descendants. */
+body {
+  color: var(--content-default);
+}
+
 /* Functional keyframes — app-only animations. Animations consumed by
  * design-library primitives (popoverIn, bottomSheetIn, panelitem-marquee,
  * collapsible-slide-*) live in the library's tokens.css. */

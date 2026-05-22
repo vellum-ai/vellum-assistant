@@ -44,12 +44,12 @@ export function ReferralPanel() {
   }, []);
 
   const subtitle = data
-    ? `Share Vellum with Friends - you'll each earn ${stripDecimals(
+    ? `Share Vellum with friends - you'll each earn ${stripDecimals(
         data.referrer_credit_amount,
       )} credits when they sign up, up to ${stripDecimals(
         data.earning_cap,
       )} total.`
-    : "Share Vellum with Friends and earn credits for every signup.";
+    : "Share Vellum with friends and earn credits for every signup.";
 
   return (
     <Card padding="md" id={REFERRAL_PANEL_ANCHOR_ID}>
@@ -79,9 +79,10 @@ export function ReferralPanel() {
         ) : isError || !data ? (
           <Notice tone="error">Failed to load referral information.</Notice>
         ) : (
-          <div className="flex flex-wrap items-stretch gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <div className="min-w-[200px] flex-1">
               <SkillRow
+                className="[&>div]:items-center"
                 icon={<Coins className="h-3.5 w-3.5" aria-hidden />}
                 title={
                   <span className="flex items-baseline gap-1">
@@ -95,6 +96,7 @@ export function ReferralPanel() {
             </div>
             <div className="min-w-[200px] flex-1">
               <SkillRow
+                className="[&>div]:items-center"
                 icon={<Users className="h-3.5 w-3.5" aria-hidden />}
                 title={
                   <span className="flex items-baseline gap-1">

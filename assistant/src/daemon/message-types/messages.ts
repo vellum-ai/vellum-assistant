@@ -367,6 +367,12 @@ export interface MessageQueuedDeleted {
   requestId: string;
 }
 
+export interface MessageSteered {
+  type: "message_steered";
+  conversationId: string;
+  requestId: string;
+}
+
 export interface SuggestionResponse {
   type: "suggestion_response";
   requestId: string;
@@ -392,6 +398,45 @@ export interface ConfirmationStateChanged {
   decisionText?: string;
   /** The tool_use block ID this confirmation applies to, for disambiguating parallel tool calls. */
   toolUseId?: string;
+}
+
+/**
+ * Lifecycle states reported by `interaction_resolved`.
+ *
+ *  - `"approved"` / `"rejected"` — user-supplied verdict on a confirmation.
+ *  - `"answered"` — user/client provided a response (secret value, question
+ *    answer, host-proxy result).
+ *  - `"cancelled"` — the interaction was torn down without a user response
+ *    (timeout, abort, dispose, prompter shutdown).
+ *  - `"superseded"` — invalidated by a newer event (auto-deny on enqueue, a
+ *    fresh user message arriving while a confirmation was outstanding).
+ */
+export type InteractionResolutionState =
+  | "approved"
+  | "rejected"
+  | "answered"
+  | "cancelled"
+  | "superseded";
+
+/**
+ * Broadcast when a pending interaction (confirmation, secret, question,
+ * host-proxy request) transitions to a resolved state. Clients use this to
+ * drop attention/processing indicators without polling.
+ */
+export interface InteractionResolved {
+  type: "interaction_resolved";
+  requestId: string;
+  /**
+   * Conversation key for the interaction. The daemon's internal conversation
+   * id and the web client's conversation key coincide today (see
+   * `conversation-key-store.ts`); the field is named after the client-facing
+   * concept.
+   */
+  conversationKey: string;
+  state: InteractionResolutionState;
+  /** Kind of the resolved interaction (e.g. "confirmation", "secret", "host_bash"). */
+  kind: string;
+  conversationId?: string;
 }
 
 /**
@@ -428,6 +473,21 @@ export interface AssistantActivityState {
     | "error_terminal";
   /** Human-readable description of what the assistant is currently doing. */
   statusText?: string;
+}
+
+/**
+ * Emitted when the query complexity auto-router selects a non-default
+ * profile for the current turn. Clients use this to show an inline
+ * notification (e.g. "Using Quality for this response"). Only fires when
+ * the router picks a profile — not when the user explicitly pinned one.
+ */
+export interface TurnProfileAutoRouted {
+  type: "turn_profile_auto_routed";
+  conversationId: string;
+  /** Profile key (e.g. "quality-optimized"). */
+  profile: string;
+  /** Human-readable label (e.g. "Quality"). */
+  profileLabel: string;
 }
 
 /**
@@ -501,8 +561,11 @@ export type _MessagesServerMessages =
   | MessageDequeued
   | MessageRequestComplete
   | MessageQueuedDeleted
+  | MessageSteered
   | SuggestionResponse
   | TraceEvent
   | ConfirmationStateChanged
   | AssistantActivityState
-  | ConversationInferenceProfileUpdated;
+  | TurnProfileAutoRouted
+  | ConversationInferenceProfileUpdated
+  | InteractionResolved;

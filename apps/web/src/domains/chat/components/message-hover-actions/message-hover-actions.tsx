@@ -1,3 +1,4 @@
+/* eslint-disable no-restricted-syntax -- LUM-1768: file contains dark: pairs pending semantic-token migration */
 
 import { Check, Copy, FileCode, GitBranch } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -66,8 +67,6 @@ export function MessageHoverActions({
   const displayTimestamp = timestamp ?? fallbackTimestamp;
 
   const hasCopyableText = content.trim().length > 0;
-  const isAssistant = role === "assistant";
-  const hasAnyAction = hasCopyableText || onFork || (onInspect && isAssistant);
 
   useEffect(() => {
     return () => {
@@ -92,7 +91,7 @@ export function MessageHoverActions({
     });
   }, [content]);
 
-  if (!hasAnyAction || isStreaming) {
+  if (isStreaming) {
     return null;
   }
 
@@ -135,7 +134,7 @@ export function MessageHoverActions({
         </button>
       )}
 
-      {onInspect && isAssistant && (
+      {onInspect && (
         <button
           type="button"
           onClick={onInspect}

@@ -18,6 +18,7 @@
 
 import { create } from "zustand";
 
+import type { ToolActivityMetadata } from "@/assistant/web-activity-types.js";
 import { createSelectors } from "@/utils/create-selectors.js";
 
 // ---------------------------------------------------------------------------
@@ -50,6 +51,15 @@ export interface TurnState {
    *  "Processing bash results", "Compacting context"). Populated by
    *  `onActivityThinking` and cleared on terminal transitions. */
   statusText: string | null;
+  /**
+   * Per-tool-call structured activity metadata (e.g. web_search,
+   * web_fetch) received via `tool_result` events during the active turn.
+   * Keyed by `toolUseId`. Live-only — cleared on every terminal transition
+   * so historical reopens fall back to the persisted
+   * `ChatMessageToolCall.activityMetadata` instead. Drives the
+   * `WebSearchProgressCard` selector hook (`useWebSearchCardData`).
+   */
+  liveWebActivity: Record<string, ToolActivityMetadata>;
 }
 
 export const INITIAL_TURN_STATE: TurnState = {
@@ -59,6 +69,7 @@ export const INITIAL_TURN_STATE: TurnState = {
   activeTurnId: null,
   lastTerminalReason: null,
   statusText: null,
+  liveWebActivity: {},
 };
 
 // ---------------------------------------------------------------------------
@@ -104,6 +115,12 @@ export interface ToolUseStart {
 
 export interface ToolResult {
   type: "TOOL_RESULT";
+}
+
+export interface ToolActivityMetadataEvent {
+  type: "TOOL_ACTIVITY_METADATA";
+  toolUseId: string;
+  metadata: ToolActivityMetadata;
 }
 
 export interface ActivityStateThinking {
@@ -195,6 +212,7 @@ export type DomainEvent =
   | AssistantTextDelta
   | ToolUseStart
   | ToolResult
+  | ToolActivityMetadataEvent
   | ActivityStateThinking
   | UISurfaceShow
   | UISurfaceUpdate
@@ -226,6 +244,10 @@ export interface TurnActions {
   onTextDelta: () => void;
   onToolUseStart: () => void;
   onToolResult: () => void;
+  onToolActivityMetadata: (
+    toolUseId: string,
+    metadata: ToolActivityMetadata,
+  ) => void;
   onActivityThinking: (statusText?: string) => void;
   showSurface: (interactive?: boolean) => void;
   updateSurface: () => void;
@@ -317,6 +339,17 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
       activeToolCallCount: Math.max(0, s.activeToolCallCount - 1),
     })),
 
+  onToolActivityMetadata: (toolUseId, metadata) => {
+    const s = get();
+    // Stale guard: a tool_result for the previous turn may arrive after we
+    // already transitioned to idle. Don't repopulate liveWebActivity post
+    // terminal — it'll just leak into the next turn's card render.
+    if (isStale(s)) return;
+    set({
+      liveWebActivity: { ...s.liveWebActivity, [toolUseId]: metadata },
+    });
+  },
+
   // ----- Daemon activity state -----
 
   onActivityThinking: (statusText) => {
@@ -407,6 +440,7 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
       activeToolCallCount: 0,
       lastTerminalReason: "complete",
       statusText: null,
+      liveWebActivity: {},
     });
   },
 
@@ -426,6 +460,7 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
       activeToolCallCount: 0,
       lastTerminalReason: "cancelled",
       statusText: null,
+      liveWebActivity: {},
     });
   },
 
@@ -437,6 +472,7 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
       pendingQueuedCount: 0,
       lastTerminalReason: "error",
       statusText: null,
+      liveWebActivity: {},
     }),
 
   onSessionError: () =>
@@ -447,6 +483,7 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
       pendingQueuedCount: 0,
       lastTerminalReason: "session_error",
       statusText: null,
+      liveWebActivity: {},
     }),
 
   onTurnTimeout: () =>
@@ -457,6 +494,7 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
       pendingQueuedCount: 0,
       lastTerminalReason: "timeout",
       statusText: null,
+      liveWebActivity: {},
     }),
 
   // ----- Reconciliation -----
@@ -475,6 +513,7 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
       activeToolCallCount: 0,
       lastTerminalReason: "complete",
       statusText: null,
+      liveWebActivity: {},
     });
   },
 
@@ -509,6 +548,7 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
         activeTurnId: null,
         lastTerminalReason: "complete",
         statusText: null,
+        liveWebActivity: {},
       });
       return;
     }
@@ -564,6 +604,16 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
       return {
         ...state,
         activeToolCallCount: Math.max(0, state.activeToolCallCount - 1),
+      };
+
+    case "TOOL_ACTIVITY_METADATA":
+      if (isStale(state)) return state;
+      return {
+        ...state,
+        liveWebActivity: {
+          ...state.liveWebActivity,
+          [event.toolUseId]: event.metadata,
+        },
       };
 
     case "ACTIVITY_STATE_THINKING":
@@ -633,6 +683,7 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
           activeTurnId: null,
           lastTerminalReason: "complete",
           statusText: null,
+          liveWebActivity: {},
         };
       }
       return { ...state, pendingQueuedCount: nextCount };
@@ -647,6 +698,7 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
           activeToolCallCount: 0,
           lastTerminalReason: "complete",
           statusText: null,
+          liveWebActivity: {},
         };
       }
       return {
@@ -656,6 +708,7 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
         activeToolCallCount: 0,
         lastTerminalReason: "complete",
         statusText: null,
+        liveWebActivity: {},
       };
 
     case "GENERATION_HANDOFF":
@@ -675,6 +728,7 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
           activeToolCallCount: 0,
           lastTerminalReason: "cancelled",
           statusText: null,
+          liveWebActivity: {},
         };
       }
       return {
@@ -684,6 +738,7 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
         activeToolCallCount: 0,
         lastTerminalReason: "cancelled",
         statusText: null,
+        liveWebActivity: {},
       };
 
     case "STREAM_ERROR":
@@ -695,6 +750,7 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
         pendingQueuedCount: 0,
         lastTerminalReason: "error",
         statusText: null,
+        liveWebActivity: {},
       };
 
     case "SESSION_ERROR":
@@ -706,6 +762,7 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
         pendingQueuedCount: 0,
         lastTerminalReason: "session_error",
         statusText: null,
+        liveWebActivity: {},
       };
 
     case "POLL_RECONCILED": {
@@ -721,6 +778,7 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
           activeToolCallCount: 0,
           lastTerminalReason: "complete",
           statusText: null,
+          liveWebActivity: {},
         };
       }
       return {
@@ -730,6 +788,7 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
         activeToolCallCount: 0,
         lastTerminalReason: "complete",
         statusText: null,
+        liveWebActivity: {},
       };
     }
 
@@ -742,6 +801,7 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
         pendingQueuedCount: 0,
         lastTerminalReason: "timeout",
         statusText: null,
+        liveWebActivity: {},
       };
 
     case "TURN_RESET":

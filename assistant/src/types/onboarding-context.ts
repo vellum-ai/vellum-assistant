@@ -4,6 +4,7 @@ export interface OnboardingContext {
   tone: string;
   userName?: string;
   assistantName?: string;
+  priorAssistants?: string[];
   googleConnected?: boolean;
   googleScopes?: string[];
   cohort?: string;

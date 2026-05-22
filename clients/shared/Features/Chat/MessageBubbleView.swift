@@ -184,7 +184,7 @@ public struct MessageBubbleView: View {
         for ref in message.contentOrder {
             switch ref {
             case .text: hasText = true
-            case .toolCall, .surface, .thinking: hasNonText = true
+            case .toolCall, .surface, .thinking, .attachment: hasNonText = true
             }
             if hasText && hasNonText { return true }
         }
@@ -218,6 +218,10 @@ public struct MessageBubbleView: View {
                 }
             case .surface(let i):
                 groups.append(.surface(i))
+            case .attachment:
+                // This view doesn't render inline attachments — the bubble's
+                // attachment slot handles them at the trailing position.
+                continue
             }
         }
         return groups

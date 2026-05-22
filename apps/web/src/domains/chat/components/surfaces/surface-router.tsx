@@ -14,6 +14,7 @@ import { FormSurface } from "@/domains/chat/components/surfaces/form-surface.js"
 import { ListSurface } from "@/domains/chat/components/surfaces/list-surface.js";
 import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container.js";
 import { TableSurface } from "@/domains/chat/components/surfaces/table-surface.js";
+import { TaskPreferencesSurface } from "@/domains/chat/components/surfaces/task-preferences-surface.js";
 
 export interface SurfaceRouterProps {
   surface: Surface;
@@ -32,7 +33,7 @@ export function SurfaceRouter({
   onOpenDocument,
   isToolCallComplete = true,
 }: SurfaceRouterProps) {
-  const CHIP_COLLAPSE_TYPES = ["form", "confirmation", "file_upload"];
+  const CHIP_COLLAPSE_TYPES = ["form", "confirmation", "file_upload", "task_preferences"];
   if (surface.completed && CHIP_COLLAPSE_TYPES.includes(surface.surfaceType)) {
     const isCancelled = surface.completionSummary === "Cancelled";
     if (isCancelled) {
@@ -86,6 +87,9 @@ export function SurfaceRouter({
 
     case "browser_view":
       return <BrowserViewSurface surface={surface} onAction={onAction} />;
+
+    case "task_preferences":
+      return <TaskPreferencesSurface surface={surface} onAction={onAction} />;
 
     case "document_preview":
       return (

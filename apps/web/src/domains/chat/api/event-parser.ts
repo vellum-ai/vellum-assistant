@@ -27,6 +27,7 @@ import type {
   UISurfaceShowEvent,
 } from "@/domains/chat/api/event-types.js";
 import type { DisplayAttachment } from "@/domains/chat/types/types.js";
+import type { ToolActivityMetadata } from "@/assistant/web-activity-types.js";
 import type { SyncInvalidationTag } from "@/lib/sync/types.js";
 
 export function readEventConversationKey(
@@ -35,11 +36,12 @@ export function readEventConversationKey(
   if (typeof data.conversationKey === "string" && data.conversationKey) {
     return data.conversationKey;
   }
-  // Daemon emits `conversationId` for many events. In the web client this maps
-  // 1:1 to the conversation key used by the sidebar/history APIs.
-  if (typeof data.conversationId === "string" && data.conversationId) {
-    return data.conversationId;
-  }
+  // Intentionally do NOT fall back to `data.conversationId`. The daemon's
+  // `conversationId` is its internal id from the conversation-keys mapping
+  // table and is not guaranteed to equal the web-facing conversationKey.
+  // When this returns undefined, stream.ts substitutes the subscription
+  // URL's `requestedConversationKey`, which is the authoritative routing
+  // key for the per-conversation SSE stream.
   return undefined;
 }
 
@@ -390,7 +392,33 @@ export function parseAssistantEvent(
         directoryScopeOptions: Array.isArray(data.riskDirectoryScopeOptions)
           ? (data.riskDirectoryScopeOptions as DirectoryScopeOption[])
           : undefined,
+        // Daemon emits `activityMetadata` on tool_result for tools that report
+        // structured activity (currently Anthropic-native web_search). Treated
+        // as opaque on the wire — the downstream consumer (turn-state) keys
+        // off the discriminated child fields (webSearch/webFetch).
+        activityMetadata:
+          typeof data.activityMetadata === "object" &&
+          data.activityMetadata !== null &&
+          !Array.isArray(data.activityMetadata)
+            ? (data.activityMetadata as ToolActivityMetadata)
+            : undefined,
       };
+
+    case "tool_progress": {
+      const toolName = typeof data.toolName === "string" ? data.toolName : "unknown";
+      const elapsedSec = typeof data.elapsedSec === "number" ? data.elapsedSec : 0;
+      const timeoutSec = typeof data.timeoutSec === "number" ? data.timeoutSec : 0;
+      return {
+        type: "tool_progress",
+        toolName,
+        elapsedSec,
+        timeoutSec,
+        conversationId:
+          typeof data.conversationId === "string" ? data.conversationId : undefined,
+        toolUseId:
+          typeof data.toolUseId === "string" ? data.toolUseId : undefined,
+      };
+    }
 
     case "conversation_list_invalidated": {
       const rawReason = typeof data.reason === "string" ? data.reason : "";
@@ -424,10 +452,6 @@ export function parseAssistantEvent(
     }
 
     case "conversation_title_updated": {
-      // Daemon emits `conversationId` (the internal ID), which for web maps
-      // 1:1 to the `conversationKey` the sidebar indexes by — the client
-      // never sees a separate conversationId because our only create path
-      // is POST /v1/messages with a client-chosen key.
       const conversationId =
         typeof data.conversationId === "string" ? data.conversationId : "";
       const title = typeof data.title === "string" ? data.title : "";
@@ -662,6 +686,53 @@ export function parseAssistantEvent(
         };
       }
       return { type: rawType as "document_comment_reopened" | "document_comment_deleted", ...base };
+    }
+
+    case "interaction_resolved": {
+      const requestId =
+        typeof data.requestId === "string" ? data.requestId : "";
+      const stateRaw = typeof data.state === "string" ? data.state : "";
+      const validStates = new Set([
+        "approved",
+        "rejected",
+        "answered",
+        "cancelled",
+        "superseded",
+      ]);
+      if (!requestId || !validStates.has(stateRaw)) {
+        return { type: "unknown", rawType, data };
+      }
+      const conversationKey =
+        typeof data.conversationKey === "string"
+          ? data.conversationKey
+          : typeof data.conversationId === "string"
+            ? data.conversationId
+            : "";
+      const kind = typeof data.kind === "string" ? data.kind : "";
+      return {
+        type: "interaction_resolved",
+        requestId,
+        conversationKey,
+        state: stateRaw as
+          | "approved"
+          | "rejected"
+          | "answered"
+          | "cancelled"
+          | "superseded",
+        kind,
+      };
+    }
+
+    case "document_editor_update": {
+      const surfaceId =
+        typeof data.surfaceId === "string" ? data.surfaceId : "";
+      const markdown =
+        typeof data.markdown === "string" ? data.markdown : "";
+      const mode = typeof data.mode === "string" ? data.mode : "replace";
+      if (!surfaceId) {
+        return { type: "unknown", rawType, data };
+      }
+      return { type: "document_editor_update", surfaceId, markdown, mode };
     }
 
     default:

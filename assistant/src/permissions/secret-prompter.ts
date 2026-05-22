@@ -130,7 +130,10 @@ export class SecretPrompter {
     }
     // approval-routes calls pendingInteractions.get() before routing here;
     // the prompter owns deregistration so it fires the Promise callback cleanly.
-    const interaction = pendingInteractions.resolve(requestId);
+    const interaction = pendingInteractions.resolve(
+      requestId,
+      value === undefined ? "cancelled" : "answered",
+    );
     this.ownedIds.delete(requestId);
     (interaction?.rpcResolve as ((v: SecretPromptResult) => void) | undefined)?.(
       { value: value ?? null, delivery: delivery ?? "store" },

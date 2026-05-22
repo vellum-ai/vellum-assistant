@@ -31,6 +31,13 @@ let mockClients: MockClient[] = [];
 mock.module("../runtime/assistant-event-hub.js", () => ({
   assistantEventHub: {
     publish: async (event: unknown, _options?: unknown) => {
+      // `interaction_resolved` envelopes are emitted by the
+      // pending-interactions tracker for every resolution. They are
+      // orthogonal to the host-browser wire messages these tests assert
+      // on, so swallow them here.
+      if ((event as { type?: string } | null)?.type === "interaction_resolved") {
+        return;
+      }
       publishedEvents.push(event);
     },
     getMostRecentClientByCapability: (cap: string) =>
@@ -41,6 +48,9 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
       mockClients.find((c) => c.clientId === clientId)?.actorPrincipalId,
   },
   broadcastMessage: (msg: unknown) => {
+    if ((msg as { type?: string } | null)?.type === "interaction_resolved") {
+      return;
+    }
     publishedEvents.push(msg);
   },
 }));

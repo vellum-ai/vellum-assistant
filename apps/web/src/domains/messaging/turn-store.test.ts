@@ -4,9 +4,10 @@ import {
   getThinkingStatusText,
   shouldShowThinkingIndicator,
   shouldShowAssistantBubble,
+  canStopGeneration,
   isSendDisabled,
   type UIContext,
-} from "@/domains/chat/utils/turn-selectors.js";
+} from "@/domains/messaging/turn-selectors.js";
 import {
   type TurnState,
   type DomainEvent,
@@ -32,6 +33,8 @@ const defaultCtx: UIContext = {
   hasStreamingAssistantMessage: false,
   hasPendingSecret: false,
   hasPendingConfirmation: false,
+  hasPendingQuestion: false,
+  hasPendingContactRequest: false,
   hasUncompletedVisibleSurface: false,
 };
 
@@ -47,6 +50,7 @@ describe("INITIAL_TURN_STATE", () => {
     expect(INITIAL_TURN_STATE.activeTurnId).toBeNull();
     expect(INITIAL_TURN_STATE.lastTerminalReason).toBeNull();
     expect(INITIAL_TURN_STATE.statusText).toBeNull();
+    expect(INITIAL_TURN_STATE.liveWebActivity).toEqual({});
   });
 
   test("isSending is false in initial state", () => {
@@ -216,6 +220,117 @@ describe("tool call tracking", () => {
   test("TOOL_RESULT does not go below zero", () => {
     const state = turnReducer(INITIAL_TURN_STATE, { type: "TOOL_RESULT" });
     expect(state.activeToolCallCount).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TOOL_ACTIVITY_METADATA
+// ---------------------------------------------------------------------------
+
+describe("TOOL_ACTIVITY_METADATA", () => {
+  const sampleMetadata = {
+    webSearch: {
+      query: "tigers",
+      provider: "anthropic-native" as const,
+      resultCount: 1,
+      durationMs: 100,
+      results: [
+        {
+          rank: 1,
+          title: "Tigers",
+          url: "https://example.com/tigers",
+          domain: "example.com",
+        },
+      ],
+    },
+  };
+
+  test("populates liveWebActivity keyed by toolUseId during an active turn", () => {
+    const active = applyEvents(INITIAL_TURN_STATE, [
+      { type: "USER_SEND_REQUESTED", turnId: "t-1" },
+      { type: "TOOL_USE_START" },
+    ]);
+    const state = turnReducer(active, {
+      type: "TOOL_ACTIVITY_METADATA",
+      toolUseId: "tc-1",
+      metadata: sampleMetadata,
+    });
+    expect(state.liveWebActivity["tc-1"]).toEqual(sampleMetadata);
+  });
+
+  test("is discarded when state is stale (idle with no activeTurnId)", () => {
+    const state = turnReducer(INITIAL_TURN_STATE, {
+      type: "TOOL_ACTIVITY_METADATA",
+      toolUseId: "tc-1",
+      metadata: sampleMetadata,
+    });
+    expect(state.liveWebActivity).toEqual({});
+  });
+
+  test("MESSAGE_COMPLETE clears liveWebActivity", () => {
+    const withActivity: TurnState = {
+      ...INITIAL_TURN_STATE,
+      phase: "streaming",
+      activeTurnId: "t-1",
+      liveWebActivity: { "tc-1": sampleMetadata },
+    };
+    const state = turnReducer(withActivity, { type: "MESSAGE_COMPLETE" });
+    expect(state.liveWebActivity).toEqual({});
+  });
+
+  test("STREAM_ERROR clears liveWebActivity", () => {
+    const withActivity: TurnState = {
+      ...INITIAL_TURN_STATE,
+      phase: "streaming",
+      activeTurnId: "t-1",
+      liveWebActivity: { "tc-1": sampleMetadata },
+    };
+    const state = turnReducer(withActivity, { type: "STREAM_ERROR" });
+    expect(state.liveWebActivity).toEqual({});
+  });
+
+  test("GENERATION_CANCELLED clears liveWebActivity", () => {
+    const withActivity: TurnState = {
+      ...INITIAL_TURN_STATE,
+      phase: "streaming",
+      activeTurnId: "t-1",
+      liveWebActivity: { "tc-1": sampleMetadata },
+    };
+    const state = turnReducer(withActivity, { type: "GENERATION_CANCELLED" });
+    expect(state.liveWebActivity).toEqual({});
+  });
+
+  test("TURN_TIMEOUT clears liveWebActivity", () => {
+    const withActivity: TurnState = {
+      ...INITIAL_TURN_STATE,
+      phase: "streaming",
+      activeTurnId: "t-1",
+      liveWebActivity: { "tc-1": sampleMetadata },
+    };
+    const state = turnReducer(withActivity, { type: "TURN_TIMEOUT" });
+    expect(state.liveWebActivity).toEqual({});
+  });
+
+  test("POLL_RECONCILED clears liveWebActivity", () => {
+    const withActivity: TurnState = {
+      ...INITIAL_TURN_STATE,
+      phase: "streaming",
+      activeTurnId: "t-1",
+      liveWebActivity: { "tc-1": sampleMetadata },
+    };
+    const state = turnReducer(withActivity, { type: "POLL_RECONCILED", turnId: "t-1" });
+    expect(state.liveWebActivity).toEqual({});
+  });
+
+  test("GENERATION_HANDOFF does NOT clear liveWebActivity", () => {
+    const withActivity: TurnState = {
+      ...INITIAL_TURN_STATE,
+      phase: "streaming",
+      activeTurnId: "t-1",
+      liveWebActivity: { "tc-1": sampleMetadata },
+    };
+    const state = turnReducer(withActivity, { type: "GENERATION_HANDOFF" });
+    expect(state.liveWebActivity).toEqual({ "tc-1": sampleMetadata });
   });
 });
 
@@ -732,6 +847,7 @@ describe("TURN_RESET", () => {
       activeTurnId: "turn-99",
       lastTerminalReason: "error",
       statusText: null,
+      liveWebActivity: {},
     };
     const state = turnReducer(dirty, { type: "TURN_RESET" });
     expect(state).toEqual(INITIAL_TURN_STATE);
@@ -1056,13 +1172,27 @@ describe("shouldShowThinkingIndicator", () => {
     expect(shouldShowThinkingIndicator(withTools, defaultCtx)).toBe(false);
   });
 
-  test("hidden during awaiting_user_input (secret/confirmation/surface)", () => {
+  test("hidden during awaiting_user_input when the matching pending flag is set (secret/confirmation/question/contact/surface)", () => {
     const awaiting = applyEvents(INITIAL_TURN_STATE, [
       { type: "USER_SEND_REQUESTED" },
       { type: "SECRET_REQUEST" },
     ]);
     expect(awaiting.phase).toBe("awaiting_user_input");
-    expect(shouldShowThinkingIndicator(awaiting, defaultCtx)).toBe(false);
+    expect(
+      shouldShowThinkingIndicator(awaiting, { ...defaultCtx, hasPendingSecret: true }),
+    ).toBe(false);
+    expect(
+      shouldShowThinkingIndicator(awaiting, { ...defaultCtx, hasPendingConfirmation: true }),
+    ).toBe(false);
+    expect(
+      shouldShowThinkingIndicator(awaiting, { ...defaultCtx, hasPendingQuestion: true }),
+    ).toBe(false);
+    expect(
+      shouldShowThinkingIndicator(awaiting, { ...defaultCtx, hasPendingContactRequest: true }),
+    ).toBe(false);
+    expect(
+      shouldShowThinkingIndicator(awaiting, { ...defaultCtx, hasUncompletedVisibleSurface: true }),
+    ).toBe(false);
   });
 
   test("hidden when idle", () => {
@@ -1161,6 +1291,46 @@ describe("isSendDisabled", () => {
 
   test("enabled when idle with no competing UI", () => {
     expect(isSendDisabled(INITIAL_TURN_STATE, defaultCtx)).toBe(false);
+  });
+});
+
+describe("canStopGeneration", () => {
+  test("visible for a web-originated active turn", () => {
+    const thinking = turnReducer(INITIAL_TURN_STATE, {
+      type: "USER_SEND_REQUESTED",
+    });
+    expect(canStopGeneration(thinking, defaultCtx)).toBe(true);
+  });
+
+  test("visible for an externally-originated streaming assistant message", () => {
+    expect(
+      canStopGeneration(INITIAL_TURN_STATE, {
+        ...defaultCtx,
+        hasStreamingAssistantMessage: true,
+      }),
+    ).toBe(true);
+  });
+
+  test("visible after switching back to a processing conversation", () => {
+    expect(
+      canStopGeneration(INITIAL_TURN_STATE, {
+        ...defaultCtx,
+        activeConversationIsProcessing: true,
+      }),
+    ).toBe(true);
+  });
+
+  test("hidden while waiting on a user-input surface", () => {
+    const awaiting = applyEvents(INITIAL_TURN_STATE, [
+      { type: "USER_SEND_REQUESTED" },
+      { type: "CONFIRMATION_REQUEST" },
+    ]);
+    expect(
+      canStopGeneration(awaiting, {
+        ...defaultCtx,
+        hasPendingConfirmation: true,
+      }),
+    ).toBe(false);
   });
 });
 

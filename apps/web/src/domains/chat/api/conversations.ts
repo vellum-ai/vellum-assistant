@@ -14,6 +14,10 @@ import {
   extractErrorMessage,
   SDK_BASE_OPTIONS,
 } from "@/domains/chat/api/client.js";
+import {
+  parseSlackMessageLink,
+  type SlackMessageLink,
+} from "@/domains/chat/types/types.js";
 
 // ---------------------------------------------------------------------------
 // Conversations
@@ -34,6 +38,15 @@ export interface Conversation {
   conversationType?: string;
   scheduleJobId?: string;
   /**
+   * Server-provided sort order for pinned and custom-group buckets. Set when
+   * the user has drag-reordered the conversation; absent for conversations
+   * that have never been reordered. Consumers (see `groupConversations`)
+   * should sort pinned / custom-group buckets by this field so the user's
+   * order is preserved across reloads.
+   */
+  displayOrder?: number;
+  channelBinding?: ConversationChannelBinding;
+  /**
    * Channel of origin for this conversation, e.g. `"slack"`, `"telegram"`,
    * `"phone"`, `"vellum"`, or `"notification:*"`. Sourced from the daemon's
    * `channelBinding.sourceChannel` (when present) and falling back to
@@ -45,8 +58,34 @@ export interface Conversation {
   draft?: boolean;
 }
 
+export interface ConversationChannelBinding {
+  sourceChannel: string;
+  externalChatId: string;
+  externalThreadId?: string;
+  externalChatName?: string;
+  externalUserId?: string;
+  displayName?: string;
+  username?: string;
+  slackChannel?: ConversationSlackChannel;
+  slackThread?: ConversationSlackThread;
+}
+
+export interface ConversationSlackChannel {
+  id?: string;
+  channelId?: string;
+  name?: string;
+  link?: string | SlackMessageLink;
+}
+
+export interface ConversationSlackThread {
+  channelId: string;
+  threadTs: string;
+  link?: SlackMessageLink;
+}
+
 interface ListConversationsResponse {
   conversations: Conversation[];
+  hasMore?: boolean;
 }
 
 interface ConversationAttentionPayload {
@@ -61,6 +100,91 @@ function normalizeTimestamp(value: unknown): string | undefined {
     return new Date(value).toISOString();
   }
   return undefined;
+}
+
+function parseSlackChannel(raw: unknown): ConversationSlackChannel | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+
+  const record = raw as Record<string, unknown>;
+  const id = typeof record.id === "string" ? record.id : undefined;
+  const channelId =
+    typeof record.channelId === "string" ? record.channelId : undefined;
+  if (!id && !channelId) return undefined;
+
+  const link =
+    typeof record.link === "string"
+      ? record.link
+      : parseSlackMessageLink(record.link);
+  const hasLink =
+    typeof link === "string" ||
+    (typeof link === "object" && (Boolean(link.appUrl) || Boolean(link.webUrl)));
+
+  return {
+    ...(id ? { id } : {}),
+    ...(channelId ? { channelId } : {}),
+    name: typeof record.name === "string" ? record.name : undefined,
+    ...(hasLink ? { link } : {}),
+  };
+}
+
+function parseSlackThread(raw: unknown): ConversationSlackThread | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+
+  const record = raw as Record<string, unknown>;
+  if (
+    typeof record.channelId !== "string" ||
+    typeof record.threadTs !== "string"
+  ) {
+    return undefined;
+  }
+
+  const link = parseSlackMessageLink(record.link);
+
+  return {
+    channelId: record.channelId,
+    threadTs: record.threadTs,
+    ...(link?.appUrl || link?.webUrl ? { link } : {}),
+  };
+}
+
+function parseChannelBinding(
+  raw: unknown,
+): ConversationChannelBinding | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+
+  const record = raw as Record<string, unknown>;
+  if (
+    typeof record.sourceChannel !== "string" ||
+    typeof record.externalChatId !== "string"
+  ) {
+    return undefined;
+  }
+
+  const slackChannel = parseSlackChannel(record.slackChannel);
+  const slackThread = parseSlackThread(record.slackThread);
+
+  return {
+    sourceChannel: record.sourceChannel,
+    externalChatId: record.externalChatId,
+    externalThreadId:
+      typeof record.externalThreadId === "string"
+        ? record.externalThreadId
+        : undefined,
+    externalChatName:
+      typeof record.externalChatName === "string"
+        ? record.externalChatName
+        : undefined,
+    externalUserId:
+      typeof record.externalUserId === "string"
+        ? record.externalUserId
+        : undefined,
+    displayName:
+      typeof record.displayName === "string" ? record.displayName : undefined,
+    username:
+      typeof record.username === "string" ? record.username : undefined,
+    ...(slackChannel ? { slackChannel } : {}),
+    ...(slackThread ? { slackThread } : {}),
+  };
 }
 
 export function parseConversation(raw: unknown): Conversation | null {
@@ -89,6 +213,7 @@ export function parseConversation(raw: unknown): Conversation | null {
     record.channelBinding && typeof record.channelBinding === "object"
       ? (record.channelBinding as Record<string, unknown>)
       : null;
+  const parsedChannelBinding = parseChannelBinding(channelBinding);
   const bindingSourceChannel =
     channelBinding && typeof channelBinding.sourceChannel === "string"
       ? channelBinding.sourceChannel
@@ -128,45 +253,88 @@ export function parseConversation(raw: unknown): Conversation | null {
       typeof record.conversationType === "string" ? record.conversationType : undefined,
     scheduleJobId:
       typeof record.scheduleJobId === "string" ? record.scheduleJobId : undefined,
+    displayOrder:
+      typeof record.displayOrder === "number" && Number.isFinite(record.displayOrder)
+        ? record.displayOrder
+        : undefined,
+    channelBinding: parsedChannelBinding,
     originChannel,
   };
 }
+
+/**
+ * Daemon default page size for `/v1/assistants/{id}/conversations/`. Used
+ * as our explicit page size so pagination state is predictable across daemon
+ * versions. See `ConversationListRequest` in
+ * `assistant/src/daemon/message-types/conversations.ts`.
+ */
+const CONVERSATION_LIST_PAGE_SIZE = 50;
+
+/**
+ * Safety cap on the pagination loop. Multiplied by `CONVERSATION_LIST_PAGE_SIZE`
+ * this allows for 10,000 conversations of a single type — far above any
+ * realistic user count, but bounded so a malformed `hasMore` from the server
+ * can't spin forever.
+ */
+const CONVERSATION_LIST_MAX_PAGES = 200;
 
 async function fetchConversationList(
   assistantId: string,
   conversationType?: "background",
 ): Promise<Conversation[]> {
-  const { data, error, response } = await client.get<
-    ListConversationsResponse,
-    unknown
-  >({
-    ...SDK_BASE_OPTIONS,
-    url: "/v1/assistants/{assistant_id}/conversations/",
-    path: { assistant_id: assistantId },
-    query: conversationType ? { conversationType } : undefined,
-    throwOnError: false,
-  });
-  assertHasResponse(response, error, "Failed to list conversations.");
-  if (!response.ok) {
-    const msg = extractErrorMessage(error, response, "Failed to list conversations.");
-    throw new ApiError(response.status, msg);
-  }
-  const payload =
-    data && typeof data === "object" && !Array.isArray(data)
-      ? (data as unknown as {
-          conversations?: unknown;
-          sessions?: unknown;
-        })
-      : null;
-  const rawItems = Array.isArray(payload?.conversations)
-    ? payload.conversations
-    : Array.isArray(payload?.sessions)
-      ? payload.sessions
-      : [];
+  const all: Conversation[] = [];
 
-  return rawItems
-    .map((conversation) => parseConversation(conversation))
-    .filter((conversation): conversation is Conversation => conversation !== null);
+  for (let page = 0; page < CONVERSATION_LIST_MAX_PAGES; page++) {
+    const offset = page * CONVERSATION_LIST_PAGE_SIZE;
+    const { data, error, response } = await client.get<
+      ListConversationsResponse,
+      unknown
+    >({
+      ...SDK_BASE_OPTIONS,
+      url: "/v1/assistants/{assistant_id}/conversations/",
+      path: { assistant_id: assistantId },
+      query: {
+        ...(conversationType ? { conversationType } : {}),
+        limit: CONVERSATION_LIST_PAGE_SIZE,
+        offset,
+      },
+      throwOnError: false,
+    });
+    assertHasResponse(response, error, "Failed to list conversations.");
+    if (!response.ok) {
+      const msg = extractErrorMessage(error, response, "Failed to list conversations.");
+      throw new ApiError(response.status, msg);
+    }
+    const payload =
+      data && typeof data === "object" && !Array.isArray(data)
+        ? (data as unknown as {
+            conversations?: unknown;
+            sessions?: unknown;
+            hasMore?: unknown;
+          })
+        : null;
+    const rawItems = Array.isArray(payload?.conversations)
+      ? payload.conversations
+      : Array.isArray(payload?.sessions)
+        ? payload.sessions
+        : [];
+
+    const pageItems = rawItems
+      .map((conversation) => parseConversation(conversation))
+      .filter((conversation): conversation is Conversation => conversation !== null);
+
+    all.push(...pageItems);
+
+    const hasMore =
+      typeof payload?.hasMore === "boolean" ? payload.hasMore : false;
+    if (!hasMore) break;
+
+    // Defensive: a malformed `hasMore: true` with an empty page would loop
+    // forever. Treat an empty page as end-of-list regardless of `hasMore`.
+    if (pageItems.length === 0) break;
+  }
+
+  return all;
 }
 
 /**

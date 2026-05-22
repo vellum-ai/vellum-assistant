@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { z } from "zod";
 
 import { loadConfig } from "../../config/loader.js";
+import { getDb } from "../../memory/db-connection.js";
 import {
   enqueueMemoryJob,
   type MemoryJobType,
@@ -21,6 +22,8 @@ import {
   totalEdgeCount,
   validateEdgeTargets,
 } from "../../memory/v2/edge-index.js";
+import { computeInjectionScores } from "../../memory/v2/injection-events.js";
+import { getPageIndex } from "../../memory/v2/page-index.js";
 import {
   getConceptsDir,
   listPages,
@@ -290,6 +293,47 @@ async function handleConceptFrequency({
   return getConceptFrequencySummary(workspaceDir, { conversationId, sinceMs });
 }
 
+// ── EMA scores ──────────────────────────────────────────────────────────
+
+const MemoryV2EmaScoresParams = z.object({}).strict();
+
+export interface MemoryV2EmaScoresEntry {
+  slug: string;
+  /** Time-decayed injection frequency; 0 when no events in the read window. */
+  score: number;
+  /** File mtime in epoch ms; 0 for synthetic entries (skills, CLI commands). */
+  modifiedAt: number;
+}
+
+export interface MemoryV2EmaScoresResult {
+  /** Every page index entry, sorted by score descending then slug ASCII. */
+  entries: MemoryV2EmaScoresEntry[];
+}
+
+async function handleEmaScores({
+  body = {},
+}: RouteHandlerArgs): Promise<MemoryV2EmaScoresResult> {
+  // Intentionally NOT gated on `memory.v2.enabled` — operators inspecting
+  // EMA data before flipping tier-2 routing on is a legitimate dry-run
+  // use case, mirroring `memory_v2_validate`.
+  MemoryV2EmaScoresParams.parse(body);
+
+  const pageIndex = await getPageIndex(getWorkspaceDir());
+  const slugs = pageIndex.entries.map((e) => e.slug);
+  const scores = computeInjectionScores(getDb(), slugs, Date.now());
+
+  const entries: MemoryV2EmaScoresEntry[] = pageIndex.entries.map((entry) => ({
+    slug: entry.slug,
+    score: scores.get(entry.slug) ?? 0,
+    modifiedAt: entry.modifiedAt,
+  }));
+  entries.sort((a, b) => {
+    if (a.score !== b.score) return b.score - a.score;
+    return a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0;
+  });
+  return { entries };
+}
+
 // ── Route definitions ───────────────────────────────────────────────────
 
 export const ROUTES: RouteDefinition[] = [
@@ -358,5 +402,16 @@ export const ROUTES: RouteDefinition[] = [
       "Debug-only. Aggregates the existing memory_v2_activation_logs table by (slug, status) and cross-references on-disk concept pages so an operator can see which concepts get injected often, which get scored but rejected, and which on-disk pages never even surface as candidates. Optional filters: conversationId narrows to a single conversation; sinceMs restricts to logs created at-or-after the given epoch ms timestamp.",
     tags: ["memory"],
     requestBody: MemoryV2ConceptFrequencyParams,
+  },
+  {
+    operationId: "memory_v2_ema_scores",
+    method: "POST",
+    endpoint: "memory/v2/ema-scores",
+    handler: handleEmaScores,
+    summary: "List every concept page with its injection-frequency EMA score",
+    description:
+      "Computes the time-decayed injection frequency (3-day half-life) for every entry in the current page index by reading memory_v2_injection_events. Returns entries sorted by score descending then slug ASCII, including zero-score pages so callers can decide whether to filter. Read-only; tier 2 of the v4 router uses the same computation to pick its top-M.",
+    tags: ["memory"],
+    requestBody: MemoryV2EmaScoresParams,
   },
 ];

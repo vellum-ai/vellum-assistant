@@ -1,3 +1,12 @@
+/**
+ * Pull-to-refresh hook — uses TanStack Query invalidation to refetch
+ * conversation history. Replaces the old refreshSettleRef promise pattern
+ * with a direct `invalidateQueries` call that resolves when the refetch
+ * completes.
+ *
+ * References:
+ * - https://tanstack.com/query/latest/docs/reference/QueryClient#queryclientinvalidatequeries
+ */
 
 import { type MutableRefObject, useCallback, useEffect, useRef, useState } from "react";
 
@@ -7,11 +16,8 @@ import { haptic } from "@/utils/haptics.js";
 import { isPointerCoarse } from "@/utils/pointer.js";
 
 // ---------------------------------------------------------------------------
-// Sentinel errors — distinguish silent aborts from real failures
+// Constants
 // ---------------------------------------------------------------------------
-
-const PULL_REFRESH_SUPERSEDED = "pull_refresh_superseded";
-const PULL_REFRESH_CONVERSATION_CHANGED = "pull_refresh_conversation_changed";
 
 const PULL_REFRESH_TIMEOUT_MS = 15_000;
 
@@ -19,21 +25,16 @@ const PULL_REFRESH_TIMEOUT_MS = 15_000;
 // Types
 // ---------------------------------------------------------------------------
 
-export interface RefreshSettleHandle {
-  resolve: () => void;
-  reject: (err: unknown) => void;
-  conversationKey: string;
-}
-
 interface UsePullRefreshParams {
   activeConversationKey: string | null | undefined;
   messagesRef: MutableRefObject<{ length: number }>;
-  onRefreshConversation: () => void;
-  refreshSettleRef?: MutableRefObject<RefreshSettleHandle | null>;
+  /** Invalidate the TQ history cache and refetch. Resolves when the refetch completes. */
+  invalidateHistory: () => Promise<void>;
+  /** Also bump the conversation-list refresh epoch (non-history side-effects). */
+  onRefreshEpoch: () => void;
 }
 
 interface UsePullRefreshReturn {
-  refreshSettleRef: MutableRefObject<RefreshSettleHandle | null>;
   refreshFeedback: RefreshOutcome | null;
   touchSupported: boolean;
   handlePullRefresh: () => Promise<RefreshOutcome>;
@@ -48,12 +49,11 @@ interface UsePullRefreshReturn {
 export function usePullRefresh({
   activeConversationKey,
   messagesRef,
-  onRefreshConversation,
-  refreshSettleRef: externalRefreshSettleRef,
+  invalidateHistory,
+  onRefreshEpoch,
 }: UsePullRefreshParams): UsePullRefreshReturn {
-  const internalRefreshSettleRef = useRef<RefreshSettleHandle | null>(null);
-  const refreshSettleRef = externalRefreshSettleRef ?? internalRefreshSettleRef;
   const [refreshFeedback, setRefreshFeedback] = useState<RefreshOutcome | null>(null);
+  const abortRef = useRef(false);
 
   // Resolve post-mount to keep SSR/hydration HTML in sync — the gesture
   // mounts a spinner element when enabled, so the initial render must
@@ -69,20 +69,11 @@ export function usePullRefresh({
       return { kind: "no-change" };
     }
 
+    abortRef.current = false;
     const beforeCount = messagesRef.current.length;
 
-    // Supersede any prior in-flight settle handle.
-    if (refreshSettleRef.current) {
-      const prior = refreshSettleRef.current;
-      refreshSettleRef.current = null;
-      prior.reject(new Error(PULL_REFRESH_SUPERSEDED));
-    }
-
-    const settled = new Promise<void>((resolve, reject) => {
-      refreshSettleRef.current = { resolve, reject, conversationKey };
-    });
-
-    onRefreshConversation();
+    // Also refresh the conversation list.
+    onRefreshEpoch();
 
     let timer: ReturnType<typeof setTimeout> | null = null;
     const timeout = new Promise<never>((_, reject) => {
@@ -93,7 +84,19 @@ export function usePullRefresh({
     });
 
     try {
-      await Promise.race([settled, timeout]);
+      // invalidateQueries returns a promise that resolves when all active
+      // queries matching the filter are refetched. The data-apply effect
+      // in useConversationHistory runs synchronously in the same React
+      // commit cycle, so messagesRef is updated by the time we check.
+      await Promise.race([invalidateHistory(), timeout]);
+
+      // Yield one frame to let React commit the data-apply effect.
+      await new Promise((r) => requestAnimationFrame(r));
+
+      if (abortRef.current) {
+        return { kind: "no-change" };
+      }
+
       const afterCount = messagesRef.current.length;
       const delta = afterCount - beforeCount;
       const outcome: RefreshOutcome =
@@ -109,15 +112,11 @@ export function usePullRefresh({
       setRefreshFeedback(outcome);
       return outcome;
     } catch (err) {
-      const errMessage = err instanceof Error ? err.message : "";
-      const isSilentAbort =
-        errMessage === PULL_REFRESH_SUPERSEDED ||
-        errMessage === PULL_REFRESH_CONVERSATION_CHANGED;
-
-      if (isSilentAbort) {
+      if (abortRef.current) {
         return { kind: "no-change" };
       }
 
+      const errMessage = err instanceof Error ? err.message : "";
       const outcome: RefreshOutcome = {
         kind: "error",
         message: errMessage || undefined,
@@ -126,20 +125,13 @@ export function usePullRefresh({
       setRefreshFeedback(outcome);
       return outcome;
     } finally {
-      if (timer !== null) clearTimeout(timer);
-      if (refreshSettleRef.current) {
-        refreshSettleRef.current = null;
-      }
+      if (timer != null) clearTimeout(timer);
     }
-  }, [activeConversationKey, messagesRef, onRefreshConversation]);
+  }, [activeConversationKey, messagesRef, invalidateHistory, onRefreshEpoch]);
 
   // Abort any in-flight pull-refresh when the active conversation changes.
   useEffect(() => {
-    const settle = refreshSettleRef.current;
-    if (settle && settle.conversationKey !== activeConversationKey) {
-      refreshSettleRef.current = null;
-      settle.reject(new Error(PULL_REFRESH_CONVERSATION_CHANGED));
-    }
+    abortRef.current = true;
   }, [activeConversationKey]);
 
   const handleDismissRefreshFeedback = useCallback(() => {
@@ -152,7 +144,6 @@ export function usePullRefresh({
   }, [handlePullRefresh]);
 
   return {
-    refreshSettleRef,
     refreshFeedback,
     touchSupported,
     handlePullRefresh,

@@ -31,7 +31,7 @@ import { resolveEditChatDraftKey } from "@/domains/chat/utils/edit-chat-session.
 import { type DiskPressureChatBlockReason, getDiskPressureChatBlockMessage } from "@/assistant/disk-pressure.js";
 import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics.js";
 import { newStableId } from "@/domains/chat/utils/stable-id.js";
-import { saveDismissedSurfaceIds } from "@/domains/chat/utils/dismissedSurfacesStorage.js";
+import { saveDismissedSurfaceIds } from "@/domains/chat/utils/dismissed-surfaces-storage.js";
 import { isSending, useTurnStore } from "@/domains/messaging/turn-store.js";
 import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
 import { useConversationStore } from "@/domains/conversations/conversation-store.js";
@@ -42,7 +42,10 @@ import {
   resolveDraftKey,
 } from "@/domains/conversations/conversation-queries.js";
 import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
-import type { PreChatOnboardingContext } from "@/domains/onboarding/prechat.js";
+import {
+  consumePendingPreChatContext,
+  type PreChatOnboardingContext,
+} from "@/domains/onboarding/prechat.js";
 
 import { clearQueueStatus } from "@/domains/chat/hooks/stream-message-updaters.js";
 import { attachConfirmationToToolCall } from "@/domains/chat/utils/chat-utils.js";
@@ -109,7 +112,6 @@ interface UseSendMessageParams {
   // State setters
   setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
   setError: Dispatch<SetStateAction<ChatError | null>>;
-  setStreamRetryNonce: Dispatch<SetStateAction<number>>;
   setInput: Dispatch<SetStateAction<string>>;
 
   // Callbacks
@@ -148,7 +150,6 @@ export function useSendMessage({
   confirmationToolCallMapRef,
   setMessages,
   setError,
-  setStreamRetryNonce,
   setInput,
   startReconciliationLoop,
   cancelReconciliation,
@@ -165,6 +166,7 @@ export function useSendMessage({
     queuedMessages,
     handleCancelQueuedMessage,
     handleCancelAllQueued,
+    handleSteerMessage,
     handleEditQueueTail,
   } = useMessageQueue({
     assistantId,
@@ -223,7 +225,11 @@ export function useSendMessage({
           resolvedConversationKey,
         });
 
-      const onboardingContext = pendingOnboardingContextRef.current;
+      const onboardingContext =
+        pendingOnboardingContextRef.current ?? consumePendingPreChatContext();
+      if (onboardingContext && !pendingOnboardingContextRef.current) {
+        pendingOnboardingContextRef.current = onboardingContext;
+      }
       const postResult = await postChatMessage(
         requestAssistantId,
         requestConversationKey,
@@ -503,6 +509,9 @@ export function useSendMessage({
             }
             return;
           }
+          if (postResult.requestId) {
+            requestIdToStableIdRef.current.set(postResult.requestId, userMessage.stableId);
+          }
         } catch {
           revertQueuedMessage(userMessage.stableId);
           setError({ message: "Failed to queue message. Please try again." });
@@ -563,9 +572,6 @@ export function useSendMessage({
           }
         }
 
-        if (!streamRef.current) {
-          setStreamRetryNonce((n) => n + 1);
-        }
         await refreshConversations();
       } catch (err) {
         Sentry.captureException(err, {
@@ -620,6 +626,7 @@ export function useSendMessage({
     queuedMessages,
     handleCancelQueuedMessage,
     handleCancelAllQueued,
+    handleSteerMessage,
     handleEditQueueTail,
   };
 }

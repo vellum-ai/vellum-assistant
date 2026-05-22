@@ -16,7 +16,7 @@ interface MobileSubagentDetailOverlayProps {
  * Mobile-only full-screen overlay that hosts the subagent detail panel.
  *
  * **Mounting constraint**: must render outside `RootLayout`'s inner
- * transformed wrapper (see `src/components/layout/root-layout.tsx`) so
+ * transformed wrapper (see `src/root-layout.tsx`) so
  * `position: fixed` anchors to the viewport's initial containing block
  * rather than the keyboard-following transform `RootLayout` applies when
  * the soft keyboard opens.

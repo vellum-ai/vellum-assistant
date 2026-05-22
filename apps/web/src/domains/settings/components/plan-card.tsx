@@ -7,6 +7,7 @@ import { Card } from "@vellum/design-library/components/card";
 import { Notice } from "@vellum/design-library/components/notice";
 import { SkillRow } from "@vellum/design-library/components/skill-row";
 import { Typography } from "@vellum/design-library/components/typography";
+import { PlanFeatureList } from "./plan-feature-list.js";
 import {
   organizationsBillingPlansRetrieveOptions,
   organizationsBillingSubscriptionRetrieveOptions,
@@ -48,7 +49,7 @@ function PlanHeading() {
         variant="body-small-default"
         className="mt-2 text-[var(--content-tertiary)]"
       >
-        Manage your subscription tier and billing.
+        Manage which Vellum plan you&apos;re on.
       </Typography>
     </div>
   );
@@ -95,7 +96,9 @@ export function PlanCard({ onManage }: PlanCardProps) {
       Boolean(subscription.cancel_at));
   const isCanceled = subscription.status === "canceled";
   const cancelDate = getEffectiveCancelDate(subscription);
-  const subtitle = currentPlan.included_features.slice(0, 3).join(", ");
+  const subtitle = (
+    <PlanFeatureList features={currentPlan.included_features} variant="inline" />
+  );
 
   return (
     <Card padding="md">
@@ -111,7 +114,7 @@ export function PlanCard({ onManage }: PlanCardProps) {
           }
           title={
             <span data-testid="plan-card-name">
-              {isPro ? "PRO Plan" : "Basic Plan"}
+              {isPro ? "Pro Plan" : "Basic Plan"}
             </span>
           }
           subtitle={subtitle}

@@ -13,9 +13,7 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import { createRef } from "react";
 import { cleanup, render } from "@testing-library/react";
 
-import {
-  type ChatAttachment,
-} from "@/domains/chat/components/chat-attachments/index.js";
+import type { ChatAttachment } from "@/domains/chat/components/chat-attachments/use-chat-attachments.js";
 import { INITIAL_TURN_STATE, type TurnState, useTurnStore } from "@/domains/messaging/turn-store.js";
 
 import { ChatComposer, computeGhostSuffix, shouldSubmitOnEnter } from "@/domains/chat/components/chat-composer/chat-composer.js";

@@ -65,8 +65,6 @@ export function SettingsShell({
     </Button>
   );
 
-  const mobileTitle = isMenuRoute ? "Settings" : title;
-
   return (
     <div
       className="flex h-full min-h-0 w-full flex-1 flex-col gap-4 p-4 sm:p-6 md:gap-0"
@@ -84,7 +82,7 @@ export function SettingsShell({
           className="flex-1 truncate text-center"
           style={{ color: "var(--content-tertiary)", lineHeight: 1.4 }}
         >
-          {mobileTitle}
+          {title}
         </Typography>
         <div className="h-10 w-10 shrink-0" aria-hidden="true" />
       </div>

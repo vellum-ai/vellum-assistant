@@ -417,7 +417,7 @@ function ConceptRow({
     });
   }
   if (isCustomSource) {
-    breakdownRows.push({ label: "source", value: concept.source });
+    breakdownRows.push({ label: "source", value: formatSource(concept.source) });
   }
   breakdownRows.push({ label: "status", value: statusText });
 
@@ -449,7 +449,7 @@ function ConceptRow({
         >
           {concept.slug}
         </code>
-        {isCustomSource && <TypeChip label={concept.source} />}
+        {isCustomSource && <TypeChip label={formatSource(concept.source)} />}
         <div
           className="shrink-0 overflow-hidden rounded-full"
           style={{
@@ -650,6 +650,22 @@ function TypeChip({ label }: { label: string }): ReactNode {
       {label}
     </span>
   );
+}
+
+/**
+ * Render a concept-row source string for display. Tier tags (`tier1`,
+ * `tier2`, `tier3:N`) get spaced out for readability; legacy / non-router
+ * sources pass through unchanged.
+ */
+function formatSource(source: string): string {
+  if (source === "tier1") return "tier 1";
+  if (source === "tier2") return "tier 2";
+  if (source.startsWith("tier3:")) {
+    const idx = source.slice("tier3:".length);
+    return `tier 3 · b${idx}`;
+  }
+  if (source === "carry_over") return "carry over";
+  return source;
 }
 
 function CopyButton({ text }: { text: string }): ReactNode {

@@ -10,6 +10,7 @@ import {
   markTargetInvalidated,
   publishCdpEvent,
 } from "../../browser-session/events.js";
+import { clearPinnedTabByTabId } from "../../tools/browser/pinned-tabs.js";
 import {
   enforceSameActorOrThrow,
   SAME_ACTOR_FORBIDDEN_DESCRIPTION,
@@ -149,7 +150,7 @@ export function resolveHostBrowserResultByRequestId(
   const normalizedContent = typeof content === "string" ? content : "";
   const normalizedIsError = typeof isError === "boolean" ? isError : false;
 
-  const interaction = pendingInteractions.resolve(requestId);
+  const interaction = pendingInteractions.resolve(requestId, "answered");
   interaction?.rpcResolve?.({
     content: normalizedContent,
     isError: normalizedIsError,
@@ -239,6 +240,12 @@ export function resolveHostBrowserSessionInvalidated(frame: {
       targetId,
       typeof reason === "string" ? reason : undefined,
     );
+    // Clear any pinned-tab entries pointing at this target so that
+    // subsequent `navigate` calls don't try to route to a dead tab.
+    // Without this, a user closing the pinned tab manually would see
+    // their next browser command fail with a `cdp_session_not_found`
+    // until the daemon process restarts.
+    clearPinnedTabByTabId(targetId);
   }
 
   return { ok: true };

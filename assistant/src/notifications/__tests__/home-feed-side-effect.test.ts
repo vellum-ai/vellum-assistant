@@ -229,6 +229,70 @@ describe("writeHomeFeedItemForSignal", () => {
     expect(conversationLookups).toEqual(["scheduler-job-42"]);
   });
 
+  test("falls back to the paired delivery conversation when sourceContextId does not resolve", async () => {
+    // Regression: producers whose `sourceContextId` is a sentinel string
+    // (heartbeat startup `"heartbeat"`, credential health `connectionId`,
+    // watcher `watcher-<ts>`, scheduler retries-exhausted `jobId`, sweep
+    // job id) never resolve via `getConversation`. The notification
+    // broadcaster pairs each vellum delivery with a real conversation
+    // before the home-feed write runs, so the caller threads that paired
+    // id through as the fallback — the "Go to Convo" button now points at
+    // the conversation the notification was actually delivered into.
+    conversationRow = null;
+    const signal = makeSignal({
+      sourceChannel: "assistant_tool",
+      sourceEventName: "assistant.share",
+      sourceContextId: "watcher-1700000000",
+      contextPayload: { title: "Watcher alert" },
+      attentionHints: {
+        requiresAction: false,
+        urgency: "medium",
+        isAsyncBackground: true,
+        visibleInSourceNow: false,
+      },
+    });
+    const decision = makeDecision({
+      renderedCopy: {
+        vellum: { title: "Watcher alert", body: "Watcher body" },
+      },
+    });
+
+    const item = await writeHomeFeedItemForSignal(
+      signal,
+      decision,
+      "paired-delivery-conv-id",
+    );
+
+    expect(item).not.toBeNull();
+    expect(appendCalls).toHaveLength(1);
+    expect(appendCalls[0]!.conversationId).toBe("paired-delivery-conv-id");
+  });
+
+  test("source conversation id wins over the paired delivery fallback when both are available", async () => {
+    // When the producer's `sourceContextId` already points at a real
+    // conversation (the canonical "where the work happened"), prefer it
+    // over the paired delivery — the fallback is only meant to fill the
+    // gap for sentinel-id producers.
+    conversationRow = { conversationType: "background" };
+    const signal = makeSignal({
+      contextPayload: { title: "Background job done" },
+    });
+    const decision = makeDecision({
+      renderedCopy: {
+        vellum: { title: "Background job done", body: "Summary." },
+      },
+    });
+
+    const item = await writeHomeFeedItemForSignal(
+      signal,
+      decision,
+      "paired-delivery-conv-id",
+    );
+
+    expect(item).not.toBeNull();
+    expect(appendCalls[0]!.conversationId).toBe("conv-source-1");
+  });
+
   test("returns null and does not write when no rendered copy or payload title/body is present", async () => {
     conversationRow = { conversationType: "scheduled" };
     const signal = makeSignal({

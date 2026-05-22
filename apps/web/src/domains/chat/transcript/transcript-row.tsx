@@ -3,7 +3,7 @@ import { Loader2 } from "lucide-react";
 import { memo, type ReactNode } from "react";
 
 import { Notice } from "@vellum/design-library";
-import { SurfaceRouter } from "@/domains/chat/components/surfaces/index.js";
+import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router.js";
 import type { TranscriptItem } from "@/domains/chat/transcript/types.js";
 
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body.js";
@@ -34,12 +34,15 @@ export interface TranscriptRowProps {
   onConfirmationDecision: (requestId: string, decision: string) => void;
   onRetryError: () => void;
   onForkConversation?: (messageId: string) => void;
+  onInspectMessage?: (messageId: string) => void;
   /** Render-prop override for `kind: "pendingSecret"`. */
   renderPendingSecret?: (requestId: string) => ReactNode;
   /** Render-prop override for `kind: "pendingConfirmation"`. */
   renderPendingConfirmation?: (requestId: string) => ReactNode;
   /** Render-prop override for `kind: "pendingContactRequest"`. */
   renderPendingContactRequest?: (requestId: string) => ReactNode;
+  /** Render-prop override for `kind: "onboardingChoice"`. */
+  renderOnboardingChoice?: () => ReactNode;
   onOpenRuleEditor?: (context: {
     toolName: string;
     riskLevel?: string;
@@ -74,9 +77,11 @@ export const TranscriptRow = memo(function TranscriptRow({
   onConfirmationDecision,
   onRetryError,
   onForkConversation,
+  onInspectMessage,
   renderPendingSecret,
   renderPendingConfirmation,
   renderPendingContactRequest,
+  renderOnboardingChoice,
   onOpenRuleEditor,
   unknownNudgeToolCallIds,
   onDismissUnknownNudge,
@@ -97,6 +102,7 @@ export const TranscriptRow = memo(function TranscriptRow({
           expandedCardIds={expandedCardIds}
           onSurfaceAction={onSurfaceAction}
           onForkConversation={onForkConversation}
+          onInspectMessage={onInspectMessage}
           onOpenRuleEditor={onOpenRuleEditor}
           unknownNudgeToolCallIds={unknownNudgeToolCallIds}
           onDismissUnknownNudge={onDismissUnknownNudge}
@@ -206,6 +212,12 @@ export const TranscriptRow = memo(function TranscriptRow({
           {item.message}
         </Notice>
       );
+
+    case "onboardingChoice":
+      if (renderOnboardingChoice) {
+        return <>{renderOnboardingChoice()}</>;
+      }
+      return null;
 
     default: {
       // Exhaustiveness guard — TypeScript narrows `item` to `never` here.

@@ -2,9 +2,9 @@ import { Slot } from "@radix-ui/react-slot";
 import type { LucideIcon } from "lucide-react";
 import {
   type AnchorHTMLAttributes,
-  type ButtonHTMLAttributes,
   type CSSProperties,
   type HTMLAttributes,
+  type KeyboardEvent,
   type MouseEvent,
   type ReactNode,
   type Ref,
@@ -35,9 +35,11 @@ import { MarqueeText } from "./marquee-text.js";
  *
  * Label typography uses the `body-medium-lighter` token (14/400/18).
  *
- * Supplies `role="button"` / `<a>` semantics automatically based on whether
- * you pass `href` or `onSelect`. When neither is supplied we render a
- * non-interactive `<div>` (useful for pure readout rows).
+ * Renders `<a href>` when `href` is provided, `<div role="button">` when
+ * `onSelect` is provided (the row container hosts interactive children in
+ * `leadingSlot` / `trailingAction`, which HTML forbids inside a native
+ * `<button>`), or a non-interactive `<div>` when neither is supplied
+ * (useful for pure readout rows).
  *
  * ### `asChild` (composition pattern)
  *
@@ -95,9 +97,15 @@ interface PanelItemProps {
    * @default "default"
    */
   activeVariant?: "default" | "branded";
+  /**
+   * Disabled state for the `onSelect` variant. Blocks click and Enter/Space
+   * activation, removes the row from the tab order, and sets `aria-disabled`.
+   * No effect on the anchor (`href`) / `asChild` / non-interactive variants.
+   */
+  disabled?: boolean;
   /** Click handler for the row itself (not `trailingAction`). */
   onSelect?: () => void;
-  /** Render as `<a href>` instead of `<button>`. */
+  /** Render as `<a href>` for navigation rows. */
   href?: string;
   /**
    * When true, wrap the label in `MarqueeText` so an overflowing single-line
@@ -117,7 +125,7 @@ interface PanelItemProps {
   asChild?: boolean;
   /** Children. Required when `asChild` is true; ignored otherwise. */
   children?: ReactNode;
-  ref?: Ref<HTMLAnchorElement | HTMLButtonElement | HTMLDivElement | HTMLElement>;
+  ref?: Ref<HTMLAnchorElement | HTMLDivElement | HTMLElement>;
 }
 
 // ---------------------------------------------------------------------------
@@ -199,10 +207,6 @@ type SharedAnchorProps = Omit<
   AnchorHTMLAttributes<HTMLAnchorElement>,
   "href" | "children"
 >;
-type SharedButtonProps = Omit<
-  ButtonHTMLAttributes<HTMLButtonElement>,
-  "children" | "type"
->;
 
 function PanelItem({
   icon: Icon,
@@ -213,6 +217,7 @@ function PanelItem({
   trailingAction,
   active = false,
   activeVariant = "default",
+  disabled = false,
   onSelect,
   href,
   marqueeOnHover = false,
@@ -222,7 +227,7 @@ function PanelItem({
   children,
   ref,
   ...rest
-}: PanelItemProps & SharedAnchorProps & SharedButtonProps) {
+}: PanelItemProps & SharedAnchorProps & HTMLAttributes<HTMLDivElement>) {
   const ariaCurrent = active ? ("page" as const) : undefined;
   const resolvedAriaLabel =
     ariaLabel ?? (typeof label === "string" ? label : undefined);
@@ -340,34 +345,58 @@ function PanelItem({
   }
 
   // ── Button variant ─────────────────────────────────────────────────
+  // Rendered as `<div role="button">` rather than `<button>` because rows
+  // commonly host interactive children (pin toggles, ellipsis menus) in
+  // their `leadingSlot` / `trailingAction` slots. HTML forbids nesting
+  // interactive elements inside `<button>`, which React 19 flags as a
+  // hydration error. The same `Enter`/`Space` activation, tab focus, and
+  // screen-reader semantics are preserved via `role="button"` + `tabIndex`.
+  // `disabled` is honored via `aria-disabled` + skipped activation +
+  // `tabIndex={-1}`, matching native `<button disabled>` behavior.
   if (onSelect) {
     const {
-      onClick: buttonOnClick,
-      onKeyDown: buttonOnKeyDown,
-      ...buttonProps
-    } = rest as SharedButtonProps;
+      onClick: rowOnClick,
+      onKeyDown: rowOnKeyDown,
+      ...divProps
+    } = rest as HTMLAttributes<HTMLDivElement>;
 
-    const composedOnClick = (event: MouseEvent<HTMLButtonElement>) => {
-      buttonOnClick?.(event);
+    const composedOnClick = (event: MouseEvent<HTMLDivElement>) => {
+      if (disabled) {
+        event.preventDefault();
+        return;
+      }
+      rowOnClick?.(event);
       if (!event.defaultPrevented) {
         onSelect();
       }
     };
 
+    const composedOnKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+      if (disabled) return;
+      rowOnKeyDown?.(event);
+      if (event.defaultPrevented) return;
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        onSelect();
+      }
+    };
+
     return (
-      <button
-        {...buttonProps}
+      <div
+        {...divProps}
         data-slot="panel-item"
-        ref={ref as Ref<HTMLButtonElement>}
-        type="button"
+        ref={ref as Ref<HTMLDivElement>}
+        role="button"
+        tabIndex={disabled ? -1 : 0}
+        aria-disabled={disabled || undefined}
         className={rowClasses}
         aria-current={ariaCurrent}
         aria-label={resolvedAriaLabel}
         onClick={composedOnClick}
-        onKeyDown={buttonOnKeyDown}
+        onKeyDown={composedOnKeyDown}
       >
         {innerMarkup}
-      </button>
+      </div>
     );
   }
 

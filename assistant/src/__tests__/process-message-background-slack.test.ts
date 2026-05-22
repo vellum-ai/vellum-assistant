@@ -95,7 +95,6 @@ type PersistUserMessageMock = ReturnType<
 type RunAgentLoopMock = ReturnType<
   typeof mock<(...args: unknown[]) => Promise<void>>
 >;
-type NoticeMock = ReturnType<typeof mock<(notice: string | undefined) => void>>;
 interface TestConversation {
   conversationId: string;
   trustContext: unknown;
@@ -123,13 +122,10 @@ interface TestConversation {
     estimatedCost: number;
   };
   persistUserMessage: PersistUserMessageMock;
-  setSlackRuntimeContextNotice: NoticeMock;
   runAgentLoop: RunAgentLoopMock;
   updateClient: (sender: (...args: unknown[]) => void) => void;
   getCurrentSender: () => ((...args: unknown[]) => void) | undefined;
   __loopDeferred: Deferred<void>;
-  __noticeCalls: Array<string | undefined>;
-  __loopNotices: Array<string | undefined>;
   __clientSenders: Array<((...args: unknown[]) => void) | undefined>;
 }
 
@@ -171,11 +167,8 @@ async function waitForRunAgentLoopCall(): Promise<void> {
 function makeConversation(): TestConversation {
   let turnChannelContext: TurnChannelContext | null = null;
   let turnInterfaceContext: TurnInterfaceContext | null = null;
-  let slackNotice: string | undefined;
   let currentSender: ((...args: unknown[]) => void) | undefined;
-  const noticeCalls: Array<string | undefined> = [];
   const loopDeferred = createDeferred<void>();
-  const loopNotices: Array<string | undefined> = [];
   const clientSenders: Array<((...args: unknown[]) => void) | undefined> = [];
   const messages: unknown[] = [];
 
@@ -223,12 +216,7 @@ function makeConversation(): TestConversation {
         _metadata?: Record<string, unknown>,
       ) => "persisted-user-message-id",
     ),
-    setSlackRuntimeContextNotice: mock((notice: string | undefined) => {
-      slackNotice = notice;
-      noticeCalls.push(notice);
-    }),
     runAgentLoop: mock(async (..._args: unknown[]) => {
-      loopNotices.push(slackNotice);
       await loopDeferred.promise;
     }),
     updateClient: (sender: (...args: unknown[]) => void) => {
@@ -237,8 +225,6 @@ function makeConversation(): TestConversation {
     },
     getCurrentSender: () => currentSender,
     __loopDeferred: loopDeferred,
-    __noticeCalls: noticeCalls,
-    __loopNotices: loopNotices,
     __clientSenders: clientSenders,
   };
 
@@ -252,15 +238,13 @@ describe("processMessageInBackground Slack option propagation", () => {
     broadcastMessages.length = 0;
   });
 
-  test("passes Slack inbound metadata to persistence and exposes the runtime notice during the loop", async () => {
+  test("passes Slack inbound metadata to persistence during background processing", async () => {
     const slackInbound = {
       channelId: "C0123CHANNEL",
       channelTs: "1700000001.111111",
       threadTs: "1700000000.000001",
       displayName: "Alice",
     };
-    const notice =
-      "Slack context note: this turn joined an existing thread. 2 earlier messages were backfilled.";
 
     const result = await processMessageInBackground(
       "conv-background-slack",
@@ -268,7 +252,6 @@ describe("processMessageInBackground Slack option propagation", () => {
       undefined,
       {
         slackInbound,
-        slackRuntimeContextNotice: notice,
       },
       "slack",
       "slack",
@@ -280,43 +263,10 @@ describe("processMessageInBackground Slack option propagation", () => {
       slackInbound,
     });
     expect(activeConversation.runAgentLoop).toHaveBeenCalledTimes(1);
-    expect(activeConversation.__loopNotices).toEqual([notice]);
 
     activeConversation.__loopDeferred.resolve();
     await activeConversation.__loopDeferred.promise;
     await Promise.resolve();
-
-    expect(activeConversation.__noticeCalls).toEqual([notice, undefined]);
-  });
-
-  test("clears the Slack runtime notice after normal message processing", async () => {
-    const notice =
-      "Slack context note: this turn joined an existing thread. 2 earlier messages were backfilled.";
-
-    const processing = processMessage(
-      "conv-background-slack",
-      "Reply from Slack",
-      undefined,
-      {
-        slackRuntimeContextNotice: notice,
-        isInteractive: true,
-      },
-      "slack",
-      "slack",
-    );
-
-    await waitForRunAgentLoopCall();
-
-    expect(activeConversation.runAgentLoop).toHaveBeenCalledTimes(1);
-    expect(activeConversation.__loopNotices).toEqual([notice]);
-
-    activeConversation.__loopDeferred.resolve();
-    await expect(processing).resolves.toEqual({
-      messageId: "persisted-user-message-id",
-    });
-
-    expect(activeConversation.__noticeCalls).toEqual([notice, undefined]);
-    expect(activeConversation.__clientSenders).toHaveLength(2);
   });
 
   test("observes live agent events without replacing the broadcast emitter", async () => {

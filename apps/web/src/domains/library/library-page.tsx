@@ -1,12 +1,12 @@
 import { useCallback } from "react";
 import { useNavigate } from "react-router";
 
-import { useAssistantContext } from "@/domains/chat/assistant-context.js";
+import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate.js";
 import { LibraryView } from "@/domains/intelligence/components/apps/library-view.js";
 import { routes } from "@/utils/routes.js";
 
 export function LibraryPage() {
-  const { assistantId } = useAssistantContext();
+  const { assistantId } = useActiveAssistantContext();
   const navigate = useNavigate();
 
   const handleNewConversation = useCallback(
@@ -29,15 +29,11 @@ export function LibraryPage() {
     [navigate],
   );
 
-  if (!assistantId) return null;
-
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)]">
-      <LibraryView
-        assistantId={assistantId}
-        onNewConversation={handleNewConversation}
-        onOpenDocument={handleOpenDocument}
-      />
-    </div>
+    <LibraryView
+      assistantId={assistantId}
+      onNewConversation={handleNewConversation}
+      onOpenDocument={handleOpenDocument}
+    />
   );
 }

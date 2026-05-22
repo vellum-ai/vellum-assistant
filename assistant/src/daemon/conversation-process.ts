@@ -33,6 +33,7 @@ import type { Message } from "../providers/types.js";
 import { routeGuardianReply } from "../runtime/guardian-reply-router.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
+import type { CleanResult } from "./conversation.js";
 import {
   persistQueuedMessageBody,
   serializePersistedUserMessageContent,
@@ -88,6 +89,21 @@ export function formatCompactResult(result: ContextWindowResult): string {
   ].join("\n");
 }
 
+/** Format the result of a forced clean into a user-facing message. */
+export function formatCleanResult(result: CleanResult): string {
+  const fmt = (n: number | undefined) => (n ?? 0).toLocaleString("en-US");
+  const reclaimed =
+    result.previousEstimatedInputTokens - result.estimatedInputTokens;
+  return [
+    "Context Cleaned\n",
+    `Tokens:   ${fmt(result.previousEstimatedInputTokens)} → ${fmt(result.estimatedInputTokens)} (${fmt(reclaimed)} reclaimed)`,
+    `Context:  ${fmt(result.estimatedInputTokens)} / ${fmt(
+      result.maxInputTokens,
+    )} tokens`,
+    `Messages: ${fmt(result.preservedMessages)} preserved`,
+  ].join("\n");
+}
+
 /** Build a model_info event with fresh config data. */
 export async function buildModelInfoEvent(
   conversationId?: string,
@@ -123,6 +139,9 @@ export interface ProcessConversationContext {
   readonly surfaceActionRequestIds: Set<string>;
   currentActiveSurfaceId?: string;
   currentPage?: string;
+  /** When true, the drain path should inject synthetic tool_result messages
+   *  for any pending tool_use blocks abandoned by a steered abort. */
+  pendingSteerRepair?: boolean;
   /** Cumulative token usage stats for the conversation. */
   readonly usageStats: UsageStats;
   /** Request-scoped skill IDs preactivated via config or programmatic injection. */
@@ -188,6 +207,8 @@ export interface ProcessConversationContext {
   forceCompact(options?: {
     targetInputTokensOverride?: number;
   }): Promise<ContextWindowResult>;
+  /** Strip runtime injections and reset memory-injection state. */
+  forceClean(): Promise<CleanResult>;
   /** Set transport-derived hints for the conversation. */
   setTransportHints(hints: string[] | undefined): void;
   /** IANA timezone reported by the active client for the current turn. */
@@ -347,6 +368,76 @@ async function buildPassthroughBatch(
   return conversation.queue.shiftN(matched);
 }
 
+// ── Steer repair ────────────────────────────────────────────────────
+
+/**
+ * When a steer-to-message abort interrupts an in-flight tool call, the
+ * conversation history may end with an assistant message containing one
+ * or more `tool_use` blocks that have no corresponding `tool_result`.
+ * LLM providers reject this sequence. This helper scans the tail of the
+ * history and injects synthetic error `tool_result` messages for any
+ * unmatched `tool_use` blocks.
+ */
+function repairPendingToolUseBlocks(
+  conversation: ProcessConversationContext,
+): void {
+  if (!conversation.pendingSteerRepair) return;
+  conversation.pendingSteerRepair = false;
+
+  const messages = conversation.messages;
+  if (messages.length === 0) return;
+
+  // Walk backwards from the tail to find the last assistant message with
+  // tool_use blocks. Collect resolved IDs from any user messages between
+  // the tail and that assistant message, then subtract them.
+  const resolvedToolUseIds = new Set<string>();
+  const pendingToolUseIds: string[] = [];
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.role === "user") {
+      for (const block of msg.content) {
+        if (
+          block.type === "tool_result" ||
+          block.type === "web_search_tool_result"
+        ) {
+          resolvedToolUseIds.add(block.tool_use_id);
+        }
+      }
+    } else if (msg.role === "assistant") {
+      for (const block of msg.content) {
+        if (block.type === "tool_use" && !resolvedToolUseIds.has(block.id)) {
+          pendingToolUseIds.push(block.id);
+        }
+      }
+      // Only repair tool_use blocks from the last assistant message that
+      // has them — earlier history should already be consistent.
+      break;
+    }
+  }
+
+  if (pendingToolUseIds.length === 0) return;
+
+  log.info(
+    {
+      conversationId: conversation.conversationId,
+      pendingToolUseCount: pendingToolUseIds.length,
+    },
+    "Injecting synthetic tool_result for pending tool_use blocks after steer",
+  );
+
+  // Build a single user message with tool_result blocks for all pending IDs.
+  const syntheticContent = pendingToolUseIds.map((toolUseId) => ({
+    type: "tool_result" as const,
+    tool_use_id: toolUseId,
+    content: "Tool execution was interrupted by user steering.",
+    is_error: true,
+  }));
+  conversation.messages.push({
+    role: "user",
+    content: syntheticContent,
+  });
+}
+
 // ── drainQueue ───────────────────────────────────────────────────────
 
 /**
@@ -363,6 +454,10 @@ export async function drainQueue(
   conversation: ProcessConversationContext,
   reason: QueueDrainReason = "loop_complete",
 ): Promise<void> {
+  // Repair any pending tool_use blocks left over from a steered abort
+  // before the drain path sends the next message to the LLM.
+  repairPendingToolUseBlocks(conversation);
+
   const batch = await buildPassthroughBatch(conversation);
   if (batch.length === 0) {
     // Head is a slash / verification intent / empty queue. If the queue has
@@ -691,6 +786,94 @@ async function drainSingleMessage(
           requestId: next.requestId,
         },
         "Failed to execute /compact",
+      );
+      next.onEvent({
+        type: "error",
+        conversationId: conversation.conversationId,
+        message,
+      });
+    }
+    await drainQueue(conversation);
+    return;
+  }
+
+  // /clean — strip runtime injections and reset memory state, no LLM call.
+  if (slashResult.kind === "clean") {
+    let persistedCleanMessage = false;
+    try {
+      const drainProvenance = provenanceFromTrustContext(
+        conversation.trustContext,
+      );
+      const drainChannelMeta = {
+        ...drainProvenance,
+        ...(queuedTurnCtx
+          ? {
+              userMessageChannel: queuedTurnCtx.userMessageChannel,
+              assistantMessageChannel: queuedTurnCtx.assistantMessageChannel,
+            }
+          : {}),
+        ...(queuedInterfaceCtx
+          ? {
+              userMessageInterface: queuedInterfaceCtx.userMessageInterface,
+              assistantMessageInterface:
+                queuedInterfaceCtx.assistantMessageInterface,
+            }
+          : {}),
+        sentAt: next.sentAt,
+      };
+      const cleanUserMsg = createUserMessage(next.content, next.attachments);
+      await addMessage(
+        conversation.conversationId,
+        "user",
+        serializePersistedUserMessageContent(
+          next.content,
+          next.attachments,
+          next.displayContent,
+        ),
+        drainChannelMeta,
+      );
+      persistedCleanMessage = true;
+      conversation.messages.push(cleanUserMsg);
+
+      const result = await conversation.forceClean();
+      const responseText = formatCleanResult(result);
+
+      const assistantMsg = createAssistantMessage(responseText);
+      await addMessage(
+        conversation.conversationId,
+        "assistant",
+        JSON.stringify(assistantMsg.content),
+        { ...drainChannelMeta, sentAt: Date.now() },
+      );
+      conversation.messages.push(assistantMsg);
+
+      next.onEvent({
+        type: "assistant_text_delta",
+        text: responseText,
+        conversationId: conversation.conversationId,
+      });
+      conversation.traceEmitter.emit(
+        "message_complete",
+        "Clean slash command handled",
+        { requestId: next.requestId, status: "success" },
+      );
+      next.onEvent({
+        type: "message_complete",
+        conversationId: conversation.conversationId,
+      });
+      publishConversationMessagesChanged(conversation.conversationId);
+    } catch (err) {
+      if (persistedCleanMessage) {
+        publishConversationMessagesChanged(conversation.conversationId);
+      }
+      const message = err instanceof Error ? err.message : String(err);
+      log.error(
+        {
+          err,
+          conversationId: conversation.conversationId,
+          requestId: next.requestId,
+        },
+        "Failed to execute /clean",
       );
       next.onEvent({
         type: "error",
@@ -1552,6 +1735,85 @@ export async function processMessage(
       return persisted.id;
     } catch (err) {
       if (persistedCompactMessage) {
+        publishConversationMessagesChanged(conversation.conversationId);
+      }
+      throw err;
+    } finally {
+      conversation.processing = false;
+      await drainQueue(conversation);
+    }
+  }
+
+  // /clean — strip runtime injections, return message ID. No LLM call.
+  if (slashResult.kind === "clean") {
+    conversation.processing = true;
+    let persistedCleanMessage = false;
+    try {
+      const pmTurnCtx = conversation.getTurnChannelContext();
+      const pmInterfaceCtx = conversation.getTurnInterfaceContext();
+      const pmProvenance = provenanceFromTrustContext(
+        conversation.trustContext,
+      );
+      const pmChannelMeta = {
+        ...pmProvenance,
+        ...(pmTurnCtx
+          ? {
+              userMessageChannel: pmTurnCtx.userMessageChannel,
+              assistantMessageChannel: pmTurnCtx.assistantMessageChannel,
+            }
+          : {}),
+        ...(pmInterfaceCtx
+          ? {
+              userMessageInterface: pmInterfaceCtx.userMessageInterface,
+              assistantMessageInterface:
+                pmInterfaceCtx.assistantMessageInterface,
+            }
+          : {}),
+      };
+      const cleanUserMsg = createUserMessage(content, attachments);
+      const persisted = await addMessage(
+        conversation.conversationId,
+        "user",
+        serializePersistedUserMessageContent(
+          content,
+          attachments,
+          displayContent,
+        ),
+        pmChannelMeta,
+      );
+      persistedCleanMessage = true;
+      conversation.messages.push(cleanUserMsg);
+
+      const result = await conversation.forceClean();
+      const responseText = formatCleanResult(result);
+
+      const assistantMsg = createAssistantMessage(responseText);
+      await addMessage(
+        conversation.conversationId,
+        "assistant",
+        JSON.stringify(assistantMsg.content),
+        pmChannelMeta,
+      );
+      conversation.messages.push(assistantMsg);
+
+      onEvent({
+        type: "assistant_text_delta",
+        text: responseText,
+        conversationId: conversation.conversationId,
+      });
+      conversation.traceEmitter.emit(
+        "message_complete",
+        "Clean slash command handled",
+        { requestId, status: "success" },
+      );
+      onEvent({
+        type: "message_complete",
+        conversationId: conversation.conversationId,
+      });
+      publishConversationMessagesChanged(conversation.conversationId);
+      return persisted.id;
+    } catch (err) {
+      if (persistedCleanMessage) {
         publishConversationMessagesChanged(conversation.conversationId);
       }
       throw err;

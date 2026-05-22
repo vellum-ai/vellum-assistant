@@ -257,7 +257,7 @@ const anthropicStub = { name: "anthropic" };
 mock.module("../providers/registry.js", () => ({
   getProvider: () => anthropicStub,
   listProviders: () => ["anthropic"],
-  initializeProviders: () => {},
+  initializeProviders: async () => {},
   resolveProviderFromConnection: async () => anthropicStub,
 }));
 

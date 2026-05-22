@@ -31,9 +31,8 @@ import { Input, Textarea } from "@vellum/design-library/components/input";
 import { Toggle } from "@vellum/design-library/components/toggle";
 import { feedbackCreateMutation } from "@/generated/api/@tanstack/react-query.gen.js";
 import type { ClassificationEnum } from "@/generated/api/types.gen.js";
-import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf.js";
+import { buildVellumMutatingHeaders } from "@/lib/auth/request-headers.js";
 import { buildChatDiagnosticsSnapshot } from "@/domains/chat/utils/diagnostics.js";
-import { getActiveOrganizationIdForRequests } from "@/stores/organization-store.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 
 type Reason = "bug_report" | "feature_request" | "other";
@@ -134,13 +133,6 @@ function buildTarEntry(filename: string, data: Uint8Array): Uint8Array {
   return buffer;
 }
 
-function isUuid(value: string | null | undefined): value is string {
-  return (
-    typeof value === "string" &&
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
-  );
-}
-
 async function fetchPlatformLogs(
   assistantId: string,
   opts: {
@@ -149,24 +141,21 @@ async function fetchPlatformLogs(
   },
 ): Promise<Uint8Array | null> {
   try {
-    await ensureCsrfCookie();
-    const headers: Record<string, string> = {
+    const headers = await buildVellumMutatingHeaders({
       "Content-Type": "application/json",
-    };
-    const csrfToken = getCsrfToken();
-    if (csrfToken) {
-      headers["X-CSRFToken"] = csrfToken;
-    }
-    const orgId = getActiveOrganizationIdForRequests();
-    if (orgId) {
-      headers["Vellum-Organization-Id"] = orgId;
-    }
+    });
     const body: Record<string, unknown> = {};
     if (opts.window.startTime != null) {
       body.startTime = opts.window.startTime;
       body.endTime = opts.window.endTime;
     }
-    if (isUuid(opts.activeConversationKey)) {
+    // Forward the active conversation key as `conversationId` so the backend
+    // can scope the export to messages / LLM request logs / usage events /
+    // tool invocations for that conversation. The backend accepts any
+    // non-empty string here — conversation keys take many shapes
+    // (e.g. `slack-thread:C123:1700000000.000000`), so we deliberately do
+    // NOT gate on UUID format.
+    if (opts.activeConversationKey) {
       body.conversationId = opts.activeConversationKey;
     }
     const res = await fetch(`/v1/assistants/${assistantId}/logs/export/`, {

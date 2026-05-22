@@ -1,4 +1,4 @@
-import type { ComponentType, ReactNode } from "react";
+import type { ComponentType, CSSProperties, ReactNode } from "react";
 
 import { Button } from "@vellum/design-library/components/button";
 import { SettingsCard } from "@/domains/settings/components/settings-card.js";
@@ -6,7 +6,7 @@ import { SettingsCard } from "@/domains/settings/components/settings-card.js";
 export interface NudgeBenefit {
   icon: ComponentType<{
     size?: number;
-    style?: React.CSSProperties;
+    style?: CSSProperties;
     "aria-hidden"?: boolean;
   }>;
   text: string;

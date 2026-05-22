@@ -21,6 +21,7 @@ import { createSelectors } from "@/utils/create-selectors.js";
 import { organizationsList } from "@/generated/api/sdk.gen.js";
 import type { OrganizationRead } from "@/generated/api/types.gen.js";
 import { useAuthStore } from "@/stores/auth-store.js";
+import { useEventBusStore } from "@/stores/event-bus-store.js";
 
 const ACTIVE_ORGANIZATION_STORAGE_KEY = "vellum_active_organization_id";
 
@@ -173,15 +174,18 @@ export function clearOrganization(): void {
  *
  * 1. Auth subscription — fetches orgs when the user logs in or switches
  *    accounts (including cross-tab via BroadcastChannel).
- * 2. Window focus / visibility — refetches the org list when the tab
- *    regains focus, but only if data is older than STALE_TIME_MS so
- *    rapid focus events on fresh data don't trigger redundant fetches.
+ * 2. App resume — refetches the org list when the user returns to the
+ *    tab (visibility / native foreground / online), but only if data is
+ *    older than STALE_TIME_MS so rapid resume signals on fresh data
+ *    don't trigger redundant fetches. Delivered via the layout-scoped
+ *    event bus, which covers the visibility + focus + online surface
+ *    behind a single channel.
  */
 export function setupOrganizationStore(): () => void {
   const STALE_TIME_MS = 10_000;
   let lastFetchedAt = 0;
 
-  // Track when fetches complete so we can enforce staleTime on focus refetch.
+  // Track when fetches complete so we can enforce staleTime on resume refetch.
   const unsubStale = useOrganizationStore.subscribe((state) => {
     if (state.status === "ready" || state.status === "error") {
       lastFetchedAt = Date.now();
@@ -198,7 +202,7 @@ export function setupOrganizationStore(): () => void {
     }
   });
 
-  // 2. Window focus / visibility — refetch if stale.
+  // 2. App resume — refetch if stale.
   const refetchIfStale = () => {
     const { status } = useOrganizationStore.getState();
     if (
@@ -209,18 +213,15 @@ export function setupOrganizationStore(): () => void {
     }
   };
 
-  const onFocus = () => refetchIfStale();
-  const onVisibilityChange = () => {
-    if (document.visibilityState === "visible") refetchIfStale();
-  };
-
-  window.addEventListener("focus", onFocus);
-  document.addEventListener("visibilitychange", onVisibilityChange);
+  const unsubResume = useEventBusStore
+    .getState()
+    .subscribe("app.resume", () => {
+      refetchIfStale();
+    });
 
   return () => {
     unsubStale();
     unsubAuth();
-    window.removeEventListener("focus", onFocus);
-    document.removeEventListener("visibilitychange", onVisibilityChange);
+    unsubResume();
   };
 }

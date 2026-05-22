@@ -14,6 +14,7 @@ export interface OnboardingEvent {
   tone: string | null;
   googleConnected: boolean | null;
   googleScopesJson: string | null;
+  priorAssistantsJson: string | null;
   abVariant: string | null;
 }
 
@@ -24,6 +25,7 @@ export interface RecordOnboardingEventParams {
   tone?: string;
   googleConnected?: boolean;
   googleScopes?: string[];
+  priorAssistants?: string[];
   abVariant?: string;
 }
 
@@ -47,6 +49,9 @@ export function recordOnboardingEvent(
     googleScopesJson: params.googleScopes
       ? JSON.stringify(params.googleScopes)
       : null,
+    priorAssistantsJson: params.priorAssistants
+      ? JSON.stringify(params.priorAssistants)
+      : null,
     abVariant: params.abVariant ?? null,
   };
   db.insert(onboardingEvents)
@@ -59,6 +64,7 @@ export function recordOnboardingEvent(
       tone: event.tone,
       googleConnected: event.googleConnected,
       googleScopesJson: event.googleScopesJson,
+      priorAssistantsJson: event.priorAssistantsJson,
       abVariant: event.abVariant,
     })
     .run();
@@ -85,6 +91,7 @@ export function queryUnreportedOnboardingEvents(
       tone: onboardingEvents.tone,
       googleConnected: onboardingEvents.googleConnected,
       googleScopesJson: onboardingEvents.googleScopesJson,
+      priorAssistantsJson: onboardingEvents.priorAssistantsJson,
       abVariant: onboardingEvents.abVariant,
     })
     .from(onboardingEvents)
