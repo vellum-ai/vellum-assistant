@@ -57,6 +57,7 @@ export function recordUsageEvent(
       outputTokens: event.outputTokens,
       cacheCreationInputTokens: event.cacheCreationInputTokens,
       cacheReadInputTokens: event.cacheReadInputTokens,
+      rawUsage: event.rawUsage === null ? null : JSON.stringify(event.rawUsage),
       estimatedCostUsd: event.estimatedCostUsd,
       pricingStatus: event.pricingStatus,
       llmCallCount: event.llmCallCount ?? 1,
@@ -87,6 +88,7 @@ function rowToUsageEvent(row: {
   outputTokens: number;
   cacheCreationInputTokens: number | null;
   cacheReadInputTokens: number | null;
+  rawUsage: string | null;
   estimatedCostUsd: number | null;
   pricingStatus: string;
 }): UsageEvent {
@@ -107,9 +109,30 @@ function rowToUsageEvent(row: {
     outputTokens: row.outputTokens,
     cacheCreationInputTokens: row.cacheCreationInputTokens,
     cacheReadInputTokens: row.cacheReadInputTokens,
+    rawUsage: parseRawUsage(row.rawUsage),
     estimatedCostUsd: row.estimatedCostUsd,
     pricingStatus: row.pricingStatus as "priced" | "unpriced",
   };
+}
+
+/**
+ * Parse the JSON-serialized provider usage payload stored in `raw_usage`.
+ * Returns `null` for missing or malformed values; malformed JSON is logged
+ * and discarded rather than failing the read, because callers (admin
+ * dashboards, telemetry forwarders) treat `raw_usage` as opaque diagnostic
+ * data and shouldn't be blocked by a single corrupt row.
+ */
+function parseRawUsage(value: string | null): Record<string, unknown> | null {
+  if (value === null) return null;
+  try {
+    const parsed = JSON.parse(value);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 export function listUsageEvents(options?: { limit?: number }): UsageEvent[] {
@@ -187,6 +210,7 @@ export function queryUnreportedUsageEvents(
       outputTokens: llmUsageEvents.outputTokens,
       cacheCreationInputTokens: llmUsageEvents.cacheCreationInputTokens,
       cacheReadInputTokens: llmUsageEvents.cacheReadInputTokens,
+      rawUsage: llmUsageEvents.rawUsage,
       estimatedCostUsd: llmUsageEvents.estimatedCostUsd,
       pricingStatus: llmUsageEvents.pricingStatus,
       conversationType: conversations.conversationType,

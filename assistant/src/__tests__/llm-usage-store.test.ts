@@ -31,6 +31,7 @@ function makeInput(overrides?: Partial<UsageEventInput>): UsageEventInput {
     outputTokens: 500,
     cacheCreationInputTokens: null,
     cacheReadInputTokens: null,
+    rawUsage: null,
     actor: "main_agent",
     conversationId: null,
     runId: null,
@@ -216,6 +217,44 @@ describe("recordUsageEvent", () => {
     expect(events[0].requestId).toBe("req-1");
     expect(events[0].cacheCreationInputTokens).toBe(200);
     expect(events[0].cacheReadInputTokens).toBe(300);
+  });
+
+  test("round-trips the provider's raw_usage payload verbatim", () => {
+    // The `raw_usage` column carries the literal usage object the provider
+    // returned (Anthropic nests TTL breakdown under `cache_creation`,
+    // OpenAI nests cached-read details under `prompt_tokens_details`, etc.)
+    // It must round-trip from `recordUsageEvent` through SQLite back to
+    // `listUsageEvents` byte-for-byte so downstream consumers can extract
+    // any provider-specific detail without a schema change.
+    const rawUsage = {
+      input_tokens: 1000,
+      output_tokens: 500,
+      cache_creation_input_tokens: 500,
+      cache_creation: {
+        ephemeral_5m_input_tokens: 100,
+        ephemeral_1h_input_tokens: 400,
+      },
+      cache_read_input_tokens: 0,
+      service_tier: "standard",
+    };
+    recordUsageEvent(makeInput({ rawUsage }), pricedResult);
+
+    const [event] = listUsageEvents();
+    expect(event.rawUsage).toEqual(rawUsage);
+  });
+
+  test("raw_usage defaults to null when the provider did not return one", () => {
+    // Providers that don't surface a usage block (or daemons predating
+    // migration 260) write null. Coercing to `{}` would be
+    // indistinguishable from a usage block that genuinely has no fields,
+    // so we preserve null as the "absent" signal.
+    recordUsageEvent(
+      makeInput({ provider: "openai", model: "gpt-4o", rawUsage: null }),
+      pricedResult,
+    );
+
+    const [event] = listUsageEvents();
+    expect(event.rawUsage).toBeNull();
   });
 });
 
@@ -1390,5 +1429,32 @@ describe("queryUnreportedUsageEvents", () => {
     // short-circuits only on null conversationId, so we get a real 0.
     // Analytics can treat 0 as "pre-first-turn" if needed.
     expect(events[0].turnIndex).toBe(0);
+  });
+
+  test("surfaces raw_usage on unreported events", () => {
+    // The telemetry reporter consumes `queryUnreportedUsageEvents` output
+    // directly and forwards it to BigQuery. If the SELECT projection
+    // drops the `raw_usage` column, every provider-specific detail
+    // (Anthropic TTL breakdown, OpenAI prompt-token details, etc.)
+    // vanishes silently — covered here so a refactor of the projection
+    // can't regress the wire shape.
+    const rawUsage = {
+      input_tokens: 1500,
+      output_tokens: 600,
+      cache_creation_input_tokens: 800,
+      cache_creation: {
+        ephemeral_5m_input_tokens: 300,
+        ephemeral_1h_input_tokens: 500,
+      },
+    };
+    insertEventAt(1000, {
+      cacheCreationInputTokens: 800,
+      rawUsage,
+    });
+
+    const events = queryUnreportedUsageEvents(0, undefined, 100);
+    expect(events).toHaveLength(1);
+    expect(events[0].cacheCreationInputTokens).toBe(800);
+    expect(events[0].rawUsage).toEqual(rawUsage);
   });
 });

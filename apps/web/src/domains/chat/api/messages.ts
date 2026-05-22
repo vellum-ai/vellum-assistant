@@ -88,7 +88,11 @@ export interface RuntimeMessage {
   role: "user" | "assistant";
   content: string;
   surfaces?: Surface[];
-  textSegments?: Array<{ type: string; content: string; [key: string]: unknown }>;
+  textSegments?: Array<{
+    type: string;
+    content: string;
+    [key: string]: unknown;
+  }>;
   contentOrder?: Array<{ type: string; id: string }>;
   metadata?: Record<string, unknown>;
   slackMessage?: SlackRuntimeMessage;
@@ -125,17 +129,24 @@ export async function pollForResponse(
   const deadline = Date.now() + POLL_TIMEOUT_MS;
 
   while (Date.now() < deadline) {
-    const { data, error, response } = await client.get<ListMessagesResponse, unknown>({
+    const { data, error, response } = await client.get<
+      ListMessagesResponse,
+      unknown
+    >({
       ...SDK_BASE_OPTIONS,
       url: "/v1/assistants/{assistant_id}/messages/",
       path: { assistant_id: assistantId },
-      query: { conversationKey },
+      query: { conversationId: conversationKey, conversationKey },
       throwOnError: false,
     });
     assertHasResponse(response, error, "Failed to poll for messages");
 
     if (!response.ok) {
-      const msg = extractErrorMessage(error, response, "Failed to poll for messages");
+      const msg = extractErrorMessage(
+        error,
+        response,
+        "Failed to poll for messages",
+      );
       throw new Error(msg);
     }
 
@@ -144,9 +155,7 @@ export async function pollForResponse(
     // Only consider assistant messages that appear after our sent user
     // message in the list, establishing a causal boundary so delayed
     // replies from earlier sends cannot be mis-associated.
-    const userMsgIndex = messages.findIndex(
-      (m) => m.id === userMessageId,
-    );
+    const userMsgIndex = messages.findIndex((m) => m.id === userMessageId);
     if (userMsgIndex >= 0) {
       const afterSend = messages.slice(userMsgIndex + 1);
       const reply = afterSend.find((m) => m.role === "assistant");
@@ -168,23 +177,43 @@ export async function pollForResponse(
  * The synthesised `id` uses the array index, matching how contentOrder
  * references tool calls by index in history payloads.
  */
-export function mapRuntimeToolCalls(toolCalls: RuntimeToolCall[], messageId: string): ChatMessageToolCall[] {
+export function mapRuntimeToolCalls(
+  toolCalls: RuntimeToolCall[],
+  messageId: string,
+): ChatMessageToolCall[] {
   return toolCalls.map((tc, idx) => ({
     id: `tool-history-${messageId}-${idx}`,
     toolName: tc.name,
     input: tc.input,
-    status: tc.isError ? "error" as const : tc.result === undefined ? "running" as const : "completed" as const,
+    status: tc.isError
+      ? ("error" as const)
+      : tc.result === undefined
+        ? ("running" as const)
+        : ("completed" as const),
     ...(tc.result !== undefined ? { result: tc.result } : {}),
     ...(tc.isError !== undefined ? { isError: tc.isError } : {}),
     ...(tc.riskLevel !== undefined ? { riskLevel: tc.riskLevel } : {}),
     ...(tc.riskReason !== undefined ? { riskReason: tc.riskReason } : {}),
-    ...(tc.matchedTrustRuleId !== undefined ? { matchedTrustRuleId: tc.matchedTrustRuleId } : {}),
+    ...(tc.matchedTrustRuleId !== undefined
+      ? { matchedTrustRuleId: tc.matchedTrustRuleId }
+      : {}),
     ...(tc.approvalMode !== undefined ? { approvalMode: tc.approvalMode } : {}),
-    ...(tc.approvalReason !== undefined ? { approvalReason: tc.approvalReason } : {}),
-    ...(tc.riskThreshold !== undefined ? { riskThreshold: tc.riskThreshold } : {}),
+    ...(tc.approvalReason !== undefined
+      ? { approvalReason: tc.approvalReason }
+      : {}),
+    ...(tc.riskThreshold !== undefined
+      ? { riskThreshold: tc.riskThreshold }
+      : {}),
     ...(tc.startedAt !== undefined ? { startedAt: tc.startedAt } : {}),
     ...(tc.completedAt !== undefined ? { completedAt: tc.completedAt } : {}),
-    ...(tc.confirmationDecision !== undefined ? { confirmationDecision: tc.confirmationDecision as "approved" | "denied" | "timed_out" } : {}),
+    ...(tc.confirmationDecision !== undefined
+      ? {
+          confirmationDecision: tc.confirmationDecision as
+            | "approved"
+            | "denied"
+            | "timed_out",
+        }
+      : {}),
   }));
 }
 
@@ -233,9 +262,15 @@ export function normalizeContentOrder(
  */
 export function normalizeTextSegments(
   raw: unknown[] | undefined,
-): Array<{ type: string; content: string; [key: string]: unknown }> | undefined {
+):
+  | Array<{ type: string; content: string; [key: string]: unknown }>
+  | undefined {
   if (!raw || raw.length === 0) return undefined;
-  const result: Array<{ type: string; content: string; [key: string]: unknown }> = [];
+  const result: Array<{
+    type: string;
+    content: string;
+    [key: string]: unknown;
+  }> = [];
   for (const entry of raw) {
     if (typeof entry === "string") {
       result.push({ type: "text", content: entry });
@@ -243,7 +278,11 @@ export function normalizeTextSegments(
       const obj = entry as Record<string, unknown>;
       if (typeof obj.content === "string") {
         const type = typeof obj.type === "string" ? obj.type : "text";
-        result.push({ ...obj, type, content: obj.content } as { type: string; content: string; [key: string]: unknown });
+        result.push({ ...obj, type, content: obj.content } as {
+          type: string;
+          content: string;
+          [key: string]: unknown;
+        });
       }
     }
   }
@@ -259,17 +298,24 @@ export async function getChatHistory(
   conversationKey: string,
 ): Promise<ChatHistoryResult> {
   try {
-    const { data, error, response } = await client.get<ListMessagesResponse, unknown>({
+    const { data, error, response } = await client.get<
+      ListMessagesResponse,
+      unknown
+    >({
       ...SDK_BASE_OPTIONS,
       url: "/v1/assistants/{assistant_id}/messages/",
       path: { assistant_id: assistantId },
-      query: { conversationKey },
+      query: { conversationId: conversationKey, conversationKey },
       throwOnError: false,
     });
     assertHasResponse(response, error, "Failed to fetch history");
 
     if (!response.ok) {
-      const msg = extractErrorMessage(error, response, "Failed to fetch history");
+      const msg = extractErrorMessage(
+        error,
+        response,
+        "Failed to fetch history",
+      );
       return {
         ok: false,
         status: response.status,
@@ -277,9 +323,8 @@ export async function getChatHistory(
       };
     }
 
-    const { mapRuntimeToDisplayMessage } = await import(
-      "@/domains/chat/utils/map-runtime-message.js"
-    );
+    const { mapRuntimeToDisplayMessage } =
+      await import("@/domains/chat/utils/map-runtime-message.js");
     const messages = (Array.isArray(data?.messages) ? data.messages : [])
       .filter((m) => m.role === "user" || m.role === "assistant")
       .map(mapRuntimeToDisplayMessage);
@@ -303,37 +348,42 @@ export async function fetchConversationMessages(
   assistantId: string,
   conversationKey: string,
 ): Promise<RuntimeMessage[]> {
-  const { data, error, response } = await client.get<ListMessagesResponse, unknown>({
+  const { data, error, response } = await client.get<
+    ListMessagesResponse,
+    unknown
+  >({
     ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/messages/",
     path: { assistant_id: assistantId },
-    query: { conversationKey },
+    query: { conversationId: conversationKey, conversationKey },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to fetch conversation messages");
   if (!response.ok) {
-    throw new Error(`Failed to fetch conversation messages (HTTP ${response.status})`);
+    throw new Error(
+      `Failed to fetch conversation messages (HTTP ${response.status})`,
+    );
   }
   return Array.isArray(data?.messages) ? data.messages : [];
 }
 
 export type PostMessageResult =
   | {
-    ok: true;
-    queued?: false;
-    assistantId: string;
-    conversationKey: string;
-    messageId: string;
-    resolvedConversationId?: string;
-  }
+      ok: true;
+      queued?: false;
+      assistantId: string;
+      conversationKey: string;
+      messageId: string;
+      resolvedConversationId?: string;
+    }
   | {
-    ok: true;
-    queued: true;
-    assistantId: string;
-    conversationKey: string;
-    resolvedConversationId?: string;
-    requestId?: string;
-  }
+      ok: true;
+      queued: true;
+      assistantId: string;
+      conversationKey: string;
+      resolvedConversationId?: string;
+      requestId?: string;
+    }
   | { ok: false; status: number; error: { code?: string; detail?: string } };
 
 export type UploadAttachmentResult =
@@ -361,7 +411,10 @@ export async function uploadChatAttachment(
   form.append("mimeType", mimeType);
   form.append("file", file, filename);
 
-  const { data, error, response } = await client.post<Record<string, unknown>, unknown>({
+  const { data, error, response } = await client.post<
+    Record<string, unknown>,
+    unknown
+  >({
     ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/attachments/",
     path: { assistant_id: assistantId },
@@ -451,18 +504,28 @@ export async function postChatMessage(
       tasks: normalizedOnboarding.tasks,
       tone: normalizedOnboarding.tone,
     };
-    if (normalizedOnboarding.userName !== undefined) onboardingDict.userName = normalizedOnboarding.userName;
-    if (normalizedOnboarding.assistantName !== undefined) onboardingDict.assistantName = normalizedOnboarding.assistantName;
-    if (normalizedOnboarding.googleConnected !== undefined) onboardingDict.googleConnected = normalizedOnboarding.googleConnected;
-    if (normalizedOnboarding.googleScopes !== undefined) onboardingDict.googleScopes = normalizedOnboarding.googleScopes;
-    if (normalizedOnboarding.priorAssistants !== undefined) onboardingDict.priorAssistants = normalizedOnboarding.priorAssistants;
-    if (normalizedOnboarding.cohort !== undefined) onboardingDict.cohort = normalizedOnboarding.cohort;
+    if (normalizedOnboarding.userName !== undefined)
+      onboardingDict.userName = normalizedOnboarding.userName;
+    if (normalizedOnboarding.assistantName !== undefined)
+      onboardingDict.assistantName = normalizedOnboarding.assistantName;
+    if (normalizedOnboarding.googleConnected !== undefined)
+      onboardingDict.googleConnected = normalizedOnboarding.googleConnected;
+    if (normalizedOnboarding.googleScopes !== undefined)
+      onboardingDict.googleScopes = normalizedOnboarding.googleScopes;
+    if (normalizedOnboarding.priorAssistants !== undefined)
+      onboardingDict.priorAssistants = normalizedOnboarding.priorAssistants;
+    if (normalizedOnboarding.cohort !== undefined)
+      onboardingDict.cohort = normalizedOnboarding.cohort;
     body.onboarding = onboardingDict;
   }
   if (normalizedOnboarding) {
     await persistPreChatOnboardingProfile(assistantId, normalizedOnboarding);
   }
-  const { data, error, response: sendResponse } = await client.post<SendMessageResponse, unknown>({
+  const {
+    data,
+    error,
+    response: sendResponse,
+  } = await client.post<SendMessageResponse, unknown>({
     ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/messages/",
     path: { assistant_id: assistantId },
@@ -477,7 +540,9 @@ export async function postChatMessage(
         ? (error as Record<string, unknown>)
         : {};
     const nestedError =
-      errorBody.error && typeof errorBody.error === "object" && !Array.isArray(errorBody.error)
+      errorBody.error &&
+      typeof errorBody.error === "object" &&
+      !Array.isArray(errorBody.error)
         ? (errorBody.error as Record<string, unknown>)
         : {};
 
@@ -492,12 +557,16 @@ export async function postChatMessage(
               ? nestedError.code
               : undefined,
         detail:
-          (typeof errorBody.detail === "string" ? errorBody.detail : undefined) ??
+          (typeof errorBody.detail === "string"
+            ? errorBody.detail
+            : undefined) ??
           (typeof errorBody.error === "string" ? errorBody.error : undefined) ??
           (typeof nestedError.message === "string"
             ? nestedError.message
             : undefined) ??
-          (typeof errorBody.message === "string" ? errorBody.message : undefined) ??
+          (typeof errorBody.message === "string"
+            ? errorBody.message
+            : undefined) ??
           `HTTP ${sendResponse.status}`,
       },
     };
@@ -516,7 +585,9 @@ export async function postChatMessage(
   }
 
   const resolvedConversationId =
-    typeof sendData.conversationId === "string" ? sendData.conversationId : undefined;
+    typeof sendData.conversationId === "string"
+      ? sendData.conversationId
+      : undefined;
 
   if (sendData.queued) {
     return {
@@ -525,7 +596,8 @@ export async function postChatMessage(
       assistantId,
       conversationKey,
       resolvedConversationId,
-      requestId: typeof sendData.requestId === "string" ? sendData.requestId : undefined,
+      requestId:
+        typeof sendData.requestId === "string" ? sendData.requestId : undefined,
     };
   }
 
@@ -561,7 +633,7 @@ export async function steerToMessage(
       ...SDK_BASE_OPTIONS,
       url: `/v1/assistants/{assistant_id}/messages/queued/${encoded}/steer`,
       path: { assistant_id: assistantId },
-      query: { conversationId: conversationKey },
+      query: { conversationId: conversationKey, conversationKey },
       throwOnError: false,
     });
     return response?.ok ?? false;
@@ -586,7 +658,7 @@ export async function deleteQueuedMessage(
       ...SDK_BASE_OPTIONS,
       url: `/v1/assistants/{assistant_id}/messages/queued/${encoded}`,
       path: { assistant_id: assistantId },
-      query: { conversationId: conversationKey },
+      query: { conversationId: conversationKey, conversationKey },
       throwOnError: false,
     });
     return response?.ok ?? false;

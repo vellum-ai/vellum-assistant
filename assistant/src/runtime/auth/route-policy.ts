@@ -440,6 +440,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Message content
   { endpoint: "messages/content", scopes: ["chat.read"] },
   { endpoint: "messages/llm-context", scopes: ["chat.read"] },
+  { endpoint: "conversations/llm-context", scopes: ["chat.read"] },
   { endpoint: "llm-request-logs/payload", scopes: ["chat.read"] },
   { endpoint: "messages/tts", scopes: ["chat.read"] },
   { endpoint: "tts/synthesize", scopes: ["chat.read"] },
@@ -662,6 +663,12 @@ registerPolicy("events/emit", {
 // Channel inbound: gateway-only
 registerPolicy("channels/inbound", {
   requiredScopes: ["ingress.write"],
+  allowedPrincipalTypes: ["svc_gateway"],
+});
+
+// Background wake control-plane calls from the platform.
+registerPolicy("background-wake", {
+  requiredScopes: ["internal.write"],
   allowedPrincipalTypes: ["svc_gateway"],
 });
 

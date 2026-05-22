@@ -2,6 +2,7 @@ import { recordUsageEvent } from "../memory/llm-usage-store.js";
 import { resolveUsageAttribution } from "../usage/attribution.js";
 import {
   buildPricingUsageFromResponse,
+  extractRawUsage,
   resolveStructuredPricing,
 } from "../usage/pricing.js";
 import { getLogger } from "../util/logger.js";
@@ -76,6 +77,7 @@ export class UsageTrackingProvider implements Provider {
           outputTokens: pricingUsage.outputTokens,
           cacheCreationInputTokens: pricingUsage.cacheCreationInputTokens,
           cacheReadInputTokens: pricingUsage.cacheReadInputTokens,
+          rawUsage: extractRawUsage(response.rawResponse),
           conversationId: null,
           runId: null,
           requestId: null,

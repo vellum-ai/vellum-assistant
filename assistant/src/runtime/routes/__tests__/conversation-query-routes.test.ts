@@ -66,6 +66,7 @@ import {
   recordMemoryV2ActivationLog,
 } from "../../../memory/memory-v2-activation-log-store.js";
 import {
+  conversationKeys,
   conversations,
   llmRequestLogs,
   memoryV2ActivationLogs,
@@ -89,6 +90,10 @@ const llmContextRoute = ROUTES.find(
   (r) => r.method === "GET" && r.endpoint === "messages/:id/llm-context",
 )!;
 
+const conversationLlmContextRoute = ROUTES.find(
+  (r) => r.method === "GET" && r.endpoint === "conversations/llm-context",
+)!;
+
 const replaceProfileRoute = ROUTES.find(
   (r) => r.operationId === "config_llm_profiles_replace",
 )!;
@@ -97,11 +102,16 @@ function dispatchLlmContext(messageId: string) {
   return llmContextRoute.handler({ pathParams: { id: messageId } });
 }
 
+function dispatchConversationLlmContext(queryParams: Record<string, string>) {
+  return conversationLlmContextRoute.handler({ queryParams });
+}
+
 function clearTables(): void {
   const db = getDb();
   db.delete(llmRequestLogs).run();
   db.delete(memoryV2ActivationLogs).run();
   db.delete(messages).run();
+  db.delete(conversationKeys).run();
   db.delete(conversations).run();
 }
 
@@ -164,6 +174,102 @@ function seedRequestLog(
     })
     .run();
 }
+
+function seedConversationKey(conversationKey: string, conversationId: string): void {
+  getDb()
+    .insert(conversationKeys)
+    .values({
+      id: `key-${conversationKey}`,
+      conversationKey,
+      conversationId,
+      createdAt: Date.now(),
+    })
+    .run();
+}
+
+describe("GET /v1/conversations/llm-context", () => {
+  beforeEach(() => {
+    clearTables();
+  });
+
+  test("returns all LLM calls for a resolved conversation key", async () => {
+    seedConversationAndMessage({
+      conversationId: "conv-1",
+      messageId: "msg-1",
+      source: "user",
+      conversationType: "standard",
+      totalEstimatedCost: 0.42,
+    });
+    getDb()
+      .insert(messages)
+      .values({
+        id: "msg-2",
+        conversationId: "conv-1",
+        role: "assistant",
+        content: "",
+        createdAt: Date.now() + 1,
+        metadata: null,
+      })
+      .run();
+    seedConversationAndMessage({
+      conversationId: "conv-other",
+      messageId: "msg-other",
+      source: "user",
+      conversationType: "standard",
+    });
+    seedConversationKey("conv-key", "conv-1");
+    seedRequestLog("msg-2", "log-b");
+    seedRequestLog("msg-1", "log-a");
+    getDb()
+      .insert(llmRequestLogs)
+      .values({
+        id: "log-other",
+        conversationId: "conv-other",
+        messageId: "msg-other",
+        provider: "openai",
+        requestPayload: JSON.stringify({ model: "gpt-4.1", messages: [] }),
+        responsePayload: JSON.stringify({
+          choices: [{ message: { content: "other" } }],
+        }),
+        createdAt: 1_700_000_000_001,
+      })
+      .run();
+
+    const body = (await dispatchConversationLlmContext({
+      conversationKey: "conv-key",
+    })) as {
+      conversationId: string;
+      conversationKey: string;
+      conversationKind: string;
+      conversationTotalEstimatedCostUsd: number | null;
+      logs: Array<{ id: string }>;
+      memoryRecall: null;
+      memoryV2Activation: null;
+    };
+
+    expect(body.conversationId).toBe("conv-1");
+    expect(body.conversationKey).toBe("conv-key");
+    expect(body.conversationKind).toBe("user");
+    expect(body.conversationTotalEstimatedCostUsd).toBe(0.42);
+    expect(body.logs.map((log) => log.id)).toEqual(["log-a", "log-b"]);
+    expect(body.memoryRecall).toBeNull();
+    expect(body.memoryV2Activation).toBeNull();
+  });
+
+  test("returns an empty inspector response for an unresolved conversation key", async () => {
+    const body = (await dispatchConversationLlmContext({
+      conversationKey: "missing-key",
+    })) as {
+      conversationId: string | null;
+      conversationKey: string;
+      logs: unknown[];
+    };
+
+    expect(body.conversationId).toBeNull();
+    expect(body.conversationKey).toBe("missing-key");
+    expect(body.logs).toEqual([]);
+  });
+});
 
 describe("GET /v1/messages/:id/llm-context — memoryV2Activation", () => {
   beforeEach(() => {

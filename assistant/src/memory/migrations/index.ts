@@ -239,6 +239,10 @@ export {
   migrateRenameCleanedAt,
 } from "./260-rename-cleaned-at.js";
 export {
+  downLlmUsageAddRawUsage,
+  migrateLlmUsageAddRawUsage,
+} from "./261-llm-usage-add-raw-usage.js";
+export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
   type MigrationValidationResult,

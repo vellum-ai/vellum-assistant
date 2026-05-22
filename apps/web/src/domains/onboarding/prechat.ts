@@ -366,3 +366,60 @@ export function consumePendingAssistantName(): string | null {
     return null;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Initial-message handoff
+//
+// The initial message (e.g. "Wake up, my friend!") is stored in the full
+// PreChatOnboardingContext, but `ChatPage` unmounts and remounts during
+// the onboarding redirect (index route → /conversations/:key), losing
+// the ref that held the message. A separate sessionStorage key lets the
+// new mount pick it up.
+// ---------------------------------------------------------------------------
+
+export const INITIAL_MESSAGE_KEY = "onboarding.prechat.initialMessage";
+
+export function setPendingInitialMessage(message: string): void {
+  const trimmed = message.trim();
+  if (!trimmed) return;
+  const storage = getSessionStorage();
+  if (storage === null) return;
+  try {
+    storage.setItem(INITIAL_MESSAGE_KEY, trimmed);
+  } catch {
+    // Storage unavailable — degrade silently.
+  }
+}
+
+export function consumePendingInitialMessage(): string | null {
+  const storage = getSessionStorage();
+  if (storage === null) return null;
+  try {
+    const value = storage.getItem(INITIAL_MESSAGE_KEY);
+    storage.removeItem(INITIAL_MESSAGE_KEY);
+    return typeof value === "string" && value.length > 0 ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+export function peekPendingInitialMessage(): string | null {
+  const storage = getSessionStorage();
+  if (storage === null) return null;
+  try {
+    const value = storage.getItem(INITIAL_MESSAGE_KEY);
+    return typeof value === "string" && value.length > 0 ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearPendingInitialMessage(): void {
+  const storage = getSessionStorage();
+  if (storage === null) return;
+  try {
+    storage.removeItem(INITIAL_MESSAGE_KEY);
+  } catch {
+    // Storage unavailable — nothing to clear.
+  }
+}

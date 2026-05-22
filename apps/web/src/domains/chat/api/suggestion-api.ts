@@ -1,6 +1,5 @@
 import { client } from "@/generated/api/client.gen.js";
 
-
 // `/v1/assistants/{id}/suggestion` is not yet in the OpenAPI schema, so we
 // fall through to the low-level HeyAPI client until it's generated.
 const SDK_BASE_OPTIONS =
@@ -14,7 +13,11 @@ export interface SuggestionResult {
   source: "llm" | "none";
 }
 
-const EMPTY: SuggestionResult = { suggestion: null, messageId: null, source: "none" };
+const EMPTY: SuggestionResult = {
+  suggestion: null,
+  messageId: null,
+  source: "none",
+};
 
 export async function fetchSuggestion(
   assistantId: string,
@@ -27,7 +30,11 @@ export async function fetchSuggestion(
       ...SDK_BASE_OPTIONS,
       url: "/v1/assistants/{assistant_id}/suggestion",
       path: { assistant_id: assistantId },
-      query: { conversationKey, ...(messageId ? { messageId } : {}) },
+      query: {
+        conversationId: conversationKey,
+        conversationKey,
+        ...(messageId ? { messageId } : {}),
+      },
       throwOnError: false,
       signal,
     });

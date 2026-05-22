@@ -2368,14 +2368,27 @@ export async function handleGetSuggestion(
   };
 
   const conversationKey = queryParams?.conversationKey;
-  if (!conversationKey) {
-    throw new BadRequestError("conversationKey query parameter is required");
+  const conversationId = queryParams?.conversationId;
+  if (!conversationKey && !conversationId) {
+    throw new BadRequestError(
+      "conversationKey or conversationId query parameter is required",
+    );
   }
 
-  const mapping = getConversationByKey(conversationKey);
-  if (!mapping) return noSuggestion;
+  let resolvedConversationId: string | undefined;
+  if (conversationId) {
+    resolvedConversationId = conversationId;
+  } else if (conversationKey) {
+    const mapping = getConversationByKey(conversationKey);
+    if (mapping) {
+      resolvedConversationId = mapping.conversationId;
+    } else if (getConversation(conversationKey)) {
+      resolvedConversationId = conversationKey;
+    }
+  }
+  if (!resolvedConversationId) return noSuggestion;
 
-  const rawMessages = getMessages(mapping.conversationId);
+  const rawMessages = getMessages(resolvedConversationId);
   if (rawMessages.length === 0) return noSuggestion;
 
   // Staleness check: compare requested messageId against the latest

@@ -6,9 +6,23 @@ import {
   createConsoleReporter,
   createSummaryOnlyReporter,
 } from "../lib/runner/progress";
+import {
+  abandonAllRunningRunsSync,
+  scavengeAbandonedRuns,
+} from "../lib/metrics";
 import { loadProfile } from "../lib/profile";
 import { loadTestDef } from "../lib/test-def";
 import { openInBrowser, startReportServer } from "./server";
+
+/**
+ * Exit codes for the signals we handle. POSIX convention: 128 + signal
+ * number (SIGINT=2 → 130, SIGTERM=15 → 143) so wrapping shells can
+ * distinguish a signal-killed `evals run` from a normal failure exit.
+ */
+const SIGNAL_EXIT_CODES: Record<"SIGINT" | "SIGTERM", number> = {
+  SIGINT: 130,
+  SIGTERM: 143,
+};
 
 function splitCsv(raw: string): string[] {
   return raw
@@ -78,6 +92,26 @@ export function registerRunCommand(program: Command): void {
         quiet?: boolean;
         serve?: boolean;
       }) => {
+        // Register signal handlers ONCE per `evals run` invocation (not
+        // once per (profile, test) iteration — that would leak listeners
+        // and trigger MaxListenersExceededWarning past ~10 runs). On
+        // SIGINT/SIGTERM, synchronously flip every `running` run on disk
+        // to `abandoned` so they don't dangle, then exit with the POSIX
+        // 128+signal convention so wrapping shells see a real exit code.
+        for (const signal of ["SIGINT", "SIGTERM"] as const) {
+          process.once(signal, () => {
+            abandonAllRunningRunsSync({ signal });
+            process.exit(SIGNAL_EXIT_CODES[signal]);
+          });
+        }
+
+        // Before starting a new run, clean up any stale runs that crashed
+        // or were killed without properly finalizing their status. This is
+        // the async variant — uses the 60s heartbeat threshold, so it only
+        // flips genuinely dead runs (not in-flight ones from a parallel
+        // `evals run` against the same .runs/ directory).
+        await scavengeAbandonedRuns();
+
         const profiles = await Promise.all(
           splitCsv(opts.profiles).map((id) => loadProfile(id)),
         );

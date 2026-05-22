@@ -217,6 +217,17 @@ export const llmUsageEvents = sqliteTable(
     outputTokens: integer("output_tokens").notNull(),
     cacheCreationInputTokens: integer("cache_creation_input_tokens"),
     cacheReadInputTokens: integer("cache_read_input_tokens"),
+    /**
+     * The provider's untouched `usage` block, serialized as JSON. Anthropic
+     * nests the TTL breakdown under `cache_creation.ephemeral_{5m,1h}_input_tokens`;
+     * OpenAI nests cached-read details under `prompt_tokens_details`; both are
+     * just preserved verbatim so admin charts and downstream consumers can
+     * extract whatever provider-specific detail they need without a schema
+     * change every time a provider exposes a new field. `null` when the
+     * provider didn't return a usage block or for rows persisted before
+     * migration 260.
+     */
+    rawUsage: text("raw_usage"),
     estimatedCostUsd: real("estimated_cost_usd"),
     pricingStatus: text("pricing_status").notNull(),
     llmCallCount: integer("llm_call_count"),

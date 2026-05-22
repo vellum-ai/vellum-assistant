@@ -59,6 +59,7 @@ function seedEvents() {
       outputTokens: 200,
       cacheCreationInputTokens: 50,
       cacheReadInputTokens: 100,
+      rawUsage: null,
     },
     { estimatedCostUsd: 0.005, pricingStatus: "priced" },
   );
@@ -82,6 +83,7 @@ function seedEvents() {
       outputTokens: 100,
       cacheCreationInputTokens: 0,
       cacheReadInputTokens: 0,
+      rawUsage: null,
     },
     { estimatedCostUsd: 0.001, pricingStatus: "priced" },
   );
@@ -104,6 +106,7 @@ function seedEvents() {
       outputTokens: 400,
       cacheCreationInputTokens: 0,
       cacheReadInputTokens: 0,
+      rawUsage: null,
     },
     { estimatedCostUsd: 0, pricingStatus: "unpriced" },
   );

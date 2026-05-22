@@ -19,15 +19,21 @@ import {
 export async function getPendingInteractions(
   assistantId: string,
   conversationKey: string,
-): Promise<{ pendingConfirmation?: Record<string, unknown>; pendingSecret?: Record<string, unknown> }> {
-  const { data, error, response } = await client.get<{
-    pendingConfirmation?: Record<string, unknown>;
-    pendingSecret?: Record<string, unknown>;
-  }, unknown>({
+): Promise<{
+  pendingConfirmation?: Record<string, unknown>;
+  pendingSecret?: Record<string, unknown>;
+}> {
+  const { data, error, response } = await client.get<
+    {
+      pendingConfirmation?: Record<string, unknown>;
+      pendingSecret?: Record<string, unknown>;
+    },
+    unknown
+  >({
     ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/pending-interactions/",
     path: { assistant_id: assistantId },
-    query: { conversationKey },
+    query: { conversationId: conversationKey, conversationKey },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to fetch pending interactions");
@@ -62,11 +68,7 @@ export async function listConversationKeysWithPendingInteractions(
     path: { assistant_id: assistantId },
     throwOnError: false,
   });
-  assertHasResponse(
-    response,
-    error,
-    "Failed to list pending interactions",
-  );
+  assertHasResponse(response, error, "Failed to list pending interactions");
   if (!response.ok) {
     if (response.status >= 500) {
       throw new Error(
@@ -79,7 +81,9 @@ export async function listConversationKeysWithPendingInteractions(
     return new Set();
   }
   const payload = data as { interactions?: unknown };
-  const interactions = Array.isArray(payload.interactions) ? payload.interactions : [];
+  const interactions = Array.isArray(payload.interactions)
+    ? payload.interactions
+    : [];
   const keys = new Set<string>();
   for (const i of interactions) {
     if (i && typeof i === "object") {
@@ -236,7 +240,11 @@ export async function submitQuestionResponse(
       body,
       throwOnError: false,
     });
-    assertHasResponse(httpResponse, error, "Failed to submit question response");
+    assertHasResponse(
+      httpResponse,
+      error,
+      "Failed to submit question response",
+    );
     if (!httpResponse.ok) {
       const msg = extractErrorMessage(error, httpResponse);
       return { ok: false, status: httpResponse.status, error: msg };

@@ -43,7 +43,7 @@ import type { TranscriptHandle } from "@/domains/chat/transcript/transcript.js";
 import type { TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
 import { buildTranscriptItems } from "@/domains/chat/transcript/build-items.js";
 import { getThinkingStatusText, shouldShowThinkingIndicator, type UIContext } from "@/domains/messaging/turn-selectors.js";
-import { consumePendingPreChatContext, type PreChatOnboardingContext } from "@/domains/onboarding/prechat.js";
+import { clearPendingInitialMessage, peekPendingInitialMessage, type PreChatOnboardingContext } from "@/domains/onboarding/prechat.js";
 import { createDraftConversationKey } from "@/domains/chat/utils/conversation-selection.js";
 import type { WebSyncRouter } from "@/lib/sync/web-sync-router.js";
 import type { SyncChangedEvent } from "@/lib/sync/types.js";
@@ -150,7 +150,9 @@ export function ChatPage() {
 
   const [restoredDraftConversationKey, setRestoredDraftConversationKey] = useState<string | null>(null);
   const [refreshEpoch, setRefreshEpoch] = useState(0);
-  const [_autoGreetPending, setAutoGreetPending] = useState(false);
+  const [autoGreetPending, setAutoGreetPending] = useState(
+    () => peekPendingInitialMessage() !== null,
+  );
   const awaitingAutoGreetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [contextWindowUsage, setContextWindowUsage] = useState<ContextWindowUsage | null>(null);
   const [transcriptPagination, setTranscriptPagination] = useState<Omit<TranscriptPaginationState, "items">>({
@@ -267,7 +269,6 @@ export function ChatPage() {
   const initialPageOldestTsRef = useRef<number | null>(null);
   const conversationListInvalidatedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingInitialMessageRef = useRef<{ conversationKey: string; content: string } | null>(null);
-  const pendingOnboardingInitialMessageRef = useRef<{ conversationKey: string; content: string } | null>(null);
   const expandedToolCallIdsRef = useRef<Set<string>>(new Set());
   const contextWindowUsageByConversationRef = useRef<Map<string, ContextWindowUsage>>(new Map());
   const syncRouterRef = useRef<WebSyncRouter | null>(null);
@@ -475,26 +476,11 @@ export function ChatPage() {
       onboardingDraftConversationKeyRef.current ?? createDraftConversationKey();
     onboardingDraftConversationKeyRef.current = onboardingDraftKey;
     setOnboardingConversationKey(onboardingDraftKey);
-    // Drain pending PreChat context from sessionStorage at the same moment
-    // the auto-greet is armed so the payload rides along the single greet
-    // send and doesn't leak onto a later message.
-    //
-    // React strict-mode double-fires effects in dev; guard so the second
-    // invocation is a no-op (sessionStorage was already drained).
-    if (pendingOnboardingContextRef.current === null) {
-      pendingOnboardingContextRef.current = consumePendingPreChatContext();
-    }
-    if (pendingOnboardingContextRef.current) {
-      setOnboardingTasksEmpty(
-        pendingOnboardingContextRef.current.tasks.length === 0,
-      );
-      if (pendingOnboardingContextRef.current.initialMessage) {
-        pendingOnboardingInitialMessageRef.current = {
-          conversationKey: onboardingDraftKey,
-          content: pendingOnboardingContextRef.current.initialMessage,
-        };
-      }
-    }
+    useConversationStore.getState().setActiveKey(onboardingDraftKey);
+    // Do NOT drain sessionStorage here — this ChatPage instance unmounts
+    // when we navigate to /conversations/:key (different route entry),
+    // losing all refs. Leave the context in sessionStorage so the new
+    // mount's sendMessage hook and auto-send effect can consume it.
     void navigate(routes.conversation(onboardingDraftKey), { replace: true });
     return () => {
       if (awaitingAutoGreetTimeoutRef.current) {
@@ -663,13 +649,55 @@ export function ChatPage() {
     void sendMessage(prompt);
   }, [searchParams, activeConversationKey, sendMessage]);
 
-  // Auto-send onboarding initial message once the draft conversation is ready
+  // Kick off a background reachability probe immediately when a pending
+  // onboarding message exists, instead of waiting for a 502 from
+  // getChatContext to trigger the unreachable-bus.
   useEffect(() => {
-    const pending = pendingOnboardingInitialMessageRef.current;
-    if (!pending || !assistantId || activeConversationKey !== pending.conversationKey) return;
-    pendingOnboardingInitialMessageRef.current = null;
-    void sendMessage(pending.content);
-  }, [activeConversationKey, assistantId, sendMessage]);
+    if (!assistantId) return;
+    const message = peekPendingInitialMessage();
+    if (!message) return;
+    if (reachability.state.phase === "idle") {
+      reachability.probe({ mode: "background" });
+    }
+  }, [assistantId, reachability]);
+
+  // Auto-send onboarding initial message once the daemon is reachable.
+  const initialMessageConsumedRef = useRef(false);
+  useEffect(() => {
+    if (initialMessageConsumedRef.current || !assistantId || !activeConversationKey) return;
+    if (reachability.state.phase !== "ready") return;
+    const message = peekPendingInitialMessage();
+    if (!message) return;
+    initialMessageConsumedRef.current = true;
+    clearPendingInitialMessage();
+    void sendMessage(message);
+  }, [activeConversationKey, assistantId, reachability.state.phase, sendMessage]);
+
+  // Clear the auto-greet loading gate once messages arrive (the assistant
+  // responded) or the 10-second safety timeout expires. Matches platform's
+  // awaitingAutoGreet pattern.
+  useEffect(() => {
+    if (!autoGreetPending) return;
+    if (messages.length > 0) {
+      setAutoGreetPending(false);
+    }
+  }, [autoGreetPending, messages.length]);
+
+  // Derive onboardingTasksEmpty from the pending context in sessionStorage.
+  // Runs once on mount — if initial message key is present, this is an
+  // onboarding mount, so peek at the context for the tasks-empty flag.
+  useEffect(() => {
+    try {
+      const raw = globalThis.sessionStorage?.getItem("onboarding.prechat.pendingContext");
+      if (!raw) return;
+      const ctx = JSON.parse(raw) as { tasks?: string[] };
+      if (Array.isArray(ctx.tasks) && ctx.tasks.length === 0) {
+        setOnboardingTasksEmpty(true);
+      }
+    } catch {
+      // Storage or parse failure — ignore.
+    }
+  }, []);
 
   // Deep-link: ?app=<id> auto-opens the app viewer on initial load.
   const deepLinkAppConsumed = useRef(false);
@@ -1212,7 +1240,7 @@ export function ChatPage() {
   // -------------------------------------------------------------------------
   // Loading / error guards
   // -------------------------------------------------------------------------
-  if (authLoading || assistantState.kind === "loading") {
+  if (authLoading || assistantState.kind === "loading" || autoGreetPending) {
     return (
       <div className="flex h-full items-center justify-center">
         <p className="text-[var(--text-secondary)]">Connecting…</p>
