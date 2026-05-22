@@ -241,6 +241,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "cli/commands/keys.ts", // CLI provider key management
       "cli/commands/oauth/connect.ts", // CLI OAuth connect stored-secret verification
       "runtime/routes/chatgpt-subscription-auth-routes.ts", // ChatGPT subscription OAuth token storage
+      "runtime/routes/identity-routes.ts", // health/readyz endpoint checks CES connectivity via getCesClient
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));
