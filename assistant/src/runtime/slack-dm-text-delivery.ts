@@ -31,6 +31,7 @@ export function shouldDeliverSlackDmTextResponses(params: {
 export type SlackDmTextDeliveryController = {
   observeEvent: (msg: ServerMessage) => void;
   waitForPendingDeliveries: () => Promise<void>;
+  wasMessageDeliveredLive: (messageId: string | undefined) => boolean;
 };
 
 export function createSlackDmTextDeliveryController(params: {
@@ -50,9 +51,26 @@ export function createSlackDmTextDeliveryController(params: {
   const deliveredTextResponseIndexes = new Set(
     params.deliveredTextResponseIndexes ?? [],
   );
+  const messageIdToResponseIndexes = new Map<string, number[]>();
+  const messagesWithUndeliveredText = new Set<string>();
   let textResponseIndex = 0;
   let pendingText = "";
+  let currentMessageResponseIndexes: number[] = [];
   let deliveryChain = Promise.resolve();
+
+  const associateCurrentMessageResponses = (
+    messageId: string | undefined,
+  ): void => {
+    if (!messageId || currentMessageResponseIndexes.length === 0) return;
+    const responseIndexes = messageIdToResponseIndexes.get(messageId) ?? [];
+    for (const responseIndex of currentMessageResponseIndexes) {
+      if (!responseIndexes.includes(responseIndex)) {
+        responseIndexes.push(responseIndex);
+      }
+    }
+    messageIdToResponseIndexes.set(messageId, responseIndexes);
+    currentMessageResponseIndexes = [];
+  };
 
   const flushPendingText = (): void => {
     const text = pendingText;
@@ -63,6 +81,7 @@ export function createSlackDmTextDeliveryController(params: {
 
     textResponseIndex += 1;
     const currentResponseIndex = textResponseIndex;
+    currentMessageResponseIndexes.push(currentResponseIndex);
     if (deliveredTextResponseIndexes.has(currentResponseIndex)) return;
 
     deliveryChain = deliveryChain
@@ -102,10 +121,39 @@ export function createSlackDmTextDeliveryController(params: {
         return;
       }
 
+      if (msg.type === "message_complete") {
+        if (typeof msg.messageId === "string") {
+          associateCurrentMessageResponses(msg.messageId);
+          if (
+            pendingText.replace(NO_RESPONSE_INLINE_RE, "").trim().length > 0
+          ) {
+            messagesWithUndeliveredText.add(msg.messageId);
+          }
+        }
+        pendingText = "";
+        currentMessageResponseIndexes = [];
+        return;
+      }
+
       if (msg.type === "tool_use_start") {
         flushPendingText();
       }
     },
     waitForPendingDeliveries: () => deliveryChain,
+    wasMessageDeliveredLive: (messageId) => {
+      if (
+        typeof messageId !== "string" ||
+        messagesWithUndeliveredText.has(messageId)
+      ) {
+        return false;
+      }
+      const responseIndexes = messageIdToResponseIndexes.get(messageId) ?? [];
+      return (
+        responseIndexes.length > 0 &&
+        responseIndexes.every((responseIndex) =>
+          deliveredTextResponseIndexes.has(responseIndex),
+        )
+      );
+    },
   };
 }

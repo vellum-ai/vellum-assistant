@@ -345,23 +345,25 @@ export async function sweepFailedEvents(
             await slackDmTextDelivery.waitForPendingDeliveries();
           }
           // processMessage above generated a fresh assistant response, so any
-          // previously tracked segment progress belongs to the old response and
-          // must not carry over. Reset to 0 so we deliver all segments of the
-          // new response.
+          // previously tracked final-delivery progress belongs to the old
+          // response and must not carry over. Live Slack DM progress is tracked
+          // separately below so a fully live-delivered reply is not duplicated.
           updateDeliveredSegmentCount(event.id, 0);
-          await deliverReplyViaCallback(
-            event.conversationId,
-            externalChatId,
-            replyCallbackUrl,
-            assistantId,
-            {
-              messageId: replyMessageId,
-              sinceMessageId: userMessageId,
-              startFromSegment: 0,
-              onSegmentDelivered: (count) =>
-                updateDeliveredSegmentCount(event.id, count),
-            },
-          );
+          if (!slackDmTextDelivery?.wasMessageDeliveredLive(replyMessageId)) {
+            await deliverReplyViaCallback(
+              event.conversationId,
+              externalChatId,
+              replyCallbackUrl,
+              assistantId,
+              {
+                messageId: replyMessageId,
+                sinceMessageId: userMessageId,
+                startFromSegment: 0,
+                onSegmentDelivered: (count) =>
+                  updateDeliveredSegmentCount(event.id, count),
+              },
+            );
+          }
           markDeliveryDelivered(event.id);
         } catch (err) {
           log.error(

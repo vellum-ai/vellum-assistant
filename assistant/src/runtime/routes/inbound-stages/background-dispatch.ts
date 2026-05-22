@@ -326,18 +326,20 @@ export function processChannelMessageInBackground(
             await slackDmTextDelivery.waitForPendingDeliveries();
           }
 
-          await deliverReplyViaCallback(
-            conversationId,
-            externalChatId,
-            replyCallbackUrl,
-            assistantId,
-            {
-              messageId: replyMessageId,
-              sinceMessageId: userMessageId,
-              onSegmentDelivered: (count) =>
-                updateDeliveredSegmentCount(eventId, count),
-            },
-          );
+          if (!slackDmTextDelivery?.wasMessageDeliveredLive(replyMessageId)) {
+            await deliverReplyViaCallback(
+              conversationId,
+              externalChatId,
+              replyCallbackUrl,
+              assistantId,
+              {
+                messageId: replyMessageId,
+                sinceMessageId: userMessageId,
+                onSegmentDelivered: (count) =>
+                  updateDeliveredSegmentCount(eventId, count),
+              },
+            );
+          }
           markDeliveryDelivered(eventId);
         } catch (err) {
           log.error(
@@ -647,7 +649,9 @@ function getTaskProgressLoadingMessage(
 
   const activeStep = progress.steps[activeStepIndex]!;
   return [
-    `In progress (${activeStepIndex + 1}/${progress.steps.length}): ${activeStep.label}`,
+    `In progress (${activeStepIndex + 1}/${progress.steps.length}): ${
+      activeStep.label
+    }`,
   ];
 }
 

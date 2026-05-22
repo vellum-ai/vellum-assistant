@@ -422,6 +422,69 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
     clearThreadTs(conversationId);
   });
 
+  test("does not redeliver a Slack DM assistant message already posted live", async () => {
+    const conversationId = "conv-dm-live-only";
+    const channelId = "D-LIVE-ONLY";
+
+    const processMessage: MessageProcessor = async (
+      _conversationId,
+      _content,
+      _attachmentIds,
+      options,
+    ) => {
+      options?.onEvent?.({
+        type: "assistant_text_delta",
+        text: "Live response before the tool.",
+        conversationId,
+      });
+      options?.onEvent?.({
+        type: "tool_use_start",
+        toolName: "web_search",
+        input: { query: "example" },
+        conversationId,
+        toolUseId: "toolu_1",
+      });
+      options?.onEvent?.({
+        type: "message_complete",
+        conversationId,
+        messageId: "assistant-msg-live-only",
+      });
+      return { messageId: "user-msg-live-only" };
+    };
+
+    processChannelMessageInBackground({
+      processMessage,
+      conversationId,
+      eventId: "evt-live-only",
+      content: "please look this up",
+      sourceChannel: "slack",
+      sourceInterface: "slack",
+      externalChatId: channelId,
+      trustCtx,
+      metadataHints: [],
+      chatType: "im",
+      replyCallbackUrl: `https://example.test/deliver/slack?channel=${channelId}`,
+    });
+
+    await flush();
+
+    expect(
+      deliveredChannelReplies
+        .map((entry) => entry.payload.text)
+        .filter(Boolean),
+    ).toEqual(["Live response before the tool."]);
+    expect(replyDeliveryCalls).toEqual([]);
+    expect(storedReplyMessageIds).toEqual([
+      {
+        eventId: "evt-live-only",
+        replyMessageId: "assistant-msg-live-only",
+      },
+    ]);
+    expect(deliveredEvents).toEqual(["evt-live-only"]);
+
+    clearThreadTs(conversationId);
+  });
+
   test("keeps Slack channel replies on the existing final delivery path", async () => {
     const conversationId = "conv-channel-final-delivery";
     const channelId = "C-FINAL-DELIVERY";
