@@ -376,12 +376,27 @@ export function useConversationLoader({
   // routing logic run as soon as data is available, even if the *most
   // recent* fetch failed (we still have last-known-good data to land on).
   // -------------------------------------------------------------------------
+  const lastAppliedUrlKeyRef = useRef<string | null>(null);
   useEffect(() => {
     if (assistantStateKind !== "active") return;
     if (!chatContext) return;
 
     const explicitKey =
       urlConversationKey ?? searchParams.get("conversationKey");
+
+    // When only chatContext changed (e.g. from resolveDraftKey's
+    // setQueryData) but the URL hasn't changed, the URL key is stale —
+    // a programmatic navigate() is in flight. Trust the store's
+    // activeConversationKey and let the URL catch up.
+    if (
+      explicitKey != null &&
+      explicitKey === lastAppliedUrlKeyRef.current &&
+      assistantIdRef.current === chatContext.assistantId
+    ) {
+      return;
+    }
+    lastAppliedUrlKeyRef.current = explicitKey;
+
     let onboardingDraftConversationKey: string | null = null;
     if (searchParams.get("onboarding") === "1") {
       onboardingDraftConversationKeyRef.current ??= createDraftConversationKey();
@@ -397,11 +412,6 @@ export function useConversationLoader({
       defaultConversationKey: chatContext.conversationKey,
       conversations: chatContext.conversations,
     });
-
-    const currentKey = activeConversationKeyRef.current;
-    if (key !== currentKey) {
-      console.log(`[DRAFT-DEBUG] bootstrap routing effect: ${currentKey?.slice(0, 8) ?? "null"} → ${key?.slice(0, 8) ?? "null"} | explicitKey=${explicitKey?.slice(0, 8) ?? "null"} | defaultKey=${chatContext.conversationKey?.slice(0, 8) ?? "null"} | convCount=${chatContext.conversations.length} | draftInFlight=${hasDraftSendInFlight()}`);
-    }
 
     setAssistantId(chatContext.assistantId);
 
