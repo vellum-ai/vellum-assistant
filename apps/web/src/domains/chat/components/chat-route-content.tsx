@@ -108,7 +108,7 @@ import type { ChatEventStream } from "@/domains/chat/api/stream.js";
 
 interface StreamContext {
   assistantId: string;
-  conversationKey: string;
+  conversationId: string;
 }
 
 /** Nudge state produced by useAppNudges. */

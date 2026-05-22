@@ -46,7 +46,7 @@ function wrapper({ children }: { children: ReactNode }) {
 
 function publishInteractionResolved(payload: {
   requestId: string;
-  conversationKey: string;
+  conversationId: string;
   state: "approved" | "rejected" | "answered" | "cancelled" | "superseded";
   kind?: string;
 }) {
@@ -54,7 +54,7 @@ function publishInteractionResolved(payload: {
     useEventBusStore.getState().publish("sse.event", {
       type: "interaction_resolved",
       requestId: payload.requestId,
-      conversationKey: payload.conversationKey,
+      conversationId: payload.conversationId,
       state: payload.state,
       // Cast through the daemon-mirrored union; tests intentionally feed
       // both user-facing and host-proxy kinds.
@@ -100,7 +100,7 @@ describe("useAttentionTracking — interaction_resolved subscriber", () => {
 
     publishInteractionResolved({
       requestId: "req-1",
-      conversationKey: "conv-1",
+      conversationId: "conv-1",
       state: "approved",
     });
 
@@ -122,7 +122,7 @@ describe("useAttentionTracking — interaction_resolved subscriber", () => {
 
     publishInteractionResolved({
       requestId: "req-2",
-      conversationKey: "conv-2",
+      conversationId: "conv-2",
       state: "answered",
       kind: "secret",
     });
@@ -147,7 +147,7 @@ describe("useAttentionTracking — interaction_resolved subscriber", () => {
 
     publishInteractionResolved({
       requestId: "req-3",
-      conversationKey: "conv-active",
+      conversationId: "conv-active",
       state: "approved",
     });
 
@@ -158,7 +158,7 @@ describe("useAttentionTracking — interaction_resolved subscriber", () => {
     ).toBe(true);
   });
 
-  test("ignores events with an empty conversationKey", () => {
+  test("ignores events with an empty conversationId", () => {
     useConversationStore.getState().addAttentionKey("conv-7");
 
     renderHook(
@@ -172,7 +172,7 @@ describe("useAttentionTracking — interaction_resolved subscriber", () => {
 
     publishInteractionResolved({
       requestId: "req-7",
-      conversationKey: "",
+      conversationId: "",
       state: "cancelled",
     });
 
@@ -195,7 +195,7 @@ describe("useAttentionTracking — interaction_resolved subscriber", () => {
 
     publishInteractionResolved({
       requestId: "req-super",
-      conversationKey: "conv-super",
+      conversationId: "conv-super",
       state: "superseded",
     });
 
@@ -234,7 +234,7 @@ describe("useAttentionTracking — interaction_resolved subscriber", () => {
     ]) {
       publishInteractionResolved({
         requestId: `req-${kind}`,
-        conversationKey: "conv-host",
+        conversationId: "conv-host",
         state: "answered",
         kind,
       });
@@ -262,7 +262,7 @@ describe("useAttentionTracking — interaction_resolved subscriber", () => {
     // After unsubscribe, the event-resolved subscriber must not fire.
     publishInteractionResolved({
       requestId: "req-detach",
-      conversationKey: "conv-detach",
+      conversationId: "conv-detach",
       state: "approved",
     });
 

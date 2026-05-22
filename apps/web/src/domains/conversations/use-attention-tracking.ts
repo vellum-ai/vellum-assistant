@@ -203,7 +203,7 @@ export function useAttentionTracking({
     if (!assistantId) return;
     if (event.type !== "interaction_resolved") return;
     if (!USER_FACING_INTERACTION_KINDS.has(event.kind)) return;
-    const key = event.conversationKey;
+    const key = event.conversationId;
     if (!key) return;
     const state = useConversationStore.getState();
     if (key === state.activeConversationKey) return;

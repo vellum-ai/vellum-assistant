@@ -258,7 +258,7 @@ export function ChatPage() {
 
   const streamRef = useRef<ChatEventStream | null>(null);
   const streamEpochRef = useRef(0);
-  const streamContextRef = useRef<{ assistantId: string; conversationKey: string } | null>(null);
+  const streamContextRef = useRef<{ assistantId: string; conversationId: string } | null>(null);
   const reconcileAfterNextStreamOpenRef = useRef(false);
   const needsNewBubbleRef = useRef(true);
   const dismissedSurfaceIdsRef = useRef<Set<string>>(new Set());
