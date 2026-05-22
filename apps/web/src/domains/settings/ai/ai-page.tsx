@@ -1457,7 +1457,10 @@ export function AiPage() {
   >(null);
   const [webSearchStoredKeyLoading, setWebSearchStoredKeyLoading] = useState(false);
   const [webSearchSecretReadRevision, setWebSearchSecretReadRevision] = useState(0);
-  const webSearchSecretProviderRef = useRef<string | null>(null);
+  const webSearchSecretScopeRef = useRef<{
+    assistantId: string | null;
+    provider: string | null;
+  }>({ assistantId: null, provider: null });
 
   // -- Image Generation state --
   const [imageGenMode, setImageGenMode] = useState<ServiceMode>(
@@ -1527,9 +1530,15 @@ export function AiPage() {
 
   useEffect(() => {
     let cancelled = false;
-    const providerChanged =
-      webSearchSecretProviderRef.current !== webSearchProvider;
-    webSearchSecretProviderRef.current = webSearchProvider;
+    const previousSecretScope = webSearchSecretScopeRef.current;
+    const currentSecretScope = {
+      assistantId: assistantId ?? null,
+      provider: webSearchProvider,
+    };
+    const secretScopeChanged =
+      previousSecretScope.assistantId !== currentSecretScope.assistantId ||
+      previousSecretScope.provider !== currentSecretScope.provider;
+    webSearchSecretScopeRef.current = currentSecretScope;
 
     void (async () => {
       await Promise.resolve();
@@ -1542,7 +1551,7 @@ export function AiPage() {
       }
 
       setWebSearchStoredKeyLoading(true);
-      if (providerChanged) {
+      if (secretScopeChanged) {
         setWebSearchStoredKeyMasked(null);
       }
 
