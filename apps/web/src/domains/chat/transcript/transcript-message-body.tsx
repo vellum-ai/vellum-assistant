@@ -99,6 +99,24 @@ export interface TranscriptMessageBodyProps {
 }
 
 /**
+ * Detect whether a tool call is a `subagent_spawn` invocation. The daemon
+ * exposes `subagent_spawn` as a bundled-skill tool, which means the LLM
+ * actually emits a `skill_execute` call with `input.tool === "subagent_spawn"`
+ * — the daemon's `skill_execute` interceptor (see
+ * `assistant/src/daemon/conversation-tool-setup.ts`) re-dispatches to the
+ * real executor, but the `tool_use_start` event the frontend receives still
+ * carries `toolName: "skill_execute"`. Matching on the raw `toolName` would
+ * miss every spawn and leave inline subagent cards unrendered.
+ */
+export function isSubagentSpawnCall(toolCall: ChatMessageToolCall): boolean {
+  if (toolCall.toolName === "subagent_spawn") return true;
+  if (toolCall.toolName !== "skill_execute") return false;
+  const input = toolCall.input;
+  if (input == null || typeof input !== "object") return false;
+  return (input as Record<string, unknown>).tool === "subagent_spawn";
+}
+
+/**
  * Extract the spawned `subagentId` from a `subagent_spawn` tool call's result.
  * The daemon's spawn tool returns `JSON.stringify({ subagentId, label, ... })`
  * (see `assistant/src/tools/subagent/spawn.ts`). Returns `undefined` when the
@@ -108,7 +126,7 @@ export interface TranscriptMessageBodyProps {
 function extractSubagentIdFromResult(
   toolCall: ChatMessageToolCall,
 ): string | undefined {
-  if (toolCall.toolName !== "subagent_spawn") return undefined;
+  if (!isSubagentSpawnCall(toolCall)) return undefined;
   if (typeof toolCall.result !== "string" || !toolCall.result) return undefined;
   try {
     const parsed = JSON.parse(toolCall.result) as { subagentId?: unknown };
@@ -189,9 +207,7 @@ function resolveSpawnedSubagentIds(
   linkedEntries: readonly SubagentEntry[],
   claimed: Set<string>,
 ): string[] {
-  const spawnToolCalls = toolCalls.filter(
-    (tc) => tc.toolName === "subagent_spawn",
-  );
+  const spawnToolCalls = toolCalls.filter(isSubagentSpawnCall);
   if (spawnToolCalls.length === 0) return [];
 
   const ids: string[] = [];

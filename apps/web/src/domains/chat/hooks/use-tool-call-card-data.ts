@@ -134,6 +134,29 @@ export function hasWebTool(toolCalls: ChatMessageToolCall[]): boolean {
 }
 
 /**
+ * Recognise a subagent-spawn invocation in either canonical form:
+ *
+ * - direct `subagent_spawn` tool calls (legacy or any future path that exposes
+ *   the executor as a bare tool), and
+ * - `skill_execute` calls whose `input.tool === "subagent_spawn"`, which is
+ *   the form the LLM actually emits today — the daemon's `skill_execute`
+ *   interceptor (see `assistant/src/daemon/conversation-tool-setup.ts`)
+ *   re-dispatches to the real executor under the hood, but the
+ *   `tool_use_start` event the frontend receives still carries
+ *   `toolName: "skill_execute"`.
+ *
+ * Kept local rather than imported from `transcript-message-body.tsx` so the
+ * hooks module stays self-contained (no cross-domain dep on transcript code).
+ */
+function isSubagentSpawnLikeCall(tc: ChatMessageToolCall): boolean {
+  if (tc.toolName === "subagent_spawn") return true;
+  if (tc.toolName !== "skill_execute") return false;
+  const input = tc.input;
+  if (input == null || typeof input !== "object") return false;
+  return (input as Record<string, unknown>).tool === "subagent_spawn";
+}
+
+/**
  * Decide the StepRow label for a `web_search` row. Past-tense once the
  * underlying tool call is terminal so a completed turn doesn't read as if
  * the search is still in flight.
@@ -454,11 +477,13 @@ export function computeToolCallCardData(
 ): ToolCallCardData {
   // `subagent_spawn` calls are rendered inline by `SubagentInlineProgressCard`
   // at the transcript level — surfacing them as steps inside the unified card
-  // would render the spawn twice. Filter them out here so the data layer
-  // alone handles suppression, and downstream consumers (header derivation,
-  // step list, state) all stay in lockstep.
+  // would render the spawn twice. The daemon exposes the spawn as a bundled
+  // skill, so the LLM actually emits `skill_execute` with
+  // `input.tool === "subagent_spawn"` (see `conversation-tool-setup.ts`'s
+  // `skill_execute` interceptor) — matching the bare `toolName` would miss
+  // every spawn and let the unified card swallow them as generic skill steps.
   const renderableToolCalls = toolCalls.filter(
-    (tc) => tc.toolName !== "subagent_spawn",
+    (tc) => !isSubagentSpawnLikeCall(tc),
   );
 
   const steps: ToolCallCardStep[] = [];
