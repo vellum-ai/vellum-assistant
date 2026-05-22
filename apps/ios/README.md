@@ -89,6 +89,94 @@ In the Xcode toolbar:
 Apple's reference for the toolbar controls:
 [Running your app in Simulator or on a device](https://developer.apple.com/documentation/xcode/running-your-app-in-simulator-or-on-a-device).
 
+## Debugging
+
+The app has two layers — the **WKWebView contents** (the React app loaded
+from `dev-assistant.vellum.ai`) and the **native Swift shell** (Capacitor
+bridge, `MyViewController`, the two native plugins). Each has its own
+debugger.
+
+### Safari Web Inspector — for the web side (JS / CSS / network / `console.log`)
+
+This is the one you'll use most. It's full Safari devtools attached to
+the WKWebView, so the Elements panel, Console, Network, Sources,
+debugger, and `console.log` output all work the way they do in a normal
+browser tab.
+
+One-time Safari setup on your Mac:
+
+1. Safari → Settings → **Advanced** → check **"Show features for web
+   developers"** (older macOS: "Show Develop menu in menu bar").
+
+Per-session, with the app running in the simulator (or on a tethered
+device):
+
+1. Safari → **Develop** menu → pick the simulator (e.g. "Simulator —
+   iPhone 16 Pro") or your connected device → click the entry under the
+   app's bundle ID (`…vellum-assistant-ios.dev` for App Dev).
+2. The Web Inspector window opens against the live WebView. Reloading the
+   app, navigating, or `cmd+R`-ing in Xcode all keep working — just
+   reopen the inspector entry from the Develop menu when the WebView
+   reloads.
+
+This works because Capacitor enables `WKWebView.isInspectable` on Debug
+builds automatically ([Capacitor 6+ default](https://capacitorjs.com/docs/ios/troubleshooting#using-safari-web-inspector));
+Release / TestFlight builds are not inspectable, which is intentional.
+
+For a **physical iPhone**:
+
+1. On the phone: Settings → Apps → Safari → Advanced → toggle **Web
+   Inspector** on.
+2. Plug it in via USB and trust the Mac.
+3. The device shows up in Safari's Develop menu the same way the
+   simulator does.
+
+> If the simulator/device shows up in the Develop menu but the app's
+> entry doesn't, the WebView hasn't loaded yet — wait for the splash
+> screen to dismiss, or you're running a Release build (only Debug is
+> inspectable).
+
+### Xcode debugger — for native Swift code
+
+⌘R runs with `lldb` already attached. Click in the gutter next to any
+line in `AppDelegate.swift`, `MyViewController.swift`,
+`NativeAuthPlugin.swift`, or `NativeBiometricPlugin.swift` to set a
+breakpoint.
+
+- **Console / log output**: View → Debug Area → Activate Console (⇧⌘Y),
+  or click the bottom-right console toggle. `print()` and `NSLog()` from
+  Swift show up here, as do Capacitor's plugin-bridge logs.
+- **`console.log` from the web side does NOT appear in the Xcode
+  console** — it goes to Safari Web Inspector only. Don't waste time
+  looking for it here.
+- **Pause on first load**: breakpoint on `capacitorDidLoad()` in
+  `MyViewController.swift` to inspect the bridge state before any plugin
+  has been called.
+- **View hierarchy**: Debug → View Debugging → Capture View Hierarchy
+  shows the native view tree (useful for confirming the WebView is
+  laid out correctly under the notch — though most layout debugging
+  belongs in the Web Inspector, not here).
+
+### Common debugging recipes
+
+- **A native plugin call (`NativeAuth`, `NativeBiometric`) seems broken**:
+  set a Swift breakpoint in the relevant `@objc func` inside the plugin
+  file and trigger the action from the web app. If the breakpoint never
+  hits, the JS-side `Capacitor.Plugins.NativeAuth` lookup is wrong (check
+  `src/runtime/native-auth.ts` / `native-biometric.ts`). If it hits but
+  doesn't return, step through and check `call.resolve` / `call.reject`.
+- **A streaming/SSE bug only reproduces in the iOS shell**: open Safari
+  Web Inspector → Network → filter for `text/event-stream`. You should
+  see the connection stay open with `data:` frames arriving. If you see
+  the whole response delivered in one chunk, CapacitorHttp has been
+  enabled somewhere (it shouldn't be — see the
+  [CapacitorHttp section](#capacitorhttp-is-deliberately-off)).
+- **The WebView never loads, just a blank green screen**: check the
+  Xcode console for a failed navigation. Common cause is a typo'd
+  `server.url` in `capacitor.config.ts` or `cleartext: true` missing for
+  an HTTP target. The placeholder `capacitor-shell/index.html` is also
+  what flashes briefly before the remote URL paints.
+
 ## How it's set up
 
 > **Web-side conventions for iOS code paths**: any change to the web app

@@ -12,8 +12,8 @@ import { routes } from "@/utils/routes.js";
 
 /**
  * JS ↔ native bridge for the `NativeAuth` Capacitor plugin registered by
- * `web/ios/App/App/MyViewController.swift` +
- * `web/ios/App/App/NativeAuthPlugin.swift`.
+ * `apps/ios/App/App/MyViewController.swift` +
+ * `apps/ios/App/App/NativeAuthPlugin.swift`.
  *
  * The plugin opens an `ASWebAuthenticationSession` pointed at
  * `{baseURL}/accounts/native/start?state={nonce}`, which initiates the
