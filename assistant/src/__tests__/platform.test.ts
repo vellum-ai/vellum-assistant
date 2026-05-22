@@ -8,7 +8,7 @@ import {
   getDataDir,
   getDbPath,
   getHistoryPath,
-  getLogPath,
+  getLogsDir,
   getPidPath,
   getSandboxRootDir,
   getSandboxWorkingDir,
@@ -64,7 +64,7 @@ describe("path characterization", () => {
 
     // Sub-paths under workspace/data
     expect(getDbPath()).toBe(join(data, "db", "assistant.db"));
-    expect(getLogPath()).toBe(join(data, "logs", "vellum.log"));
+    expect(getLogsDir()).toBe(join(data, "logs"));
     expect(getHistoryPath()).toBe(join(data, "history"));
     expect(getSandboxRootDir()).toBe(join(data, "sandbox"));
     expect(getSandboxWorkingDir()).toBe(ws);

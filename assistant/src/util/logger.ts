@@ -17,7 +17,7 @@ import {
   getIsContainerized,
 } from "../config/env-registry.js";
 import { logSerializers } from "./log-redact.js";
-import { getLogPath } from "./platform.js";
+import { getLogsDir } from "./platform.js";
 import { createSentryLogStream } from "./sentry-log-stream.js";
 
 /** Common pino-pretty options that inline [module] into the message prefix. */
@@ -87,7 +87,7 @@ function resolveLogDir(config: LogFileConfig): string | undefined {
       if (getIsContainerized()) {
         // Config has a host-specific path that can't be created inside the
         // container (e.g. /Users/…). Fall back to the default log directory.
-        const fallback = join(getLogPath(), "..");
+        const fallback = getLogsDir();
         console.warn(
           `[logger] Configured logFile.dir "${config.dir}" cannot be created ` +
             `in container (${(err as Error).message}). Falling back to "${fallback}".`,
@@ -104,7 +104,21 @@ function resolveLogDir(config: LogFileConfig): string | undefined {
   return config.dir;
 }
 
-function buildRotatingLogger(config: LogFileConfig): pino.Logger {
+type BuildOptions = {
+  /**
+   * Open the underlying sonic-boom destination synchronously so the fd is
+   * ready before any `process.exit()` runs. Required for CLI fast-exit paths
+   * like `--help`/`--version` where pino's default async open can lose lines
+   * to a "sonic boom is not ready yet" error. Daemon paths leave this false
+   * for throughput.
+   */
+  sync?: boolean;
+};
+
+function buildRotatingLogger(
+  config: LogFileConfig,
+  { sync = false }: BuildOptions = {},
+): pino.Logger {
   const dir = resolveLogDir(config);
   if (!dir) {
     return pino(
@@ -117,7 +131,7 @@ function buildRotatingLogger(config: LogFileConfig): pino.Logger {
   const filePath = logFilePathForDate(dir, new Date());
   const fileDest = pino.destination({
     dest: filePath,
-    sync: false,
+    sync,
     mkdir: true,
     mode: 0o600,
   });
@@ -210,54 +224,28 @@ function getRootLogger(): pino.Logger {
     }
 
     try {
-      // Mirror the rotating filename pattern used by initLogger() so that
-      // logs written before initLogger() runs (e.g. early lifecycle.ts
-      // startup, or any process where config.logFile.dir is unset and
-      // initLogger() never runs at all) land in the same daily file as
-      // post-initLogger() logs. Without this, getLogPath() resolves to a
-      // static vellum.log and we end up with a split-brain log situation:
-      // early logs in vellum.log, later logs in assistant-YYYY-MM-DD.log.
+      // Route fallback logs through the same rotating-logger path that
+      // initLogger() uses, into <dataDir>/logs/assistant-YYYY-MM-DD.log.
+      // Two reasons:
+      //   1. Single daily file means readers (exports, support tooling) only
+      //      need to look in one place — no more split-brain between a static
+      //      vellum.log and the rotating files.
+      //   2. buildRotatingLogger() registers activeLogFileConfig/activeLogDate,
+      //      so subsequent calls into getRootLogger() will call
+      //      ensureCurrentDate() and rebuild rootLogger when the UTC date
+      //      ticks over. The getLogger() proxy below picks up the rebuilt
+      //      root, so day rollover works even when initLogger() never runs
+      //      (e.g. config.logFile.dir is unset) or runs strictly after this
+      //      path.
       //
-      // getLogPath() returns "<dataDir>/logs/vellum.log"; join(.., "..")
-      // gives us the logs dir to plug into logFilePathForDate().
-      const logDir = join(getLogPath(), "..");
-      const logPath = logFilePathForDate(logDir, new Date());
-      // Use sync: true so the fd is opened immediately. This prevents
-      // "sonic boom is not ready yet" errors when commander calls
-      // process.exit(0) for --help/--version before the async fd is ready.
-      const fileDest = pino.destination({
-        dest: logPath,
-        sync: true,
-        mkdir: true,
-        mode: 0o600,
-      });
-      // Tighten permissions on pre-existing log files that may have been created with looser modes
-      try {
-        chmodSync(logPath, 0o600);
-      } catch {
-        /* best-effort */
-      }
-      const fileStream = pinoPretty(
-        prettyOpts({ destination: fileDest, colorize: false }),
+      // sync: true matters for CLI fast-exit paths (--help/--version) — pino's
+      // default async fd open can drop the line if process.exit() runs first.
+      // retentionDays: 0 disables pruning from the fallback; if initLogger()
+      // runs later, it'll handle pruning with the real config retention.
+      rootLogger = buildRotatingLogger(
+        { dir: getLogsDir(), retentionDays: 0 },
+        { sync: true },
       );
-
-      if (getDebugStdoutLogs()) {
-        rootLogger = pino(
-          { level: "info", serializers: logSerializers },
-          pino.multistream([
-            { stream: fileStream, level: "info" as const },
-            {
-              stream: pinoPretty(prettyOpts({ destination: 1 })),
-              level: "info" as const,
-            },
-          ]),
-        );
-      } else {
-        rootLogger = pino(
-          { level: "info", serializers: logSerializers },
-          fileStream,
-        );
-      }
     } catch {
       rootLogger = pino(
         {
@@ -286,17 +274,29 @@ export function truncateForLog(value: string, maxLen = 500): string {
  * Returns a lazy logger that only initializes pino when a log method is called.
  * This avoids "sonic boom is not ready yet" errors when the process exits
  * quickly (e.g. `assistant --help`).
+ *
+ * The proxy re-resolves the root logger on every access and rebuilds the
+ * cached child when the root changes. This matters for:
+ *   - day rollover (ensureCurrentDate rebuilds rootLogger past UTC midnight),
+ *   - initLogger() running after a fallback root was already cached.
+ * Without re-resolving, a child captured against the old root would keep
+ * writing to the old file forever — silently mis-scoping log-export date
+ * filters and (pre-this-change) leaking lines into vellum.log.
  */
 export function getLogger(name: string): pino.Logger {
+  let cachedRoot: pino.Logger | null = null;
   let child: pino.Logger | null = null;
   const handler: ProxyHandler<pino.Logger> = {
     get(_target, prop, receiver) {
-      if (!child) {
-        child = getRootLogger().child({ module: name });
+      const root = getRootLogger();
+      if (root !== cachedRoot) {
+        cachedRoot = root;
+        child = root.child({ module: name });
       }
-      const val = Reflect.get(child, prop, receiver);
+      const target = child!;
+      const val = Reflect.get(target, prop, receiver);
       if (typeof val === "function") {
-        return val.bind(child);
+        return val.bind(target);
       }
       return val;
     },

@@ -213,5 +213,5 @@ CDP factory: candidate succeeded, backend is now sticky
 Filter runtime logs with:
 
 ```bash
-grep "cdp-factory" ~/.vellum/workspace/data/logs/vellum.log
+grep -h "cdp-factory" ~/.vellum/workspace/data/logs/assistant-*.log
 ```

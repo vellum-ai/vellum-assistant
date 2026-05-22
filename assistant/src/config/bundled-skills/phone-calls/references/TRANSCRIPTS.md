@@ -1,13 +1,15 @@
 # Retrieving Past Call Transcripts
 
-After a call ends, the full bidirectional transcript (caller speech, assistant responses, tool calls, and tool results) is stored in the SQLite database. The daemon logs (`vellum.log`) only contain caller-side transcripts and lifecycle events at the default log level, so they are **not sufficient** for full transcript reconstruction.
+After a call ends, the full bidirectional transcript (caller speech, assistant responses, tool calls, and tool results) is stored in the SQLite database. The daemon logs only contain caller-side transcripts and lifecycle events at the default log level, so they are **not sufficient** for full transcript reconstruction.
+
+Daemon logs rotate daily as `~/.vellum/workspace/data/logs/assistant-YYYY-MM-DD.log`. The commands below use today's UTC log file; if a call happened on a previous day, swap the date in or grep across `assistant-*.log`.
 
 ## Finding the conversation
 
-1. **Get the call session ID and voice conversation ID** from `vellum.log` by searching for recent session creation entries:
+1. **Get the call session ID and voice conversation ID** from today's daemon log by searching for recent session creation entries:
 
 ```bash
-grep "voiceConversationId" ~/.vellum/workspace/data/logs/vellum.log | tail -5
+grep "voiceConversationId" ~/.vellum/workspace/data/logs/assistant-$(date -u +%Y-%m-%d).log | tail -5
 ```
 
 The `voiceConversationId` field in the `Created new inbound voice session` (or outbound equivalent) log line is the key you need.
@@ -27,7 +29,7 @@ This returns all messages in chronological order with:
 ## Quick one-liner for the most recent call
 
 ```bash
-CONV_ID=$(grep "voiceConversationId" ~/.vellum/workspace/data/logs/vellum.log | tail -1 | python3 -c "import sys,json; print(json.loads(sys.stdin.readline().strip())['voiceConversationId'])")
+CONV_ID=$(grep -h "voiceConversationId" ~/.vellum/workspace/data/logs/assistant-*.log | tail -1 | python3 -c "import sys,json; print(json.loads(sys.stdin.readline().strip())['voiceConversationId'])")
 
 sqlite3 ~/.vellum/workspace/data/db/assistant.db \
   "SELECT role, content FROM messages WHERE conversation_id = '$CONV_ID' ORDER BY created_at ASC;"
@@ -44,14 +46,14 @@ sqlite3 ~/.vellum/workspace/data/db/assistant.db \
 
 ## Key paths
 
-| Resource                                      | Path                                       |
-| --------------------------------------------- | ------------------------------------------ |
-| Assistant logs (caller-side transcripts only) | `~/.vellum/workspace/data/logs/vellum.log` |
-| Full conversation database                    | `~/.vellum/workspace/data/db/assistant.db` |
-| Messages table                                | `messages` (keyed by `conversation_id`)    |
-| Call sessions table                           | `call_sessions`                            |
-| Call events table                             | `call_events`                              |
+| Resource                                      | Path                                                  |
+| --------------------------------------------- | ----------------------------------------------------- |
+| Assistant logs (caller-side transcripts only) | `~/.vellum/workspace/data/logs/assistant-*.log`       |
+| Full conversation database                    | `~/.vellum/workspace/data/db/assistant.db`            |
+| Messages table                                | `messages` (keyed by `conversation_id`)               |
+| Call sessions table                           | `call_sessions`                                       |
+| Call events table                             | `call_events`                                         |
 
 ## Important
 
-`vellum.log` at the default log level does **not** contain assistant responses, TTS text, or LLM completions for voice calls. Always use the `messages` table in `assistant.db` as the source of truth for complete call transcripts.
+The daemon log files at the default log level do **not** contain assistant responses, TTS text, or LLM completions for voice calls. Always use the `messages` table in `assistant.db` as the source of truth for complete call transcripts.
