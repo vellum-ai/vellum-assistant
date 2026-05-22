@@ -668,6 +668,7 @@ export function ChatPage() {
     const pending = pendingOnboardingInitialMessageRef.current;
     if (!pending || !assistantId || activeConversationKey !== pending.conversationKey) return;
     pendingOnboardingInitialMessageRef.current = null;
+    autoGreetRef.current = false;
     void sendMessage(pending.content);
   }, [activeConversationKey, assistantId, sendMessage]);
 
@@ -675,7 +676,7 @@ export function ChatPage() {
   // content-automation initialMessage is queued (avoids double-send).
   useEffect(() => {
     if (!autoGreetPending || !activeConversationKey || !assistantId) return;
-    if (pendingOnboardingInitialMessageRef.current !== null) return;
+    if (!autoGreetRef.current) return;
     setAutoGreetPending(false);
     if (awaitingAutoGreetTimeoutRef.current) {
       clearTimeout(awaitingAutoGreetTimeoutRef.current);
