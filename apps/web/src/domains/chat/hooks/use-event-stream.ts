@@ -29,6 +29,7 @@ import {
   type MutableRefObject,
   type SetStateAction,
   useEffect,
+  useLayoutEffect,
   useRef,
 } from "react";
 
@@ -158,15 +159,23 @@ export function useEventStream({
   const reachabilityResetRef = useRef(reachabilityReset);
   reachabilityResetRef.current = reachabilityReset;
 
-  // Track the latest active conversation key in a ref updated during
-  // render. The bus subscriber filters against this ref instead of the
-  // closure-captured value so an `assistant_text_delta` published in
-  // the gap between a conversation switch and the effect cleanup is
-  // rejected as soon as React commits the new active key — without
-  // this, in-flight deltas for the previous conversation can merge
-  // into the new conversation's messages.
+  // Track the latest active conversation key in a ref synced during
+  // the commit phase. The bus subscriber filters against this ref
+  // instead of the closure-captured value so an `assistant_text_delta`
+  // published in the gap between a conversation switch and the effect
+  // cleanup is rejected as soon as React commits the new active key.
+  // Without this, in-flight deltas for the previous conversation can
+  // merge into the new conversation's messages.
+  //
+  // The ref is updated in `useLayoutEffect` (commit phase) rather than
+  // during render. Under concurrent React a render can be aborted; a
+  // render-phase mutation would leave the ref pointing at a value
+  // from an uncommitted render and the filter would reject events
+  // for what is still the actually-committed conversation.
   const activeConversationKeyLatestRef = useRef(activeConversationKey);
-  activeConversationKeyLatestRef.current = activeConversationKey;
+  useLayoutEffect(() => {
+    activeConversationKeyLatestRef.current = activeConversationKey;
+  }, [activeConversationKey]);
 
   // --------------------------------------------------------------------------
   // Effect 1: Subscribe to the bus-owned SSE for the active conversation.

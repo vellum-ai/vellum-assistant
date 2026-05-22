@@ -3,10 +3,6 @@
  *
  * Owns the shared refs and state that multiple hooks read/write, calls each
  * hook in dependency order, and maps their outputs to `ChatRouteContent` props.
- *
- * Equivalent of platform's `AssistantPageClient.tsx` lines ~200–1500, adapted
- * to the OSS repo's Zustand stores, React Router, and convention-compliant
- * architecture.
  */
 
 import {
