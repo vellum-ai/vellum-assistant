@@ -411,21 +411,34 @@ describe("Slack adapter mention rendering", () => {
     });
   });
 
-  test("getHistory falls back when Slack user info lookup fails", async () => {
-    const messages = await slackProvider.getHistory(
+  test("getHistory caches fallback user info for permanent users.info failures", async () => {
+    const firstMessages = await slackProvider.getHistory(
+      undefined,
+      "C_USERINFO_FAIL",
+    );
+    const secondMessages = await slackProvider.getHistory(
       undefined,
       "C_USERINFO_FAIL",
     );
 
-    expect(messages).toHaveLength(1);
+    expect(firstMessages).toHaveLength(1);
+    expect(secondMessages).toHaveLength(1);
     expect(
       userInfoCalls.filter((userId) => userId === "UMISSING"),
     ).toHaveLength(1);
-    expect(messages[0].sender).toEqual({ id: "UMISSING", name: "UMISSING" });
-    expect(messages[0].metadata).toBeUndefined();
+    expect(firstMessages[0].sender).toEqual({
+      id: "UMISSING",
+      name: "UMISSING",
+    });
+    expect(secondMessages[0].sender).toEqual({
+      id: "UMISSING",
+      name: "UMISSING",
+    });
+    expect(firstMessages[0].metadata).toBeUndefined();
+    expect(secondMessages[0].metadata).toBeUndefined();
   });
 
-  test("getHistory does not permanently cache fallback user info after users.info fails", async () => {
+  test("getHistory does not cache fallback user info after transient users.info failures", async () => {
     const firstMessages = await slackProvider.getHistory(
       undefined,
       "C_USERINFO_RETRY",
