@@ -67,6 +67,7 @@ import {
 } from "../../messaging/providers/slack/backfill.js";
 import { downloadSlackFile } from "../../messaging/providers/slack/download.js";
 import {
+  buildSlackTimezoneMetadata,
   mergeSlackMetadata,
   readSlackMetadataFromMessageMetadata,
   type SlackFileMetadata,
@@ -1142,27 +1143,15 @@ export async function handleChannelInbound({
               ...(trustCtx.requesterExternalUserId
                 ? { actorExternalUserId: trustCtx.requesterExternalUserId }
                 : {}),
-              ...(slackActorTimezone?.timezone
-                ? { actorTimezone: slackActorTimezone.timezone }
-                : {}),
-              ...(slackActorTimezone?.timezoneLabel
-                ? { actorTimezoneLabel: slackActorTimezone.timezoneLabel }
-                : {}),
-              ...(slackActorTimezone?.timezoneOffsetSeconds !== undefined
-                ? {
-                    actorTimezoneOffsetSeconds:
-                      slackActorTimezone.timezoneOffsetSeconds,
-                  }
-                : {}),
-              ...(slackActorTimezone?.timezone
-                ? { timestampTimezone: slackActorTimezone.timezone }
-                : {}),
-              ...(slackActorTimezone?.timezoneLabel
-                ? { timestampTimezoneLabel: slackActorTimezone.timezoneLabel }
-                : {}),
-              ...(slackSpeakerTimezoneLabel
-                ? { speakerTimezoneLabel: slackSpeakerTimezoneLabel }
-                : {}),
+              ...buildSlackTimezoneMetadata({
+                actorTimezone: slackActorTimezone?.timezone,
+                actorTimezoneLabel: slackActorTimezone?.timezoneLabel,
+                actorTimezoneOffsetSeconds:
+                  slackActorTimezone?.timezoneOffsetSeconds,
+                timestampTimezone: slackActorTimezone?.timezone,
+                timestampTimezoneLabel: slackActorTimezone?.timezoneLabel,
+                speakerTimezoneLabel: slackSpeakerTimezoneLabel,
+              }),
             }
           : undefined;
 
@@ -1584,13 +1573,6 @@ async function persistBackfilledSlackMessage(params: {
     message.metadata,
     "actorTimezoneLabel",
   );
-  const rawActorTimezoneOffsetSeconds =
-    message.metadata?.actorTimezoneOffsetSeconds;
-  const actorTimezoneOffsetSeconds =
-    typeof rawActorTimezoneOffsetSeconds === "number" &&
-    Number.isFinite(rawActorTimezoneOffsetSeconds)
-      ? rawActorTimezoneOffsetSeconds
-      : undefined;
   const isGuardian = isBackfilledSlackGuardianMessage(
     message,
     params.guardianExternalUserId,
@@ -1603,18 +1585,14 @@ async function persistBackfilledSlackMessage(params: {
     ...(message.threadId ? { threadTs: message.threadId } : {}),
     ...(message.sender?.name ? { displayName: message.sender.name } : {}),
     ...(actorExternalUserId ? { actorExternalUserId } : {}),
-    ...(actorTimezone ? { actorTimezone } : {}),
-    ...(actorTimezoneLabel ? { actorTimezoneLabel } : {}),
-    ...(actorTimezoneOffsetSeconds !== undefined
-      ? { actorTimezoneOffsetSeconds }
-      : {}),
-    ...(actorTimezone ? { timestampTimezone: actorTimezone } : {}),
-    ...(actorTimezoneLabel
-      ? { timestampTimezoneLabel: actorTimezoneLabel }
-      : {}),
-    ...(!isGuardian && actorTimezoneLabel
-      ? { speakerTimezoneLabel: actorTimezoneLabel }
-      : {}),
+    ...buildSlackTimezoneMetadata({
+      actorTimezone,
+      actorTimezoneLabel,
+      actorTimezoneOffsetSeconds: message.metadata?.actorTimezoneOffsetSeconds,
+      timestampTimezone: actorTimezone,
+      timestampTimezoneLabel: actorTimezoneLabel,
+      speakerTimezoneLabel: isGuardian ? undefined : actorTimezoneLabel,
+    }),
     ...(slackFiles.length > 0 ? { slackFiles } : {}),
   };
 

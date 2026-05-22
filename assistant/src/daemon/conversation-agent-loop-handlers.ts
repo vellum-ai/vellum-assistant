@@ -32,6 +32,7 @@ import { backfillMemoryRecallLogMessageId } from "../memory/memory-recall-log-st
 import { backfillMemoryV2ActivationMessageId } from "../memory/memory-v2-activation-log-store.js";
 import { getThreadTs } from "../memory/slack-thread-store.js";
 import {
+  formatSlackTimezoneLabel,
   type SlackMessageMetadata,
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
@@ -63,10 +64,7 @@ import {
   isContextTooLarge,
 } from "./conversation-error.js";
 import { isProviderOrderingError } from "./conversation-slash.js";
-import {
-  formatTimeZoneLabel,
-  resolveTurnTimezoneContext,
-} from "./date-context.js";
+import { resolveTurnTimezoneContext } from "./date-context.js";
 import type { ServerMessage } from "./message-protocol.js";
 import type {
   WebSearchMetadata,
@@ -1063,9 +1061,9 @@ export async function handleMessageComplete(
       const timestampTimezone = resolveAssistantReplyTimestampTimezone(
         deps.ctx,
       );
-      const timestampTimezoneLabel = formatTimeZoneLabel(
+      const timestampTimezoneLabel = formatSlackTimezoneLabel(
         timestampTimezone,
-        state.turnStartedAt,
+        { nowMs: state.turnStartedAt },
       );
       const requesterTimezoneLabel =
         deps.ctx.trustContext?.requesterTimezoneLabel?.trim();

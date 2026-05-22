@@ -21,7 +21,10 @@ import {
   parseExternalContentEnvelope,
   wrapUntrustedContent,
 } from "../../../security/untrusted-content.js";
-import type { SlackMessageMetadata } from "./message-metadata.js";
+import {
+  formatSlackTimezoneLabel,
+  type SlackMessageMetadata,
+} from "./message-metadata.js";
 
 export interface RenderableSlackMessage {
   role: "user" | "assistant";
@@ -125,31 +128,6 @@ export function parentAlias(channelTs: string): string {
 }
 
 /**
- * Trailing signature of a reaction or reaction-overflow line, both of
- * which end with a `parentAlias` target and a closing bracket:
- * `[... reacted 👍 to M1a2b3c]`, `[... removed 👍 from M1a2b3c]`,
- * `[…and N more reactions to M1a2b3c]`. Regular message tag lines end
- * with the message body, not with `]`, so they never match.
- */
-const REACTION_TAG_LINE_SUFFIX = /M[0-9a-f]{6}\]$/;
-
-/**
- * Whether a rendered tag-line string was produced by the reaction or
- * reaction-overflow code paths (`renderReaction` / the overflow trailer).
- *
- * Reaction lines already embed the actor attribution inline
- * (`[11/14/23 14:28 @assistant reacted 👍 to M1a2b3c]`), so consumers
- * that flatten the rendered transcript and re-apply role labels should
- * skip these lines to avoid double-attribution.
- *
- * Co-located with `renderReaction` and `parentAlias` so the format
- * knowledge lives with the functions that own the line shape.
- */
-export function isReactionTagLine(text: string): boolean {
-  return REACTION_TAG_LINE_SUFFIX.test(text);
-}
-
-/**
  * Format a Slack ts (`"1700000000.000100"`) as `MM/DD/YY HH:MM` (UTC).
  *
  * Slack ts is `<unix-seconds>.<microseconds>`; we treat it as a unix epoch
@@ -175,70 +153,7 @@ function formatEpochMs(ms: number): string {
   return `${mo}/${da}/${yy} ${hh}:${mm}`;
 }
 
-const COMMON_TIMEZONE_LABEL_BY_IANA = new Map<string, string>([
-  ["America/New_York", "ET"],
-  ["America/Detroit", "ET"],
-  ["America/Indiana/Indianapolis", "ET"],
-  ["America/Kentucky/Louisville", "ET"],
-  ["America/Toronto", "ET"],
-  ["America/Montreal", "ET"],
-  ["America/Chicago", "CT"],
-  ["America/Winnipeg", "CT"],
-  ["America/Mexico_City", "CT"],
-  ["America/Denver", "MT"],
-  ["America/Boise", "MT"],
-  ["America/Phoenix", "MT"],
-  ["America/Edmonton", "MT"],
-  ["America/Los_Angeles", "PT"],
-  ["America/Vancouver", "PT"],
-  ["America/Tijuana", "PT"],
-]);
-
-const COMPACT_TIMEZONE_LABEL_BY_NAME = new Map<string, string>([
-  ["EASTERN TIME", "ET"],
-  ["EASTERN STANDARD TIME", "ET"],
-  ["EASTERN DAYLIGHT TIME", "ET"],
-  ["EST", "ET"],
-  ["EDT", "ET"],
-  ["CENTRAL TIME", "CT"],
-  ["CENTRAL STANDARD TIME", "CT"],
-  ["CENTRAL DAYLIGHT TIME", "CT"],
-  ["CST", "CT"],
-  ["CDT", "CT"],
-  ["MOUNTAIN TIME", "MT"],
-  ["MOUNTAIN STANDARD TIME", "MT"],
-  ["MOUNTAIN DAYLIGHT TIME", "MT"],
-  ["MST", "MT"],
-  ["MDT", "MT"],
-  ["PACIFIC TIME", "PT"],
-  ["PACIFIC STANDARD TIME", "PT"],
-  ["PACIFIC DAYLIGHT TIME", "PT"],
-  ["PST", "PT"],
-  ["PDT", "PT"],
-]);
-
-const shortTimeZoneFormatters = new Map<string, Intl.DateTimeFormat>();
 const compactDateTimeFormatters = new Map<string, Intl.DateTimeFormat>();
-
-function compactPersistedTimezoneLabel(
-  label: string | undefined,
-): string | null {
-  const trimmed = label?.trim();
-  if (!trimmed) return null;
-  return COMPACT_TIMEZONE_LABEL_BY_NAME.get(trimmed.toUpperCase()) ?? trimmed;
-}
-
-function getShortTimeZoneFormatter(timeZone: string): Intl.DateTimeFormat {
-  let formatter = shortTimeZoneFormatters.get(timeZone);
-  if (!formatter) {
-    formatter = new Intl.DateTimeFormat("en-US", {
-      timeZone,
-      timeZoneName: "short",
-    });
-    shortTimeZoneFormatters.set(timeZone, formatter);
-  }
-  return formatter;
-}
 
 function getCompactDateTimeFormatter(timeZone: string): Intl.DateTimeFormat {
   let formatter = compactDateTimeFormatters.get(timeZone);
@@ -255,29 +170,6 @@ function getCompactDateTimeFormatter(timeZone: string): Intl.DateTimeFormat {
     compactDateTimeFormatters.set(timeZone, formatter);
   }
   return formatter;
-}
-
-function extractShortTimeZoneName(ms: number, timeZone: string): string | null {
-  try {
-    const part = getShortTimeZoneFormatter(timeZone)
-      .formatToParts(new Date(ms))
-      .find((p) => p.type === "timeZoneName");
-    return part?.value ?? null;
-  } catch {
-    return null;
-  }
-}
-
-function compactTimezoneLabel(
-  timeZone: string,
-  persistedLabel: string | undefined,
-  ms: number,
-): string {
-  const persisted = compactPersistedTimezoneLabel(persistedLabel);
-  if (persisted) return persisted;
-  const mapped = COMMON_TIMEZONE_LABEL_BY_IANA.get(timeZone);
-  if (mapped) return mapped;
-  return extractShortTimeZoneName(ms, timeZone) ?? timeZone;
 }
 
 function compactDateTimeParts(ms: number, timeZone: string) {
@@ -308,11 +200,20 @@ function formatCompactEpochMs(
   timezoneLabel: string | undefined,
 ): string {
   if (!Number.isFinite(ms)) {
-    return `??? ?? ???? ??:?? ${compactTimezoneLabel(timeZone, timezoneLabel, ms)}`;
+    return `??? ?? ???? ??:?? ${
+      formatSlackTimezoneLabel(timeZone, {
+        persistedLabel: timezoneLabel,
+        nowMs: ms,
+      }) ?? timeZone
+    }`;
   }
   const parts = compactDateTimeParts(ms, timeZone);
   if (!parts) return formatEpochMs(ms);
-  const label = compactTimezoneLabel(timeZone, timezoneLabel, ms);
+  const label =
+    formatSlackTimezoneLabel(timeZone, {
+      persistedLabel: timezoneLabel,
+      nowMs: ms,
+    }) ?? timeZone;
   return `${parts.month} ${parts.day} ${parts.year} ${parts.hour}:${parts.minute} ${parts.dayPeriod} ${label}`;
 }
 
@@ -323,7 +224,12 @@ function formatCompactSlackTs(
 ): string {
   const seconds = Number.parseFloat(channelTs);
   if (!Number.isFinite(seconds)) {
-    return `??? ?? ???? ??:?? ${compactTimezoneLabel(timeZone, timezoneLabel, Number.NaN)}`;
+    return `??? ?? ???? ??:?? ${
+      formatSlackTimezoneLabel(timeZone, {
+        persistedLabel: timezoneLabel,
+        nowMs: Number.NaN,
+      }) ?? timeZone
+    }`;
   }
   return formatCompactEpochMs(seconds * 1000, timeZone, timezoneLabel);
 }
@@ -343,7 +249,9 @@ function speakerLabel(
 ): string {
   const speaker =
     msg.senderLabel ?? (msg.role === "assistant" ? "assistant" : "");
-  const suffix = compactPersistedTimezoneLabel(meta.speakerTimezoneLabel);
+  const suffix = formatSlackTimezoneLabel(undefined, {
+    persistedLabel: meta.speakerTimezoneLabel,
+  });
   if (!speaker) return "";
   return suffix ? `${speaker} (${suffix})` : speaker;
 }

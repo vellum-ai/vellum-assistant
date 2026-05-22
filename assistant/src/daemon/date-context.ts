@@ -366,38 +366,6 @@ export function formatLocalTimestamp(ms: number, timeZone?: string): string {
   return `${v.year}-${v.month}-${v.day} ${v.hour}:${v.minute}:${v.second}`;
 }
 
-function readTimeZoneName(
-  timeZone: string,
-  timeZoneName: "short" | "shortGeneric",
-  nowMs: number,
-): string | null {
-  try {
-    const parts = new Intl.DateTimeFormat("en-US", {
-      timeZone,
-      hour: "numeric",
-      timeZoneName,
-    }).formatToParts(new Date(nowMs));
-    const label = parts.find((part) => part.type === "timeZoneName")?.value;
-    return label && label.trim().length > 0 ? label.trim() : null;
-  } catch {
-    return null;
-  }
-}
-
-export function formatTimeZoneLabel(
-  timeZone: string | null | undefined,
-  nowMs: number = Date.now(),
-): string | null {
-  const canonical = canonicalizeTimeZone(timeZone);
-  if (!canonical) return null;
-  if (canonical === "UTC") return "UTC";
-
-  const generic = readTimeZoneName(canonical, "shortGeneric", nowMs);
-  if (generic && !/\s/u.test(generic)) return generic;
-
-  return readTimeZoneName(canonical, "short", nowMs);
-}
-
 export function resolveTurnTimezoneContext(
   options: TemporalContextOptions = {},
 ): TurnTimezoneContext {
