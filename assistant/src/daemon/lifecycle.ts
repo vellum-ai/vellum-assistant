@@ -9,6 +9,10 @@ import { TwilioConversationRelayProvider } from "../calls/twilio-provider.js";
 import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
 import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
 import {
+  startGatewayFlagListener,
+  stopGatewayFlagListener,
+} from "../ipc/gateway-flag-listener.js";
+import {
   getPlatformAssistantId,
   getRuntimeHttpHost,
   getRuntimeHttpPort,
@@ -357,6 +361,8 @@ export async function runDaemon(): Promise<void> {
     void initFeatureFlagOverrides().catch((err) =>
       log.warn({ err }, "Background feature flag init failed"),
     );
+
+    startGatewayFlagListener();
 
     log.info("Daemon startup: initializing DB");
     ensurePromptFiles();
@@ -1347,6 +1353,7 @@ export async function runDaemon(): Promise<void> {
       mcpManager,
       telemetryReporter,
       cleanupPidFile: () => {
+        stopGatewayFlagListener();
         stopDiskPressureGuardForLifecycle();
         cleanupPidFile();
       },
