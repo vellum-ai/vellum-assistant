@@ -39,6 +39,12 @@
     "avatar",
     "subagents"
   ],
+  "src/domains/chat/components/subagent-inline-progress-card/subagent-inline-progress-card.test.tsx": [
+    "subagents"
+  ],
+  "src/domains/chat/components/subagent-inline-progress-card/subagent-inline-progress-card.tsx": [
+    "avatar"
+  ],
   "src/domains/chat/components/subagent-progress-card.tsx": [
     "avatar",
     "subagents"
@@ -97,6 +103,12 @@
   "src/domains/chat/hooks/use-stream-event-handler.ts": [
     "conversations",
     "messaging"
+  ],
+  "src/domains/chat/hooks/use-subagent-card-data.test.ts": [
+    "subagents"
+  ],
+  "src/domains/chat/hooks/use-subagent-card-data.ts": [
+    "subagents"
   ],
   "src/domains/chat/hooks/use-tool-call-card-data.ts": [
     "messaging"

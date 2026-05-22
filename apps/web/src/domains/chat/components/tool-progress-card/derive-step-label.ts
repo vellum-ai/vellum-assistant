@@ -72,9 +72,11 @@ function basename(path: string): string {
 /**
  * Title-case a snake_case / kebab-case tool name for the fallback label.
  * Kept local so this module has zero deps on the legacy `tool-call-chip` code,
- * which PRs 5+ will retire.
+ * which PRs 5+ will retire. Exported for reuse by adjacent consumers (e.g. the
+ * subagent inline card) that need the same "Tool Name" → "Tool Name" mapping
+ * but operate on a different tool-call shape than `ChatMessageToolCall`.
  */
-function humanizeToolName(toolName: string): string {
+export function humanizeToolName(toolName: string): string {
   return toolName
     .split(/[_-]+/)
     .filter((part) => part.length > 0)
