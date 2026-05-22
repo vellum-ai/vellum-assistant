@@ -185,13 +185,19 @@ export function ProviderEditorContent({
   async function handleChatgptSignIn() {
     setChatgptOAuthState("starting");
     setChatgptOAuthError(null);
+    const popup = window.open("about:blank", "_blank", "noopener");
     try {
       const { authorize_url, state } =
         await startChatgptSubscriptionAuth(assistantId);
       chatgptStateRef.current = state;
-      window.open(authorize_url, "_blank", "noopener");
+      if (popup) {
+        popup.location.href = authorize_url;
+      } else {
+        window.open(authorize_url, "_blank", "noopener");
+      }
       setChatgptOAuthState("paste_url");
     } catch {
+      popup?.close();
       setChatgptOAuthState("failed");
       setChatgptOAuthError("Failed to start ChatGPT sign-in. Please try again.");
     }
@@ -236,7 +242,7 @@ export function ProviderEditorContent({
         onSave({
           name: "chatgpt-subscription",
           provider: "openai",
-          auth: { type: "oauth_subscription" },
+          auth: { type: "oauth_subscription", credential: "credential/openai/chatgpt-subscription" },
           status: "active",
           label: "ChatGPT Subscription",
           createdAt: Date.now(),
