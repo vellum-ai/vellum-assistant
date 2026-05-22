@@ -10,6 +10,7 @@ import {
 } from "@/domains/conversations/conversation-queries.js";
 import { markConversationSeen } from "@/domains/chat/api/conversations.js";
 import { listConversationKeysWithPendingInteractions } from "@/domains/chat/api/interactions.js";
+import { USER_FACING_INTERACTION_KINDS } from "@/domains/chat/api/event-types.js";
 import type { AssistantState } from "@/domains/chat/hooks/use-assistant-lifecycle.js";
 import { useBusSubscription } from "@/hooks/use-bus-subscription.js";
 
@@ -185,17 +186,23 @@ export function useAttentionTracking({
   // `attentionKeys` and `processingKeys` — the user has either responded
   // elsewhere or the daemon discarded the prompt.
   //
-  // Host-proxy kinds (`host_bash`, `host_file`, `host_cu`,
-  // `host_browser`, `host_app_control`, `host_transfer`) resolve as
-  // intermediate tool steps during a turn that is still running, so
-  // they must not clear the processing indicator. Only the
-  // user-facing kinds (confirmation, secret, question,
-  // acp_confirmation) signal that the turn has handed control back.
+  // Only the user-facing interaction kinds (confirmation, secret,
+  // question, acp_confirmation — see `USER_FACING_INTERACTION_KINDS`)
+  // signal that the daemon has handed control back to a person and the
+  // attention indicator should clear. Every other kind (today, the
+  // host-proxy family: `host_bash`, `host_file`, `host_cu`,
+  // `host_browser`, `host_app_control`, `host_transfer`) resolves as
+  // an intermediate tool step during a turn that is still running, so
+  // those must not clear the processing indicator. Filtering by an
+  // explicit allowlist — rather than denylisting `host_*` — means
+  // future intermediate-step kinds without that prefix stay
+  // silently-ignored by default instead of accidentally clearing
+  // processing state.
   // -------------------------------------------------------------------------
   useBusSubscription("sse.event", (event) => {
     if (!assistantId) return;
     if (event.type !== "interaction_resolved") return;
-    if (event.kind.startsWith("host_")) return;
+    if (!USER_FACING_INTERACTION_KINDS.has(event.kind)) return;
     const key = event.conversationKey;
     if (!key) return;
     const state = useConversationStore.getState();
