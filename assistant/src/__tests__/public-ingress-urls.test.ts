@@ -124,6 +124,14 @@ describe("platform fallback", () => {
     expect(result).toBe("https://tunnel.example.com");
   });
 
+  test("throws when ingress is explicitly disabled even in platform mode", () => {
+    expect(() =>
+      getPublicBaseUrl({
+        ingress: { enabled: false, publicBaseUrl: "" },
+      }),
+    ).toThrow(/Public ingress is disabled/);
+  });
+
   test("throws when IS_PLATFORM is not set", () => {
     delete process.env.IS_PLATFORM;
     setPlatformAssistantId(undefined);
