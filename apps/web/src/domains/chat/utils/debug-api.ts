@@ -38,6 +38,10 @@ import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation.js";
 import type { TranscriptItem } from "@/domains/chat/transcript/types.js";
 import {
+  classifyScrollPosition,
+  type TranscriptHandle,
+} from "@/domains/chat/transcript/use-transcript-scroll.js";
+import {
   type TerminalReason,
   type TurnPhase,
   type TurnState,
@@ -237,6 +241,51 @@ export interface ChatDebugThinkingIndicator {
   done: ChatDebugThinkingDoneSignal;
 }
 
+/**
+ * Snapshot of scroll geometry + classification returned by
+ * {@link ChatDebugApi.getScrollState}.
+ *
+ * Reads through `transcriptRef` + `getScrollPagination` supplied to
+ * {@link useChatDebugApi} from ChatPage. When the transcript isn't
+ * mounted yet, the snapshot reports `scrollTop === null` and a
+ * diagnosis that explains the absence.
+ *
+ * Designed to triage ATL-644 — "why can't I scroll up to older
+ * messages?" — without opening a profiler.
+ */
+export interface ChatDebugScrollState {
+  /** ISO timestamp of when the snapshot was captured. */
+  capturedAt: string;
+
+  /** Raw DOM metrics — null when the scroll element is not mounted. */
+  scrollTop: number | null;
+  scrollHeight: number | null;
+  clientHeight: number | null;
+
+  /** Computed distances — null when raw metrics are unavailable. */
+  distanceFromBottom: number | null;
+  distanceFromTop: number | null;
+
+  /** Classification — null when raw metrics are unavailable. */
+  isPinnedToLatest: boolean | null;
+  showScrollToLatest: boolean | null;
+
+  /** Pagination context from React state (always available). */
+  hasMore: boolean;
+  isLoadingOlder: boolean;
+  itemCount: number;
+
+  /**
+   * Whether the current geometry + pagination would trigger a load-older
+   * fetch. True when we are near the top, more pages exist, and nothing is
+   * already in flight.
+   */
+  shouldLoadOlder: boolean;
+
+  /** Human-readable summary for DevTools quick diagnosis. */
+  diagnosis: string;
+}
+
 /** The dev API surface attached to `window._vellumDebug.chat`. */
 export interface ChatDebugApi {
   /**
@@ -289,6 +338,19 @@ export interface ChatDebugApi {
    * Synchronous and side-effect-free.
    */
   listPendingInteractions(): PendingInteractionsSnapshot;
+  /**
+   * Snapshot of scroll position, geometry, and classification for the
+   * active transcript container. Answers: "why can't I scroll up to
+   * older messages?" (ATL-644).
+   *
+   * - If `scrollTop === null`, the transcript isn't mounted.
+   * - If `isPinnedToLatest === true`, the UI thinks you're at the bottom.
+   * - If `shouldLoadOlder === true` but `isLoadingOlder === false`,
+   *   we're near the top yet the fetch isn't firing — investigate the
+   *   scroll handler.
+   * - If `hasMore === false`, the server reports no more history.
+   */
+  getScrollState(): ChatDebugScrollState;
   /** Print help for this API. Log-only, returns undefined. */
   help(): void;
 }
@@ -310,6 +372,12 @@ const CHAT_NS = "chat";
 export interface ChatDebugRefs {
   messagesRef: MutableRefObject<DisplayMessage[]>;
   transcriptItemsRef: MutableRefObject<TranscriptItem[]>;
+  /**
+   * Ref to the mounted `<Transcript />` imperative handle. Used by
+   * {@link ChatDebugApi.getScrollState} to read scroll geometry directly
+   * from the DOM. `current` is null when no chat route is mounted.
+   */
+  transcriptRef: { current: TranscriptHandle | null };
   streamContextRef: MutableRefObject<{
     assistantId: string;
     conversationKey: string;
@@ -317,6 +385,13 @@ export interface ChatDebugRefs {
   streamRef: MutableRefObject<ChatEventStream | null>;
   streamEpochRef: MutableRefObject<number>;
   activeConversationKeyRef: MutableRefObject<string | null>;
+  /**
+   * Reads the latest transcript pagination state (`hasMore`,
+   * `isLoadingOlder`) for {@link ChatDebugApi.getScrollState}. Held as a
+   * getter rather than a ref because pagination lives in React state
+   * (useState) in ChatPage, not in a dedicated ref.
+   */
+  getScrollPagination: () => { hasMore: boolean; isLoadingOlder: boolean };
   /**
    * Reads the current assistantId. Held as a getter rather than a ref
    * because the value lives in a hook return value in ChatPage, not in
@@ -626,6 +701,80 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
     return refs.getPendingInteractionsSnapshot();
   }
 
+  function getScrollState(): ChatDebugScrollState {
+    const capturedAt = new Date().toISOString();
+    const messages = refs.messagesRef.current ?? [];
+    const itemCount = messages.length;
+    const pagination = refs.getScrollPagination();
+
+    const el = refs.transcriptRef.current?.getScrollElement() ?? null;
+    if (!el) {
+      return {
+        capturedAt,
+        scrollTop: null,
+        scrollHeight: null,
+        clientHeight: null,
+        distanceFromBottom: null,
+        distanceFromTop: null,
+        isPinnedToLatest: null,
+        showScrollToLatest: null,
+        hasMore: pagination.hasMore,
+        isLoadingOlder: pagination.isLoadingOlder,
+        itemCount,
+        shouldLoadOlder: false,
+        diagnosis:
+          "Transcript scroll container not mounted — check React component tree.",
+      };
+    }
+
+    const scrollTop = el.scrollTop;
+    const scrollHeight = el.scrollHeight;
+    const clientHeight = el.clientHeight;
+    const distanceFromBottom = scrollHeight - clientHeight - scrollTop;
+    const distanceFromTop = scrollTop;
+
+    const classification = classifyScrollPosition(
+      { scrollTop, scrollHeight, clientHeight },
+      {
+        hasMore: pagination.hasMore,
+        isLoadingOlder: pagination.isLoadingOlder,
+        hasConversation: itemCount > 0,
+      },
+    );
+
+    const diagnosis = (() => {
+      if (!pagination.hasMore) {
+        return `At top of content, server says no more history. itemCount=${itemCount}`;
+      }
+      if (pagination.isLoadingOlder) {
+        return `Already loading older messages — scroll handler fired correctly. itemCount=${itemCount}`;
+      }
+      if (classification.shouldLoadOlder) {
+        return `NEAR TOP (distanceFromTop=${Math.round(distanceFromTop)}px) and shouldLoadOlder=true but NOT loading — scroll handler may be stuck. itemCount=${itemCount}`;
+      }
+      if (classification.isPinned) {
+        return `Pinned to bottom (distanceFromBottom=${Math.round(distanceFromBottom)}px). Scrolling up should unpin. itemCount=${itemCount}`;
+      }
+      return `Mid-scroll (distanceFromBottom=${Math.round(distanceFromBottom)}px, distanceFromTop=${Math.round(distanceFromTop)}px). itemCount=${itemCount}`;
+    })();
+
+    return {
+      capturedAt,
+      scrollTop,
+      scrollHeight,
+      clientHeight,
+      distanceFromBottom,
+      distanceFromTop,
+      isPinnedToLatest: classification.isPinned,
+      showScrollToLatest: classification.showScrollToLatest,
+      hasMore: pagination.hasMore,
+      isLoadingOlder: pagination.isLoadingOlder,
+      itemCount,
+      shouldLoadOlder: classification.shouldLoadOlder,
+      diagnosis,
+    };
+  }
+
   function help(): void {
     const lines = [
       "window._vellumDebug.chat — surgical chat debug API",
@@ -639,6 +788,8 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
       "                              (diff against tail() manually in the console)",
       "  .listPendingInteractions() frontend-tracked pending prompts (secret/confirmation/",
       "                              contact-request/question) and submission flags",
+      "  .getScrollState()          scroll geometry + pagination — why can't I scroll up?",
+      "                              .diagnosis gives a human-readable summary",
       "  .help()                    print this message",
     ];
     console.log(lines.join("\n"));
@@ -650,6 +801,7 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
     forceReconcile,
     serverMessages,
     listPendingInteractions,
+    getScrollState,
     help,
   };
 }
@@ -711,6 +863,7 @@ export function useChatDebugApi(refs: ChatDebugRefs): void {
     const stableRefs: ChatDebugRefs = {
       messagesRef: refs.messagesRef,
       transcriptItemsRef: refs.transcriptItemsRef,
+      transcriptRef: refs.transcriptRef,
       streamContextRef: refs.streamContextRef,
       streamRef: refs.streamRef,
       streamEpochRef: refs.streamEpochRef,
@@ -720,6 +873,7 @@ export function useChatDebugApi(refs: ChatDebugRefs): void {
       getUIContext: () => latestRefs.current.getUIContext(),
       getPendingInteractionsSnapshot: () =>
         latestRefs.current.getPendingInteractionsSnapshot(),
+      getScrollPagination: () => latestRefs.current.getScrollPagination(),
       reconcileActiveConversation: () =>
         latestRefs.current.reconcileActiveConversation(),
       historyFetcher: refs.historyFetcher,

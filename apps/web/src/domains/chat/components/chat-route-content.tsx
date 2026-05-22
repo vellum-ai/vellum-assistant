@@ -230,6 +230,12 @@ export interface ChatRouteRefs {
   reconcileAfterNextStreamOpenRef: MutableRefObject<boolean>;
   /** Ref populated by ChatRouteContent with the current transcript items for the debug API. */
   transcriptItemsRef: MutableRefObject<TranscriptItem[]>;
+  /**
+   * Imperative handle to the mounted `<Transcript />`. Owned by ChatPage
+   * so `useChatDebugApi` (installed there) can read scroll geometry
+   * directly via `transcriptRef.current.getScrollElement()`.
+   */
+  transcriptRef: RefObject<TranscriptHandle | null>;
 }
 
 // ---------------------------------------------------------------------------
@@ -689,7 +695,6 @@ export function ChatRouteContent({
   // Child-owned refs
   // -------------------------------------------------------------------------
 
-  const transcriptRef = useRef<TranscriptHandle>(null);
   const shouldFocusInputRef = useRef(false);
 
   // -------------------------------------------------------------------------
@@ -792,7 +797,7 @@ export function ChatRouteContent({
   // -------------------------------------------------------------------------
 
   const scrollCoordinator = useTranscriptScroll({
-    transcriptRef,
+    transcriptRef: refs.transcriptRef,
     items: transcriptItems,
     conversationKey: activeConversationKey,
     hasMore: transcriptPagination.hasMore,
@@ -801,14 +806,14 @@ export function ChatRouteContent({
   });
 
   useEffect(() => {
-    const el = transcriptRef.current?.getScrollElement();
+    const el = refs.transcriptRef.current?.getScrollElement();
     if (!el) return;
     const handler = (e: Event) => scrollCoordinator.handleScroll(e);
     el.addEventListener("scroll", handler, { passive: true });
     return () => {
       el.removeEventListener("scroll", handler);
     };
-  }, [scrollCoordinator, activeConversationKey, transcriptItems]);
+  }, [scrollCoordinator, activeConversationKey, transcriptItems, refs.transcriptRef]);
 
   const handleScrollToLatest = useCallback(() => {
     scrollCoordinator.scrollToLatest({ behavior: "smooth" });
@@ -1140,6 +1145,11 @@ export function ChatRouteContent({
         : undefined,
     onPullRefresh: handlePullRefresh,
     pullRefreshEnabled: chatPullToRefreshEnabled && touchSupported,
+    scrollCoordinatorState: {
+      isPinnedToLatest: scrollCoordinator.isPinnedToLatest,
+      showScrollToLatest: scrollCoordinator.showScrollToLatest,
+      shouldLoadOlder: false, // Not exposed by scroll coordinator; safe default
+    },
     subagentEntries,
     onSubagentClick,
     onStopSubagent,
@@ -1221,7 +1231,7 @@ export function ChatRouteContent({
     messageCount: messages.length,
     showEmptyState: isEmptyConversation,
     emptyStateProps: chatEmptyStateProps,
-    transcriptRef,
+    transcriptRef: refs.transcriptRef,
     transcriptProps: chatTranscriptProps,
   };
 

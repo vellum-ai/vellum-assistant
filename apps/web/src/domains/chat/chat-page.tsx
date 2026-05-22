@@ -43,6 +43,7 @@ import { useAssistantIdentityStore } from "@/stores/assistant-identity-store.js"
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import type { ChatError } from "@/domains/chat/types.js";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
+import type { TranscriptHandle } from "@/domains/chat/transcript/transcript.js";
 import type { TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
 import { buildTranscriptItems } from "@/domains/chat/transcript/build-items.js";
 import { getThinkingStatusText, shouldShowThinkingIndicator, type UIContext } from "@/domains/messaging/turn-selectors.js";
@@ -233,6 +234,11 @@ export function ChatPage() {
   const messagesRef = useRef<DisplayMessage[]>(messages);
   messagesRef.current = messages;
   const transcriptItemsRef = useRef<ReturnType<typeof buildTranscriptItems>>([]);
+  // Owned here so `useChatDebugApi` (also called from this component) can
+  // read scroll geometry directly via `transcriptRef.current.getScrollElement()`.
+  // Threaded down to ChatRouteContent through the `refs` prop and bound on
+  // the actual `<Transcript />` instance there.
+  const transcriptRef = useRef<TranscriptHandle | null>(null);
 
 
   const activeConversationKeyRef = useRef<string | null>(activeConversationKey);
@@ -742,6 +748,7 @@ export function ChatPage() {
   useChatDebugApi({
     messagesRef,
     transcriptItemsRef,
+    transcriptRef,
     streamContextRef,
     streamRef,
     streamEpochRef,
@@ -771,6 +778,10 @@ export function ChatPage() {
         inlineConfirmationToolCallId: state.inlineConfirmationToolCallId,
       };
     },
+    getScrollPagination: () => ({
+      hasMore: transcriptPagination.hasMore,
+      isLoadingOlder: transcriptPagination.isLoadingOlder,
+    }),
     reconcileActiveConversation,
   });
 
@@ -1439,6 +1450,7 @@ export function ChatPage() {
       confirmationToolCallMapRef,
       reconcileAfterNextStreamOpenRef,
       transcriptItemsRef,
+      transcriptRef,
     },
     isChannelReadonly,
     onboardingTasksEmpty,

@@ -6,6 +6,7 @@ import { describe, expect, test } from "bun:test";
 import type { MutableRefObject } from "react";
 
 import type { ChatEventStream } from "@/domains/chat/api/stream.js";
+import type { TranscriptHandle } from "@/domains/chat/transcript/use-transcript-scroll.js";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import type { RuntimeMessage } from "@/domains/chat/api/messages.js";
 import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation.js";
@@ -115,6 +116,7 @@ function makeRefs(
   return {
     messagesRef: { current: [] } as MutableRefObject<DisplayMessage[]>,
     transcriptItemsRef: { current: [] } as MutableRefObject<TranscriptItem[]>,
+    transcriptRef: { current: null as TranscriptHandle | null },
     streamContextRef: { current: null } as MutableRefObject<{
       assistantId: string;
       conversationKey: string;
@@ -126,6 +128,7 @@ function makeRefs(
     getTurnState: () => turnState,
     getUIContext: () => resolvedUIContext,
     getPendingInteractionsSnapshot: () => resolvedPendingInteractions,
+    getScrollPagination: () => ({ hasMore: false, isLoadingOlder: false }),
     reconcileActiveConversation: async () => ({
       changed: false,
       messagesAdded: 0,
@@ -635,5 +638,180 @@ describe("installChatDebugApi", () => {
     uninstall();
     expect(win.window._vellumDebug?.chat).toBeUndefined();
     expect(win.window._vellumDebug?.other).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+//  createChatDebugApi.getScrollState (ATL-644)
+//
+// `transcriptRef` and `getScrollPagination` are passed through the shared
+// `ChatDebugRefs` so tests just provide them in the makeRefs override.
+// ---------------------------------------------------------------------------
+
+function makeScrollElement(metrics: {
+  scrollTop: number;
+  scrollHeight: number;
+  clientHeight: number;
+}): HTMLDivElement {
+  const el = document.createElement("div");
+  Object.defineProperty(el, "scrollTop", {
+    value: metrics.scrollTop,
+    writable: false,
+  });
+  Object.defineProperty(el, "scrollHeight", {
+    value: metrics.scrollHeight,
+    writable: false,
+  });
+  Object.defineProperty(el, "clientHeight", {
+    value: metrics.clientHeight,
+    writable: false,
+  });
+  return el;
+}
+
+function makeTranscriptHandle(
+  scrollEl: HTMLDivElement | null,
+): TranscriptHandle {
+  return {
+    scrollToLatest: () => {},
+    getScrollElement: () => scrollEl,
+    getContentElement: () => null,
+    getViewportHeight: () => scrollEl?.clientHeight ?? 0,
+    getScrollState: () => ({
+      distanceFromBottom: 0,
+      isPinned: true,
+      showScrollToLatest: false,
+      shouldLoadOlder: false,
+    }),
+  };
+}
+
+describe("createChatDebugApi.getScrollState", () => {
+  test("transcript not mounted (transcriptRef.current null) → diagnosis", () => {
+    const api = createChatDebugApi(
+      makeRefs({
+        transcriptRef: { current: null },
+        getScrollPagination: () => ({ hasMore: true, isLoadingOlder: false }),
+      }),
+    );
+    const state = api.getScrollState();
+    expect(state.scrollTop).toBeNull();
+    expect(state.scrollHeight).toBeNull();
+    expect(state.clientHeight).toBeNull();
+    expect(state.isPinnedToLatest).toBeNull();
+    expect(state.showScrollToLatest).toBeNull();
+    expect(state.shouldLoadOlder).toBe(false);
+    expect(state.hasMore).toBe(true);
+    expect(state.itemCount).toBe(0);
+    expect(state.diagnosis).toContain("not mounted");
+  });
+
+  test("pinned to bottom → isPinnedToLatest=true, shouldLoadOlder=false", () => {
+    const el = makeScrollElement({
+      scrollTop: 900,
+      scrollHeight: 1000,
+      clientHeight: 100,
+    });
+    const api = createChatDebugApi(
+      makeRefs({
+        transcriptRef: { current: makeTranscriptHandle(el) },
+        getScrollPagination: () => ({ hasMore: true, isLoadingOlder: false }),
+      }),
+    );
+    const state = api.getScrollState();
+    expect(state.scrollTop).toBe(900);
+    expect(state.distanceFromBottom).toBe(0);
+    expect(state.isPinnedToLatest).toBe(true);
+    expect(state.showScrollToLatest).toBe(false);
+    expect(state.shouldLoadOlder).toBe(false);
+    expect(state.diagnosis).toContain("Pinned to bottom");
+  });
+
+  test("far from bottom → showScrollToLatest=true", () => {
+    const el = makeScrollElement({
+      scrollTop: 0,
+      scrollHeight: 1000,
+      clientHeight: 100,
+    });
+    // Non-empty conversation so classifyScrollPosition treats the
+    // near-top position as load-older-eligible.
+    const messagesRef = {
+      current: [fakeDisplayMessage()],
+    } as MutableRefObject<DisplayMessage[]>;
+    const api = createChatDebugApi(
+      makeRefs({
+        messagesRef,
+        transcriptRef: { current: makeTranscriptHandle(el) },
+        getScrollPagination: () => ({ hasMore: true, isLoadingOlder: false }),
+      }),
+    );
+    const state = api.getScrollState();
+    expect(state.scrollTop).toBe(0);
+    expect(state.distanceFromBottom).toBe(900);
+    expect(state.distanceFromTop).toBe(0);
+    expect(state.isPinnedToLatest).toBe(false);
+    expect(state.showScrollToLatest).toBe(true);
+    expect(state.itemCount).toBe(1);
+  });
+
+  test("hasMore=false → diagnosis says no more history", () => {
+    const el = makeScrollElement({
+      scrollTop: 0,
+      scrollHeight: 1000,
+      clientHeight: 100,
+    });
+    const api = createChatDebugApi(
+      makeRefs({
+        transcriptRef: { current: makeTranscriptHandle(el) },
+        getScrollPagination: () => ({ hasMore: false, isLoadingOlder: false }),
+      }),
+    );
+    const state = api.getScrollState();
+    expect(state.hasMore).toBe(false);
+    expect(state.shouldLoadOlder).toBe(false);
+    expect(state.diagnosis).toContain("no more history");
+  });
+
+  test("isLoadingOlder=true → diagnosis confirms scroll handler fired", () => {
+    const el = makeScrollElement({
+      scrollTop: 0,
+      scrollHeight: 1000,
+      clientHeight: 100,
+    });
+    const api = createChatDebugApi(
+      makeRefs({
+        transcriptRef: { current: makeTranscriptHandle(el) },
+        getScrollPagination: () => ({ hasMore: true, isLoadingOlder: true }),
+      }),
+    );
+    const state = api.getScrollState();
+    expect(state.isLoadingOlder).toBe(true);
+    expect(state.diagnosis).toContain("Already loading older");
+  });
+
+  test("itemCount comes from messagesRef on the base API", () => {
+    const el = makeScrollElement({
+      scrollTop: 500,
+      scrollHeight: 1000,
+      clientHeight: 100,
+    });
+    const messagesRef = {
+      current: [
+        fakeDisplayMessage({ stableId: "a" }),
+        fakeDisplayMessage({ stableId: "b" }),
+        fakeDisplayMessage({ stableId: "c" }),
+      ],
+    } as MutableRefObject<DisplayMessage[]>;
+    const api = createChatDebugApi(
+      makeRefs({
+        messagesRef,
+        transcriptRef: { current: makeTranscriptHandle(el) },
+        getScrollPagination: () => ({ hasMore: true, isLoadingOlder: false }),
+      }),
+    );
+    const state = api.getScrollState();
+    expect(state.itemCount).toBe(3);
+    expect(state.scrollTop).toBe(500);
+    expect(state.distanceFromBottom).toBe(400);
   });
 });
