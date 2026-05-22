@@ -36,8 +36,35 @@ import {
   summarizeDisplayMessage,
 } from "@/domains/chat/utils/diagnostics.js";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
-import { type TurnState, useTurnStore } from "@/domains/messaging/turn-store.js";
 import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation.js";
+
+// Minimal TurnState shape for the debug API snapshot. Kept inline to
+// avoid a cross-domain import from messaging → chat.
+type TurnPhase =
+  | "idle"
+  | "queued"
+  | "thinking"
+  | "streaming"
+  | "awaiting_user_input"
+  | "errored";
+
+type TerminalReason =
+  | "complete"
+  | "error"
+  | "cancelled"
+  | "timeout"
+  | "session_error"
+  | null;
+
+interface TurnState {
+  phase: TurnPhase;
+  pendingQueuedCount: number;
+  activeToolCallCount: number;
+  activeTurnId: string | null;
+  lastTerminalReason: TerminalReason;
+  statusText: string | null;
+  liveWebActivity: Record<string, unknown>;
+}
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -568,10 +595,5 @@ export function useChatDebugApi(refs: ChatDebugRefs): void {
     const api = createChatDebugApi(stableRefs);
     const uninstall = installChatDebugApi(api);
     return uninstall;
-    // Intentional empty deps: ref identities are stable across the
-    // host page's lifetime, and we route non-ref values through
-    // `latestRefs` above so we get the latest closures without
-    // re-installing the API on every render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 }

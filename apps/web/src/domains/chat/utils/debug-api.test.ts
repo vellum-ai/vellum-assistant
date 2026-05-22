@@ -5,19 +5,37 @@
 import { describe, expect, test } from "bun:test";
 import type { MutableRefObject } from "react";
 
-import { INITIAL_TURN_STATE, type TurnState } from "@/domains/messaging/turn-store.js";
 import type { ChatEventStream } from "@/domains/chat/api/stream.js";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import type { RuntimeMessage } from "@/domains/chat/api/messages.js";
 import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation.js";
+import type { ChatDebugRefs } from "@/domains/chat/utils/debug-api.js";
 import {
-  type ChatDebugApi,
-  type ChatDebugRefs,
   createChatDebugApi,
   diffMessages,
   installChatDebugApi,
-  useChatDebugApi,
 } from "@/domains/chat/utils/debug-api.js";
+
+// Minimal TurnState shape mirroring the inline type in debug-api.ts
+interface TurnState {
+  phase: string;
+  pendingQueuedCount: number;
+  activeToolCallCount: number;
+  activeTurnId: string | null;
+  lastTerminalReason: string | null;
+  statusText: string | null;
+  liveWebActivity: Record<string, unknown>;
+}
+
+const INITIAL_TURN_STATE: TurnState = {
+  phase: "idle",
+  pendingQueuedCount: 0,
+  activeToolCallCount: 0,
+  activeTurnId: null,
+  lastTerminalReason: null,
+  statusText: null,
+  liveWebActivity: {},
+};
 
 // ---------------------------------------------------------------------------
 //  Helpers
