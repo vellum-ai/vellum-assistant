@@ -33,6 +33,7 @@ import type { Message } from "../providers/types.js";
 import { routeGuardianReply } from "../runtime/guardian-reply-router.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
+import type { CleanResult } from "./conversation.js";
 import {
   persistQueuedMessageBody,
   serializePersistedUserMessageContent,
@@ -85,6 +86,21 @@ export function formatCompactResult(result: ContextWindowResult): string {
     )} tokens`,
     `Messages: ${fmt(result.compactedMessages)} compacted`,
     `Tail:     ${fmt(result.preservedTailMessages)} preserved`,
+  ].join("\n");
+}
+
+/** Format the result of a forced clean into a user-facing message. */
+export function formatCleanResult(result: CleanResult): string {
+  const fmt = (n: number | undefined) => (n ?? 0).toLocaleString("en-US");
+  const reclaimed =
+    result.previousEstimatedInputTokens - result.estimatedInputTokens;
+  return [
+    "Context Cleaned\n",
+    `Tokens:   ${fmt(result.previousEstimatedInputTokens)} → ${fmt(result.estimatedInputTokens)} (${fmt(reclaimed)} reclaimed)`,
+    `Context:  ${fmt(result.estimatedInputTokens)} / ${fmt(
+      result.maxInputTokens,
+    )} tokens`,
+    `Messages: ${fmt(result.preservedMessages)} preserved`,
   ].join("\n");
 }
 
@@ -191,6 +207,8 @@ export interface ProcessConversationContext {
   forceCompact(options?: {
     targetInputTokensOverride?: number;
   }): Promise<ContextWindowResult>;
+  /** Strip runtime injections and reset memory-injection state. */
+  forceClean(): Promise<CleanResult>;
   /** Set transport-derived hints for the conversation. */
   setTransportHints(hints: string[] | undefined): void;
   /** IANA timezone reported by the active client for the current turn. */
@@ -378,7 +396,10 @@ function repairPendingToolUseBlocks(
     const msg = messages[i];
     if (msg.role === "user") {
       for (const block of msg.content) {
-        if (block.type === "tool_result" || block.type === "web_search_tool_result") {
+        if (
+          block.type === "tool_result" ||
+          block.type === "web_search_tool_result"
+        ) {
           resolvedToolUseIds.add(block.tool_use_id);
         }
       }
@@ -765,6 +786,94 @@ async function drainSingleMessage(
           requestId: next.requestId,
         },
         "Failed to execute /compact",
+      );
+      next.onEvent({
+        type: "error",
+        conversationId: conversation.conversationId,
+        message,
+      });
+    }
+    await drainQueue(conversation);
+    return;
+  }
+
+  // /clean — strip runtime injections and reset memory state, no LLM call.
+  if (slashResult.kind === "clean") {
+    let persistedCleanMessage = false;
+    try {
+      const drainProvenance = provenanceFromTrustContext(
+        conversation.trustContext,
+      );
+      const drainChannelMeta = {
+        ...drainProvenance,
+        ...(queuedTurnCtx
+          ? {
+              userMessageChannel: queuedTurnCtx.userMessageChannel,
+              assistantMessageChannel: queuedTurnCtx.assistantMessageChannel,
+            }
+          : {}),
+        ...(queuedInterfaceCtx
+          ? {
+              userMessageInterface: queuedInterfaceCtx.userMessageInterface,
+              assistantMessageInterface:
+                queuedInterfaceCtx.assistantMessageInterface,
+            }
+          : {}),
+        sentAt: next.sentAt,
+      };
+      const cleanUserMsg = createUserMessage(next.content, next.attachments);
+      await addMessage(
+        conversation.conversationId,
+        "user",
+        serializePersistedUserMessageContent(
+          next.content,
+          next.attachments,
+          next.displayContent,
+        ),
+        drainChannelMeta,
+      );
+      persistedCleanMessage = true;
+      conversation.messages.push(cleanUserMsg);
+
+      const result = await conversation.forceClean();
+      const responseText = formatCleanResult(result);
+
+      const assistantMsg = createAssistantMessage(responseText);
+      await addMessage(
+        conversation.conversationId,
+        "assistant",
+        JSON.stringify(assistantMsg.content),
+        { ...drainChannelMeta, sentAt: Date.now() },
+      );
+      conversation.messages.push(assistantMsg);
+
+      next.onEvent({
+        type: "assistant_text_delta",
+        text: responseText,
+        conversationId: conversation.conversationId,
+      });
+      conversation.traceEmitter.emit(
+        "message_complete",
+        "Clean slash command handled",
+        { requestId: next.requestId, status: "success" },
+      );
+      next.onEvent({
+        type: "message_complete",
+        conversationId: conversation.conversationId,
+      });
+      publishConversationMessagesChanged(conversation.conversationId);
+    } catch (err) {
+      if (persistedCleanMessage) {
+        publishConversationMessagesChanged(conversation.conversationId);
+      }
+      const message = err instanceof Error ? err.message : String(err);
+      log.error(
+        {
+          err,
+          conversationId: conversation.conversationId,
+          requestId: next.requestId,
+        },
+        "Failed to execute /clean",
       );
       next.onEvent({
         type: "error",
@@ -1626,6 +1735,85 @@ export async function processMessage(
       return persisted.id;
     } catch (err) {
       if (persistedCompactMessage) {
+        publishConversationMessagesChanged(conversation.conversationId);
+      }
+      throw err;
+    } finally {
+      conversation.processing = false;
+      await drainQueue(conversation);
+    }
+  }
+
+  // /clean — strip runtime injections, return message ID. No LLM call.
+  if (slashResult.kind === "clean") {
+    conversation.processing = true;
+    let persistedCleanMessage = false;
+    try {
+      const pmTurnCtx = conversation.getTurnChannelContext();
+      const pmInterfaceCtx = conversation.getTurnInterfaceContext();
+      const pmProvenance = provenanceFromTrustContext(
+        conversation.trustContext,
+      );
+      const pmChannelMeta = {
+        ...pmProvenance,
+        ...(pmTurnCtx
+          ? {
+              userMessageChannel: pmTurnCtx.userMessageChannel,
+              assistantMessageChannel: pmTurnCtx.assistantMessageChannel,
+            }
+          : {}),
+        ...(pmInterfaceCtx
+          ? {
+              userMessageInterface: pmInterfaceCtx.userMessageInterface,
+              assistantMessageInterface:
+                pmInterfaceCtx.assistantMessageInterface,
+            }
+          : {}),
+      };
+      const cleanUserMsg = createUserMessage(content, attachments);
+      const persisted = await addMessage(
+        conversation.conversationId,
+        "user",
+        serializePersistedUserMessageContent(
+          content,
+          attachments,
+          displayContent,
+        ),
+        pmChannelMeta,
+      );
+      persistedCleanMessage = true;
+      conversation.messages.push(cleanUserMsg);
+
+      const result = await conversation.forceClean();
+      const responseText = formatCleanResult(result);
+
+      const assistantMsg = createAssistantMessage(responseText);
+      await addMessage(
+        conversation.conversationId,
+        "assistant",
+        JSON.stringify(assistantMsg.content),
+        pmChannelMeta,
+      );
+      conversation.messages.push(assistantMsg);
+
+      onEvent({
+        type: "assistant_text_delta",
+        text: responseText,
+        conversationId: conversation.conversationId,
+      });
+      conversation.traceEmitter.emit(
+        "message_complete",
+        "Clean slash command handled",
+        { requestId, status: "success" },
+      );
+      onEvent({
+        type: "message_complete",
+        conversationId: conversation.conversationId,
+      });
+      publishConversationMessagesChanged(conversation.conversationId);
+      return persisted.id;
+    } catch (err) {
+      if (persistedCleanMessage) {
         publishConversationMessagesChanged(conversation.conversationId);
       }
       throw err;

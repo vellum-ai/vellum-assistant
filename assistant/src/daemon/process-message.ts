@@ -38,7 +38,10 @@ import {
   buildSlackMetaForPersistence,
   serializePersistedUserMessageContent,
 } from "./conversation-messaging.js";
-import { formatCompactResult } from "./conversation-process.js";
+import {
+  formatCleanResult,
+  formatCompactResult,
+} from "./conversation-process.js";
 import { resolveChannelCapabilities } from "./conversation-runtime-assembly.js";
 import {
   buildSlashContextForContent,
@@ -436,6 +439,60 @@ export async function processMessage(
       "assistant",
       JSON.stringify(assistantMsg.content),
       compactChannelMeta,
+    );
+    conversation.getMessages().push(assistantMsg);
+    publishConversationMessagesChanged(conversationId);
+    return {
+      messageId: persisted.id,
+      assistantMessageId: persistedAssistant.id,
+    };
+  }
+
+  if (slashResult.kind === "clean") {
+    const serverTurnCtx = conversation.getTurnChannelContext();
+    const serverProvenance = provenanceFromTrustContext(
+      conversation.trustContext,
+    );
+    const cleanChannelMeta = {
+      ...serverProvenance,
+      ...(serverTurnCtx
+        ? {
+            userMessageChannel: serverTurnCtx.userMessageChannel,
+            assistantMessageChannel: serverTurnCtx.assistantMessageChannel,
+          }
+        : {}),
+      ...(serverInterfaceCtx
+        ? {
+            userMessageInterface: serverInterfaceCtx.userMessageInterface,
+            assistantMessageInterface:
+              serverInterfaceCtx.assistantMessageInterface,
+          }
+        : {}),
+    };
+    const cleanUserMeta = slackMeta
+      ? { ...cleanChannelMeta, slackMeta }
+      : cleanChannelMeta;
+    const cleanMsg = createUserMessage(content, attachments);
+    const persisted = await addMessage(
+      conversationId,
+      "user",
+      serializePersistedUserMessageContent(
+        content,
+        attachments,
+        options?.displayContent,
+      ),
+      cleanUserMeta,
+    );
+    conversation.getMessages().push(cleanMsg);
+
+    const result = await conversation.forceClean();
+    const responseText = formatCleanResult(result);
+    const assistantMsg = createAssistantMessage(responseText);
+    const persistedAssistant = await addMessage(
+      conversationId,
+      "assistant",
+      JSON.stringify(assistantMsg.content),
+      cleanChannelMeta,
     );
     conversation.getMessages().push(assistantMsg);
     publishConversationMessagesChanged(conversationId);
