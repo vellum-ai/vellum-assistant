@@ -191,7 +191,11 @@ export function useConversationLoader({
   // -------------------------------------------------------------------------
   const refreshConversations = useCallback(async () => {
     if (!assistantId) return;
-    if (hasDraftSendInFlight()) return;
+    if (hasDraftSendInFlight()) {
+      console.log("[DRAFT-DEBUG] refreshConversations SKIPPED (draft in flight)");
+      return;
+    }
+    console.log("[DRAFT-DEBUG] refreshConversations EXECUTING", new Error().stack?.split("\n").slice(1, 3).join(" | "));
     try {
       await queryClient.invalidateQueries({
         queryKey: chatContextQueryKey(assistantId),
@@ -394,14 +398,13 @@ export function useConversationLoader({
       conversations: chatContext.conversations,
     });
 
+    const currentKey = activeConversationKeyRef.current;
+    if (key !== currentKey) {
+      console.log(`[DRAFT-DEBUG] bootstrap routing effect: ${currentKey?.slice(0, 8) ?? "null"} → ${key?.slice(0, 8) ?? "null"} | explicitKey=${explicitKey?.slice(0, 8) ?? "null"} | defaultKey=${chatContext.conversationKey?.slice(0, 8) ?? "null"} | convCount=${chatContext.conversations.length} | draftInFlight=${hasDraftSendInFlight()}`);
+    }
+
     setAssistantId(chatContext.assistantId);
 
-    // Set the active key in the client store and reflect it in the URL so
-    // the page is deep-linkable from the moment it loads. `replace` avoids
-    // a spurious history entry. This also moves ChatPage from the index
-    // route (where it renders inside ConversationKeyRedirect) to the
-    // canonical conversations/:key route before any user interaction,
-    // preventing a remount when draft keys resolve during sendMessage.
     useConversationStore.getState().setActiveKey(key);
     if (key) {
       void navigate(routes.conversation(key), { replace: true });

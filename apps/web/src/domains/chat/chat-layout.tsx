@@ -24,6 +24,7 @@ import type { AssistantContextValue } from "@/components/layout/assistant-contex
 import { useConversationStore } from "@/domains/conversations/conversation-store.js";
 import {
   chatContextQueryKey,
+  hasDraftSendInFlight,
   useConversationGroupsQuery,
   useConversationListQuery,
 } from "@/domains/conversations/conversation-queries.js";
@@ -440,6 +441,11 @@ export function ChatLayout() {
 
   const refreshConversations = useCallback(async () => {
     if (!lifecycle.assistantId) return;
+    if (hasDraftSendInFlight()) {
+      console.log("[DRAFT-DEBUG] ChatLayout refreshConversations SKIPPED (draft in flight)");
+      return;
+    }
+    console.log("[DRAFT-DEBUG] ChatLayout refreshConversations EXECUTING");
     try {
       await queryClient.invalidateQueries({
         queryKey: chatContextQueryKey(lifecycle.assistantId),
