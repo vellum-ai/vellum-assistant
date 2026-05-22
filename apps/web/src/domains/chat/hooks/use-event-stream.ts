@@ -4,12 +4,14 @@
  * Subscribes to `bus.sse.event` and routes events whose
  * `conversationKey` matches (or is missing on) the active conversation
  * to `handleStreamEvent`. Subscribes to `bus.sse.opened` to bump the
- * conversation epoch and run the pending-reconcile pass — on a
- * watchdog-driven reopen the reconcile runs unconditionally and the
- * result is recorded to Sentry so stalled-turn rescues are observable.
- * Subscribes to `bus.sse.closed` to clear any in-flight `isStreaming`
- * flag, drop the matching processing key, and bump reachability so
- * the burst-limited retry below can take over.
+ * conversation epoch and run a reconcile pass on every non-fresh
+ * (re)open — `"fresh"` is the very first connection per assistant
+ * and is covered by the regular history-load path. On `"watchdog"` /
+ * `"error"` causes the reconcile additionally records its result to
+ * Sentry so stalled-turn rescues are observable. Subscribes to
+ * `bus.sse.closed` to clear any in-flight `isStreaming` flag, drop
+ * the matching processing key, and bump reachability so the
+ * burst-limited retry below can take over.
  *
  * Reachability retry lives here because the 3-burst limiter is
  * conversation-scoped. On success it publishes
@@ -271,7 +273,13 @@ export function useEventStream({
           epoch,
           cause,
         });
-        if (reconcileAfterNextStreamOpenRef.current) {
+        // Every non-fresh open is a recovery point — the bus tore the
+        // SSE down for app.hidden / reachability-retry / transport
+        // error and reopened it, so the active conversation could have
+        // missed events. Reconcile to close the gap. `"fresh"` is the
+        // very first open per assistant and is covered by the regular
+        // history-load path that ran when the conversation was mounted.
+        if (cause !== "fresh") {
           reconcileAfterNextStreamOpenRef.current = false;
           void reconcileActiveConversationRef.current();
           startReconciliationLoopRef.current(epoch);
@@ -402,34 +410,7 @@ export function useEventStream({
   ]);
 
   // --------------------------------------------------------------------------
-  // Effect 4: Schedule a post-resume reconcile.
-  //
-  // The bus tears down + reopens its SSE around app.resume; we listen
-  // here so the next `sse.opened` runs the reconcile pass for the
-  // active conversation. Effect 2's `reconcileAfterNextStreamOpenRef`
-  // gate is the rendezvous point.
-  // --------------------------------------------------------------------------
-  useEffect(() => {
-    if (
-      assistantStateKind !== "active" ||
-      !assistantId ||
-      !activeConversationKey
-    ) {
-      return;
-    }
-    const unsub = useEventBusStore.getState().subscribe("app.resume", () => {
-      reconcileAfterNextStreamOpenRef.current = true;
-    });
-    return () => unsub();
-  }, [
-    assistantStateKind,
-    assistantId,
-    activeConversationKey,
-    reconcileAfterNextStreamOpenRef,
-  ]);
-
-  // --------------------------------------------------------------------------
-  // Effect 5: Reachability retry — request a bus-level SSE bounce
+  // Effect 4: Reachability retry — request a bus-level SSE bounce
   // when the reachability probe flips back to "ready".
   // --------------------------------------------------------------------------
   useEffect(() => {
@@ -461,7 +442,7 @@ export function useEventStream({
   }, [reachabilityPhase, reconcileAfterNextStreamOpenRef]);
 
   // --------------------------------------------------------------------------
-  // Effect 6: Unmount cleanup.
+  // Effect 5: Unmount cleanup.
   // --------------------------------------------------------------------------
   useEffect(() => {
     return () => {
