@@ -538,6 +538,7 @@ export function broadcastMessage(
       ? undefined
       : resolvedConversationId;
   const event = buildAssistantEvent(msg, scopedConversationId);
+  event.conversationKey = scopedConversationId;
   const targetCapability = capabilityForMessageType(msg.type);
   const publishOptions =
     targetCapability != null || targetClientId != null

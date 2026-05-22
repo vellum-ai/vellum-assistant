@@ -30,6 +30,8 @@ export interface AssistantEvent<TMessage = unknown> {
   id: string;
   /** Resolved conversation id when available. */
   conversationId?: string;
+  /** Conversation routing key for client-side event filtering. */
+  conversationKey?: string;
   /** ISO-8601 timestamp of when the event was emitted. */
   emittedAt: string;
   /** Outbound message payload. */
