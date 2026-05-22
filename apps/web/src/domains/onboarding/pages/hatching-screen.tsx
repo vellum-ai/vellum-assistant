@@ -51,9 +51,9 @@ const PHASE_TARGET: Record<HatchPhase, number> = {
 const SEGMENT_DURATION_MS = 1500;
 
 const PHASE_LABEL: Record<HatchPhase, string> = {
-  initializing: "Setting up your assistant…",
-  provisioning: "Provisioning assistant…",
-  connecting: "Connecting to assistant…",
+  initializing: "Getting things ready…",
+  provisioning: "Setting up your assistant…",
+  connecting: "Connecting to your assistant…",
   ready: "Ready",
 };
 
