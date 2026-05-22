@@ -417,6 +417,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
 
   // LLM call site catalog
   { endpoint: "config/llm/call-sites:GET", scopes: ["settings.read"] },
+  { endpoint: "config/llm/profiles:GET", scopes: ["settings.read"] },
 
   // Conversation management
   { endpoint: "conversations:DELETE", scopes: ["chat.write"] },
