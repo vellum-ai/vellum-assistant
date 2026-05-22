@@ -297,7 +297,10 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
           inputTokens: params.inputTokens ?? existing.inputTokens,
           outputTokens: params.outputTokens ?? existing.outputTokens,
           totalCost: params.totalCost ?? existing.totalCost,
-          events: params.events.length > 0 ? params.events : existing.events,
+          events:
+            params.events.length > 0 && existing.events.length === 0
+              ? params.events
+              : existing.events,
         },
       },
     });
