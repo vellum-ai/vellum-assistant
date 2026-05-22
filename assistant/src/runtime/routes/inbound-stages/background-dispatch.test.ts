@@ -8,6 +8,7 @@ const markedProcessedEvents: string[] = [];
 const processingFailureEvents: string[] = [];
 const deliveredEvents: string[] = [];
 const deliveryFailureEvents: string[] = [];
+const deliveredSegmentCounts: Array<{ eventId: string; count: number }> = [];
 const storedReplyMessageIds: Array<{
   eventId: string;
   replyMessageId: string;
@@ -25,7 +26,9 @@ mock.module("../../../util/logger.js", () => ({
 }));
 
 mock.module("../../../memory/delivery-channels.js", () => ({
-  updateDeliveredSegmentCount: () => {},
+  updateDeliveredSegmentCount: (eventId: string, count: number) => {
+    deliveredSegmentCounts.push({ eventId, count });
+  },
 }));
 
 mock.module("../../../memory/delivery-crud.js", () => ({
@@ -88,6 +91,7 @@ beforeEach(() => {
   processingFailureEvents.length = 0;
   deliveredEvents.length = 0;
   deliveryFailureEvents.length = 0;
+  deliveredSegmentCounts.length = 0;
   storedReplyMessageIds.length = 0;
   replyDeliveryCalls.length = 0;
   deliverReplyViaCallbackImpl = async () => {};
@@ -303,10 +307,173 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
 
     clearThreadTs(conversationId);
   });
+
+  test("delivers Slack DM assistant text before tools as it becomes ready", async () => {
+    const conversationId = "conv-dm-incremental-text";
+    const channelId = "D-INCREMENTAL";
+    deliverReplyViaCallbackImpl = async (...args: unknown[]) => {
+      const options = args[4] as
+        | { onSegmentDelivered?: (count: number) => void }
+        | undefined;
+      options?.onSegmentDelivered?.(1);
+    };
+
+    const processMessage: MessageProcessor = async (
+      _conversationId,
+      _content,
+      _attachmentIds,
+      options,
+    ) => {
+      options?.onEvent?.({
+        type: "assistant_text_delta",
+        text: "<no_response/>\nFirst response before the tool.",
+        conversationId,
+      });
+      options?.onEvent?.({
+        type: "assistant_thinking_delta",
+        thinking: "private reasoning",
+        conversationId,
+      });
+      options?.onEvent?.({
+        type: "tool_use_start",
+        toolName: "web_search",
+        input: { query: "example" },
+        conversationId,
+        toolUseId: "toolu_1",
+      });
+
+      await flush();
+      expect(
+        deliveredChannelReplies
+          .map((entry) => entry.payload.text)
+          .filter(Boolean),
+      ).toEqual(["First response before the tool."]);
+
+      options?.onEvent?.({
+        type: "assistant_text_delta",
+        text: "Final response after the tool.",
+        conversationId,
+      });
+      options?.onEvent?.({
+        type: "message_complete",
+        conversationId,
+        messageId: "assistant-msg-final",
+      });
+      return { messageId: "user-msg-incremental" };
+    };
+
+    processChannelMessageInBackground({
+      processMessage,
+      conversationId,
+      eventId: "evt-incremental-text",
+      content: "please look this up",
+      sourceChannel: "slack",
+      sourceInterface: "slack",
+      externalChatId: channelId,
+      trustCtx,
+      metadataHints: [],
+      chatType: "im",
+      replyCallbackUrl: `https://example.test/deliver/slack?channel=${channelId}`,
+    });
+
+    await flush();
+
+    expect(
+      deliveredChannelReplies
+        .map((entry) => entry.payload.text)
+        .filter(Boolean),
+    ).toEqual(["First response before the tool."]);
+    expect(
+      deliveredChannelReplies.every((entry) => !entry.payload.thinking),
+    ).toBe(true);
+    expect(replyDeliveryCalls).toEqual([{ messageId: "assistant-msg-final" }]);
+    expect(deliveredSegmentCounts).toEqual([
+      { eventId: "evt-incremental-text", count: 1 },
+      { eventId: "evt-incremental-text", count: 2 },
+    ]);
+    expect(storedReplyMessageIds).toEqual([
+      {
+        eventId: "evt-incremental-text",
+        replyMessageId: "assistant-msg-final",
+      },
+    ]);
+    expect(deliveredEvents).toEqual(["evt-incremental-text"]);
+
+    clearThreadTs(conversationId);
+  });
+
+  test("keeps Slack channel replies on the existing final delivery path", async () => {
+    const conversationId = "conv-channel-final-delivery";
+    const channelId = "C-FINAL-DELIVERY";
+    const threadTs = "1700000000.000022";
+
+    const processMessage: MessageProcessor = async (
+      _conversationId,
+      _content,
+      _attachmentIds,
+      options,
+    ) => {
+      options?.onEvent?.({
+        type: "assistant_text_delta",
+        text: "Intermediate text.",
+        conversationId,
+      });
+      options?.onEvent?.({
+        type: "tool_use_start",
+        toolName: "web_search",
+        input: { query: "example" },
+        conversationId,
+        toolUseId: "toolu_1",
+      });
+      options?.onEvent?.({
+        type: "assistant_text_delta",
+        text: "Final text.",
+        conversationId,
+      });
+      options?.onEvent?.({
+        type: "message_complete",
+        conversationId,
+        messageId: "assistant-msg-channel-final",
+      });
+      return { messageId: "user-msg-channel" };
+    };
+
+    processChannelMessageInBackground({
+      processMessage,
+      conversationId,
+      eventId: "evt-channel-final-delivery",
+      content: "channel request",
+      sourceChannel: "slack",
+      sourceInterface: "slack",
+      externalChatId: channelId,
+      trustCtx,
+      metadataHints: [],
+      chatType: "channel",
+      replyCallbackUrl: `https://example.test/deliver/slack?channel=${channelId}&threadTs=${threadTs}`,
+    });
+
+    await flush();
+
+    expect(
+      deliveredChannelReplies
+        .map((entry) => entry.payload.text)
+        .filter(Boolean),
+    ).toEqual([]);
+    expect(replyDeliveryCalls).toEqual([
+      { messageId: "assistant-msg-channel-final" },
+    ]);
+    expect(deliveredEvents).toEqual(["evt-channel-final-delivery"]);
+
+    clearThreadTs(conversationId);
+  });
 });
 
 describe("Slack thinking status timing", () => {
-  const slackStatusLabels = ["is on it", "is working hard", "is touching grass"];
+  const slackStatusLabels = [
+    "is on it",
+    "is working hard",
+    "is touching grass",
+  ];
 
   const trustCtx: TrustContext = {
     trustClass: "guardian",

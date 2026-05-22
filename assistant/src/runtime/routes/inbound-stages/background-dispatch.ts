@@ -225,6 +225,15 @@ export function processChannelMessageInBackground(
             }
           : undefined;
       let replyMessageId: string | undefined;
+      const slackDmTextDelivery = createSlackDmTextDeliveryController({
+        sourceChannel,
+        chatType,
+        replyCallbackUrl,
+        chatId: externalChatId,
+        assistantId,
+        onSegmentDelivered: (count) =>
+          updateDeliveredSegmentCount(eventId, count),
+      });
       const observeAgentEvent = (msg: ServerMessage): void => {
         if (
           msg.type === "message_complete" &&
@@ -233,6 +242,7 @@ export function processChannelMessageInBackground(
         ) {
           replyMessageId = msg.messageId;
         }
+        slackDmTextDelivery?.observeEvent(msg);
         slackThinkingStatus?.observeEvent(msg);
       };
 
@@ -299,6 +309,13 @@ export function processChannelMessageInBackground(
 
       if (replyCallbackUrl) {
         try {
+          let liveSlackDmSegmentCount = 0;
+          if (slackDmTextDelivery) {
+            await slackDmTextDelivery.waitForPendingDeliveries();
+            liveSlackDmSegmentCount =
+              slackDmTextDelivery.getDeliveredSegmentCount();
+          }
+
           await deliverReplyViaCallback(
             conversationId,
             externalChatId,
@@ -308,7 +325,10 @@ export function processChannelMessageInBackground(
               messageId: replyMessageId,
               sinceMessageId: userMessageId,
               onSegmentDelivered: (count) =>
-                updateDeliveredSegmentCount(eventId, count),
+                updateDeliveredSegmentCount(
+                  eventId,
+                  liveSlackDmSegmentCount + count,
+                ),
             },
           );
           markDeliveryDelivered(eventId);
@@ -416,6 +436,85 @@ const NO_RESPONSE_SENTINEL_FORMS = [
   "<no_response>",
 ] as const;
 
+function isSlackDeliveryCallbackUrl(replyCallbackUrl?: string): boolean {
+  if (!replyCallbackUrl) return false;
+  try {
+    return new URL(replyCallbackUrl).pathname.endsWith("/deliver/slack");
+  } catch {
+    return replyCallbackUrl.endsWith("/deliver/slack");
+  }
+}
+
+export function shouldDeliverSlackDmTextResponses(params: {
+  sourceChannel: ChannelId;
+  chatType?: string;
+  replyCallbackUrl?: string;
+}): boolean {
+  return (
+    params.sourceChannel === "slack" &&
+    params.chatType === "im" &&
+    isSlackDeliveryCallbackUrl(params.replyCallbackUrl)
+  );
+}
+
+type SlackDmTextDeliveryController = {
+  observeEvent: (msg: ServerMessage) => void;
+  waitForPendingDeliveries: () => Promise<void>;
+  getDeliveredSegmentCount: () => number;
+};
+
+function createSlackDmTextDeliveryController(params: {
+  sourceChannel: ChannelId;
+  chatType?: string;
+  replyCallbackUrl?: string;
+  chatId: string;
+  assistantId?: string;
+  onSegmentDelivered?: (deliveredCount: number) => void;
+}): SlackDmTextDeliveryController | undefined {
+  const { replyCallbackUrl } = params;
+  if (!shouldDeliverSlackDmTextResponses(params) || !replyCallbackUrl) {
+    return undefined;
+  }
+
+  let pendingText = "";
+  let deliveredCount = 0;
+  let deliveryChain = Promise.resolve();
+
+  const flushPendingText = (): void => {
+    const text = pendingText;
+    pendingText = "";
+
+    const deliverableText = text.replace(NO_RESPONSE_INLINE_RE, "").trim();
+    if (deliverableText.length === 0) return;
+
+    deliveryChain = deliveryChain.then(async () => {
+      await deliverChannelReply(replyCallbackUrl, {
+        chatId: params.chatId,
+        text: deliverableText,
+        assistantId: params.assistantId,
+        useBlocks: true,
+      });
+      deliveredCount += 1;
+      params.onSegmentDelivered?.(deliveredCount);
+    });
+  };
+
+  return {
+    observeEvent(msg) {
+      if (msg.type === "assistant_text_delta") {
+        pendingText += msg.text;
+        return;
+      }
+
+      if (msg.type === "tool_use_start") {
+        flushPendingText();
+      }
+    },
+    waitForPendingDeliveries: () => deliveryChain,
+    getDeliveredSegmentCount: () => deliveredCount,
+  };
+}
+
 function isPotentialNoResponsePrefix(text: string): boolean {
   const lower = text.toLowerCase();
   return NO_RESPONSE_SENTINEL_FORMS.some((sentinel) =>
@@ -436,12 +535,9 @@ function shouldEmitSlackThinkingStatus(
   sourceChannel: ChannelId,
   replyCallbackUrl?: string,
 ): boolean {
-  if (sourceChannel !== "slack" || !replyCallbackUrl) return false;
-  try {
-    return new URL(replyCallbackUrl).pathname.endsWith("/deliver/slack");
-  } catch {
-    return replyCallbackUrl.endsWith("/deliver/slack");
-  }
+  return (
+    sourceChannel === "slack" && isSlackDeliveryCallbackUrl(replyCallbackUrl)
+  );
 }
 
 export function shouldStartSlackThinkingStatusImmediately(params: {
