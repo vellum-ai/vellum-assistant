@@ -1,6 +1,7 @@
 import { and, asc, eq, inArray, lte, notInArray, or, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import { getConfig } from "../config/loader.js";
 import { getLogger } from "../util/logger.js";
 import { truncate } from "../util/truncate.js";
 import { getDb } from "./db-connection.js";
@@ -71,6 +72,28 @@ export const SLOW_LLM_JOB_TYPES: MemoryJobType[] = [
   "backfill",
   "graph_bootstrap",
 ];
+
+/**
+ * Memory v1 is the long-term memory subsystem (embeds, graph, retrospective,
+ * conversation analyze, conversation starters, summarization). Callers that
+ * enqueue v1 jobs should gate on this before calling so that the queue does
+ * not accumulate `pending` rows that will never be dispatched (the worker
+ * early-returns when `memory.enabled === false`).
+ *
+ * Returns `true` unless `config.memory.enabled` is explicitly `false` —
+ * the schema default is `true`, so missing or partial configs (common in
+ * tests) read as "enabled". Defensive `try/catch`: if config loading fails
+ * we default to `enabled` so the gate does not introduce a new failure
+ * mode (callers that already have their own `getConfig` try/catch keep
+ * controlling the silent-failure semantic).
+ */
+export function isMemoryV1Enabled(): boolean {
+  try {
+    return getConfig().memory?.enabled !== false;
+  } catch {
+    return true;
+  }
+}
 
 export interface MemoryJob<T = Record<string, unknown>> {
   id: string;

@@ -6,7 +6,7 @@ import {
 } from "../runtime/actor-trust-resolver.js";
 import { getLogger } from "../util/logger.js";
 import { isAutoAnalysisConversation } from "./auto-analysis-guard.js";
-import { upsertAutoAnalysisJob } from "./jobs-store.js";
+import { isMemoryV1Enabled, upsertAutoAnalysisJob } from "./jobs-store.js";
 
 const log = getLogger("auto-analysis-enqueue");
 
@@ -45,6 +45,10 @@ export function enqueueAutoAnalysisIfEnabled(args: {
   trigger: AutoAnalysisTrigger;
 }): void {
   const { conversationId, trigger } = args;
+
+  if (!isMemoryV1Enabled()) {
+    return;
+  }
 
   let config;
   try {

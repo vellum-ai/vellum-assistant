@@ -2,7 +2,10 @@ import { and, eq, sql } from "drizzle-orm";
 
 import { getDb } from "../../../../memory/db-connection.js";
 import { getNode, updateNode } from "../../../../memory/graph/store.js";
-import { enqueueMemoryJob } from "../../../../memory/jobs-store.js";
+import {
+  enqueueMemoryJob,
+  isMemoryV1Enabled,
+} from "../../../../memory/jobs-store.js";
 import { memoryGraphNodes } from "../../../../memory/schema.js";
 import type {
   Playbook,
@@ -123,7 +126,9 @@ export async function executePlaybookUpdate(
       lastAccessed: Date.now(),
     });
 
-    enqueueMemoryJob("embed_graph_node", { nodeId: existing.id });
+    if (isMemoryV1Enabled()) {
+      enqueueMemoryJob("embed_graph_node", { nodeId: existing.id });
+    }
 
     const autonomyLabel =
       updated.autonomyLevel === "auto"

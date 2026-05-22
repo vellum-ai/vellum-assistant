@@ -102,6 +102,7 @@ mock.module("../../jobs-store.js", () => ({
     nextJobIdCounter += 1;
     return `job-${nextJobIdCounter}`;
   },
+  isMemoryV1Enabled: () => true,
 }));
 
 // ── Workspace pin ───────────────────────────────────────────────────

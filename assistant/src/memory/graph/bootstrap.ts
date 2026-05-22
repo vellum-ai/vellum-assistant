@@ -20,7 +20,11 @@ import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "../checkpoints.js";
 import { getDb } from "../db-connection.js";
-import { enqueueMemoryJob, hasActiveJobOfType } from "../jobs-store.js";
+import {
+  enqueueMemoryJob,
+  hasActiveJobOfType,
+  isMemoryV1Enabled,
+} from "../jobs-store.js";
 import { initQdrantClient, resolveQdrantUrl } from "../qdrant-client.js";
 import { rawAll, rawGet, rawRun } from "../raw-query.js";
 import { conversations, memoryGraphNodes, memorySegments } from "../schema.js";
@@ -342,6 +346,8 @@ export function maybeEnqueueGraphBootstrap(): void {
   // Don't enqueue if already in progress
   if (hasActiveJobOfType("graph_bootstrap")) return;
 
+  if (!isMemoryV1Enabled()) return;
+
   log.info(
     { segmentCount, hasJournalFiles },
     "Graph empty with historical data — enqueueing bootstrap",
@@ -392,6 +398,7 @@ const KIND_TO_PREFIX: Record<string, string> = {
  */
 export function migrateToolCreatedItems(): void {
   if (getMemoryCheckpoint(MIGRATE_ITEMS_CHECKPOINT)) return;
+  if (!isMemoryV1Enabled()) return;
 
   const kinds = Object.keys(KIND_TO_PREFIX);
   const placeholders = kinds.map(() => "?").join(", ");

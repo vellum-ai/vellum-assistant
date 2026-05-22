@@ -9,7 +9,11 @@ import { selectedBackendSupportsMultimodal } from "../embedding-backend.js";
 import type { EmbeddingInput } from "../embedding-types.js";
 import { embedAndUpsert } from "../job-utils.js";
 import { asString } from "../job-utils.js";
-import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
+import {
+  enqueueMemoryJob,
+  isMemoryV1Enabled,
+  type MemoryJob,
+} from "../jobs-store.js";
 import { isQdrantBreakerOpen } from "../qdrant-circuit-breaker.js";
 import { withQdrantBreaker } from "../qdrant-circuit-breaker.js";
 import {
@@ -238,6 +242,7 @@ export async function embedGraphNodeJob(
  * Enqueue an embedding job for a graph node (async, for live conversations).
  */
 export function enqueueGraphNodeEmbed(nodeId: string): void {
+  if (!isMemoryV1Enabled()) return;
   enqueueMemoryJob("embed_graph_node", { nodeId });
 }
 
@@ -282,5 +287,6 @@ export async function embedGraphTriggerJob(
  * Enqueue a trigger embedding job.
  */
 export function enqueueGraphTriggerEmbed(triggerId: string): void {
+  if (!isMemoryV1Enabled()) return;
   enqueueMemoryJob("graph_trigger_embed", { triggerId });
 }
