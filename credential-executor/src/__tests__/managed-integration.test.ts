@@ -43,7 +43,7 @@ import {
   createListGrantsHandler,
   createListAuditRecordsHandler,
 } from "../grants/rpc-handlers.js";
-import { CesRpcServer, type RpcHandlerRegistry, type SessionIdRef } from "../server.js";
+import { CesRpcServer, type RpcHandlerRegistry, type ServeEndReason, type SessionIdRef } from "../server.js";
 import { createLocalSecureKeyBackend } from "../materializers/local-secure-key-backend.js";
 
 // ---------------------------------------------------------------------------
@@ -681,7 +681,7 @@ describe("credential CRUD RPC", () => {
    */
   async function setupCredentialRpc(): Promise<{
     clientSock: Socket;
-    servePromise: Promise<void>;
+    servePromise: Promise<ServeEndReason>;
   }> {
     savedEnv = saveEnv();
     tmpDir = mkdtempSync(join(tmpdir(), "ces-cred-integ-"));
