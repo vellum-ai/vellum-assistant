@@ -210,6 +210,13 @@ export interface LibraryViewProps {
   onNewConversation?: (initialMessage?: string) => void;
   onOpenDocument?: (documentSurfaceId: string) => void;
   onEditApp?: (app: { appId: string; dirName?: string; name: string; html: string }) => void;
+  /**
+   * If provided, clicking an app navigates instead of opening it inline.
+   * The library's `/library/:appId` route renders {@link LibraryDetailPage}
+   * for the dedicated detail view; this callback wires the list click to
+   * that route. When omitted, the click falls back to the inline overlay.
+   */
+  onOpenApp?: (appId: string) => void;
 }
 
 export function LibraryView({
@@ -218,6 +225,7 @@ export function LibraryView({
   onNewConversation,
   onOpenDocument,
   onEditApp,
+  onOpenApp,
 }: LibraryViewProps) {
   const deployToVercel = useAssistantFeatureFlagStore.use.deployToVercel();
   const pinnedAppIds = usePinnedAppsStore.use.pinnedAppIds();
@@ -325,6 +333,14 @@ export function LibraryView({
 
   const handleOpenApp = useCallback(
     async (appId: string) => {
+      // When wired with a route-based open handler, navigate to the dedicated
+      // detail page instead of opening inline. LibraryDetailPage handles the
+      // openApp call + dedicated load/error UI, and the URL becomes the
+      // shareable deep-link.
+      if (onOpenApp) {
+        onOpenApp(appId);
+        return;
+      }
       if (openingAppId) return;
       setOpeningAppId(appId);
       try {
@@ -337,7 +353,7 @@ export function LibraryView({
         setOpeningAppId(null);
       }
     },
-    [assistantId, openingAppId],
+    [assistantId, openingAppId, onOpenApp],
   );
 
   const handleClose = useCallback(() => {
