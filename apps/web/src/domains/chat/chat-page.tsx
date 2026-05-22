@@ -150,7 +150,7 @@ export function ChatPage() {
 
   const [restoredDraftConversationKey, setRestoredDraftConversationKey] = useState<string | null>(null);
   const [refreshEpoch, setRefreshEpoch] = useState(0);
-  const [_autoGreetPending, setAutoGreetPending] = useState(false);
+  const [autoGreetPending, setAutoGreetPending] = useState(false);
   const awaitingAutoGreetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [contextWindowUsage, setContextWindowUsage] = useState<ContextWindowUsage | null>(null);
   const [transcriptPagination, setTranscriptPagination] = useState<Omit<TranscriptPaginationState, "items">>({
@@ -674,7 +674,7 @@ export function ChatPage() {
   // Auto-send generic onboarding greet when the pending flag fires and no
   // content-automation initialMessage is queued (avoids double-send).
   useEffect(() => {
-    if (!_autoGreetPending || !activeConversationKey || !assistantId) return;
+    if (!autoGreetPending || !activeConversationKey || !assistantId) return;
     if (pendingOnboardingInitialMessageRef.current !== null) return;
     setAutoGreetPending(false);
     if (awaitingAutoGreetTimeoutRef.current) {
@@ -683,7 +683,7 @@ export function ChatPage() {
     }
     autoGreetRef.current = false;
     void sendMessage("Wake up, my friend!");
-  }, [_autoGreetPending, activeConversationKey, assistantId, sendMessage]);
+  }, [autoGreetPending, activeConversationKey, assistantId, sendMessage]);
 
   // Deep-link: ?app=<id> auto-opens the app viewer on initial load.
   const deepLinkAppConsumed = useRef(false);
