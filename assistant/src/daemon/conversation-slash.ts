@@ -14,7 +14,8 @@ import { getVisibleProviderCatalog } from "../providers/provider-catalog-visibil
 export type SlashResolution =
   | { kind: "passthrough"; content: string }
   | { kind: "unknown"; message: string }
-  | { kind: "compact"; targetInputTokensOverride?: number };
+  | { kind: "compact"; targetInputTokensOverride?: number }
+  | { kind: "clean" };
 
 const COMPACT_USAGE_HINT =
   "Usage: `/compact [<tokens>]` (e.g. `/compact 30000`, `/compact 30k`, `/compact 1m`).";
@@ -50,6 +51,23 @@ function parseCompactCommand(trimmed: string): CompactParse | null {
     };
   }
   return { kind: "compact", targetInputTokensOverride: tokens };
+}
+
+type CleanParse = { kind: "clean" } | { kind: "unknown"; message: string };
+
+const CLEAN_COMMAND_PATTERN = /^\/clean(?:\s+(.+?))?\s*$/i;
+
+function parseCleanCommand(trimmed: string): CleanParse | null {
+  const match = trimmed.match(CLEAN_COMMAND_PATTERN);
+  if (!match) return null;
+  const rest = match[1]?.trim();
+  if (rest) {
+    return {
+      kind: "unknown",
+      message: `\`/clean\` does not take arguments. Usage: \`/clean\`.`,
+    };
+  }
+  return { kind: "clean" };
 }
 
 // ── /context and /status commands ────────────────────────────────────
@@ -302,10 +320,14 @@ function resolveStatusCommand(context: SlashContext): SlashResolution {
   return { kind: "unknown", message: lines.join("\n") };
 }
 
+const CLEAN_HELP_LINE =
+  "/clean — Strip injected runtime context and reset memory injection state (no summarization)";
+
 function resolveCommandsList(context?: SlashContext): string[] {
   const fallbackLines = [
     "/commands — List all available commands",
     "/compact — Force context compaction immediately",
+    CLEAN_HELP_LINE,
   ];
   if (context) {
     fallbackLines.push("/context — Show conversation context usage");
@@ -322,6 +344,7 @@ function resolveCommandsList(context?: SlashContext): string[] {
     return [
       "/commands — List all available commands",
       "/compact — Force context compaction immediately",
+      CLEAN_HELP_LINE,
       "/context — Show conversation context usage",
       "/model — List or switch inference profile",
       "/models — List all available models",
@@ -335,6 +358,7 @@ function resolveCommandsList(context?: SlashContext): string[] {
     return [
       "/commands — List all available commands",
       "/compact — Force context compaction immediately",
+      CLEAN_HELP_LINE,
       "/context — Show conversation context usage",
       "/model — List or switch inference profile",
       "/models — List all available models",
@@ -347,6 +371,7 @@ function resolveCommandsList(context?: SlashContext): string[] {
   return [
     "/commands — List all available commands",
     "/compact — Force context compaction immediately",
+    CLEAN_HELP_LINE,
     "/context — Show conversation context usage",
     "/model — List or switch inference profile",
     "/models — List all available models",
@@ -366,7 +391,7 @@ function resolveCommandsList(context?: SlashContext): string[] {
  */
 export function classifySlash(
   content: string,
-): "passthrough" | "compact" | "unknown" {
+): "passthrough" | "compact" | "clean" | "unknown" {
   const trimmed = content.trim();
   if (parseModelCommand(trimmed) != null) {
     return "unknown";
@@ -381,6 +406,8 @@ export function classifySlash(
   if (trimmed === "/models") return "unknown";
   const compactParse = parseCompactCommand(trimmed);
   if (compactParse) return compactParse.kind;
+  const cleanParse = parseCleanCommand(trimmed);
+  if (cleanParse) return cleanParse.kind;
   if (trimmed === "/context") return "unknown";
   if (trimmed === "/status") return "unknown";
   if (trimmed === "/commands") return "unknown";
@@ -388,9 +415,10 @@ export function classifySlash(
 }
 
 /**
- * Resolve built-in slash commands (/models, /context, /status, /commands, /compact).
- * Returns `unknown` with a deterministic message, `compact` for forced compaction,
- * or the (possibly rewritten) content as `passthrough`.
+ * Resolve built-in slash commands (/models, /context, /status, /commands,
+ * /compact, /clean). Returns `unknown` with a deterministic message,
+ * `compact` for forced compaction, `clean` for injection stripping, or the
+ * (possibly rewritten) content as `passthrough`.
  */
 export async function resolveSlash(
   content: string,
@@ -423,6 +451,10 @@ export async function resolveSlash(
   // Handle /compact command (with optional `<tokens>` override).
   const compactParse = parseCompactCommand(trimmed);
   if (compactParse) return compactParse;
+
+  // Handle /clean command (strip injections, no summarization).
+  const cleanParse = parseCleanCommand(trimmed);
+  if (cleanParse) return cleanParse;
 
   // Handle /context and legacy /status commands
   if (trimmed === "/context" || trimmed === "/status") {
