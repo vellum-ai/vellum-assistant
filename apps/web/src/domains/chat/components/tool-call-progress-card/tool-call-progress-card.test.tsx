@@ -184,8 +184,8 @@ describe("ToolCallProgressCard — confirmation short-circuit", () => {
   });
 });
 
-describe("ToolCallProgressCard — subagent_spawn-only group", () => {
-  test("renders null pending the inline subagent card in PR 8", () => {
+describe("ToolCallProgressCard — subagent_spawn filtering", () => {
+  test("renders null for a single subagent_spawn group (inline card handles it)", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
@@ -201,11 +201,36 @@ describe("ToolCallProgressCard — subagent_spawn-only group", () => {
     expect(container.firstChild).toBeNull();
   });
 
-  test("subagent_spawn alongside another tool DOES render the unified shell", () => {
-    // Regression guard — the null short-circuit is intentionally tight
-    // (length === 1 && first is subagent_spawn). Any other shape, including
-    // multiple subagent_spawn calls, must render the unified shell so the
-    // user still sees activity.
+  test("renders null for a multi subagent_spawn group (no double render)", () => {
+    // The previous dispatcher only suppressed `length === 1` spawn-only
+    // groups, which meant 2+ spawn calls rendered "Spawning subagent" rows
+    // in the unified card on top of the transcript-level inline cards —
+    // showing each subagent twice. The data layer now filters
+    // `subagent_spawn` out, so this multi-spawn group reduces to zero steps
+    // and renders nothing.
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        toolName: "subagent_spawn",
+        status: "running",
+        input: { label: "First" },
+      }),
+      makeToolCall({
+        id: "tc-2",
+        toolName: "subagent_spawn",
+        status: "running",
+        input: { label: "Second" },
+      }),
+    ];
+    const { container, queryByTestId } = renderCard(toolCalls);
+    expect(queryByTestId("tool-progress-card-shell")).toBeNull();
+    expect(container.firstChild).toBeNull();
+  });
+
+  test("subagent_spawn alongside another tool renders only the non-spawn step", () => {
+    // Mixed groups still produce a unified card so users see the non-spawn
+    // tools. The spawn itself is suppressed (rendered inline elsewhere) so
+    // the shell only shows one step, not two.
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
@@ -220,8 +245,11 @@ describe("ToolCallProgressCard — subagent_spawn-only group", () => {
         input: { command: "ls" },
       }),
     ];
-    const { getByTestId } = renderCard(toolCalls);
+    const { getByTestId, getByText, queryByText } = renderCard(toolCalls);
     expect(getByTestId("tool-progress-card-shell")).toBeTruthy();
+    expect(getByText("1 step")).toBeTruthy();
+    // No "Spawning subagent" row in the body.
+    expect(queryByText(/Spawning subagent/i)).toBeNull();
   });
 });
 
@@ -480,6 +508,103 @@ describe("ToolCallProgressCard — expansion derived from state", () => {
       />,
     );
     expect(getByRole("button", { name: /collapse steps/i })).toBeTruthy();
+  });
+
+  test("isStreaming=true keeps the card expanded after tools complete", () => {
+    // Tools finish before the assistant's final response — the card should
+    // stay expanded while `isStreaming` is true so the user sees the steps
+    // beside the streaming reply, not a prematurely-collapsed card.
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        toolName: "bash",
+        status: "completed",
+        input: { command: "ls" },
+        startedAt: 0,
+        completedAt: 1000,
+      }),
+    ];
+    const { getByRole } = renderCard(toolCalls, { isStreaming: true });
+    expect(getByRole("button", { name: /collapse steps/i })).toBeTruthy();
+  });
+
+  test("isStreaming=false collapses the completed card (regression vs the previous case)", () => {
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        toolName: "bash",
+        status: "completed",
+        input: { command: "ls" },
+        startedAt: 0,
+        completedAt: 1000,
+      }),
+    ];
+    const { getByRole } = renderCard(toolCalls, { isStreaming: false });
+    expect(getByRole("button", { name: /expand steps/i })).toBeTruthy();
+  });
+});
+
+describe("ToolCallProgressCard — web group error chrome", () => {
+  test("a purely-web group with an errored tool call renders the shell's error icon", () => {
+    // Previously the `WebSearchView` recomputed state from raw status only,
+    // so an errored web_search rendered the green check (loading → complete)
+    // while non-web groups got the red AlertCircle. Now the unified state
+    // bubbles up so the icon matches.
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        toolName: "web_search",
+        status: "error",
+        input: { query: "tigers" },
+      }),
+    ];
+    const { getByTestId } = renderCard(toolCalls);
+    const indicator = getByTestId("web-search-status-indicator");
+    // lucide `AlertCircle` renders as an <svg>.
+    expect(indicator.tagName.toLowerCase()).toBe("svg");
+    expect(indicator.getAttribute("data-state")).toBe("error");
+  });
+});
+
+describe("ToolCallProgressCard — mixed group web_search_error rendering", () => {
+  test("renders an ErrorChip (not the default pill) for a web_search_error step in a mixed group", () => {
+    // The unified card's `ExpandedStep` previously fell through to
+    // `DefaultStepPill` for `web_search_error`, dropping the dedicated
+    // error chip the web-search card shows. A mixed group exercises that
+    // path since purely-web groups go through `WebSearchProgressCard`.
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        toolName: "web_search",
+        status: "error",
+        input: { query: "tigers" },
+        activityMetadata: {
+          webSearch: {
+            query: "tigers",
+            provider: "anthropic-native",
+            resultCount: 0,
+            durationMs: 200,
+            results: [],
+            errorMessage: "Provider returned max_uses_exceeded.",
+          },
+        },
+      }),
+      makeToolCall({
+        id: "tc-2",
+        toolName: "bash",
+        status: "completed",
+        input: { command: "ls" },
+        startedAt: 0,
+        completedAt: 100,
+      }),
+    ];
+    const { getByTestId, getByText } = renderCard(toolCalls, {
+      // Force expand so the step body is in the DOM regardless of state.
+      expandedCardIds: new Map([["tc-1", true]]),
+    });
+    expect(getByTestId("tool-progress-card-shell")).toBeTruthy();
+    expect(getByTestId("web-search-error-chip")).toBeTruthy();
+    expect(getByText("Provider returned max_uses_exceeded.")).toBeTruthy();
   });
 });
 

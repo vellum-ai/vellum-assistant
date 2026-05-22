@@ -121,8 +121,12 @@ type PhaseHeaderStatus = "completed" | "failed" | "running";
  *
  * Precedence: any running step → "running"; otherwise any failure
  * (`tool_error` / `web_search_error` / `tool` status `error`|`denied`) →
- * "failed"; otherwise → "completed". `thinking` / `web_search` have no
- * per-step status — they're neutral and don't influence the bucket.
+ * "failed"; otherwise → "completed".
+ *
+ * `web_search` steps carry no explicit status field — `useToolCallCardData`
+ * encodes "in-flight" via the present-tense title ("Searching the web" vs
+ * "Searched the web"), so we treat any `web_search` step with that title
+ * as in-flight. `thinking` is always neutral (no in-flight signal carried).
  */
 function phaseHeaderStatus(steps: ToolCallCardStep[]): PhaseHeaderStatus {
   if (steps.length === 0) return "running";
@@ -133,10 +137,16 @@ function phaseHeaderStatus(steps: ToolCallCardStep[]): PhaseHeaderStatus {
       if (step.status === "error" || step.status === "denied") failed = true;
       continue;
     }
+    if (step.kind === "web_search") {
+      // Title is the canonical in-flight signal — see `webSearchStepTitle`
+      // in `use-tool-call-card-data.ts`.
+      if (step.title === "Searching the web") return "running";
+      continue;
+    }
     if (step.kind === "tool_error" || step.kind === "web_search_error") {
       failed = true;
     }
-    // `thinking` / `web_search` are neutral — see docstring.
+    // `thinking` is neutral — see docstring.
   }
   return failed ? "failed" : "completed";
 }

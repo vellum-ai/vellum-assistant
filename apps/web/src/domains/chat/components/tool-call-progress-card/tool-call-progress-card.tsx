@@ -1,13 +1,15 @@
-
 import { X } from "lucide-react";
 import { Fragment, useState } from "react";
 
 import { ToolCallChip } from "@/domains/chat/components/tool-call-chip/tool-call-chip.js";
-import { FaviconChip } from "@/domains/chat/components/web-search/favicon-chip.js";
-import { WebSearchProgressCard } from "@/domains/chat/components/web-search/web-search-progress-card.js";
-import type { StepDescriptor } from "@/domains/chat/components/web-search/web-search-progress-card.js";
-import { Typography } from "@vellum/design-library";
-
+import {
+  WebSearchProgressCard,
+  type StepDescriptor,
+} from "@/domains/chat/components/web-search/web-search-progress-card.js";
+import {
+  WebSearchErrorRow,
+  WebSearchStepRow,
+} from "@/domains/chat/components/web-search/web-search-step-row.js";
 import {
   DefaultStepPill,
   PhaseGroupedStepList,
@@ -60,8 +62,10 @@ export interface ToolCallProgressCardProps {
   onDismissUnknownNudge?: (toolCallId: string) => void;
   /**
    * Whether the parent assistant message is currently streaming a response.
-   * Retained for API compatibility with the legacy dispatcher; the unified
-   * card derives its visual state from `useToolCallCardData` instead.
+   * Tools can finish before the assistant's final reply is complete; the
+   * card keeps itself expanded while either `isStreaming` is true or the
+   * tool group is still loading, so the user keeps seeing the steps next to
+   * the streaming reply instead of a prematurely-collapsed card.
    */
   isStreaming?: boolean;
   /**
@@ -83,9 +87,10 @@ export interface ToolCallProgressCardProps {
  * - `pendingConfirmationToolCallId` matches a tool call in this group →
  *   render the inline confirmation UI via {@link ToolCallChip} so the
  *   approve/deny path is preserved bit-for-bit from the legacy card.
- * - `subagent_spawn`-only group → return `null` until PR 8 wires the inline
- *   subagent card; the legacy bottom-of-message `SubagentProgressCard`
- *   continues to render the spawned subagent's progress.
+ * - Zero renderable steps (today: a group made up entirely of
+ *   `subagent_spawn` calls, which `useToolCallCardData` filters out) → render
+ *   `null`; the spawned subagents render as inline
+ *   `SubagentInlineProgressCard`s elsewhere in the transcript.
  */
 export function ToolCallProgressCard(props: ToolCallProgressCardProps) {
   const {
@@ -103,6 +108,11 @@ export function ToolCallProgressCard(props: ToolCallProgressCardProps) {
   // prepends a `thinking` step ahead of the first tool call when supplied;
   // purely-web groups (which historically didn't have a leading-thinking
   // slot) typically pass `null` so the prepend is a no-op.
+  //
+  // `subagent_spawn` calls are filtered out inside `computeToolCallCardData`
+  // — they're rendered inline by `SubagentInlineProgressCard` at the
+  // transcript level. If a group reduces to zero renderable steps the
+  // dispatcher falls through to a no-op below.
   const cardData = useToolCallCardData(
     toolCalls,
     leadingThinkingText ?? null,
@@ -116,13 +126,10 @@ export function ToolCallProgressCard(props: ToolCallProgressCardProps) {
     return <ConfirmationView {...props} />;
   }
 
-  // Subagent-only group — PR 7 introduces an inline subagent card; until
-  // then the spawned subagent continues to render via the legacy bottom-of-
-  // message `SubagentProgressCard`, so this card returns nothing.
-  if (
-    toolCalls.length === 1 &&
-    toolCalls[0]?.toolName === "subagent_spawn"
-  ) {
+  // No renderable steps — every tool call in the group was filtered out
+  // (today that means a `subagent_spawn`-only group). Inline subagent cards
+  // handle the rendering elsewhere, so we return nothing here.
+  if (cardData.steps.length === 0) {
     return null;
   }
 
@@ -147,10 +154,18 @@ function isPurelyWebGroup(toolCalls: ChatMessageToolCall[]): boolean {
 
 /**
  * Renders the web-search variant by narrowing the unified card data to the
- * legacy `WebSearchProgressCard` props. State is recomputed from the raw
- * tool-call statuses rather than the unified `state` because a denied
- * confirmation can race ahead of the error `tool_result` and the legacy
- * card has to stay in `"loading"` until the tool actually exits.
+ * legacy `WebSearchProgressCard` props.
+ *
+ * State precedence (highest first):
+ *   1. `"loading"` — any tool call still has `status === "running"`. A denied
+ *      confirmation can race ahead of the error `tool_result`, so the legacy
+ *      card has to stay in `"loading"` until the tool actually exits.
+ *   2. unified `state === "error"` or `"denied"` — bubble the failed chrome
+ *      up so a purely-web group that ends with a tool error reads as failed
+ *      (consistent with mixed / non-web groups that already render through
+ *      the unified shell's error icon).
+ *   3. `"complete"` — every tool call reached a terminal status without
+ *      failure.
  */
 function WebSearchView({
   toolCalls,
@@ -159,11 +174,6 @@ function WebSearchView({
   toolCalls: ChatMessageToolCall[];
   cardData: ToolCallCardData;
 }) {
-  const state: "loading" | "complete" = toolCalls.some(
-    (tc) => tc.status === "running",
-  )
-    ? "loading"
-    : "complete";
   return (
     <WebSearchProgressCard
       currentStepTitle={cardData.currentStepTitle}
@@ -173,10 +183,19 @@ function WebSearchView({
       // by construction — the `tool` variant only appears for non-web
       // tools, which this branch filters out.
       steps={cardData.steps as StepDescriptor[]}
-      state={state}
+      state={deriveWebShellState(toolCalls, cardData.state)}
       carouselItems={cardData.carouselItems}
     />
   );
+}
+
+function deriveWebShellState(
+  toolCalls: ChatMessageToolCall[],
+  unifiedState: ToolCallCardData["state"],
+): ToolProgressCardState {
+  if (toolCalls.some((tc) => tc.status === "running")) return "loading";
+  if (unifiedState === "error" || unifiedState === "denied") return unifiedState;
+  return "complete";
 }
 
 /**
@@ -195,9 +214,15 @@ function UnifiedToolCallProgressCard({
   onOpenRuleEditor,
   unknownNudgeToolCallIds,
   onDismissUnknownNudge,
+  isStreaming,
 }: ToolCallProgressCardProps & { cardData: ToolCallCardData }) {
   const cardId = toolCalls[0]?.id ?? null;
-  const expanded = useCardExpanded(cardId, cardData.state, expandedCardIds);
+  const expanded = useCardExpanded(
+    cardId,
+    cardData.state,
+    expandedCardIds,
+    isStreaming ?? false,
+  );
 
   const shellState: ToolProgressCardState = cardData.state;
 
@@ -244,9 +269,11 @@ function UnifiedToolCallProgressCard({
 
 /**
  * Drives the unified card's expand/collapse state. Mirrors legacy behavior:
- * auto-expand while loading, auto-collapse on terminal state, but a user
- * toggle (now or in a previous mount, recorded in `expandedCardIds`) wins
- * across state transitions and remounts.
+ * auto-expand while loading or while the parent message is still streaming
+ * (tools can finish before the assistant's final response is complete),
+ * auto-collapse on terminal state, but a user toggle (now or in a previous
+ * mount, recorded in `expandedCardIds`) wins across state transitions and
+ * remounts.
  *
  * `localToggle` mirrors the map mutation so React re-renders on click —
  * mutating the map alone wouldn't trigger one.
@@ -255,6 +282,7 @@ function useCardExpanded(
   cardId: string | null,
   state: ToolCallCardData["state"],
   expandedCardIds: Map<string, boolean>,
+  isStreaming: boolean,
 ): { value: boolean; onChange: (next: boolean) => void } {
   const [localToggle, setLocalToggle] = useState<boolean | undefined>(
     undefined,
@@ -262,7 +290,7 @@ function useCardExpanded(
   const persisted =
     cardId != null ? expandedCardIds.get(cardId) : undefined;
   const userChoice = localToggle ?? persisted;
-  const value = userChoice ?? state === "loading";
+  const value = userChoice ?? (state === "loading" || isStreaming);
 
   const onChange = (next: boolean) => {
     setLocalToggle(next);
@@ -325,28 +353,17 @@ function UnknownCommandNudge({
 
 /**
  * Render a single step inside the expanded body of a phase section. The
- * `web_search` variant keeps its favicon chip cluster + overflow pill so
- * the visual language matches the dedicated `WebSearchProgressCard`; all
- * other variants fall through to {@link DefaultStepPill} which matches
- * Figma `5010-103135`.
+ * `web_search` and `web_search_error` variants delegate to the shared
+ * `WebSearchStepRow` / `WebSearchErrorRow` primitives so the visual language
+ * matches the dedicated `WebSearchProgressCard`; all other variants fall
+ * through to {@link DefaultStepPill} which matches Figma `5010-103135`.
  */
 function ExpandedStep({ step }: { step: ToolCallCardStep }) {
   if (step.kind === "web_search") {
-    return (
-      <div className="flex flex-wrap items-center gap-1">
-        {step.results.map((r) => (
-          <FaviconChip
-            key={r.rank}
-            faviconUrl={r.faviconUrl}
-            title={r.title}
-            domain={r.domain}
-          />
-        ))}
-        {step.overflow && step.overflow > 0 ? (
-          <OverflowChip count={step.overflow} />
-        ) : null}
-      </div>
-    );
+    return <WebSearchStepRow step={step} />;
+  }
+  if (step.kind === "web_search_error") {
+    return <WebSearchErrorRow step={step} />;
   }
   return <DefaultStepPill step={step} />;
 }
@@ -415,19 +432,3 @@ function ConfirmationView({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Small shared chips — kept local so the file is self-contained
-// ---------------------------------------------------------------------------
-
-function OverflowChip({ count }: { count: number }) {
-  return (
-    <div className="rounded-[var(--radius-pill)] bg-[var(--surface-base)] px-[10px] py-[6px]">
-      <Typography
-        variant="body-small-emphasised"
-        className="text-[var(--content-default)]"
-      >
-        +{count} more
-      </Typography>
-    </div>
-  );
-}
