@@ -98,11 +98,11 @@
     "conversations",
     "messaging"
   ],
+  "src/domains/chat/hooks/use-tool-call-card-data.ts": [
+    "messaging"
+  ],
   "src/domains/chat/hooks/use-voice-input.ts": [
     "voice"
-  ],
-  "src/domains/chat/hooks/use-web-search-card-data.ts": [
-    "messaging"
   ],
   "src/domains/chat/transcript/latest-turn-row.tsx": [
     "subagents"
