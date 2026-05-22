@@ -43,6 +43,10 @@ function ThemeCard() {
   );
 
   useEffect(() => {
+    setTheme(readStoredThemePreference({ velvetEnabled: velvet }));
+  }, [velvet]);
+
+  useEffect(() => {
     const handleExternalThemeChange = (event: CustomEvent<string>) => {
       setTheme(
         normalizeThemePreference(event.detail, { velvetEnabled: velvet }),
