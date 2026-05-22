@@ -992,6 +992,10 @@ registerPolicy("conversations/cli/export", {
   requiredScopes: ["settings.read"],
   allowedPrincipalTypes: ["local"],
 });
+registerPolicy("conversations/cli/slack/detach", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
 // `conversations/cli/clear` wipes every conversation + message + vector
 // collection. Elevated to settings.write and locked to local callers,
 // mirroring the `conversations/clear-all` and `conversations/wipe` gates.
