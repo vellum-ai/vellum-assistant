@@ -110,6 +110,7 @@ import { recordInbound } from "../memory/delivery-crud.js";
 import type { Message as MessagingMessage } from "../messaging/provider-types.js";
 import * as slackBackfill from "../messaging/providers/slack/backfill.js";
 import {
+  buildSlackTimezoneMetadata,
   readSlackMetadata,
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
@@ -2028,12 +2029,25 @@ function buildSlackDmRequest(
 
 interface SlackInboundProcessOptions {
   displayContent?: string;
+  transport?: {
+    channelId?: string;
+    hints?: string[];
+    uxBrief?: string;
+    chatType?: string;
+    clientTimezone?: string;
+  };
   slackInbound?: {
     channelId: string;
     channelTs: string;
     threadTs?: string;
     displayName?: string;
     actorExternalUserId?: string;
+    actorTimezone?: string;
+    actorTimezoneLabel?: string;
+    actorTimezoneOffsetSeconds?: number;
+    timestampTimezone?: string;
+    timestampTimezoneLabel?: string;
+    speakerTimezoneLabel?: string;
   };
 }
 
@@ -2060,6 +2074,15 @@ function persistSlackInboundFromProcessMessage(
             ...(slackInbound.actorExternalUserId
               ? { actorExternalUserId: slackInbound.actorExternalUserId }
               : {}),
+            ...buildSlackTimezoneMetadata({
+              actorTimezone: slackInbound.actorTimezone,
+              actorTimezoneLabel: slackInbound.actorTimezoneLabel,
+              actorTimezoneOffsetSeconds:
+                slackInbound.actorTimezoneOffsetSeconds,
+              timestampTimezone: slackInbound.timestampTimezone,
+              timestampTimezoneLabel: slackInbound.timestampTimezoneLabel,
+              speakerTimezoneLabel: slackInbound.speakerTimezoneLabel,
+            }),
             eventKind: "message",
           }),
         }
@@ -2249,6 +2272,14 @@ describe("handleChannelInbound — Slack thread backfill wiring", () => {
     const captured = await handleAndCaptureLiveSlackProcessMessage(
       buildSlackChannelRequest("1700000000.000300", {
         content: rawContent,
+        clientTimezone: "America/Los_Angeles",
+        sourceMetadata: {
+          messageId: "1700000000.000300",
+          chatType: "channel",
+          timezone: "America/New_York",
+          timezoneLabel: "Eastern Time",
+          timezoneOffsetSeconds: -18000,
+        },
       }),
     );
 
@@ -2260,10 +2291,27 @@ describe("handleChannelInbound — Slack thread backfill wiring", () => {
     expect(captured.options?.slackInbound?.actorExternalUserId).toBe(
       HTTP_SLACK_USER_ID,
     );
+    expect(captured.options?.transport?.clientTimezone).toBe(
+      "America/Los_Angeles",
+    );
+    expect(captured.options?.slackInbound?.actorTimezone).toBe(
+      "America/New_York",
+    );
+    expect(captured.options?.slackInbound?.timestampTimezone).toBe(
+      "America/Los_Angeles",
+    );
+    expect(captured.options?.slackInbound?.timestampTimezoneLabel).toBe("PT");
+    expect(captured.options?.slackInbound?.speakerTimezoneLabel).toBe(
+      "Eastern Time",
+    );
 
     const persisted = readMessagesByConversation(captured.conversationId);
     expect(persisted).toHaveLength(1);
     expect(persisted[0].content).toBe(rawContent);
+    const [persistedSlackRow] = readPersistedSlackRows(captured.conversationId);
+    expect(persistedSlackRow?.timestampTimezone).toBe("America/Los_Angeles");
+    expect(persistedSlackRow?.timestampTimezoneLabel).toBe("PT");
+    expect(persistedSlackRow?.speakerTimezoneLabel).toBe("Eastern Time");
   });
 
   test("live Slack attachment-only passes empty raw displayContent for persistence", async () => {

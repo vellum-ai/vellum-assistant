@@ -20,7 +20,11 @@ import {
   createApprovalConversationGenerator,
   createApprovalCopyGenerator,
 } from "../../daemon/approval-generators.js";
-import { resolveTurnTimezoneContext } from "../../daemon/date-context.js";
+import { findConversation } from "../../daemon/conversation-store.js";
+import {
+  canonicalizeTimeZone,
+  resolveTurnTimezoneContext,
+} from "../../daemon/date-context.js";
 import { getDiskPressureStatus } from "../../daemon/disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "../../daemon/disk-pressure-policy.js";
 import { processMessage } from "../../daemon/process-message.js";
@@ -171,14 +175,16 @@ function attachSlackRequesterTimezone(
   };
 }
 
-function resolveSlackTranscriptTimestampTimezone(): {
+function resolveSlackTranscriptTimestampTimezone(
+  clientTimezone?: string | null,
+): {
   timestampTimezone: string;
   timestampTimezoneLabel?: string;
 } {
   const config = getConfig();
   const timestampTimezone = resolveTurnTimezoneContext({
     configuredUserTimeZone: config.ui?.userTimezone ?? null,
-    clientTimezone: null,
+    clientTimezone: clientTimezone ?? null,
     detectedTimezone: config.ui?.detectedTimezone ?? null,
     hostTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
   }).effectiveTimezone;
@@ -187,6 +193,26 @@ function resolveSlackTranscriptTimestampTimezone(): {
     timestampTimezone,
     ...(timestampTimezoneLabel ? { timestampTimezoneLabel } : {}),
   };
+}
+
+function resolveInboundClientTimezone(params: {
+  bodyClientTimezone?: unknown;
+  sourceMetadata?: Record<string, unknown>;
+  conversationId: string;
+}): string | undefined {
+  const bodyClientTimezone =
+    typeof params.bodyClientTimezone === "string"
+      ? canonicalizeTimeZone(params.bodyClientTimezone)
+      : undefined;
+  const metadataClientTimezone =
+    typeof params.sourceMetadata?.clientTimezone === "string"
+      ? canonicalizeTimeZone(params.sourceMetadata.clientTimezone)
+      : undefined;
+  return (
+    bodyClientTimezone ??
+    metadataClientTimezone ??
+    findConversation(params.conversationId)?.clientTimezone
+  );
 }
 
 /**
@@ -230,6 +256,7 @@ export async function handleChannelInbound({
     replyCallbackUrl?: string;
     callbackQueryId?: string;
     callbackData?: string;
+    clientTimezone?: unknown;
   };
 
   const {
@@ -1148,9 +1175,14 @@ export async function handleChannelInbound({
         trustCtx.trustClass !== "guardian"
           ? slackActorTimezone?.timezoneLabel
           : undefined;
+      const inboundClientTimezone = resolveInboundClientTimezone({
+        bodyClientTimezone: body.clientTimezone,
+        sourceMetadata,
+        conversationId: result.conversationId,
+      });
       const slackTranscriptTimestampTimezone =
         sourceChannel === "slack"
-          ? resolveSlackTranscriptTimestampTimezone()
+          ? resolveSlackTranscriptTimestampTimezone(inboundClientTimezone)
           : undefined;
       const slackInbound =
         sourceChannel === "slack"
@@ -1283,6 +1315,7 @@ export async function handleChannelInbound({
         assistantId: canonicalAssistantId,
         approvalCopyGenerator,
         chatType: sourceChatType,
+        clientTimezone: inboundClientTimezone,
         slackBotMentioned,
         slackInbound,
       });
