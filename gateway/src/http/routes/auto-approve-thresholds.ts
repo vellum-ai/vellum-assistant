@@ -154,6 +154,15 @@ export function createGlobalThresholdPutHandler() {
 // ---------------------------------------------------------------------------
 // GET /v1/permissions/thresholds/conversations/:conversationId
 // ---------------------------------------------------------------------------
+//
+// Returns 200 with `{ threshold: <value> }` when an override exists, and
+// 200 with `{ threshold: null }` when no override exists for the given
+// conversation. Treating "no override" as a normal 200 result (rather than
+// 404) avoids surfacing a misleading network error in the browser console
+// for what is the common case — most conversations have no override —
+// and keeps the HTTP response shape consistent with the IPC contract,
+// which already returns `null` for the same condition.
+// ---------------------------------------------------------------------------
 
 export function createConversationThresholdGetHandler() {
   return async (_req: Request, params: string[]): Promise<Response> => {
@@ -176,10 +185,7 @@ export function createConversationThresholdGetHandler() {
         .get();
 
       if (!row) {
-        return Response.json(
-          { error: "No override for this conversation" },
-          { status: 404 },
-        );
+        return Response.json({ threshold: null });
       }
 
       return Response.json({ threshold: row.threshold });

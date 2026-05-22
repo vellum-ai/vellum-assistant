@@ -3075,17 +3075,19 @@ export function buildSchema(): Record<string, unknown> {
           ],
           responses: {
             "200": {
-              description: "Conversation threshold override",
+              description:
+                "Conversation threshold override. `threshold` is `null` when no override exists.",
               content: {
                 "application/json": {
                   schema: {
                     type: "object",
-                    properties: { threshold: { type: "string" } },
+                    properties: {
+                      threshold: { type: "string", nullable: true },
+                    },
                   },
                 },
               },
             },
-            "404": { description: "No override for this conversation" },
             "500": { description: "Internal server error" },
           },
         },
@@ -3172,17 +3174,19 @@ export function buildSchema(): Record<string, unknown> {
             ],
             responses: {
               "200": {
-                description: "Conversation threshold override",
+                description:
+                  "Conversation threshold override. `threshold` is `null` when no override exists.",
                 content: {
                   "application/json": {
                     schema: {
                       type: "object",
-                      properties: { threshold: { type: "string" } },
+                      properties: {
+                        threshold: { type: "string", nullable: true },
+                      },
                     },
                   },
                 },
               },
-              "404": { description: "No override for this conversation" },
               "500": { description: "Internal server error" },
             },
           },
