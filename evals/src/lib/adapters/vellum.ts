@@ -267,10 +267,16 @@ export class VellumAgent implements BaseAgent {
     } catch (err) {
       // Capture container forensics BEFORE retire — once the container
       // is removed, `docker inspect` and `docker logs` both return empty.
+      // Only fires when hatchStarted, i.e. `vellum hatch` itself succeeded
+      // and our container exists; otherwise the named container belongs
+      // to someone else (e.g. the "name already exists" failure path) and
+      // inspecting it would be both incorrect and noisy.
       // Best-effort: any failure here (docker not installed, container
-      // never created, permission error) is silently ignored so we never
-      // shadow the original hatch error with a diagnostics-capture error.
-      await this.captureContainerForensics().catch(() => undefined);
+      // gone, permission error) is silently ignored so we never shadow
+      // the original error with a diagnostics-capture error.
+      if (hatchStarted) {
+        await this.captureContainerForensics().catch(() => undefined);
+      }
       await this.jail?.stop().catch(() => undefined);
       if (hatchStarted) {
         await this.runner
