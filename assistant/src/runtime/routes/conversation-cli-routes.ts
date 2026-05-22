@@ -11,6 +11,7 @@ import { z } from "zod";
 
 import { clearAllConversations as clearAllActive } from "../../daemon/handlers/conversations.js";
 import { formatJson, formatMarkdown } from "../../export/formatter.js";
+import { ipcCall as ipcCallGateway } from "../../ipc/gateway-client.js";
 import {
   addMessage,
   createConversation,
@@ -19,8 +20,9 @@ import {
 } from "../../memory/conversation-crud.js";
 import { setConversationKey } from "../../memory/conversation-key-store.js";
 import { listConversations } from "../../memory/conversation-queries.js";
+import { getBindingByConversation } from "../../memory/external-conversation-store.js";
 import { getLogger } from "../../util/logger.js";
-import { BadRequestError, NotFoundError } from "./errors.js";
+import { BadGatewayError, BadRequestError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("conversation-cli-routes");
@@ -151,6 +153,111 @@ async function handleClearCli(_args: RouteHandlerArgs) {
 }
 
 // ---------------------------------------------------------------------------
+// slack detach (CLI)
+// ---------------------------------------------------------------------------
+
+const slackDetachRequestSchema = z.object({
+  conversationId: z.string().trim().min(1).optional(),
+  channelId: z.string().trim().min(1).optional(),
+  threadTs: z.string().trim().min(1).optional(),
+});
+
+const slackDetachResponseSchema = z.object({
+  detached: z.boolean(),
+  channelId: z.string(),
+  threadTs: z.string(),
+  source: z.enum(["explicit", "conversation_binding"]),
+  conversationId: z.string().optional(),
+});
+
+type SlackDetachGatewayResponse = {
+  detached: boolean;
+  channelId: string;
+  threadTs: string;
+};
+
+function isSlackDetachGatewayResponse(
+  value: unknown,
+): value is SlackDetachGatewayResponse {
+  return (
+    value != null &&
+    typeof value === "object" &&
+    typeof (value as SlackDetachGatewayResponse).detached === "boolean" &&
+    typeof (value as SlackDetachGatewayResponse).channelId === "string" &&
+    typeof (value as SlackDetachGatewayResponse).threadTs === "string"
+  );
+}
+
+async function handleSlackDetachCli({ body = {} }: RouteHandlerArgs) {
+  const parsed = slackDetachRequestSchema.parse(body);
+  const explicitChannelId = parsed.channelId;
+  const explicitThreadTs = parsed.threadTs;
+
+  let channelId: string;
+  let threadTs: string;
+  let source: "explicit" | "conversation_binding";
+  let conversationId: string | undefined;
+
+  if (explicitChannelId || explicitThreadTs) {
+    if (!explicitChannelId || !explicitThreadTs) {
+      throw new BadRequestError(
+        "Both channelId and threadTs are required when detaching by explicit Slack identifiers",
+      );
+    }
+    channelId = explicitChannelId;
+    threadTs = explicitThreadTs;
+    source = "explicit";
+  } else {
+    if (!parsed.conversationId) {
+      throw new BadRequestError(
+        "conversationId is required unless channelId and threadTs are provided",
+      );
+    }
+
+    const binding = getBindingByConversation(parsed.conversationId);
+    if (!binding) {
+      throw new NotFoundError(
+        `No channel binding found for conversation ${parsed.conversationId}`,
+      );
+    }
+    if (binding.sourceChannel !== "slack") {
+      throw new BadRequestError(
+        `Conversation ${parsed.conversationId} is bound to ${binding.sourceChannel}, not Slack`,
+      );
+    }
+    if (!binding.externalThreadId) {
+      throw new BadRequestError(
+        `Conversation ${parsed.conversationId} is not bound to a Slack thread`,
+      );
+    }
+
+    channelId = binding.externalChatId;
+    threadTs = binding.externalThreadId;
+    source = "conversation_binding";
+    conversationId = parsed.conversationId;
+  }
+
+  const gatewayResult = await ipcCallGateway(
+    "detach_slack_active_thread",
+    { channelId, threadTs },
+    5_000,
+  );
+  if (!isSlackDetachGatewayResponse(gatewayResult)) {
+    throw new BadGatewayError(
+      "Could not detach Slack thread from assistant listening",
+    );
+  }
+
+  return {
+    detached: gatewayResult.detached,
+    channelId: gatewayResult.channelId,
+    threadTs: gatewayResult.threadTs,
+    source,
+    ...(conversationId ? { conversationId } : {}),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
 
@@ -229,5 +336,17 @@ export const ROUTES: RouteDefinition[] = [
       cleared: z.number().int(),
     }),
     handler: handleClearCli,
+  },
+  {
+    operationId: "conversation_slack_detach_cli",
+    endpoint: "conversations/cli/slack/detach",
+    method: "POST",
+    summary: "Detach the assistant from a Slack thread (CLI)",
+    description:
+      "Stops Slack active-thread listening for a Slack thread. The CLI resolves current conversation defaults.",
+    tags: ["conversations"],
+    requestBody: slackDetachRequestSchema,
+    responseBody: slackDetachResponseSchema,
+    handler: handleSlackDetachCli,
   },
 ];
