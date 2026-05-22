@@ -39,17 +39,21 @@ const PLUGINS_TAB: IntelligenceTab = {
  */
 export function IntelligenceLayout() {
   const assistantName = useAssistantIdentityStore.use.name();
+  const hasHydrated = useAssistantFeatureFlagStore.use.hasHydrated();
   const externalPlugins = useAssistantFeatureFlagStore.use.externalPlugins();
   const { pathname } = useLocation();
   const outletContext = useOutletContext();
 
   // Insert the Plugins tab between Identity and Skills when the
-  // `external-plugins` flag is on. The PluginsPage route itself
-  // redirects back to Identity when the flag is off, in case the URL
-  // is reached directly.
-  const tabs: readonly IntelligenceTab[] = externalPlugins
-    ? [BASE_INTELLIGENCE_TABS[0], PLUGINS_TAB, ...BASE_INTELLIGENCE_TABS.slice(1)]
-    : BASE_INTELLIGENCE_TABS;
+  // `external-plugins` flag is on. Gated on `hasHydrated` so we don't
+  // flash the tab in/out — until the first /feature-flags response
+  // lands, render the baseline tabs (Identity + Skills + Memories).
+  // The PluginsPage route itself also waits for hydration before
+  // deciding to redirect, so a deep-link to /assistant/plugins is safe.
+  const tabs: readonly IntelligenceTab[] =
+    hasHydrated && externalPlugins
+      ? [BASE_INTELLIGENCE_TABS[0], PLUGINS_TAB, ...BASE_INTELLIGENCE_TABS.slice(1)]
+      : BASE_INTELLIGENCE_TABS;
 
   return (
     <PageShell>
