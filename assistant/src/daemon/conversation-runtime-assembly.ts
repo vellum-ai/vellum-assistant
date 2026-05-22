@@ -24,12 +24,9 @@ import { readSlackMetadata } from "../messaging/providers/slack/message-metadata
 import {
   compareSlackTs,
   extractTagLineTexts,
-  isReactionTagLine,
-  isSlackMessageTagLine,
   isSlackTsAfter,
   type RenderableSlackMessage,
   type RenderedSlackTranscriptMessage,
-  renderSlackTranscript,
   renderSlackTranscriptWithProvenance,
 } from "../messaging/providers/slack/render-transcript.js";
 import { getInjectors } from "../plugins/registry.js";
@@ -1372,6 +1369,7 @@ function assembleSlackChronologicalContext(
       {
         message: createContextSummaryMessage(contextSummary),
         sourceChannelTs: null,
+        tagLineProvenance: "none",
       },
       ...renderedMessages,
     ];
@@ -1567,18 +1565,17 @@ function buildActiveThreadBlockFromRenderable(
     return { ...m, senderLabel: "@user" };
   });
 
-  const rendered = renderSlackTranscript(labeledMembers);
-  if (rendered.length === 0) return null;
-  // Reaction / overflow-trailer lines already embed `@assistant` inline, and
-  // timezone-aware assistant rows already carry compact bracket attribution.
-  // Regular content and the `[deleted]` sentinel get the prefix so attribution
-  // survives flattening.
-  const lines = rendered
-    .map((msg) => {
-      const text = extractTagLineTexts([msg])[0] ?? "";
-      return msg.role === "assistant" &&
-        !isReactionTagLine(text) &&
-        !isSlackMessageTagLine(text)
+  const rendered = renderSlackTranscriptWithProvenance(labeledMembers);
+  if (rendered.renderedMessages.length === 0) return null;
+  // Reaction / overflow-trailer lines are renderer-owned Slack event lines,
+  // and timezone-aware assistant rows already carry metadata-backed compact
+  // attribution. Regular assistant content and the `[deleted]` sentinel get
+  // the prefix so attribution survives flattening.
+  const lines = rendered.renderedMessages
+    .map((entry) => {
+      const text = extractTagLineTexts([entry.message])[0] ?? "";
+      return entry.message.role === "assistant" &&
+        entry.tagLineProvenance === "none"
         ? `@assistant: ${text}`
         : text;
     })

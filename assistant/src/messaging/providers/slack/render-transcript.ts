@@ -78,7 +78,14 @@ export interface RenderedSlackTranscript {
 export interface RenderedSlackTranscriptMessage {
   readonly message: Message;
   readonly sourceChannelTs: string | null;
+  /** How the first rendered text line got its Slack attribution, if any. */
+  readonly tagLineProvenance: RenderedSlackTranscriptTagLineProvenance;
 }
+
+export type RenderedSlackTranscriptTagLineProvenance =
+  | "none"
+  | "slack-reaction"
+  | "slack-timezone-message";
 
 /**
  * Replayable Anthropic content-block types that we preserve verbatim from a
@@ -125,8 +132,6 @@ export function parentAlias(channelTs: string): string {
  * with the message body, not with `]`, so they never match.
  */
 const REACTION_TAG_LINE_SUFFIX = /M[0-9a-f]{6}\]$/;
-const COMPACT_MESSAGE_TAG_LINE_PREFIX =
-  /^\[[a-z]{3} \d{1,2} \d{4} \d{1,2}:\d{2} (?:AM|PM) [^\]\s]+(?: [^\]]+)?\](?:\s|$)/;
 
 /**
  * Whether a rendered tag-line string was produced by the reaction or
@@ -142,15 +147,6 @@ const COMPACT_MESSAGE_TAG_LINE_PREFIX =
  */
 export function isReactionTagLine(text: string): boolean {
   return REACTION_TAG_LINE_SUFFIX.test(text);
-}
-
-/**
- * Whether a rendered line already carries the compact Slack message
- * attribution tag. Used by flattened active-thread context so assistant rows
- * that the renderer has already bracket-tagged do not get relabeled again.
- */
-export function isSlackMessageTagLine(text: string): boolean {
-  return COMPACT_MESSAGE_TAG_LINE_PREFIX.test(text);
 }
 
 /**
@@ -729,6 +725,7 @@ export function renderSlackTranscriptWithProvenance(
       ],
     },
     sourceChannelTs: acc.sourceChannelTs,
+    tagLineProvenance: "slack-reaction",
   });
 
   const flushOverflowExcept = (
@@ -762,6 +759,7 @@ export function renderSlackTranscriptWithProvenance(
               content: [{ type: "text" as const, text: line }],
             },
             sourceChannelTs: meta.channelTs,
+            tagLineProvenance: "slack-reaction",
           });
         }
       } else {
@@ -787,12 +785,17 @@ export function renderSlackTranscriptWithProvenance(
     const tagLine = renderMessage(m);
     const blocks = buildMessageContentBlocks(m, tagLine);
     if (blocks.length === 0) continue;
+    const hasRenderedText = blocks.some((block) => block.type === "text");
     out.push({
       message: {
         role: m.role,
         content: blocks,
       },
       sourceChannelTs: meta?.channelTs ?? null,
+      tagLineProvenance:
+        hasRenderedText && hasTimestampTimezone(meta)
+          ? "slack-timezone-message"
+          : "none",
     });
   }
 
@@ -857,6 +860,7 @@ function filterOrphanToolPairs(
       out.push({
         message: { role: msg.role, content: kept },
         sourceChannelTs: entry.sourceChannelTs,
+        tagLineProvenance: entry.tagLineProvenance,
       });
     }
   }

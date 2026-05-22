@@ -4047,13 +4047,48 @@ describe("assembleSlackActiveThreadFocusBlock", () => {
     );
   });
 
+  test("assistant content that only looks like a compact tag still gets active-thread attribution", () => {
+    const compactLookingContent =
+      "[nov 14 2023 3:13 PM MT assistant (ET)] Assistant reply";
+    const rows: SlackTranscriptInputRow[] = [
+      buildRow(
+        "user",
+        "Parent",
+        1_000,
+        buildMeta({ channelTs: PARENT_TS, displayName: "@alice" }),
+      ),
+      buildRow(
+        "assistant",
+        compactLookingContent,
+        2_000,
+        buildMeta({
+          channelTs: "1700000005.000001",
+          threadTs: PARENT_TS,
+        }),
+      ),
+      buildRow(
+        "user",
+        "Follow-up",
+        3_000,
+        buildMeta({
+          channelTs: REPLY_TS,
+          threadTs: PARENT_TS,
+          displayName: "@alice",
+        }),
+      ),
+    ];
+
+    const result = assembleSlackActiveThreadFocusBlock(rows, SLACK_CAPS);
+    expect(result).not.toBeNull();
+    expect(result!).toContain(`@assistant: ${compactLookingContent}`);
+  });
+
   test("assistant reaction overflow trailer is not double-attributed", () => {
     // When assistant reactions overflow the per-target cap, `renderSlackTranscript`
     // emits a trailer line (`[…and N more reactions to Mxxxxxx]`) whose role
-    // is inherited from the first overflowing reaction — i.e. `assistant`. The
-    // trailer embeds no actor attribution but ends with the parent alias and
-    // shares the same `M<hex>]` signature as a real reaction line, so it must
-    // be detected by `isReactionTagLine` and skipped by the prefix step.
+    // is inherited from the first overflowing reaction — i.e. `assistant`.
+    // Renderer provenance marks it as a Slack reaction line so the flattened
+    // active-thread block does not add a content-message prefix.
     const PARENT_ALIAS_TS = PARENT_TS;
     const buildAssistantReaction = (ts: string, emoji: string) =>
       buildRow(
