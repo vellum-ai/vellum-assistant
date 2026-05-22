@@ -7,6 +7,7 @@ import { Button } from "@vellum/design-library/components/button";
 import { Dropdown, type DropdownOption } from "@vellum/design-library/components/dropdown";
 import { Modal } from "@vellum/design-library/components/modal";
 import { Notice } from "@vellum/design-library/components/notice";
+import { Tag } from "@vellum/design-library/components/tag";
 import { Typography } from "@vellum/design-library/components/typography";
 import type { MachineSizeEnum, MachineTierEnum } from "@/generated/api/types.gen.js";
 import {
@@ -33,13 +34,17 @@ export function SetupStep({
   onAdvance: () => void;
 }) {
   const { data: activeAssistant } = useQuery(assistantsActiveRetrieveOptions());
+  const currentSize = activeAssistant?.machine_size as MachineSizeEnum | null | undefined;
   const machineSizeOptions = useMemo<DropdownOption<MachineSizeEnum>[]>(
     () =>
       allowedMachineSizesForTier(maxTier).map((size) => ({
         value: size,
         label: `${SIZE_LABEL[size]} — ${SIZE_DESCRIPTION[size]}`,
+        suffix: size === currentSize
+          ? <Tag tone="positive">Current</Tag>
+          : undefined,
       })),
-    [maxTier],
+    [maxTier, currentSize],
   );
   const [selectedSize, setSelectedSize] = useState<MachineSizeEnum>(
     machineSizeOptions[0]?.value ?? "small",

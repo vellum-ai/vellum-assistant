@@ -1,14 +1,10 @@
 /**
- * Type definitions for the conversation LLM context inspector. Web port
- * of macOS's `LLMContextResponse` / `LLMRequestLogEntry` /
- * `LLMCallSummary` / `LLMContextSection` shapes from
- * `clients/macos/vellum-assistant/Features/Chat/MessageInspector*.swift`.
- *
- * These mirror what the daemon's `GET /v1/messages/:id/llm-context`
- * route returns (see `assistant/src/runtime/routes/conversation-query-routes.ts`
+ * Type definitions for the conversation LLM context inspector. These
+ * mirror what the daemon's `GET /v1/messages/:id/llm-context` route
+ * returns (see `assistant/src/runtime/routes/conversation-query-routes.ts`
  * + `assistant/src/runtime/routes/llm-context-normalization.ts`). The
- * route is reachable on web through the platform's
- * `RuntimeProxyWildcardView` at
+ * route is reachable on web through the gateway's runtime-proxy
+ * wildcard at
  * `/v1/assistants/{assistantId}/messages/{messageId}/llm-context/`.
  */
 

@@ -188,6 +188,9 @@ struct InferenceProfileEditor: View {
               let model = profile.model, !model.isEmpty else {
             return false
         }
+        if effectiveConnection?.auth.type == "oauth_subscription" {
+            return !Self.codexSubscriptionModelIds.contains(model)
+        }
         let catalogIds = store.dynamicProviderModels(provider).map(\.id)
         let connectionIds = effectiveConnection?.models?.map(\.id) ?? []
         return !catalogIds.contains(model) && !connectionIds.contains(model)

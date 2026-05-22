@@ -58,10 +58,17 @@ export function handleConversationTitleUpdated(
   event: ConversationTitleUpdatedEvent,
   ctx: StreamHandlerContext,
 ): void {
+  // `patchConversation` looks up the conversation by `conversationKey`
+  // (see `conversation-queries.ts:197`). The daemon's `conversationId`
+  // is the internal mapping-table id and is not guaranteed to equal a
+  // conversation key, so use the parser-hydrated `conversationKey`
+  // (set in `event-parser.ts` via `withParsedConversationKey` or the
+  // envelope fallback in `stream.ts`) when present.
+  const key = event.conversationKey ?? event.conversationId;
   patchConversation(
     ctx.queryClient,
     ctx.assistantIdRef.current,
-    event.conversationId,
+    key,
     { title: event.title },
   );
 }

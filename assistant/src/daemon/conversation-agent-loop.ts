@@ -59,7 +59,6 @@ import { commitAppTurnChanges } from "../memory/app-git-service.js";
 import { getApp, listAppFiles, resolveAppDir } from "../memory/app-store.js";
 import { enqueueAutoAnalysisOnCompaction } from "../memory/auto-analysis-enqueue.js";
 import {
-  clearStrippedInjectionMetadataForConversation,
   getConversation,
   getConversationOriginChannel,
   getConversationOriginInterface,
@@ -67,6 +66,7 @@ import {
   getLastUserTimestampBefore,
   getMessageById,
   provenanceFromTrustContext,
+  setConversationHistoryStrippedAt,
   setLastNotifiedInferenceProfile,
   updateConversationContextWindow,
   updateConversationSlackContextWatermark,
@@ -2297,14 +2297,7 @@ export async function runAgentLoopImpl(
       // so we compact the "raw" persistent messages.
       const rawHistory = stripInjectionsForCompaction(updatedHistory);
       ctx.messages = rawHistory;
-      try {
-        clearStrippedInjectionMetadataForConversation(ctx.conversationId);
-      } catch (err) {
-        rlog.warn(
-          { err },
-          "Failed to clear stripped-injection metadata after compaction strip (non-fatal)",
-        );
-      }
+      setConversationHistoryStrippedAt(ctx.conversationId, Date.now());
 
       ctx.emitActivityState(
         "thinking",
@@ -2588,14 +2581,7 @@ export async function runAgentLoopImpl(
 
       if (updatedHistory.length > preRunHistoryLength) {
         ctx.messages = stripInjectionsForCompaction(updatedHistory);
-        try {
-          clearStrippedInjectionMetadataForConversation(ctx.conversationId);
-        } catch (err) {
-          rlog.warn(
-            { err },
-            "Failed to clear stripped-injection metadata after compaction strip (non-fatal)",
-          );
-        }
+        setConversationHistoryStrippedAt(ctx.conversationId, Date.now());
         convergenceStripped = true;
         preRepairMessages = updatedHistory;
         preRunHistoryLength = updatedHistory.length;
@@ -2840,14 +2826,7 @@ export async function runAgentLoopImpl(
           // pre-rerun messages.
           if (updatedHistory.length > preRunHistoryLength) {
             ctx.messages = stripInjectionsForCompaction(updatedHistory);
-            try {
-              clearStrippedInjectionMetadataForConversation(ctx.conversationId);
-            } catch (err) {
-              rlog.warn(
-                { err },
-                "Failed to clear stripped-injection metadata after compaction strip (non-fatal)",
-              );
-            }
+            setConversationHistoryStrippedAt(ctx.conversationId, Date.now());
             convergenceStripped = true;
             preRepairMessages = updatedHistory;
             preRunHistoryLength = updatedHistory.length;
@@ -3635,6 +3614,7 @@ export async function applyCompactionResult(
     result.summaryText,
     ctx.contextCompactedMessageCount,
   );
+  setConversationHistoryStrippedAt(ctx.conversationId, compactedAt);
   if (options.slackContextCompactionWatermarkTs) {
     updateConversationSlackContextWatermark(
       ctx.conversationId,

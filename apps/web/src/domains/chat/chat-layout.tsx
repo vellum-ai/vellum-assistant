@@ -1,3 +1,4 @@
+import * as Sentry from "@sentry/react";
 import {
   useCallback,
   useEffect,
@@ -7,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { haptic } from "@/utils/haptics.js";
 import { routes } from "@/utils/routes.js";
@@ -20,12 +22,13 @@ import { useHomeUnreadBadge } from "@/hooks/use-home-unread-badge.js";
 import type { AssistantContextValue } from "@/components/layout/assistant-context.js";
 
 import { useConversationStore } from "@/domains/conversations/conversation-store.js";
-import { createDraftConversationKey } from "@/domains/chat/utils/conversation-selection.js";
 import {
+  chatContextQueryKey,
   useConversationGroupsQuery,
   useConversationListQuery,
 } from "@/domains/conversations/conversation-queries.js";
 import { useAttentionTracking } from "@/domains/conversations/use-attention-tracking.js";
+import { useConversationActions } from "@/domains/conversations/use-conversation-actions.js";
 import { useConversationGroupActions } from "@/domains/conversations/use-conversation-group-actions.js";
 import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
 import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
@@ -36,6 +39,7 @@ import { OfflineBanner } from "@/components/offline-banner.js";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu.js";
 import { PreferencesMenu } from "@/domains/chat/components/preferences-menu.js";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store.js";
+import { createDraftConversationKey } from "@/domains/chat/utils/conversation-selection.js";
 import { ChatLayoutHeader } from "./chat-layout-header.js";
 
 /**
@@ -420,6 +424,64 @@ export function ChatLayout() {
     [setActiveKey, navigate],
   );
 
+  // --- Sidebar conversation actions (pin / rename / archive / mark / move) ---
+  //
+  // The sidebar's hover-revealed "…" menu reads its items from these
+  // handlers; without them the popover renders empty (every menu item
+  // resolves to `null`). The CRUD hook lives at the layout level so the
+  // sidebar's action wiring stays live on every chat-layout child route
+  // (home, library, contacts, identity) — not only inside a conversation
+  // where ChatPage is mounted.
+  const queryClient = useQueryClient();
+  const prePinGroupIdsRef = useRef<Map<string, string | undefined>>(new Map());
+
+  const refreshConversations = useCallback(async () => {
+    if (!lifecycle.assistantId) return;
+    try {
+      await queryClient.invalidateQueries({
+        queryKey: chatContextQueryKey(lifecycle.assistantId),
+      });
+    } catch (err) {
+      Sentry.captureException(err, {
+        tags: { context: "refresh_conversations" },
+      });
+    }
+  }, [lifecycle.assistantId, queryClient]);
+
+  // `useConversationActions.handleArchiveConversation` calls
+  // `startNewConversation({ silent: true })` when the active conversation
+  // is archived. Mirror the existing `handleStartNewConversation` shape but
+  // accept the silent opt so the haptic doesn't fire on a side-effect path.
+  const startNewConversation = useCallback(
+    ({ silent }: { silent?: boolean } = {}) => {
+      if (!silent) haptic.light();
+      useViewerStore.getState().setMainView("chat");
+      const draftKey = createDraftConversationKey();
+      useConversationStore.getState().setActiveKey(draftKey);
+      void navigate(routes.conversation(draftKey));
+    },
+    [navigate],
+  );
+
+  const {
+    handleArchiveConversation,
+    handleUnarchiveConversation,
+    handleMarkConversationUnread,
+    handleMarkConversationRead,
+    handleTogglePinConversation,
+    handleMoveToGroup,
+    handleRemoveFromGroup,
+    handleRenameConversation,
+  } = useConversationActions({
+    assistantId: lifecycle.assistantId,
+    activeConversationKey,
+    conversations,
+    refreshConversations,
+    switchConversation: handleSelectConversation,
+    startNewConversation,
+    prePinGroupIdsRef,
+  });
+
   const handleOpenLibrary = useCallback(() => {
     navigate(routes.library.root);
   }, [navigate]);
@@ -444,6 +506,14 @@ export function ChatLayout() {
         onOpenIntelligence={handleOpenIdentity}
         isLibraryActive={isLibraryActive}
         onOpenLibrary={handleOpenLibrary}
+        onPinConversation={handleTogglePinConversation}
+        onRenameConversation={handleRenameConversation}
+        onArchiveConversation={handleArchiveConversation}
+        onUnarchiveConversation={handleUnarchiveConversation}
+        onMarkConversationUnread={handleMarkConversationUnread}
+        onMarkConversationRead={handleMarkConversationRead}
+        onMoveToGroup={handleMoveToGroup}
+        onRemoveFromGroup={handleRemoveFromGroup}
         onRenameGroup={handleRenameGroup}
         onDeleteGroup={handleDeleteGroup}
         footerBanner={footerBanner}
@@ -469,6 +539,14 @@ export function ChatLayout() {
       attentionKeys,
       handleSelectConversation,
       handleStartNewConversation,
+      handleTogglePinConversation,
+      handleRenameConversation,
+      handleArchiveConversation,
+      handleUnarchiveConversation,
+      handleMarkConversationUnread,
+      handleMarkConversationRead,
+      handleMoveToGroup,
+      handleRemoveFromGroup,
       handleRenameGroup,
       handleDeleteGroup,
       isIdentityActive,

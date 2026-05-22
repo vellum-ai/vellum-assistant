@@ -13,7 +13,6 @@ import {
   applyThemePreference,
   normalizeThemePreference,
   THEME_STORAGE_KEY,
-  writeStoredThemePreference,
 } from "@/domains/settings/utils/theme-preferences.js";
 
 function readRawStoredTheme(): string | null {
@@ -33,9 +32,6 @@ export function useAppTheme() {
       velvetEnabled: velvet,
     });
 
-    if (stored !== null && stored !== theme) {
-      writeStoredThemePreference(theme);
-    }
     applyThemePreference(theme);
 
     const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");

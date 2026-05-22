@@ -30,6 +30,7 @@
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getDb } from "../memory/db-connection.js";
 import { getLogger } from "../util/logger.js";
+import { isConnectionCompatibleWithModel } from "./connection-model-compat.js";
 import { getConnection, listConnections } from "./inference/connections.js";
 import type { ProvidersConfig } from "./registry.js";
 import { resolveProviderFromConnection } from "./registry.js";
@@ -79,11 +80,16 @@ export class ConnectionResolutionError extends Error {
  * `expectedProvider` is the provider name the resolving profile declared.
  * Pass `undefined` to skip the mismatch check (callers that don't yet
  * know the expected provider).
+ *
+ * `model` is the resolved call-site model. It gates the `provider_mismatch`
+ * auto-recovery below so a non-Codex model is never rerouted onto an
+ * `oauth_subscription` (ChatGPT Codex) connection.
  */
 export async function tryResolveProviderForConnectionName(
   connectionName: string,
   config: ProvidersConfig,
   expectedProvider?: string,
+  model?: string,
 ): Promise<Provider | null> {
   let connection;
   try {
@@ -113,7 +119,10 @@ export async function tryResolveProviderForConnectionName(
     try {
       const db = getDb();
       const candidates = listConnections(db, { provider: expectedProvider });
-      const active = candidates.find((c) => c.status === "active");
+      const active = candidates.find(
+        (c) =>
+          c.status === "active" && isConnectionCompatibleWithModel(c, model),
+      );
       if (active) {
         log.info(
           {
@@ -192,7 +201,11 @@ export async function resolveDefaultProvider(
         const candidates = listConnections(getDb(), {
           provider: resolved.provider,
         });
-        const active = candidates.find((c) => c.status === "active");
+        const active = candidates.find(
+          (c) =>
+            c.status === "active" &&
+            isConnectionCompatibleWithModel(c, resolved.model),
+        );
         if (active) {
           log.info(
             { provider: resolved.provider, resolvedConnection: active.name },
@@ -216,5 +229,6 @@ export async function resolveDefaultProvider(
     connectionName,
     config,
     resolved.provider,
+    resolved.model,
   );
 }

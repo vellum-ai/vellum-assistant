@@ -159,8 +159,8 @@ mock.module("../daemon/disk-pressure-policy.js", () => ({
 const updateMessageMetadataMock = mock(
   (_id: string, _updates: Record<string, unknown>) => {},
 );
-const clearStrippedInjectionMetadataForConversationMock = mock(
-  (_conversationId: string) => {},
+const setConversationHistoryStrippedAtMock = mock(
+  (_conversationId: string, _historyStrippedAt: number | null) => {},
 );
 const updateConversationSlackContextWatermarkMock = mock(
   (_conversationId: string, _watermarkTs: string, _compactedAt?: number) => {},
@@ -180,8 +180,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   setConversationOriginChannelIfUnset: () => {},
   updateConversationUsage: () => {},
   updateMessageMetadata: updateMessageMetadataMock,
-  clearStrippedInjectionMetadataForConversation:
-    clearStrippedInjectionMetadataForConversationMock,
+  setConversationHistoryStrippedAt: setConversationHistoryStrippedAtMock,
   getMessages: () => [],
   getConversation: () => mockConversationRow,
   provenanceFromTrustContext: () => ({
@@ -684,10 +683,8 @@ beforeEach(() => {
   mockHasProactiveArtifactCompleted = true;
   mockTryClaimProactiveArtifactTrigger = false;
   runProactiveArtifactJobMock.mockClear();
-  clearStrippedInjectionMetadataForConversationMock.mockClear();
-  clearStrippedInjectionMetadataForConversationMock.mockImplementation(
-    () => {},
-  );
+  setConversationHistoryStrippedAtMock.mockClear();
+  setConversationHistoryStrippedAtMock.mockImplementation(() => {});
   applyRuntimeInjectionsMock.mockClear();
   buildUnifiedTurnContextBlockMock.mockClear();
   resolveTurnTimezoneContextMock.mockClear();
@@ -3769,8 +3766,8 @@ describe("session-agent-loop", () => {
     });
   });
 
-  describe("compaction-strip metadata consistency", () => {
-    test("clears pkbSystemReminderBlock metadata when convergence strip runs", async () => {
+  describe("compaction-strip marker persistence", () => {
+    test("records historyStrippedAt when convergence strip runs", async () => {
       // Reducer: succeed on first call, returning reduced messages.
       mockReducerStepFn = (msgs: Message[]) => ({
         messages: msgs,
@@ -3841,91 +3838,10 @@ describe("session-agent-loop", () => {
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
 
-      // The bulk-clear helper must have been called with the conversation id
-      // at least once (one of the three strip sites fired).
-      const clearCalls =
-        clearStrippedInjectionMetadataForConversationMock.mock.calls.filter(
-          (call) => call[0] === "test-conv",
-        );
-      expect(clearCalls.length).toBeGreaterThanOrEqual(1);
-    });
-
-    test("strip-site clear is non-fatal when the helper throws", async () => {
-      clearStrippedInjectionMetadataForConversationMock.mockImplementation(
-        () => {
-          throw new Error("db write failed");
-        },
+      const stripCalls = setConversationHistoryStrippedAtMock.mock.calls.filter(
+        (call) => call[0] === "test-conv",
       );
-
-      mockReducerStepFn = (msgs: Message[]) => ({
-        messages: msgs,
-        tier: "forced_compaction",
-        state: {
-          appliedTiers: ["forced_compaction"],
-          injectionMode: "full",
-          exhausted: false,
-        },
-        estimatedTokens: 5000,
-      });
-
-      let callCount = 0;
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
-        callCount++;
-        if (callCount === 1) {
-          onEvent({
-            type: "error",
-            error: new Error("context_length_exceeded"),
-          });
-          onEvent({
-            type: "usage",
-            inputTokens: 100,
-            outputTokens: 0,
-            model: "test-model",
-            providerDurationMs: 50,
-          });
-          return [
-            ...messages,
-            {
-              role: "assistant" as const,
-              content: [{ type: "text", text: "partial" }] as ContentBlock[],
-            },
-          ];
-        }
-        onEvent({
-          type: "message_complete",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: "recovered" }],
-          },
-        });
-        onEvent({
-          type: "usage",
-          inputTokens: 50,
-          outputTokens: 25,
-          model: "test-model",
-          providerDurationMs: 100,
-        });
-        return [
-          ...messages,
-          {
-            role: "assistant" as const,
-            content: [{ type: "text", text: "recovered" }] as ContentBlock[],
-          },
-        ];
-      };
-
-      const ctx = makeCtx({
-        agentLoopRun,
-        contextWindowManager: {
-          shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
-          maybeCompact: async () => ({ compacted: false }),
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
-      });
-
-      // Must not throw — the strip-site clear is wrapped in try/catch.
-      await expect(
-        runAgentLoopImpl(ctx, "hello", "msg-1", () => {}),
-      ).resolves.toBeUndefined();
+      expect(stripCalls.length).toBeGreaterThanOrEqual(1);
     });
   });
 });

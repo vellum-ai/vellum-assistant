@@ -1,8 +1,8 @@
 import type { AllowlistOption, DirectoryScopeOption, QuestionEntry, ScopeOption } from "@/domains/chat/api/event-types.js";
 /**
- * Pure interface types consumed by the interaction state machine and other
- * state-management modules. These originate from the platform's
- * (chat)/types.ts but are framework-agnostic — no Next.js or routing deps.
+ * Pure interface types consumed by the interaction state machine and
+ * other state-management modules. Framework-agnostic — no routing or
+ * SSR dependencies.
  */
 
 

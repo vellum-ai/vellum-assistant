@@ -3,10 +3,6 @@
  *
  * Owns the shared refs and state that multiple hooks read/write, calls each
  * hook in dependency order, and maps their outputs to `ChatRouteContent` props.
- *
- * Equivalent of platform's `AssistantPageClient.tsx` lines ~200–1500, adapted
- * to the OSS repo's Zustand stores, React Router, and convention-compliant
- * architecture.
  */
 
 import {
@@ -1560,6 +1556,14 @@ export function ChatPage() {
               assistantId={assistantId}
               onClose={() => {
                 useViewerStore.getState().closeDocument();
+              }}
+              onSubmitFeedback={() => {
+                const docState = useViewerStore.getState().openedDocumentState;
+                if (!docState) return;
+                const prompt = `Please review and address my comments on "${docState.documentName}".`;
+                navigate(
+                  `${routes.conversation(docState.conversationId)}?prompt=${encodeURIComponent(prompt)}`,
+                );
               }}
             />
             <MobileSubagentDetailOverlay

@@ -6,10 +6,9 @@ import { client } from "@/generated/api/client.gen.js";
 import type { LlmContextResponse } from "@/domains/chat/types/inspector-types.js";
 
 /**
- * Query helpers for the conversation LLM context inspector. Web port
- * of `LLMContextClient.swift` — wraps the daemon's
- * `GET /v1/messages/{messageId}/llm-context` endpoint, reached through
- * the platform's `RuntimeProxyWildcardView` at
+ * Query helpers for the conversation LLM context inspector. Wraps the
+ * daemon's `GET /v1/messages/{messageId}/llm-context` endpoint,
+ * reached through the gateway's runtime-proxy wildcard at
  * `/v1/assistants/{assistantId}/messages/{messageId}/llm-context/`.
  *
  * The wildcard proxy isn't typed in `@tanstack/react-query.gen` so we

@@ -155,6 +155,7 @@ import {
   migrateProviderConnectionStatusLabel,
   migrateReminderRoutingIntent,
   migrateRemindersToSchedules,
+  migrateRenameCleanedAt,
   migrateRenameConversationTypeColumn,
   migrateRenameCreatedBySessionIdColumns,
   migrateRenameFollowupsThreadIdColumn,
@@ -452,6 +453,7 @@ export function initializeDb(): void {
     migrateStripBaseUrlNonOpenaiCompatible,
     migrateOnboardingEventsPriorAssistants,
     migrateConversationCleanedAt,
+    migrateRenameCleanedAt,
   ];
 
   // Run each migration step, catching and logging individual failures so one

@@ -29,10 +29,12 @@ import {
   type MutableRefObject,
   type SetStateAction,
   useEffect,
+  useLayoutEffect,
   useRef,
 } from "react";
 
 import type { AssistantEvent } from "@/domains/chat/api/event-types.js";
+import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat-utils.js";
 import {
   bucketMessagesAdded,
   recordChatDiagnostic,
@@ -45,9 +47,13 @@ import type {
 
 import { useConversationStore } from "@/domains/conversations/conversation-store.js";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
-import { useTurnStore } from "@/domains/messaging/turn-store.js";
+import {
+  isSending,
+  useTurnStore,
+} from "@/domains/messaging/turn-store.js";
 import type { ChatEventStream } from "@/domains/chat/api/stream.js";
 import { useEventBusStore } from "@/stores/event-bus-store.js";
+import type { UseAssistantReachabilityResult } from "@/assistant/use-assistant-reachability.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -85,7 +91,7 @@ export interface UseEventStreamParams {
   cancelReconciliation: () => void;
 
   // Reachability
-  reachabilityProbe: () => void;
+  reachabilityProbe: UseAssistantReachabilityResult["probe"];
   reachabilityPhase: string;
   reachabilityReset: () => void;
 
@@ -158,15 +164,32 @@ export function useEventStream({
   const reachabilityResetRef = useRef(reachabilityReset);
   reachabilityResetRef.current = reachabilityReset;
 
-  // Track the latest active conversation key in a ref updated during
-  // render. The bus subscriber filters against this ref instead of the
-  // closure-captured value so an `assistant_text_delta` published in
-  // the gap between a conversation switch and the effect cleanup is
-  // rejected as soon as React commits the new active key — without
-  // this, in-flight deltas for the previous conversation can merge
-  // into the new conversation's messages.
+  const reachabilityPhaseRef = useRef(reachabilityPhase);
+  const backgroundReachabilityProbeRef = useRef(false);
+  useLayoutEffect(() => {
+    reachabilityPhaseRef.current = reachabilityPhase;
+    if (reachabilityPhase !== "checking") {
+      backgroundReachabilityProbeRef.current = false;
+    }
+  }, [reachabilityPhase]);
+
+  // Track the latest active conversation key in a ref synced during
+  // the commit phase. The bus subscriber filters against this ref
+  // instead of the closure-captured value so an `assistant_text_delta`
+  // published in the gap between a conversation switch and the effect
+  // cleanup is rejected as soon as React commits the new active key.
+  // Without this, in-flight deltas for the previous conversation can
+  // merge into the new conversation's messages.
+  //
+  // The ref is updated in `useLayoutEffect` (commit phase) rather than
+  // during render. Under concurrent React a render can be aborted; a
+  // render-phase mutation would leave the ref pointing at a value
+  // from an uncommitted render and the filter would reject events
+  // for what is still the actually-committed conversation.
   const activeConversationKeyLatestRef = useRef(activeConversationKey);
-  activeConversationKeyLatestRef.current = activeConversationKey;
+  useLayoutEffect(() => {
+    activeConversationKeyLatestRef.current = activeConversationKey;
+  }, [activeConversationKey]);
 
   // --------------------------------------------------------------------------
   // Effect 1: Subscribe to the bus-owned SSE for the active conversation.
@@ -201,19 +224,32 @@ export function useEventStream({
     const unsubEvent = bus.subscribe("sse.event", (event) => {
       const eventConversationKey = (event as { conversationKey?: string })
         .conversationKey;
-      // Assistant-broadcast events (no conversationKey) are routed to
-      // every conversation-scoped consumer; the handler decides what
-      // to do with them. Per-conversation events are filtered against
-      // the LATEST active conversation key, not the closure-captured
-      // value — see comment on `activeConversationKeyLatestRef`.
+      // Two-stage filter to prevent cross-conversation event leakage.
+      // The bus opens a single unfiltered SSE connection, so every
+      // event for every conversation flows through this subscriber.
+      //
+      // 1. Global events (`sync_changed`, `home_feed_updated`, etc.)
+      //    are not tied to a conversation — always pass them through.
+      // 2. Conversation-scoped events must have an explicit
+      //    `conversationKey` matching the current active conversation.
+      //    Events whose conversationKey is missing or mismatched are
+      //    rejected: a missing key is treated as "unknown
+      //    conversation" rather than "broadcast", because under the
+      //    bus-owned unfiltered SSE there is no per-conversation
+      //    subscription URL to fall back to for routing.
+      if (!isConversationScopedStreamEvent(event)) {
+        handleStreamEventRef.current(event, streamEpochRef.current);
+        return;
+      }
       if (
-        eventConversationKey !== undefined &&
+        eventConversationKey === undefined ||
         eventConversationKey !== activeConversationKeyLatestRef.current
       ) {
         recordChatDiagnostic("sse_event_wrong_conversation_filtered", {
           eventConversationKey,
           activeConversationKey: activeConversationKeyLatestRef.current,
           eventType: event.type,
+          reason: eventConversationKey === undefined ? "missing" : "mismatch",
         });
         return;
       }
@@ -405,6 +441,7 @@ export function useEventStream({
     const unsub = useEventBusStore
       .getState()
       .subscribe("sse.closed", ({ reason }) => {
+        const hadActiveTurn = isSending(useTurnStore.getState());
         recordChatDiagnostic("sse_stream_error", {
           assistantId: capturedAssistantId,
           conversationKey: capturedConversationKey,
@@ -418,7 +455,14 @@ export function useEventStream({
             useConversationStore.getState().removeProcessingKey(convKey);
           }
         }
-        reachabilityProbeRef.current();
+        // Idle SSE drops should reopen the stream without interrupting the
+        // user; active turns still surface the reconnect state immediately.
+        if (hadActiveTurn) {
+          reachabilityProbeRef.current({ showConnectingImmediately: true });
+        } else {
+          backgroundReachabilityProbeRef.current = true;
+          reachabilityProbeRef.current({ mode: "background" });
+        }
         setMessagesRef.current((prev) => {
           const last = prev[prev.length - 1];
           if (last?.role === "assistant" && last.isStreaming) {
@@ -438,11 +482,67 @@ export function useEventStream({
   ]);
 
   // --------------------------------------------------------------------------
-  // Effect 4: Reachability retry — request a bus-level SSE bounce
-  // when the reachability probe flips back to "ready".
+  // Effect 4: Upgrade hidden background checks once a turn becomes active.
   // --------------------------------------------------------------------------
   useEffect(() => {
-    if (reachabilityPhase !== "ready") {
+    if (
+      assistantStateKind !== "active" ||
+      !assistantId ||
+      !activeConversationKey
+    ) {
+      return;
+    }
+
+    let wasSending = isSending(useTurnStore.getState());
+    return useTurnStore.subscribe((state) => {
+      const nowSending = isSending(state);
+      if (
+        !wasSending &&
+        nowSending &&
+        (backgroundReachabilityProbeRef.current ||
+          reachabilityPhaseRef.current === "checking")
+      ) {
+        backgroundReachabilityProbeRef.current = false;
+        reachabilityProbeRef.current({ showConnectingImmediately: true });
+      }
+      wasSending = nowSending;
+    });
+  }, [assistantStateKind, assistantId, activeConversationKey]);
+
+  // --------------------------------------------------------------------------
+  // Effect 5: Schedule a post-resume reconcile.
+  //
+  // The bus tears down + reopens its SSE around app.resume; we listen
+  // here so the next `sse.opened` runs the reconcile pass for the
+  // active conversation. Effect 2's `reconcileAfterNextStreamOpenRef`
+  // gate is the rendezvous point.
+  // --------------------------------------------------------------------------
+  useEffect(() => {
+    if (
+      assistantStateKind !== "active" ||
+      !assistantId ||
+      !activeConversationKey
+    ) {
+      return;
+    }
+    const unsub = useEventBusStore.getState().subscribe("app.resume", () => {
+      reconcileAfterNextStreamOpenRef.current = true;
+    });
+    return () => unsub();
+  }, [
+    assistantStateKind,
+    assistantId,
+    activeConversationKey,
+    reconcileAfterNextStreamOpenRef,
+  ]);
+
+  // --------------------------------------------------------------------------
+  // Effect 6: Reachability retry — request a bus-level SSE bounce
+  // when the reachability probe flips back to "ready" or a background
+  // probe exhausts its window and needs the bus to keep retrying.
+  // --------------------------------------------------------------------------
+  useEffect(() => {
+    if (reachabilityPhase !== "ready" && reachabilityPhase !== "retrying") {
       return;
     }
     const now = Date.now();
@@ -461,16 +561,21 @@ export function useEventStream({
       reachabilityResetRef.current();
       return;
     }
-    useTurnStore.getState().resetTurn();
-    setErrorRef.current(null);
+    if (reachabilityPhase === "ready") {
+      useTurnStore.getState().resetTurn();
+      setErrorRef.current(null);
+    }
     reconcileAfterNextStreamOpenRef.current = true;
     useEventBusStore
       .getState()
       .publish("reachability.retry-requested", {});
+    if (reachabilityPhase === "retrying") {
+      reachabilityResetRef.current();
+    }
   }, [reachabilityPhase, reconcileAfterNextStreamOpenRef]);
 
   // --------------------------------------------------------------------------
-  // Effect 5: Unmount cleanup.
+  // Effect 7: Unmount cleanup.
   // --------------------------------------------------------------------------
   useEffect(() => {
     return () => {

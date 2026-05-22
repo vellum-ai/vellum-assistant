@@ -102,15 +102,16 @@ export function appendTextDelta(
 // assistant_activity_state (idle)
 // ---------------------------------------------------------------------------
 
-/** Finalize running tool calls on the last streaming message (idle signal). */
+/** Finalize running tool calls on ALL streaming assistant messages (idle signal). */
 export function finalizeOnIdle(prev: DisplayMessage[]): DisplayMessage[] {
-  const last = prev[prev.length - 1];
-  if (!last || last.role !== "assistant" || !last.isStreaming) return prev;
-
-  const finalized = finalizeRunningToolCalls(last.toolCalls);
-  if (!finalized) return prev;
-
-  return [...prev.slice(0, -1), { ...last, toolCalls: finalized }];
+  let changed = false;
+  const updated = prev.map((m) => {
+    if (m.role !== "assistant" || !m.isStreaming) return m;
+    if (!m.toolCalls?.some((tc) => tc.status === "running")) return m;
+    changed = true;
+    return { ...m, toolCalls: finalizeRunningToolCalls(m.toolCalls)! };
+  });
+  return changed ? updated : prev;
 }
 
 // ---------------------------------------------------------------------------
@@ -469,26 +470,44 @@ export function applyToolResult(
     activityMetadata?: ToolActivityMetadata;
   },
 ): DisplayMessage[] {
-  const msgIdx = prev.findLastIndex(
-    (m) => m.role === "assistant" && m.toolCalls && m.toolCalls.length > 0,
-  );
-  if (msgIdx === -1) return prev;
+  // When we have a toolUseId, search all assistant messages (in reverse) for
+  // the matching tool call — the tool call may live on an earlier message if
+  // a new bubble was created between tool_use_start and tool_result.
+  let msgIdx = -1;
+  let tcIdx = -1;
 
-  const msg = prev[msgIdx];
-  if (!msg?.toolCalls) return prev;
+  if (opts.toolUseId) {
+    for (let i = prev.length - 1; i >= 0; i--) {
+      const m = prev[i];
+      if (m?.role !== "assistant" || !m.toolCalls?.length) continue;
+      const j = m.toolCalls.findIndex((tc) => tc.id === opts.toolUseId);
+      if (j !== -1) {
+        msgIdx = i;
+        tcIdx = j;
+        break;
+      }
+    }
+  }
 
-  let tcIdx = opts.toolUseId
-    ? msg.toolCalls.findIndex((tc) => tc.id === opts.toolUseId)
-    : -1;
-  if (tcIdx === -1) {
+  // Fallback: no toolUseId or not found — use the last assistant message
+  // with any running tool call (legacy behavior).
+  if (msgIdx === -1) {
+    msgIdx = prev.findLastIndex(
+      (m) => m.role === "assistant" && m.toolCalls && m.toolCalls.length > 0,
+    );
+    if (msgIdx === -1) return prev;
+    const msg = prev[msgIdx];
+    if (!msg?.toolCalls) return prev;
     tcIdx = msg.toolCalls.findLastIndex((tc) => tc.status === "running");
   }
+
   if (tcIdx === -1) return prev;
 
-  const existingTc = msg.toolCalls[tcIdx];
+  const msg = prev[msgIdx]!;
+  const existingTc = msg.toolCalls![tcIdx];
   if (!existingTc) return prev;
 
-  const updatedToolCalls = [...msg.toolCalls];
+  const updatedToolCalls = [...msg.toolCalls!];
   updatedToolCalls[tcIdx] = {
     ...existingTc,
     status: opts.isError ? "error" : "completed",
