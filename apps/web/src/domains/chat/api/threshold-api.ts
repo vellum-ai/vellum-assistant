@@ -77,6 +77,12 @@ export async function getConversationOverride(
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to fetch conversation threshold override.");
+  // Older gateways returned 404 to mean "no override". Newer gateways return
+  // 200 with { "threshold": null }. Tolerate both during the brief deploy-skew
+  // window where an open browser tab might still hit an older gateway.
+  if (response.status === 404) {
+    return null;
+  }
   if (!response.ok) {
     const msg = extractErrorMessage(
       error,

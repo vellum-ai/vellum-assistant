@@ -3082,7 +3082,7 @@ export function buildSchema(): Record<string, unknown> {
                   schema: {
                     type: "object",
                     properties: {
-                      threshold: { type: "string", nullable: true },
+                      threshold: { type: ["string", "null"] },
                     },
                   },
                 },
@@ -3181,7 +3181,7 @@ export function buildSchema(): Record<string, unknown> {
                     schema: {
                       type: "object",
                       properties: {
-                        threshold: { type: "string", nullable: true },
+                        threshold: { type: ["string", "null"] },
                       },
                     },
                   },
