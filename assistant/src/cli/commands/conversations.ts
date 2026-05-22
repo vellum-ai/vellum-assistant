@@ -378,9 +378,11 @@ Examples:
           ) => {
             const channelId = opts.channel?.trim();
             const threadTs = opts.thread?.trim();
+            const hasExplicitSlackTarget =
+              opts.channel !== undefined || opts.thread !== undefined;
             const body: Record<string, string> = {};
 
-            if (channelId || threadTs) {
+            if (hasExplicitSlackTarget) {
               if (!channelId || !threadTs) {
                 outputSlackDetachError(
                   "Both --channel and --thread are required when using explicit Slack identifiers.",

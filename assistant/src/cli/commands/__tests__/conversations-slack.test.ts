@@ -429,6 +429,28 @@ describe("assistant conversations slack detach", () => {
     expect(cliIpcCalls).toHaveLength(0);
   });
 
+  test("fails locally when explicit Slack identifiers are empty", async () => {
+    process.env.__CONVERSATION_ID = "conv-env";
+
+    const { stdout, exitCode } = await runCommand([
+      "conversations",
+      "slack",
+      "detach",
+      "--channel",
+      "",
+      "--thread",
+      "   ",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("--channel");
+    expect(parsed.error).toContain("--thread");
+    expect(cliIpcCalls).toHaveLength(0);
+  });
+
   test("maps JSON IPC transport errors to the shared exit code", async () => {
     cliIpcResponse = {
       ok: false,
