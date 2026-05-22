@@ -273,17 +273,23 @@ export function useEventStream({
           epoch,
           cause,
         });
-        // Every non-fresh open is a recovery point — the bus tore the
-        // SSE down for app.hidden / reachability-retry / transport
-        // error and reopened it, so the active conversation could have
-        // missed events. Reconcile to close the gap. `"fresh"` is the
-        // very first open per assistant and is covered by the regular
-        // history-load path that ran when the conversation was mounted.
-        if (cause !== "fresh") {
-          reconcileAfterNextStreamOpenRef.current = false;
-          void reconcileActiveConversationRef.current();
-          startReconciliationLoopRef.current(epoch);
+        if (cause === "fresh") {
+          // First open per assistant — the regular history-load path
+          // that ran when the conversation was mounted owns the
+          // initial fetch, so we don't reconcile here.
+          return;
         }
+        reconcileAfterNextStreamOpenRef.current = false;
+        // `"watchdog"` and `"error"` indicate a transport-level
+        // recovery the daemon may have rescued via its own reconnect
+        // path. Prefer the sync router's `dispatchReconnect()` result
+        // — it returns the active conversation's refreshed messages
+        // in the same roundtrip — and fall back to the standalone
+        // reconcile only when the sync router didn't return them.
+        // The Sentry rescue diagnostic uses the same reconcile result
+        // so it accurately reflects what the user saw recover.
+        // Other non-fresh causes (`"resume"`) only need the standalone
+        // reconcile.
         if (cause === "watchdog" || cause === "error") {
           void (async () => {
             recordChatDiagnostic("sse_stream_reconnect", {
@@ -298,6 +304,7 @@ export function useEventStream({
             const reconcileResult =
               syncReconnectResult?.activeConversationMessages ??
               (await reconcileActiveConversationRef.current());
+            startReconciliationLoopRef.current(epoch);
             if (cause !== "watchdog") return;
             const latencyMs = Date.now() - startedAt;
             recordChatDiagnostic("sse_post_watchdog_reconcile_result", {
@@ -341,7 +348,10 @@ export function useEventStream({
               },
             });
           })();
+          return;
         }
+        void reconcileActiveConversationRef.current();
+        startReconciliationLoopRef.current(epoch);
       });
 
     return () => unsub();

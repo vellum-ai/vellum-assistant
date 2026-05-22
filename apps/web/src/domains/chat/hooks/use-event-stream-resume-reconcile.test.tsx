@@ -104,7 +104,7 @@ describe("useEventStream — sse.opened reconcile triggers", () => {
     expect(reconcile).toHaveBeenCalledTimes(1);
   });
 
-  test("reconciles when the bus reopens after a reachability-driven retry", () => {
+  test("reconciles when the bus reopens after a reachability-driven retry", async () => {
     const reconcile = mock(async () => ({
       changed: false,
       messagesAdded: 0,
@@ -118,10 +118,14 @@ describe("useEventStream — sse.opened reconcile triggers", () => {
       assistantId: "asst-1",
       cause: "error",
     });
+    // The error path runs reconcile via an async IIFE that awaits
+    // the sync router's dispatchReconnect first, so drain microtasks
+    // before asserting.
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(reconcile).toHaveBeenCalledTimes(1);
   });
 
-  test("reconciles on watchdog reconnect", () => {
+  test("reconciles on watchdog reconnect, exactly once", async () => {
     const reconcile = mock(async () => ({
       changed: false,
       messagesAdded: 0,
@@ -135,10 +139,11 @@ describe("useEventStream — sse.opened reconcile triggers", () => {
       assistantId: "asst-1",
       cause: "watchdog",
     });
-    // The watchdog path calls reconcile twice: once via the
-    // non-fresh shortcut and once via the Sentry-instrumented
-    // dispatch. Both go through the same callback ref.
-    expect(reconcile.mock.calls.length).toBeGreaterThanOrEqual(1);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // Watchdog used to double-fetch (non-fresh path AND the Sentry-
+    // instrumented path each fired their own reconcile). After the
+    // restructure they share a single reconcile.
+    expect(reconcile).toHaveBeenCalledTimes(1);
   });
 
   test("ignores opens for a different assistantId", () => {
