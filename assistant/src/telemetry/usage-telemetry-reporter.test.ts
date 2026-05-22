@@ -159,6 +159,7 @@ function makeUsageEvent(
     outputTokens: 50,
     cacheCreationInputTokens: 10,
     cacheReadInputTokens: 5,
+    rawUsage: null,
     actor: "main_agent",
     callSite: null,
     inferenceProfile: null,
@@ -435,6 +436,53 @@ describe("UsageTelemetryReporter", () => {
     expect(e.inference_profile_source).toBe("conversation");
     expect(e.cost).toBe(0.001);
     expect(e.recorded_at).toBe(1700000099000);
+    // raw_usage defaults to null on this fixture (the makeUsageEvent default),
+    // confirming the wire shape carries the key as `null` rather than
+    // dropping it for legacy rows or providers that did not return a
+    // usage block.
+    expect(e.raw_usage).toBeNull();
+  });
+
+  test("payload forwards the provider's raw_usage block verbatim", async () => {
+    // The reporter must surface the literal usage object the provider
+    // returned (Anthropic nests TTL breakdown under `cache_creation`,
+    // OpenAI nests cached-read counts under `prompt_tokens_details`,
+    // etc.) so downstream consumers can extract any provider-specific
+    // detail without a wire-level schema change. Anything that
+    // transforms, summarises, or strips fields here destroys data the
+    // admin charts and dbt models depend on.
+    const rawUsage = {
+      input_tokens: 200,
+      output_tokens: 100,
+      cache_creation_input_tokens: 750,
+      cache_creation: {
+        ephemeral_5m_input_tokens: 250,
+        ephemeral_1h_input_tokens: 500,
+      },
+      cache_read_input_tokens: 15,
+      service_tier: "standard",
+    };
+    const event = makeUsageEvent({
+      id: "evt-raw-usage",
+      provider: "anthropic",
+      model: "claude-sonnet-4-20250514",
+      cacheCreationInputTokens: 750,
+      rawUsage,
+    });
+    mockQueryUnreportedUsageEvents.mockReturnValue([event]);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    const e = body.events[0];
+    expect(e.cache_creation_input_tokens).toBe(750);
+    expect(e.raw_usage).toEqual(rawUsage);
   });
 
   test("payload preserves null attribution for historical usage rows", async () => {

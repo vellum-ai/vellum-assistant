@@ -54,6 +54,7 @@ import { downExternalConversationBindingChatName } from "./254-external-conversa
 import { downMemoryV2InjectionEvents } from "./256-memory-v2-injection-events.js";
 import { downConversationCleanedAt } from "./259-conversation-cleaned-at.js";
 import { downRenameCleanedAt } from "./260-rename-cleaned-at.js";
+import { downLlmUsageAddRawUsage } from "./261-llm-usage-add-raw-usage.js";
 
 export interface MigrationRegistryEntry {
   /** The checkpoint key written to memory_checkpoints on completion. */
@@ -461,6 +462,13 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     description:
       "Rename conversations.cleaned_at to history_stripped_at; the marker now records any injection-strip event (including compaction), not just /clean",
     down: downRenameCleanedAt,
+  },
+  {
+    key: "migration_llm_usage_add_raw_usage_v1",
+    version: 54,
+    description:
+      "Add raw_usage TEXT column to llm_usage_events for storing the provider's untouched usage block as JSON (Anthropic TTL breakdown, OpenAI prompt/completion token details, etc.) so downstream consumers can extract provider-specific detail without per-field schema changes",
+    down: downLlmUsageAddRawUsage,
   },
 ];
 

@@ -42,6 +42,18 @@ export interface UsageEventInput {
   outputTokens: number;
   cacheCreationInputTokens: number | null;
   cacheReadInputTokens: number | null;
+  /**
+   * The provider's untouched `usage` block (the literal object returned in
+   * the API response), preserved as JSON so downstream consumers can
+   * extract any provider-specific detail without requiring a schema
+   * change. Anthropic nests its TTL breakdown under
+   * `cache_creation.ephemeral_{5m,1h}_input_tokens`; OpenAI nests cached
+   * read counts under `prompt_tokens_details.cached_tokens`; both shapes
+   * are stored as-is. `null` when the provider did not return a usage
+   * block and for rows persisted before the
+   * `260-llm-usage-add-raw-usage` migration.
+   */
+  rawUsage: Record<string, unknown> | null;
   actor: UsageActor;
   conversationId: string | null;
   runId: string | null;

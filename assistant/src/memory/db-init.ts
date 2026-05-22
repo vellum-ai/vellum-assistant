@@ -121,6 +121,7 @@ import {
   migrateLlmRequestLogMessageId,
   migrateLlmRequestLogProvider,
   migrateLlmRequestLogsCreatedAtIndex,
+  migrateLlmUsageAddRawUsage,
   migrateLlmUsageAttribution,
   migrateMemoryGraphImageRefs,
   migrateMemoryItemSupersession,
@@ -454,6 +455,7 @@ export function initializeDb(): void {
     migrateOnboardingEventsPriorAssistants,
     migrateConversationCleanedAt,
     migrateRenameCleanedAt,
+    migrateLlmUsageAddRawUsage,
   ];
 
   // Run each migration step, catching and logging individual failures so one
