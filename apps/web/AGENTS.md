@@ -14,7 +14,7 @@ Read these before making changes:
 
 ## Common pitfalls
 
-- **`conversationId` vs `conversationKey`**: API queries must send `conversationId` (UUID) as the primary identifier, not `conversationKey`. Use `conversationQueryParams()` from `domains/chat/api/client.ts`. See [`docs/CONVENTIONS.md` — Conversation identifiers](./docs/CONVENTIONS.md#conversation-identifiers-conversationid-vs-conversationkey).
+- **`conversationId` vs `conversationKey`**: API queries must send `conversationId` (UUID), never `conversationKey`. See [`docs/CONVENTIONS.md` — Conversation identifiers](./docs/CONVENTIONS.md#conversation-identifiers-conversationid-vs-conversationkey).
 
 When a topic in `docs/CONVENTIONS.md` grows past ~100 lines and has a
 coherent boundary, extract it into a `docs/TOPIC.md` sibling with a

@@ -246,22 +246,14 @@ conversations (Slack, email, Telegram) have keys like
 
 **Rules:**
 
-1. **API queries must send `conversationId` (the UUID) as the primary
-   identifier.** The `conversation_keys` table is migration-version-
-   dependent — older assistants don't have it, and queries that rely on
-   it silently return empty results. Most API modules already send
-   `query: { conversationId }` directly. For endpoints that still
-   need both params, use the `conversationQueryParams()` helper from
-   `domains/chat/api/client.ts`:
+1. **API queries must send `conversationId` (the UUID), never
+   `conversationKey`.** The `conversation_keys` table is migration-
+   version-dependent — older assistants don't have it, and queries
+   that rely on it silently return empty results.
 
    ```ts
-   import { conversationQueryParams } from "@/domains/chat/api/client.js";
-
-   // Preferred — send conversationId directly
+   // Correct
    query: { conversationId }
-
-   // Also correct — helper adds conversationKey fallback
-   query: conversationQueryParams(conversationId)
 
    // Wrong — breaks on older DB versions
    query: { conversationKey }
