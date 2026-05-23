@@ -10,6 +10,8 @@ import { join } from "node:path";
 
 import { getIsContainerized } from "../config/env-registry.js";
 import { getCachedManagedConnections } from "../credential-execution/managed-catalog.js";
+import type { ChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
+import type { TrustContext } from "../daemon/trust-context.js";
 import { listConnections } from "../oauth/oauth-store.js";
 import type { OnboardingContext } from "../types/onboarding-context.js";
 import { resolveBundledDir } from "../util/bundled-asset.js";
@@ -23,6 +25,10 @@ import { stripCommentLines } from "../util/strip-comment-lines.js";
 import { cleanupBootstrapFiles } from "./bootstrap-cleanup.js";
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "./cache-boundary.js";
 import { normalizeOnboardingContext } from "./normalize-onboarding.js";
+import {
+  resolveGuardianPersona,
+  resolvePersonaContext,
+} from "./persona-resolver.js";
 import { renderWorkspaceSections } from "./sections.js";
 import { isTemplateContent } from "./template-detection.js";
 
@@ -280,8 +286,9 @@ export function maybeReseedBootstrapForCohort(cohort: string): void {
  *   1. Bundled static sections (`renderWorkspaceSections`), in id-sort
  *      order.  This includes `08-identity` (IDENTITY.md) and `09-soul`
  *      (SOUL.md), both backed by workspace files.
- *   2. User and channel persona (via `options.userPersona` /
- *      `options.channelPersona`) and accumulated VOICE.md, after the
+ *   2. User and channel persona (resolved internally from
+ *      `options.trustContext` / `options.channelCapabilities` via
+ *      `resolvePersonaContext`) and accumulated VOICE.md, after the
  *      cache boundary.
  *   3. If BOOTSTRAP.md exists, the first-run ritual block.
  */
@@ -289,9 +296,19 @@ export interface BuildSystemPromptOptions {
   hasNoClient?: boolean;
   excludeBootstrap?: boolean;
   excludeCustomPrefix?: boolean;
-  userPersona?: string | null;
-  channelPersona?: string | null;
-  userSlug?: string | null;
+  /**
+   * Per-turn identity context used to resolve the user persona file
+   * (`users/<slug>.md`). When `undefined` the resolver falls back to the
+   * guardian — appropriate for desktop/native and any background subsystem
+   * that wants the guardian's view of the world.
+   */
+  trustContext?: TrustContext;
+  /**
+   * Per-turn channel capabilities used to resolve the channel persona file
+   * (`channels/<channel>.md`). When `undefined` the resolver defaults to
+   * the `vellum` channel.
+   */
+  channelCapabilities?: ChannelCapabilities;
   onboardingContext?: OnboardingContext;
 }
 
@@ -343,8 +360,18 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   const systemParts: string[] = [...renderWorkspaceSections(ctx)];
   const dynamicStart = systemParts.length;
 
-  if (options?.userPersona) systemParts.push(options.userPersona);
-  if (options?.channelPersona) systemParts.push(options.channelPersona);
+  // Resolve persona context internally — every caller used to do this
+  // dance before passing the resolved strings back in as options, which
+  // was pure duplication. The resolver itself handles the no-context
+  // fallback path (guardian), so callers that don't have a per-turn
+  // trust/channel context can simply omit those fields.
+  const persona = resolvePersonaContext(
+    options?.trustContext,
+    options?.channelCapabilities,
+  );
+
+  if (persona.userPersona) systemParts.push(persona.userPersona);
+  if (persona.channelPersona) systemParts.push(persona.channelPersona);
 
   // Surface accumulated voice markers when VOICE.md has content.
   const voiceContent = readPromptFile(getWorkspacePromptPath("VOICE.md"));
@@ -353,7 +380,7 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   }
 
   if (includeBootstrap) {
-    const userSlug = options?.userSlug ?? "default";
+    const userSlug = persona.userSlug ?? "default";
     const bootstrapWithSlug = bootstrap.replaceAll(
       "{{USER_PERSONA_FILE}}",
       `${userSlug}.md`,
@@ -481,14 +508,17 @@ export function readPromptFile(path: string): string | null {
 
 /**
  * Reads the core identity/personality prompt files (SOUL.md, IDENTITY.md)
- * and concatenates whichever exist. Returns null if none are present.
+ * and concatenates whichever exist, plus the guardian's user persona when
+ * one is resolvable. Returns null if none are present.
  *
- * This is useful for injecting identity context into subsystems (e.g. memory
- * extraction) that run outside the main system prompt pipeline.
+ * Used by subsystems (memory extraction, conversation starters,
+ * notification decisions) that run outside the per-turn pipeline and want
+ * the assistant's "view of themselves and their guardian" without a trust
+ * context. The guardian persona fold is what callers used to do manually
+ * by passing `userPersona: resolveGuardianPersona()` — folding it in here
+ * removes the duplicated dance at every call site.
  */
-export function buildCoreIdentityContext(opts?: {
-  userPersona?: string | null;
-}): string | null {
+export function buildCoreIdentityContext(): string | null {
   const parts: string[] = [];
   for (const file of PROMPT_FILES) {
     const content = readPromptFile(getWorkspacePromptPath(file));
@@ -499,6 +529,7 @@ export function buildCoreIdentityContext(opts?: {
     if (file !== "SOUL.md" && isTemplateContent(content, file)) continue;
     parts.push(content);
   }
-  if (opts?.userPersona) parts.push(opts.userPersona);
+  const guardianPersona = resolveGuardianPersona();
+  if (guardianPersona) parts.push(guardianPersona);
   return parts.length > 0 ? parts.join("\n\n") : null;
 }

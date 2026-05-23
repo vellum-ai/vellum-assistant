@@ -61,6 +61,22 @@ mock.module("../prompts/user-reference.js", () => ({
   resolveUserPronouns: () => null,
 }));
 
+// Stub persona-resolver so tests can dictate persona values without
+// writing contact rows to the test DB. Tests mutate `mockPersona` in
+// place before calling buildSystemPrompt.
+const mockPersona: {
+  userPersona: string | null;
+  channelPersona: string | null;
+  userSlug: string | null;
+} = { userPersona: null, channelPersona: null, userSlug: null };
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realPersonaResolver = require("../prompts/persona-resolver.js");
+mock.module("../prompts/persona-resolver.js", () => ({
+  ...realPersonaResolver,
+  resolvePersonaContext: () => mockPersona,
+  resolveGuardianPersona: () => mockPersona.userPersona,
+}));
+
 const { buildSystemPrompt, SYSTEM_PROMPT_CACHE_BOUNDARY } =
   await import("../prompts/system-prompt.js");
 
@@ -77,6 +93,9 @@ function dynamicBlock(result: string): string {
 describe("pre-chat onboarding contract", () => {
   beforeEach(() => {
     mkdirSync(TEST_DIR, { recursive: true });
+    mockPersona.userPersona = null;
+    mockPersona.channelPersona = null;
+    mockPersona.userSlug = null;
   });
 
   afterEach(() => {
@@ -429,12 +448,13 @@ describe("pre-chat onboarding contract", () => {
     });
 
     test("userPersona is included independently of onboarding context", () => {
-      // No BOOTSTRAP.md — the durable persona path after bootstrap is deleted
-      const personaContent =
+      // No BOOTSTRAP.md — the durable persona path after bootstrap is deleted.
+      // The persona is now resolved internally by buildSystemPrompt; the
+      // stub controls what it sees.
+      mockPersona.userPersona =
         "# User Persona\n\nPrefers concise answers. Works in fintech.";
 
       const result = buildSystemPrompt({
-        userPersona: personaContent,
         // No onboardingContext — simulates post-onboarding conversation
       });
       const dynamic = dynamicBlock(result);
@@ -454,7 +474,7 @@ describe("pre-chat onboarding contract", () => {
         "# Bootstrap\n\nOnboarding flow.",
       );
 
-      const personaContent =
+      mockPersona.userPersona =
         "# User Persona\n\nEarly-stage startup founder. Likes bullet points.";
       const context: OnboardingContext = {
         tools: ["slack"],
@@ -464,7 +484,6 @@ describe("pre-chat onboarding contract", () => {
       };
 
       const result = buildSystemPrompt({
-        userPersona: personaContent,
         onboardingContext: context,
       });
       const dynamic = dynamicBlock(result);

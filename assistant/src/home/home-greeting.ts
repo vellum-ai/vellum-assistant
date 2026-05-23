@@ -13,7 +13,6 @@
 
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
-import { resolvePersonaContext } from "../prompts/persona-resolver.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import { getConfiguredProvider } from "../providers/provider-send-message.js";
 import { runBtwSidechain } from "../runtime/btw-sidechain.js";
@@ -56,17 +55,9 @@ export async function refreshPersonalizedGreeting(): Promise<void> {
       return;
     }
 
-    const { userPersona, userSlug, channelPersona } = resolvePersonaContext(
-      undefined,
-      undefined,
-    );
-
     const systemPrompt = buildSystemPrompt({
       excludeBootstrap: true,
       excludeCustomPrefix: true,
-      userPersona,
-      channelPersona,
-      userSlug,
     });
 
     const result = await runBtwSidechain({

@@ -9,7 +9,6 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { loadSkillCatalog } from "../../config/skills.js";
-import { resolveGuardianPersona } from "../../prompts/persona-resolver.js";
 import { buildCoreIdentityContext } from "../../prompts/system-prompt.js";
 import {
   createTimeout,
@@ -200,9 +199,7 @@ async function generateStarters(scopeId: string): Promise<GeneratedStarter[]> {
 
   // Truncate identity context to prevent oversized prompts when SOUL.md /
   // IDENTITY.md / users/<slug>.md are large.
-  const rawIdentityContext = buildCoreIdentityContext({
-    userPersona: resolveGuardianPersona(),
-  });
+  const rawIdentityContext = buildCoreIdentityContext();
   const identityContext = rawIdentityContext
     ? truncate(rawIdentityContext, 2000, "\n…[truncated]")
     : null;
