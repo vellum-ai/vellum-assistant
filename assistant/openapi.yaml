@@ -11484,11 +11484,20 @@ paths:
             schema:
               type: object
               properties:
-                userMessage:
-                  type: string
-                  minLength: 1
-                assistantMessage:
-                  type: string
+                recentTurnPairs:
+                  minItems: 1
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      assistantMessage:
+                        type: string
+                      userMessage:
+                        type: string
+                    required:
+                      - assistantMessage
+                      - userMessage
+                    additionalProperties: false
                 nowText:
                   type: string
                 configOverrides:
@@ -11520,7 +11529,7 @@ paths:
                   type: string
                   maxLength: 1000000
               required:
-                - userMessage
+                - recentTurnPairs
               additionalProperties: false
   /v1/memory/v2/validate:
     post:
