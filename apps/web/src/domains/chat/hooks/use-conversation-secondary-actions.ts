@@ -152,7 +152,7 @@ export function useConversationSecondaryActions({
   const handleInspectConversation = useCallback(
     (conversation: Conversation) => {
       const params = new URLSearchParams();
-      params.set("conversationKey", conversation.conversationId);
+      params.set("conversationId", conversation.conversationId);
       const isActiveConversation =
         conversation.conversationId === activeConversation?.conversationId;
       if (isActiveConversation) {
@@ -174,7 +174,7 @@ export function useConversationSecondaryActions({
     (messageId: string) => {
       if (!activeConversationId) return;
       const params = new URLSearchParams();
-      params.set("conversationKey", activeConversationId);
+      params.set("conversationId", activeConversationId);
       params.set("messageId", messageId);
       void navigate(`${routes.inspect}?${params.toString()}`);
     },

@@ -39,12 +39,12 @@ import { ResponseTab } from "./components/tabs/response-tab.js";
 /**
  * `/assistant/inspect` page. Two scopes, both encoded in the URL:
  *
- * - **Conversation mode** — `?conversationKey=...` only. Shows every
+ * - **Conversation mode** — `?conversationId=...` only. Shows every
  *   LLM call recorded for the conversation. Header carries a "Filter
  *   to message" dropdown that switches into message mode for a
  *   specific message in the transcript.
  *
- * - **Message mode** — `?conversationKey=...&messageId=...`. Shows
+ * - **Message mode** — `?conversationId=...&messageId=...`. Shows
  *   only the calls produced by the turn containing that message.
  *   Header carries a "View all conversation calls" link that drops
  *   back into conversation mode.
@@ -60,10 +60,7 @@ export function InspectPage(): ReactNode {
   const user = useAuthStore.use.user();
   const authLoading = useAuthStore.use.isLoading();
   const [searchParams] = useSearchParams();
-  // URL query param name `conversationKey` is preserved per the URL
-  // contract (see LUM-1890). Internal variable name reflects the value's
-  // identity — the daemon resolves both keys to the same conversation id.
-  const conversationId = searchParams.get("conversationKey");
+  const conversationId = searchParams.get("conversationId");
   const messageId = searchParams.get("messageId");
 
   if (authLoading) {
@@ -126,7 +123,7 @@ function Inspector({ conversationId, messageId }: InspectorProps): ReactNode {
     () =>
       (logId: string): string => {
         const params = new URLSearchParams();
-        params.set("conversationKey", conversationId);
+        params.set("conversationId", conversationId);
         if (messageId) params.set("messageId", messageId);
         params.set("callId", logId);
         return `${routes.inspect}?${params.toString()}`;
@@ -350,7 +347,7 @@ function ScopeControls({
 
   const navigateToScope = (nextMessageId: string | null) => {
     const params = new URLSearchParams();
-    params.set("conversationKey", conversationId);
+    params.set("conversationId", conversationId);
     if (nextMessageId) params.set("messageId", nextMessageId);
     navigate(`${routes.inspect}?${params.toString()}`);
   };
@@ -575,7 +572,7 @@ function MissingConversationKeyState(): ReactNode {
         style={{ color: "var(--content-secondary)" }}
       >
         Open the inspector from a conversation&rsquo;s overflow menu — direct
-        navigation requires a <code>conversationKey</code>.
+        navigation requires a <code>conversationId</code>.
       </p>
     </div>
   );

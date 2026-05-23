@@ -194,7 +194,7 @@ function makeLog(id: string, createdAt: number) {
 describe("InspectPage — gating", () => {
   test("blocks non-internal users before resolving inspector params", () => {
     authUserStub = { email: "person@example.com", isStaff: false };
-    searchParamsMap.set("conversationKey", "conv-abc");
+    searchParamsMap.set("conversationId", "conv-abc");
 
     const html = renderInspector();
 
@@ -205,7 +205,7 @@ describe("InspectPage — gating", () => {
 
   test("allows staff users even without a vellum.ai email", () => {
     authUserStub = { email: "person@example.com", isStaff: true };
-    searchParamsMap.set("conversationKey", "conv-abc");
+    searchParamsMap.set("conversationId", "conv-abc");
     contextStub = {
       data: {
         conversationId: "conv-int-1",
@@ -233,16 +233,16 @@ describe("InspectPage — gating", () => {
     expect(html).toContain("1 LLM call");
   });
 
-  test("renders the missing-conversationKey state when no params are present", () => {
+  test("renders the missing-conversationId state when no params are present", () => {
     const html = renderInspector();
     expect(html).toContain("Missing inspector parameters");
-    expect(html).toContain("requires a <code>conversationKey</code>");
+    expect(html).toContain("requires a <code>conversationId</code>");
   });
 });
 
 describe("InspectPage — data-loading branches", () => {
   test("shows loading copy while the inspector context is fetching", () => {
-    searchParamsMap.set("conversationKey", "conv-1");
+    searchParamsMap.set("conversationId", "conv-1");
     contextStub = {
       data: undefined,
       isLoading: true,
@@ -255,7 +255,7 @@ describe("InspectPage — data-loading branches", () => {
   });
 
   test("renders the empty state when the conversation has no LLM calls", () => {
-    searchParamsMap.set("conversationKey", "conv-empty");
+    searchParamsMap.set("conversationId", "conv-empty");
     contextStub = {
       data: {
         conversationId: "conv-int-empty",
@@ -276,7 +276,7 @@ describe("InspectPage — data-loading branches", () => {
   });
 
   test("renders the call-count chrome when calls are present", () => {
-    searchParamsMap.set("conversationKey", "conv-1");
+    searchParamsMap.set("conversationId", "conv-1");
     contextStub = {
       data: {
         conversationId: "conv-int-1",
@@ -302,7 +302,7 @@ describe("InspectPage — data-loading branches", () => {
   });
 
   test("renders the error state when the context query errors out", () => {
-    searchParamsMap.set("conversationKey", "conv-err");
+    searchParamsMap.set("conversationId", "conv-err");
     contextStub = {
       data: undefined,
       isLoading: false,
@@ -319,7 +319,7 @@ describe("InspectPage — data-loading branches", () => {
 
 describe("InspectPage — dual-mode chrome", () => {
   test("conversation mode renders the conversation-wide subtitle and the filter dropdown", () => {
-    searchParamsMap.set("conversationKey", "conv-1");
+    searchParamsMap.set("conversationId", "conv-1");
     contextStub = {
       data: {
         conversationId: "conv-int-1",
@@ -369,7 +369,7 @@ describe("InspectPage — dual-mode chrome", () => {
   });
 
   test("message mode renders the scoped subtitle, short id, and the back-to-conversation button", () => {
-    searchParamsMap.set("conversationKey", "conv-1");
+    searchParamsMap.set("conversationId", "conv-1");
     searchParamsMap.set("messageId", "msg-abcdef-1234567890");
     contextStub = {
       data: {
@@ -397,7 +397,7 @@ describe("InspectPage — dual-mode chrome", () => {
   });
 
   test("message mode empty state copy is message-specific", () => {
-    searchParamsMap.set("conversationKey", "conv-1");
+    searchParamsMap.set("conversationId", "conv-1");
     searchParamsMap.set("messageId", "msg-x");
     contextStub = {
       data: {
