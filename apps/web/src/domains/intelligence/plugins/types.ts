@@ -43,3 +43,36 @@ export interface PluginInfo {
 export interface PluginsListResponse {
   readonly plugins: readonly PluginInfo[];
 }
+
+/**
+ * A single entry returned by the catalog search endpoint.
+ *
+ * Mirrors `PluginSearchMatch` from
+ * `assistant/src/cli/lib/search-plugins.ts`. The catalog is the
+ * canonical `vellum-ai/vellum-assistant/experimental/plugins/`
+ * directory listing — each match is a directory the user could
+ * install with `assistant plugins install <name>`.
+ */
+export interface PluginCatalogMatch {
+  /**
+   * Catalog directory name. Suitable for
+   * `assistant plugins install <name>` verbatim.
+   */
+  readonly name: string;
+  /**
+   * Repo-relative path of the match (e.g.
+   * `experimental/plugins/<name>`). Surfaced primarily as a
+   * disambiguator when names collide; UI may treat it as opaque.
+   */
+  readonly path: string;
+}
+
+/** Response envelope for `GET /v1/assistants/{id}/plugins/search/`. */
+export interface PluginCatalogResponse {
+  /** Echo of the requested query (ECMAScript regex source). */
+  readonly query: string;
+  /** Git ref the catalog was listed at. */
+  readonly ref: string;
+  /** Directory matches, already sorted alphabetically by name. */
+  readonly matches: readonly PluginCatalogMatch[];
+}
