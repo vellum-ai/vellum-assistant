@@ -12953,6 +12953,45 @@ paths:
           schema:
             type: string
           description: Optional substring filter applied to plugin id, name, and description.
+  /v1/plugins/{name}:
+    delete:
+      operationId: plugins_by_name_delete
+      summary: Uninstall a plugin
+      description:
+        Remove the directory at `<workspaceDir>/plugins/<name>/`. Mirrors the CLI's `assistant plugins uninstall
+        <name>` (without the interactive confirmation — the API caller is responsible for any prompt). The plugin name
+        is sanitized by the same regex the CLI uses; `../escape`-style values, hidden names, and absolute paths return
+        400. Missing plugins return 404. The assistant must be restarted to drop the plugin from the running runtime.
+      tags:
+        - plugins
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                    description: Directory name that was removed. Echoes the request's `:name` path parameter after sanitization.
+                  target:
+                    type: string
+                    description: Absolute path that was removed on the assistant host. Useful for audit logs and confirmation toasts.
+                required:
+                  - name
+                  - target
+                additionalProperties: false
+        "400":
+          description: The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters).
+        "404":
+          description: No plugin directory exists with the given name.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/plugins/search:
     get:
       operationId: plugins_search_get

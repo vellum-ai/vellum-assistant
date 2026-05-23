@@ -19,14 +19,22 @@
  *   - Re-packs the lib's `readonly` match array into mutable arrays so
  *     downstream serializers can introspect freely
  *
+ * DELETE /v1/plugins/:name (uninstall):
+ *   - Forwards `pathParams.name` to the `uninstallPlugin` lib
+ *   - Returns `{ name, target }` mirroring the lib's `UninstallPluginResult`
+ *   - Maps `InvalidPluginNameError` → BadRequestError (400)
+ *   - Maps `PluginNotInstalledError` → NotFoundError (404)
+ *   - Maps unknown errors → InternalError (500) with message preserved
+ *
  * The library functions themselves are covered by
- * `assistant/src/cli/lib/__tests__/list-installed-plugins.test.ts` and
- * `assistant/src/cli/lib/__tests__/search-plugins.test.ts`; here we
- * mock them to isolate the route's wiring logic.
+ * `assistant/src/cli/lib/__tests__/list-installed-plugins.test.ts`,
+ * `.../search-plugins.test.ts`, and `.../uninstall-plugin.test.ts`;
+ * here we mock them to isolate the route's wiring logic.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { InvalidPluginNameError } from "../../../cli/lib/install-from-github.js";
 import type { InstalledPluginInfo } from "../../../cli/lib/list-installed-plugins.js";
 import type {
   PluginSearchMatch,
@@ -35,6 +43,11 @@ import type {
   SearchPluginsResult,
 } from "../../../cli/lib/search-plugins.js";
 import { InvalidSearchPatternError } from "../../../cli/lib/search-plugins.js";
+import {
+  PluginNotInstalledError,
+  type UninstallPluginOptions,
+  type UninstallPluginResult,
+} from "../../../cli/lib/uninstall-plugin.js";
 
 // Mutable list returned by the mocked library function. Tests reassign
 // `installedFixture` before invoking the handler.
@@ -62,7 +75,30 @@ mock.module("../../../cli/lib/search-plugins.js", () => ({
   searchPlugins: searchSpy,
 }));
 
-import { BadRequestError, InternalError } from "../errors.js";
+// Mock uninstallPlugin. The handler's error mapping is the wiring under
+// test — the lib's own behavior is covered separately.
+const uninstallSpy = mock(
+  (_opts: UninstallPluginOptions): UninstallPluginResult => {
+    throw new Error("uninstallSpy default impl not configured");
+  },
+);
+
+mock.module("../../../cli/lib/uninstall-plugin.js", () => ({
+  // Pass through error classes — the handler checks `instanceof`.
+  PluginNotInstalledError,
+  uninstallPlugin: uninstallSpy,
+}));
+
+// `InvalidPluginNameError` is re-exported from uninstall-plugin.js but
+// the canonical definition lives in install-from-github.js. The
+// handler imports from install-from-github.js, so mock that too so the
+// `instanceof` check inside the handler resolves to the same class as
+// the one the spy throws.
+mock.module("../../../cli/lib/install-from-github.js", () => ({
+  InvalidPluginNameError,
+}));
+
+import { BadRequestError, InternalError, NotFoundError } from "../errors.js";
 import { ROUTES as PLUGINS_ROUTES } from "../plugins-routes.js";
 import type { RouteDefinition, RouteHandlerArgs } from "../types.js";
 
@@ -74,6 +110,7 @@ function findHandler(operationId: string): RouteDefinition["handler"] {
 
 const listHandler = findHandler("plugins_list");
 const searchHandler = findHandler("plugins_search");
+const uninstallHandler = findHandler("plugins_uninstall");
 
 function invoke(
   args: RouteHandlerArgs = {},
@@ -371,5 +408,105 @@ describe("GET /v1/plugins/search", () => {
     // (or downstream test fixtures) reach in.
     expect(Object.isFrozen(result.matches)).toBe(false);
     expect(() => result.matches.push({ name: "b", path: "x" })).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DELETE /v1/plugins/:name (uninstall)
+// ---------------------------------------------------------------------------
+
+function invokeUninstall(args: RouteHandlerArgs = {}): {
+  name: string;
+  target: string;
+} {
+  return uninstallHandler(args) as { name: string; target: string };
+}
+
+describe("DELETE /v1/plugins/:name", () => {
+  beforeEach(() => {
+    uninstallSpy.mockReset();
+  });
+
+  test("forwards pathParams.name to uninstallPlugin and returns its result", () => {
+    uninstallSpy.mockImplementation((opts) => ({
+      name: opts.name,
+      target: `/workspace/.vellum/plugins/${opts.name}`,
+    }));
+
+    const result = invokeUninstall({ pathParams: { name: "simple-memory" } });
+
+    expect(uninstallSpy.mock.calls).toHaveLength(1);
+    expect(uninstallSpy.mock.calls[0]?.[0]).toEqual({ name: "simple-memory" });
+    expect(result).toEqual({
+      name: "simple-memory",
+      target: "/workspace/.vellum/plugins/simple-memory",
+    });
+  });
+
+  test("missing pathParams.name passes the empty string through to the lib", () => {
+    // The lib's `sanitizePluginName` is the validator of last resort —
+    // the route hands off the raw value without pre-trimming. The lib
+    // rejects empty strings, which the handler maps to 400 below.
+    uninstallSpy.mockImplementation(() => {
+      throw new InvalidPluginNameError(
+        'Invalid plugin name "" — must match /^[a-z][a-z0-9-]{0,63}$/.',
+      );
+    });
+
+    expect(() => invokeUninstall({})).toThrow(BadRequestError);
+    expect(uninstallSpy.mock.calls[0]?.[0]).toEqual({ name: "" });
+  });
+
+  test("InvalidPluginNameError → BadRequestError (400)", () => {
+    uninstallSpy.mockImplementation(() => {
+      throw new InvalidPluginNameError("bad name ../escape");
+    });
+
+    expect(() =>
+      invokeUninstall({ pathParams: { name: "../escape" } }),
+    ).toThrow(BadRequestError);
+  });
+
+  test("PluginNotInstalledError → NotFoundError (404)", () => {
+    uninstallSpy.mockImplementation((opts) => {
+      throw new PluginNotInstalledError(
+        opts.name,
+        `/workspace/.vellum/plugins/${opts.name}`,
+      );
+    });
+
+    expect(() => invokeUninstall({ pathParams: { name: "ghost" } })).toThrow(
+      NotFoundError,
+    );
+  });
+
+  test("unknown errors → InternalError with original message preserved", () => {
+    uninstallSpy.mockImplementation(() => {
+      throw new Error("EBUSY: resource busy or locked");
+    });
+
+    expect(() =>
+      invokeUninstall({ pathParams: { name: "simple-memory" } }),
+    ).toThrow(InternalError);
+    try {
+      invokeUninstall({ pathParams: { name: "simple-memory" } });
+    } catch (err) {
+      expect((err as Error).message).toContain("EBUSY");
+    }
+  });
+
+  test("non-Error throws fall through to InternalError with a default message", () => {
+    uninstallSpy.mockImplementation(() => {
+      throw "boom"; // emulates a poorly-typed throwable from the lib chain
+    });
+
+    let caught: unknown;
+    try {
+      invokeUninstall({ pathParams: { name: "simple-memory" } });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(InternalError);
+    expect((caught as Error).message).toBe("plugin uninstall failed");
   });
 });

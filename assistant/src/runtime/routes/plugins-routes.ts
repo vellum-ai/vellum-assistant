@@ -1,31 +1,36 @@
 /**
  * Route handlers for the assistant plugins surface.
  *
- * GET /v1/plugins         — list installed plugins under `<workspaceDir>/plugins/`.
- * GET /v1/plugins/search  — search the canonical GitHub catalog of installable plugins.
+ * GET    /v1/plugins         — list installed plugins under `<workspaceDir>/plugins/`.
+ * GET    /v1/plugins/search  — search the canonical GitHub catalog of installable plugins.
+ * DELETE /v1/plugins/:name   — uninstall a plugin from `<workspaceDir>/plugins/<name>/`.
  *
- * Both routes are read-only projections over the same library functions
- * the CLI uses (`assistant plugins list`, `assistant plugins search`),
- * so CLI / daemon / web stay aligned on what an installed or available
- * plugin looks like.
+ * The read-only routes are projections over the same library functions
+ * the CLI uses (`assistant plugins list`, `assistant plugins search`).
+ * The DELETE route is symmetric to `assistant plugins uninstall` and
+ * delegates to the same `uninstallPlugin` lib function. CLI / daemon /
+ * web stay aligned on what an installed or available plugin looks like.
  *
- * Install / uninstall are intentionally not exposed here. The CLI stays
- * the install surface while the on-disk plugin layout firms up.
+ * Install is intentionally not exposed here. The CLI remains the
+ * install surface because installation fetches from GitHub, applies
+ * sanitization, and writes to disk — a heavier flow than a single
+ * JSON request justifies right now.
  *
  * # Policy gating
  *
- * Both routes declare `policyKey: "plugins"` + `requirePolicyEnforcement:
+ * Every route declares `policyKey: "plugins"` + `requirePolicyEnforcement:
  * true`. The HTTP router enforces via `enforcePolicy()` against the
- * `plugins:GET` / `plugins/search:GET` registry entries in
- * `runtime/auth/route-policy.ts`. The IPC adapter exposes the same
- * policies to the gateway IPC proxy, whose own policy table
+ * `plugins:GET` / `plugins/search:GET` / `plugins:DELETE` registry
+ * entries in `runtime/auth/route-policy.ts`. The IPC adapter exposes
+ * the same policies to the gateway IPC proxy, whose own policy table
  * (`gateway/src/auth/ipc-route-policy.ts`) holds the matching entries
- * for `plugins_list` / `plugins_search`. Both paths require
- * `settings.read`.
+ * for `plugins_list` / `plugins_search` / `plugins_uninstall`. Reads
+ * require `settings.read`; uninstall requires `settings.write`.
  */
 
 import { z } from "zod";
 
+import { InvalidPluginNameError } from "../../cli/lib/install-from-github.js";
 import {
   type InstalledPluginInfo,
   listInstalledPlugins,
@@ -35,7 +40,15 @@ import {
   type PluginSearchMatch,
   searchPlugins,
 } from "../../cli/lib/search-plugins.js";
-import { BadRequestError, InternalError } from "./errors.js";
+import {
+  PluginNotInstalledError,
+  uninstallPlugin,
+} from "../../cli/lib/uninstall-plugin.js";
+import {
+  BadRequestError,
+  InternalError,
+  NotFoundError,
+} from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -94,6 +107,19 @@ const pluginsSearchResponseSchema = z.object({
   matches: z
     .array(pluginSearchMatchSchema)
     .describe("Directory matches, sorted alphabetically by name."),
+});
+
+const pluginUninstallResponseSchema = z.object({
+  name: z
+    .string()
+    .describe(
+      "Directory name that was removed. Echoes the request's `:name` path parameter after sanitization.",
+    ),
+  target: z
+    .string()
+    .describe(
+      "Absolute path that was removed on the assistant host. Useful for audit logs and confirmation toasts.",
+    ),
 });
 
 // ---------------------------------------------------------------------------
@@ -192,6 +218,40 @@ async function handleSearchPlugins({
 }
 
 // ---------------------------------------------------------------------------
+// Handler — uninstall
+// ---------------------------------------------------------------------------
+
+interface PluginUninstallResponse {
+  name: string;
+  target: string;
+}
+
+function handleUninstallPlugin({
+  pathParams = {},
+}: RouteHandlerArgs): PluginUninstallResponse {
+  // The HTTP router has already URL-decoded `:name` for us; pass it
+  // through verbatim — `uninstallPlugin` runs the same
+  // `sanitizePluginName` check the CLI uses, so attacker-supplied
+  // `../escape` style names get rejected before `rmSync` is reached.
+  const rawName = pathParams.name ?? "";
+
+  try {
+    const result = uninstallPlugin({ name: rawName });
+    return { name: result.name, target: result.target };
+  } catch (err) {
+    if (err instanceof InvalidPluginNameError) {
+      throw new BadRequestError(err.message);
+    }
+    if (err instanceof PluginNotInstalledError) {
+      throw new NotFoundError(err.message);
+    }
+    throw new InternalError(
+      err instanceof Error ? err.message : "plugin uninstall failed",
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
 
@@ -243,5 +303,35 @@ export const ROUTES: RouteDefinition[] = [
     ],
     responseBody: pluginsSearchResponseSchema,
     handler: handleSearchPlugins,
+  },
+  {
+    operationId: "plugins_uninstall",
+    endpoint: "plugins/:name",
+    method: "DELETE",
+    policyKey: "plugins",
+    requirePolicyEnforcement: true,
+    summary: "Uninstall a plugin",
+    description:
+      "Remove the directory at `<workspaceDir>/plugins/<name>/`. Mirrors the CLI's `assistant plugins uninstall <name>` (without the interactive confirmation — the API caller is responsible for any prompt). The plugin name is sanitized by the same regex the CLI uses; `../escape`-style values, hidden names, and absolute paths return 400. Missing plugins return 404. The assistant must be restarted to drop the plugin from the running runtime.",
+    tags: ["plugins"],
+    pathParams: [
+      {
+        name: "name",
+        type: "string",
+        description:
+          "Directory name under `<workspaceDir>/plugins/`. Must match the kebab-case name accepted by `assistant plugins install`.",
+      },
+    ],
+    responseBody: pluginUninstallResponseSchema,
+    additionalResponses: {
+      "400": {
+        description:
+          "The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters).",
+      },
+      "404": {
+        description: "No plugin directory exists with the given name.",
+      },
+    },
+    handler: handleUninstallPlugin,
   },
 ];

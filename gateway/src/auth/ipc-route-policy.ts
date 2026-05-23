@@ -318,6 +318,7 @@ const POLICY_TABLE: PolicyEntry[] = [
   // Plugins
   ["plugins_list", ["settings.read"]],
   ["plugins_search", ["settings.read"]],
+  ["plugins_uninstall", ["settings.write"]],
 
   // Skills
   ["checkSkillUpdates", ["settings.write"]],
