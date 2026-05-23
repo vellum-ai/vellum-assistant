@@ -53,56 +53,26 @@ export interface BuildTranscriptItemsInput {
  * Every returned item carries a non-empty, distinct `key`.
  */
 function isInvalidMessage(message: DisplayMessage): boolean {
-  // Only user-side suppression — assistant messages always render.
+  // Assistant rows always render; queued user rows collapse into a marker upstream.
   if (message.role !== "user") return false;
-  // Queued user messages collapse into a single QueuedMarkerItem upstream;
-  // they aren't blank from the user's perspective, just deferred.
   if (message.queueStatus === "queued") return false;
 
-  // A "meaningful" user row carries at least one of: visible text, a UI
-  // surface, an inline attachment chip, a Slack chip, or a non-phantom
-  // tool call. Anything else is a stray blank bubble. The two failure
-  // modes this catches:
-  //
-  //   1. Phantom tool calls synthesized by the daemon when a tool_result
-  //      block has no matching tool_use (orphan). They came through as
-  //      user messages and rendered as a confusing "Completed 1 step /
-  //      Used unknown" chip. Dropping the whole message is correct —
-  //      without the parent tool_use we can't tell the user what tool
-  //      ran, so the result is meaningless.
-  //
-  //   2. Blank user rows at history-pagination boundaries. The runtime's
-  //      `mergeToolResultsIntoAssistantMessages` merges tool_result-only
-  //      user rows into the preceding assistant message — but at a page
-  //      boundary the preceding assistant lives on the previous page, so
-  //      the user row is intentionally kept as-is to avoid permanent
-  //      data loss. `renderHistoryContent` then drops the orphan
-  //      tool_result block (no matching tool_use in the page), and the
-  //      row arrives at the web client with empty content / segments /
-  //      tool calls — i.e. a blank bubble.
-  const hasContent = !!message.content && message.content.trim().length > 0;
-  const hasTextSegments =
-    !!message.textSegments &&
-    message.textSegments.some(
+  // Any meaningful signal short-circuits as valid. Without one of these the
+  // row is a blank bubble (e.g. an orphan tool_result at a pagination boundary
+  // that the daemon's renderer already stripped).
+  if (message.content && message.content.trim().length > 0) return false;
+  if (
+    message.textSegments?.some(
       (s) => typeof s.content === "string" && s.content.trim().length > 0,
-    );
-  const hasSurfaces = !!message.surfaces && message.surfaces.length > 0;
-  const hasAttachments =
-    !!message.attachments && message.attachments.length > 0;
-  const hasSlackMessage = !!message.slackMessage;
-  const hasMeaningfulToolCalls =
-    !!message.toolCalls &&
-    message.toolCalls.length > 0 &&
-    message.toolCalls.some((tc) => tc.toolName !== "unknown");
+    )
+  )
+    return false;
+  if (message.surfaces && message.surfaces.length > 0) return false;
+  if (message.attachments && message.attachments.length > 0) return false;
+  if (message.slackMessage) return false;
+  if (message.toolCalls?.some((tc) => tc.toolName !== "unknown")) return false;
 
-  return (
-    !hasContent &&
-    !hasTextSegments &&
-    !hasSurfaces &&
-    !hasAttachments &&
-    !hasSlackMessage &&
-    !hasMeaningfulToolCalls
-  );
+  return true;
 }
 
 export function buildTranscriptItems(

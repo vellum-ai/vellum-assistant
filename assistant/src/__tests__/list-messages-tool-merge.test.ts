@@ -175,15 +175,13 @@ describe("handleListMessages tool_result merging", () => {
     expect(body.messages[2].content).toBe("how are you?");
   });
 
-  test("tool_result at start of array (no preceding assistant) is dropped", async () => {
+  test("orphan tool_result at pagination boundary is suppressed entirely", async () => {
     const conv = createConversation();
-    // Orphan tool_result with no preceding assistant. Without the parent
-    // tool_use we can't tell the user what tool ran, so the result is
-    // meaningless — renderHistoryContent drops it rather than synthesizing
-    // a phantom "unknown" tool call. See shared.ts comment.
-    // The user message itself is preserved at the pagination boundary
-    // (mergeToolResultsIntoAssistantMessages keeps it to avoid data loss
-    // in case the matching tool_use lives on the previous page).
+    // Orphan tool_result with no preceding assistant in this page. The
+    // matching tool_use lives on the previous page, so renderHistoryContent
+    // would silently drop the orphan downstream and leave a blank user
+    // bubble. The merger now suppresses the user row outright at the
+    // boundary to prevent that blank bubble from reaching the client.
     await addMessage(
       conv.id,
       "user",
@@ -204,13 +202,74 @@ describe("handleListMessages tool_result merging", () => {
     const response = handleListMessages(createTestArgs(conv.id));
     const body = response as { messages: MessagePayload[] };
 
-    // Both messages exist — user message preserved at pagination boundary,
-    // but the orphan tool_result is dropped (no phantom toolCalls)
+    // User row dropped entirely; only the assistant survives.
+    expect(body.messages).toHaveLength(1);
+    expect(body.messages[0].role).toBe("assistant");
+    expect(body.messages[0].content).toBe("response");
+  });
+
+  test("mixed content at pagination boundary keeps real user text", async () => {
+    const conv = createConversation();
+    // Row has both real user text AND an orphan tool_result. The orphan
+    // gets stripped (it'd be dropped by renderHistoryContent anyway), but
+    // the user text is preserved.
+    await addMessage(
+      conv.id,
+      "user",
+      JSON.stringify([
+        {
+          type: "tool_result",
+          tool_use_id: "tu_orphan",
+          content: "stale result",
+        },
+        { type: "text", text: "what about this?" },
+      ]),
+    );
+    await addMessage(
+      conv.id,
+      "assistant",
+      JSON.stringify([{ type: "text", text: "answering" }]),
+    );
+
+    const response = handleListMessages(createTestArgs(conv.id));
+    const body = response as { messages: MessagePayload[] };
+
     expect(body.messages).toHaveLength(2);
     expect(body.messages[0].role).toBe("user");
+    expect(body.messages[0].content).toBe("what about this?");
     expect(body.messages[0].toolCalls).toBeUndefined();
     expect(body.messages[1].role).toBe("assistant");
-    expect(body.messages[1].content).toBe("response");
+    expect(body.messages[1].content).toBe("answering");
+  });
+
+  test("orphan tool_result + system_notice at boundary is suppressed", async () => {
+    const conv = createConversation();
+    // System notices ride alongside tool_results in the agent loop. At a
+    // boundary they shouldn't keep the row alive on their own — the row
+    // is still semantically tool-result-only from the user's perspective.
+    await addMessage(
+      conv.id,
+      "user",
+      JSON.stringify([
+        {
+          type: "tool_result",
+          tool_use_id: "tu_orphan",
+          content: "stale",
+        },
+        { type: "text", text: "<system_notice>internal</system_notice>" },
+      ]),
+    );
+    await addMessage(
+      conv.id,
+      "assistant",
+      JSON.stringify([{ type: "text", text: "ok" }]),
+    );
+
+    const response = handleListMessages(createTestArgs(conv.id));
+    const body = response as { messages: MessagePayload[] };
+
+    expect(body.messages).toHaveLength(1);
+    expect(body.messages[0].role).toBe("assistant");
   });
 
   test("multi-turn: each tool_result merges into correct assistant", async () => {
