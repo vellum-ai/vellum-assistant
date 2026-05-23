@@ -114,7 +114,6 @@ describe("fetchConversationLlmContext — happy path", () => {
     expect(requests[0]!.path).toEqual({ assistant_id: "asst-1" });
     expect(requests[0]!.query).toEqual({
       conversationId: "conv-1",
-      conversationKey: "conv-1",
     });
     expect(result).toEqual(body);
   });

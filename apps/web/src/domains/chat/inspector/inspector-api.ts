@@ -147,7 +147,7 @@ export async function fetchConversationLlmContext(
   const { data, error, response } = await client.get<LlmContextResponse>({
     url: "/v1/assistants/{assistant_id}/conversations/llm-context/",
     path: { assistant_id: assistantId },
-    query: { conversationId: conversationKey, conversationKey },
+    query: { conversationId: conversationKey },
     signal,
     throwOnError: false,
   });
