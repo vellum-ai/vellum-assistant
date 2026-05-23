@@ -23,7 +23,7 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
   emptyStateGreeting: { profile: "balanced" },
 
   memoryRouter: {
-    profile: "balanced",
+    profile: "cost-optimized",
     contextWindow: { maxInputTokens: 1000000 },
   },
   recall: {
