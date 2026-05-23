@@ -35,7 +35,7 @@ import type { AssistantStateKind, ChatError } from "@/domains/chat/types.js";
 export interface UseConversationSwitchParams {
   assistantId: string | null;
   assistantStateKind: AssistantStateKind;
-  activeConversationKey: string | null;
+  activeConversationId: string | null;
 
   // Refs owned by the parent that the reset clears or refreshes.
   draftKeyResolutionRef: MutableRefObject<boolean>;
@@ -84,7 +84,7 @@ export interface ConversationSwitchHandles {
 export function useConversationSwitch({
   assistantId,
   assistantStateKind,
-  activeConversationKey,
+  activeConversationId,
   draftKeyResolutionRef,
   previousConversationKeyRef,
   needsNewBubbleRef,
@@ -111,7 +111,7 @@ export function useConversationSwitch({
   const lastAppliedDataRef = useRef(0);
 
   useEffect(() => {
-    if (assistantStateKind !== "active" || !assistantId || !activeConversationKey) {
+    if (assistantStateKind !== "active" || !assistantId || !activeConversationId) {
       return;
     }
 
@@ -124,7 +124,7 @@ export function useConversationSwitch({
     // Track outgoing conversation's attention state.
     const outgoingKey = previousConversationKeyRef.current;
     const isConversationSwitch = Boolean(
-      outgoingKey && outgoingKey !== activeConversationKey,
+      outgoingKey && outgoingKey !== activeConversationId,
     );
     if (isConversationSwitch && outgoingKey) {
       const interactionSnapshot = useInteractionStore.getState();
@@ -132,11 +132,11 @@ export function useConversationSwitch({
         useConversationStore.getState().addAttentionKey(outgoingKey);
       }
     }
-    previousConversationKeyRef.current = activeConversationKey;
+    previousConversationKeyRef.current = activeConversationId;
 
     recordChatDiagnostic("conversation_switch_reset", {
       assistantId,
-      conversationKey: activeConversationKey,
+      conversationKey: activeConversationId,
       outgoingConversationKey: outgoingKey ?? null,
     });
 
@@ -163,11 +163,11 @@ export function useConversationSwitch({
     setCompactionCircuitOpenUntil(null);
     lastSuggestionMsgIdRef.current = null;
     setContextWindowUsage(
-      contextWindowUsageByConversationRef.current.get(activeConversationKey) ?? null,
+      contextWindowUsageByConversationRef.current.get(activeConversationId) ?? null,
     );
     dismissedSurfaceIdsRef.current = loadDismissedSurfaceIds(
       assistantId,
-      activeConversationKey,
+      activeConversationId,
     );
     setError((prev) =>
       shouldSuppressGenericChatErrorNotice(prev) ? prev : null,
@@ -180,7 +180,7 @@ export function useConversationSwitch({
   }, [
     assistantStateKind,
     assistantId,
-    activeConversationKey,
+    activeConversationId,
     resetChatAttachments,
     // Refs (stable references, listed for completeness):
     draftKeyResolutionRef,

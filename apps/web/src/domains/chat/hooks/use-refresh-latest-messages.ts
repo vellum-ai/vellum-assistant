@@ -25,7 +25,7 @@ export type RefreshLatestOutcome =
 
 interface UseRefreshLatestMessagesArgs {
   assistantId: string | null;
-  activeConversationKeyRef: MutableRefObject<string | null>;
+  activeConversationIdRef: MutableRefObject<string | null>;
   messagesRef: MutableRefObject<DisplayMessage[]>;
   setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
   dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
@@ -136,7 +136,7 @@ function refreshSurfacesForFetchedMessages({
  */
 export function useRefreshLatestMessages({
   assistantId,
-  activeConversationKeyRef,
+  activeConversationIdRef,
   messagesRef,
   setMessages,
   dismissedSurfaceIdsRef,
@@ -144,13 +144,13 @@ export function useRefreshLatestMessages({
   const refreshTokenRef = useRef(0);
   return useCallback(async (): Promise<RefreshLatestOutcome> => {
     if (!assistantId) return { kind: "no-change" };
-    const conversationKey = activeConversationKeyRef.current;
+    const conversationKey = activeConversationIdRef.current;
     if (!conversationKey) return { kind: "no-change" };
 
     const myToken = ++refreshTokenRef.current;
     const isStale = (): boolean =>
       refreshTokenRef.current !== myToken ||
-      activeConversationKeyRef.current !== conversationKey;
+      activeConversationIdRef.current !== conversationKey;
 
     let fetched;
     try {
@@ -200,7 +200,7 @@ export function useRefreshLatestMessages({
     return outcome;
   }, [
     assistantId,
-    activeConversationKeyRef,
+    activeConversationIdRef,
     messagesRef,
     setMessages,
     dismissedSurfaceIdsRef,

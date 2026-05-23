@@ -123,7 +123,7 @@ function makeRefs(
     } | null>,
     streamRef: { current: null } as MutableRefObject<ChatEventStream | null>,
     streamEpochRef: { current: 0 } as MutableRefObject<number>,
-    activeConversationKeyRef: { current: null } as MutableRefObject<string | null>,
+    activeConversationIdRef: { current: null } as MutableRefObject<string | null>,
     getAssistantId: () => "asst-1",
     getTurnState: () => turnState,
     getUIContext: () => resolvedUIContext,
@@ -425,7 +425,7 @@ describe("createChatDebugApi.thinkingIndicator", () => {
 describe("createChatDebugApi.serverMessages", () => {
   test("throws when no context or assistant", async () => {
     const api = createChatDebugApi(
-      makeRefs({ getAssistantId: () => null, activeConversationKeyRef: { current: null } }),
+      makeRefs({ getAssistantId: () => null, activeConversationIdRef: { current: null } }),
     );
     await expect(api.serverMessages()).rejects.toThrow(
       "no active assistant/conversation context",
@@ -433,21 +433,21 @@ describe("createChatDebugApi.serverMessages", () => {
   });
 
   test("returns raw RuntimeMessage[] from injected historyFetcher", async () => {
-    const activeConversationKeyRef = { current: "conv-1" } as MutableRefObject<string | null>;
+    const activeConversationIdRef = { current: "conv-1" } as MutableRefObject<string | null>;
     const serverList = [
       fakeRuntimeMessage({ id: "srv-1" }),
       fakeRuntimeMessage({ id: "srv-2", role: "user" }),
     ];
     const historyFetcher = async () => serverList;
-    const api = createChatDebugApi(makeRefs({ historyFetcher, activeConversationKeyRef }));
+    const api = createChatDebugApi(makeRefs({ historyFetcher, activeConversationIdRef }));
     const result = await api.serverMessages();
     expect(result).toBe(serverList);
     expect(result).toHaveLength(2);
     expect(result[0]!.id).toBe("srv-1");
   });
 
-  test("prefers streamContextRef over activeConversationKeyRef + getAssistantId", async () => {
-    const activeConversationKeyRef = { current: "conv-fallback" } as MutableRefObject<string | null>;
+  test("prefers streamContextRef over activeConversationIdRef + getAssistantId", async () => {
+    const activeConversationIdRef = { current: "conv-fallback" } as MutableRefObject<string | null>;
     const streamContextRef = {
       current: { assistantId: "asst-stream", conversationId: "conv-stream" },
     } as MutableRefObject<{ assistantId: string; conversationId: string } | null>;
@@ -460,7 +460,7 @@ describe("createChatDebugApi.serverMessages", () => {
       makeRefs({
         getAssistantId: () => "asst-fallback",
         streamContextRef,
-        activeConversationKeyRef,
+        activeConversationIdRef,
         historyFetcher,
       }),
     );

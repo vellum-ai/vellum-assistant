@@ -119,7 +119,7 @@ function makeMsg(
 interface HostState {
   messages: DisplayMessage[];
   messagesRef: MutableRefObject<DisplayMessage[]>;
-  activeConversationKeyRef: MutableRefObject<string | null>;
+  activeConversationIdRef: MutableRefObject<string | null>;
   dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
   setMessagesCalls: Array<DisplayMessage[]>;
   setMessages: (
@@ -137,7 +137,7 @@ function makeHost(
   const host: HostState = {
     messages: initial,
     messagesRef: { current: initial },
-    activeConversationKeyRef: { current: conversationKey },
+    activeConversationIdRef: { current: conversationKey },
     dismissedSurfaceIdsRef: { current: dismissed },
     setMessagesCalls: [],
     setMessages: (update) => {
@@ -186,7 +186,7 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        activeConversationKeyRef: host.activeConversationKeyRef,
+        activeConversationIdRef: host.activeConversationIdRef,
         messagesRef: host.messagesRef,
         setMessages: host.setMessages,
         dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
@@ -208,7 +208,7 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: null,
-        activeConversationKeyRef: host.activeConversationKeyRef,
+        activeConversationIdRef: host.activeConversationIdRef,
         messagesRef: host.messagesRef,
         setMessages: host.setMessages,
         dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
@@ -266,7 +266,7 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        activeConversationKeyRef: host.activeConversationKeyRef,
+        activeConversationIdRef: host.activeConversationIdRef,
         messagesRef: host.messagesRef,
         setMessages: host.setMessages,
         dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
@@ -322,7 +322,7 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        activeConversationKeyRef: host.activeConversationKeyRef,
+        activeConversationIdRef: host.activeConversationIdRef,
         messagesRef: host.messagesRef,
         setMessages: host.setMessages,
         dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
@@ -368,7 +368,7 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        activeConversationKeyRef: host.activeConversationKeyRef,
+        activeConversationIdRef: host.activeConversationIdRef,
         messagesRef: host.messagesRef,
         setMessages: host.setMessages,
         dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
@@ -411,10 +411,10 @@ describe("useRefreshLatestMessages", () => {
 
     // Simulate the user switching to conv-2 between the fetch dispatch
     // and the fetch resolving. Inside the fetch impl, we mutate
-    // activeConversationKeyRef directly — this races the post-fetch
+    // activeConversationIdRef directly — this races the post-fetch
     // staleness check the hook performs.
     fetchLatestImpl = async () => {
-      host.activeConversationKeyRef.current = "conv-2";
+      host.activeConversationIdRef.current = "conv-2";
       host.messagesRef.current = [conv2Msg];
       host.messages = [conv2Msg];
       // Return a "latest" page for the original conversation. If the
@@ -440,7 +440,7 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        activeConversationKeyRef: host.activeConversationKeyRef,
+        activeConversationIdRef: host.activeConversationIdRef,
         messagesRef: host.messagesRef,
         setMessages: host.setMessages,
         dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
@@ -476,7 +476,7 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        activeConversationKeyRef: host.activeConversationKeyRef,
+        activeConversationIdRef: host.activeConversationIdRef,
         messagesRef: host.messagesRef,
         setMessages: host.setMessages,
         dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
@@ -519,7 +519,7 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        activeConversationKeyRef: host.activeConversationKeyRef,
+        activeConversationIdRef: host.activeConversationIdRef,
         messagesRef: host.messagesRef,
         setMessages: host.setMessages,
         dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
@@ -579,7 +579,7 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        activeConversationKeyRef: host.activeConversationKeyRef,
+        activeConversationIdRef: host.activeConversationIdRef,
         messagesRef: host.messagesRef,
         setMessages: host.setMessages,
         dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
@@ -650,7 +650,7 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        activeConversationKeyRef: host.activeConversationKeyRef,
+        activeConversationIdRef: host.activeConversationIdRef,
         messagesRef: host.messagesRef,
         setMessages: host.setMessages,
         dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,

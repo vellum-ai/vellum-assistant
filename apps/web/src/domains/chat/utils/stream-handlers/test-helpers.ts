@@ -16,7 +16,7 @@ export function makeCtx(
     streamContextRef: {
       current: { assistantId: "ast-1", conversationId: "conv-1" },
     },
-    activeConversationKeyRef: { current: "conv-1" },
+    activeConversationIdRef: { current: "conv-1" },
     assistantIdRef: { current: "ast-1" },
     setMessages: mock(() => {}),
     messagesRef: { current: [] },

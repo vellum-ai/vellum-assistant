@@ -94,7 +94,7 @@ export function handleNotificationIntent(
   );
   if (
     metadataConversationKey &&
-    metadataConversationKey === ctx.activeConversationKeyRef.current
+    metadataConversationKey === ctx.activeConversationIdRef.current
   ) {
     if (ackAssistantId && event.deliveryId) {
       void sendNotificationIntentAck(

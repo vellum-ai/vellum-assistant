@@ -5,7 +5,7 @@
  * TanStack Query — see `conversation-queries.ts`. This store owns only
  * state that has no server counterpart:
  *
- * - `activeConversationKey` — URL/navigation-local selection
+ * - `activeConversationId` — URL/navigation-local selection
  * - `editingConversationKey` — UI mode (app-edit-chat target)
  * - `processingKeys` — in-flight assistant responses
  * - `processingSnapshots` — `latestAssistantMessageAt` snapshot taken when
@@ -64,7 +64,7 @@ function deleteFromMap<K, V>(prev: Map<K, V>, key: K): Map<K, V> {
 // ---------------------------------------------------------------------------
 
 export interface ConversationListState {
-  activeConversationKey: string | null;
+  activeConversationId: string | null;
   editingConversationKey: string | null;
   processingKeys: Set<string>;
   processingSnapshots: Map<string, string | undefined>;
@@ -73,7 +73,7 @@ export interface ConversationListState {
 
 export interface ConversationListActions {
   // --- Active / editing key ---
-  setActiveKey: (key: string | null) => void;
+  setActiveConversationId: (key: string | null) => void;
   setEditingKey: (key: string | null) => void;
 
   // --- Processing keys (and their snapshots, kept atomic) ---
@@ -96,7 +96,7 @@ export interface ConversationListActions {
 type ConversationListStore = ConversationListState & ConversationListActions;
 
 const INITIAL_STATE: ConversationListState = {
-  activeConversationKey: null,
+  activeConversationId: null,
   editingConversationKey: null,
   processingKeys: new Set(),
   processingSnapshots: new Map(),
@@ -113,8 +113,8 @@ export const useConversationStore = createSelectors(
 
     // --- Active / editing key ---
 
-    setActiveKey: (key) => {
-      set({ activeConversationKey: key });
+    setActiveConversationId: (key) => {
+      set({ activeConversationId: key });
     },
 
     setEditingKey: (key) => {

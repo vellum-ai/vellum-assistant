@@ -26,7 +26,7 @@ const PULL_REFRESH_TIMEOUT_MS = 15_000;
 // ---------------------------------------------------------------------------
 
 interface UsePullRefreshParams {
-  activeConversationKey: string | null | undefined;
+  activeConversationId: string | null | undefined;
   messagesRef: MutableRefObject<{ length: number }>;
   /** Invalidate the TQ history cache and refetch. Resolves when the refetch completes. */
   invalidateHistory: () => Promise<void>;
@@ -47,7 +47,7 @@ interface UsePullRefreshReturn {
 // ---------------------------------------------------------------------------
 
 export function usePullRefresh({
-  activeConversationKey,
+  activeConversationId,
   messagesRef,
   invalidateHistory,
   onRefreshEpoch,
@@ -64,7 +64,7 @@ export function usePullRefresh({
   }, []);
 
   const handlePullRefresh = useCallback(async (): Promise<RefreshOutcome> => {
-    const conversationKey = activeConversationKey;
+    const conversationKey = activeConversationId;
     if (!conversationKey) {
       return { kind: "no-change" };
     }
@@ -127,12 +127,12 @@ export function usePullRefresh({
     } finally {
       if (timer != null) clearTimeout(timer);
     }
-  }, [activeConversationKey, messagesRef, invalidateHistory, onRefreshEpoch]);
+  }, [activeConversationId, messagesRef, invalidateHistory, onRefreshEpoch]);
 
   // Abort any in-flight pull-refresh when the active conversation changes.
   useEffect(() => {
     abortRef.current = true;
-  }, [activeConversationKey]);
+  }, [activeConversationId]);
 
   const handleDismissRefreshFeedback = useCallback(() => {
     setRefreshFeedback(null);

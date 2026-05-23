@@ -83,13 +83,13 @@ export {
 interface UseSendMessageParams {
   // Identity
   assistantId: string | null;
-  activeConversationKey: string | null;
+  activeConversationId: string | null;
   diskPressureChatBlockReason: DiskPressureChatBlockReason | null;
   messages: DisplayMessage[];
 
   // Refs
   assistantIdRef: MutableRefObject<string | null>;
-  activeConversationKeyRef: MutableRefObject<string | null>;
+  activeConversationIdRef: MutableRefObject<string | null>;
 
   messagesRef: MutableRefObject<DisplayMessage[]>;
   streamRef: MutableRefObject<ChatEventStream | null>;
@@ -129,11 +129,11 @@ interface UseSendMessageParams {
 
 export function useSendMessage({
   assistantId,
-  activeConversationKey,
+  activeConversationId,
   diskPressureChatBlockReason,
   messages,
   assistantIdRef,
-  activeConversationKeyRef,
+  activeConversationIdRef,
   messagesRef,
   streamRef,
   streamContextRef,
@@ -170,7 +170,7 @@ export function useSendMessage({
     handleEditQueueTail,
   } = useMessageQueue({
     assistantId,
-    activeConversationKey,
+    activeConversationId,
     messages,
     pendingQueuedStableIdsRef,
     requestIdToStableIdRef,
@@ -209,17 +209,17 @@ export function useSendMessage({
   // -------------------------------------------------------------------------
   const sendMessageViaStream = useCallback(
     async (content: string, epoch: number, turnId: string, attachmentIds: string[] = []): Promise<string | undefined> => {
-      if (!activeConversationKey || !assistantId) {
+      if (!activeConversationId || !assistantId) {
         setError({ message: "No active conversation. Please try again." });
         useTurnStore.getState().onStreamError();
         return undefined;
       }
       const requestAssistantId = assistantId;
-      const requestConversationKey = activeConversationKey;
+      const requestConversationKey = activeConversationId;
       const isCurrentSendScope = (resolvedConversationKey?: string | null) =>
         isAsyncChatScopeCurrent({
           currentAssistantId: assistantIdRef.current,
-          currentConversationKey: activeConversationKeyRef.current,
+          currentConversationKey: activeConversationIdRef.current,
           requestAssistantId,
           requestConversationKey,
           resolvedConversationKey,
@@ -243,7 +243,7 @@ export function useSendMessage({
             assistantId: requestAssistantId,
             conversationId: requestConversationKey,
             activeAssistantId: assistantIdRef.current,
-            activeConversationKey: activeConversationKeyRef.current,
+            activeConversationId: activeConversationIdRef.current,
           });
           return undefined;
         }
@@ -258,7 +258,7 @@ export function useSendMessage({
       }
       // Success — drain the ref so subsequent messages omit the field.
       pendingOnboardingContextRef.current = null;
-      if (onboardingDraftConversationKeyRef.current === activeConversationKey) {
+      if (onboardingDraftConversationKeyRef.current === activeConversationId) {
         onboardingDraftConversationKeyRef.current = null;
       }
 
@@ -275,7 +275,7 @@ export function useSendMessage({
           conversationId: requestConversationKey,
           resolvedConversationKey: effectiveConversationKey,
           activeAssistantId: assistantIdRef.current,
-          activeConversationKey: activeConversationKeyRef.current,
+          activeConversationId: activeConversationIdRef.current,
         });
         return postResult.resolvedConversationId;
       }
@@ -302,7 +302,7 @@ export function useSendMessage({
               conversationId: requestConversationKey,
               resolvedConversationKey: effectiveConversationKey,
               activeAssistantId: assistantIdRef.current,
-              activeConversationKey: activeConversationKeyRef.current,
+              activeConversationId: activeConversationIdRef.current,
             });
             return;
           }
@@ -400,7 +400,7 @@ export function useSendMessage({
 
       return postResult.resolvedConversationId;
     },
-    [activeConversationKey, assistantId, startReconciliationLoop],
+    [activeConversationId, assistantId, startReconciliationLoop],
   );
 
   // -------------------------------------------------------------------------
@@ -408,7 +408,7 @@ export function useSendMessage({
   // -------------------------------------------------------------------------
   const sendMessage = useCallback(
     async (content: string, attachments: DisplayAttachment[] = []) => {
-      if (!activeConversationKey || !assistantId) {
+      if (!activeConversationId || !assistantId) {
         setError({ message: "No active conversation. Please try again." });
         return;
       }
@@ -464,7 +464,7 @@ export function useSendMessage({
         try {
           const postResult = await postChatMessage(
             assistantId,
-            activeConversationKey,
+            activeConversationId,
             content,
             attachmentIds,
           );
@@ -498,12 +498,12 @@ export function useSendMessage({
               const currentConv = findConversation(
                 queryClient,
                 assistantId,
-                activeConversationKey,
+                activeConversationId,
               );
               useConversationStore
                 .getState()
                 .addProcessingKey(
-                  activeConversationKey,
+                  activeConversationId,
                   currentConv?.latestAssistantMessageAt as string | undefined,
                 );
             }
@@ -525,19 +525,19 @@ export function useSendMessage({
       const currentConv = findConversation(
         queryClient,
         assistantId,
-        activeConversationKey,
+        activeConversationId,
       );
       useConversationStore
         .getState()
         .addProcessingKey(
-          activeConversationKey,
+          activeConversationId,
           currentConv?.latestAssistantMessageAt as string | undefined,
         );
 
       // Optimistically add a stub conversation to the sidebar for draft
       // conversations that don't exist on the server yet.
       if (!currentConv) {
-        prependConversation(queryClient, assistantId, { conversationId: activeConversationKey, lastMessageAt: new Date().toISOString(), draft: true } as Conversation);
+        prependConversation(queryClient, assistantId, { conversationId: activeConversationId, lastMessageAt: new Date().toISOString(), draft: true } as Conversation);
       }
 
       cancelReconciliation();
@@ -555,19 +555,19 @@ export function useSendMessage({
         );
 
         // Resolve draft key -> server-assigned conversation ID.
-        if (resolvedId && resolvedId !== activeConversationKey) {
+        if (resolvedId && resolvedId !== activeConversationId) {
           const newKey = resolvedId;
           useConversationStore
             .getState()
-            .transferProcessingKey(activeConversationKey, newKey);
-          resolveDraftKey(queryClient, assistantId, activeConversationKey, newKey);
-          resolveEditChatDraftKey(activeConversationKey, newKey);
+            .transferProcessingKey(activeConversationId, newKey);
+          resolveDraftKey(queryClient, assistantId, activeConversationId, newKey);
+          resolveEditChatDraftKey(activeConversationId, newKey);
 
           // Only update active view state if the user is still on this conversation.
-          if (activeConversationKeyRef.current === activeConversationKey) {
+          if (activeConversationIdRef.current === activeConversationId) {
             draftKeyResolutionRef.current = true;
             previousConversationKeyRef.current = newKey;
-            useConversationStore.getState().setActiveKey(newKey);
+            useConversationStore.getState().setActiveConversationId(newKey);
             void navigate(routes.conversation(newKey), { replace: true });
           }
         }
@@ -579,17 +579,17 @@ export function useSendMessage({
         });
         setError({ message: "Something went wrong. Please try again." });
         useTurnStore.getState().onStreamError();
-        const keysToClean = [activeConversationKey, resolvedId].filter(Boolean) as string[];
+        const keysToClean = [activeConversationId, resolvedId].filter(Boolean) as string[];
         if (keysToClean.length > 0) {
           useConversationStore.getState().removeMultipleProcessingKeys(keysToClean);
         }
         if (isDraft) {
-          removeConversation(queryClient, assistantId, activeConversationKey);
+          removeConversation(queryClient, assistantId, activeConversationId);
         }
       }
     },
     [
-      activeConversationKey,
+      activeConversationId,
       assistantId,
       diskPressureChatBlockReason,
       sendMessageViaStream,
@@ -604,7 +604,7 @@ export function useSendMessage({
   // handleStopGenerating — cancel the active generation
   // -------------------------------------------------------------------------
   const handleStopGenerating = useCallback(async () => {
-    if (!assistantId || !activeConversationKey) return;
+    if (!assistantId || !activeConversationId) return;
     streamEpochRef.current++;
     useTurnStore.getState().cancelGeneration();
     setMessages(stopStreamingAndClearConfirmations);
@@ -612,13 +612,13 @@ export function useSendMessage({
     useInteractionStore.getState().resetAll();
     useSubagentStore.getState().reset();
     confirmationToolCallMapRef.current.clear();
-    useConversationStore.getState().removeProcessingKey(activeConversationKey);
+    useConversationStore.getState().removeProcessingKey(activeConversationId);
     try {
-      await cancelGeneration(assistantId, activeConversationKey);
+      await cancelGeneration(assistantId, activeConversationId);
     } catch {
       // Best-effort — the daemon may have already finished
     }
-  }, [assistantId, activeConversationKey]);
+  }, [assistantId, activeConversationId]);
 
   return {
     sendMessage,

@@ -60,7 +60,7 @@ interface UseConversationLoaderParams {
   // Identity / routing
   assistantId: string | null;
   assistantStateKind: AssistantStateKind;
-  activeConversationKey: string | null;
+  activeConversationId: string | null;
   /** Conversation key from the URL path param (e.g. `/assistant/conversations/:key`). */
   urlConversationKey: string | null;
   searchParams: SearchParamsLike;
@@ -80,7 +80,7 @@ interface UseConversationLoaderParams {
   draftKeyResolutionRef: MutableRefObject<boolean>;
   previousConversationKeyRef: MutableRefObject<string | null>;
   onboardingDraftConversationKeyRef: MutableRefObject<string | null>;
-  activeConversationKeyRef: MutableRefObject<string | null>;
+  activeConversationIdRef: MutableRefObject<string | null>;
   contextWindowUsageByConversationRef: MutableRefObject<Map<string, ContextWindowUsage>>;
   dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
   needsNewBubbleRef: MutableRefObject<boolean>;
@@ -138,7 +138,7 @@ interface UseConversationLoaderParams {
 export function useConversationLoader({
   assistantId,
   assistantStateKind,
-  activeConversationKey,
+  activeConversationId,
   urlConversationKey,
   searchParams,
   navigate,
@@ -150,7 +150,7 @@ export function useConversationLoader({
   draftKeyResolutionRef,
   previousConversationKeyRef,
   onboardingDraftConversationKeyRef,
-  activeConversationKeyRef,
+  activeConversationIdRef,
   contextWindowUsageByConversationRef,
   dismissedSurfaceIdsRef,
   needsNewBubbleRef,
@@ -381,7 +381,7 @@ export function useConversationLoader({
     // When only chatContext changed (e.g. from resolveDraftKey's
     // setQueryData) but the URL hasn't changed, the URL key is stale —
     // a programmatic navigate() is in flight. Trust the store's
-    // activeConversationKey and let the URL catch up.
+    // activeConversationId and let the URL catch up.
     if (
       explicitKey != null &&
       explicitKey === lastAppliedUrlKeyRef.current &&
@@ -399,7 +399,7 @@ export function useConversationLoader({
     const key = resolveBootstrappedConversationKey({
       queryParamKey: explicitKey,
       onboardingDraftConversationKey,
-      currentConversationKey: activeConversationKeyRef.current,
+      currentConversationKey: activeConversationIdRef.current,
       currentAssistantId: assistantIdRef.current,
       nextAssistantId: chatContext.assistantId,
       storedConversationKey: loadLastViewedConversationKey(chatContext.assistantId),
@@ -409,7 +409,7 @@ export function useConversationLoader({
 
     setAssistantId(chatContext.assistantId);
 
-    useConversationStore.getState().setActiveKey(key);
+    useConversationStore.getState().setActiveConversationId(key);
     if (key) {
       void navigate(routes.conversation(key), { replace: true });
     }
@@ -421,7 +421,7 @@ export function useConversationLoader({
     navigate,
     setAssistantId,
     assistantIdRef,
-    activeConversationKeyRef,
+    activeConversationIdRef,
     onboardingDraftConversationKeyRef,
   ]);
 
@@ -430,20 +430,20 @@ export function useConversationLoader({
   // -------------------------------------------------------------------------
   const conversationExistsOnServer = useMemo(
     () =>
-      activeConversationKey != null &&
+      activeConversationId != null &&
       conversations.some(
-        (c) => c.conversationId === activeConversationKey && !c.draft,
+        (c) => c.conversationId === activeConversationId && !c.draft,
       ),
-    [activeConversationKey, conversations],
+    [activeConversationId, conversations],
   );
 
   // -------------------------------------------------------------------------
   // Save last-viewed conversation per assistant
   // -------------------------------------------------------------------------
   useEffect(() => {
-    if (!assistantId || !activeConversationKey) return;
-    saveLastViewedConversationKey(assistantId, activeConversationKey);
-  }, [assistantId, activeConversationKey]);
+    if (!assistantId || !activeConversationId) return;
+    saveLastViewedConversationKey(assistantId, activeConversationId);
+  }, [assistantId, activeConversationId]);
 
   // -------------------------------------------------------------------------
   // Delegate: conversation history loading and caching
@@ -451,7 +451,7 @@ export function useConversationLoader({
   const historyResult = useConversationHistory({
     assistantId,
     assistantStateKind,
-    activeConversationKey,
+    activeConversationId,
     draftKeyResolutionRef,
     previousConversationKeyRef,
     contextWindowUsageByConversationRef,
@@ -483,10 +483,10 @@ export function useConversationLoader({
   const switchConversation = useCallback(
     (key: string) => {
       useViewerStore.getState().setMainView("chat");
-      if (key === activeConversationKey) return;
+      if (key === activeConversationId) return;
       void navigate(routes.conversation(key));
     },
-    [activeConversationKey, navigate],
+    [activeConversationId, navigate],
   );
 
   // -------------------------------------------------------------------------
@@ -500,7 +500,7 @@ export function useConversationLoader({
       if (initialMessage) {
         pendingInitialMessageRef.current = { conversationKey: draftKey, content: initialMessage };
       }
-      useConversationStore.getState().setActiveKey(draftKey);
+      useConversationStore.getState().setActiveConversationId(draftKey);
       void navigate(routes.conversation(draftKey));
     },
     [navigate, pendingInitialMessageRef],

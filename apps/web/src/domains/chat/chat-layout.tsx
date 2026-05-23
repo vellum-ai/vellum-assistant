@@ -259,7 +259,7 @@ export function ChatLayout() {
     haptic.light();
     useViewerStore.getState().setMainView("chat");
     const draftKey = createDraftConversationKey();
-    useConversationStore.getState().setActiveKey(draftKey);
+    useConversationStore.getState().setActiveConversationId(draftKey);
     void navigate(routes.conversation(draftKey));
   }, [navigate]);
 
@@ -410,21 +410,21 @@ export function ChatLayout() {
     };
   }, [drawerVisible]);
 
-  const activeConversationKey = useConversationStore.use.activeConversationKey();
+  const activeConversationId = useConversationStore.use.activeConversationId();
   const processingKeys = useConversationStore.use.processingKeys();
   const attentionKeys = useConversationStore.use.attentionKeys();
-  const setActiveKey = useConversationStore.use.setActiveKey();
+  const setActiveConversationId = useConversationStore.use.setActiveConversationId();
 
   const handleSelectConversation = useCallback(
     (key: string) => {
       haptic.light();
       useViewerStore.getState().setMainView("chat");
       useSubagentStore.getState().reset();
-      setActiveKey(key);
+      setActiveConversationId(key);
       navigate(routes.conversation(key));
       setDrawerOpen(false);
     },
-    [setActiveKey, navigate],
+    [setActiveConversationId, navigate],
   );
 
   // --- Sidebar conversation actions (pin / rename / archive / mark / move) ---
@@ -460,7 +460,7 @@ export function ChatLayout() {
       if (!silent) haptic.light();
       useViewerStore.getState().setMainView("chat");
       const draftKey = createDraftConversationKey();
-      useConversationStore.getState().setActiveKey(draftKey);
+      useConversationStore.getState().setActiveConversationId(draftKey);
       void navigate(routes.conversation(draftKey));
     },
     [navigate],
@@ -477,7 +477,7 @@ export function ChatLayout() {
     handleRenameConversation,
   } = useConversationActions({
     assistantId: lifecycle.assistantId,
-    activeConversationKey,
+    activeConversationId,
     conversations,
     refreshConversations,
     switchConversation: handleSelectConversation,
@@ -517,7 +517,7 @@ export function ChatLayout() {
         variant={args.variant}
         conversations={conversations}
         conversationGroups={conversationGroups}
-        activeConversationKey={activeConversationKey ?? undefined}
+        activeConversationId={activeConversationId ?? undefined}
         processingConversationKeys={processingKeys}
         attentionConversationKeys={attentionKeys}
         onSelectConversation={handleSelectConversation}
@@ -542,7 +542,7 @@ export function ChatLayout() {
           <PreferencesMenu
             assistantId={lifecycle.assistantId}
             assistantVersion={assistantVersion}
-            activeConversationKey={activeConversationKey}
+            activeConversationId={activeConversationId}
           />
         }
         onClose={args.onClose}
@@ -555,7 +555,7 @@ export function ChatLayout() {
       assistantVersion,
       conversations,
       conversationGroups,
-      activeConversationKey,
+      activeConversationId,
       processingKeys,
       attentionKeys,
       handleSelectConversation,

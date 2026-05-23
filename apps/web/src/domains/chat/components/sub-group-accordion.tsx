@@ -13,7 +13,7 @@ import { countBadge } from "@/domains/chat/components/sidebar-count-badge.js";
 interface SubGroupAccordionProps {
   subGroups: SubGroup[];
   isSingleRow: (group: SubGroup) => boolean;
-  activeConversationKey?: string;
+  activeConversationId?: string;
   attentionConversationKeys?: Set<string>;
   onSelectConversation: (key: string) => void;
   renderActions: (conversation: Conversation) => ReactNode;
@@ -24,7 +24,7 @@ interface SubGroupAccordionProps {
 export function SubGroupAccordion({
   subGroups,
   isSingleRow,
-  activeConversationKey,
+  activeConversationId,
   attentionConversationKeys,
   onSelectConversation,
   renderActions,
@@ -43,7 +43,7 @@ export function SubGroupAccordion({
               leadingSlot={renderPinToggle(c)}
               label={c.title ?? "Untitled"}
               marqueeOnHover
-              active={c.conversationId === activeConversationKey}
+              active={c.conversationId === activeConversationId}
               onSelect={() => onSelectConversation(c.conversationId)}
               trailingAction={renderActions(c)}
             />,
@@ -72,7 +72,7 @@ export function SubGroupAccordion({
                       leadingSlot={renderPinToggle(c)}
                       label={c.title ?? "Untitled"}
                       marqueeOnHover
-                      active={c.conversationId === activeConversationKey}
+                      active={c.conversationId === activeConversationId}
                       onSelect={() => onSelectConversation(c.conversationId)}
                       trailingAction={renderActions(c)}
                     />,
@@ -93,7 +93,7 @@ export function SubGroupAccordion({
 
 interface CategorySubGroupsProps {
   subGroups: SubGroup[];
-  activeConversationKey?: string;
+  activeConversationId?: string;
   attentionConversationKeys?: Set<string>;
   onSelectConversation: (key: string) => void;
   renderActions: (conversation: Conversation) => ReactNode;
@@ -106,7 +106,7 @@ export function BackgroundSubGroups(props: CategorySubGroupsProps) {
     <SubGroupAccordion
       subGroups={props.subGroups}
       isSingleRow={(g) => g.key.startsWith("__single__:")}
-      activeConversationKey={props.activeConversationKey}
+      activeConversationId={props.activeConversationId}
       attentionConversationKeys={props.attentionConversationKeys}
       onSelectConversation={props.onSelectConversation}
       renderActions={props.renderActions}
@@ -121,7 +121,7 @@ export function ScheduledSubGroups(props: CategorySubGroupsProps) {
     <SubGroupAccordion
       subGroups={props.subGroups}
       isSingleRow={(g) => g.conversations.length === 1}
-      activeConversationKey={props.activeConversationKey}
+      activeConversationId={props.activeConversationId}
       attentionConversationKeys={props.attentionConversationKeys}
       onSelectConversation={props.onSelectConversation}
       renderActions={props.renderActions}

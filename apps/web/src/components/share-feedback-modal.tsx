@@ -138,7 +138,7 @@ async function fetchPlatformLogs(
   assistantId: string,
   opts: {
     window: LogExportWindow;
-    activeConversationKey?: string | null;
+    activeConversationId?: string | null;
   },
 ): Promise<Uint8Array | null> {
   try {
@@ -156,8 +156,8 @@ async function fetchPlatformLogs(
     // non-empty string here — conversation keys take many shapes
     // (e.g. `slack-thread:C123:1700000000.000000`), so we deliberately do
     // NOT gate on UUID format.
-    if (opts.activeConversationKey) {
-      body.conversationId = opts.activeConversationKey;
+    if (opts.activeConversationId) {
+      body.conversationId = opts.activeConversationId;
     }
     const res = await fetch(`/v1/assistants/${assistantId}/logs/export/`, {
       method: "POST",
@@ -177,7 +177,7 @@ async function fetchPlatformLogs(
 async function buildClientLogsFile(
   timeRange: TimeRange,
   assistantId: string | null,
-  activeConversationKey: string | null,
+  activeConversationId: string | null,
   diagnosticsProvider?: FeedbackDiagnosticsProvider,
 ): Promise<File | null> {
   if (typeof CompressionStream === "undefined") {
@@ -204,7 +204,7 @@ async function buildClientLogsFile(
       end_time_ms: endTime,
     },
     assistant_id: assistantId,
-    active_conversation_key: activeConversationKey,
+    active_conversation_key: activeConversationId,
     user_agent: typeof navigator !== "undefined" ? navigator.userAgent : "",
     language: typeof navigator !== "undefined" ? navigator.language : "",
     platform: typeof navigator !== "undefined" ? navigator.platform : "",
@@ -261,7 +261,7 @@ async function buildClientLogsFile(
   if (assistantId) {
     const platformLogsData = await fetchPlatformLogs(assistantId, {
       window: { startTime, endTime },
-      activeConversationKey,
+      activeConversationId,
     });
     if (platformLogsData) {
       tarParts.push(buildTarEntry("platform-logs.tar.gz", platformLogsData));
@@ -293,7 +293,7 @@ export interface ShareFeedbackModalProps {
   onSubmitted?: () => void;
   assistantId?: string | null;
   assistantVersion?: string | null;
-  activeConversationKey?: string | null;
+  activeConversationId?: string | null;
   getDiagnosticsSnapshot?: FeedbackDiagnosticsProvider;
 }
 
@@ -304,7 +304,7 @@ export function ShareFeedbackModal({
   onSubmitted,
   assistantId,
   assistantVersion,
-  activeConversationKey,
+  activeConversationId,
   getDiagnosticsSnapshot,
 }: ShareFeedbackModalProps) {
   const authUser = useAuthStore.use.user();
@@ -453,7 +453,7 @@ export function ShareFeedbackModal({
           ? await buildClientLogsFile(
               logTimeRange,
               assistantId ?? null,
-              activeConversationKey ?? null,
+              activeConversationId ?? null,
               getDiagnosticsSnapshot,
             )
           : null;

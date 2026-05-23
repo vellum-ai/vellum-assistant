@@ -21,7 +21,7 @@ interface UseMessageReconciliationArgs {
   setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
   streamContextRef: RefObject<{ assistantId: string; conversationId: string } | null>;
   streamEpochRef: RefObject<number>;
-  activeConversationKeyRef: RefObject<string | null>;
+  activeConversationIdRef: RefObject<string | null>;
   initialPageOldestTsRef: RefObject<number | null>;
 }
 
@@ -118,7 +118,7 @@ export function useMessageReconciliation({
   setMessages,
   streamContextRef,
   streamEpochRef,
-  activeConversationKeyRef,
+  activeConversationIdRef,
   initialPageOldestTsRef,
 }: UseMessageReconciliationArgs): UseMessageReconciliationReturn {
   const reconcileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -404,7 +404,7 @@ export function useMessageReconciliation({
           ctx.assistantId,
           ctx.conversationId,
         );
-        if (activeConversationKeyRef.current !== ctx.conversationId) return empty;
+        if (activeConversationIdRef.current !== ctx.conversationId) return empty;
         // If the epoch changed during the fetch (e.g. page went hidden
         // and back), this reconciliation is stale — bail out.
         if (streamEpochRef.current !== snapshotEpoch) return empty;
@@ -429,7 +429,7 @@ export function useMessageReconciliation({
     [
     streamContextRef,
     streamEpochRef,
-    activeConversationKeyRef,
+    activeConversationIdRef,
     reconcileFetchedMessages,
   ]);
 

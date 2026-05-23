@@ -102,7 +102,7 @@ function HomePageRoute() {
       onSuggestionSelected={(prompt) => {
         useViewerStore.getState().setMainView("chat");
         const draftKey = createDraftConversationKey();
-        useConversationStore.getState().setActiveKey(draftKey);
+        useConversationStore.getState().setActiveConversationId(draftKey);
         navigate(
           `${routes.conversation(draftKey)}?prompt=${encodeURIComponent(prompt)}`,
         );

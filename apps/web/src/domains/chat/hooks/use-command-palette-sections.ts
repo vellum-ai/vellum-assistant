@@ -123,7 +123,7 @@ interface CommandPaletteActionContext {
   startNewConversation: () => void;
   switchConversation: (key: string) => void;
   navigate: (to: string | number) => void;
-  activeConversationKey: string | undefined;
+  activeConversationId: string | undefined;
   navigateToSettings: () => void;
 }
 
@@ -192,7 +192,7 @@ interface UseCommandPaletteSectionsParams {
   assistantId: string | null;
   assistantName: string | undefined;
   conversations: Conversation[];
-  activeConversationKey: string | undefined;
+  activeConversationId: string | undefined;
   startNewConversation: () => void;
   switchConversation: (key: string) => void;
   navigate: (to: string | number) => void;
@@ -209,7 +209,7 @@ export function useCommandPaletteSections({
   assistantId,
   assistantName,
   conversations,
-  activeConversationKey,
+  activeConversationId,
   startNewConversation,
   switchConversation,
   navigate,
@@ -235,11 +235,11 @@ export function useCommandPaletteSections({
         startNewConversation,
         switchConversation,
         navigate,
-        activeConversationKey,
+        activeConversationId,
         navigateToSettings,
       });
     },
-    [startNewConversation, switchConversation, navigate, activeConversationKey, navigateToSettings],
+    [startNewConversation, switchConversation, navigate, activeConversationId, navigateToSettings],
   );
 
   // Ref-based indirection so the index-based onSelect callback doesn't

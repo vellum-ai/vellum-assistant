@@ -133,7 +133,7 @@ describe("useAttentionTracking — interaction_resolved subscriber", () => {
   });
 
   test("does not touch the active conversation", () => {
-    useConversationStore.getState().setActiveKey("conv-active");
+    useConversationStore.getState().setActiveConversationId("conv-active");
     useConversationStore.getState().addAttentionKey("conv-active");
 
     renderHook(

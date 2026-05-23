@@ -215,7 +215,7 @@ export interface AvatarData {
 export interface ChatRouteRefs {
   inputRef: RefObject<HTMLTextAreaElement | null>;
   messagesRef: MutableRefObject<DisplayMessage[]>;
-  activeConversationKeyRef: MutableRefObject<string | null>;
+  activeConversationIdRef: MutableRefObject<string | null>;
   assistantIdRef: MutableRefObject<string | null>;
   streamContextRef: MutableRefObject<StreamContext | null>;
   expandedToolCallIdsRef: MutableRefObject<Set<string>>;
@@ -276,7 +276,7 @@ export interface ChatRouteContentProps {
 
   // Conversation
   conversations: Conversation[];
-  activeConversationKey: string | null;
+  activeConversationId: string | null;
   activeConversation: Conversation | undefined;
   processingKeys: ReadonlySet<string>;
 
@@ -398,7 +398,7 @@ export function ChatRouteContent({
   setError,
   isLoadingHistory,
   conversations: _conversations,
-  activeConversationKey,
+  activeConversationId,
   activeConversation,
   processingKeys,
   mainView,
@@ -502,7 +502,7 @@ export function ChatRouteContent({
   const {
     inputRef,
     messagesRef,
-    activeConversationKeyRef: _activeConversationKeyRef,
+    activeConversationIdRef: _activeConversationIdRef,
     assistantIdRef: _assistantIdRef,
     streamContextRef,
     expandedToolCallIdsRef,
@@ -580,7 +580,7 @@ export function ChatRouteContent({
     didOnboarding,
     messages,
     onboardingTasksEmpty,
-    activeConversationKey,
+    activeConversationId,
     onboardingConversationKey,
     sendMessage,
   });
@@ -601,7 +601,7 @@ export function ChatRouteContent({
   }, [messages]);
 
   const activeConversationIsProcessing =
-    activeConversationKey != null && processingKeys.has(activeConversationKey);
+    activeConversationId != null && processingKeys.has(activeConversationId);
 
   const activeConversationHasPendingAssistantResponse = useMemo(
     () => hasPendingAssistantResponse(messages),
@@ -643,7 +643,7 @@ export function ChatRouteContent({
     isSendDisabled(turnState, uiContext) || typingDisabled;
 
   const isEmptyConversation =
-    !!activeConversationKey &&
+    !!activeConversationId &&
     !isLoadingHistory &&
     messages.length === 0 &&
     !(assistantState.kind === "active" && assistantState.maintenanceMode?.enabled);
@@ -685,7 +685,7 @@ export function ChatRouteContent({
 
   const showRestoredDraftNotice =
     restoredDraftConversationKey !== null &&
-    restoredDraftConversationKey === activeConversationKey;
+    restoredDraftConversationKey === activeConversationId;
 
   const isInMaintenanceWithNoMessages =
     !isLoadingHistory &&
@@ -716,12 +716,12 @@ export function ChatRouteContent({
   // -------------------------------------------------------------------------
 
   const onRefreshEpoch = useCallback(() => {
-    if (activeConversationKey) {
+    if (activeConversationId) {
       const currentInput = inputRef.current?.value ?? "";
-      saveDraft(activeConversationKey, currentInput);
+      saveDraft(activeConversationId, currentInput);
     }
     setRefreshEpoch((prev) => prev + 1);
-  }, [activeConversationKey, inputRef, saveDraft, setRefreshEpoch]);
+  }, [activeConversationId, inputRef, saveDraft, setRefreshEpoch]);
 
   // -------------------------------------------------------------------------
   // Pull-to-refresh
@@ -734,7 +734,7 @@ export function ChatRouteContent({
     handleDismissRefreshFeedback,
     handleRetryRefreshFromPill,
   } = usePullRefresh({
-    activeConversationKey,
+    activeConversationId,
     messagesRef,
     invalidateHistory: historyPagination.invalidate,
     onRefreshEpoch,
@@ -801,7 +801,7 @@ export function ChatRouteContent({
   const scrollCoordinator = useTranscriptScroll({
     transcriptRef: refs.transcriptRef,
     items: transcriptItems,
-    conversationKey: activeConversationKey,
+    conversationKey: activeConversationId,
     hasMore: transcriptPagination.hasMore,
     isLoadingOlder: transcriptPagination.isLoadingOlder,
     onLoadOlder: loadOlder,
@@ -815,7 +815,7 @@ export function ChatRouteContent({
     return () => {
       el.removeEventListener("scroll", handler);
     };
-  }, [scrollCoordinator, activeConversationKey, transcriptItems, refs.transcriptRef]);
+  }, [scrollCoordinator, activeConversationId, transcriptItems, refs.transcriptRef]);
 
   const handleScrollToLatest = useCallback(() => {
     scrollCoordinator.scrollToLatest({ behavior: "smooth" });
@@ -847,11 +847,11 @@ export function ChatRouteContent({
   useEffect(() => {
     if (
       restoredDraftConversationKey !== null &&
-      restoredDraftConversationKey !== activeConversationKey
+      restoredDraftConversationKey !== activeConversationId
     ) {
       setRestoredDraftConversationKey(null);
     }
-  }, [activeConversationKey, restoredDraftConversationKey, setRestoredDraftConversationKey]);
+  }, [activeConversationId, restoredDraftConversationKey, setRestoredDraftConversationKey]);
 
   // -------------------------------------------------------------------------
   // Composer submit
@@ -876,8 +876,8 @@ export function ChatRouteContent({
       }));
     setInput("");
     setSuggestion(null);
-    if (activeConversationKey) {
-      clearDraft(activeConversationKey);
+    if (activeConversationId) {
+      clearDraft(activeConversationId);
     }
     if (inputRef.current) {
       inputRef.current.style.height = "auto";
@@ -893,7 +893,7 @@ export function ChatRouteContent({
     // useViewportMinHeight) stays anchored at the latest message.
     scrollCoordinator.scrollToLatest({ behavior: "auto" });
     await sendMessage(trimmed, attachmentsToSend);
-  }, [input, sendDisabled, attachmentUploadedIds.length, attachmentsUploadingCount, activeConversationKey, chatAttachments, resetChatAttachments, sendMessage, setInput, setSuggestion, clearDraft, inputRef, scrollCoordinator]);
+  }, [input, sendDisabled, attachmentUploadedIds.length, attachmentsUploadingCount, activeConversationId, chatAttachments, resetChatAttachments, sendMessage, setInput, setSuggestion, clearDraft, inputRef, scrollCoordinator]);
 
   const handleSelectStarter = (starter: { prompt: string }) => {
     setInput(starter.prompt);

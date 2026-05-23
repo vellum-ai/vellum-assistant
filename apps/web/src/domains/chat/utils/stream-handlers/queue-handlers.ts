@@ -22,11 +22,11 @@ export function handleMessageQueued(
     ctx.pendingLocalDeletionsRef.current.delete(stableId);
     if (
       ctx.assistantIdRef.current &&
-      ctx.activeConversationKeyRef.current
+      ctx.activeConversationIdRef.current
     ) {
       void deleteQueuedMessage(
         ctx.assistantIdRef.current,
-        ctx.activeConversationKeyRef.current,
+        ctx.activeConversationIdRef.current,
         requestId,
       );
     }

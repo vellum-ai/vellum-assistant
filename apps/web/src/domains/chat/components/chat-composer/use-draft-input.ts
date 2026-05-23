@@ -74,7 +74,7 @@ function persistDrafts(
 
 export interface UseDraftInputParams {
   assistantId: string | null;
-  activeConversationKey: string | null;
+  activeConversationId: string | null;
   /**
    * When true, the next key change is a draft-to-server key resolution (not a
    * real switch). The hook skips save/restore and only updates its internal
@@ -111,7 +111,7 @@ export interface UseDraftInputReturn {
 
 export function useDraftInput({
   assistantId,
-  activeConversationKey,
+  activeConversationId,
   draftKeyResolutionRef,
   onDraftRestored,
 }: UseDraftInputParams): UseDraftInputReturn {
@@ -140,7 +140,7 @@ export function useDraftInput({
   // -----------------------------------------------------------------------
   // Load drafts from localStorage when assistantId changes.
   // Flush the outgoing assistant's drafts first so they aren't lost when
-  // both assistantId and activeConversationKey change in the same render
+  // both assistantId and activeConversationId change in the same render
   // (effects run in declaration order — this must run before the switch
   // effect below).
   // -----------------------------------------------------------------------
@@ -174,13 +174,13 @@ export function useDraftInput({
   // -----------------------------------------------------------------------
   useEffect(() => {
     const prevKey = previousKeyRef.current;
-    const isSwitch = prevKey !== null && prevKey !== activeConversationKey;
+    const isSwitch = prevKey !== null && prevKey !== activeConversationId;
 
     // Draft-key resolution (draft-xxx → conv-yyy) is not a real conversation
     // switch — the user stays on the same conversation. Skip save/restore to
     // avoid clearing the composer.
     if (draftKeyResolutionRef.current) {
-      previousKeyRef.current = activeConversationKey;
+      previousKeyRef.current = activeConversationId;
       return;
     }
 
@@ -195,8 +195,8 @@ export function useDraftInput({
 
       // Restore incoming conversation's draft (or clear).
       const savedDraft =
-        (activeConversationKey &&
-          draftsRef.current.get(activeConversationKey)) ??
+        (activeConversationId &&
+          draftsRef.current.get(activeConversationId)) ??
         "";
       setInput(savedDraft);
 
@@ -204,8 +204,8 @@ export function useDraftInput({
       // switch. This is the fix for bug #5 (misfiring notice on same-key
       // effect re-runs): same-key re-runs are excluded by the
       // `isSwitch` gate above.
-      if (savedDraft.length > 0 && activeConversationKey) {
-        onDraftRestored?.(activeConversationKey);
+      if (savedDraft.length > 0 && activeConversationId) {
+        onDraftRestored?.(activeConversationId);
       }
 
       // Persist after the save/restore cycle.
@@ -214,8 +214,8 @@ export function useDraftInput({
       }
     }
 
-    previousKeyRef.current = activeConversationKey;
-  }, [activeConversationKey, setInput, onDraftRestored]);
+    previousKeyRef.current = activeConversationId;
+  }, [activeConversationId, setInput, onDraftRestored]);
 
   // -----------------------------------------------------------------------
   // Public helpers for callers that manage drafts outside the switch cycle

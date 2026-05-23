@@ -22,7 +22,7 @@ interface CurrentRef<T> {
 }
 
 export interface WebSyncRouterOptions {
-  activeConversationKeyRef: CurrentRef<string | null>;
+  activeConversationIdRef: CurrentRef<string | null>;
   invalidateAvatar: () => void;
   refreshAssistantIdentity: (force?: boolean) => Promise<void>;
   invalidateAssistantConfig: () => void;
@@ -82,7 +82,7 @@ export function createWebSyncRouter(
       // We still need the active-conversation message refetch when
       // the tag matches the currently-open conversation — those
       // message rows are owned by a separate query.
-      if (tagMatchesActiveConversation(tag, options.activeConversationKeyRef)) {
+      if (tagMatchesActiveConversation(tag, options.activeConversationIdRef)) {
         return options.refreshActiveConversationMessages().then(() => {});
       }
     }),
@@ -92,10 +92,10 @@ export function createWebSyncRouter(
     dispatchSyncChanged: (event) => registry.dispatch(event),
     dispatchReconnect: async () => {
       const dispatch = await registry.dispatchReconnect();
-      const activeConversationKey = options.activeConversationKeyRef.current;
+      const activeConversationId = options.activeConversationIdRef.current;
       let activeConversationMessages: ActiveConversationMessagesRefreshResult | null =
         null;
-      if (activeConversationKey) {
+      if (activeConversationId) {
         try {
           activeConversationMessages =
             await options.refreshActiveConversationMessages();
@@ -115,11 +115,11 @@ export function createWebSyncRouter(
 
 function tagMatchesActiveConversation(
   tag: string,
-  activeConversationKeyRef: CurrentRef<string | null>,
+  activeConversationIdRef: CurrentRef<string | null>,
 ): boolean {
   const parsed = parseConversationSyncTag(tag);
   return (
     parsed !== null &&
-    parsed.conversationId === activeConversationKeyRef.current
+    parsed.conversationId === activeConversationIdRef.current
   );
 }

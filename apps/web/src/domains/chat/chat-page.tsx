@@ -150,7 +150,7 @@ export function ChatPage() {
   // without this seed the brief window between mount and the history effect
   // dispatching `setIsLoadingHistory(true)` leaves the user staring at a
   // blank pane — none of `ChatScrollArea`'s four branches match
-  // (`isLoadingHistory` false, `activeConversationKey` null, no messages).
+  // (`isLoadingHistory` false, `activeConversationId` null, no messages).
   // Set to true means "we're bootstrapping" until the history hook resolves
   // and flips it false (for both real conversations and empty drafts).
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
@@ -191,7 +191,7 @@ export function ChatPage() {
   // -------------------------------------------------------------------------
   // Zustand store selectors
   // -------------------------------------------------------------------------
-  const activeConversationKey = useConversationStore.use.activeConversationKey();
+  const activeConversationId = useConversationStore.use.activeConversationId();
   const editingConversationKey = useConversationStore.use.editingConversationKey();
   const processingKeys = useConversationStore.use.processingKeys();
   const viewerState = useViewerStore(useShallow((s) => ({
@@ -248,8 +248,8 @@ export function ChatPage() {
   const transcriptRef = useRef<TranscriptHandle | null>(null);
 
 
-  const activeConversationKeyRef = useRef<string | null>(activeConversationKey);
-  useEffect(() => { activeConversationKeyRef.current = activeConversationKey; }, [activeConversationKey]);
+  const activeConversationIdRef = useRef<string | null>(activeConversationId);
+  useEffect(() => { activeConversationIdRef.current = activeConversationId; }, [activeConversationId]);
 
   const assistantIdRef = useRef<string | null>(assistantId);
   useEffect(() => { assistantIdRef.current = assistantId; }, [assistantId]);
@@ -284,7 +284,7 @@ export function ChatPage() {
 
   useContextWindowUsageHydration({
     assistantId,
-    activeConversationKey,
+    activeConversationId,
     contextWindowUsageByConversationRef,
     setContextWindowUsage,
   });
@@ -329,7 +329,7 @@ export function ChatPage() {
   // -------------------------------------------------------------------------
   const { input, setInput, saveDraft, clearDraft } = useDraftInput({
     assistantId,
-    activeConversationKey,
+    activeConversationId,
     draftKeyResolutionRef,
     onDraftRestored: setRestoredDraftConversationKey,
   });
@@ -378,8 +378,8 @@ export function ChatPage() {
   // Derived state
   // -------------------------------------------------------------------------
   const activeConversation = useMemo(
-    () => conversations.find((c) => c.conversationId === activeConversationKey),
-    [conversations, activeConversationKey],
+    () => conversations.find((c) => c.conversationId === activeConversationId),
+    [conversations, activeConversationId],
   );
   const isChannelReadonly = isChannelConversation(activeConversation);
 
@@ -401,7 +401,7 @@ export function ChatPage() {
   } = useConversationLoader({
     assistantId,
     assistantStateKind: assistantState.kind,
-    activeConversationKey,
+    activeConversationId,
     urlConversationKey: urlConversationKey ?? null,
     searchParams,
     navigate,
@@ -413,7 +413,7 @@ export function ChatPage() {
     draftKeyResolutionRef,
     previousConversationKeyRef,
     onboardingDraftConversationKeyRef,
-    activeConversationKeyRef,
+    activeConversationIdRef,
     contextWindowUsageByConversationRef,
     dismissedSurfaceIdsRef,
     needsNewBubbleRef,
@@ -479,7 +479,7 @@ export function ChatPage() {
       onboardingDraftConversationKeyRef.current ?? createDraftConversationKey();
     onboardingDraftConversationKeyRef.current = onboardingDraftKey;
     setOnboardingConversationKey(onboardingDraftKey);
-    useConversationStore.getState().setActiveKey(onboardingDraftKey);
+    useConversationStore.getState().setActiveConversationId(onboardingDraftKey);
     // Do NOT drain sessionStorage here — this ChatPage instance unmounts
     // when we navigate to /conversations/:key (different route entry),
     // losing all refs. Leave the context in sessionStorage so the new
@@ -498,7 +498,7 @@ export function ChatPage() {
     setMessages,
     streamContextRef,
     streamEpochRef,
-    activeConversationKeyRef,
+    activeConversationIdRef,
     initialPageOldestTsRef,
   });
 
@@ -529,7 +529,7 @@ export function ChatPage() {
 
   useEffect(() => {
     const syncRouter = createWebSyncRouter({
-      activeConversationKeyRef,
+      activeConversationIdRef,
       invalidateAvatar,
       refreshAssistantIdentity,
       invalidateAssistantConfig: () => {},
@@ -564,7 +564,7 @@ export function ChatPage() {
     push,
     isNative,
     streamEpochRef,
-    activeConversationKeyRef,
+    activeConversationIdRef,
     streamContextRef,
     assistantIdRef,
     setMessages,
@@ -603,11 +603,11 @@ export function ChatPage() {
     handleEditQueueTail,
   } = useSendMessage({
     assistantId,
-    activeConversationKey,
+    activeConversationId,
     diskPressureChatBlockReason,
     messages,
     assistantIdRef,
-    activeConversationKeyRef,
+    activeConversationIdRef,
     messagesRef,
     streamRef,
     streamContextRef,
@@ -641,10 +641,10 @@ export function ChatPage() {
   const promptConsumedRef = useRef<string | null>(null);
   useEffect(() => {
     const prompt = searchParams.get("prompt");
-    if (!prompt || !activeConversationKey || promptConsumedRef.current === prompt) return;
+    if (!prompt || !activeConversationId || promptConsumedRef.current === prompt) return;
     promptConsumedRef.current = prompt;
     void sendMessage(prompt);
-  }, [searchParams, activeConversationKey, sendMessage]);
+  }, [searchParams, activeConversationId, sendMessage]);
 
   // Kick off a background reachability probe immediately when a pending
   // onboarding message exists, instead of waiting for a 502 from
@@ -661,14 +661,14 @@ export function ChatPage() {
   // Auto-send onboarding initial message once the daemon is reachable.
   const initialMessageConsumedRef = useRef(false);
   useEffect(() => {
-    if (initialMessageConsumedRef.current || !assistantId || !activeConversationKey) return;
+    if (initialMessageConsumedRef.current || !assistantId || !activeConversationId) return;
     if (reachability.state.phase !== "ready") return;
     const message = peekPendingInitialMessage();
     if (!message) return;
     initialMessageConsumedRef.current = true;
     clearPendingInitialMessage();
     void sendMessage(message);
-  }, [activeConversationKey, assistantId, reachability.state.phase, sendMessage]);
+  }, [activeConversationId, assistantId, reachability.state.phase, sendMessage]);
 
   // Clear the post-onboarding loading gate once the first message appears.
   useEffect(() => {
@@ -728,12 +728,12 @@ export function ChatPage() {
   // Clear question prompt when conversation changes
   useEffect(() => {
     useInteractionStore.getState().dismissQuestion();
-  }, [activeConversationKey]);
+  }, [activeConversationId]);
 
   // Reset subagent state when conversation changes
   useEffect(() => {
     useSubagentStore.getState().reset();
-  }, [activeConversationKey]);
+  }, [activeConversationId]);
 
   // -------------------------------------------------------------------------
   // Subagent detail fetching
@@ -822,7 +822,7 @@ export function ChatPage() {
   const fetchedSubagentsRef = useRef<Map<string, number>>(new Map());
   useEffect(() => {
     fetchedSubagentsRef.current.clear();
-  }, [activeConversationKey]);
+  }, [activeConversationId]);
   useEffect(() => {
     if (!assistantId) return;
     const entries = Object.values(subagentState.byId);
@@ -844,7 +844,7 @@ export function ChatPage() {
     setError,
     messagesRef,
     streamContextRef,
-    activeConversationKeyRef,
+    activeConversationIdRef,
     confirmationToolCallMapRef,
   });
 
@@ -854,7 +854,7 @@ export function ChatPage() {
   useEventStream({
     assistantStateKind: assistantState.kind,
     assistantId,
-    activeConversationKey,
+    activeConversationId,
     conversationExistsOnServer,
     streamRef,
     streamEpochRef,
@@ -878,7 +878,7 @@ export function ChatPage() {
   // -------------------------------------------------------------------------
   const refreshLatestMessages = useRefreshLatestMessages({
     assistantId,
-    activeConversationKeyRef,
+    activeConversationIdRef,
     messagesRef,
     setMessages,
     dismissedSurfaceIdsRef,
@@ -900,7 +900,7 @@ export function ChatPage() {
     streamContextRef,
     streamRef,
     streamEpochRef,
-    activeConversationKeyRef,
+    activeConversationIdRef,
     getAssistantId: () => assistantIdRef.current,
     getTurnState: () => useTurnStore.getState(),
     getUIContext: () => _uiContext,
@@ -938,7 +938,7 @@ export function ChatPage() {
   // -------------------------------------------------------------------------
   useSyncChatStore({
     messages,
-    activeConversationKey,
+    activeConversationId,
     assistantId,
     sendMessage,
   });
@@ -976,7 +976,7 @@ export function ChatPage() {
     handleRenameConversation,
   } = useConversationActions({
     assistantId,
-    activeConversationKey,
+    activeConversationId,
     conversations,
     refreshConversations,
     switchConversation,
@@ -994,7 +994,7 @@ export function ChatPage() {
     handleCopyConversation,
   } = useConversationSecondaryActions({
     assistantId,
-    activeConversationKey,
+    activeConversationId,
     activeConversation: activeConversation ?? null,
     assistantIdentityName: assistantIdentity?.name ?? undefined,
     messagesRef,
@@ -1017,7 +1017,7 @@ export function ChatPage() {
       assistantId,
       assistantName: assistantIdentity?.name ?? undefined,
       conversations,
-      activeConversationKey: activeConversationKey ?? undefined,
+      activeConversationId: activeConversationId ?? undefined,
       startNewConversation: () => startNewConversation(),
       switchConversation,
       navigate: (to: string | number) => {
@@ -1187,12 +1187,12 @@ export function ChatPage() {
       haptic.light();
       await useViewerStore.getState().loadApp(assistantId, appId);
       const { activeAppId, openedAppState } = useViewerStore.getState();
-      if (activeConversationKey && openedAppState && activeAppId === appId) {
-        useConversationStore.getState().setEditingKey(activeConversationKey);
+      if (activeConversationId && openedAppState && activeAppId === appId) {
+        useConversationStore.getState().setEditingKey(activeConversationId);
         useViewerStore.getState().enterAppEditing();
       }
     },
-    [assistantId, activeConversationKey],
+    [assistantId, activeConversationId],
   );
 
   const handleOpenDocument = useCallback(
@@ -1239,13 +1239,13 @@ export function ChatPage() {
   useEffect(() => {
     const lastMsg = messages[messages.length - 1];
     if (!lastMsg || lastMsg.role !== "assistant" || lastMsg.isStreaming) return;
-    if (!assistantId || !activeConversationKey) return;
+    if (!assistantId || !activeConversationId) return;
     const msgId = lastMsg.id ?? null;
     if (msgId === lastSuggestionMsgIdRef.current) return;
     lastSuggestionMsgIdRef.current = msgId;
 
     const controller = new AbortController();
-    void fetchSuggestion(assistantId, activeConversationKey, lastMsg.id, controller.signal)
+    void fetchSuggestion(assistantId, activeConversationId, lastMsg.id, controller.signal)
       .then((r) => {
         if (controller.signal.aborted) return;
         if (inputSnapshotRef.current) return;
@@ -1253,7 +1253,7 @@ export function ChatPage() {
       })
       .catch(() => {});
     return () => { controller.abort(); };
-  }, [messages, assistantId, activeConversationKey, setSuggestion]);
+  }, [messages, assistantId, activeConversationId, setSuggestion]);
 
   // -------------------------------------------------------------------------
   // Nudge sidebar footer banner — push into the layout via outlet context
@@ -1277,7 +1277,7 @@ export function ChatPage() {
     return false;
   }, [messages]);
 
-  const activeConversationIsProcessing = activeConversationKey != null && processingKeys.has(activeConversationKey);
+  const activeConversationIsProcessing = activeConversationId != null && processingKeys.has(activeConversationId);
   const activeConversationHasPendingAssistantResponse = useMemo(
     () => hasPendingAssistantResponse(messages),
     [messages],
@@ -1430,7 +1430,7 @@ export function ChatPage() {
     setError,
     isLoadingHistory,
     conversations,
-    activeConversationKey,
+    activeConversationId,
     activeConversation,
     processingKeys,
     mainView: viewerState.mainView,
@@ -1549,7 +1549,7 @@ export function ChatPage() {
       useConversationStore.getState().setEditingKey(conversationKey);
       useViewerStore.getState().enterAppEditing();
 
-      if (activeConversationKey !== conversationKey) {
+      if (activeConversationId !== conversationKey) {
         navigateToConversation(conversationKey);
       }
     },
@@ -1569,9 +1569,9 @@ export function ChatPage() {
     onSubagentClick: (id: string) => { useViewerStore.getState().openSubagentDetail(id); },
     onCloseSubagentDetail: () => { useViewerStore.getState().closeSubagentDetail(); },
     onStopSubagent: async (subagentId: string) => {
-      if (!assistantId || !activeConversationKey) return;
+      if (!assistantId || !activeConversationId) return;
       try {
-        await abortSubagent(assistantId, activeConversationKey, subagentId);
+        await abortSubagent(assistantId, activeConversationId, subagentId);
       } catch {
         // Best-effort — the daemon may have already completed
       }
@@ -1584,7 +1584,7 @@ export function ChatPage() {
     refs: {
       inputRef,
       messagesRef,
-      activeConversationKeyRef,
+      activeConversationIdRef,
       assistantIdRef,
       streamContextRef,
       expandedToolCallIdsRef,
@@ -1717,9 +1717,9 @@ export function ChatPage() {
                 useViewerStore.getState().closeSubagentDetail();
               }}
               onStop={async (subagentId: string) => {
-                if (!assistantId || !activeConversationKey) return;
+                if (!assistantId || !activeConversationId) return;
                 try {
-                  await abortSubagent(assistantId, activeConversationKey, subagentId);
+                  await abortSubagent(assistantId, activeConversationId, subagentId);
                 } catch {
                   // Best-effort — the daemon may have already completed
                 }

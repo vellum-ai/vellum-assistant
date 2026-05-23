@@ -69,7 +69,7 @@ export function resolveUnpinGroupId(
  */
 interface UseConversationActionsParams {
   assistantId: string | null;
-  activeConversationKey: string | null;
+  activeConversationId: string | null;
   conversations: Conversation[];
   refreshConversations: () => Promise<void>;
   switchConversation: (key: string) => void;
@@ -79,7 +79,7 @@ interface UseConversationActionsParams {
 
 export function useConversationActions({
   assistantId,
-  activeConversationKey,
+  activeConversationId,
   conversations,
   refreshConversations,
   switchConversation,
@@ -94,7 +94,7 @@ export function useConversationActions({
       haptic.medium();
 
       const wasActive =
-        conversation.conversationId === activeConversationKey;
+        conversation.conversationId === activeConversationId;
       let nextKey: string | null = null;
       if (wasActive) {
         nextKey = findNextConversationKey(conversations, conversation.conversationId);
@@ -145,7 +145,7 @@ export function useConversationActions({
       }
     },
     [
-      activeConversationKey,
+      activeConversationId,
       assistantId,
       conversations,
       queryClient,

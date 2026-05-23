@@ -153,7 +153,7 @@ describe("useAttentionTracking — post-reconnect sweep", () => {
       //  - conv-promote: in processingKeys AND still pending → must be promoted to attentionKeys
       //  - conv-new: not tracked at all but pending → must be added to attentionKeys
       //  - conv-active: active key — must NEVER be mutated by the sweep
-      useConversationStore.getState().setActiveKey("conv-active");
+      useConversationStore.getState().setActiveConversationId("conv-active");
       useConversationStore.getState().addAttentionKey("conv-stale");
       useConversationStore.getState().addAttentionKey("conv-active");
       useConversationStore.getState().addProcessingKey("conv-promote");

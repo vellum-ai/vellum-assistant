@@ -14,7 +14,7 @@ import { useEventStream } from "@/domains/chat/hooks/use-event-stream.js";
 type StreamContext = { assistantId: string; conversationId: string };
 
 function renderEventStream(
-  activeConversationKey: string,
+  activeConversationId: string,
   handleStreamEvent: (event: AssistantEvent, epoch: number) => void,
 ) {
   return renderHook(
@@ -30,7 +30,7 @@ function renderEventStream(
       useEventStream({
         assistantStateKind: "active",
         assistantId: "asst-1",
-        activeConversationKey: key,
+        activeConversationId: key,
         conversationExistsOnServer: true,
         streamRef,
         streamEpochRef,
@@ -54,7 +54,7 @@ function renderEventStream(
         conversationListInvalidatedTimerRef: timerRef,
       });
     },
-    { initialProps: { key: activeConversationKey } },
+    { initialProps: { key: activeConversationId } },
   );
 }
 

@@ -32,7 +32,7 @@ export interface CollapsedConversationsButtonProps {
   recents: Conversation[];
   /** Custom conversation groups (visible when the conversationGroupsUI flag is on). */
   customGroups?: CustomGroup[];
-  activeConversationKey?: string;
+  activeConversationId?: string;
   onSelectConversation: (conversationKey: string) => void;
   /**
    * Optional: build the hover-revealed action menu for a given
@@ -52,7 +52,7 @@ export function CollapsedConversationsButton({
   slack,
   recents,
   customGroups,
-  activeConversationKey,
+  activeConversationId,
   onSelectConversation,
   renderActions,
   attentionConversationKeys,
@@ -113,7 +113,7 @@ export function CollapsedConversationsButton({
           <SimpleSection
             title="Pinned"
             conversations={pinned}
-            activeConversationKey={activeConversationKey}
+            activeConversationId={activeConversationId}
             onSelect={handleSelect}
             renderActions={renderActions}
             attentionConversationKeys={attentionConversationKeys}
@@ -124,7 +124,7 @@ export function CollapsedConversationsButton({
           <SimpleSection
             title="Scheduled"
             conversations={scheduled}
-            activeConversationKey={activeConversationKey}
+            activeConversationId={activeConversationId}
             onSelect={handleSelect}
             renderActions={renderActions}
             attentionConversationKeys={attentionConversationKeys}
@@ -134,7 +134,7 @@ export function CollapsedConversationsButton({
         {background.length > 0 ? (
           <BackgroundSection
             conversations={background}
-            activeConversationKey={activeConversationKey}
+            activeConversationId={activeConversationId}
             onSelect={handleSelect}
             renderActions={renderActions}
             attentionConversationKeys={attentionConversationKeys}
@@ -145,7 +145,7 @@ export function CollapsedConversationsButton({
           <SimpleSection
             title="Slack"
             conversations={slack}
-            activeConversationKey={activeConversationKey}
+            activeConversationId={activeConversationId}
             onSelect={handleSelect}
             renderActions={renderActions}
             attentionConversationKeys={attentionConversationKeys}
@@ -156,7 +156,7 @@ export function CollapsedConversationsButton({
           <SimpleSection
             title="Recents"
             conversations={recents}
-            activeConversationKey={activeConversationKey}
+            activeConversationId={activeConversationId}
             onSelect={handleSelect}
             renderActions={renderActions}
             attentionConversationKeys={attentionConversationKeys}
@@ -169,7 +169,7 @@ export function CollapsedConversationsButton({
               key={group.id}
               title={group.name}
               conversations={group.conversations}
-              activeConversationKey={activeConversationKey}
+              activeConversationId={activeConversationId}
               onSelect={handleSelect}
               renderActions={renderActions}
               attentionConversationKeys={attentionConversationKeys}
@@ -206,7 +206,7 @@ function SectionHeader({ title, count }: SectionHeaderProps) {
 interface SimpleSectionProps {
   title: string;
   conversations: Conversation[];
-  activeConversationKey?: string;
+  activeConversationId?: string;
   onSelect: (conversationKey: string) => void;
   renderActions?: (conversation: Conversation) => ReactNode;
   attentionConversationKeys?: Set<string>;
@@ -219,7 +219,7 @@ interface SimpleSectionProps {
 function SimpleSection({
   title,
   conversations,
-  activeConversationKey,
+  activeConversationId,
   onSelect,
   renderActions,
   attentionConversationKeys,
@@ -235,7 +235,7 @@ function SimpleSection({
               key={c.conversationId}
               icon={needsAttention ? CircleAlert : isConversationPinned(c) ? Pin : undefined}
               label={c.title ?? "Untitled"}
-              active={c.conversationId === activeConversationKey}
+              active={c.conversationId === activeConversationId}
               onSelect={() => onSelect(c.conversationId)}
               trailingAction={renderActions?.(c)}
               className={needsAttention ? "text-[var(--system-mid-strong)]" : undefined}
@@ -249,7 +249,7 @@ function SimpleSection({
 
 interface BackgroundSectionProps {
   conversations: Conversation[];
-  activeConversationKey?: string;
+  activeConversationId?: string;
   onSelect: (conversationKey: string) => void;
   renderActions?: (conversation: Conversation) => ReactNode;
   attentionConversationKeys?: Set<string>;
@@ -263,7 +263,7 @@ interface BackgroundSectionProps {
  */
 function BackgroundSection({
   conversations,
-  activeConversationKey,
+  activeConversationId,
   onSelect,
   renderActions,
   attentionConversationKeys,
@@ -320,7 +320,7 @@ function BackgroundSection({
                 key={c.conversationId}
                 icon={singleNeedsAttention ? CircleAlert : isConversationPinned(c) ? Pin : undefined}
                 label={c.title ?? "Untitled"}
-                active={c.conversationId === activeConversationKey}
+                active={c.conversationId === activeConversationId}
                 onSelect={() => onSelect(c.conversationId)}
                 trailingAction={renderActions?.(c)}
                 className={singleNeedsAttention ? "text-[var(--system-mid-strong)]" : undefined}
@@ -345,7 +345,7 @@ function BackgroundSection({
                         key={c.conversationId}
                         icon={rowNeedsAttention ? CircleAlert : isConversationPinned(c) ? Pin : undefined}
                         label={c.title ?? "Untitled"}
-                        active={c.conversationId === activeConversationKey}
+                        active={c.conversationId === activeConversationId}
                         onSelect={() => onSelect(c.conversationId)}
                         trailingAction={renderActions?.(c)}
                         className={rowNeedsAttention ? "text-[var(--system-mid-strong)]" : undefined}

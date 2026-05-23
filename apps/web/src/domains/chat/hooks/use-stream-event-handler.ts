@@ -105,7 +105,7 @@ export interface UseStreamEventHandlerParams {
 
   // --- Stream context ---
   streamEpochRef: MutableRefObject<number>;
-  activeConversationKeyRef: MutableRefObject<string | null>;
+  activeConversationIdRef: MutableRefObject<string | null>;
   streamContextRef: MutableRefObject<StreamContext | null>;
   assistantIdRef: MutableRefObject<string | null>;
 
@@ -183,7 +183,7 @@ export function useStreamEventHandler(
     push,
     isNative,
     streamEpochRef,
-    activeConversationKeyRef,
+    activeConversationIdRef,
     streamContextRef,
     assistantIdRef,
     setMessages,
@@ -241,7 +241,7 @@ export function useStreamEventHandler(
         recordChatDiagnostic("sse_event_stale", {
           epoch,
           currentEpoch: streamEpochRef.current,
-          activeConversationKey: activeConversationKeyRef.current,
+          activeConversationId: activeConversationIdRef.current,
           ...eventSummary,
         });
         return;
@@ -259,7 +259,7 @@ export function useStreamEventHandler(
         if (!event.conversationId || !streamConversationId) {
           recordChatDiagnostic("sse_event_wrong_conversation", {
             epoch,
-            activeConversationKey: activeConversationKeyRef.current,
+            activeConversationId: activeConversationIdRef.current,
             streamContext: streamContextRef.current,
             reason: !event.conversationId ? "missing" : "no_stream_context",
             ...eventSummary,
@@ -269,7 +269,7 @@ export function useStreamEventHandler(
         if (event.conversationId !== streamConversationId) {
           recordChatDiagnostic("sse_event_wrong_conversation", {
             epoch,
-            activeConversationKey: activeConversationKeyRef.current,
+            activeConversationId: activeConversationIdRef.current,
             streamContext: streamContextRef.current,
             reason: "mismatch",
             ...eventSummary,
@@ -287,7 +287,7 @@ export function useStreamEventHandler(
             : "sse_event",
           {
             epoch,
-            activeConversationKey: activeConversationKeyRef.current,
+            activeConversationId: activeConversationIdRef.current,
             streamContext: streamContextRef.current,
             ...eventSummary,
           },
@@ -299,7 +299,7 @@ export function useStreamEventHandler(
         router: { push },
         isNative,
         streamContextRef,
-        activeConversationKeyRef,
+        activeConversationIdRef,
         assistantIdRef,
         setMessages,
         messagesRef,
@@ -491,7 +491,7 @@ export function useStreamEventHandler(
       dispatchSyncChanged,
       queryClient,
       streamEpochRef,
-      activeConversationKeyRef,
+      activeConversationIdRef,
       streamContextRef,
       assistantIdRef,
       setMessages,

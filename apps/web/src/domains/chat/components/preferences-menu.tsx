@@ -27,13 +27,13 @@ import { ThemeToggle } from "@/components/theme-toggle.js";
 export interface PreferencesMenuProps {
   assistantId?: string | null;
   assistantVersion?: string | null;
-  activeConversationKey?: string | null;
+  activeConversationId?: string | null;
 }
 
 export function PreferencesMenu({
   assistantId,
   assistantVersion,
-  activeConversationKey,
+  activeConversationId,
 }: PreferencesMenuProps) {
   const isLoggedIn = useAuthStore.use.isLoggedIn();
   const isMobile = useIsMobile();
@@ -93,7 +93,7 @@ export function PreferencesMenu({
         onClose={() => setIsFeedbackOpen(false)}
         assistantId={assistantId}
         assistantVersion={assistantVersion}
-        activeConversationKey={activeConversationKey}
+        activeConversationId={activeConversationId}
       />
     </>
   );

@@ -47,7 +47,7 @@ const { useStreamEventHandler } = await import(
 function noopRefs() {
   return {
     streamEpochRef: { current: 0 } as MutableRefObject<number>,
-    activeConversationKeyRef: {
+    activeConversationIdRef: {
       current: "conv-A",
     } as MutableRefObject<string | null>,
     streamContextRef: {
@@ -88,7 +88,7 @@ function renderHandler(
   overrides?: {
     streamEpoch?: number;
     streamConversationId?: string | null;
-    activeConversationKey?: string | null;
+    activeConversationId?: string | null;
   },
 ) {
   if (overrides?.streamEpoch !== undefined) {
@@ -100,8 +100,8 @@ function renderHandler(
         ? null
         : { assistantId: "asst-1", conversationId: overrides.streamConversationId };
   }
-  if (overrides?.activeConversationKey !== undefined) {
-    refs.activeConversationKeyRef.current = overrides.activeConversationKey;
+  if (overrides?.activeConversationId !== undefined) {
+    refs.activeConversationIdRef.current = overrides.activeConversationId;
   }
   const { result } = renderHook(
     () =>

@@ -5,7 +5,7 @@ import { useChatStore } from "@/domains/chat/chat-store.js";
 beforeEach(() => {
   useChatStore.setState({
     messages: [],
-    activeConversationKey: null,
+    activeConversationId: null,
     assistantId: null,
     sendMessage: async () => {},
   }, true);
@@ -15,7 +15,7 @@ describe("useChatStore", () => {
   it("initializes with empty messages and null identifiers", () => {
     const state = useChatStore.getState();
     expect(state.messages).toEqual([]);
-    expect(state.activeConversationKey).toBeNull();
+    expect(state.activeConversationId).toBeNull();
     expect(state.assistantId).toBeNull();
   });
 
@@ -31,7 +31,7 @@ describe("useChatStore", () => {
     const state = useChatStore.getState();
     expect(state.messages).toHaveLength(1);
     expect(state.messages[0]).toBe(msg);
-    expect(state.activeConversationKey).toBeNull();
+    expect(state.activeConversationId).toBeNull();
     expect(state.assistantId).toBeNull();
   });
 
@@ -52,7 +52,7 @@ describe("useChatStore", () => {
 
     const fullState = {
       messages: [{ id: "m2", role: "assistant", content: "hi" } as never],
-      activeConversationKey: "conv-abc",
+      activeConversationId: "conv-abc",
       assistantId: "ast-new",
       sendMessage: async () => {},
     };
@@ -60,7 +60,7 @@ describe("useChatStore", () => {
 
     const state = useChatStore.getState();
     expect(state.messages).toHaveLength(1);
-    expect(state.activeConversationKey).toBe("conv-abc");
+    expect(state.activeConversationId).toBe("conv-abc");
     expect(state.assistantId).toBe("ast-new");
   });
 

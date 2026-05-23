@@ -34,7 +34,7 @@ function makeConversation(overrides: Partial<Conversation>): Conversation {
 
 function renderMenu(props: {
   conversations: Conversation[];
-  activeConversationKey?: string;
+  activeConversationId?: string;
   variant?: "rail" | "overlay";
   includeFooterAction?: boolean;
 }): string {
@@ -45,7 +45,7 @@ function renderMenu(props: {
       collapsed: false,
       variant: props.variant ?? "rail",
       conversations: props.conversations,
-      activeConversationKey: props.activeConversationKey,
+      activeConversationId: props.activeConversationId,
       onSelectConversation: () => {},
       footerAction: includeFooterAction
         ? createElement("span", null, "Preferences")
@@ -197,7 +197,7 @@ describe("AssistantSideMenu · active thread accessibility", () => {
 
     const html = renderMenu({
       conversations,
-      activeConversationKey: "b",
+      activeConversationId: "b",
     });
 
     const sliceButtonAround = (title: string): string => {

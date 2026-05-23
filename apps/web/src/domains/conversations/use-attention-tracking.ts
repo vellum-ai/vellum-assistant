@@ -86,11 +86,11 @@ export function useAttentionTracking({
     assistantId,
     assistantStateKind === "active",
   );
-  const activeConversationKey = useConversationStore.use.activeConversationKey();
+  const activeConversationId = useConversationStore.use.activeConversationId();
   const processingKeys = useConversationStore.use.processingKeys();
 
   const activeConversation = conversations.find(
-    (c) => c.conversationId === activeConversationKey,
+    (c) => c.conversationId === activeConversationId,
   );
 
   const lastSeenOnOpenConversationKeyRef = useRef<string | null>(null);
@@ -100,19 +100,19 @@ export function useAttentionTracking({
   // Mark conversation as seen when opened
   // -------------------------------------------------------------------------
   useEffect(() => {
-    if (assistantStateKind !== "active" || !assistantId || !activeConversationKey) return;
+    if (assistantStateKind !== "active" || !assistantId || !activeConversationId) return;
     if (!activeConversation) return;
-    if (lastSeenOnOpenConversationKeyRef.current === activeConversationKey) return;
+    if (lastSeenOnOpenConversationKeyRef.current === activeConversationId) return;
 
-    lastSeenOnOpenConversationKeyRef.current = activeConversationKey;
+    lastSeenOnOpenConversationKeyRef.current = activeConversationId;
     if (!activeConversation.hasUnseenLatestAssistantMessage) return;
 
     let cancelled = false;
 
-    markConversationSeen(assistantId, activeConversationKey)
+    markConversationSeen(assistantId, activeConversationId)
       .then(() => {
         if (cancelled) return;
-        markConversationSeenLocal(queryClient, assistantId, activeConversationKey);
+        markConversationSeenLocal(queryClient, assistantId, activeConversationId);
       })
       .catch((err) => {
         Sentry.captureException(err, {
@@ -125,7 +125,7 @@ export function useAttentionTracking({
     };
   }, [
     activeConversation,
-    activeConversationKey,
+    activeConversationId,
     assistantId,
     assistantStateKind,
     queryClient,
@@ -142,7 +142,7 @@ export function useAttentionTracking({
     const snapshots = useConversationStore.getState().processingSnapshots;
     const graduatingKeys: string[] = [];
     for (const key of processingKeys) {
-      if (key === activeConversationKey) continue;
+      if (key === activeConversationId) continue;
       const conv = conversations.find((c) => c.conversationId === key);
       if (!conv) continue;
       const snapshot = snapshots.get(key);
@@ -174,7 +174,7 @@ export function useAttentionTracking({
     })();
 
     return () => { cancelled = true; };
-  }, [conversations, processingKeys, activeConversationKey, assistantId]);
+  }, [conversations, processingKeys, activeConversationId, assistantId]);
 
   // -------------------------------------------------------------------------
   // Push-based attention reconciliation.
@@ -206,7 +206,7 @@ export function useAttentionTracking({
     const key = event.conversationId;
     if (!key) return;
     const state = useConversationStore.getState();
-    if (key === state.activeConversationKey) return;
+    if (key === state.activeConversationId) return;
     if (state.attentionKeys.has(key)) {
       state.removeAttentionKey(key);
     }
@@ -239,7 +239,7 @@ export function useAttentionTracking({
         return; // Best-effort — sse.event will catch subsequent transitions.
       }
       const state = useConversationStore.getState();
-      const activeKey = state.activeConversationKey;
+      const activeKey = state.activeConversationId;
       for (const key of state.attentionKeys) {
         if (key === activeKey) continue;
         if (!pendingKeys.has(key)) state.removeAttentionKey(key);
@@ -283,7 +283,7 @@ export function useAttentionTracking({
       // `conversations` capture from the effect's first render.
       const currentConversations = getConversations(queryClient, assistantId);
       for (const conv of currentConversations) {
-        if (conv.conversationId === activeConversationKey) continue;
+        if (conv.conversationId === activeConversationId) continue;
         if (pendingKeys.has(conv.conversationId)) {
           useConversationStore.getState().addAttentionKey(conv.conversationId);
         }
@@ -291,5 +291,5 @@ export function useAttentionTracking({
     })();
 
     return () => { cancelled = true; };
-  }, [assistantId, conversations, activeConversationKey, queryClient]);
+  }, [assistantId, conversations, activeConversationId, queryClient]);
 }

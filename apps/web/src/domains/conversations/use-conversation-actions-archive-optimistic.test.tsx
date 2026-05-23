@@ -105,7 +105,7 @@ function setupHook(opts: {
     () =>
       useConversationActions({
         assistantId: ASSISTANT_ID,
-        activeConversationKey: opts.activeKey ?? null,
+        activeConversationId: opts.activeKey ?? null,
         conversations: opts.conversations,
         refreshConversations: async () => {
           refreshCalls += 1;

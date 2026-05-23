@@ -384,7 +384,7 @@ export interface ChatDebugRefs {
   } | null>;
   streamRef: MutableRefObject<ChatEventStream | null>;
   streamEpochRef: MutableRefObject<number>;
-  activeConversationKeyRef: MutableRefObject<string | null>;
+  activeConversationIdRef: MutableRefObject<string | null>;
   /**
    * Reads the latest transcript pagination state (`hasMore`,
    * `isLoadingOlder`) for {@link ChatDebugApi.getScrollState}. Held as a
@@ -662,12 +662,12 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
 
   async function forceReconcile(): Promise<ReconcileActiveConversationResult> {
     recordChatDiagnostic("debug_force_reconcile_start", {
-      activeConversationKey: refs.activeConversationKeyRef.current,
+      activeConversationId: refs.activeConversationIdRef.current,
       assistantId: refs.getAssistantId(),
     });
     const result = await refs.reconcileActiveConversation();
     recordChatDiagnostic("debug_force_reconcile_result", {
-      activeConversationKey: refs.activeConversationKeyRef.current,
+      activeConversationId: refs.activeConversationIdRef.current,
       changed: result.changed,
       messagesAdded: result.messagesAdded,
       assistantProgress: result.assistantProgress,
@@ -678,14 +678,14 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
   async function serverMessages(): Promise<RuntimeMessage[]> {
     // Resolve context from `streamContextRef` first (matches what
     // reconcile would use); fall back to assistantId +
-    // activeConversationKey so the call still works during a brief
+    // activeConversationId so the call still works during a brief
     // conv-switch window where the stream context is transiently null.
     const streamContext = refs.streamContextRef.current;
     const assistantId =
       streamContext?.assistantId ?? refs.getAssistantId() ?? null;
     const conversationId =
       streamContext?.conversationId ??
-      refs.activeConversationKeyRef.current ??
+      refs.activeConversationIdRef.current ??
       null;
     if (!assistantId || !conversationId) {
       throw new Error(
@@ -867,7 +867,7 @@ export function useChatDebugApi(refs: ChatDebugRefs): void {
       streamContextRef: refs.streamContextRef,
       streamRef: refs.streamRef,
       streamEpochRef: refs.streamEpochRef,
-      activeConversationKeyRef: refs.activeConversationKeyRef,
+      activeConversationIdRef: refs.activeConversationIdRef,
       getAssistantId: () => latestRefs.current.getAssistantId(),
       getTurnState: () => latestRefs.current.getTurnState(),
       getUIContext: () => latestRefs.current.getUIContext(),
