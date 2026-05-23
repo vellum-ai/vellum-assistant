@@ -41,6 +41,7 @@ describe("MemoryV2ConfigSchema", () => {
         tier1_size: null,
         tier2_size: null,
         historical_pairs: 1,
+        historical_pairs_max_chars: null,
       },
     });
   });
