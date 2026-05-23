@@ -399,10 +399,19 @@ export function upsertToolCall(
   const lastIdx = prev.length - 1;
   const last = prev[lastIdx];
 
+  // A turn is still in flight if the latest assistant bubble has any running
+  // tool calls — even if `isStreaming` was cleared (e.g. by a background
+  // history reconciliation that didn't know about the in-flight tool). In
+  // that case, keep appending to the same bubble so we don't visually split
+  // a single turn across two rows.
+  const lastHasRunningTool =
+    last?.role === "assistant" &&
+    !!last.toolCalls?.some((tc) => tc.status === "running");
+
   if (
     !shouldCreateNewBubble &&
     last?.role === "assistant" &&
-    last.isStreaming
+    (last.isStreaming || lastHasRunningTool)
   ) {
     const existingIdx =
       last.toolCalls?.findIndex((tc) => tc.id === toolCall.id) ?? -1;
@@ -413,12 +422,20 @@ export function upsertToolCall(
         ...updatedToolCalls[existingIdx]!,
         ...toolCall,
       };
-      updated[lastIdx] = { ...last, toolCalls: updatedToolCalls };
+      updated[lastIdx] = {
+        ...last,
+        // Restore streaming state if we recognized the turn is still in
+        // flight via a running tool call. Background reconciliation may have
+        // cleared `isStreaming` without knowing the tool was still pending.
+        isStreaming: last.isStreaming || lastHasRunningTool ? true : last.isStreaming,
+        toolCalls: updatedToolCalls,
+      };
       return updated;
     }
     const updated = [...prev];
     updated[lastIdx] = {
       ...last,
+      isStreaming: last.isStreaming || lastHasRunningTool ? true : last.isStreaming,
       toolCalls: [...(last.toolCalls ?? []), toolCall],
       contentOrder: [
         ...(last.contentOrder ?? []),

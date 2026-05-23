@@ -214,9 +214,20 @@ export function mergeLatestHistoryMessage(
     content: preferredText.content,
   };
 
+  // Preserve in-flight state across reconciliation. A bubble with any running
+  // tool calls is still streaming server-side even when the history snapshot
+  // didn't capture the in-flight tool. Without this guard the merge would
+  // clear `isStreaming` and trick `syncNeedsNewBubbleFromMessages` into
+  // opening a fresh bubble for the next tool event, fragmenting the turn.
+  const currentHasRunningTool = !!current.toolCalls?.some(
+    (tc) => tc.status === "running",
+  );
+
   if (currentHasMoreText) {
     merged.isStreaming = current.isStreaming;
     merged.textSegments = current.textSegments ?? incoming.textSegments;
+  } else if (currentHasRunningTool) {
+    merged.isStreaming = current.isStreaming;
   } else if (!incoming.isStreaming) {
     merged.isStreaming = false;
   }

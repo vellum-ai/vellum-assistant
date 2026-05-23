@@ -382,6 +382,59 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
     // a refresh produced any change vs. landed as a no-op.
     expect(result).toBe(current);
   });
+
+  // Regression for the mid-turn bubble split bug. While the assistant is
+  // running tool calls, a TQ background refetch may return a server snapshot
+  // that pre-dates the in-flight tool. The merge must NOT clear
+  // `isStreaming` on the local bubble in that case, otherwise the next
+  // `tool_use_start` will spawn a fresh `assistant-tool-*` row after the
+  // current message's timestamp footer.
+  test("preserves isStreaming on a streaming bubble that still has running tool calls", () => {
+    const user = makeLocal({
+      stableId: "user",
+      id: "u1",
+      role: "user",
+      content: "do some work",
+      timestamp: 1000,
+    });
+    const streamingAssistant = makeLocal({
+      stableId: "live-assistant",
+      id: "a1",
+      role: "assistant",
+      content: "Working on it",
+      isStreaming: true,
+      timestamp: 1010,
+      toolCalls: [
+        {
+          id: "tc-running",
+          toolName: "bash",
+          input: {},
+          status: "running" as const,
+        },
+      ],
+    });
+    // Server snapshot raced ahead and the history row no longer reflects an
+    // in-flight tool (e.g. the row was force-completed by message_complete on
+    // the daemon side before the next tool started).
+    const staleHistory = makeLocal({
+      stableId: "server-assistant",
+      id: "a1",
+      role: "assistant",
+      content: "Working on it, and here is more text from the server",
+      timestamp: 1010,
+    });
+
+    const result = reconcileDisplayMessagesWithLatestHistory(
+      [user, streamingAssistant],
+      [user, staleHistory],
+    );
+
+    expect(result).toHaveLength(2);
+    expect(result[1]!.stableId).toBe("live-assistant");
+    expect(result[1]!.isStreaming).toBe(true);
+    // The running tool stays running until tool_result or finalize.
+    expect(result[1]!.toolCalls?.[0]!.status).toBe("running");
+  });
 });
 
 describe("reconcileMessages", () => {
@@ -413,6 +466,39 @@ describe("reconcileMessages", () => {
     });
     // isStreaming stripped when server confirms content
     expect(result[1]!.isStreaming).toBeUndefined();
+  });
+
+  // Regression for the mid-turn bubble split bug. A periodic reconciliation
+  // pull during an active turn must not drop `isStreaming` on a bubble that
+  // still has running tool calls, otherwise the chat page believes the turn
+  // ended and opens a fresh bubble for the next `tool_use_start`.
+  test("preserves isStreaming when a local bubble still has running tool calls", () => {
+    const local: DisplayMessage[] = [
+      makeLocal({ id: "m1", role: "user", content: "Hello" }),
+      makeLocal({
+        id: "m2",
+        role: "assistant",
+        content: "Working on it",
+        isStreaming: true,
+        toolCalls: [
+          {
+            id: "tc-running",
+            toolName: "bash",
+            input: {},
+            status: "running" as const,
+          },
+        ],
+      }),
+    ];
+    // Server snapshot doesn't know about the in-flight tool yet.
+    const server: RuntimeMessage[] = [
+      { id: "m1", role: "user", content: "Hello" },
+      { id: "m2", role: "assistant", content: "Working on it" },
+    ];
+    const result = reconcileMessages(local, server);
+    expect(result).toHaveLength(2);
+    expect(result[1]!.isStreaming).toBe(true);
+    expect(result[1]!.toolCalls?.[0]!.status).toBe("running");
   });
 
   test("multi-message turn: server has two assistant messages", () => {

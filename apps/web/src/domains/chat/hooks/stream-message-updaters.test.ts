@@ -244,6 +244,55 @@ describe("upsertToolCall", () => {
     upsertToolCall(prev, toolCall, false);
     expect(prev[0]!.toolCalls).toHaveLength(0);
   });
+
+  // Regression: a background history reconcile can clear `isStreaming`
+  // before message_complete fires while a tool call is still pending. The
+  // next `tool_use_start` must keep appending to the same bubble instead of
+  // opening a fresh `assistant-tool-*` row that visually splits the turn.
+  it("appends to existing bubble when isStreaming was cleared but a tool is still running", () => {
+    const msg = makeAssistantMsg({
+      isStreaming: false,
+      toolCalls: [
+        {
+          id: "tc-running",
+          toolName: "bash",
+          input: {},
+          status: "running" as const,
+        },
+      ],
+    });
+    const result = upsertToolCall([userMsg, msg], toolCall, false);
+
+    expect(result).toHaveLength(2);
+    expect(result[1]!.stableId).toBe(msg.stableId);
+    expect(result[1]!.toolCalls).toHaveLength(2);
+    expect(result[1]!.toolCalls!.map((tc) => tc.id)).toEqual([
+      "tc-running",
+      "tc-1",
+    ]);
+    // Streaming state should be restored — the turn is clearly still active.
+    expect(result[1]!.isStreaming).toBe(true);
+  });
+
+  it("does not open a new bubble for a duplicate tool id when isStreaming was cleared mid-tool", () => {
+    const msg = makeAssistantMsg({
+      isStreaming: false,
+      toolCalls: [
+        {
+          id: "tc-1",
+          toolName: "bash",
+          input: { cmd: "ls" } as Record<string, unknown>,
+          status: "running" as const,
+        },
+      ],
+    });
+    // Same tool id arriving again should update in place, not duplicate.
+    const result = upsertToolCall([userMsg, msg], toolCall, false);
+
+    expect(result).toHaveLength(2);
+    expect(result[1]!.toolCalls).toHaveLength(1);
+    expect(result[1]!.isStreaming).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------

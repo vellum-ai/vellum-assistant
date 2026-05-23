@@ -38,6 +38,7 @@ import { useIsNativePlatform } from "@/runtime/native-auth.js";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store.js";
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
+import { computeNeedsNewBubble } from "@/domains/chat/utils/bubble-state.js";
 import type { ChatError } from "@/domains/chat/types.js";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 import type { TranscriptHandle } from "@/domains/chat/transcript/transcript.js";
@@ -384,8 +385,7 @@ export function ChatPage() {
   const isChannelReadonly = isChannelConversation(activeConversation);
 
   const syncNeedsNewBubbleFromMessages = useCallback((nextMessages: DisplayMessage[]) => {
-    const lastMsg = nextMessages[nextMessages.length - 1];
-    needsNewBubbleRef.current = !lastMsg || lastMsg.role !== "assistant" || !lastMsg.isStreaming;
+    needsNewBubbleRef.current = computeNeedsNewBubble(nextMessages);
   }, []);
 
   // -------------------------------------------------------------------------

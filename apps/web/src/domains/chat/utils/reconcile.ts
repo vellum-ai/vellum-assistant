@@ -311,6 +311,17 @@ export function reconcileMessages(
       if (m.daemonMessageId || localMsg?.daemonMessageId) {
         msg.daemonMessageId = m.daemonMessageId ?? localMsg?.daemonMessageId;
       }
+      // Preserve streaming state while the local bubble still has a running
+      // tool call. The server snapshot can't see the in-flight tool, so
+      // dropping `isStreaming` here would mislead downstream callers (e.g.
+      // `syncNeedsNewBubbleFromMessages`) into opening a fresh bubble for
+      // the next stream event mid-turn.
+      if (
+        localMsg?.isStreaming &&
+        localMsg.toolCalls?.some((tc) => tc.status === "running")
+      ) {
+        msg.isStreaming = true;
+      }
       if (m.metadata) msg.metadata = m.metadata;
       if (m.subagentNotification) msg.isSubagentNotification = true;
       if (prepared.slackMessage ?? localMsg?.slackMessage) {
