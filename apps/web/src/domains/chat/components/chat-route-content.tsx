@@ -278,7 +278,7 @@ export interface ChatRouteContentProps {
   conversations: Conversation[];
   activeConversationId: string | null;
   activeConversation: Conversation | undefined;
-  processingKeys: ReadonlySet<string>;
+  processingConversationIds: ReadonlySet<string>;
 
   // Viewer
   mainView: MainView;
@@ -400,7 +400,7 @@ export function ChatRouteContent({
   conversations: _conversations,
   activeConversationId,
   activeConversation,
-  processingKeys,
+  processingConversationIds,
   mainView,
   openedAppState,
   openedDocumentState,
@@ -601,7 +601,7 @@ export function ChatRouteContent({
   }, [messages]);
 
   const activeConversationIsProcessing =
-    activeConversationId != null && processingKeys.has(activeConversationId);
+    activeConversationId != null && processingConversationIds.has(activeConversationId);
 
   const activeConversationHasPendingAssistantResponse = useMemo(
     () => hasPendingAssistantResponse(messages),

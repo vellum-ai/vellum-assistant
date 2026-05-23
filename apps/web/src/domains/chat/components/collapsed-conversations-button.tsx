@@ -42,7 +42,7 @@ export interface CollapsedConversationsButtonProps {
    */
   renderActions?: (conversation: Conversation) => ReactNode;
   /** Set of conversation keys that need user attention (pending approval/secret). */
-  attentionConversationKeys?: Set<string>;
+  attentionConversationIds?: Set<string>;
 }
 
 export function CollapsedConversationsButton({
@@ -55,7 +55,7 @@ export function CollapsedConversationsButton({
   activeConversationId,
   onSelectConversation,
   renderActions,
-  attentionConversationKeys,
+  attentionConversationIds,
 }: CollapsedConversationsButtonProps) {
   const [open, setOpen] = useState(false);
 
@@ -77,7 +77,7 @@ export function CollapsedConversationsButton({
     return null;
   }
 
-  const hasAttention = attentionConversationKeys && attentionConversationKeys.size > 0;
+  const hasAttention = attentionConversationIds && attentionConversationIds.size > 0;
 
   const closeMenu = () => setOpen(false);
   const handleSelect = (conversationKey: string) => {
@@ -116,7 +116,7 @@ export function CollapsedConversationsButton({
             activeConversationId={activeConversationId}
             onSelect={handleSelect}
             renderActions={renderActions}
-            attentionConversationKeys={attentionConversationKeys}
+            attentionConversationIds={attentionConversationIds}
           />
         ) : null}
 
@@ -127,7 +127,7 @@ export function CollapsedConversationsButton({
             activeConversationId={activeConversationId}
             onSelect={handleSelect}
             renderActions={renderActions}
-            attentionConversationKeys={attentionConversationKeys}
+            attentionConversationIds={attentionConversationIds}
           />
         ) : null}
 
@@ -137,7 +137,7 @@ export function CollapsedConversationsButton({
             activeConversationId={activeConversationId}
             onSelect={handleSelect}
             renderActions={renderActions}
-            attentionConversationKeys={attentionConversationKeys}
+            attentionConversationIds={attentionConversationIds}
           />
         ) : null}
 
@@ -148,7 +148,7 @@ export function CollapsedConversationsButton({
             activeConversationId={activeConversationId}
             onSelect={handleSelect}
             renderActions={renderActions}
-            attentionConversationKeys={attentionConversationKeys}
+            attentionConversationIds={attentionConversationIds}
           />
         ) : null}
 
@@ -159,7 +159,7 @@ export function CollapsedConversationsButton({
             activeConversationId={activeConversationId}
             onSelect={handleSelect}
             renderActions={renderActions}
-            attentionConversationKeys={attentionConversationKeys}
+            attentionConversationIds={attentionConversationIds}
           />
         ) : null}
 
@@ -172,7 +172,7 @@ export function CollapsedConversationsButton({
               activeConversationId={activeConversationId}
               onSelect={handleSelect}
               renderActions={renderActions}
-              attentionConversationKeys={attentionConversationKeys}
+              attentionConversationIds={attentionConversationIds}
             />
           ) : null,
         )}
@@ -209,7 +209,7 @@ interface SimpleSectionProps {
   activeConversationId?: string;
   onSelect: (conversationKey: string) => void;
   renderActions?: (conversation: Conversation) => ReactNode;
-  attentionConversationKeys?: Set<string>;
+  attentionConversationIds?: Set<string>;
 }
 
 /**
@@ -222,14 +222,14 @@ function SimpleSection({
   activeConversationId,
   onSelect,
   renderActions,
-  attentionConversationKeys,
+  attentionConversationIds,
 }: SimpleSectionProps) {
   return (
     <div className="pb-1">
       <SectionHeader title={title} count={conversations.length} />
       <div className="px-2">
         {conversations.map((c) => {
-          const needsAttention = attentionConversationKeys?.has(c.conversationId) ?? false;
+          const needsAttention = attentionConversationIds?.has(c.conversationId) ?? false;
           return (
             <PanelItem
               key={c.conversationId}
@@ -252,7 +252,7 @@ interface BackgroundSectionProps {
   activeConversationId?: string;
   onSelect: (conversationKey: string) => void;
   renderActions?: (conversation: Conversation) => ReactNode;
-  attentionConversationKeys?: Set<string>;
+  attentionConversationIds?: Set<string>;
 }
 
 /**
@@ -266,22 +266,22 @@ function BackgroundSection({
   activeConversationId,
   onSelect,
   renderActions,
-  attentionConversationKeys,
+  attentionConversationIds,
 }: BackgroundSectionProps) {
   const subGroups = useMemo(() => groupBackgroundConversationsBySource(conversations), [conversations]);
   const [manualExpandedKeys, setManualExpandedKeys] = useState<Set<string>>(new Set());
 
   const attentionExpandedKeys = useMemo(() => {
-    if (!attentionConversationKeys || attentionConversationKeys.size === 0) return new Set<string>();
+    if (!attentionConversationIds || attentionConversationIds.size === 0) return new Set<string>();
     const keys = new Set<string>();
     for (const group of subGroups) {
       if (group.key.startsWith("__single__:")) continue;
-      if (group.conversations.some(c => attentionConversationKeys.has(c.conversationId))) {
+      if (group.conversations.some(c => attentionConversationIds.has(c.conversationId))) {
         keys.add(group.key);
       }
     }
     return keys;
-  }, [attentionConversationKeys, subGroups]);
+  }, [attentionConversationIds, subGroups]);
 
   const expandedKeys = useMemo(() => {
     if (attentionExpandedKeys.size === 0) return manualExpandedKeys;
@@ -314,7 +314,7 @@ function BackgroundSection({
           if (isSingle) {
             const c = group.conversations[0];
             if (!c) return null;
-            const singleNeedsAttention = attentionConversationKeys?.has(c.conversationId) ?? false;
+            const singleNeedsAttention = attentionConversationIds?.has(c.conversationId) ?? false;
             return (
               <PanelItem
                 key={c.conversationId}
@@ -339,7 +339,7 @@ function BackgroundSection({
               />
               {isExpanded
                 ? group.conversations.map((c) => {
-                    const rowNeedsAttention = attentionConversationKeys?.has(c.conversationId) ?? false;
+                    const rowNeedsAttention = attentionConversationIds?.has(c.conversationId) ?? false;
                     return (
                       <PanelItem
                         key={c.conversationId}

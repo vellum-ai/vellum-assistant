@@ -129,7 +129,7 @@ export function useConversationSwitch({
     if (isConversationSwitch && outgoingKey) {
       const interactionSnapshot = useInteractionStore.getState();
       if (interactionSnapshot.pendingSecret || interactionSnapshot.pendingConfirmation) {
-        useConversationStore.getState().addAttentionKey(outgoingKey);
+        useConversationStore.getState().addAttentionConversationId(outgoingKey);
       }
     }
     previousConversationKeyRef.current = activeConversationId;

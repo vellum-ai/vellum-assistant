@@ -156,7 +156,7 @@ export function useInteractionActions({
         useInteractionStore.getState().submitSecretEnd(true);
         const convKey = activeConversationIdRef.current;
         if (convKey) {
-          useConversationStore.getState().removeAttentionKey(convKey);
+          useConversationStore.getState().removeAttentionConversationId(convKey);
         }
         const savedRequestId = pendingSecret.requestId;
         setTimeout(() => {
@@ -183,7 +183,7 @@ export function useInteractionActions({
     useInteractionStore.getState().dismissSecret();
     const convKey = activeConversationIdRef.current;
     if (convKey) {
-      useConversationStore.getState().removeAttentionKey(convKey);
+      useConversationStore.getState().removeAttentionConversationId(convKey);
     }
     useTurnStore.getState().onStreamError();
   }, []);
@@ -258,7 +258,7 @@ export function useInteractionActions({
       useInteractionStore.getState().setInlineConfirmationToolCallId(null);
       const convKey = activeConversationIdRef.current;
       if (convKey) {
-        useConversationStore.getState().removeAttentionKey(convKey);
+        useConversationStore.getState().removeAttentionConversationId(convKey);
       }
 
       // Clear inline confirmation from the matched tool call by requestId

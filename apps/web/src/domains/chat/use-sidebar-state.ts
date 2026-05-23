@@ -71,14 +71,14 @@ export interface UseSidebarStateParams {
   assistantId: string;
   conversations: Conversation[];
   conversationGroups?: ConversationGroup[];
-  attentionConversationKeys?: Set<string>;
+  attentionConversationIds?: Set<string>;
 }
 
 export function useSidebarState({
   assistantId,
   conversations,
   conversationGroups,
-  attentionConversationKeys,
+  attentionConversationIds,
 }: UseSidebarStateParams): SidebarState {
   const conversationGroupsUI = useAssistantFeatureFlagStore.use.conversationGroupsUI();
 
@@ -127,10 +127,10 @@ export function useSidebarState({
     const hasAttentionBeyondLimit =
       !showAllRecents &&
       grouped.recents.length > SIDEBAR_CONVERSATION_LIMIT &&
-      attentionConversationKeys != null &&
+      attentionConversationIds != null &&
       grouped.recents
         .slice(SIDEBAR_CONVERSATION_LIMIT)
-        .some((c) => attentionConversationKeys.has(c.conversationId));
+        .some((c) => attentionConversationIds.has(c.conversationId));
     const effectiveShowAll = showAllRecents || !!hasAttentionBeyondLimit;
     return {
       all: grouped.recents,
@@ -143,16 +143,16 @@ export function useSidebarState({
         grouped.recents.length > SIDEBAR_CONVERSATION_LIMIT,
       onShowMore: () => setShowAllRecents(true),
     };
-  }, [grouped.recents, showAllRecents, attentionConversationKeys]);
+  }, [grouped.recents, showAllRecents, attentionConversationIds]);
 
   const slackSection = useMemo((): PaginatedSection => {
     const hasAttentionBeyondLimit =
       !showAllSlack &&
       grouped.slack.length > SIDEBAR_CONVERSATION_LIMIT &&
-      attentionConversationKeys != null &&
+      attentionConversationIds != null &&
       grouped.slack
         .slice(SIDEBAR_CONVERSATION_LIMIT)
-        .some((c) => attentionConversationKeys.has(c.conversationId));
+        .some((c) => attentionConversationIds.has(c.conversationId));
     const effectiveShowAll = showAllSlack || !!hasAttentionBeyondLimit;
     return {
       all: grouped.slack,
@@ -165,22 +165,22 @@ export function useSidebarState({
         grouped.slack.length > SIDEBAR_CONVERSATION_LIMIT,
       onShowMore: () => setShowAllSlack(true),
     };
-  }, [grouped.slack, showAllSlack, attentionConversationKeys]);
+  }, [grouped.slack, showAllSlack, attentionConversationIds]);
 
   // --- Attention-forced expansion ---
 
   const hasAttentionIn = useCallback(
     (convs: Conversation[]) =>
-      attentionConversationKeys
+      attentionConversationIds
         ? convs.some((c) =>
-            attentionConversationKeys.has(c.conversationId),
+            attentionConversationIds.has(c.conversationId),
           )
         : false,
-    [attentionConversationKeys],
+    [attentionConversationIds],
   );
 
   const effectiveOpenCategories = useMemo(() => {
-    if (!attentionConversationKeys || attentionConversationKeys.size === 0)
+    if (!attentionConversationIds || attentionConversationIds.size === 0)
       return openCategories;
     const extra: string[] = [];
     if (grouped.pinned.length > 0 && hasAttentionIn(grouped.pinned))
@@ -198,7 +198,7 @@ export function useSidebarState({
     return [...new Set([...openCategories, ...extra])];
   }, [
     openCategories,
-    attentionConversationKeys,
+    attentionConversationIds,
     grouped.pinned,
     grouped.scheduled,
     grouped.background,
@@ -208,13 +208,13 @@ export function useSidebarState({
   ]);
 
   const effectiveOpenCustomGroups = useMemo(() => {
-    if (!attentionConversationKeys || attentionConversationKeys.size === 0)
+    if (!attentionConversationIds || attentionConversationIds.size === 0)
       return openCustomGroups;
     const extra: string[] = [];
     for (const group of grouped.customGroups) {
       if (
         group.conversations.some((c) =>
-          attentionConversationKeys.has(c.conversationId),
+          attentionConversationIds.has(c.conversationId),
         )
       ) {
         extra.push(group.id);
@@ -224,7 +224,7 @@ export function useSidebarState({
     if (extra.every((g) => openCustomGroups.includes(g)))
       return openCustomGroups;
     return [...new Set([...openCustomGroups, ...extra])];
-  }, [openCustomGroups, attentionConversationKeys, grouped.customGroups]);
+  }, [openCustomGroups, attentionConversationIds, grouped.customGroups]);
 
   return {
     pinned: grouped.pinned,

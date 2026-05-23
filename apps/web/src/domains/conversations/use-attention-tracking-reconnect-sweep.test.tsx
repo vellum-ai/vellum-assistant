@@ -119,7 +119,7 @@ describe("useAttentionTracking — post-reconnect sweep", () => {
       return new Set<string>();
     };
 
-    useConversationStore.getState().addAttentionKey("conv-stale");
+    useConversationStore.getState().addAttentionConversationId("conv-stale");
     mountHook();
 
     // The initial-sweep effect fires once on mount with an empty
@@ -140,24 +140,24 @@ describe("useAttentionTracking — post-reconnect sweep", () => {
     await Promise.resolve();
 
     expect(calls).toBe(0);
-    // And attentionKeys are untouched (no reconciliation ran).
+    // And attentionConversationIds are untouched (no reconciliation ran).
     expect(
-      useConversationStore.getState().attentionKeys.has("conv-stale"),
+      useConversationStore.getState().attentionConversationIds.has("conv-stale"),
     ).toBe(true);
   });
 
   for (const cause of ["watchdog", "error", "resume"] as const) {
     test(`runs the sweep when cause is '${cause}' and reconciles attention/processing keys`, async () => {
       // Pre-populate sidebar state:
-      //  - conv-stale: in attentionKeys but no longer pending → must be removed
-      //  - conv-promote: in processingKeys AND still pending → must be promoted to attentionKeys
-      //  - conv-new: not tracked at all but pending → must be added to attentionKeys
+      //  - conv-stale: in attentionConversationIds but no longer pending → must be removed
+      //  - conv-promote: in processingConversationIds AND still pending → must be promoted to attentionConversationIds
+      //  - conv-new: not tracked at all but pending → must be added to attentionConversationIds
       //  - conv-active: active key — must NEVER be mutated by the sweep
       useConversationStore.getState().setActiveConversationId("conv-active");
-      useConversationStore.getState().addAttentionKey("conv-stale");
-      useConversationStore.getState().addAttentionKey("conv-active");
-      useConversationStore.getState().addProcessingKey("conv-promote");
-      useConversationStore.getState().addProcessingKey("conv-active");
+      useConversationStore.getState().addAttentionConversationId("conv-stale");
+      useConversationStore.getState().addAttentionConversationId("conv-active");
+      useConversationStore.getState().addProcessingConversationId("conv-promote");
+      useConversationStore.getState().addProcessingConversationId("conv-active");
 
       bulkFetch.current = async () =>
         new Set(["conv-promote", "conv-new", "conv-active"]);
@@ -167,28 +167,28 @@ describe("useAttentionTracking — post-reconnect sweep", () => {
 
       await waitFor(() => {
         expect(
-          useConversationStore.getState().attentionKeys.has("conv-new"),
+          useConversationStore.getState().attentionConversationIds.has("conv-new"),
         ).toBe(true);
       });
 
       const state = useConversationStore.getState();
       // Stale attention removed.
-      expect(state.attentionKeys.has("conv-stale")).toBe(false);
+      expect(state.attentionConversationIds.has("conv-stale")).toBe(false);
       // Promoted: now in attention, removed from processing.
-      expect(state.attentionKeys.has("conv-promote")).toBe(true);
-      expect(state.processingKeys.has("conv-promote")).toBe(false);
+      expect(state.attentionConversationIds.has("conv-promote")).toBe(true);
+      expect(state.processingConversationIds.has("conv-promote")).toBe(false);
       // Newly-pending conversation added to attention.
-      expect(state.attentionKeys.has("conv-new")).toBe(true);
+      expect(state.attentionConversationIds.has("conv-new")).toBe(true);
       // Active conversation untouched in both sets, regardless of the
       // fetch payload — the sweep must skip it.
-      expect(state.attentionKeys.has("conv-active")).toBe(true);
-      expect(state.processingKeys.has("conv-active")).toBe(true);
+      expect(state.attentionConversationIds.has("conv-active")).toBe(true);
+      expect(state.processingConversationIds.has("conv-active")).toBe(true);
     });
   }
 
   test("silently no-ops when the bulk fetch throws", async () => {
-    useConversationStore.getState().addAttentionKey("conv-stale");
-    useConversationStore.getState().addProcessingKey("conv-promote");
+    useConversationStore.getState().addAttentionConversationId("conv-stale");
+    useConversationStore.getState().addProcessingConversationId("conv-promote");
 
     let invoked = 0;
     bulkFetch.current = async () => {
@@ -209,7 +209,7 @@ describe("useAttentionTracking — post-reconnect sweep", () => {
 
     // Sidebar state untouched — keys stay until the next successful sweep.
     const state = useConversationStore.getState();
-    expect(state.attentionKeys.has("conv-stale")).toBe(true);
-    expect(state.processingKeys.has("conv-promote")).toBe(true);
+    expect(state.attentionConversationIds.has("conv-stale")).toBe(true);
+    expect(state.processingConversationIds.has("conv-promote")).toBe(true);
   });
 });

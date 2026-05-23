@@ -452,7 +452,7 @@ export function useEventStream({
         {
           const convId = streamContextRef.current?.conversationId;
           if (convId) {
-            useConversationStore.getState().removeProcessingKey(convId);
+            useConversationStore.getState().removeProcessingConversationId(convId);
           }
         }
         // Idle SSE drops should reopen the stream without interrupting the

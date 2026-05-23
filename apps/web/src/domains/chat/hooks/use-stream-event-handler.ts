@@ -227,8 +227,8 @@ export function useStreamEventHandler(
 
   /** Remove a conversation key from the processing set and snapshots map. */
   const clearProcessingKey = useCallback((convKey: string) => {
-    // `removeProcessingKey` clears the matching snapshot in the same set call.
-    useConversationStore.getState().removeProcessingKey(convKey);
+    // `removeProcessingConversationId` clears the matching snapshot in the same set call.
+    useConversationStore.getState().removeProcessingConversationId(convKey);
   }, []);
 
   // --- Main event handler ---

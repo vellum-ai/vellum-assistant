@@ -155,7 +155,7 @@ describe("CollapsedConversationsButton", () => {
     expect(html).toContain("Untitled");
   });
 
-  test("includes attention indicator in aria-label when attentionConversationKeys is non-empty", () => {
+  test("includes attention indicator in aria-label when attentionConversationIds is non-empty", () => {
     const html = renderToStaticMarkup(
       <CollapsedConversationsButton
         pinned={[]}
@@ -164,7 +164,7 @@ describe("CollapsedConversationsButton", () => {
         slack={[]}
         recents={[makeConversation({ conversationId: "r1" })]}
         onSelectConversation={noop}
-        attentionConversationKeys={new Set(["r1"])}
+        attentionConversationIds={new Set(["r1"])}
       />,
     );
     expect(html).toContain("action needed");
@@ -229,7 +229,7 @@ describe("CollapsedConversationsButton", () => {
         slack={[]}
         recents={[]}
         onSelectConversation={noop}
-        attentionConversationKeys={new Set(["b1"])}
+        attentionConversationIds={new Set(["b1"])}
       />,
     );
     // Sub-group should be auto-expanded because b1 needs attention

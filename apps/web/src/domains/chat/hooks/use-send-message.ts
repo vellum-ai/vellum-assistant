@@ -502,7 +502,7 @@ export function useSendMessage({
               );
               useConversationStore
                 .getState()
-                .addProcessingKey(
+                .addProcessingConversationId(
                   activeConversationId,
                   currentConv?.latestAssistantMessageAt as string | undefined,
                 );
@@ -529,7 +529,7 @@ export function useSendMessage({
       );
       useConversationStore
         .getState()
-        .addProcessingKey(
+        .addProcessingConversationId(
           activeConversationId,
           currentConv?.latestAssistantMessageAt as string | undefined,
         );
@@ -559,7 +559,7 @@ export function useSendMessage({
           const newKey = resolvedId;
           useConversationStore
             .getState()
-            .transferProcessingKey(activeConversationId, newKey);
+            .transferProcessingConversationId(activeConversationId, newKey);
           resolveDraftKey(queryClient, assistantId, activeConversationId, newKey);
           resolveEditChatDraftKey(activeConversationId, newKey);
 
@@ -581,7 +581,7 @@ export function useSendMessage({
         useTurnStore.getState().onStreamError();
         const keysToClean = [activeConversationId, resolvedId].filter(Boolean) as string[];
         if (keysToClean.length > 0) {
-          useConversationStore.getState().removeMultipleProcessingKeys(keysToClean);
+          useConversationStore.getState().removeMultipleProcessingConversationIds(keysToClean);
         }
         if (isDraft) {
           removeConversation(queryClient, assistantId, activeConversationId);
@@ -612,7 +612,7 @@ export function useSendMessage({
     useInteractionStore.getState().resetAll();
     useSubagentStore.getState().reset();
     confirmationToolCallMapRef.current.clear();
-    useConversationStore.getState().removeProcessingKey(activeConversationId);
+    useConversationStore.getState().removeProcessingConversationId(activeConversationId);
     try {
       await cancelGeneration(assistantId, activeConversationId);
     } catch {

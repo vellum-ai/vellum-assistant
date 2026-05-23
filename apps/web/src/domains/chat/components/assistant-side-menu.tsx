@@ -66,7 +66,7 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onRemoveFromGroup?: (conversation: Conversation) => void;
   onRenameGroup?: (groupId: string) => void;
   onDeleteGroup?: (groupId: string) => void;
-  processingConversationKeys?: Set<string>;
+  processingConversationIds?: Set<string>;
   activeConversationProcessing?: boolean;
   onAnalyze?: (conversation: Conversation) => void;
   onOpenInNewWindow?: (conversation: Conversation) => void;
@@ -125,8 +125,8 @@ export function AssistantSideMenu({
   onDeleteGroup,
   onClose,
   onSearchClick,
-  processingConversationKeys,
-  attentionConversationKeys,
+  processingConversationIds,
+  attentionConversationIds,
   activeConversationProcessing,
   onAnalyze,
   onOpenInNewWindow,
@@ -137,7 +137,7 @@ export function AssistantSideMenu({
     assistantId,
     conversations,
     conversationGroups,
-    attentionConversationKeys,
+    attentionConversationIds,
   });
 
   const pinnedApps = usePinnedAppsStore.use.pinnedApps();
@@ -148,8 +148,8 @@ export function AssistantSideMenu({
     const isProcessing =
       conversation.conversationId === activeConversationId
         ? activeConversationProcessing ?? false
-        : processingConversationKeys?.has(conversation.conversationId) ?? false;
-    const needsAttention = attentionConversationKeys?.has(conversation.conversationId) ?? false;
+        : processingConversationIds?.has(conversation.conversationId) ?? false;
+    const needsAttention = attentionConversationIds?.has(conversation.conversationId) ?? false;
     return (
       <ThreadPinToggle
         conversation={conversation}
@@ -246,7 +246,7 @@ export function AssistantSideMenu({
 
   const subGroupProps = {
     activeConversationId,
-    attentionConversationKeys,
+    attentionConversationIds,
     onSelectConversation: useCallback(
       (key: string) => { onSelectConversation(key); onClose?.(); },
       [onSelectConversation, onClose],
@@ -381,7 +381,7 @@ export function AssistantSideMenu({
               activeConversationId={activeConversationId}
               onSelectConversation={selectAndClose}
               renderActions={renderThreadActions}
-              attentionConversationKeys={attentionConversationKeys}
+              attentionConversationIds={attentionConversationIds}
             />
           </div>
         ) : (

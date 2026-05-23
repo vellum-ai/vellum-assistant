@@ -30,7 +30,7 @@ interface UseAttentionTrackingParams {
  * and manages processing-key lifecycle for background conversations.
  *
  * Reads `conversations` from the TanStack Query chat-context cache via
- * `useConversationListQuery`; reads `processingKeys` and
+ * `useConversationListQuery`; reads `processingConversationIds` and
  * `processingSnapshots` directly from `useConversationStore`. Mounted
  * in `ChatLayout` so the sidebar's processing/attention indicators stay
  * live on every chat-layout route (home, library, contacts, identity,
@@ -53,14 +53,14 @@ type GraduationAction =
  * processing keys after a bulk pending-interactions fetch.
  *
  * Pass `pendingKeys = null` to signal "we don't know" (bulk fetch failed). In
- * that case this returns no actions so the keys stay in `processingKeys` with
+ * that case this returns no actions so the keys stay in `processingConversationIds` with
  * their snapshots intact; the next render will retry. Graduating without
  * pending-state knowledge would risk silently dropping the processing
  * indicator on a conversation that actually has a pending approval.
  *
  * Pass `pendingKeys` as a Set when the fetch succeeded. Every graduating key
- * is removed from `processingKeys`; ones that are pending also get added to
- * `attentionKeys` first (the red-dot indicator).
+ * is removed from `processingConversationIds`; ones that are pending also get added to
+ * `attentionConversationIds` first (the red-dot indicator).
  *
  * Exported for unit testing.
  */
@@ -87,7 +87,7 @@ export function useAttentionTracking({
     assistantStateKind === "active",
   );
   const activeConversationId = useConversationStore.use.activeConversationId();
-  const processingKeys = useConversationStore.use.processingKeys();
+  const processingConversationIds = useConversationStore.use.processingConversationIds();
 
   const activeConversation = conversations.find(
     (c) => c.conversationId === activeConversationId,
@@ -138,10 +138,10 @@ export function useAttentionTracking({
   // N per-conversation requests in a serial `for await` loop.
   // -------------------------------------------------------------------------
   useEffect(() => {
-    if (processingKeys.size === 0) return;
+    if (processingConversationIds.size === 0) return;
     const snapshots = useConversationStore.getState().processingSnapshots;
     const graduatingKeys: string[] = [];
-    for (const key of processingKeys) {
+    for (const key of processingConversationIds) {
       if (key === activeConversationId) continue;
       const conv = conversations.find((c) => c.conversationId === key);
       if (!conv) continue;
@@ -166,15 +166,15 @@ export function useAttentionTracking({
       const actions = decideGraduationDispatches(graduatingKeys, pendingKeys);
       for (const action of actions) {
         if (action.type === "ADD_ATTENTION_KEY") {
-          useConversationStore.getState().addAttentionKey(action.key);
+          useConversationStore.getState().addAttentionConversationId(action.key);
         } else {
-          useConversationStore.getState().removeProcessingKey(action.key);
+          useConversationStore.getState().removeProcessingConversationId(action.key);
         }
       }
     })();
 
     return () => { cancelled = true; };
-  }, [conversations, processingKeys, activeConversationId, assistantId]);
+  }, [conversations, processingConversationIds, activeConversationId, assistantId]);
 
   // -------------------------------------------------------------------------
   // Push-based attention reconciliation.
@@ -183,7 +183,7 @@ export function useAttentionTracking({
   // connection the instant a pending interaction transitions to resolved
   // (approved, rejected, answered, cancelled, or superseded). When that
   // event fires for a non-active conversation, drop it from both
-  // `attentionKeys` and `processingKeys` — the user has either responded
+  // `attentionConversationIds` and `processingConversationIds` — the user has either responded
   // elsewhere or the daemon discarded the prompt.
   //
   // Only the user-facing interaction kinds (confirmation, secret,
@@ -207,11 +207,11 @@ export function useAttentionTracking({
     if (!key) return;
     const state = useConversationStore.getState();
     if (key === state.activeConversationId) return;
-    if (state.attentionKeys.has(key)) {
-      state.removeAttentionKey(key);
+    if (state.attentionConversationIds.has(key)) {
+      state.removeAttentionConversationId(key);
     }
-    if (state.processingKeys.has(key)) {
-      state.removeProcessingKey(key);
+    if (state.processingConversationIds.has(key)) {
+      state.removeProcessingConversationId(key);
     }
   });
 
@@ -224,9 +224,9 @@ export function useAttentionTracking({
   // is permanently missed, which would leave a stale attention dot on
   // the sidebar until the user opens the conversation or refreshes.
   // Re-running the bulk pending-interactions fetch closes that gap:
-  // anything no longer pending is removed from `attentionKeys` /
-  // `processingKeys`, and anything newly pending is promoted to
-  // `attentionKeys`. Skips the very first `sse.opened` (cause ===
+  // anything no longer pending is removed from `attentionConversationIds` /
+  // `processingConversationIds`, and anything newly pending is promoted to
+  // `attentionConversationIds`. Skips the very first `sse.opened` (cause ===
   // "fresh") because the initial-sweep effect below handles that.
   // -------------------------------------------------------------------------
   useBusSubscription("sse.opened", ({ cause }) => {
@@ -240,21 +240,21 @@ export function useAttentionTracking({
       }
       const state = useConversationStore.getState();
       const activeKey = state.activeConversationId;
-      for (const key of state.attentionKeys) {
+      for (const key of state.attentionConversationIds) {
         if (key === activeKey) continue;
-        if (!pendingKeys.has(key)) state.removeAttentionKey(key);
+        if (!pendingKeys.has(key)) state.removeAttentionConversationId(key);
       }
-      for (const key of state.processingKeys) {
+      for (const key of state.processingConversationIds) {
         if (key === activeKey) continue;
         if (pendingKeys.has(key)) {
-          state.addAttentionKey(key);
-          state.removeProcessingKey(key);
+          state.addAttentionConversationId(key);
+          state.removeProcessingConversationId(key);
         }
       }
       for (const key of pendingKeys) {
         if (key === activeKey) continue;
-        if (!state.attentionKeys.has(key) && !state.processingKeys.has(key)) {
-          state.addAttentionKey(key);
+        if (!state.attentionConversationIds.has(key) && !state.processingConversationIds.has(key)) {
+          state.addAttentionConversationId(key);
         }
       }
     })();
@@ -285,7 +285,7 @@ export function useAttentionTracking({
       for (const conv of currentConversations) {
         if (conv.conversationId === activeConversationId) continue;
         if (pendingKeys.has(conv.conversationId)) {
-          useConversationStore.getState().addAttentionKey(conv.conversationId);
+          useConversationStore.getState().addAttentionConversationId(conv.conversationId);
         }
       }
     })();

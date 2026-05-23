@@ -193,7 +193,7 @@ export function ChatPage() {
   // -------------------------------------------------------------------------
   const activeConversationId = useConversationStore.use.activeConversationId();
   const editingConversationId = useConversationStore.use.editingConversationId();
-  const processingKeys = useConversationStore.use.processingKeys();
+  const processingConversationIds = useConversationStore.use.processingConversationIds();
   const viewerState = useViewerStore(useShallow((s) => ({
     mainView: s.mainView,
     activeAppId: s.activeAppId,
@@ -1277,7 +1277,7 @@ export function ChatPage() {
     return false;
   }, [messages]);
 
-  const activeConversationIsProcessing = activeConversationId != null && processingKeys.has(activeConversationId);
+  const activeConversationIsProcessing = activeConversationId != null && processingConversationIds.has(activeConversationId);
   const activeConversationHasPendingAssistantResponse = useMemo(
     () => hasPendingAssistantResponse(messages),
     [messages],
@@ -1432,7 +1432,7 @@ export function ChatPage() {
     conversations,
     activeConversationId,
     activeConversation,
-    processingKeys,
+    processingConversationIds,
     mainView: viewerState.mainView,
     openedAppState: viewerState.openedAppState,
     openedDocumentState: viewerState.openedDocumentState,

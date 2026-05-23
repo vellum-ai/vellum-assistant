@@ -411,8 +411,8 @@ export function ChatLayout() {
   }, [drawerVisible]);
 
   const activeConversationId = useConversationStore.use.activeConversationId();
-  const processingKeys = useConversationStore.use.processingKeys();
-  const attentionKeys = useConversationStore.use.attentionKeys();
+  const processingConversationIds = useConversationStore.use.processingConversationIds();
+  const attentionConversationIds = useConversationStore.use.attentionConversationIds();
   const setActiveConversationId = useConversationStore.use.setActiveConversationId();
 
   const handleSelectConversation = useCallback(
@@ -518,8 +518,8 @@ export function ChatLayout() {
         conversations={conversations}
         conversationGroups={conversationGroups}
         activeConversationId={activeConversationId ?? undefined}
-        processingConversationKeys={processingKeys}
-        attentionConversationKeys={attentionKeys}
+        processingConversationIds={processingConversationIds}
+        attentionConversationIds={attentionConversationIds}
         onSelectConversation={handleSelectConversation}
         onStartNewConversation={handleStartNewConversation}
         isIntelligenceActive={isIdentityActive}
@@ -556,8 +556,8 @@ export function ChatLayout() {
       conversations,
       conversationGroups,
       activeConversationId,
-      processingKeys,
-      attentionKeys,
+      processingConversationIds,
+      attentionConversationIds,
       handleSelectConversation,
       handleStartNewConversation,
       handleTogglePinConversation,

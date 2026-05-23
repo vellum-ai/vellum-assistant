@@ -14,7 +14,7 @@ interface SubGroupAccordionProps {
   subGroups: SubGroup[];
   isSingleRow: (group: SubGroup) => boolean;
   activeConversationId?: string;
-  attentionConversationKeys?: Set<string>;
+  attentionConversationIds?: Set<string>;
   onSelectConversation: (key: string) => void;
   renderActions: (conversation: Conversation) => ReactNode;
   renderPinToggle: (conversation: Conversation) => ReactNode;
@@ -25,7 +25,7 @@ export function SubGroupAccordion({
   subGroups,
   isSingleRow,
   activeConversationId,
-  attentionConversationKeys,
+  attentionConversationIds,
   onSelectConversation,
   renderActions,
   renderPinToggle,
@@ -49,8 +49,8 @@ export function SubGroupAccordion({
             />,
           );
         }
-        const groupHasAttention = attentionConversationKeys
-          ? group.conversations.some(c => attentionConversationKeys.has(c.conversationId))
+        const groupHasAttention = attentionConversationIds
+          ? group.conversations.some(c => attentionConversationIds.has(c.conversationId))
           : false;
         return (
           <CollapsibleNavSection.Root
@@ -94,7 +94,7 @@ export function SubGroupAccordion({
 interface CategorySubGroupsProps {
   subGroups: SubGroup[];
   activeConversationId?: string;
-  attentionConversationKeys?: Set<string>;
+  attentionConversationIds?: Set<string>;
   onSelectConversation: (key: string) => void;
   renderActions: (conversation: Conversation) => ReactNode;
   renderPinToggle: (conversation: Conversation) => ReactNode;
@@ -107,7 +107,7 @@ export function BackgroundSubGroups(props: CategorySubGroupsProps) {
       subGroups={props.subGroups}
       isSingleRow={(g) => g.key.startsWith("__single__:")}
       activeConversationId={props.activeConversationId}
-      attentionConversationKeys={props.attentionConversationKeys}
+      attentionConversationIds={props.attentionConversationIds}
       onSelectConversation={props.onSelectConversation}
       renderActions={props.renderActions}
       renderPinToggle={props.renderPinToggle}
@@ -122,7 +122,7 @@ export function ScheduledSubGroups(props: CategorySubGroupsProps) {
       subGroups={props.subGroups}
       isSingleRow={(g) => g.conversations.length === 1}
       activeConversationId={props.activeConversationId}
-      attentionConversationKeys={props.attentionConversationKeys}
+      attentionConversationIds={props.attentionConversationIds}
       onSelectConversation={props.onSelectConversation}
       renderActions={props.renderActions}
       renderPinToggle={props.renderPinToggle}

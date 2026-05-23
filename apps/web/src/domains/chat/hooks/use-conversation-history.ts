@@ -342,7 +342,7 @@ export function useConversationHistory({
         if (!interactions.pendingSecret && !interactions.pendingConfirmation) {
           useConversationStore
             .getState()
-            .removeAttentionKey(requestedKey);
+            .removeAttentionConversationId(requestedKey);
         }
       } catch {
         // Keep attention key on failure.
