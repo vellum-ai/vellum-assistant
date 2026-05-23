@@ -40,6 +40,7 @@ describe("MemoryV2ConfigSchema", () => {
         batch_size: null,
         tier1_size: null,
         tier2_size: null,
+        historical_pairs: 1,
       },
     });
   });

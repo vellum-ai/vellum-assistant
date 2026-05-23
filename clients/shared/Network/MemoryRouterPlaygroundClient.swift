@@ -126,10 +126,13 @@ public struct MemoryRouterPlaygroundClient: Sendable {
     /// override fields have three states (inherit / value / explicit-null)
     /// and a plain Codable `Encodable` would conflate "absent" with "null".
     private func buildRequestBody(input: MemoryRouterSimulateInput) -> [String: Any] {
-        var body: [String: Any] = ["userMessage": input.userMessage]
-        if let assistant = input.assistantMessage {
-            body["assistantMessage"] = assistant
+        let pairs: [[String: Any]] = input.recentTurnPairs.map { pair in
+            [
+                "assistantMessage": pair.assistantMessage,
+                "userMessage": pair.userMessage,
+            ]
         }
+        var body: [String: Any] = ["recentTurnPairs": pairs]
         if let now = input.nowText {
             body["nowText"] = now
         }

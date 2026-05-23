@@ -348,21 +348,31 @@ const SimulateRouterOverridesSchema = z
   })
   .strict();
 
+const RecentTurnPairSchema = z
+  .object({
+    assistantMessage: z.string(),
+    userMessage: z.string(),
+  })
+  .strict();
+
 const MemoryV2SimulateRouterParams = z
   .object({
     /**
-     * The just-arrived user turn — the message that would have triggered
-     * the router on a real turn. Required; the router has nothing to
-     * route against without at least a user message.
+     * Recent (assistant, user) turn pairs to render inside `<last_turn>`,
+     * oldest first. Required; must contain at least one entry. The last
+     * entry's `userMessage` is the just-arrived turn the router is
+     * routing for (must be non-empty); earlier entries are conversation
+     * history. The oldest pair's `assistantMessage` may be empty for a
+     * first-turn scenario — the daemon skips that `[assistant]:` line
+     * the same way `runRouterBatch` does in prod.
      */
-    userMessage: z.string().min(1, "userMessage must be non-empty"),
-    /**
-     * The prior assistant reply. Empty/omitted means "first-turn scenario"
-     * — the router's `<last_turn>` block will skip the `[assistant]:` line
-     * entirely, matching how `runRouterBatch` serializes a conversation
-     * start.
-     */
-    assistantMessage: z.string().optional(),
+    recentTurnPairs: z
+      .array(RecentTurnPairSchema)
+      .min(1, "recentTurnPairs must contain at least one entry")
+      .refine(
+        (pairs) => pairs[pairs.length - 1].userMessage.length > 0,
+        "the last recentTurnPairs entry's userMessage must be non-empty",
+      ),
     /**
      * Verbatim `<now>` body. When omitted, the daemon loads the workspace's
      * live NOW.md so callers that don't care about per-call now context get
@@ -456,8 +466,7 @@ export async function handleSimulateRouter({
 }: RouteHandlerArgs): Promise<MemoryV2SimulateRouterResult> {
   requireMemoryV2Enabled();
   const {
-    userMessage,
-    assistantMessage,
+    recentTurnPairs,
     nowText: rawNowText,
     configOverrides,
     profileOverride,
@@ -505,8 +514,7 @@ export async function handleSimulateRouter({
 
   const routerResult = await runRouter({
     workspaceDir,
-    userMessage,
-    assistantMessage: assistantMessage ?? "",
+    recentTurnPairs,
     nowText,
     priorEverInjected: [],
     config: mergedConfig,

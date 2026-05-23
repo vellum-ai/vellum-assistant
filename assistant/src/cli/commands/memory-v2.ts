@@ -470,11 +470,14 @@ Examples:
               {
                 body: {
                   // The CLI flag is still named `--query` for backwards
-                  // compatibility, but maps to the route's `userMessage`
-                  // field. assistantMessage/nowText use server defaults
-                  // (empty + live NOW.md) so the CLI keeps its existing
-                  // single-turn semantics.
-                  userMessage: opts.query,
+                  // compatibility. It becomes the just-arrived
+                  // `userMessage` of a single (empty assistant, user)
+                  // pair — i.e. a first-turn scenario. nowText uses
+                  // the server default (live NOW.md), preserving the
+                  // existing single-turn CLI semantics.
+                  recentTurnPairs: [
+                    { assistantMessage: "", userMessage: opts.query },
+                  ],
                   ...(configOverrides ? { configOverrides } : {}),
                 },
               },

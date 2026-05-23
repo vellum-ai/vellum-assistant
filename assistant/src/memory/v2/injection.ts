@@ -45,7 +45,7 @@ import {
 import { getEdgeIndex } from "./edge-index.js";
 import { recordInjectionEvents } from "./injection-events.js";
 import { readPage, renderPageContent } from "./page-store.js";
-import { runRouter } from "./router.js";
+import { type RouterTurnPair, runRouter } from "./router.js";
 import { getSkillCapability, isSkillSlug } from "./skill-store.js";
 import type { ActivationState, EverInjectedEntry } from "./types.js";
 
@@ -81,10 +81,13 @@ export interface InjectMemoryV2BlockParams {
   conversationId: string;
   /** Caller-tracked turn number, persisted with each new everInjected entry. */
   currentTurn: number;
-  /** Latest user message text (the turn that triggered this call). */
-  userMessage: string;
-  /** Prior assistant message text (empty string at conversation start). */
-  assistantMessage: string;
+  /**
+   * Recent assistant/user turn pairs, oldest first. Must contain at least
+   * one entry whose `userMessage` is the just-arrived turn that triggered
+   * this call. The number of pairs the production caller passes is
+   * controlled by `memory.v2.router.historical_pairs`.
+   */
+  recentTurnPairs: readonly RouterTurnPair[];
   /** NOW context (autoloaded essentials/threads/recent or NOW.md). */
   nowText: string;
   /** Resolved messageId to persist on the activation_state row. */
@@ -140,13 +143,20 @@ export async function injectMemoryV2Block(
     database,
     conversationId,
     currentTurn,
-    userMessage,
-    assistantMessage,
+    recentTurnPairs,
     nowText,
     messageId,
     config,
     signal,
   } = params;
+
+  // The spreading-activation fallback (only used when the router is off)
+  // still needs the most recent (assistant, user) pair for semantic
+  // scoring. Pulling these from the last pair preserves bit-identical
+  // K=1 behavior — the router-off path never benefits from extra pairs.
+  const lastPair = recentTurnPairs[recentTurnPairs.length - 1];
+  const userMessage = lastPair.userMessage;
+  const assistantMessage = lastPair.assistantMessage;
 
   const workspaceDir = getWorkspaceDir();
   const mode: InjectMemoryV2Mode = params.mode ?? "per-turn";
@@ -174,8 +184,7 @@ export async function injectMemoryV2Block(
       database,
       conversationId,
       currentTurn,
-      userMessage,
-      assistantMessage,
+      recentTurnPairs,
       nowText,
       messageId,
       config,
@@ -521,8 +530,7 @@ async function injectViaRouter(args: {
   database: DrizzleDb;
   conversationId: string;
   currentTurn: number;
-  userMessage: string;
-  assistantMessage: string;
+  recentTurnPairs: readonly RouterTurnPair[];
   nowText: string;
   messageId: string;
   config: AssistantConfig;
@@ -534,8 +542,7 @@ async function injectViaRouter(args: {
     database,
     conversationId,
     currentTurn,
-    userMessage,
-    assistantMessage,
+    recentTurnPairs,
     nowText,
     messageId,
     config,
@@ -548,8 +555,7 @@ async function injectViaRouter(args: {
 
   const routerResult = await runRouter({
     workspaceDir,
-    userMessage,
-    assistantMessage,
+    recentTurnPairs,
     nowText,
     priorEverInjected,
     config,

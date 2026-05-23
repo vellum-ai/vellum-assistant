@@ -14,6 +14,7 @@ import {
 import type {
   MemoryRouterSimulateRequest,
   MemoryRouterSimulateResponse,
+  RecentTurnPair,
   RouterSource,
 } from "@/domains/chat/inspector/memory-router-simulator-api.js";
 import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
@@ -83,9 +84,12 @@ function PlaygroundView(): ReactNode {
 
   // Conversational context — shared between both panes so the comparison
   // is about config knobs, not about which scenario the router saw.
+  // `recentTurnPairs` is rendered oldest-first; the LAST entry's
+  // `userMessage` is the just-arrived turn that triggered the router.
   const [nowText, setNowText] = useState("");
-  const [assistantMessage, setAssistantMessage] = useState("");
-  const [userMessage, setUserMessage] = useState("");
+  const [recentTurnPairs, setRecentTurnPairs] = useState<RecentTurnPair[]>([
+    { assistantMessage: "", userMessage: "" },
+  ]);
   // Track which fields the user has touched so the live NOW.md autoload
   // doesn't clobber an in-progress edit. The first time the fetch lands,
   // we seed `nowText`; after that the user owns it.
@@ -103,6 +107,9 @@ function PlaygroundView(): ReactNode {
   const [overridesB, setOverridesB] = useState<PaneOverrides>(EMPTY_OVERRIDES);
   const [validationA, setValidationA] = useState<string | null>(null);
   const [validationB, setValidationB] = useState<string | null>(null);
+
+  const lastUserMessage =
+    recentTurnPairs[recentTurnPairs.length - 1].userMessage;
 
   const runPane = (pane: PaneId) => {
     const overrides = pane === "A" ? overridesA : overridesB;
@@ -124,9 +131,17 @@ function PlaygroundView(): ReactNode {
       overrides.customPrompt.trim().length > 0
         ? overrides.customPrompt
         : undefined;
+    // Trim the just-arrived user message so leading/trailing whitespace
+    // doesn't reach the wire; older pairs are sent verbatim so the user
+    // can paste real conversation transcripts without their formatting
+    // being normalized away.
+    const wirePairs = recentTurnPairs.map((p, i) =>
+      i === recentTurnPairs.length - 1
+        ? { ...p, userMessage: p.userMessage.trim() }
+        : p
+    );
     mutation.mutate({
-      userMessage: userMessage.trim(),
-      assistantMessage,
+      recentTurnPairs: wirePairs,
       nowText,
       ...(configOverrides ? { configOverrides } : {}),
       ...(profileOverride !== undefined ? { profileOverride } : {}),
@@ -139,7 +154,7 @@ function PlaygroundView(): ReactNode {
     runPane("B");
   };
 
-  const userReady = userMessage.trim().length > 0;
+  const userReady = lastUserMessage.trim().length > 0;
   const canRunA = userReady && !mutationA.isPending;
   const canRunB = userReady && !mutationB.isPending;
 
@@ -161,10 +176,8 @@ function PlaygroundView(): ReactNode {
             }
           }}
           nowTextLoading={nowTextQuery.isLoading}
-          assistantMessage={assistantMessage}
-          onAssistantMessageChange={setAssistantMessage}
-          userMessage={userMessage}
-          onUserMessageChange={setUserMessage}
+          pairs={recentTurnPairs}
+          onPairsChange={setRecentTurnPairs}
         />
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <PaneConfigForm
@@ -203,14 +216,14 @@ function PlaygroundView(): ReactNode {
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <PaneOutputColumn
             paneId="A"
-            userMessage={userMessage}
+            userMessage={lastUserMessage}
             mutation={mutationA}
             otherResult={mutationB.data?.response}
             validation={validationA}
           />
           <PaneOutputColumn
             paneId="B"
-            userMessage={userMessage}
+            userMessage={lastUserMessage}
             mutation={mutationB}
             otherResult={mutationA.data?.response}
             validation={validationB}
@@ -280,20 +293,31 @@ function ConversationContextSection({
   onNowTextChange,
   onReloadNowText,
   nowTextLoading,
-  assistantMessage,
-  onAssistantMessageChange,
-  userMessage,
-  onUserMessageChange,
+  pairs,
+  onPairsChange,
 }: {
   nowText: string;
   onNowTextChange: (value: string) => void;
   onReloadNowText: () => void;
   nowTextLoading: boolean;
-  assistantMessage: string;
-  onAssistantMessageChange: (value: string) => void;
-  userMessage: string;
-  onUserMessageChange: (value: string) => void;
+  pairs: RecentTurnPair[];
+  onPairsChange: (next: RecentTurnPair[]) => void;
 }): ReactNode {
+  const updatePair = (index: number, patch: Partial<RecentTurnPair>) => {
+    onPairsChange(pairs.map((p, i) => (i === index ? { ...p, ...patch } : p)));
+  };
+  const addOlderPair = () => {
+    onPairsChange([
+      { assistantMessage: "", userMessage: "" },
+      ...pairs,
+    ]);
+  };
+  const removePair = (index: number) => {
+    // Refuse to drop the most recent pair — its `userMessage` is the
+    // just-arrived turn that the router is routing for.
+    if (index === pairs.length - 1) return;
+    onPairsChange(pairs.filter((_, i) => i !== index));
+  };
   return (
     <Card>
       <div className="flex flex-col gap-4 p-4">
@@ -332,23 +356,92 @@ function ConversationContextSection({
             </button>
           }
         />
-        <ContextField
-          id="memory-router-playground-assistant"
-          label="Prior [assistant]: reply"
-          value={assistantMessage}
-          onChange={onAssistantMessageChange}
-          rows={3}
-          placeholder="Leave blank for a first-turn scenario (no prior assistant reply)."
-        />
-        <ContextField
-          id="memory-router-playground-user"
-          label="Just-arrived [user]: message"
-          value={userMessage}
-          onChange={onUserMessageChange}
-          rows={3}
-          placeholder="e.g. what should we ship next"
-          required
-        />
+        <div className="flex items-baseline justify-between">
+          <span
+            className="text-label-default"
+            style={{ color: "var(--content-secondary)" }}
+          >
+            Recent (assistant, user) pairs · oldest first
+          </span>
+          <button
+            type="button"
+            onClick={addOlderPair}
+            className="rounded px-2 py-1 text-label-default"
+            style={{
+              background: "var(--surface-overlay)",
+              color: "var(--content-secondary)",
+              border: "none",
+              cursor: "pointer",
+            }}
+          >
+            + Add older pair
+          </button>
+        </div>
+        {pairs.map((pair, index) => {
+          const isLast = index === pairs.length - 1;
+          return (
+            <div
+              key={index}
+              className="flex flex-col gap-2 rounded-md border p-3"
+              style={{
+                borderColor: "var(--border-base)",
+                background: "var(--surface-base)",
+              }}
+            >
+              <div className="flex items-baseline justify-between">
+                <span
+                  className="text-label-default"
+                  style={{ color: "var(--content-secondary)" }}
+                >
+                  Pair {index + 1} of {pairs.length}
+                  {isLast ? " · most recent" : ""}
+                </span>
+                {!isLast && (
+                  <button
+                    type="button"
+                    onClick={() => removePair(index)}
+                    className="rounded px-2 py-1 text-label-default"
+                    style={{
+                      background: "transparent",
+                      color: "var(--system-negative-strong)",
+                      border: "none",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+              <ContextField
+                id={`memory-router-playground-pair-${index}-assistant`}
+                label="[assistant]: reply"
+                value={pair.assistantMessage}
+                onChange={(v) => updatePair(index, { assistantMessage: v })}
+                rows={3}
+                placeholder={
+                  index === 0 && pairs.length === 1
+                    ? "Leave blank for a first-turn scenario."
+                    : "Assistant's reply that came before the user message below."
+                }
+              />
+              <ContextField
+                id={`memory-router-playground-pair-${index}-user`}
+                label={
+                  isLast
+                    ? "Just-arrived [user]: message"
+                    : "[user]: message"
+                }
+                value={pair.userMessage}
+                onChange={(v) => updatePair(index, { userMessage: v })}
+                rows={3}
+                placeholder={
+                  isLast ? "e.g. what should we ship next" : "User's message."
+                }
+                required={isLast}
+              />
+            </div>
+          );
+        })}
       </div>
     </Card>
   );

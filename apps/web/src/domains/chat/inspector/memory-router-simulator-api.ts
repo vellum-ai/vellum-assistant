@@ -15,11 +15,20 @@ import { client } from "@/generated/api/client.gen.js";
 
 export type RouterSource = "tier1" | "tier2" | `tier3:${number}`;
 
-export interface MemoryRouterSimulateRequest {
-  /** Just-arrived user turn that would have triggered the router. Required. */
+export interface RecentTurnPair {
+  assistantMessage: string;
   userMessage: string;
-  /** Prior assistant reply. Omit/empty for a first-turn scenario. */
-  assistantMessage?: string;
+}
+
+export interface MemoryRouterSimulateRequest {
+  /**
+   * Recent (assistant, user) turn pairs to render inside `<last_turn>`,
+   * oldest first. Must contain at least one entry whose `userMessage` is
+   * the just-arrived turn the router is routing for. Earlier entries are
+   * conversation history; their oldest entry's `assistantMessage` may be
+   * empty for a first-turn scenario.
+   */
+  recentTurnPairs: RecentTurnPair[];
   /**
    * Verbatim `<now>` body. Omit to let the daemon load the workspace's live
    * NOW.md (production-like default).

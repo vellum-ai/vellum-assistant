@@ -24,10 +24,13 @@ struct SettingsMemoryRouterPlaygroundTab: View {
     private let client = MemoryRouterPlaygroundClient()
 
     // Conversational context — shared between both panes so the comparison
-    // is about config knobs, not about which scenario the router saw.
+    // is about config knobs, not about which scenario the router saw. The
+    // list is rendered oldest-first; the LAST pair's `userMessage` is the
+    // just-arrived turn the router is routing for.
     @State private var nowText: String = ""
-    @State private var assistantMessage: String = ""
-    @State private var userMessage: String = ""
+    @State private var recentTurnPairs: [RecentTurnPair] = [
+        RecentTurnPair(assistantMessage: "", userMessage: "")
+    ]
     /// Echo of the user message used for the most recent successful run,
     /// surfaced in the per-pane summary card.
     @State private var lastUserMessage: String = ""
@@ -158,24 +161,96 @@ struct SettingsMemoryRouterPlaygroundTab: View {
                     .foregroundStyle(VColor.contentSecondary)
                 )
             )
+            HStack {
+                Text("Recent (assistant, user) pairs · oldest first")
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentSecondary)
+                Spacer()
+                Button("+ Add older pair") {
+                    recentTurnPairs.insert(
+                        RecentTurnPair(assistantMessage: "", userMessage: ""),
+                        at: 0
+                    )
+                }
+                .buttonStyle(.plain)
+                .font(VFont.labelDefault)
+                .foregroundStyle(VColor.contentSecondary)
+            }
+            ForEach(recentTurnPairs.indices, id: \.self) { index in
+                pairCard(index: index)
+            }
+        }
+        .padding(VSpacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .vCard()
+    }
+
+    @ViewBuilder
+    private func pairCard(index: Int) -> some View {
+        let isLast = index == recentTurnPairs.count - 1
+        VStack(alignment: .leading, spacing: VSpacing.xs) {
+            HStack {
+                Text("Pair \(index + 1) of \(recentTurnPairs.count)\(isLast ? " · most recent" : "")")
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentSecondary)
+                Spacer()
+                if !isLast {
+                    // Refuse to drop the most recent pair — its `userMessage`
+                    // is the just-arrived turn the router routes against.
+                    Button("Remove") {
+                        recentTurnPairs.remove(at: index)
+                    }
+                    .buttonStyle(.plain)
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.systemNegativeStrong)
+                }
+            }
             contextField(
-                label: "Prior [assistant]: reply",
-                binding: $assistantMessage,
+                label: "[assistant]: reply",
+                binding: assistantBinding(index: index),
                 minHeight: 80,
                 monospace: false,
                 trailing: nil
             )
             contextField(
-                label: "Just-arrived [user]: message *",
-                binding: $userMessage,
+                label: isLast ? "Just-arrived [user]: message *" : "[user]: message",
+                binding: userBinding(index: index),
                 minHeight: 80,
                 monospace: false,
                 trailing: nil
             )
         }
-        .padding(VSpacing.lg)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .vCard()
+        .padding(VSpacing.md)
+        .background(VColor.surfaceBase)
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .stroke(VColor.borderBase, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+    }
+
+    private func assistantBinding(index: Int) -> Binding<String> {
+        Binding(
+            get: { recentTurnPairs[index].assistantMessage },
+            set: { newValue in
+                recentTurnPairs[index] = RecentTurnPair(
+                    assistantMessage: newValue,
+                    userMessage: recentTurnPairs[index].userMessage
+                )
+            }
+        )
+    }
+
+    private func userBinding(index: Int) -> Binding<String> {
+        Binding(
+            get: { recentTurnPairs[index].userMessage },
+            set: { newValue in
+                recentTurnPairs[index] = RecentTurnPair(
+                    assistantMessage: recentTurnPairs[index].assistantMessage,
+                    userMessage: newValue
+                )
+            }
+        )
     }
 
     private func contextField(
@@ -676,14 +751,18 @@ struct SettingsMemoryRouterPlaygroundTab: View {
         }
     }
 
+    private var lastUserMessageDraft: String {
+        recentTurnPairs.last?.userMessage ?? ""
+    }
+
     private func canRun(_ pane: PaneId) -> Bool {
-        !userMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !paneState(pane).isRunning
+        !lastUserMessageDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty && !paneState(pane).isRunning
     }
 
     private var canRunBoth: Bool {
-        !userMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !paneA.isRunning && !paneB.isRunning
+        !lastUserMessageDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty && !paneA.isRunning && !paneB.isRunning
     }
 
     // MARK: - Run
@@ -699,7 +778,9 @@ struct SettingsMemoryRouterPlaygroundTab: View {
             paneB.clientError = nil
         }
 
-        let trimmedUser = userMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedUser = lastUserMessageDraft.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
         guard !trimmedUser.isEmpty else { return }
 
         let state = paneState(pane)
@@ -719,9 +800,18 @@ struct SettingsMemoryRouterPlaygroundTab: View {
         let profileOverride: String? = profileTrimmed.isEmpty ? nil : profileTrimmed
         let promptTrimmed = state.customPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
         let routerPromptOverride: String? = promptTrimmed.isEmpty ? nil : state.customPrompt
+        // Trim the most recent pair's userMessage to avoid sending leading/
+        // trailing whitespace on the just-arrived turn; older pairs go on
+        // the wire verbatim so pasted transcripts keep their formatting.
+        var wirePairs = recentTurnPairs
+        if let last = wirePairs.last {
+            wirePairs[wirePairs.count - 1] = RecentTurnPair(
+                assistantMessage: last.assistantMessage,
+                userMessage: trimmedUser
+            )
+        }
         let input = MemoryRouterSimulateInput(
-            userMessage: trimmedUser,
-            assistantMessage: assistantMessage,
+            recentTurnPairs: wirePairs,
             nowText: nowText,
             tier1Size: tier1Override,
             tier2Size: tier2Override,

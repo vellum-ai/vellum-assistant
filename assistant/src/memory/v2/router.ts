@@ -157,10 +157,31 @@ function emptyBatchResult(
   return { selectedSlugs: [], failureReason: reason };
 }
 
+/**
+ * One `(assistant, user)` turn pair rendered inside `<last_turn>`. The
+ * pair represents the assistant's reply followed by the user message
+ * that came after. The most recent pair's `userMessage` is the
+ * just-arrived turn that triggered the router; older pairs are walked
+ * back from conversation history. `assistantMessage` is the empty
+ * string for the oldest pair when there was no prior assistant reply
+ * (conversation start) — `runRouterBatch` skips the `[assistant]:`
+ * line entirely in that case.
+ */
+export interface RouterTurnPair {
+  assistantMessage: string;
+  userMessage: string;
+}
+
 interface RunRouterParams {
   workspaceDir: string;
-  userMessage: string;
-  assistantMessage: string;
+  /**
+   * Recent assistant/user turn pairs, oldest first. Must contain at
+   * least one entry. The last entry's `userMessage` is the just-arrived
+   * user turn the router is routing for; entries before it are walked
+   * back from conversation history. The number of pairs the production
+   * caller passes is controlled by `memory.v2.router.historical_pairs`.
+   */
+  recentTurnPairs: readonly RouterTurnPair[];
   /** Verbatim contents to inject into `<now>...</now>` on this turn. */
   nowText: string;
   /** Slugs already injected on prior turns (used to seed `<already_injected_ids>`). */
@@ -362,8 +383,7 @@ async function runRouterBatch(
 ): Promise<RouterBatchResult> {
   const {
     workspaceDir,
-    userMessage,
-    assistantMessage,
+    recentTurnPairs,
     nowText,
     priorEverInjected,
     config,
@@ -392,15 +412,18 @@ async function runRouterBatch(
     if (local) priorIds.push(local.id);
   }
 
-  // Render `<last_turn>` chronologically: the prior assistant reply came
-  // first, then the just-arrived user message that triggered this call.
-  // On conversation start `assistantMessage` is the empty string — skip the
-  // assistant line in that case so we don't emit a dangling `[assistant]:`.
+  // Render `<last_turn>` chronologically: each pair emits the prior
+  // assistant reply followed by the user message that came after.
+  // `assistantMessage` is the empty string on the oldest pair when there
+  // was no prior assistant reply (conversation start) — skip that line
+  // so we don't emit a dangling `[assistant]:`.
   const lastTurnLines: string[] = [];
-  if (assistantMessage.trim().length > 0) {
-    lastTurnLines.push(`[assistant]: ${assistantMessage}`);
+  for (const pair of recentTurnPairs) {
+    if (pair.assistantMessage.trim().length > 0) {
+      lastTurnLines.push(`[assistant]: ${pair.assistantMessage}`);
+    }
+    lastTurnLines.push(`[user]: ${pair.userMessage}`);
   }
-  lastTurnLines.push(`[user]: ${userMessage}`);
   const lastTurnBlock = `<last_turn>\n${lastTurnLines.join("\n")}\n</last_turn>`;
 
   const userMsg: Message = {
