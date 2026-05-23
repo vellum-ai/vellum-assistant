@@ -649,6 +649,101 @@ describe("channel-retry-sweep", () => {
     expect(row?.deliveryStatus).toBe("delivered");
   });
 
+  test("Slack DM processing retries persist live delivery progress before final delivery failures", async () => {
+    const inbound = deliveryCrud.recordInbound(
+      "slack",
+      "D-LIVE-RETRY-FINAL-FAILS",
+      "slack-msg-live-retry-final-fails",
+    );
+    deliveryCrud.storePayload(inbound.eventId, {
+      content: "retry me",
+      sourceChannel: "slack",
+      interface: "slack",
+      externalChatId: "D-LIVE-RETRY-FINAL-FAILS",
+      replyCallbackUrl: "https://example.test/deliver/slack",
+      sourceMetadata: { chatType: "im" },
+      trustCtx: {
+        trustClass: "unknown",
+        sourceChannel: "slack",
+        requesterChatId: "D-LIVE-RETRY-FINAL-FAILS",
+      },
+    });
+
+    const db = getDb();
+    db.update(channelInboundEvents)
+      .set({
+        processingStatus: "failed",
+        processingAttempts: 1,
+        retryAfter: Date.now() - 1,
+      })
+      .where(eq(channelInboundEvents.id, inbound.eventId))
+      .run();
+    deliverChannelReplyImpl = async () => ({
+      ok: true,
+      ts: "1700000000.000055",
+    });
+    deliverReplyViaCallbackImpl = async () => {
+      throw new Error("fetch failed before progress callback");
+    };
+
+    await sweepFailedEvents(async (conversationId, _content, _ids, options) => {
+      options?.onEvent?.({
+        type: "assistant_text_delta",
+        text: "Live retry response.",
+        conversationId,
+      });
+      options?.onEvent?.({
+        type: "tool_use_start",
+        toolName: "web_search",
+        input: { query: "example" },
+        conversationId,
+        toolUseId: "toolu_1",
+      });
+      options?.onEvent?.({
+        type: "message_complete",
+        conversationId,
+        messageId: "assistant-live-retry-final-fails",
+      });
+      db.insert(messages)
+        .values({
+          id: "user-live-retry-final-fails",
+          conversationId,
+          role: "user",
+          content: JSON.stringify([{ type: "text", text: "retry me" }]),
+          createdAt: Date.now(),
+        })
+        .run();
+      return { messageId: "user-live-retry-final-fails" };
+    });
+
+    const row = db
+      .select()
+      .from(channelInboundEvents)
+      .where(eq(channelInboundEvents.id, inbound.eventId))
+      .get();
+    const rawPayload = row?.rawPayload
+      ? (JSON.parse(row.rawPayload) as Record<string, unknown>)
+      : {};
+
+    expect(
+      liveDeliveryCalls.map((entry) => entry.payload.text).filter(Boolean),
+    ).toEqual(["Live retry response."]);
+    expect(deliveryCalls).toEqual([
+      {
+        conversationId: inbound.conversationId,
+        externalChatId: "D-LIVE-RETRY-FINAL-FAILS",
+        callbackUrl: "https://example.test/deliver/slack",
+        assistantId: undefined,
+        messageId: "assistant-live-retry-final-fails",
+        startFromSegment: 1,
+        messageTs: "1700000000.000055",
+      },
+    ]);
+    expect(rawPayload.slackDmLiveDeliveredTextResponseIndexes).toEqual([1]);
+    expect(row?.deliveredSegmentCount).toBe(1);
+    expect(row?.deliveryStatus).toBe("failed");
+  });
+
   test("delivery retry for processed events resumes delivery without processing", async () => {
     const inbound = deliveryCrud.recordInbound(
       "telegram",

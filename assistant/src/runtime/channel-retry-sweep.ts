@@ -346,11 +346,14 @@ export async function sweepFailedEvents(
           }
           // processMessage above generated a fresh assistant response, so any
           // previously tracked final-delivery progress belongs to the old
-          // response and must not carry over. Live Slack DM progress is tracked
-          // separately below so a fully live-delivered reply is not duplicated.
-          updateDeliveredSegmentCount(event.id, 0);
+          // response and must not carry over. Use live Slack DM progress as
+          // the new baseline before final delivery so delivery-only retries do
+          // not duplicate text if the callback fails before reporting progress.
           const liveDeliveryResumeOptions =
             slackDmTextDelivery?.getFinalDeliveryResumeOptions(replyMessageId);
+          const finalDeliveryStartFromSegment =
+            liveDeliveryResumeOptions?.startFromSegment ?? 0;
+          updateDeliveredSegmentCount(event.id, finalDeliveryStartFromSegment);
           await deliverReplyViaCallback(
             event.conversationId,
             externalChatId,
@@ -359,8 +362,7 @@ export async function sweepFailedEvents(
             {
               messageId: replyMessageId,
               sinceMessageId: userMessageId,
-              startFromSegment:
-                liveDeliveryResumeOptions?.startFromSegment ?? 0,
+              startFromSegment: finalDeliveryStartFromSegment,
               ...(liveDeliveryResumeOptions?.messageTs
                 ? { messageTs: liveDeliveryResumeOptions.messageTs }
                 : {}),
