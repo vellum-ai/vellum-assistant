@@ -262,7 +262,6 @@ export function AdjustPlanModal({ open, onClose }: AdjustPlanModalProps) {
     // machineTiersForPicker/storageTiersForPicker are derived from proPlan +
     // onboarding values already in the dep list; omitting them keeps the effect
     // from re-running on each render's fresh array identity.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     open,
     proPlan,
