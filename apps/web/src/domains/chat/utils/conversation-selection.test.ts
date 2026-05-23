@@ -3,8 +3,8 @@ import { describe, expect, test } from "bun:test";
 import { resolveBootstrappedConversationKey } from "@/domains/chat/utils/conversation-selection.js";
 
 const conversations = [
-  { conversationKey: "old-visible" },
-  { conversationKey: "new-latest" },
+  { conversationId: "old-visible" },
+  { conversationId: "new-latest" },
 ];
 
 describe("resolveBootstrappedConversationKey", () => {
@@ -90,7 +90,7 @@ describe("resolveBootstrappedConversationKey", () => {
         storedConversationKey: "heartbeat",
         defaultConversationKey: "asst-1",
         conversations: [
-          { conversationKey: "heartbeat", conversationType: "background" },
+          { conversationId: "heartbeat", conversationType: "background" },
         ],
       }),
     ).toBe("asst-1");

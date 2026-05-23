@@ -42,17 +42,17 @@ import { chatContextQueryKey } from "@/lib/sync/query-tags.js";
 // only override the two functions whose timing the hook is responsible for.
 // ---------------------------------------------------------------------------
 
-type ApiImpl = (assistantId: string, conversationKey: string) => Promise<void>;
+type ApiImpl = (assistantId: string, conversationId: string) => Promise<void>;
 
 let archiveImpl: ApiImpl = async () => {};
 let unarchiveImpl: ApiImpl = async () => {};
 
 mock.module("@/domains/chat/api/conversations.js", () => ({
   ...conversationsApi,
-  archiveConversation: (assistantId: string, conversationKey: string) =>
-    archiveImpl(assistantId, conversationKey),
-  unarchiveConversation: (assistantId: string, conversationKey: string) =>
-    unarchiveImpl(assistantId, conversationKey),
+  archiveConversation: (assistantId: string, conversationId: string) =>
+    archiveImpl(assistantId, conversationId),
+  unarchiveConversation: (assistantId: string, conversationId: string) =>
+    unarchiveImpl(assistantId, conversationId),
 }));
 
 // Stub haptics — Capacitor's web shim works fine in a node test environment,
@@ -78,7 +78,7 @@ const { useConversationActions } = await import(
 const ASSISTANT_ID = "asst-1";
 
 function makeConversation(overrides: Partial<Conversation> = {}): Conversation {
-  return { conversationKey: "conv-1", ...overrides };
+  return { conversationId: "conv-1", ...overrides };
 }
 
 function seedClient(conversations: Conversation[]): QueryClient {
@@ -140,7 +140,7 @@ function readArchived(
   const ctx = client.getQueryData<{ conversations: Conversation[] }>(
     chatContextQueryKey(ASSISTANT_ID),
   );
-  return ctx?.conversations.find((c) => c.conversationKey === key)?.archivedAt;
+  return ctx?.conversations.find((c) => c.conversationId === key)?.archivedAt;
 }
 
 /** Manually-controlled promise for staging in-flight API states in tests. */
@@ -169,7 +169,7 @@ afterEach(() => {
 
 describe("handleArchiveConversation — optimistic update", () => {
   test("patches archivedAt in the cache before the API resolves", async () => {
-    const conv = makeConversation({ conversationKey: "conv-1" });
+    const conv = makeConversation({ conversationId: "conv-1" });
     const { result, client } = setupHook({ conversations: [conv] });
 
     const d = deferred();
@@ -194,8 +194,8 @@ describe("handleArchiveConversation — optimistic update", () => {
   });
 
   test("switches to the next foreground conversation before the API resolves", async () => {
-    const archived = makeConversation({ conversationKey: "active" });
-    const next = makeConversation({ conversationKey: "next" });
+    const archived = makeConversation({ conversationId: "active" });
+    const next = makeConversation({ conversationId: "next" });
     const { result, switchCalls } = setupHook({
       conversations: [archived, next],
       activeKey: "active",
@@ -217,7 +217,7 @@ describe("handleArchiveConversation — optimistic update", () => {
   });
 
   test("rolls back the cache patch when the API rejects", async () => {
-    const conv = makeConversation({ conversationKey: "conv-1" });
+    const conv = makeConversation({ conversationId: "conv-1" });
     const { result, client } = setupHook({ conversations: [conv] });
 
     archiveImpl = async () => {
@@ -234,7 +234,7 @@ describe("handleArchiveConversation — optimistic update", () => {
   });
 
   test("calls refreshConversations once on success", async () => {
-    const conv = makeConversation({ conversationKey: "conv-1" });
+    const conv = makeConversation({ conversationId: "conv-1" });
     const { result, getRefreshCalls } = setupHook({ conversations: [conv] });
 
     await act(async () => {
@@ -245,7 +245,7 @@ describe("handleArchiveConversation — optimistic update", () => {
   });
 
   test("does not refresh when the archive API fails", async () => {
-    const conv = makeConversation({ conversationKey: "conv-1" });
+    const conv = makeConversation({ conversationId: "conv-1" });
     const { result, getRefreshCalls } = setupHook({ conversations: [conv] });
 
     archiveImpl = async () => {
@@ -267,7 +267,7 @@ describe("handleArchiveConversation — optimistic update", () => {
 describe("handleUnarchiveConversation — optimistic update", () => {
   test("clears archivedAt in the cache before the API resolves", async () => {
     const conv = makeConversation({
-      conversationKey: "conv-1",
+      conversationId: "conv-1",
       archivedAt: 1234,
     });
     const { result, client } = setupHook({ conversations: [conv] });
@@ -292,7 +292,7 @@ describe("handleUnarchiveConversation — optimistic update", () => {
 
   test("rolls back to the prior archivedAt when the API rejects", async () => {
     const conv = makeConversation({
-      conversationKey: "conv-1",
+      conversationId: "conv-1",
       archivedAt: 1234,
     });
     const { result, client } = setupHook({ conversations: [conv] });

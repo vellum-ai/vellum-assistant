@@ -191,14 +191,17 @@ export function parseConversation(raw: unknown): Conversation | null {
   if (!raw || typeof raw !== "object") return null;
 
   const record = raw as Record<string, unknown>;
-  // Wire format from the daemon still uses `conversationKey`. We accept either
-  // shape and surface the value on the entity as `conversationId`.
+  // The current daemon wire format emits `conversationKey`; we also accept
+  // `conversationId` for forward-compat and `id` as a legacy fallback. All
+  // three are surfaced on the entity as `conversationId`.
   const conversationId =
     typeof record.conversationKey === "string"
       ? record.conversationKey
-      : typeof record.id === "string"
-        ? record.id
-        : null;
+      : typeof record.conversationId === "string"
+        ? record.conversationId
+        : typeof record.id === "string"
+          ? record.id
+          : null;
 
   if (!conversationId) return null;
 

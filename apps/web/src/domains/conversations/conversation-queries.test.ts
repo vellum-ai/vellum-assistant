@@ -28,7 +28,7 @@ function makeConversation(
   key: string,
   overrides?: Partial<Conversation>,
 ): Conversation {
-  return { conversationKey: key, ...overrides } as Conversation;
+  return { conversationId: key, ...overrides } as Conversation;
 }
 
 function makeGroup(
@@ -51,7 +51,7 @@ function seedChatContext(
 ): void {
   qc.setQueryData<ChatContext | null>(chatContextQueryKey(ASSISTANT_ID), {
     assistantId: ASSISTANT_ID,
-    conversationKey: conversations[0]?.conversationKey ?? "",
+    conversationId: conversations[0]?.conversationId ?? "",
     conversations,
   });
 }
@@ -130,7 +130,7 @@ describe("prependConversation", () => {
     const qc = new QueryClient();
     seedChatContext(qc, [makeConversation("b")]);
     prependConversation(qc, ASSISTANT_ID, makeConversation("a"));
-    expect(getConversations(qc).map((c) => c.conversationKey)).toEqual([
+    expect(getConversations(qc).map((c) => c.conversationId)).toEqual([
       "a",
       "b",
     ]);
@@ -142,7 +142,7 @@ describe("removeConversation", () => {
     const qc = new QueryClient();
     seedChatContext(qc, [makeConversation("a"), makeConversation("b")]);
     removeConversation(qc, ASSISTANT_ID, "a");
-    expect(getConversations(qc).map((c) => c.conversationKey)).toEqual(["b"]);
+    expect(getConversations(qc).map((c) => c.conversationId)).toEqual(["b"]);
   });
 });
 
@@ -151,7 +151,7 @@ describe("resolveDraftKey", () => {
     const qc = new QueryClient();
     seedChatContext(qc, [makeConversation("draft-1", { draft: true })]);
     resolveDraftKey(qc, ASSISTANT_ID, "draft-1", "real-1");
-    expect(getConversations(qc)[0]!.conversationKey).toBe("real-1");
+    expect(getConversations(qc)[0]!.conversationId).toBe("real-1");
     expect(getConversations(qc)[0]!.draft).toBe(false);
   });
 });

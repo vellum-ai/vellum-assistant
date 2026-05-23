@@ -41,7 +41,7 @@ describe("SlackChannelFooter lazy channel name resolution", () => {
       <SlackChannelFooter
         assistantId="assistant-1"
         conversation={{
-          conversationKey: "conv-lazy-resolve",
+          conversationId: "conv-lazy-resolve",
           originChannel: "slack",
           channelBinding: {
             sourceChannel: "slack",
@@ -74,7 +74,7 @@ describe("SlackChannelFooter lazy channel name resolution", () => {
       <SlackChannelFooter
         assistantId="assistant-1"
         conversation={{
-          conversationKey: "conv-friendly-name",
+          conversationId: "conv-friendly-name",
           originChannel: "slack",
           channelBinding: {
             sourceChannel: "slack",
@@ -95,7 +95,7 @@ describe("SlackChannelFooter lazy channel name resolution", () => {
       <SlackChannelFooter
         assistantId="assistant-1"
         conversation={{
-          conversationKey: "conv-direct-message",
+          conversationId: "conv-direct-message",
           originChannel: "slack",
           channelBinding: {
             sourceChannel: "slack",
@@ -117,7 +117,7 @@ describe("SlackChannelFooter lazy channel name resolution", () => {
       <SlackChannelFooter
         assistantId="assistant-1"
         conversation={{
-          conversationKey: "conv-direct-message-message-sender",
+          conversationId: "conv-direct-message-message-sender",
           originChannel: "slack",
           channelBinding: {
             sourceChannel: "slack",
@@ -150,7 +150,7 @@ describe("SlackChannelFooter lazy channel name resolution", () => {
       <SlackChannelFooter
         assistantId="assistant-1"
         conversation={{
-          conversationKey: "conv-direct-message-channel-name",
+          conversationId: "conv-direct-message-channel-name",
           originChannel: "slack",
           channelBinding: {
             sourceChannel: "slack",
@@ -172,7 +172,7 @@ describe("SlackChannelFooter lazy channel name resolution", () => {
       <SlackChannelFooter
         assistantId="assistant-1"
         conversation={{
-          conversationKey: "conv-direct-message-unknown",
+          conversationId: "conv-direct-message-unknown",
           originChannel: "slack",
           channelBinding: {
             sourceChannel: "slack",
@@ -203,7 +203,7 @@ describe("SlackChannelFooter lazy channel name resolution", () => {
       <SlackChannelFooter
         assistantId="assistant-1"
         conversation={{
-          conversationKey: "conv-unresolved",
+          conversationId: "conv-unresolved",
           originChannel: "slack",
           channelBinding: {
             sourceChannel: "slack",
@@ -224,7 +224,7 @@ describe("SlackChannelFooter lazy channel name resolution", () => {
       <SlackChannelFooter
         assistantId="assistant-1"
         conversation={{
-          conversationKey: "conv-refreshed-name",
+          conversationId: "conv-refreshed-name",
           originChannel: "slack",
           channelBinding: {
             sourceChannel: "slack",
@@ -242,7 +242,7 @@ describe("SlackChannelFooter lazy channel name resolution", () => {
       <SlackChannelFooter
         assistantId="assistant-1"
         conversation={{
-          conversationKey: "conv-refreshed-name",
+          conversationId: "conv-refreshed-name",
           originChannel: "slack",
           channelBinding: {
             sourceChannel: "slack",
@@ -273,7 +273,7 @@ describe("SlackChannelFooter lazy channel name resolution", () => {
         <SlackChannelFooter
           assistantId="assistant-1"
           conversation={{
-            conversationKey: "conv-deduped",
+            conversationId: "conv-deduped",
             originChannel: "slack",
             channelBinding: {
               sourceChannel: "slack",
@@ -284,7 +284,7 @@ describe("SlackChannelFooter lazy channel name resolution", () => {
         <SlackChannelFooter
           assistantId="assistant-1"
           conversation={{
-            conversationKey: "conv-deduped",
+            conversationId: "conv-deduped",
             originChannel: "slack",
             channelBinding: {
               sourceChannel: "slack",

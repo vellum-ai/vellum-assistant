@@ -55,7 +55,7 @@ mock.module("@vellum/design-library", () => ({
 import type { Conversation } from "@/domains/chat/api/conversations.js";
 import { CollapsedConversationsButton } from "@/domains/chat/components/collapsed-conversations-button.js";
 
-function makeConversation(overrides: Partial<Conversation> & { conversationKey: string }): Conversation {
+function makeConversation(overrides: Partial<Conversation> & { conversationId: string }): Conversation {
   return {
     title: "Untitled",
     status: "active",
@@ -90,13 +90,13 @@ describe("CollapsedConversationsButton", () => {
   test("renders total count badge", () => {
     const html = renderToStaticMarkup(
       <CollapsedConversationsButton
-        pinned={[makeConversation({ conversationKey: "p1" })]}
+        pinned={[makeConversation({ conversationId: "p1" })]}
         scheduled={[]}
         background={[]}
         slack={[]}
         recents={[
-          makeConversation({ conversationKey: "r1" }),
-          makeConversation({ conversationKey: "r2" }),
+          makeConversation({ conversationId: "r1" }),
+          makeConversation({ conversationId: "r2" }),
         ]}
         onSelectConversation={noop}
       />,
@@ -108,10 +108,10 @@ describe("CollapsedConversationsButton", () => {
   test("renders section headers for non-empty buckets", () => {
     const html = renderToStaticMarkup(
       <CollapsedConversationsButton
-        pinned={[makeConversation({ conversationKey: "p1", title: "My Pinned" })]}
+        pinned={[makeConversation({ conversationId: "p1", title: "My Pinned" })]}
         scheduled={[]}
         background={[]}
-        slack={[makeConversation({ conversationKey: "s1", title: "Slack Thread" })]}
+        slack={[makeConversation({ conversationId: "s1", title: "Slack Thread" })]}
         recents={[]}
         onSelectConversation={noop}
       />,
@@ -131,8 +131,8 @@ describe("CollapsedConversationsButton", () => {
         background={[]}
         slack={[]}
         recents={[
-          makeConversation({ conversationKey: "r1", title: "Chat about dogs" }),
-          makeConversation({ conversationKey: "r2", title: "Chat about cats" }),
+          makeConversation({ conversationId: "r1", title: "Chat about dogs" }),
+          makeConversation({ conversationId: "r2", title: "Chat about cats" }),
         ]}
         onSelectConversation={noop}
       />,
@@ -148,7 +148,7 @@ describe("CollapsedConversationsButton", () => {
         scheduled={[]}
         background={[]}
         slack={[]}
-        recents={[makeConversation({ conversationKey: "r1", title: null as unknown as string })]}
+        recents={[makeConversation({ conversationId: "r1", title: null as unknown as string })]}
         onSelectConversation={noop}
       />,
     );
@@ -162,7 +162,7 @@ describe("CollapsedConversationsButton", () => {
         scheduled={[]}
         background={[]}
         slack={[]}
-        recents={[makeConversation({ conversationKey: "r1" })]}
+        recents={[makeConversation({ conversationId: "r1" })]}
         onSelectConversation={noop}
         attentionConversationKeys={new Set(["r1"])}
       />,
@@ -182,7 +182,7 @@ describe("CollapsedConversationsButton", () => {
           {
             id: "g1",
             name: "Work Projects",
-            conversations: [makeConversation({ conversationKey: "c1", title: "Project Alpha" })],
+            conversations: [makeConversation({ conversationId: "c1", title: "Project Alpha" })],
           },
         ]}
         onSelectConversation={noop}
@@ -199,14 +199,14 @@ describe("CollapsedConversationsButton", () => {
         scheduled={[]}
         background={[]}
         slack={[]}
-        recents={[makeConversation({ conversationKey: "r1" })]}
+        recents={[makeConversation({ conversationId: "r1" })]}
         customGroups={[
           {
             id: "g1",
             name: "Work",
             conversations: [
-              makeConversation({ conversationKey: "c1" }),
-              makeConversation({ conversationKey: "c2" }),
+              makeConversation({ conversationId: "c1" }),
+              makeConversation({ conversationId: "c2" }),
             ],
           },
         ]}
@@ -223,8 +223,8 @@ describe("CollapsedConversationsButton", () => {
         pinned={[]}
         scheduled={[]}
         background={[
-          makeConversation({ conversationKey: "b1", title: "Needs Review", source: "heartbeat" }),
-          makeConversation({ conversationKey: "b2", title: "Other BG", source: "heartbeat" }),
+          makeConversation({ conversationId: "b1", title: "Needs Review", source: "heartbeat" }),
+          makeConversation({ conversationId: "b2", title: "Other BG", source: "heartbeat" }),
         ]}
         slack={[]}
         recents={[]}
@@ -243,7 +243,7 @@ describe("CollapsedConversationsButton", () => {
         pinned={[]}
         scheduled={[]}
         background={[
-          makeConversation({ conversationKey: "b1", title: "Solo BG" }),
+          makeConversation({ conversationId: "b1", title: "Solo BG" }),
         ]}
         slack={[]}
         recents={[]}
@@ -262,8 +262,8 @@ describe("CollapsedConversationsButton", () => {
         pinned={[]}
         scheduled={[]}
         background={[
-          makeConversation({ conversationKey: "b1", title: "BG 1", source: "heartbeat" }),
-          makeConversation({ conversationKey: "b2", title: "BG 2", source: "heartbeat" }),
+          makeConversation({ conversationId: "b1", title: "BG 1", source: "heartbeat" }),
+          makeConversation({ conversationId: "b2", title: "BG 2", source: "heartbeat" }),
         ]}
         slack={[]}
         recents={[]}

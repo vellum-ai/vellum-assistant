@@ -17,7 +17,7 @@ type SlackFooterConversation = Pick<
   Conversation,
   "channelBinding" | "originChannel"
 > &
-  Partial<Pick<Conversation, "conversationKey">>;
+  Partial<Pick<Conversation, "conversationId">>;
 type SlackMessageChannel = NonNullable<DisplayMessage["slackMessage"]>;
 
 export interface SlackChannelFooterProps {

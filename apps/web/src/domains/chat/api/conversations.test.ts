@@ -10,13 +10,13 @@ describe("parseConversation — originChannel plumbing", () => {
     expect(parseConversation("string")).toBeNull();
   });
 
-  test("returns null when no conversationKey/id is present", () => {
+  test("returns null when no conversationId/id is present", () => {
     expect(parseConversation({})).toBeNull();
   });
 
   test("leaves originChannel undefined when neither field is present", () => {
     const parsed = parseConversation({
-      conversationKey: "conv-123",
+      conversationId: "conv-123",
       title: "Hello",
     });
     expect(parsed?.originChannel).toBeUndefined();
@@ -24,7 +24,7 @@ describe("parseConversation — originChannel plumbing", () => {
 
   test("reads originChannel from conversationOriginChannel as a fallback", () => {
     const parsed = parseConversation({
-      conversationKey: "conv-123",
+      conversationId: "conv-123",
       conversationOriginChannel: "slack",
     });
     expect(parsed?.originChannel).toBe("slack");
@@ -32,7 +32,7 @@ describe("parseConversation — originChannel plumbing", () => {
 
   test("prefers channelBinding.sourceChannel over conversationOriginChannel", () => {
     const parsed = parseConversation({
-      conversationKey: "conv-123",
+      conversationId: "conv-123",
       channelBinding: { sourceChannel: "telegram" },
       conversationOriginChannel: "slack",
     });
@@ -41,7 +41,7 @@ describe("parseConversation — originChannel plumbing", () => {
 
   test("treats non-string channelBinding.sourceChannel as missing", () => {
     const parsed = parseConversation({
-      conversationKey: "conv-123",
+      conversationId: "conv-123",
       channelBinding: { sourceChannel: 42 },
       conversationOriginChannel: "slack",
     });
@@ -53,7 +53,7 @@ describe("parseConversation — originChannel plumbing", () => {
     // the parser must preserve the raw value as-is so the predicate can
     // make the decision.
     const parsed = parseConversation({
-      conversationKey: "conv-123",
+      conversationId: "conv-123",
       conversationOriginChannel: "notification:reminder",
     });
     expect(parsed?.originChannel).toBe("notification:reminder");
@@ -61,7 +61,7 @@ describe("parseConversation — originChannel plumbing", () => {
 
   test("preserves Slack channel binding with id, name, and link", () => {
     const parsed = parseConversation({
-      conversationKey: "conv-123",
+      conversationId: "conv-123",
       channelBinding: {
         sourceChannel: "slack",
         externalChatId: "C0123ABCDEF",
@@ -111,13 +111,13 @@ describe("parseConversation — originChannel plumbing", () => {
   test("does not throw for malformed or absent channelBinding", () => {
     expect(
       parseConversation({
-        conversationKey: "conv-123",
+        conversationId: "conv-123",
         channelBinding: "slack",
       })?.channelBinding,
     ).toBeUndefined();
 
     const parsed = parseConversation({
-      conversationKey: "conv-456",
+      conversationId: "conv-456",
       channelBinding: {
         sourceChannel: "slack",
         externalChatId: 123,
@@ -137,7 +137,7 @@ describe("parseConversation — originChannel plumbing", () => {
 describe("parseConversation — displayOrder", () => {
   test("captures numeric displayOrder for drag-reordered conversations", () => {
     const parsed = parseConversation({
-      conversationKey: "conv-pinned",
+      conversationId: "conv-pinned",
       isPinned: true,
       displayOrder: 3,
     });
@@ -145,20 +145,20 @@ describe("parseConversation — displayOrder", () => {
   });
 
   test("leaves displayOrder undefined when the field is absent", () => {
-    const parsed = parseConversation({ conversationKey: "conv-fresh" });
+    const parsed = parseConversation({ conversationId: "conv-fresh" });
     expect(parsed?.displayOrder).toBeUndefined();
   });
 
   test("treats non-finite displayOrder as missing", () => {
     expect(
       parseConversation({
-        conversationKey: "c1",
+        conversationId: "c1",
         displayOrder: Number.NaN,
       })?.displayOrder,
     ).toBeUndefined();
     expect(
       parseConversation({
-        conversationKey: "c2",
+        conversationId: "c2",
         displayOrder: "0",
       })?.displayOrder,
     ).toBeUndefined();
@@ -172,7 +172,7 @@ describe("listConversations — pagination", () => {
   };
 
   type Page = {
-    conversations: Array<{ conversationKey: string }>;
+    conversations: Array<{ conversationId: string }>;
     hasMore?: boolean;
   };
 
@@ -205,10 +205,10 @@ describe("listConversations — pagination", () => {
 
   test("loops over pages until hasMore is false (>50 conversations preserved)", async () => {
     const page1Items = Array.from({ length: 50 }, (_, i) => ({
-      conversationKey: `foreground-${i}`,
+      conversationId: `foreground-${i}`,
     }));
     const page2Items = Array.from({ length: 30 }, (_, i) => ({
-      conversationKey: `foreground-${50 + i}`,
+      conversationId: `foreground-${50 + i}`,
     }));
     const { calls } = setupPagedResponses({
       foreground: [
@@ -220,8 +220,8 @@ describe("listConversations — pagination", () => {
     const result = await listConversations("assistant-1");
 
     expect(result).toHaveLength(80);
-    expect(result.at(0)?.conversationKey).toBe("foreground-0");
-    expect(result.at(-1)?.conversationKey).toBe("foreground-79");
+    expect(result.at(0)?.conversationId).toBe("foreground-0");
+    expect(result.at(-1)?.conversationId).toBe("foreground-79");
     // 2 foreground pages + 1 background page (empty by default). Foreground
     // and background fetch in parallel via Promise.allSettled, so filter
     // before asserting page offsets.
@@ -237,7 +237,7 @@ describe("listConversations — pagination", () => {
   test("stops on the first page when hasMore is false or absent", async () => {
     const { calls } = setupPagedResponses({
       foreground: [
-        { conversations: [{ conversationKey: "only-one" }] },
+        { conversations: [{ conversationId: "only-one" }] },
       ],
     });
 
@@ -251,7 +251,7 @@ describe("listConversations — pagination", () => {
   test("does not loop forever on hasMore=true with empty page", async () => {
     const { calls } = setupPagedResponses({
       foreground: [
-        { conversations: [{ conversationKey: "a" }], hasMore: true },
+        { conversations: [{ conversationId: "a" }], hasMore: true },
         { conversations: [], hasMore: true },
       ],
     });
@@ -266,7 +266,7 @@ describe("listConversations — pagination", () => {
 describe("parseConversation — Slack channel binding", () => {
   test("preserves Slack channel binding with id, name, and link", () => {
     const parsed = parseConversation({
-      conversationKey: "conv-123",
+      conversationId: "conv-123",
       channelBinding: {
         sourceChannel: "slack",
         externalChatId: "C0123ABCDEF",
@@ -313,7 +313,7 @@ describe("parseConversation — Slack channel binding", () => {
 
   test("falls back to conversationOriginChannel when channelBinding is absent", () => {
     const parsed = parseConversation({
-      conversationKey: "conv-123",
+      conversationId: "conv-123",
       conversationOriginChannel: "slack",
     });
 
@@ -323,7 +323,7 @@ describe("parseConversation — Slack channel binding", () => {
 
   test("preserves Slack actor identity fields on channel bindings", () => {
     const parsed = parseConversation({
-      conversationKey: "conv-dm",
+      conversationId: "conv-dm",
       channelBinding: {
         sourceChannel: "slack",
         externalChatId: "D0123ABCDEF",
@@ -345,13 +345,13 @@ describe("parseConversation — Slack channel binding", () => {
   test("does not throw for malformed or absent channelBinding", () => {
     expect(
       parseConversation({
-        conversationKey: "conv-123",
+        conversationId: "conv-123",
         channelBinding: "slack",
       })?.channelBinding,
     ).toBeUndefined();
 
     const parsed = parseConversation({
-      conversationKey: "conv-456",
+      conversationId: "conv-456",
       channelBinding: {
         sourceChannel: "slack",
         externalChatId: 123,
