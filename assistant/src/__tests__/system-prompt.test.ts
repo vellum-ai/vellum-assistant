@@ -69,22 +69,24 @@ mock.module("../prompts/user-reference.js", () => ({
   resolveUserPronouns: () => null,
 }));
 
-// Stub persona-resolver so tests can dictate what
-// `buildSystemPrompt` sees for user/channel persona + slug without
-// needing to write contact rows to the test DB. Tests mutate
-// `mockPersona` in place; the default (all-null) matches a fresh
-// workspace with no contacts and no `users/default.md`.
+// Stub persona-resolver so tests can dictate the slug `buildSystemPrompt`
+// sees without needing to write contact rows to the test DB. The user
+// and channel persona files themselves now flow through bundled sections
+// (`10-user-persona` / `11-channel-persona`) that read from disk, so
+// persona *content* is exercised by writing the file under TEST_DIR
+// rather than mocking it here. Tests mutate `mockPersona` in place;
+// the default (all-null) matches a fresh workspace with no contacts
+// and no `users/default.md`.
 const mockPersona: {
-  userPersona: string | null;
-  channelPersona: string | null;
   userSlug: string | null;
-} = { userPersona: null, channelPersona: null, userSlug: null };
+  guardianPersona: string | null;
+} = { userSlug: null, guardianPersona: null };
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const realPersonaResolver = require("../prompts/persona-resolver.js");
 mock.module("../prompts/persona-resolver.js", () => ({
   ...realPersonaResolver,
-  resolvePersonaContext: () => mockPersona,
-  resolveGuardianPersona: () => mockPersona.userPersona,
+  resolveUserSlug: () => mockPersona.userSlug,
+  resolveGuardianPersona: () => mockPersona.guardianPersona,
 }));
 
 // Import after mock
@@ -133,10 +135,9 @@ describe("buildSystemPrompt", () => {
   beforeEach(() => {
     mkdirSync(TEST_DIR, { recursive: true });
     // Reset persona stub so each test starts from a fresh
-    // no-guardian / no-channel baseline.
-    mockPersona.userPersona = null;
-    mockPersona.channelPersona = null;
+    // no-guardian baseline.
     mockPersona.userSlug = null;
+    mockPersona.guardianPersona = null;
   });
 
   afterEach(() => {
@@ -148,6 +149,7 @@ describe("buildSystemPrompt", () => {
       "UPDATES.md",
       "skills",
       "users",
+      "channels",
     ]) {
       const p = join(TEST_DIR, name);
       if (existsSync(p)) rmSync(p, { recursive: true, force: true });
@@ -318,18 +320,55 @@ describe("buildSystemPrompt", () => {
     expect(basePrompt(result)).toBe("");
   });
 
-  test("includes resolved user persona in the dynamic block", () => {
-    // Persona resolution happens internally via resolvePersonaContext.
-    // Mutate the stub to simulate a guardian whose persona is loaded.
-    mockPersona.userPersona = "# User persona\n\nName: Alice";
+  test("includes resolved user persona in the static prefix", () => {
+    // User persona flows through the `10-user-persona` bundled section,
+    // which reads from `users/<userSlug>.md` (or `users/default.md` as
+    // a fallback).  Set the slug + write the file to exercise both.
+    mockPersona.userSlug = "alice";
+    mkdirSync(join(TEST_DIR, "users"), { recursive: true });
+    writeFileSync(
+      join(TEST_DIR, "users", "alice.md"),
+      "# User persona\n\nName: Alice",
+    );
     writeFileSync(join(TEST_DIR, "IDENTITY.md"), "Identity");
     writeFileSync(join(TEST_DIR, "SOUL.md"), "Soul");
     const result = buildSystemPrompt();
-    // IDENTITY and SOUL both render in the static (cached) prefix; only
-    // the user persona ends up in the dynamic block.
-    expect(basePrompt(result)).toBe("# User persona\n\nName: Alice");
+    // IDENTITY, SOUL, and the user persona all render in the static
+    // (cached) prefix as workspace-backed bundled sections; the dynamic
+    // block sliced by basePrompt is empty here.
+    expect(basePrompt(result)).toBe("");
     expect(result).toContain("Identity");
     expect(result).toContain("Soul");
+    expect(result).toContain("# User persona");
+    expect(result).toContain("Name: Alice");
+  });
+
+  test("user persona falls back to users/default.md when the slug's file is missing", () => {
+    // The `10-user-persona` section's workspacePath is
+    // `["users/{{userSlug}}.md", "users/default.md"]` — when the
+    // primary file doesn't exist the renderer falls through to default.
+    mockPersona.userSlug = "alice";
+    mkdirSync(join(TEST_DIR, "users"), { recursive: true });
+    writeFileSync(
+      join(TEST_DIR, "users", "default.md"),
+      "# Default persona\n\nNo contact bound.",
+    );
+    const result = buildSystemPrompt();
+    expect(result).toContain("# Default persona");
+    expect(result).toContain("No contact bound.");
+  });
+
+  test("includes channel persona from channels/<channelSlug>.md", () => {
+    // Channel persona flows through the `11-channel-persona` section.
+    // Default channel is "vellum" when no channelCapabilities passed.
+    mkdirSync(join(TEST_DIR, "channels"), { recursive: true });
+    writeFileSync(
+      join(TEST_DIR, "channels", "vellum.md"),
+      "# Channel persona\n\nThis is the Vellum channel.",
+    );
+    const result = buildSystemPrompt();
+    expect(result).toContain("# Channel persona");
+    expect(result).toContain("This is the Vellum channel.");
   });
 
   describe("BOOTSTRAP.md user persona placeholder", () => {

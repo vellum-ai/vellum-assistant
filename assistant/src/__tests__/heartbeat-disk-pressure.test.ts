@@ -91,13 +91,10 @@ mock.module("../notifications/emit-signal.js", () => ({
 mock.module("../prompts/persona-resolver.js", () => ({
   GUARDIAN_PERSONA_TEMPLATE: "# User Profile\n",
   resolveGuardianPersona: () => "# User Profile\n",
-  // buildSystemPrompt now resolves persona internally — give the mock
-  // a noop so the import doesn't fail.
-  resolvePersonaContext: () => ({
-    userPersona: null,
-    userSlug: null,
-    channelPersona: null,
-  }),
+  // buildSystemPrompt now uses resolveUserSlug (for ctx) instead of
+  // resolvePersonaContext — give the mock a noop so the import
+  // doesn't fail.
+  resolveUserSlug: () => null,
 }));
 
 mock.module("../memory/conversation-title-service.js", () => ({

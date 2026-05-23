@@ -61,20 +61,21 @@ mock.module("../prompts/user-reference.js", () => ({
   resolveUserPronouns: () => null,
 }));
 
-// Stub persona-resolver so tests can dictate persona values without
-// writing contact rows to the test DB. Tests mutate `mockPersona` in
-// place before calling buildSystemPrompt.
+// Stub persona-resolver so tests can dictate the slug `buildSystemPrompt`
+// sees without writing contact rows to the test DB. User and channel
+// persona content now flows through bundled sections that read files
+// directly, so tests write the persona file under TEST_DIR rather than
+// stubbing the content here.
 const mockPersona: {
-  userPersona: string | null;
-  channelPersona: string | null;
   userSlug: string | null;
-} = { userPersona: null, channelPersona: null, userSlug: null };
+  guardianPersona: string | null;
+} = { userSlug: null, guardianPersona: null };
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const realPersonaResolver = require("../prompts/persona-resolver.js");
 mock.module("../prompts/persona-resolver.js", () => ({
   ...realPersonaResolver,
-  resolvePersonaContext: () => mockPersona,
-  resolveGuardianPersona: () => mockPersona.userPersona,
+  resolveUserSlug: () => mockPersona.userSlug,
+  resolveGuardianPersona: () => mockPersona.guardianPersona,
 }));
 
 const { buildSystemPrompt, SYSTEM_PROMPT_CACHE_BOUNDARY } =
@@ -93,9 +94,8 @@ function dynamicBlock(result: string): string {
 describe("pre-chat onboarding contract", () => {
   beforeEach(() => {
     mkdirSync(TEST_DIR, { recursive: true });
-    mockPersona.userPersona = null;
-    mockPersona.channelPersona = null;
     mockPersona.userSlug = null;
+    mockPersona.guardianPersona = null;
   });
 
   afterEach(() => {
@@ -106,6 +106,8 @@ describe("pre-chat onboarding contract", () => {
       "BOOTSTRAP.md",
       "BOOTSTRAP-REFERENCE.md",
       "UPDATES.md",
+      "users",
+      "channels",
     ]) {
       const p = join(TEST_DIR, name);
       if (existsSync(p)) rmSync(p, { recursive: true, force: true });
@@ -449,21 +451,24 @@ describe("pre-chat onboarding contract", () => {
 
     test("userPersona is included independently of onboarding context", () => {
       // No BOOTSTRAP.md — the durable persona path after bootstrap is deleted.
-      // The persona is now resolved internally by buildSystemPrompt; the
-      // stub controls what it sees.
-      mockPersona.userPersona =
-        "# User Persona\n\nPrefers concise answers. Works in fintech.";
+      // User persona content now lives in `users/<slug>.md` and renders
+      // via the `10-user-persona` bundled section in the static prefix.
+      mkdirSync(join(TEST_DIR, "users"), { recursive: true });
+      writeFileSync(
+        join(TEST_DIR, "users", "default.md"),
+        "# User Persona\n\nPrefers concise answers. Works in fintech.",
+      );
 
       const result = buildSystemPrompt({
         // No onboardingContext — simulates post-onboarding conversation
       });
-      const dynamic = dynamicBlock(result);
 
       // Persona content appears in prompt even without bootstrap or onboarding
-      expect(dynamic).toContain("# User Persona");
-      expect(dynamic).toContain("Prefers concise answers. Works in fintech.");
+      expect(result).toContain("# User Persona");
+      expect(result).toContain("Prefers concise answers. Works in fintech.");
 
       // No onboarding section should be present
+      const dynamic = dynamicBlock(result);
       expect(dynamic).not.toContain("## First-Run User Context");
       expect(dynamic).not.toContain("First-Run Ritual");
     });
@@ -474,8 +479,14 @@ describe("pre-chat onboarding contract", () => {
         "# Bootstrap\n\nOnboarding flow.",
       );
 
-      mockPersona.userPersona =
-        "# User Persona\n\nEarly-stage startup founder. Likes bullet points.";
+      // User persona file renders via the `10-user-persona` section in
+      // the static prefix; onboarding context renders inside the
+      // First-Run Ritual block in the dynamic suffix.
+      mkdirSync(join(TEST_DIR, "users"), { recursive: true });
+      writeFileSync(
+        join(TEST_DIR, "users", "default.md"),
+        "# User Persona\n\nEarly-stage startup founder. Likes bullet points.",
+      );
       const context: OnboardingContext = {
         tools: ["slack"],
         tasks: ["writing"],
@@ -488,9 +499,10 @@ describe("pre-chat onboarding contract", () => {
       });
       const dynamic = dynamicBlock(result);
 
-      // Both persona and onboarding context appear
-      expect(dynamic).toContain("# User Persona");
-      expect(dynamic).toContain("Likes bullet points.");
+      // Both persona and onboarding context appear (persona in static
+      // prefix, onboarding in dynamic suffix)
+      expect(result).toContain("# User Persona");
+      expect(result).toContain("Likes bullet points.");
       expect(dynamic).toContain("## First-Run User Context");
       expect(dynamic).toContain("- Name: Dana");
       expect(dynamic).toContain("- Daily tools: Slack");

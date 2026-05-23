@@ -27,7 +27,7 @@ import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "./cache-boundary.js";
 import { normalizeOnboardingContext } from "./normalize-onboarding.js";
 import {
   resolveGuardianPersona,
-  resolvePersonaContext,
+  resolveUserSlug,
 } from "./persona-resolver.js";
 import { renderWorkspaceSections } from "./sections.js";
 import { isTemplateContent } from "./template-detection.js";
@@ -284,30 +284,18 @@ export function maybeReseedBootstrapForCohort(cohort: string): void {
  *
  * Composition:
  *   1. Bundled static sections (`renderWorkspaceSections`), in id-sort
- *      order.  This includes `08-identity` (IDENTITY.md) and `09-soul`
- *      (SOUL.md), both backed by workspace files.
- *   2. User and channel persona (resolved internally from
- *      `options.trustContext` / `options.channelCapabilities` via
- *      `resolvePersonaContext`) and accumulated VOICE.md, after the
- *      cache boundary.
+ *      order.  Includes `08-identity` (IDENTITY.md), `09-soul`
+ *      (SOUL.md), `10-user-persona` (`users/{{userSlug}}.md` →
+ *      `users/default.md`), and `11-channel-persona`
+ *      (`channels/{{channelSlug}}.md`), all backed by workspace files.
+ *   2. Accumulated VOICE.md, after the cache boundary.
  *   3. If BOOTSTRAP.md exists, the first-run ritual block.
  */
 export interface BuildSystemPromptOptions {
   hasNoClient?: boolean;
   excludeBootstrap?: boolean;
   excludeCustomPrefix?: boolean;
-  /**
-   * Per-turn identity context used to resolve the user persona file
-   * (`users/<slug>.md`). When `undefined` the resolver falls back to the
-   * guardian — appropriate for desktop/native and any background subsystem
-   * that wants the guardian's view of the world.
-   */
   trustContext?: TrustContext;
-  /**
-   * Per-turn channel capabilities used to resolve the channel persona file
-   * (`channels/<channel>.md`). When `undefined` the resolver defaults to
-   * the `vellum` channel.
-   */
   channelCapabilities?: ChannelCapabilities;
   onboardingContext?: OnboardingContext;
 }
@@ -334,19 +322,32 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   const bootstrap = readPromptFile(getWorkspacePromptPath("BOOTSTRAP.md"));
   const includeBootstrap = !!bootstrap && !options?.excludeBootstrap;
 
+  // Slugs used by the persona sections (`10-user-persona`,
+  // `11-channel-persona`) and the BOOTSTRAP block.  `userSlug` is the
+  // raw slug derived from the caller's trust context (falling back to
+  // the guardian's contact, then to "default" when nothing resolves);
+  // `users/<slug>.md → users/default.md` fallback lives in the
+  // section's `workspacePath` array.  `channelSlug` is the channel
+  // identifier from `channelCapabilities`, defaulting to "vellum".
+  const userSlug = resolveUserSlug(options?.trustContext) ?? "default";
+  const channelSlug = options?.channelCapabilities?.channel ?? "vellum";
+
   // Section render context.  Workspace section frontmatter `enabled:`
-  // predicates and `{{key}}` / `{{#flag}}...{{/flag}}` body interpolation
-  // both resolve against this map, so anything the renderer needs to see
-  // (runtime gates, paths) must be lifted onto `ctx` rather than branched
-  // on at the call site.  Mustache section tags `{{#flag}}` / `{{^flag}}`
-  // coerce `ctx[flag]` to boolean via `Boolean(...)`, so options that are
-  // undefined (caller didn't pass them) behave identically to false — no
-  // explicit normalization needed; `...options` is enough.
+  // predicates, `{{key}}` / `{{#flag}}...{{/flag}}` body interpolation,
+  // and `{{key}}` paths inside `workspacePath` all resolve against this
+  // map, so anything the renderer needs to see (runtime gates, slugs,
+  // paths) must be lifted onto `ctx` rather than branched on at the
+  // call site.  Mustache section tags `{{#flag}}` / `{{^flag}}` coerce
+  // `ctx[flag]` to boolean via `Boolean(...)`, so options that are
+  // undefined (caller didn't pass them) behave identically to false —
+  // no explicit normalization needed; `...options` is enough.
   const ctx = {
     ...options,
     isContainerized: getIsContainerized(),
     workspaceDir: getWorkspaceDir(),
     includeBootstrap,
+    userSlug,
+    channelSlug,
   };
 
   // Single array.  Everything pushed before `dynamicStart` lands in the
@@ -354,24 +355,13 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // The two halves are joined around `SYSTEM_PROMPT_CACHE_BOUNDARY` so the
   // Anthropic provider can key its prompt cache on the prefix.
   //
-  // IDENTITY.md and SOUL.md both render via workspace-backed bundled
-  // sections (`08-identity` / `09-soul`) inside `renderWorkspaceSections`,
-  // so they sit in the static prefix in that order.
+  // IDENTITY.md / SOUL.md / user persona / channel persona all render
+  // via workspace-backed bundled sections (`08-identity` / `09-soul` /
+  // `10-user-persona` / `11-channel-persona`) inside
+  // `renderWorkspaceSections`, so they sit in the static prefix in that
+  // order.
   const systemParts: string[] = [...renderWorkspaceSections(ctx)];
   const dynamicStart = systemParts.length;
-
-  // Resolve persona context internally — every caller used to do this
-  // dance before passing the resolved strings back in as options, which
-  // was pure duplication. The resolver itself handles the no-context
-  // fallback path (guardian), so callers that don't have a per-turn
-  // trust/channel context can simply omit those fields.
-  const persona = resolvePersonaContext(
-    options?.trustContext,
-    options?.channelCapabilities,
-  );
-
-  if (persona.userPersona) systemParts.push(persona.userPersona);
-  if (persona.channelPersona) systemParts.push(persona.channelPersona);
 
   // Surface accumulated voice markers when VOICE.md has content.
   const voiceContent = readPromptFile(getWorkspacePromptPath("VOICE.md"));
@@ -380,7 +370,6 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   }
 
   if (includeBootstrap) {
-    const userSlug = persona.userSlug ?? "default";
     const bootstrapWithSlug = bootstrap.replaceAll(
       "{{USER_PERSONA_FILE}}",
       `${userSlug}.md`,
