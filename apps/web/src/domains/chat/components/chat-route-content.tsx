@@ -519,11 +519,6 @@ export function ChatRouteContent({
   } = refs;
 
   // -------------------------------------------------------------------------
-  // Conversation starters (only needed for chat empty-state)
-  // -------------------------------------------------------------------------
-  const { starters: conversationStarters } = useConversationStarters(assistantId);
-
-  // -------------------------------------------------------------------------
   // Turn state (read from Zustand store)
   // -------------------------------------------------------------------------
   const phase = useTurnStore.use.phase();
@@ -647,6 +642,13 @@ export function ChatRouteContent({
     !isLoadingHistory &&
     messages.length === 0 &&
     !(assistantState.kind === "active" && assistantState.maintenanceMode?.enabled);
+
+  // Conversation starters power the empty-state chips only. Gate the fetch
+  // by `isEmptyConversation` so non-empty chats stop polling the daemon for
+  // data that's never rendered.
+  const { starters: conversationStarters } = useConversationStarters(
+    isEmptyConversation ? assistantId : null,
+  );
 
   const genericChatError = shouldShowGenericChatErrorNotice(error) && error
     ? {
