@@ -3,7 +3,7 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { AddCreditsModal } from "@/domains/settings/components/add-credits-modal.js";
+import { AddCreditsModal } from "@/components/add-credits-modal.js";
 import { AutoTopUpCard } from "@/domains/settings/components/auto-top-up-card.js";
 import { Button } from "@vellum/design-library/components/button";
 import { Card } from "@vellum/design-library/components/card";
