@@ -463,6 +463,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Plugins (read-only for now — install / uninstall stay CLI-side)
   { endpoint: "plugins:GET", scopes: ["settings.read"] },
   { endpoint: "plugins/search:GET", scopes: ["settings.read"] },
+  { endpoint: "plugins:DELETE", scopes: ["settings.write"] },
 
   // Memory items
   { endpoint: "memory-items:GET", scopes: ["settings.read"] },
