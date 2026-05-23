@@ -146,8 +146,7 @@ describe("fetchConversationLlmContext — legacy fallback (404)", () => {
 
     expect(requests).toHaveLength(1); // only the initial new-endpoint attempt
     expect(result).toEqual({
-      conversationKey: "conv-empty",
-      conversationId: null,
+      conversationId: "conv-empty",
       conversationKind: "user",
       conversationTotalEstimatedCostUsd: null,
       logs: [],
@@ -210,8 +209,7 @@ describe("fetchConversationLlmContext — legacy fallback (404)", () => {
       message_id: "msg-2",
     });
 
-    expect(result.conversationKey).toBe("conv-x");
-    expect(result.conversationId).toBe(null);
+    expect(result.conversationId).toBe("conv-x");
     expect(result.conversationKind).toBe("user");
     expect(result.conversationTotalEstimatedCostUsd).toBe(0.5);
     // Sorted ascending by createdAt; deduped on log.id.

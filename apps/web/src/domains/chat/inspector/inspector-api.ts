@@ -248,13 +248,7 @@ async function fetchConversationLlmContextFromPerMessage(
 
   if (messageIds.length === 0) {
     return {
-      // The wire field name `conversationKey` is preserved on
-      // `LlmContextResponse` (gated on LUM-1890). The synthetic legacy-
-      // fallback response echoes the caller's conversationId under that
-      // field to match what the daemon's `GET /v1/conversations/llm-context`
-      // endpoint emits.
-      conversationKey: conversationId,
-      conversationId: null,
+      conversationId,
       conversationKind: "user",
       conversationTotalEstimatedCostUsd: null,
       logs: [],
@@ -295,9 +289,7 @@ async function fetchConversationLlmContextFromPerMessage(
   allLogs.sort((a, b) => a.createdAt - b.createdAt);
 
   return {
-    // See note above: wire field name preserved on `LlmContextResponse`.
-    conversationKey: conversationId,
-    conversationId: null,
+    conversationId,
     conversationKind,
     conversationTotalEstimatedCostUsd,
     logs: allLogs,
