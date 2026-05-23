@@ -914,7 +914,7 @@ async function handleManagedConnect({ body = {} }: RouteHandlerArgs) {
     reqBody.requested_scopes = b.scopes;
   }
   reqBody.redirect_after_connect =
-    b.redirect_after_connect ?? "/account/oauth/desktop-complete";
+    b.redirect_after_connect ?? "/account/oauth/complete";
 
   const response = await client.fetch(startPath, {
     method: "POST",

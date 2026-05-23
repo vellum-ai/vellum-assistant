@@ -48,7 +48,7 @@ import { LoginPage } from "@/domains/account/pages/login-page.js";
 import { SignupPage } from "@/domains/account/pages/signup-page.js";
 import { ProviderCallbackPage } from "@/domains/account/pages/provider-callback-page.js";
 import { ProviderSignupPage } from "@/domains/account/pages/provider-signup-page.js";
-import { DesktopOAuthCompletePage } from "@/domains/account/pages/desktop-oauth-complete-page.js";
+import { OAuthCompletePage } from "@/domains/account/pages/oauth-complete-page.js";
 import { LogoutPage } from "@/domains/account/pages/logout-page.js";
 import { OAuthPopupCompletePage } from "@/domains/account/pages/oauth-popup-complete-page.js";
 import { PasswordResetPage } from "@/domains/account/pages/password-reset-page.js";
@@ -111,6 +111,22 @@ function HomePageRoute() {
   );
 }
 
+/**
+ * Redirects legacy `/account/oauth/desktop-complete` to the canonical
+ * `/account/oauth/complete`, preserving all query parameters. Older macOS
+ * and iOS Capacitor builds have the old path baked in.
+ */
+function OAuthDesktopCompleteRedirect() {
+  const [searchParams] = useSearchParams();
+  const qs = searchParams.toString();
+  return (
+    <Navigate
+      to={`${routes.account.oauth.complete}${qs ? `?${qs}` : ""}`}
+      replace
+    />
+  );
+}
+
 // Route tree — no basename, routes are absolute browser paths.
 // To view the full hierarchy at a glance:
 //   grep -n 'path:' apps/web/src/routes.tsx
@@ -130,9 +146,10 @@ export const router = createBrowserRouter(
         { path: "provider/callback", element: <ProviderCallbackPage /> },
         { path: "provider/signup", element: <ProviderSignupPage /> },
         { path: "oauth/popup-complete", element: <OAuthPopupCompletePage /> },
+        { path: "oauth/complete", element: <OAuthCompletePage /> },
         {
           path: "oauth/desktop-complete",
-          element: <DesktopOAuthCompletePage />,
+          element: <OAuthDesktopCompleteRedirect />,
         },
         { path: "password/reset", element: <PasswordResetPage /> },
         { path: "password/reset/key/:key", element: <PasswordResetPage /> },
