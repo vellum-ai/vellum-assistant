@@ -1,7 +1,7 @@
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 import { saveContextWindowUsage } from "@/domains/chat/utils/context-window-storage.js";
 import {
-  extractConversationKey,
+  extractConversationId,
   postLocalNotification,
   sendNotificationIntentAck,
 } from "@/runtime/notifications.js";
@@ -89,12 +89,12 @@ export function handleNotificationIntent(
     return;
   }
 
-  const metadataConversationKey = extractConversationKey(
+  const metadataConversationId = extractConversationId(
     event.deepLinkMetadata,
   );
   if (
-    metadataConversationKey &&
-    metadataConversationKey === ctx.activeConversationIdRef.current
+    metadataConversationId &&
+    metadataConversationId === ctx.activeConversationIdRef.current
   ) {
     if (ackAssistantId && event.deliveryId) {
       void sendNotificationIntentAck(
