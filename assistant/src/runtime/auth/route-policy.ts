@@ -460,8 +460,9 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "skills:DELETE", scopes: ["settings.write"] },
   { endpoint: "skills:PATCH", scopes: ["settings.write"] },
 
-  // Plugins (list-only for now — install / uninstall stay CLI-side)
+  // Plugins (read-only for now — install / uninstall stay CLI-side)
   { endpoint: "plugins:GET", scopes: ["settings.read"] },
+  { endpoint: "plugins/search:GET", scopes: ["settings.read"] },
 
   // Memory items
   { endpoint: "memory-items:GET", scopes: ["settings.read"] },

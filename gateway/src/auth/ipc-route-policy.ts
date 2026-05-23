@@ -315,6 +315,10 @@ const POLICY_TABLE: PolicyEntry[] = [
   ["settings_client_put", ["settings.write"]],
   ["settings_voice_put", ["settings.write"]],
 
+  // Plugins
+  ["plugins_list", ["settings.read"]],
+  ["plugins_search", ["settings.read"]],
+
   // Skills
   ["checkSkillUpdates", ["settings.write"]],
   ["configureSkill", ["settings.write"]],
