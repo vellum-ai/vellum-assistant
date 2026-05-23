@@ -942,6 +942,8 @@ function mergeToolResultsIntoAssistantMessages(
     }
 
     // Append tool_result blocks to the preceding assistant message's content.
+    // No-op at pagination boundaries (lastAssistantIdx < 0); orphan tool_results
+    // are silently dropped by renderHistoryContent downstream either way.
     if (lastAssistantIdx >= 0) {
       const assistant = result[lastAssistantIdx];
       let assistantContent = parsedAssistantContent.get(lastAssistantIdx);
@@ -955,14 +957,6 @@ function mergeToolResultsIntoAssistantMessages(
         parsedAssistantContent.set(lastAssistantIdx, assistantContent);
       }
       assistantContent.push(...toolResultBlocks);
-      // Merge case — fall through to the shared suppression check below.
-    } else {
-      // No preceding assistant message (pagination boundary). Orphan
-      // tool_result blocks get silently dropped by renderHistoryContent
-      // anyway (no matching tool_use in this page), so behave the same as
-      // the merge-success branch: keep otherBlocks when there's real user
-      // content, otherwise suppress the row instead of letting it arrive
-      // at the client as a blank bubble.
     }
 
     // If the user message had only tool_result (+ system_notice) blocks,
