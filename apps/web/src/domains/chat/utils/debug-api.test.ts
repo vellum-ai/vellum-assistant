@@ -10,7 +10,6 @@ import type { TranscriptHandle } from "@/domains/chat/transcript/use-transcript-
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import type { RuntimeMessage } from "@/domains/chat/api/messages.js";
 import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation.js";
-import type { TranscriptItem } from "@/domains/chat/transcript/types.js";
 import type {
   ChatDebugRefs,
   PendingInteractionsSnapshot,
@@ -48,22 +47,6 @@ function fakeRuntimeMessage(overrides: Partial<RuntimeMessage> = {}): RuntimeMes
     content: "hello",
     timestamp: Date.now(),
     ...overrides,
-  };
-}
-
-function fakeMessageItem(message: DisplayMessage): TranscriptItem {
-  return {
-    kind: "message",
-    key: message.stableId,
-    message,
-  };
-}
-
-function fakeThinkingItem(label?: string): TranscriptItem {
-  return {
-    kind: "thinking",
-    key: "thinking",
-    ...(label ? { label } : {}),
   };
 }
 
@@ -115,7 +98,6 @@ function makeRefs(
   };
   return {
     messagesRef: { current: [] } as MutableRefObject<DisplayMessage[]>,
-    transcriptItemsRef: { current: [] } as MutableRefObject<TranscriptItem[]>,
     transcriptRef: { current: null as TranscriptHandle | null },
     streamContextRef: { current: null } as MutableRefObject<{
       assistantId: string;
@@ -143,78 +125,64 @@ function makeRefs(
 // ---------------------------------------------------------------------------
 
 describe("createChatDebugApi.tail", () => {
-  test("empty transcript → empty tail", () => {
+  test("empty messagesRef → empty tail", () => {
     const api = createChatDebugApi(makeRefs());
     const result = api.tail();
     expect(result).toEqual([]);
   });
 
-  test("returns message items with correct shape", () => {
+  test("returns the underlying DisplayMessage objects untouched", () => {
     const message = fakeDisplayMessage({ content: "hello world" });
-    const transcriptItemsRef = {
-      current: [fakeMessageItem(message)],
-    } as MutableRefObject<TranscriptItem[]>;
-    const api = createChatDebugApi(makeRefs({ transcriptItemsRef }));
+    const messagesRef = {
+      current: [message],
+    } as MutableRefObject<DisplayMessage[]>;
+    const api = createChatDebugApi(makeRefs({ messagesRef }));
     const result = api.tail();
     expect(result).toHaveLength(1);
-    const item = result[0]!;
-    expect(item.kind).toBe("message");
-    expect(item.index).toBe(0);
-    expect(item.key).toBe("stable-1");
-    expect((item as { role: string }).role).toBe("assistant");
-    expect((item as { contentLength: number }).contentLength).toBe(11);
+    // Identity check — debug API must NOT project to a bespoke shape.
+    expect(result[0]).toBe(message);
   });
 
-  test("returns thinking items", () => {
-    const transcriptItemsRef = {
-      current: [fakeThinkingItem("Processing...")],
-    } as MutableRefObject<TranscriptItem[]>;
-    const api = createChatDebugApi(makeRefs({ transcriptItemsRef }));
-    const result = api.tail();
-    expect(result).toHaveLength(1);
-    expect(result[0]!.kind).toBe("thinking");
-    expect((result[0] as { label: string | null }).label).toBe("Processing...");
-  });
-
-  test("respects limit parameter", () => {
-    const items: TranscriptItem[] = Array.from({ length: 30 }, (_, i) =>
-      fakeMessageItem(fakeDisplayMessage({ stableId: `msg-${i}`, id: `id-${i}` })),
+  test("respects limit parameter (slices from the end)", () => {
+    const items: DisplayMessage[] = Array.from({ length: 30 }, (_, i) =>
+      fakeDisplayMessage({ stableId: `msg-${i}`, id: `id-${i}` }),
     );
-    const transcriptItemsRef = { current: items } as MutableRefObject<TranscriptItem[]>;
-    const api = createChatDebugApi(makeRefs({ transcriptItemsRef }));
+    const messagesRef = { current: items } as MutableRefObject<DisplayMessage[]>;
+    const api = createChatDebugApi(makeRefs({ messagesRef }));
     const result = api.tail(5);
     expect(result).toHaveLength(5);
-    expect(result[0]!.index).toBe(25);
-    expect(result[4]!.index).toBe(29);
+    expect(result[0]!.stableId).toBe("msg-25");
+    expect(result[4]!.stableId).toBe("msg-29");
   });
 
   test("defaults to 20 items when no limit", () => {
-    const items: TranscriptItem[] = Array.from({ length: 30 }, (_, i) =>
-      fakeMessageItem(fakeDisplayMessage({ stableId: `msg-${i}`, id: `id-${i}` })),
+    const items: DisplayMessage[] = Array.from({ length: 30 }, (_, i) =>
+      fakeDisplayMessage({ stableId: `msg-${i}`, id: `id-${i}` }),
     );
-    const transcriptItemsRef = { current: items } as MutableRefObject<TranscriptItem[]>;
-    const api = createChatDebugApi(makeRefs({ transcriptItemsRef }));
+    const messagesRef = { current: items } as MutableRefObject<DisplayMessage[]>;
+    const api = createChatDebugApi(makeRefs({ messagesRef }));
     const result = api.tail();
     expect(result).toHaveLength(20);
+    expect(result[0]!.stableId).toBe("msg-10");
   });
 
   test("returns all items when fewer than limit", () => {
-    const items: TranscriptItem[] = Array.from({ length: 5 }, (_, i) =>
-      fakeMessageItem(fakeDisplayMessage({ stableId: `msg-${i}`, id: `id-${i}` })),
+    const items: DisplayMessage[] = Array.from({ length: 5 }, (_, i) =>
+      fakeDisplayMessage({ stableId: `msg-${i}`, id: `id-${i}` }),
     );
-    const transcriptItemsRef = { current: items } as MutableRefObject<TranscriptItem[]>;
-    const api = createChatDebugApi(makeRefs({ transcriptItemsRef }));
+    const messagesRef = { current: items } as MutableRefObject<DisplayMessage[]>;
+    const api = createChatDebugApi(makeRefs({ messagesRef }));
     const result = api.tail(20);
     expect(result).toHaveLength(5);
-    expect(result[0]!.index).toBe(0);
+    expect(result[0]!.stableId).toBe("msg-0");
   });
 
   test("coerces invalid limit to default", () => {
-    const items: TranscriptItem[] = Array.from({ length: 30 }, (_, i) =>
-      fakeMessageItem(fakeDisplayMessage({ stableId: `msg-${i}`, id: `id-${i}` })),
+    const items: DisplayMessage[] = Array.from({ length: 30 }, (_, i) =>
+      fakeDisplayMessage({ stableId: `msg-${i}`, id: `id-${i}` }),
     );
-    const transcriptItemsRef = { current: items } as MutableRefObject<TranscriptItem[]>;
-    const api = createChatDebugApi(makeRefs({ transcriptItemsRef }));
+    const messagesRef = { current: items } as MutableRefObject<DisplayMessage[]>;
+    const api = createChatDebugApi(makeRefs({ messagesRef }));
     expect(api.tail(-1)).toHaveLength(20);
     expect(api.tail(NaN)).toHaveLength(20);
     expect(api.tail(Infinity)).toHaveLength(20);

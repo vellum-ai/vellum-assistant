@@ -36,7 +36,6 @@ import type {
 import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics.js";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation.js";
-import type { TranscriptItem } from "@/domains/chat/transcript/types.js";
 import {
   classifyScrollPosition,
   type TranscriptHandle,
@@ -56,91 +55,6 @@ import {
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
-
-export interface ChatDebugTailMessage {
-  index: number;
-  key: string;
-  kind: "message";
-  role: "user" | "assistant";
-  stableId: string;
-  id: string | null;
-  daemonMessageId: string | null;
-  timestamp: number | null;
-  isStreaming: boolean;
-  queueStatus: string | null;
-  queuePosition: number | null;
-  content: string;
-  contentLength: number;
-  toolCalls: Array<{
-    id: string;
-    toolName: string;
-    status: string;
-    isError: boolean;
-    resultLength: number | null;
-  }>;
-  surfaces: Array<{
-    surfaceId: string;
-    surfaceType: string;
-    title: string | null;
-    completed: boolean;
-  }>;
-  attachments: Array<{
-    id: string;
-    filename: string;
-    mimeType: string;
-    sizeBytes: number;
-  }>;
-}
-
-export type ChatDebugTailItem =
-  | ChatDebugTailMessage
-  | {
-      index: number;
-      key: string;
-      kind: "thinking";
-      label: string | null;
-    }
-  | {
-      index: number;
-      key: string;
-      kind: "pendingSecret" | "pendingConfirmation";
-      requestId: string;
-    }
-  | {
-      index: number;
-      key: string;
-      kind: "pendingContactRequest";
-      requestId: string;
-      channel: string | null;
-      label: string | null;
-      role: string | null;
-    }
-  | {
-      index: number;
-      key: string;
-      kind: "surface";
-      surfaceId: string;
-      surfaceType: string;
-      title: string | null;
-      completed: boolean;
-    }
-  | {
-      index: number;
-      key: string;
-      kind: "queuedMarker";
-      count: number;
-    }
-  | {
-      index: number;
-      key: string;
-      kind: "error";
-      message: string;
-    }
-  | {
-      index: number;
-      key: string;
-      kind: "onboardingChoice";
-    };
 
 /**
  * Per-condition snapshot returned by {@link ChatDebugApi.thinkingIndicator}.
@@ -289,11 +203,22 @@ export interface ChatDebugScrollState {
 /** The dev API surface attached to `window._vellumDebug.chat`. */
 export interface ChatDebugApi {
   /**
-   * Return up to `limit` transcript items currently projected for rendering.
-   * Items are returned in chronological transcript order; the last row is the
+   * Return up to `limit` chat messages currently held in memory, in the
+   * exact shape the UI consumes (`DisplayMessage`). The last row is the
    * current visual bottom of the chat.
+   *
+   * No bespoke projection — this is the same array the transcript
+   * iterates, so what you see in DevTools is what the UI sees. Each
+   * message carries `content`, `textSegments`, `toolCalls`, `surfaces`,
+   * and `contentOrder` as-is; cross-reference `contentOrder` against the
+   * entity arrays to reconstruct render order (the same lookup the
+   * transcript performs in `transcript-message-body.tsx`).
+   *
+   * Non-message transcript items (thinking indicator, pending prompts)
+   * have their own debug methods — see {@link thinkingIndicator} and
+   * {@link listPendingInteractions}.
    */
-  tail(limit?: number): ChatDebugTailItem[];
+  tail(limit?: number): DisplayMessage[];
   /**
    * Live evaluation of the thinking-indicator predicate
    * ({@link shouldShowThinkingIndicator}) plus turn-state lifecycle info.
@@ -371,7 +296,6 @@ const CHAT_NS = "chat";
  */
 export interface ChatDebugRefs {
   messagesRef: MutableRefObject<DisplayMessage[]>;
-  transcriptItemsRef: MutableRefObject<TranscriptItem[]>;
   /**
    * Ref to the mounted `<Transcript />` imperative handle. Used by
    * {@link ChatDebugApi.getScrollState} to read scroll geometry directly
@@ -441,115 +365,19 @@ export interface ChatDebugRefs {
   ) => Promise<RuntimeMessage[]>;
 }
 
-function summarizeTailItem(
-  item: TranscriptItem,
-  index: number,
-): ChatDebugTailItem {
-  switch (item.kind) {
-    case "message": {
-      const { message } = item;
-      return {
-        index,
-        key: item.key,
-        kind: "message",
-        role: message.role,
-        stableId: message.stableId,
-        id: message.id ?? null,
-        daemonMessageId: message.daemonMessageId ?? null,
-        timestamp: message.timestamp ?? null,
-        isStreaming: message.isStreaming === true,
-        queueStatus: message.queueStatus ?? null,
-        queuePosition: message.queuePosition ?? null,
-        content: message.content,
-        contentLength: message.content.length,
-        toolCalls: (message.toolCalls ?? []).map((toolCall) => ({
-          id: toolCall.id,
-          toolName: toolCall.toolName,
-          status: toolCall.status,
-          isError: toolCall.isError === true,
-          resultLength:
-            typeof toolCall.result === "string"
-              ? toolCall.result.length
-              : null,
-        })),
-        surfaces: (message.surfaces ?? []).map((surface) => ({
-          surfaceId: surface.surfaceId,
-          surfaceType: surface.surfaceType,
-          title: surface.title ?? null,
-          completed: surface.completed === true,
-        })),
-        attachments: (message.attachments ?? []).map((attachment) => ({
-          id: attachment.id,
-          filename: attachment.filename,
-          mimeType: attachment.mimeType,
-          sizeBytes: attachment.sizeBytes,
-        })),
-      };
-    }
-    case "thinking":
-      return {
-        index,
-        key: item.key,
-        kind: "thinking",
-        label: item.label ?? null,
-      };
-    case "pendingSecret":
-    case "pendingConfirmation":
-      return {
-        index,
-        key: item.key,
-        kind: item.kind,
-        requestId: item.requestId,
-      };
-    case "pendingContactRequest":
-      return {
-        index,
-        key: item.key,
-        kind: "pendingContactRequest",
-        requestId: item.requestId,
-        channel: item.channel ?? null,
-        label: item.label ?? null,
-        role: item.role ?? null,
-      };
-    case "surface":
-      return {
-        index,
-        key: item.key,
-        kind: "surface",
-        surfaceId: item.surface.surfaceId,
-        surfaceType: item.surface.surfaceType,
-        title: item.surface.title ?? null,
-        completed: item.surface.completed === true,
-      };
-    case "queuedMarker":
-      return {
-        index,
-        key: item.key,
-        kind: "queuedMarker",
-        count: item.count,
-      };
-    case "error":
-      return { index, key: item.key, kind: "error", message: item.message };
-    case "onboardingChoice":
-      return { index, key: item.key, kind: "onboardingChoice" };
-  }
-}
-
 /**
  * Build the {@link ChatDebugApi} closure-bound to a set of refs. Pure
  * factory so it can be unit-tested without a `window`.
  */
 export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
-  function tail(limit: number = DEFAULT_TAIL_LIMIT): ChatDebugTailItem[] {
+  function tail(limit: number = DEFAULT_TAIL_LIMIT): DisplayMessage[] {
     const safeLimit =
       Number.isFinite(limit) && limit > 0
         ? Math.floor(limit)
         : DEFAULT_TAIL_LIMIT;
-    const items = refs.transcriptItemsRef.current ?? [];
-    const startIndex = Math.max(0, items.length - safeLimit);
-    return items
-      .slice(startIndex)
-      .map((item, offset) => summarizeTailItem(item, startIndex + offset));
+    const messages = refs.messagesRef.current ?? [];
+    const startIndex = Math.max(0, messages.length - safeLimit);
+    return messages.slice(startIndex);
   }
 
   function thinkingIndicator(): ChatDebugThinkingIndicator {
@@ -779,7 +607,7 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
     const lines = [
       "window._vellumDebug.chat — surgical chat debug API",
       "",
-      "  .tail(n?)                  rendered transcript items; last row = visual chat bottom",
+      "  .tail(n?)                  last N DisplayMessage[] from messagesRef — raw UI shape",
       "  .thinkingIndicator()       live evaluation of the `...` predicate + done signal",
       "                              .visible / .failingConditions tell you why dots are or aren't showing",
       "                              .done.terminal / .done.lastTerminalReason tell you if the turn is finished",
@@ -862,7 +690,6 @@ export function useChatDebugApi(refs: ChatDebugRefs): void {
   useEffect(() => {
     const stableRefs: ChatDebugRefs = {
       messagesRef: refs.messagesRef,
-      transcriptItemsRef: refs.transcriptItemsRef,
       transcriptRef: refs.transcriptRef,
       streamContextRef: refs.streamContextRef,
       streamRef: refs.streamRef,
