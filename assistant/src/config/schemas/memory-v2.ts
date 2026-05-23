@@ -330,6 +330,15 @@ export const MemoryV2ConfigSchema = z
           .describe(
             "Number of recent (assistant, user) turn pairs to render inside the router prompt's `<last_turn>` block. Each pair is the assistant's reply followed by the user message that came after; the most recent pair's user line is the just-arrived turn that triggered the router. `1` (default) shows only the prior assistant reply plus the current user message — bit-identical to pre-knob behavior. Higher values walk further back through conversation history to give the router more dialogue context at the cost of larger per-turn prompt size. Pairs are emitted in chronological order (oldest first).",
           ),
+        historical_pairs_max_chars: z
+          .number()
+          .int()
+          .min(1)
+          .nullable()
+          .default(null)
+          .describe(
+            "Optional character cap on the total message content rendered inside `<last_turn>`. `null` (default) means no limit — every message inside the configured `historical_pairs` window is included verbatim. When set, the router walks the assembled pairs newest-first; messages are included until the budget is exhausted, at which point the oldest still-includable message is front-truncated with a leading `…` marker. Older pairs whose content does not fit are dropped entirely. The cap counts message content only — framing characters (`[assistant]: `, `[user]: `, newlines) are not deducted from the budget. Set this when raising `historical_pairs` on workspaces with long messages so the router prompt stays bounded.",
+          ),
       })
       .default({
         enabled: true,
@@ -339,6 +348,7 @@ export const MemoryV2ConfigSchema = z
         tier1_size: null,
         tier2_size: null,
         historical_pairs: 1,
+        historical_pairs_max_chars: null,
       })
       .describe(
         "LLM router configuration. When enabled, a single router LLM call replaces spreading activation for per-turn page selection.",
