@@ -192,7 +192,7 @@ export function useConversationHistory({
 
     recordChatDiagnostic("history_tq_data_apply", {
       assistantId,
-      conversationKey: activeConversationId,
+      conversationId: activeConversationId,
       isFreshSwitch,
       pageCount: pagination.latestPage ? 1 : 0,
       messageCount: pagination.messages.length,
@@ -206,7 +206,7 @@ export function useConversationHistory({
 
       recordChatDiagnostic("history_tq_set_messages", {
         assistantId,
-        conversationKey: activeConversationId,
+        conversationId: activeConversationId,
         isFreshSwitch,
         dismissedSurfaceCount: dismissedSurfaceIdsRef.current.size,
         filteredMessages: summarizeDisplayMessages(filteredMessages),
@@ -270,7 +270,7 @@ export function useConversationHistory({
     } else {
       recordChatDiagnostic("history_tq_empty", {
         assistantId,
-        conversationKey: activeConversationId,
+        conversationId: activeConversationId,
       });
       setIsLoadingHistory(false);
     }
@@ -313,16 +313,16 @@ export function useConversationHistory({
     // Restore pending interactions (secrets, confirmations).
     // Capture the key before the await so we can detect stale responses
     // when the user switches conversations while the request is in flight.
-    const requestedKey = activeConversationId;
+    const requestedConversationId = activeConversationId;
     void (async () => {
       try {
         const interactions = await getPendingInteractions(
           assistantId,
-          requestedKey,
+          requestedConversationId,
         );
         // Guard: if the active conversation changed during the fetch,
         // discard the result to avoid leaking state across conversations.
-        if (useConversationStore.getState().activeConversationId !== requestedKey) {
+        if (useConversationStore.getState().activeConversationId !== requestedConversationId) {
           return;
         }
         const parsed_secret = interactions.pendingSecret
@@ -342,7 +342,7 @@ export function useConversationHistory({
         if (!interactions.pendingSecret && !interactions.pendingConfirmation) {
           useConversationStore
             .getState()
-            .removeAttentionConversationId(requestedKey);
+            .removeAttentionConversationId(requestedConversationId);
         }
       } catch {
         // Keep attention key on failure.

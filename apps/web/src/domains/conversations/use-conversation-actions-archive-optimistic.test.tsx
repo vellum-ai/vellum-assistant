@@ -94,7 +94,7 @@ function seedClient(conversations: Conversation[]): QueryClient {
 
 function setupHook(opts: {
   conversations: Conversation[];
-  activeKey?: string | null;
+  activeConversationId?: string | null;
 }) {
   const client = seedClient(opts.conversations);
   const switchCalls: string[] = [];
@@ -105,13 +105,13 @@ function setupHook(opts: {
     () =>
       useConversationActions({
         assistantId: ASSISTANT_ID,
-        activeConversationId: opts.activeKey ?? null,
+        activeConversationId: opts.activeConversationId ?? null,
         conversations: opts.conversations,
         refreshConversations: async () => {
           refreshCalls += 1;
         },
-        switchConversation: (key: string) => {
-          switchCalls.push(key);
+        switchConversation: (conversationId: string) => {
+          switchCalls.push(conversationId);
         },
         startNewConversation: () => {
           startNewCalls.push(Date.now());
@@ -135,12 +135,12 @@ function setupHook(opts: {
 
 function readArchived(
   client: QueryClient,
-  key: string,
+  conversationId: string,
 ): number | undefined {
   const ctx = client.getQueryData<{ conversations: Conversation[] }>(
     chatContextQueryKey(ASSISTANT_ID),
   );
-  return ctx?.conversations.find((c) => c.conversationId === key)?.archivedAt;
+  return ctx?.conversations.find((c) => c.conversationId === conversationId)?.archivedAt;
 }
 
 /** Manually-controlled promise for staging in-flight API states in tests. */
@@ -198,7 +198,7 @@ describe("handleArchiveConversation — optimistic update", () => {
     const next = makeConversation({ conversationId: "next" });
     const { result, switchCalls } = setupHook({
       conversations: [archived, next],
-      activeKey: "active",
+      activeConversationId: "active",
     });
 
     const d = deferred();

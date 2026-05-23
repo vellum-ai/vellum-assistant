@@ -144,15 +144,15 @@ export function ArchivePage() {
   }, [conversations]);
 
   const handleUnarchive = useCallback(
-    async (conversationKey: string) => {
+    async (conversationId: string) => {
       if (!assistantId) return;
-      setPendingUnarchiveId(conversationKey);
+      setPendingUnarchiveId(conversationId);
       try {
-        await unarchiveConversation(assistantId, conversationKey);
+        await unarchiveConversation(assistantId, conversationId);
         setConversations((prev) => {
           if (!prev) return prev;
           return prev.map((c) =>
-            c.conversationId === conversationKey
+            c.conversationId === conversationId
               ? { ...c, archivedAt: undefined }
               : c,
           );

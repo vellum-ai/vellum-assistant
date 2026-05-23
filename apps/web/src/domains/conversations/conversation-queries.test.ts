@@ -25,10 +25,10 @@ import type { ChatContext } from "@/domains/chat/api/assistant.js";
 const ASSISTANT_ID = "ast-1";
 
 function makeConversation(
-  key: string,
+  conversationId: string,
   overrides?: Partial<Conversation>,
 ): Conversation {
-  return { conversationId: key, ...overrides } as Conversation;
+  return { conversationId, ...overrides } as Conversation;
 }
 
 function makeGroup(
