@@ -245,9 +245,12 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
         // (pkb-context 30, pkb-reminder 35, memory-v2-static 38,
         // now-md 40 — the v2 static block lands inside the memory
         // prefix, so now-md splices *after* it):
-        //   [<workspace>, <turn_context>, <memory __injected>,
-        //    <memory>\n…</memory>, <NOW.md>, <system_reminder>,
+        //   [<workspace>, <turn_context>, <memory>dynamic</memory>,
+        //    <info>v2static</info>, <NOW.md>, <system_reminder>,
         //    <knowledge_base>, ...original]
+        // The v2 static block is replayed verbatim from stored metadata,
+        // so rows may carry either `<info>…</info>` or `<memory>…</memory>`
+        // depending on when they were persisted.
         // Required so Anthropic's prefix cache keeps matching msg[0]
         // across daemon restart and conversation eviction. The tail
         // row only rehydrates `memoryInjectedBlock` — the next turn
@@ -274,11 +277,12 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
         }
 
         // The v2 static memory block (essentials/threads/recent/buffer
-        // wrapped in `<memory>…</memory>`) carries personal user memory.
-        // Trust-gated to mirror `shouldExposePersonalMemory` at injection
-        // time — untrusted-actor views must not read persisted personal
-        // memory back through metadata. Skipped on the tail row because
-        // the next turn re-injects fresh content on full-mode turns.
+        // wrapped in either `<info>…</info>` or `<memory>…</memory>`)
+        // carries personal user memory. Trust-gated to mirror
+        // `shouldExposePersonalMemory` at injection time — untrusted-actor
+        // views must not read persisted personal memory back through
+        // metadata. Skipped on the tail row because the next turn
+        // re-injects fresh content on full-mode turns.
         if (
           !isTail &&
           personalMemoryAllowed &&

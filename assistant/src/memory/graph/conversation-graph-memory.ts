@@ -808,16 +808,22 @@ export class ConversationGraphMemory {
 
 /**
  * Count the leading content blocks on a user message that were added by
- * `injectMemoryBlock`. Memory-injected images use a 3-block pattern
- * (opening `<memory_image>` text + image + closing `</memory_image>` text),
- * followed by a `<memory>…</memory>` text block (legacy `<memory __injected>` is also accepted).
- * The bare `<memory>` form is matched only when the block also ends with
- * `\n</memory>`, so user-authored content that happens to begin with
- * `<memory>` (for example, a message discussing the XML-like markup) is not
- * mistaken for an injected prefix and stripped on re-injection. A legacy
- * 2-block image pattern (no closing tag) is also accepted for backward
- * compatibility. The injection prefix is always contiguous at the start,
- * so we stop at the first non-memory block.
+ * `injectMemoryBlock` or the `memory-v2-static` injector. Memory-injected
+ * images use a 3-block pattern (opening `<memory_image>` text + image +
+ * closing `</memory_image>` text), followed by a `<memory>…</memory>` text
+ * block (legacy `<memory __injected>` is also accepted). The static
+ * memory-v2 block uses `<info>…</info>` and is also counted here so that
+ * `after-memory-prefix` splices for subsequent injectors (e.g. `now-md`)
+ * land after both the dynamic and static blocks.
+ *
+ * The bare `<memory>` and `<info>` forms are matched only when the block
+ * also ends with the corresponding closing tag, so user-authored content
+ * that happens to begin with `<memory>` or `<info>` (for example, a
+ * message discussing the XML-like markup) is not mistaken for an injected
+ * prefix and stripped on re-injection. A legacy 2-block image pattern (no
+ * closing tag) is also accepted for backward compatibility. The injection
+ * prefix is always contiguous at the start, so we stop at the first
+ * non-memory block.
  */
 export function countMemoryPrefixBlocks(content: ContentBlock[]): number {
   let firstNonMemory = 0;
@@ -829,6 +835,8 @@ export function countMemoryPrefixBlocks(content: ContentBlock[]): number {
       block.type === "text" &&
       ((block.text.startsWith("<memory>\n") &&
         block.text.endsWith("\n</memory>")) ||
+        (block.text.startsWith("<info>\n") &&
+          block.text.endsWith("\n</info>")) ||
         block.text.startsWith("<memory __injected>\n"))
     ) {
       firstNonMemory++;
