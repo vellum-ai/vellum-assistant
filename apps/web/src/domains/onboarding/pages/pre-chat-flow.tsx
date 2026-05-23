@@ -7,6 +7,7 @@ import { useIsIOSWeb } from "@/domains/nudges/ios-app-platform.js";
 import { readIOSAppDownloaded } from "@/domains/nudges/ios-app-prefs.js";
 import { useIsMacOSWeb } from "@/domains/nudges/mac-app-platform.js";
 import { readMacOsAppDownloaded } from "@/domains/nudges/mac-app-prefs.js";
+import { persistContentAutomationPreChatHandoff } from "@/domains/onboarding/content-automation.js";
 import { GetIOSAppScreen } from "@/domains/onboarding/screens/get-ios-app-screen.js";
 import { GetMacOSAppScreen } from "@/domains/onboarding/screens/get-macos-app-screen.js";
 import { GoogleConnectScreen } from "@/domains/onboarding/screens/google-connect-screen.js";
@@ -190,15 +191,7 @@ export function PreChatFlow() {
     if (autoSkippedRef.current) return;
     autoSkippedRef.current = true;
 
-    const context: PreChatOnboardingContext = {
-      tools: [],
-      tasks: ["writing", "research", "project-management"],
-      tone: DEFAULT_GROUP_ID,
-      googleConnected: false,
-      cohort: "content-automation",
-      initialMessage: "I want to write articles that rank better for GEO.",
-    };
-    setPendingPreChatContext(context);
+    persistContentAutomationPreChatHandoff();
     try {
       setOnboardingCompleted(true);
     } catch (err) {
