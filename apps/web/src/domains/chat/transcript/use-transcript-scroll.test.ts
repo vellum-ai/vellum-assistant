@@ -537,4 +537,41 @@ describe("integration — items-effect dispatch on underfilled viewport", () => 
     if (c.shouldLoadOlder) onLoadOlder();
     expect(onLoadOlder).not.toHaveBeenCalled();
   });
+
+  test("chain-load: false→true→false sequence kicks again when still underfilled", () => {
+    // Codex P1 regression. The dispatch site must observe the CURRENT
+    // render's isLoadingOlder flag, not a stale ref. Sequence:
+    //   1. Initial:    isLoadingOlder=false, items underfill → kick.
+    //   2. Loading:    isLoadingOlder=true,  same items     → no kick.
+    //   3. Prepended:  isLoadingOlder=false, items grew but still
+    //                  underfill → MUST kick again to chain-load.
+    // If the dispatch reads a stale flag from the previous render, step 3
+    // sees isLoadingOlder=true and silently skips the kick, stranding
+    // conversations that need multiple older pages to overflow.
+    const onLoadOlder = mock(() => {});
+
+    // Step 1: initial, underfilled
+    let c = classifyScrollPosition(
+      { scrollTop: 0, scrollHeight: 1370, clientHeight: 1370 },
+      { hasMore: true, isLoadingOlder: false, hasConversation: true },
+    );
+    if (c.shouldLoadOlder) onLoadOlder();
+    expect(onLoadOlder).toHaveBeenCalledTimes(1);
+
+    // Step 2: loading in flight
+    c = classifyScrollPosition(
+      { scrollTop: 0, scrollHeight: 1370, clientHeight: 1370 },
+      { hasMore: true, isLoadingOlder: true, hasConversation: true },
+    );
+    if (c.shouldLoadOlder) onLoadOlder();
+    expect(onLoadOlder).toHaveBeenCalledTimes(1);
+
+    // Step 3: prepend landed but still underfilled
+    c = classifyScrollPosition(
+      { scrollTop: 0, scrollHeight: 2200, clientHeight: 2200 },
+      { hasMore: true, isLoadingOlder: false, hasConversation: true },
+    );
+    if (c.shouldLoadOlder) onLoadOlder();
+    expect(onLoadOlder).toHaveBeenCalledTimes(2);
+  });
 });

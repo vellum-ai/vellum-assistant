@@ -369,8 +369,10 @@ export function useTranscriptScroll(
     // browser does NOT fire a scroll event when scrollHeight grows under
     // a stationary scrollTop (the streaming case), so without this the
     // "Go to Newest" pill would only surface once the user touched the
-    // scroll wheel. Reading via the latestRef avoids putting the
-    // hasMore/isLoadingOlder/conversationKey flags in the dep array.
+    // scroll wheel. Read flags from closure (not latestRef) so the
+    // prepend render sees the just-flipped isLoadingOlder=false instead
+    // of the previous render's snapshot; latestRef is refreshed by a
+    // later useEffect that hasn't fired yet at this point.
     const el = transcriptRef.current?.getScrollElement();
     if (el) {
       const classification = classifyScrollPosition(
@@ -380,18 +382,15 @@ export function useTranscriptScroll(
           clientHeight: el.clientHeight,
         },
         {
-          hasMore: latestRef.current.hasMore,
-          isLoadingOlder: latestRef.current.isLoadingOlder,
-          hasConversation: latestRef.current.conversationKey !== null,
+          hasMore,
+          isLoadingOlder,
+          hasConversation: conversationKey !== null,
         },
       );
-      if (classification.isPinned !== latestRef.current.isPinnedToLatest) {
+      if (classification.isPinned !== isPinnedToLatest) {
         setIsPinnedToLatest(classification.isPinned);
       }
-      if (
-        classification.showScrollToLatest !==
-        latestRef.current.showScrollToLatest
-      ) {
+      if (classification.showScrollToLatest !== showScrollToLatest) {
         setShowScrollToLatest(classification.showScrollToLatest);
       }
 
@@ -399,7 +398,7 @@ export function useTranscriptScroll(
       // from here. Skip the anchor save during auto-pin (resize observer re-pins).
       if (classification.shouldLoadOlder) {
         if (!shouldAutoPinRef.current) {
-          const firstItem = latestRef.current.items[0];
+          const firstItem = items[0];
           if (firstItem) {
             savedAnchorRef.current = {
               key: firstItem.key,
@@ -408,10 +407,19 @@ export function useTranscriptScroll(
             };
           }
         }
-        latestRef.current.onLoadOlder();
+        onLoadOlder();
       }
     }
-  }, [items, conversationKey, transcriptRef]);
+  }, [
+    items,
+    conversationKey,
+    transcriptRef,
+    hasMore,
+    isLoadingOlder,
+    onLoadOlder,
+    isPinnedToLatest,
+    showScrollToLatest,
+  ]);
 
   // -----------------------------------------------------------------------
   // Container resize re-pin. When the scroll container resizes (e.g. the
