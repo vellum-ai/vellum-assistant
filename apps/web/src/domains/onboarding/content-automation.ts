@@ -1,5 +1,4 @@
 import {
-  setPendingInitialMessage,
   setPendingPreChatContext,
   type PreChatOnboardingContext,
 } from "@/domains/onboarding/prechat.js";
@@ -15,11 +14,10 @@ export function buildContentAutomationPreChatContext(): PreChatOnboardingContext
     tone: DEFAULT_GROUP_ID,
     googleConnected: false,
     cohort: "content-automation",
+    initialMessage: CONTENT_AUTOMATION_INITIAL_MESSAGE,
   };
 }
 
 export function persistContentAutomationPreChatHandoff(): void {
-  const context = buildContentAutomationPreChatContext();
-  setPendingPreChatContext(context);
-  setPendingInitialMessage(CONTENT_AUTOMATION_INITIAL_MESSAGE);
+  setPendingPreChatContext(buildContentAutomationPreChatContext());
 }

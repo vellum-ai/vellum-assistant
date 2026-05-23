@@ -5,10 +5,7 @@ import {
   CONTENT_AUTOMATION_INITIAL_MESSAGE,
   persistContentAutomationPreChatHandoff,
 } from "@/domains/onboarding/content-automation.js";
-import {
-  INITIAL_MESSAGE_KEY,
-  STORAGE_KEY,
-} from "@/domains/onboarding/prechat.js";
+import { STORAGE_KEY } from "@/domains/onboarding/prechat.js";
 
 class MemoryStorage implements Storage {
   private store = new Map<string, string>();
@@ -68,25 +65,24 @@ describe("content automation onboarding handoff", () => {
     uninstallStorage();
   });
 
-  test("builds the cohort context used by the auto-skip path", () => {
-    expect(buildContentAutomationPreChatContext()).toEqual({
+  test("builds the cohort context with initialMessage", () => {
+    const context = buildContentAutomationPreChatContext();
+    expect(context).toEqual({
       tools: [],
       tasks: ["writing", "research", "project-management"],
       tone: "grounded",
       googleConnected: false,
       cohort: "content-automation",
+      initialMessage: CONTENT_AUTOMATION_INITIAL_MESSAGE,
     });
   });
 
-  test("persists both the pre-chat context and the chat auto-send key", () => {
+  test("persists context (including initialMessage) to a single storage key", () => {
     persistContentAutomationPreChatHandoff();
 
     const storage = (globalThis as { sessionStorage: Storage }).sessionStorage;
-    expect(storage.getItem(INITIAL_MESSAGE_KEY)).toBe(
-      CONTENT_AUTOMATION_INITIAL_MESSAGE,
-    );
-    expect(JSON.parse(storage.getItem(STORAGE_KEY) ?? "{}")).toEqual(
-      buildContentAutomationPreChatContext(),
-    );
+    const persisted = JSON.parse(storage.getItem(STORAGE_KEY) ?? "{}");
+    expect(persisted).toEqual(buildContentAutomationPreChatContext());
+    expect(persisted.initialMessage).toBe(CONTENT_AUTOMATION_INITIAL_MESSAGE);
   });
 });

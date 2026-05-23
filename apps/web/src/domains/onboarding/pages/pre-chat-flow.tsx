@@ -21,7 +21,6 @@ import { assistantsActiveRetrieveOptions } from "@/generated/api/@tanstack/react
 import { usePrefilledInput } from "@/hooks/use-prefilled-input.js";
 import {
   setPendingAssistantName,
-  setPendingInitialMessage,
   setPendingPreChatContext,
   type PreChatOnboardingContext,
 } from "@/domains/onboarding/prechat.js";
@@ -229,7 +228,6 @@ export function PreChatFlow() {
 
     setPendingPreChatContext(context);
     if (trimmedAssistant) setPendingAssistantName(trimmedAssistant);
-    setPendingInitialMessage(context.initialMessage!);
     try {
       setOnboardingCompleted(true);
     } catch (err) {
@@ -305,7 +303,6 @@ export function PreChatFlow() {
       if (trimmedAssistant) {
         setPendingAssistantName(trimmedAssistant);
       }
-      setPendingInitialMessage(context.initialMessage);
       if (screenStorageKey) {
         try {
           sessionStorage.removeItem(screenStorageKey);
