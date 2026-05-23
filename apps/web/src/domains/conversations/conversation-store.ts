@@ -6,7 +6,7 @@
  * state that has no server counterpart:
  *
  * - `activeConversationId` — URL/navigation-local selection
- * - `editingConversationKey` — UI mode (app-edit-chat target)
+ * - `editingConversationId` — UI mode (app-edit-chat target)
  * - `processingKeys` — in-flight assistant responses
  * - `processingSnapshots` — `latestAssistantMessageAt` snapshot taken when
  *   each key was added to `processingKeys`; the attention-tracking
@@ -65,7 +65,7 @@ function deleteFromMap<K, V>(prev: Map<K, V>, key: K): Map<K, V> {
 
 export interface ConversationListState {
   activeConversationId: string | null;
-  editingConversationKey: string | null;
+  editingConversationId: string | null;
   processingKeys: Set<string>;
   processingSnapshots: Map<string, string | undefined>;
   attentionKeys: Set<string>;
@@ -74,7 +74,7 @@ export interface ConversationListState {
 export interface ConversationListActions {
   // --- Active / editing key ---
   setActiveConversationId: (key: string | null) => void;
-  setEditingKey: (key: string | null) => void;
+  setEditingConversationId: (key: string | null) => void;
 
   // --- Processing keys (and their snapshots, kept atomic) ---
   addProcessingKey: (key: string, snapshot?: string) => void;
@@ -97,7 +97,7 @@ type ConversationListStore = ConversationListState & ConversationListActions;
 
 const INITIAL_STATE: ConversationListState = {
   activeConversationId: null,
-  editingConversationKey: null,
+  editingConversationId: null,
   processingKeys: new Set(),
   processingSnapshots: new Map(),
   attentionKeys: new Set(),
@@ -117,8 +117,8 @@ export const useConversationStore = createSelectors(
       set({ activeConversationId: key });
     },
 
-    setEditingKey: (key) => {
-      set({ editingConversationKey: key });
+    setEditingConversationId: (key) => {
+      set({ editingConversationId: key });
     },
 
     // --- Processing keys ---

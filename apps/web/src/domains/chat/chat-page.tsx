@@ -192,7 +192,7 @@ export function ChatPage() {
   // Zustand store selectors
   // -------------------------------------------------------------------------
   const activeConversationId = useConversationStore.use.activeConversationId();
-  const editingConversationKey = useConversationStore.use.editingConversationKey();
+  const editingConversationId = useConversationStore.use.editingConversationId();
   const processingKeys = useConversationStore.use.processingKeys();
   const viewerState = useViewerStore(useShallow((s) => ({
     mainView: s.mainView,
@@ -227,7 +227,7 @@ export function ChatPage() {
         activeAppId === appId &&
         (mainView === "app" || mainView === "app-editing")
       ) {
-        useConversationStore.getState().setEditingKey(null);
+        useConversationStore.getState().setEditingConversationId(null);
       }
     },
     [],
@@ -1188,7 +1188,7 @@ export function ChatPage() {
       await useViewerStore.getState().loadApp(assistantId, appId);
       const { activeAppId, openedAppState } = useViewerStore.getState();
       if (activeConversationId && openedAppState && activeAppId === appId) {
-        useConversationStore.getState().setEditingKey(activeConversationId);
+        useConversationStore.getState().setEditingConversationId(activeConversationId);
         useViewerStore.getState().enterAppEditing();
       }
     },
@@ -1436,7 +1436,7 @@ export function ChatPage() {
     mainView: viewerState.mainView,
     openedAppState: viewerState.openedAppState,
     openedDocumentState: viewerState.openedDocumentState,
-    editingConversationKey,
+    editingConversationId,
     restoredDraftConversationKey,
     setRestoredDraftConversationKey,
     saveDraft,
@@ -1532,11 +1532,11 @@ export function ChatPage() {
     },
     handleCloseApp: () => {
       useViewerStore.getState().closeApp();
-      useConversationStore.getState().setEditingKey(null);
+      useConversationStore.getState().setEditingConversationId(null);
       useViewerStore.getState().setMainView("chat");
     },
     handleCloseEditPanel: () => {
-      useConversationStore.getState().setEditingKey(null);
+      useConversationStore.getState().setEditingConversationId(null);
       useViewerStore.getState().exitAppEditing();
     },
     handleEditApp: () => {
@@ -1546,7 +1546,7 @@ export function ChatPage() {
       const appId = openedAppState.appId;
       const conversationKey = getEditChatKey(assistantId, appId) ?? crypto.randomUUID();
       setEditChatKey(assistantId, appId, conversationKey);
-      useConversationStore.getState().setEditingKey(conversationKey);
+      useConversationStore.getState().setEditingConversationId(conversationKey);
       useViewerStore.getState().enterAppEditing();
 
       if (activeConversationId !== conversationKey) {
@@ -1669,7 +1669,7 @@ export function ChatPage() {
               }}
               onClose={() => {
                 useViewerStore.getState().closeApp();
-                useConversationStore.getState().setEditingKey(null);
+                useConversationStore.getState().setEditingConversationId(null);
                 useViewerStore.getState().setMainView("chat");
               }}
               onShare={() => {

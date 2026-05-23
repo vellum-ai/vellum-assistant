@@ -22,10 +22,10 @@ describe("useConversationStore", () => {
     });
   });
 
-  describe("setEditingKey", () => {
+  describe("setEditingConversationId", () => {
     it("sets the editing conversation key", () => {
-      getState().setEditingKey("edit-1");
-      expect(getState().editingConversationKey).toBe("edit-1");
+      getState().setEditingConversationId("edit-1");
+      expect(getState().editingConversationId).toBe("edit-1");
     });
   });
 
@@ -143,12 +143,12 @@ describe("useConversationStore", () => {
 
   it("reset clears all state", () => {
     getState().setActiveConversationId("a");
-    getState().setEditingKey("edit");
+    getState().setEditingConversationId("edit");
     getState().addProcessingKey("k1");
     getState().addAttentionKey("a1");
     getState().reset();
     expect(getState().activeConversationId).toBeNull();
-    expect(getState().editingConversationKey).toBeNull();
+    expect(getState().editingConversationId).toBeNull();
     expect(getState().processingKeys.size).toBe(0);
     expect(getState().attentionKeys.size).toBe(0);
   });

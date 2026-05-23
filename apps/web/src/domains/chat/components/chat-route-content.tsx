@@ -284,7 +284,7 @@ export interface ChatRouteContentProps {
   mainView: MainView;
   openedAppState: OpenedAppState | null;
   openedDocumentState: OpenedDocumentState | null;
-  editingConversationKey: string | null;
+  editingConversationId: string | null;
 
   // Draft
   restoredDraftConversationKey: string | null;
@@ -404,7 +404,7 @@ export function ChatRouteContent({
   mainView,
   openedAppState,
   openedDocumentState,
-  editingConversationKey,
+  editingConversationId,
   restoredDraftConversationKey,
   setRestoredDraftConversationKey,
   saveDraft,
@@ -1303,7 +1303,7 @@ export function ChatRouteContent({
   // Render
   // -------------------------------------------------------------------------
 
-  if (mainView === "app-editing" && openedAppState && editingConversationKey) {
+  if (mainView === "app-editing" && openedAppState && editingConversationId) {
     return (
       <ResizablePanel
         storageKey="appEditPanelWidth"
