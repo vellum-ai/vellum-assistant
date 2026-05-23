@@ -265,7 +265,7 @@ export function ChatPage() {
   const onboardingDraftConversationKeyRef = useRef<string | null>(null);
   const [didOnboarding, setDidOnboarding] = useState(false);
   const [onboardingTasksEmpty, setOnboardingTasksEmpty] = useState(false);
-  const [onboardingConversationKey, setOnboardingConversationKey] = useState<string | null>(null);
+  const [onboardingConversationId, setOnboardingConversationId] = useState<string | null>(null);
   const draftKeyResolutionRef = useRef(false);
   const previousConversationKeyRef = useRef<string | null>(null);
   const pendingQueuedStableIdsRef = useRef<string[]>([]);
@@ -478,7 +478,7 @@ export function ChatPage() {
     const onboardingDraftKey =
       onboardingDraftConversationKeyRef.current ?? createDraftConversationKey();
     onboardingDraftConversationKeyRef.current = onboardingDraftKey;
-    setOnboardingConversationKey(onboardingDraftKey);
+    setOnboardingConversationId(onboardingDraftKey);
     useConversationStore.getState().setActiveConversationId(onboardingDraftKey);
     // Do NOT drain sessionStorage here — this ChatPage instance unmounts
     // when we navigate to /conversations/:key (different route entry),
@@ -1603,7 +1603,7 @@ export function ChatPage() {
     isChannelReadonly,
     onboardingTasksEmpty,
     didOnboarding,
-    onboardingConversationKey,
+    onboardingConversationId,
   };
 
   return (
