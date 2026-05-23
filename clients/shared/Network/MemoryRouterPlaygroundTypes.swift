@@ -17,16 +17,30 @@ public enum MemoryRouterOverride: Equatable, Sendable {
     case disable
 }
 
+/// One `(assistant, user)` turn pair rendered inside `<last_turn>`. The
+/// last pair in ``MemoryRouterSimulateInput.recentTurnPairs`` represents
+/// the just-arrived user turn the router is routing for; earlier pairs
+/// are conversation history. `assistantMessage` may be empty on the
+/// oldest pair for a first-turn scenario — the daemon skips the
+/// `[assistant]:` line in that case.
+public struct RecentTurnPair: Equatable, Sendable {
+    public let assistantMessage: String
+    public let userMessage: String
+
+    public init(assistantMessage: String, userMessage: String) {
+        self.assistantMessage = assistantMessage
+        self.userMessage = userMessage
+    }
+}
+
 /// Parsed form input for the playground. Encoded into the wire JSON by
 /// ``MemoryRouterPlaygroundClient`` so the explicit-null branch is handled
 /// in one place instead of leaking through a custom Codable.
 public struct MemoryRouterSimulateInput: Equatable, Sendable {
-    /// The just-arrived user turn — what would have triggered the router on
-    /// a real turn. Required.
-    public let userMessage: String
-    /// Prior assistant reply. `nil` or empty means "first-turn scenario"
-    /// and the daemon renders `<last_turn>` without an `[assistant]:` line.
-    public let assistantMessage: String?
+    /// Recent (assistant, user) turn pairs, oldest first. Must contain at
+    /// least one entry; the last entry's `userMessage` is the just-arrived
+    /// turn that triggered the router.
+    public let recentTurnPairs: [RecentTurnPair]
     /// Verbatim `<now>` body. `nil` means "let the daemon load the live
     /// NOW.md" (production-like default).
     public let nowText: String?
@@ -40,8 +54,7 @@ public struct MemoryRouterSimulateInput: Equatable, Sendable {
     public let routerPromptOverride: String?
 
     public init(
-        userMessage: String,
-        assistantMessage: String? = nil,
+        recentTurnPairs: [RecentTurnPair],
         nowText: String? = nil,
         tier1Size: MemoryRouterOverride = .inherit,
         tier2Size: MemoryRouterOverride = .inherit,
@@ -49,8 +62,7 @@ public struct MemoryRouterSimulateInput: Equatable, Sendable {
         profileOverride: String? = nil,
         routerPromptOverride: String? = nil
     ) {
-        self.userMessage = userMessage
-        self.assistantMessage = assistantMessage
+        self.recentTurnPairs = recentTurnPairs
         self.nowText = nowText
         self.tier1Size = tier1Size
         self.tier2Size = tier2Size

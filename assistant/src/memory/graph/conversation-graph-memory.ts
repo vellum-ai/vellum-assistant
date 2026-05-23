@@ -35,6 +35,7 @@ import {
   type InjectMemoryV2Mode,
 } from "../v2/injection.js";
 import { loadNowText } from "../v2/now-text.js";
+import type { RouterTurnPair } from "../v2/router.js";
 import {
   loadGraphMemoryState,
   saveGraphMemoryState,
@@ -440,8 +441,11 @@ export class ConversationGraphMemory {
       messages,
       config,
       "context-load",
+      // Context-load runs before the messages array necessarily contains
+      // the just-arrived user turn (post-compaction restore, turn 1
+      // sketch), so override with the resolved user text rather than
+      // walking back through `messages`.
       rawUserText ?? userQuery ?? "",
-      "",
       signal,
     );
 
@@ -605,8 +609,7 @@ export class ConversationGraphMemory {
       messages,
       config,
       "per-turn",
-      userLast,
-      assistantLast,
+      null,
       signal,
     );
     if (v2.routed) {
@@ -762,8 +765,14 @@ export class ConversationGraphMemory {
     messages: Message[],
     config: AssistantConfig,
     mode: InjectMemoryV2Mode,
-    userMessage: string,
-    assistantMessage: string,
+    /**
+     * Override for the just-arrived user message text. Used by
+     * `runContextLoad` where the conversation history may not yet contain
+     * the user message that triggered the load (e.g. turn 1 / post-
+     * compaction restoration). When provided, the extracted pairs array
+     * is replaced with `[{ assistantMessage: "", userMessage: override }]`.
+     */
+    userMessageOverride: string | null,
     signal: AbortSignal,
   ): Promise<{
     routed: boolean;
@@ -776,13 +785,17 @@ export class ConversationGraphMemory {
 
     const nowText = await loadNowText(getWorkspaceDir());
     const currentTurn = this.tracker.getTurn();
+    const historicalPairs = config.memory.v2.router.historical_pairs;
+    const recentTurnPairs =
+      userMessageOverride !== null
+        ? [{ assistantMessage: "", userMessage: userMessageOverride }]
+        : extractRecentTurnPairs(messages, historicalPairs);
 
     const result = await injectMemoryV2Block({
       database: getDb(),
       conversationId: this.conversationId,
       currentTurn,
-      userMessage,
-      assistantMessage,
+      recentTurnPairs,
       nowText,
       messageId: `${this.conversationId}:turn:${currentTurn}`,
       mode,
@@ -990,4 +1003,66 @@ function readRawUserText(message: Message | undefined): string | null {
     .filter((t) => t.length > 0);
   if (texts.length === 0) return null;
   return texts.join(" ");
+}
+
+/**
+ * Walk back through the conversation history and collect the most recent
+ * `K` `(assistant, user)` turn pairs for the router prompt. Each pair
+ * represents the assistant's reply followed by the user message that
+ * came after — the last pair's `userMessage` is the just-arrived turn
+ * that triggered this call.
+ *
+ * Behavior at K=1 is bit-identical to the pre-knob signature: one pair
+ * with the prior assistant reply + the just-arrived user message.
+ *
+ * Edge cases:
+ *   - If history has fewer than K full pairs available (e.g. early in a
+ *     conversation), returns however many pairs were found, oldest first.
+ *     The oldest pair may have `assistantMessage: ""` when there is a
+ *     user message with no preceding assistant reply — `runRouterBatch`
+ *     skips the `[assistant]:` line in that case.
+ *   - Non-text content (tool_use, tool_result, images) is collapsed by
+ *     joining all text blocks within a single message with spaces. This
+ *     matches the v1-style extraction the router has used since K=1.
+ */
+function extractRecentTurnPairs(
+  messages: Message[],
+  k: number,
+): RouterTurnPair[] {
+  const messageText = (msg: Message): string =>
+    msg.content
+      .filter(
+        (b): b is Extract<typeof b, { type: "text" }> => b.type === "text",
+      )
+      .map((b) => b.text)
+      .join(" ");
+
+  const pairs: RouterTurnPair[] = [];
+  let pendingUser: string | null = null;
+  for (let i = messages.length - 1; i >= 0 && pairs.length < k; i--) {
+    const msg = messages[i];
+    if (msg.role === "user" && pendingUser === null) {
+      pendingUser = messageText(msg);
+    } else if (msg.role === "assistant" && pendingUser !== null) {
+      pairs.unshift({
+        assistantMessage: messageText(msg),
+        userMessage: pendingUser,
+      });
+      pendingUser = null;
+    }
+  }
+  // Conversation start: a user message with no preceding assistant reply
+  // still belongs in the prompt as the just-arrived turn. Emit it with an
+  // empty `assistantMessage` so `runRouterBatch` renders only `[user]:`.
+  if (pendingUser !== null && pairs.length < k) {
+    pairs.unshift({ assistantMessage: "", userMessage: pendingUser });
+  }
+  // Defensive fallback: the router contract requires a non-empty array.
+  // This only fires when `messages` has no user-text content at all
+  // (currently impossible since the agent loop always appends a user
+  // turn before invoking the v2 path, but cheap to keep correct).
+  if (pairs.length === 0) {
+    pairs.push({ assistantMessage: "", userMessage: "" });
+  }
+  return pairs;
 }

@@ -238,8 +238,12 @@ function makeConfig(overrides?: {
 }
 
 const COMMON_PARAMS = {
-  userMessage: "What's on my plate today?",
-  assistantMessage: "Let me check your plan.",
+  recentTurnPairs: [
+    {
+      assistantMessage: "Let me check your plan.",
+      userMessage: "What's on my plate today?",
+    },
+  ],
   nowText: "2026-05-10 14:00 PT",
   priorEverInjected: [] as { slug: string; turn: number }[],
 };
