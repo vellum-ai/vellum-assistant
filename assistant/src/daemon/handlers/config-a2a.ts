@@ -23,7 +23,10 @@ import {
   upsertContact,
 } from "../../contacts/contact-store.js";
 import type { VellumAssistantMetadata } from "../../contacts/types.js";
-import { getPublicBaseUrl } from "../../inbound/public-ingress-urls.js";
+import {
+  getPlatformPublicCallbackBase,
+  getPublicBaseUrl,
+} from "../../inbound/public-ingress-urls.js";
 import { getDb } from "../../memory/db-connection.js";
 import {
   claimA2AInvite,
@@ -112,6 +115,16 @@ export function clearA2AConfig(): A2AConfigResult {
   return { success: true, enabled: false, activeConnections: 0 };
 }
 
+// ── Helpers ─────────────────────────────────────────────────────────
+
+function resolveA2AGatewayUrl(): string | undefined {
+  try {
+    return getPublicBaseUrl(getConfig());
+  } catch {
+    return getPlatformPublicCallbackBase();
+  }
+}
+
 // ── A2A invite creation ────────────────────────────────────────────
 
 export function createA2AInvite(params: {
@@ -123,11 +136,9 @@ export function createA2AInvite(params: {
     setA2AConfig();
   }
 
-  // 2. Resolve public base URL
-  let publicBaseUrl: string;
-  try {
-    publicBaseUrl = getPublicBaseUrl(getConfig());
-  } catch {
+  // 2. Resolve gateway URL (ingress URL or platform callback base)
+  const gatewayUrl = resolveA2AGatewayUrl();
+  if (!gatewayUrl) {
     return {
       success: false,
       error:
@@ -156,7 +167,7 @@ export function createA2AInvite(params: {
     inviteId: invite.id,
     token: rawToken,
     expiresAt: invite.expiresAt,
-    senderGatewayUrl: publicBaseUrl,
+    senderGatewayUrl: gatewayUrl,
   };
 }
 
@@ -173,10 +184,8 @@ export function completeA2AInvite(params: {
 }): CompleteA2AInviteResult {
   // Resolve sender identity before any mutations so we fail cleanly
   const displayName = getAssistantName() ?? "Vellum Assistant";
-  let gatewayUrl: string;
-  try {
-    gatewayUrl = getPublicBaseUrl(getConfig());
-  } catch {
+  const gatewayUrl = resolveA2AGatewayUrl();
+  if (!gatewayUrl) {
     return {
       success: false,
       error:
@@ -345,10 +354,8 @@ export async function acceptA2AInvite(params: {
 
   // 1. Validate local config
   const displayName = getAssistantName() ?? "Vellum Assistant";
-  let localGatewayUrl: string;
-  try {
-    localGatewayUrl = getPublicBaseUrl(getConfig());
-  } catch {
+  const localGatewayUrl = resolveA2AGatewayUrl();
+  if (!localGatewayUrl) {
     return {
       success: false,
       error:

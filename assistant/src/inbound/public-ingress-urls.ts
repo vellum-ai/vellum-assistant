@@ -3,7 +3,7 @@
  *
  * ## Source-of-truth precedence
  *
- * The canonical public base URL is resolved through a three-level chain:
+ * The canonical public base URL is resolved through a two-level chain:
  *
  *   1. **User Settings** (`config.ingress.publicBaseUrl`) — set via
  *      the in-chat config flow, the Settings UI, or `config set ingress.publicBaseUrl`. This is the
@@ -16,20 +16,10 @@
  *      tunnels start or stop, `setIngressPublicBaseUrl()` updates this
  *      value in-process.
  *
- *   3. **Platform derivation** (`getPlatformPublicCallbackBase()`) — for
- *      platform-hosted assistants (`IS_PLATFORM=true`), derives the URL
- *      from the platform base URL and assistant ID as
- *      `${platformBase}/v1/gateway/callbacks/${assistantId}`.
- *
- * This chain ensures that:
- *   - The assistant's outbound callback URLs (Twilio webhooks, OAuth
- *     redirect URIs, etc.) match the gateway's inbound signature
- *     reconstruction URL.
- *   - Changing the URL in Settings immediately updates outbound callback
- *     registration, while the gateway can validate inbound Twilio signatures
- *     using forwarded public URL headers from tunnels/proxies.
- *   - Platform-hosted assistants automatically resolve their public URL
- *     without manual configuration.
+ * Platform-hosted assistants use `getPlatformPublicCallbackBase()` for
+ * registration-gated callback surfaces (A2A, ingress config display) but
+ * NOT as a generic `getPublicBaseUrl()` fallback — the callback prefix
+ * only routes paths that are registered in `AssistantCallbackRoute`.
  *
  * All public-facing ingress URL construction is centralized here.
  */
@@ -106,9 +96,6 @@ export function getPublicBaseUrl(config: IngressConfig): string {
   const ingressEnvValue = getIngressPublicBaseUrl();
   const normalizedIngressEnvValue = normalizePublicBaseUrl(ingressEnvValue);
   if (normalizedIngressEnvValue) return normalizedIngressEnvValue;
-
-  const platformBase = getPlatformPublicCallbackBase();
-  if (platformBase) return platformBase;
 
   throw new Error(
     "No public base URL configured. Set ingress.publicBaseUrl in config.",

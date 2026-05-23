@@ -82,10 +82,10 @@ describe("getPlatformPublicCallbackBase", () => {
 });
 
 // ---------------------------------------------------------------------------
-// platform fallback in getPublicBaseUrl
+// getPublicBaseUrl does NOT fall back to platform callback base
 // ---------------------------------------------------------------------------
 
-describe("platform fallback", () => {
+describe("getPublicBaseUrl platform isolation", () => {
   beforeEach(() => {
     process.env.IS_PLATFORM = "true";
     process.env.VELLUM_PLATFORM_URL = "https://test-platform.vellum.ai";
@@ -100,54 +100,17 @@ describe("platform fallback", () => {
     setIngressPublicBaseUrl(undefined);
   });
 
-  test("getPublicBaseUrl returns platform-derived URL when ingress.publicBaseUrl is empty", () => {
-    const result = getPublicBaseUrl({
-      ingress: { publicBaseUrl: "" },
-    });
-    expect(result).toBe(
-      "https://test-platform.vellum.ai/v1/gateway/callbacks/ast_test123",
+  test("throws even in platform mode when no ingress URL is configured", () => {
+    expect(() => getPublicBaseUrl({ ingress: { publicBaseUrl: "" } })).toThrow(
+      /No public base URL configured/,
     );
   });
 
-  test("explicit ingress.publicBaseUrl takes precedence over platform derivation", () => {
+  test("returns explicit ingress.publicBaseUrl in platform mode", () => {
     const result = getPublicBaseUrl({
       ingress: { publicBaseUrl: "https://custom.example.com" },
     });
     expect(result).toBe("https://custom.example.com");
-  });
-
-  test("module-level ingress state takes precedence over platform derivation", () => {
-    setIngressPublicBaseUrl("https://tunnel.example.com");
-    const result = getPublicBaseUrl({
-      ingress: { publicBaseUrl: "" },
-    });
-    expect(result).toBe("https://tunnel.example.com");
-  });
-
-  test("throws when ingress is explicitly disabled even in platform mode", () => {
-    expect(() =>
-      getPublicBaseUrl({
-        ingress: { enabled: false, publicBaseUrl: "" },
-      }),
-    ).toThrow(/Public ingress is disabled/);
-  });
-
-  test("throws when IS_PLATFORM is not set", () => {
-    delete process.env.IS_PLATFORM;
-    setPlatformAssistantId(undefined);
-
-    expect(() => getPublicBaseUrl({ ingress: { publicBaseUrl: "" } })).toThrow(
-      /No public base URL configured/,
-    );
-  });
-
-  test("throws when getPlatformAssistantId() returns empty string even though IS_PLATFORM=true", () => {
-    process.env.IS_PLATFORM = "true";
-    setPlatformAssistantId("");
-
-    expect(() => getPublicBaseUrl({ ingress: { publicBaseUrl: "" } })).toThrow(
-      /No public base URL configured/,
-    );
   });
 });
 
