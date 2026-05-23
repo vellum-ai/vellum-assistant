@@ -204,7 +204,7 @@ async function buildClientLogsFile(
       end_time_ms: endTime,
     },
     assistant_id: assistantId,
-    active_conversation_key: activeConversationId,
+    active_conversation_id: activeConversationId,
     user_agent: typeof navigator !== "undefined" ? navigator.userAgent : "",
     language: typeof navigator !== "undefined" ? navigator.language : "",
     platform: typeof navigator !== "undefined" ? navigator.platform : "",
