@@ -259,7 +259,7 @@ export async function runMemoryJobsOnce(
       maybeEnqueueScheduledCleanupJobs(config);
     }
     maybeEnqueueGraphMaintenanceJobs(config);
-    maybeRunDbMaintenance();
+    await maybeRunDbMaintenance();
     return 0;
   }
 
@@ -313,7 +313,7 @@ export async function runMemoryJobsOnce(
     maybeEnqueueScheduledCleanupJobs(config);
   }
   maybeEnqueueGraphMaintenanceJobs(config);
-  maybeRunDbMaintenance();
+  await maybeRunDbMaintenance();
   return slowProcessed + fastProcessed + embedProcessed;
 }
 
