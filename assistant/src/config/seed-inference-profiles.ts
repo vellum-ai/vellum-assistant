@@ -65,8 +65,8 @@ const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
   },
   "cost-optimized": {
     intent: "latency-optimized",
-    provider: "anthropic",
-    connectionName: "anthropic-managed",
+    provider: "gemini",
+    connectionName: "gemini-managed",
     source: "managed",
     label: "Speed",
     description: "Fastest responses at lower cost",
