@@ -69,6 +69,24 @@ mock.module("../prompts/user-reference.js", () => ({
   resolveUserPronouns: () => null,
 }));
 
+// Stub persona-resolver so tests can dictate what
+// `buildSystemPrompt` sees for user/channel persona + slug without
+// needing to write contact rows to the test DB. Tests mutate
+// `mockPersona` in place; the default (all-null) matches a fresh
+// workspace with no contacts and no `users/default.md`.
+const mockPersona: {
+  userPersona: string | null;
+  channelPersona: string | null;
+  userSlug: string | null;
+} = { userPersona: null, channelPersona: null, userSlug: null };
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realPersonaResolver = require("../prompts/persona-resolver.js");
+mock.module("../prompts/persona-resolver.js", () => ({
+  ...realPersonaResolver,
+  resolvePersonaContext: () => mockPersona,
+  resolveGuardianPersona: () => mockPersona.userPersona,
+}));
+
 // Import after mock
 const {
   buildSystemPrompt,
@@ -114,6 +132,11 @@ function basePrompt(result: string): string {
 describe("buildSystemPrompt", () => {
   beforeEach(() => {
     mkdirSync(TEST_DIR, { recursive: true });
+    // Reset persona stub so each test starts from a fresh
+    // no-guardian / no-channel baseline.
+    mockPersona.userPersona = null;
+    mockPersona.channelPersona = null;
+    mockPersona.userSlug = null;
   });
 
   afterEach(() => {
@@ -295,12 +318,13 @@ describe("buildSystemPrompt", () => {
     expect(basePrompt(result)).toBe("");
   });
 
-  test("uses options.userPersona instead of USER.md", () => {
+  test("includes resolved user persona in the dynamic block", () => {
+    // Persona resolution happens internally via resolvePersonaContext.
+    // Mutate the stub to simulate a guardian whose persona is loaded.
+    mockPersona.userPersona = "# User persona\n\nName: Alice";
     writeFileSync(join(TEST_DIR, "IDENTITY.md"), "Identity");
     writeFileSync(join(TEST_DIR, "SOUL.md"), "Soul");
-    const result = buildSystemPrompt({
-      userPersona: "# User persona\n\nName: Alice",
-    });
+    const result = buildSystemPrompt();
     // IDENTITY and SOUL both render in the static (cached) prefix; only
     // the user persona ends up in the dynamic block.
     expect(basePrompt(result)).toBe("# User persona\n\nName: Alice");
@@ -309,17 +333,19 @@ describe("buildSystemPrompt", () => {
   });
 
   describe("BOOTSTRAP.md user persona placeholder", () => {
-    test("substitutes {{USER_PERSONA_FILE}} with users/<slug>.md when userSlug is provided", () => {
+    test("substitutes {{USER_PERSONA_FILE}} with users/<slug>.md when a guardian slug is resolvable", () => {
+      // Simulate a guardian contact whose userFile resolves to alice.md.
+      mockPersona.userSlug = "alice";
       writeFileSync(
         join(TEST_DIR, "BOOTSTRAP.md"),
         "# First run\n\nSave facts to users/{{USER_PERSONA_FILE}} immediately.",
       );
-      const result = buildSystemPrompt({ userSlug: "alice" });
+      const result = buildSystemPrompt();
       expect(result).toContain("users/alice.md");
       expect(result).not.toContain("{{USER_PERSONA_FILE}}");
     });
 
-    test("falls back to users/default.md when userSlug is omitted", () => {
+    test("falls back to users/default.md when no slug is resolvable", () => {
       writeFileSync(
         join(TEST_DIR, "BOOTSTRAP.md"),
         "# First run\n\nSave facts to users/{{USER_PERSONA_FILE}} immediately.",
@@ -332,12 +358,13 @@ describe("buildSystemPrompt", () => {
     test("substitutes the unmodified bundled BOOTSTRAP.md template", () => {
       // Copy the real bundled BOOTSTRAP.md into the test workspace so we
       // verify substitution against the actual template the daemon ships.
+      mockPersona.userSlug = "alice";
       const bundled = readFileSync(
         join(import.meta.dirname, "..", "prompts", "templates", "BOOTSTRAP.md"),
         "utf-8",
       );
       writeFileSync(join(TEST_DIR, "BOOTSTRAP.md"), bundled);
-      const result = buildSystemPrompt({ userSlug: "alice" });
+      const result = buildSystemPrompt();
       expect(result).toContain("users/alice.md");
       expect(result).not.toContain("{{USER_PERSONA_FILE}}");
     });
