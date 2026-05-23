@@ -10,7 +10,7 @@ interface ResolveBootstrappedConversationKeyArgs {
   defaultConversationKey: string;
   conversations: Pick<
     Conversation,
-    "conversationKey" | "conversationType" | "groupId"
+    "conversationId" | "conversationType" | "groupId"
   >[];
 }
 
@@ -26,12 +26,12 @@ export function createDraftConversationKey(): string {
 function isStoredConversationSelectable(
   conversations: Pick<
     Conversation,
-    "conversationKey" | "conversationType" | "groupId"
+    "conversationId" | "conversationType" | "groupId"
   >[],
   key: string,
 ): boolean {
   const conversation = conversations.find(
-    (item) => item.conversationKey === key,
+    (item) => item.conversationId === key,
   );
   if (!conversation) return false;
   return (

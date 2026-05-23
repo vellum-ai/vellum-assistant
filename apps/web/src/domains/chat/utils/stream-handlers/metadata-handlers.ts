@@ -59,12 +59,10 @@ export function handleConversationTitleUpdated(
   ctx: StreamHandlerContext,
 ): void {
   // `patchConversation` looks up the Conversation entity by its
-  // `conversationKey` field in the React Query cache. The event's
+  // `conversationId` field in the React Query cache. The event's
   // `conversationId` (hydrated in `event-parser.ts` via
   // `withParsedConversationId` or the envelope fallback in `stream.ts`)
-  // is the value to match against. The Conversation entity's own
-  // conversationKey → conversationId rename is a separate follow-up
-  // batch.
+  // is the value to match against.
   patchConversation(
     ctx.queryClient,
     ctx.assistantIdRef.current,
