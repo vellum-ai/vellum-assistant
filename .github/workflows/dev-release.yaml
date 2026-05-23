@@ -16,7 +16,92 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ── Skip-if-idle gate ───────────────────────────────────────────────────
+  # The schedule fires hourly regardless of repo activity. Rebuilding an
+  # unchanged HEAD wastes CI minutes and republishes byte-identical images, so
+  # cancel the run when nothing has landed since the last *successful* dev
+  # release. "Successful" is keyed off the register-release job conclusion —
+  # the same anchor notify-dev-release uses for its changelog — so a run that
+  # registered a real release but failed in a later job (e.g. build-macos)
+  # still counts as the last release. Manual workflow_dispatch runs always
+  # proceed: the operator explicitly asked for a build.
+  #
+  # All root jobs (compute-version + the three ci-* jobs) gate on this job's
+  # has_new_commits output so they never spin up runners on an idle run. The
+  # job also calls `gh run cancel` so the run shows as cancelled rather than a
+  # misleadingly-green wall of skipped jobs (and the notify jobs, which guard
+  # on !cancelled(), stay quiet for a no-op run).
+  check-for-new-commits:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: write
+    outputs:
+      has_new_commits: ${{ steps.check.outputs.has_new_commits }}
+    steps:
+      - name: Check for new commits since last successful dev release
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          HEAD_SHA: ${{ github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+
+          # Manual dispatches always run, regardless of commit activity.
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "Manual dispatch — proceeding regardless of commit activity."
+            echo "has_new_commits=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Walk recent completed runs newest-first and pick the first whose
+          # register-release job succeeded; that run's head SHA is the last
+          # released commit. (See notify-dev-release for why we key off the job
+          # conclusion rather than the overall run conclusion.)
+          PREV_SHA=""
+          while read -r rid rsha; do
+            [ -z "$rid" ] && continue
+            CONCL=$(gh api "repos/${REPO}/actions/runs/${rid}/jobs" \
+              --jq '[.jobs[] | select(.name == "register-release") | .conclusion] | .[0] // empty')
+            if [ "$CONCL" = "success" ]; then
+              PREV_SHA="$rsha"
+              break
+            fi
+          done < <(gh api \
+            "repos/${REPO}/actions/workflows/dev-release.yaml/runs?branch=main&status=completed&per_page=30&exclude_pull_requests=true" \
+            --jq ".workflow_runs[] | select(.id != ${RUN_ID}) | \"\(.id) \(.head_sha)\"")
+
+          echo "Last successful dev release SHA: ${PREV_SHA:-<none>}"
+          echo "Current SHA: ${HEAD_SHA}"
+
+          # No prior successful release found (e.g. first tracked run) — proceed.
+          if [ -z "$PREV_SHA" ]; then
+            echo "No previous successful dev release found — proceeding."
+            echo "has_new_commits=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "$PREV_SHA" = "$HEAD_SHA" ]; then
+            echo "No new commits since the last successful dev release (${PREV_SHA}) — cancelling run."
+            echo "has_new_commits=false" >> "$GITHUB_OUTPUT"
+            gh run cancel "$RUN_ID" --repo "$REPO"
+            # Give the cancellation time to propagate so the gated root jobs
+            # never start; the has_new_commits=false output is the durable
+            # backstop if the cancel call is slow or fails.
+            sleep 15
+            exit 0
+          fi
+
+          echo "New commits detected since the last successful dev release — proceeding."
+          echo "has_new_commits=true" >> "$GITHUB_OUTPUT"
+
   compute-version:
+    needs: [check-for-new-commits]
+    if: ${{ needs.check-for-new-commits.outputs.has_new_commits == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 2
     outputs:
@@ -42,6 +127,8 @@ jobs:
   # ── CI Checks (gate image builds) ───────────────────────────────────────
 
   ci-assistant:
+    needs: [check-for-new-commits]
+    if: ${{ needs.check-for-new-commits.outputs.has_new_commits == 'true' }}
     runs-on: ubuntu-latest-8-cores
     timeout-minutes: 15
     steps:
@@ -81,6 +168,8 @@ jobs:
           TEST_WORKERS: '4'
 
   ci-gateway:
+    needs: [check-for-new-commits]
+    if: ${{ needs.check-for-new-commits.outputs.has_new_commits == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -110,6 +199,8 @@ jobs:
         working-directory: gateway
 
   ci-credential-executor:
+    needs: [check-for-new-commits]
+    if: ${{ needs.check-for-new-commits.outputs.has_new_commits == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
