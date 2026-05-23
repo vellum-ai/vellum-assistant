@@ -44,7 +44,7 @@ import type { TranscriptHandle } from "@/domains/chat/transcript/transcript.js";
 import type { TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
 import { buildTranscriptItems } from "@/domains/chat/transcript/build-items.js";
 import { getThinkingStatusText, shouldShowThinkingIndicator, type UIContext } from "@/domains/messaging/turn-selectors.js";
-import { clearPendingInitialMessage, peekPendingInitialMessage, type PreChatOnboardingContext } from "@/domains/onboarding/prechat.js";
+import { peekPendingPreChatContext, type PreChatOnboardingContext } from "@/domains/onboarding/prechat.js";
 import { createDraftConversationKey } from "@/domains/chat/utils/conversation-selection.js";
 import type { WebSyncRouter } from "@/lib/sync/web-sync-router.js";
 import type { SyncChangedEvent } from "@/lib/sync/types.js";
@@ -161,7 +161,7 @@ export function ChatPage() {
   const [restoredDraftConversationKey, setRestoredDraftConversationKey] = useState<string | null>(null);
   const [refreshEpoch, setRefreshEpoch] = useState(0);
   const [autoGreetPending, setAutoGreetPending] = useState(
-    () => peekPendingInitialMessage() !== null,
+    () => peekPendingPreChatContext()?.initialMessage != null,
   );
   const [contextWindowUsage, setContextWindowUsage] = useState<ContextWindowUsage | null>(null);
   const [transcriptPagination, setTranscriptPagination] = useState<Omit<TranscriptPaginationState, "items">>({
@@ -651,7 +651,7 @@ export function ChatPage() {
   // getChatContext to trigger the unreachable-bus.
   useEffect(() => {
     if (!assistantId) return;
-    const message = peekPendingInitialMessage();
+    const message = peekPendingPreChatContext()?.initialMessage;
     if (!message) return;
     if (reachability.state.phase === "idle") {
       reachability.probe({ mode: "background" });
@@ -663,10 +663,9 @@ export function ChatPage() {
   useEffect(() => {
     if (initialMessageConsumedRef.current || !assistantId || !activeConversationId) return;
     if (reachability.state.phase !== "ready") return;
-    const message = peekPendingInitialMessage();
+    const message = peekPendingPreChatContext()?.initialMessage;
     if (!message) return;
     initialMessageConsumedRef.current = true;
-    clearPendingInitialMessage();
     void sendMessage(message);
   }, [activeConversationId, assistantId, reachability.state.phase, sendMessage]);
 
