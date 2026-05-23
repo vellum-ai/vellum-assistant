@@ -229,14 +229,14 @@ function SimpleSection({
       <SectionHeader title={title} count={conversations.length} />
       <div className="px-2">
         {conversations.map((c) => {
-          const needsAttention = attentionConversationKeys?.has(c.conversationKey) ?? false;
+          const needsAttention = attentionConversationKeys?.has(c.conversationId) ?? false;
           return (
             <PanelItem
-              key={c.conversationKey}
+              key={c.conversationId}
               icon={needsAttention ? CircleAlert : isConversationPinned(c) ? Pin : undefined}
               label={c.title ?? "Untitled"}
-              active={c.conversationKey === activeConversationKey}
-              onSelect={() => onSelect(c.conversationKey)}
+              active={c.conversationId === activeConversationKey}
+              onSelect={() => onSelect(c.conversationId)}
               trailingAction={renderActions?.(c)}
               className={needsAttention ? "text-[var(--system-mid-strong)]" : undefined}
             />
@@ -276,7 +276,7 @@ function BackgroundSection({
     const keys = new Set<string>();
     for (const group of subGroups) {
       if (group.key.startsWith("__single__:")) continue;
-      if (group.conversations.some(c => attentionConversationKeys.has(c.conversationKey))) {
+      if (group.conversations.some(c => attentionConversationKeys.has(c.conversationId))) {
         keys.add(group.key);
       }
     }
@@ -314,14 +314,14 @@ function BackgroundSection({
           if (isSingle) {
             const c = group.conversations[0];
             if (!c) return null;
-            const singleNeedsAttention = attentionConversationKeys?.has(c.conversationKey) ?? false;
+            const singleNeedsAttention = attentionConversationKeys?.has(c.conversationId) ?? false;
             return (
               <PanelItem
-                key={c.conversationKey}
+                key={c.conversationId}
                 icon={singleNeedsAttention ? CircleAlert : isConversationPinned(c) ? Pin : undefined}
                 label={c.title ?? "Untitled"}
-                active={c.conversationKey === activeConversationKey}
-                onSelect={() => onSelect(c.conversationKey)}
+                active={c.conversationId === activeConversationKey}
+                onSelect={() => onSelect(c.conversationId)}
                 trailingAction={renderActions?.(c)}
                 className={singleNeedsAttention ? "text-[var(--system-mid-strong)]" : undefined}
               />
@@ -339,14 +339,14 @@ function BackgroundSection({
               />
               {isExpanded
                 ? group.conversations.map((c) => {
-                    const rowNeedsAttention = attentionConversationKeys?.has(c.conversationKey) ?? false;
+                    const rowNeedsAttention = attentionConversationKeys?.has(c.conversationId) ?? false;
                     return (
                       <PanelItem
-                        key={c.conversationKey}
+                        key={c.conversationId}
                         icon={rowNeedsAttention ? CircleAlert : isConversationPinned(c) ? Pin : undefined}
                         label={c.title ?? "Untitled"}
-                        active={c.conversationKey === activeConversationKey}
-                        onSelect={() => onSelect(c.conversationKey)}
+                        active={c.conversationId === activeConversationKey}
+                        onSelect={() => onSelect(c.conversationId)}
                         trailingAction={renderActions?.(c)}
                         className={rowNeedsAttention ? "text-[var(--system-mid-strong)]" : undefined}
                       />

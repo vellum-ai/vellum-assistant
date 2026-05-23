@@ -43,14 +43,14 @@ export function SubGroupAccordion({
               leadingSlot={renderPinToggle(c)}
               label={c.title ?? "Untitled"}
               marqueeOnHover
-              active={c.conversationKey === activeConversationKey}
-              onSelect={() => onSelectConversation(c.conversationKey)}
+              active={c.conversationId === activeConversationKey}
+              onSelect={() => onSelectConversation(c.conversationId)}
               trailingAction={renderActions(c)}
             />,
           );
         }
         const groupHasAttention = attentionConversationKeys
-          ? group.conversations.some(c => attentionConversationKeys.has(c.conversationKey))
+          ? group.conversations.some(c => attentionConversationKeys.has(c.conversationId))
           : false;
         return (
           <CollapsibleNavSection.Root
@@ -72,8 +72,8 @@ export function SubGroupAccordion({
                       leadingSlot={renderPinToggle(c)}
                       label={c.title ?? "Untitled"}
                       marqueeOnHover
-                      active={c.conversationKey === activeConversationKey}
-                      onSelect={() => onSelectConversation(c.conversationKey)}
+                      active={c.conversationId === activeConversationKey}
+                      onSelect={() => onSelectConversation(c.conversationId)}
                       trailingAction={renderActions(c)}
                     />,
                   ),

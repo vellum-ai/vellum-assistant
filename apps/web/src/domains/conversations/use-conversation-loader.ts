@@ -403,7 +403,7 @@ export function useConversationLoader({
       currentAssistantId: assistantIdRef.current,
       nextAssistantId: chatContext.assistantId,
       storedConversationKey: loadLastViewedConversationKey(chatContext.assistantId),
-      defaultConversationKey: chatContext.conversationKey,
+      defaultConversationKey: chatContext.conversationId,
       conversations: chatContext.conversations,
     });
 
@@ -432,7 +432,7 @@ export function useConversationLoader({
     () =>
       activeConversationKey != null &&
       conversations.some(
-        (c) => c.conversationKey === activeConversationKey && !c.draft,
+        (c) => c.conversationId === activeConversationKey && !c.draft,
       ),
     [activeConversationKey, conversations],
   );

@@ -90,7 +90,7 @@ export function useAttentionTracking({
   const processingKeys = useConversationStore.use.processingKeys();
 
   const activeConversation = conversations.find(
-    (c) => c.conversationKey === activeConversationKey,
+    (c) => c.conversationId === activeConversationKey,
   );
 
   const lastSeenOnOpenConversationKeyRef = useRef<string | null>(null);
@@ -143,7 +143,7 @@ export function useAttentionTracking({
     const graduatingKeys: string[] = [];
     for (const key of processingKeys) {
       if (key === activeConversationKey) continue;
-      const conv = conversations.find((c) => c.conversationKey === key);
+      const conv = conversations.find((c) => c.conversationId === key);
       if (!conv) continue;
       const snapshot = snapshots.get(key);
       if (conv.latestAssistantMessageAt && conv.latestAssistantMessageAt !== snapshot) {
@@ -283,9 +283,9 @@ export function useAttentionTracking({
       // `conversations` capture from the effect's first render.
       const currentConversations = getConversations(queryClient, assistantId);
       for (const conv of currentConversations) {
-        if (conv.conversationKey === activeConversationKey) continue;
-        if (pendingKeys.has(conv.conversationKey)) {
-          useConversationStore.getState().addAttentionKey(conv.conversationKey);
+        if (conv.conversationId === activeConversationKey) continue;
+        if (pendingKeys.has(conv.conversationId)) {
+          useConversationStore.getState().addAttentionKey(conv.conversationId);
         }
       }
     })();

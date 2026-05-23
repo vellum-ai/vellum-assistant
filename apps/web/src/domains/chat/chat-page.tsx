@@ -379,7 +379,7 @@ export function ChatPage() {
   // Derived state
   // -------------------------------------------------------------------------
   const activeConversation = useMemo(
-    () => conversations.find((c) => c.conversationKey === activeConversationKey),
+    () => conversations.find((c) => c.conversationId === activeConversationKey),
     [conversations, activeConversationKey],
   );
   const isChannelReadonly = isChannelConversation(activeConversation);
@@ -1081,7 +1081,7 @@ export function ChatPage() {
         onArchive={() => handleArchiveConversation(activeConversation)}
         onUnarchive={() => handleUnarchiveConversation(activeConversation)}
         onAnalyze={
-          !isChannelReadonly && activeConversation.conversationKey
+          !isChannelReadonly && activeConversation.conversationId
             ? () => handleAnalyzeConversation(activeConversation)
             : undefined
         }
@@ -1091,12 +1091,12 @@ export function ChatPage() {
             : undefined
         }
         onOpenInNewWindow={
-          activeConversation.conversationKey
+          activeConversation.conversationId
             ? () => handleOpenInNewWindow(activeConversation)
             : undefined
         }
         onInspect={
-          showLlmInspector && activeConversation.conversationKey
+          showLlmInspector && activeConversation.conversationId
             ? () => handleInspectConversation(activeConversation)
             : undefined
         }
@@ -1106,7 +1106,7 @@ export function ChatPage() {
             : undefined
         }
         onRefresh={
-          activeConversation.conversationKey != null
+          activeConversation.conversationId != null
             ? refreshLatestMessages
             : undefined
         }
@@ -1206,17 +1206,17 @@ export function ChatPage() {
   );
 
   const topBarRightContent = useMemo(() => {
-    if (!activeConversation?.conversationKey || !assistantId) return null;
+    if (!activeConversation?.conversationId || !assistantId) return null;
     return (
       <ConversationAssetsPill
         assistantId={assistantId}
-        conversationId={activeConversation.conversationKey}
+        conversationId={activeConversation.conversationId}
         refreshKey={assetsRefreshKey}
         onOpenApp={handleOpenAppFromChat}
         onOpenDocument={handleOpenDocument}
       />
     );
-  }, [activeConversation?.conversationKey, assistantId, assetsRefreshKey, handleOpenAppFromChat, handleOpenDocument]);
+  }, [activeConversation?.conversationId, assistantId, assetsRefreshKey, handleOpenAppFromChat, handleOpenDocument]);
 
   useEffect(() => {
     setTopBarRightSlot(topBarRightContent);

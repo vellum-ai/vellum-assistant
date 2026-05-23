@@ -119,10 +119,10 @@ export function useConversationSecondaryActions({
       try {
         const result = await analyzeConversation(
           assistantId,
-          conversation.conversationKey,
+          conversation.conversationId,
         );
         await refreshConversations();
-        switchConversation(result.conversationKey);
+        switchConversation(result.conversationId);
       } catch (err) {
         const message =
           err instanceof Error ? err.message : "Failed to analyze conversation.";
@@ -137,7 +137,7 @@ export function useConversationSecondaryActions({
 
   const handleOpenInNewWindow = useCallback(
     (conversation: Conversation) => {
-      window.open(routes.conversation(conversation.conversationKey), "_blank");
+      window.open(routes.conversation(conversation.conversationId), "_blank");
     },
     [],
   );
@@ -152,9 +152,9 @@ export function useConversationSecondaryActions({
   const handleInspectConversation = useCallback(
     (conversation: Conversation) => {
       const params = new URLSearchParams();
-      params.set("conversationKey", conversation.conversationKey);
+      params.set("conversationKey", conversation.conversationId);
       const isActiveConversation =
-        conversation.conversationKey === activeConversation?.conversationKey;
+        conversation.conversationId === activeConversation?.conversationId;
       if (isActiveConversation) {
         const latestAssistant = messagesRef.current.findLast(
           (m) => m.role === "assistant" && (m.daemonMessageId ?? m.id),
@@ -167,7 +167,7 @@ export function useConversationSecondaryActions({
       }
       void navigate(`${routes.inspect}?${params.toString()}`);
     },
-    [navigate, activeConversation?.conversationKey],
+    [navigate, activeConversation?.conversationId],
   );
 
   const handleInspectMessage = useCallback(

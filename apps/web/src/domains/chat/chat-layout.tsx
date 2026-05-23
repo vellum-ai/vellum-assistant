@@ -502,7 +502,7 @@ export function ChatLayout() {
   const handleInspectConversation = useCallback(
     (conversation: Conversation) => {
       const params = new URLSearchParams();
-      params.set("conversationKey", conversation.conversationKey);
+      params.set("conversationKey", conversation.conversationId);
       void navigate(`${routes.inspect}?${params.toString()}`);
     },
     [navigate],

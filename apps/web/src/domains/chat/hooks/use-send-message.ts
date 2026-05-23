@@ -267,7 +267,7 @@ export function useSendMessage({
       }
 
       const effectiveConversationKey =
-        postResult.resolvedConversationId ?? postResult.conversationKey;
+        postResult.resolvedConversationId ?? postResult.conversationId;
 
       if (!isCurrentSendScope(effectiveConversationKey)) {
         recordChatDiagnostic("send_result_ignored_inactive_conversation", {

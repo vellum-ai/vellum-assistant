@@ -28,10 +28,10 @@ export function findNextConversationKey(
   return (
     conversations.find(
       (c) =>
-        c.conversationKey !== archivedKey &&
+        c.conversationId !== archivedKey &&
         c.archivedAt == null &&
         !isBackgroundConversation(c),
-    )?.conversationKey ?? null
+    )?.conversationId ?? null
   );
 }
 
@@ -44,7 +44,7 @@ export function resolveUnpinGroupId(
   conversation: Conversation,
   prePinGroupIds: Map<string, string | undefined>,
 ): string {
-  const stored = prePinGroupIds.get(conversation.conversationKey);
+  const stored = prePinGroupIds.get(conversation.conversationId);
   if (stored) return stored;
   if (isSlackConversation(conversation)) return "system:all";
   if (shouldReturnToBackground(conversation)) return "system:background";
@@ -94,10 +94,10 @@ export function useConversationActions({
       haptic.medium();
 
       const wasActive =
-        conversation.conversationKey === activeConversationKey;
+        conversation.conversationId === activeConversationKey;
       let nextKey: string | null = null;
       if (wasActive) {
-        nextKey = findNextConversationKey(conversations, conversation.conversationKey);
+        nextKey = findNextConversationKey(conversations, conversation.conversationId);
       }
 
       // Snapshot prior `archivedAt` so we can roll back on API failure.
@@ -110,7 +110,7 @@ export function useConversationActions({
       // network round trip. Any truthy timestamp is sufficient — the real
       // server-authoritative value gets reconciled by `refreshConversations()`
       // once the API call succeeds.
-      patchConversation(queryClient, assistantId, conversation.conversationKey, {
+      patchConversation(queryClient, assistantId, conversation.conversationId, {
         archivedAt: Date.now(),
       });
 
@@ -126,7 +126,7 @@ export function useConversationActions({
       }
 
       try {
-        await archiveConversation(assistantId, conversation.conversationKey);
+        await archiveConversation(assistantId, conversation.conversationId);
         // Refresh so the optimistic `Date.now()` guess is replaced with the
         // server-authoritative timestamp and any other side effects sync in.
         await refreshConversations();
@@ -136,7 +136,7 @@ export function useConversationActions({
         // intentionally don't try to restore the active-conversation
         // selection: the user has already moved on visually, and yanking
         // them back would be more disorienting than the rolled-back row.
-        patchConversation(queryClient, assistantId, conversation.conversationKey, {
+        patchConversation(queryClient, assistantId, conversation.conversationId, {
           archivedAt: originalArchivedAt,
         });
         Sentry.captureException(err, {
@@ -164,18 +164,18 @@ export function useConversationActions({
       // Optimistic update: clear `archivedAt` so the row pops back into the
       // active sidebar in the same frame as the click. Mirrors the
       // optimistic archive path above.
-      patchConversation(queryClient, assistantId, conversation.conversationKey, {
+      patchConversation(queryClient, assistantId, conversation.conversationId, {
         archivedAt: undefined,
       });
 
       try {
         await unarchiveConversation(
           assistantId,
-          conversation.conversationKey,
+          conversation.conversationId,
         );
       } catch (err) {
         // Roll back so the row re-archives in the UI.
-        patchConversation(queryClient, assistantId, conversation.conversationKey, {
+        patchConversation(queryClient, assistantId, conversation.conversationId, {
           archivedAt: originalArchivedAt,
         });
         Sentry.captureException(err, {
@@ -196,8 +196,8 @@ export function useConversationActions({
         return;
       }
       try {
-        await markConversationUnread(assistantId, conversation.conversationKey);
-        patchConversation(queryClient, assistantId, conversation.conversationKey, { hasUnseenLatestAssistantMessage: true });
+        await markConversationUnread(assistantId, conversation.conversationId);
+        patchConversation(queryClient, assistantId, conversation.conversationId, { hasUnseenLatestAssistantMessage: true });
       } catch (err) {
         Sentry.captureException(err, {
           tags: { context: "markConversationUnread" },
@@ -212,8 +212,8 @@ export function useConversationActions({
       if (!assistantId) return;
       if (!conversation.hasUnseenLatestAssistantMessage) return;
       try {
-        await markConversationSeen(assistantId, conversation.conversationKey);
-        patchConversation(queryClient, assistantId, conversation.conversationKey, { hasUnseenLatestAssistantMessage: false });
+        await markConversationSeen(assistantId, conversation.conversationId);
+        patchConversation(queryClient, assistantId, conversation.conversationId, { hasUnseenLatestAssistantMessage: false });
       } catch (err) {
         Sentry.captureException(err, {
           tags: { context: "markConversationRead" },
@@ -235,7 +235,7 @@ export function useConversationActions({
       let newGroupId: string;
       if (newIsPinned) {
         prePinGroupIdsRef.current.set(
-          conversation.conversationKey,
+          conversation.conversationId,
           conversation.groupId,
         );
         newGroupId = "system:pinned";
@@ -249,24 +249,24 @@ export function useConversationActions({
       const prevIsPinned = conversation.isPinned;
       const prevGroupId = conversation.groupId;
 
-      patchConversation(queryClient, assistantId, conversation.conversationKey, { isPinned: newIsPinned, groupId: newGroupId });
+      patchConversation(queryClient, assistantId, conversation.conversationId, { isPinned: newIsPinned, groupId: newGroupId });
 
       try {
         await reorderConversations(assistantId, [
           {
-            conversationId: conversation.conversationKey,
+            conversationId: conversation.conversationId,
             isPinned: newIsPinned,
             groupId: newGroupId,
           },
         ]);
         if (!newIsPinned) {
-          prePinGroupIdsRef.current.delete(conversation.conversationKey);
+          prePinGroupIdsRef.current.delete(conversation.conversationId);
         }
       } catch (err) {
         if (newIsPinned) {
-          prePinGroupIdsRef.current.delete(conversation.conversationKey);
+          prePinGroupIdsRef.current.delete(conversation.conversationId);
         }
-        patchConversation(queryClient, assistantId, conversation.conversationKey, { isPinned: prevIsPinned, groupId: prevGroupId });
+        patchConversation(queryClient, assistantId, conversation.conversationId, { isPinned: prevIsPinned, groupId: prevGroupId });
         Sentry.captureException(err, {
           tags: { context: "togglePinConversation" },
         });
@@ -286,29 +286,29 @@ export function useConversationActions({
 
       if (newIsPinned) {
         prePinGroupIdsRef.current.set(
-          conversation.conversationKey,
+          conversation.conversationId,
           conversation.groupId,
         );
       }
 
-      patchConversation(queryClient, assistantId, conversation.conversationKey, { isPinned: newIsPinned, groupId });
+      patchConversation(queryClient, assistantId, conversation.conversationId, { isPinned: newIsPinned, groupId });
 
       try {
         await reorderConversations(assistantId, [
           {
-            conversationId: conversation.conversationKey,
+            conversationId: conversation.conversationId,
             isPinned: newIsPinned,
             groupId,
           },
         ]);
         if (!newIsPinned) {
-          prePinGroupIdsRef.current.delete(conversation.conversationKey);
+          prePinGroupIdsRef.current.delete(conversation.conversationId);
         }
       } catch (err) {
         if (newIsPinned) {
-          prePinGroupIdsRef.current.delete(conversation.conversationKey);
+          prePinGroupIdsRef.current.delete(conversation.conversationId);
         }
-        patchConversation(queryClient, assistantId, conversation.conversationKey, { isPinned: prevIsPinned, groupId: prevGroupId });
+        patchConversation(queryClient, assistantId, conversation.conversationId, { isPinned: prevIsPinned, groupId: prevGroupId });
         Sentry.captureException(err, {
           tags: { context: "moveToGroup" },
         });
@@ -336,16 +336,16 @@ export function useConversationActions({
       const trimmed = next.trim();
       if (!trimmed || trimmed === current) return;
 
-      patchConversation(queryClient, assistantId, conversation.conversationKey, { title: trimmed });
+      patchConversation(queryClient, assistantId, conversation.conversationId, { title: trimmed });
 
       try {
         await renameConversation(
           assistantId,
-          conversation.conversationKey,
+          conversation.conversationId,
           trimmed,
         );
       } catch (err) {
-        patchConversation(queryClient, assistantId, conversation.conversationKey, { title: current });
+        patchConversation(queryClient, assistantId, conversation.conversationId, { title: current });
         Sentry.captureException(err, {
           tags: { context: "renameConversation" },
         });

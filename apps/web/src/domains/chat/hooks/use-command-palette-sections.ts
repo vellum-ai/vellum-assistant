@@ -62,7 +62,7 @@ function buildRecentsSection(conversations: Conversation[]): CommandPaletteSecti
     id: "conversations",
     label: "Recent",
     items: recent.map((conv) => ({
-      id: `conv-${conv.conversationKey}`,
+      id: `conv-${conv.conversationId}`,
       icon: MessageSquare,
       title: conv.title ?? "Untitled",
       subtitle: conv.lastMessageAt ? formatRelativeTime(conv.lastMessageAt) : undefined,
@@ -224,7 +224,7 @@ export function useCommandPaletteSections({
 
   // Deduplicate server results against local recents.
   const recentConversationKeys = useMemo(
-    () => new Set(conversations.slice(0, 5).map((c) => c.conversationKey)),
+    () => new Set(conversations.slice(0, 5).map((c) => c.conversationId)),
     [conversations],
   );
 

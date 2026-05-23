@@ -146,10 +146,10 @@ export function AssistantSideMenu({
 
   const renderThreadPinToggle = (conversation: Conversation): ReactNode => {
     const isProcessing =
-      conversation.conversationKey === activeConversationKey
+      conversation.conversationId === activeConversationKey
         ? activeConversationProcessing ?? false
-        : processingConversationKeys?.has(conversation.conversationKey) ?? false;
-    const needsAttention = attentionConversationKeys?.has(conversation.conversationKey) ?? false;
+        : processingConversationKeys?.has(conversation.conversationId) ?? false;
+    const needsAttention = attentionConversationKeys?.has(conversation.conversationId) ?? false;
     return (
       <ThreadPinToggle
         conversation={conversation}
@@ -206,16 +206,16 @@ export function AssistantSideMenu({
           ? () => onRemoveFromGroup(conversation)
           : undefined,
       onAnalyze:
-        onAnalyze && conversation.conversationKey != null && !isChannel
+        onAnalyze && conversation.conversationId != null && !isChannel
           ? () => onAnalyze(conversation)
           : undefined,
       onOpenInNewWindow:
-        onOpenInNewWindow && conversation.conversationKey != null
+        onOpenInNewWindow && conversation.conversationId != null
           ? () => onOpenInNewWindow(conversation)
           : undefined,
       onShareFeedback,
       onInspect:
-        onInspect && conversation.conversationKey != null
+        onInspect && conversation.conversationId != null
           ? () => onInspect(conversation)
           : undefined,
     };
@@ -231,7 +231,7 @@ export function AssistantSideMenu({
   ): ReactNode => {
     const menuProps = buildConversationMenuProps(conversation);
     return (
-      <ContextMenu.Root key={conversation.conversationKey}>
+      <ContextMenu.Root key={conversation.conversationId}>
         <ContextMenu.Trigger>{panelItem}</ContextMenu.Trigger>
         <ContextMenu.Content
           onClick={(event) => event.stopPropagation()}
@@ -288,8 +288,8 @@ export function AssistantSideMenu({
             leadingSlot={renderThreadPinToggle(c)}
             label={c.title ?? "Untitled"}
             marqueeOnHover
-            active={c.conversationKey === activeConversationKey}
-            onSelect={() => selectAndClose(c.conversationKey)}
+            active={c.conversationId === activeConversationKey}
+            onSelect={() => selectAndClose(c.conversationId)}
             trailingAction={renderThreadActions(c)}
           />,
         ),
@@ -483,8 +483,8 @@ export function AssistantSideMenu({
                                 leadingSlot={renderThreadPinToggle(c)}
                                 label={c.title ?? "Untitled"}
                                 marqueeOnHover
-                                active={c.conversationKey === activeConversationKey}
-                                onSelect={() => selectAndClose(c.conversationKey)}
+                                active={c.conversationId === activeConversationKey}
+                                onSelect={() => selectAndClose(c.conversationId)}
                                 trailingAction={renderThreadActions(c)}
                               />,
                             ),

@@ -152,7 +152,7 @@ export function ArchivePage() {
         setConversations((prev) => {
           if (!prev) return prev;
           return prev.map((c) =>
-            c.conversationKey === conversationKey
+            c.conversationId === conversationKey
               ? { ...c, archivedAt: undefined }
               : c,
           );
@@ -197,13 +197,13 @@ export function ArchivePage() {
       <Card noPadding className="px-4">
         {archived.map((conversation, index) => (
           <ArchivedConversationRow
-            key={conversation.conversationKey}
+            key={conversation.conversationId}
             conversation={conversation}
             isFirst={index === 0}
             onUnarchive={() => {
-              void handleUnarchive(conversation.conversationKey);
+              void handleUnarchive(conversation.conversationId);
             }}
-            isPending={pendingUnarchiveId === conversation.conversationKey}
+            isPending={pendingUnarchiveId === conversation.conversationId}
           />
         ))}
       </Card>

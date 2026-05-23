@@ -130,7 +130,7 @@ export function useSidebarState({
       attentionConversationKeys != null &&
       grouped.recents
         .slice(SIDEBAR_CONVERSATION_LIMIT)
-        .some((c) => attentionConversationKeys.has(c.conversationKey));
+        .some((c) => attentionConversationKeys.has(c.conversationId));
     const effectiveShowAll = showAllRecents || !!hasAttentionBeyondLimit;
     return {
       all: grouped.recents,
@@ -152,7 +152,7 @@ export function useSidebarState({
       attentionConversationKeys != null &&
       grouped.slack
         .slice(SIDEBAR_CONVERSATION_LIMIT)
-        .some((c) => attentionConversationKeys.has(c.conversationKey));
+        .some((c) => attentionConversationKeys.has(c.conversationId));
     const effectiveShowAll = showAllSlack || !!hasAttentionBeyondLimit;
     return {
       all: grouped.slack,
@@ -173,7 +173,7 @@ export function useSidebarState({
     (convs: Conversation[]) =>
       attentionConversationKeys
         ? convs.some((c) =>
-            attentionConversationKeys.has(c.conversationKey),
+            attentionConversationKeys.has(c.conversationId),
           )
         : false,
     [attentionConversationKeys],
@@ -214,7 +214,7 @@ export function useSidebarState({
     for (const group of grouped.customGroups) {
       if (
         group.conversations.some((c) =>
-          attentionConversationKeys.has(c.conversationKey),
+          attentionConversationKeys.has(c.conversationId),
         )
       ) {
         extra.push(group.id);

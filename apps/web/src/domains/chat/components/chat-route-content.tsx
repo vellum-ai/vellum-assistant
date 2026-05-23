@@ -672,7 +672,7 @@ export function ChatRouteContent({
   // client-side helper only when the daemon hasn't surfaced the flag.
   const activeProfileModel = useActiveProfileModel(
     assistantId,
-    activeConversation?.conversationKey,
+    activeConversation?.conversationId,
   );
   const activeModelSupportsVision = activeProfileModel
     ? (activeProfileModel.supportsVision ??
@@ -1208,7 +1208,7 @@ export function ChatRouteContent({
     thresholdPickerSlot: assistantId ? (
       <ComposerSettingsMenu
         assistantId={assistantId}
-        conversationId={activeConversation?.conversationKey}
+        conversationId={activeConversation?.conversationId}
       />
     ) : undefined,
     contextWindowIndicatorSlot: (

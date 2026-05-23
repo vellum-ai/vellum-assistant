@@ -62,22 +62,22 @@ export function LogsTab({ assistantId }: LogsTabProps) {
   const activeConversationId = useMemo(() => {
     if (selectedConversationId) {
       const match = conversations.find(
-        (c) => c.conversationKey === selectedConversationId,
+        (c) => c.conversationId === selectedConversationId,
       );
       if (match) {
-        return match.conversationKey;
+        return match.conversationId;
       }
     }
     const lastViewed = loadLastViewedConversationKey(assistantId);
     if (lastViewed) {
       const match = conversations.find(
-        (c) => c.conversationKey === lastViewed,
+        (c) => c.conversationId === lastViewed,
       );
       if (match) {
-        return match.conversationKey;
+        return match.conversationId;
       }
     }
-    return conversations[0]?.conversationKey ?? "";
+    return conversations[0]?.conversationId ?? "";
   }, [assistantId, conversations, selectedConversationId]);
 
   const handleSelectConversation = useCallback(
@@ -197,7 +197,7 @@ function ConversationPicker({
         value={selectedConversationId}
         onChange={onSelect}
         options={conversations.map((conversation) => ({
-          value: conversation.conversationKey,
+          value: conversation.conversationId,
           label: conversationLabel(conversation),
         }))}
       />
@@ -210,7 +210,7 @@ function conversationLabel(conversation: Conversation): string {
   if (title) {
     return title;
   }
-  const shortId = conversation.conversationKey.slice(0, 8);
+  const shortId = conversation.conversationId.slice(0, 8);
   return `Conversation ${shortId}`;
 }
 

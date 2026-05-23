@@ -208,7 +208,7 @@ export function SlackChannelFooter({
         friendlyChannelName,
       ) ?? channelDisplayText)
     : undefined;
-  const conversationId = conversation?.conversationKey;
+  const conversationId = conversation?.conversationId;
   const resolutionKey =
     assistantId && conversationId && channelId
       ? `${assistantId}:${conversationId}:${channelId}`
