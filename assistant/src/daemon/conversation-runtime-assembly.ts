@@ -1734,15 +1734,16 @@ const RUNTIME_INJECTION_PREFIXES = [
   "<background_turn>",
   "<memory_context __injected>",
   "<memory_context>", // backward-compat: strip legacy blocks from pre-__injected history
-  // The static `memory-v2-static` block (opens `<memory>\n…`) IS stripped
-  // so each compaction re-injects the freshest essentials/threads/recent/
-  // buffer view, matching the `<knowledge_base>` cadence. The dynamic
-  // activation block (opens `<memory __injected>…`) is intentionally NOT
-  // stripped — `startsWith("<memory>\n")` does not match it — so per-turn
-  // memory activations persist in history. The activation pipeline dedupes
-  // via `everInjected`, and compaction handles aggregate growth, so
-  // accumulation does not cause unbounded context growth.
+  // The static `memory-v2-static` block (`<info>\n…</info>`) and the
+  // dynamic activation block (`<memory>\n…</memory>`, plus legacy
+  // `<memory __injected>…`) are both stripped so each compaction
+  // re-injects the freshest essentials/threads/recent/buffer view and
+  // re-runs the activation pipeline, matching the `<knowledge_base>`
+  // cadence. The activation pipeline dedupes via `everInjected`, and
+  // compaction handles aggregate growth, so accumulation does not cause
+  // unbounded context growth. Both wrappers may appear in persisted rows.
   "<memory>\n",
+  "<info>\n",
   "<voice_call_control>",
   "<workspace_top_level>", // backward-compat: strip legacy workspace blocks
   // NOTE: <workspace> is intentionally NOT stripped — workspace context
@@ -2037,7 +2038,7 @@ export interface RuntimeInjectionOptions {
   /**
    * Pre-rendered v2 static memory content (essentials/threads/recent/buffer
    * concatenated, header-wrapped). When non-null on full-mode turns the
-   * `memory-v2-static` injector wraps it in `<memory>` and splices it onto
+   * `memory-v2-static` injector wraps it in `<info>` and splices it onto
    * the user message; subsequent turns leave the prior block cached on its
    * original user message.
    */

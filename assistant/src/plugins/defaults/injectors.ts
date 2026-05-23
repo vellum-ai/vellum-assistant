@@ -387,17 +387,20 @@ async function buildPkbReminderWithHints(
  * `memory-v2-static` injector — order 38, after-memory-prefix.
  *
  * Injects the v2 static memory block (essentials/threads/recent/buffer
- * concatenated under markdown headings) wrapped in `<memory>...</memory>`
+ * concatenated under markdown headings) wrapped in `<info>...</info>`
  * onto the user message. The agent loop only forwards `memoryV2Static` on
  * full-mode turns (first turn / post-compaction), mirroring the PKB
  * auto-inject cadence — subsequent turns get `null` and the prior block
  * stays cached on its original user message.
  *
- * Sits between `pkb-reminder` (35) and `now-md` (40) so the rendered order
- * after the memory prefix is `[pkb-reminder, pkb-context, memory-v2-static,
- * now-md, ...user text]` when every PKB injector also fires (transitional
- * state). Once PKB is fully retired under v2 this is the only block
- * adjacent to the memory prefix.
+ * Sits between `pkb-reminder` (35) and `now-md` (40). Because every
+ * after-memory-prefix splice lands at the memory-prefix boundary in
+ * ascending `order`, higher-order blocks end up closer to the memory
+ * prefix. The rendered layout is therefore `[<memory>dynamic</memory>,
+ * <info>memory-v2-static</info>, <NOW.md>, <system_reminder>,
+ * <knowledge_base>, ...user text]` when every PKB injector also fires.
+ * `countMemoryPrefixBlocks` treats the `<info>` static block as part of
+ * the memory prefix so `now-md` (40) splices after it.
  *
  * Gating:
  *  - `mode === "full"`.
@@ -420,14 +423,18 @@ const memoryV2StaticInjector: Injector = {
   },
 };
 
+const INFO_CLOSE_TAG_RE = /<\/info\s*>/gi;
+
 /**
- * Wrap the static memory content in `<memory>...</memory>`. Escapes any
- * closing `</memory>` inside the content so authored memory files cannot
- * accidentally break out of the wrapper.
+ * Wrap the static memory content in `<info>...</info>`. Escapes any
+ * closing `</info>` inside the content so authored memory files cannot
+ * accidentally break out of the wrapper. Distinct from the dynamic
+ * activation block (which uses `<memory>...</memory>`) so downstream
+ * logic can address the two differently.
  */
 function buildMemoryV2StaticBlock(content: string): string {
-  const escaped = content.replace(/<\/memory\s*>/gi, "&lt;/memory&gt;");
-  return `<memory>\n${escaped}\n</memory>`;
+  const escaped = content.replace(INFO_CLOSE_TAG_RE, "&lt;/info&gt;");
+  return `<info>\n${escaped}\n</info>`;
 }
 
 /**

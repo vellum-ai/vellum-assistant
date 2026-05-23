@@ -1645,7 +1645,7 @@ export async function runAgentLoopImpl(
     // V2 static memory block (essentials/threads/recent/buffer).
     // `currentMemoryV2Static` is the trust-gated content reused by every
     // re-injection path — it stays non-null on non-full-mode turns so
-    // that mid-turn reducer compaction (which strips the prior `<memory>`
+    // that mid-turn reducer compaction (which strips the prior `<info>`
     // block) can restore the freshest content. `memoryV2Static` is the
     // first-turn / post-compaction cadence-gated value for initial
     // injection only. `readMemoryV2StaticContent` self-gates on the v2
