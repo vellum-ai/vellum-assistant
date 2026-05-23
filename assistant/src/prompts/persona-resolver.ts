@@ -77,31 +77,46 @@ function resolveUserFilename(
 ): string | null {
   let filename: string | null = null;
 
-  if (trustContext === undefined) {
-    // Desktop / native (no gateway) — resolve via guardian contact,
-    // preferring the vellum-channel guardian when multiple exist.
-    const vellumGuardian = findGuardianForChannel("vellum");
-    const guardian = vellumGuardian ?? listGuardianChannels();
-    if (guardian) {
-      filename = guardian.contact.userFile ?? "guardian.md";
-    }
-  } else if (trustContext.requesterExternalUserId) {
-    // Channel-routed request — look up contact by channel identity
-    const contactWithChannels = findContactByChannelExternalId(
-      trustContext.sourceChannel,
-      trustContext.requesterExternalUserId,
-    );
-    if (contactWithChannels) {
-      filename = contactWithChannels.userFile ?? null;
-    } else if (trustContext.trustClass === "guardian") {
-      // Managed desktop: the JWT principal ID used as requesterExternalUserId
-      // may differ from the contact channel's external_user_id (they are
-      // separate identity concepts). Fall back to the channel-type guardian.
-      const guardian = findGuardianForChannel(trustContext.sourceChannel);
+  try {
+    if (trustContext === undefined) {
+      // Desktop / native (no gateway) — resolve via guardian contact,
+      // preferring the vellum-channel guardian when multiple exist.
+      const vellumGuardian = findGuardianForChannel("vellum");
+      const guardian = vellumGuardian ?? listGuardianChannels();
       if (guardian) {
         filename = guardian.contact.userFile ?? "guardian.md";
       }
+    } else if (trustContext.requesterExternalUserId) {
+      // Channel-routed request — look up contact by channel identity
+      const contactWithChannels = findContactByChannelExternalId(
+        trustContext.sourceChannel,
+        trustContext.requesterExternalUserId,
+      );
+      if (contactWithChannels) {
+        filename = contactWithChannels.userFile ?? null;
+      } else if (trustContext.trustClass === "guardian") {
+        // Managed desktop: the JWT principal ID used as requesterExternalUserId
+        // may differ from the contact channel's external_user_id (they are
+        // separate identity concepts). Fall back to the channel-type guardian.
+        const guardian = findGuardianForChannel(trustContext.sourceChannel);
+        if (guardian) {
+          filename = guardian.contact.userFile ?? "guardian.md";
+        }
+      }
     }
+  } catch (err) {
+    // Contacts table may be absent — happens during early bootstrap
+    // before migrations run, in CLI smoke commands that don't touch
+    // the DB, and in tests that build the system prompt without first
+    // initializing a schema. Treat the same as "no guardian found"
+    // so callers fall back to `users/default.md`. Mirrors the same
+    // try/catch pattern used by `buildIntegrationSection` around
+    // `listConnections()`.
+    log.debug(
+      { err: err instanceof Error ? err.message : String(err) },
+      "Contacts lookup failed during persona resolution; treating as no guardian",
+    );
+    return null;
   }
 
   // Validate basename to prevent path traversal
