@@ -1136,12 +1136,14 @@ export class AnthropicProvider implements Provider {
         }
       }
 
-      // Manual cache breakpoint on the turn-starting user message.
-      // This is the stable anchor for the current turn — everything up to
-      // and including it won't change during tool-use iterations, so a long
-      // TTL is appropriate. Walk backwards to find the last user message
-      // with a real text block (skipping tool_result-only messages and
-      // synthetic continuation placeholders injected by ensureToolPairing).
+      // Manual cache breakpoints on user messages. The current turn's user
+      // message carries a dynamic memory injection that is stripped from
+      // history on subsequent turns (see stripAllMemoryInjections in
+      // conversation-graph-memory.ts), so its content is NOT byte-stable
+      // across turns and we cannot anchor a cache there. Anchor instead on
+      // the 2nd-most-recent user message — historical user messages have
+      // memory stripped, so their content is stable and the cached prefix
+      // through that point survives across turns.
       const msgs = sentMessages;
       const findUserTextMsgIdx = (startIdx: number): number => {
         for (let i = startIdx; i >= 0; i--) {
@@ -1166,36 +1168,55 @@ export class AnthropicProvider implements Provider {
             cacheControl;
         }
       };
-      const turnStartIdx = findUserTextMsgIdx(msgs.length - 1);
-      if (turnStartIdx >= 0 && !disableTurnStartCache) {
-        applyCacheControlToLastBlock(turnStartIdx);
+
+      // Memory-bearing user message: most recent user msg with real text.
+      // Unstable across turns (memory gets stripped from history), so we do
+      // NOT anchor here.
+      const mostRecentUserMsgIdx = findUserTextMsgIdx(msgs.length - 1);
+
+      // First request of a new turn: the memory-bearing user message is the
+      // very last message (no tool-use iterations yet). Gates the prev-turn
+      // anchor below.
+      const isFirstRequestOfNewTurn = mostRecentUserMsgIdx === msgs.length - 1;
+
+      // Primary 1h cache anchor: 2nd-most-recent user msg with real text —
+      // the most recent stable (already-stripped) user message.
+      let turnAnchorIdx = -1;
+      if (mostRecentUserMsgIdx > 0) {
+        turnAnchorIdx = findUserTextMsgIdx(mostRecentUserMsgIdx - 1);
+      }
+      if (turnAnchorIdx >= 0 && !disableTurnStartCache) {
+        applyCacheControlToLastBlock(turnAnchorIdx);
       }
 
-      // Previous-turn anchor: when this request is the first of a new turn
-      // (turn-start is the very last message — no tool-use loop yet), also
-      // place a 1h breakpoint on the *previous* turn-starting user message.
-      // Anthropic only matches the cache at cache_control points present in
-      // the current request, so without this anchor the breakpoint slides
+      // Backstop 1h anchor: 3rd-most-recent user msg with real text. Only
+      // at the start of a new turn (no tool-use loop yet). Anthropic only
+      // matches the cache at cache_control points present in the current
+      // request, so without this backstop the primary anchor slides
       // forward each new user turn and the prior cached prefix becomes
       // unreachable — forcing a full re-creation of history (200K+
       // cache_creation tokens per new turn). Skipped during tool-use loops
-      // where the current turn-start already covers the same prefix and a
+      // where the primary anchor already covers the same prefix and a
       // second anchor would blow the 4-breakpoint budget.
       let prevTurnAnchorIdx = -1;
-      if (turnStartIdx === msgs.length - 1 && turnStartIdx > 0) {
-        prevTurnAnchorIdx = findUserTextMsgIdx(turnStartIdx - 1);
+      if (isFirstRequestOfNewTurn && turnAnchorIdx > 0) {
+        prevTurnAnchorIdx = findUserTextMsgIdx(turnAnchorIdx - 1);
         if (prevTurnAnchorIdx >= 0)
           applyCacheControlToLastBlock(prevTurnAnchorIdx);
       }
 
       // Advancing tail: place a short-lived 5m cache breakpoint on the last
-      // block of the last message when it falls after the turn-starting user
-      // message (i.e. tool-use loop content). This caches the growing tail
-      // cheaply without conflicting with the 1h breakpoints above.
-      // Skip thinking/redacted_thinking blocks — Anthropic doesn't allow
-      // cache_control on those types.
+      // block of the last message during tool-use loops (when the
+      // memory-bearing user message is NOT the very last message — meaning
+      // assistant/tool_result messages have been appended after it). This
+      // caches the growing tail cheaply without conflicting with the 1h
+      // breakpoints above. Skip thinking/redacted_thinking blocks —
+      // Anthropic doesn't allow cache_control on those types.
       let tailBreakpointApplied = false;
-      if (turnStartIdx >= 0 && turnStartIdx < sentMessages.length - 1) {
+      if (
+        mostRecentUserMsgIdx >= 0 &&
+        mostRecentUserMsgIdx < sentMessages.length - 1
+      ) {
         const lastMsg = sentMessages[sentMessages.length - 1];
         if (Array.isArray(lastMsg.content) && lastMsg.content.length > 0) {
           const NON_CACHEABLE_TYPES = new Set([
@@ -1228,9 +1249,9 @@ export class AnthropicProvider implements Provider {
       // tokens) so the re-read cost is negligible, while the dynamic
       // block (workspace context) rarely changes mid-session and
       // benefits more from caching. Tail and prev-turn-anchor are
-      // mutually exclusive (prev-turn-anchor only fires when turn-start
-      // is the last message, which is the exact condition that suppresses
-      // the tail), so we never exceed 5.
+      // mutually exclusive (prev-turn-anchor only fires when the
+      // memory-bearing user message is the last message, which is the
+      // exact condition that suppresses the tail), so we never exceed 5.
       const hasToolCacheBreakpoint =
         params.tools?.some(
           (t) => "cache_control" in t && t.cache_control != null,
