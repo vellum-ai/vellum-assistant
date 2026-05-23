@@ -2812,14 +2812,16 @@ paths:
             schema:
               type: object
               properties:
-                conversationKey:
+                conversationId:
+                  description: Conversation ID to scope the call
                   type: string
+                conversationKey:
                   description: Conversation key to scope the call
+                  type: string
                 content:
                   type: string
                   description: User prompt content
               required:
-                - conversationKey
                 - content
               additionalProperties: false
   /v1/cache/delete:
@@ -7651,12 +7653,18 @@ paths:
         "200":
           description: Successful response
       parameters:
+        - name: conversationId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Scope to a single conversation by ID
         - name: conversationKey
           in: query
           required: false
           schema:
             type: string
-          description: Scope to a single conversation
+          description: Scope to a single conversation by legacy key
   /v1/events/emit:
     post:
       operationId: events_emit_post
@@ -11579,6 +11587,8 @@ paths:
             schema:
               type: object
               properties:
+                conversationId:
+                  type: string
                 conversationKey:
                   type: string
                 content:
