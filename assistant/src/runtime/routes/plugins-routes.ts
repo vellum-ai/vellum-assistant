@@ -225,7 +225,7 @@ export const ROUTES: RouteDefinition[] = [
     requirePolicyEnforcement: true,
     summary: "Search the plugin catalog",
     description:
-      "List installable plugins from the canonical `vellum-ai/vellum-assistant` catalog at `experimental/plugins/`. The query is an ECMAScript regex matched case-insensitively against the directory name (e.g. `memory`, `^simple`, `\\\\bauth\\\\b`). Empty query returns every entry. Mirrors the CLI's `assistant plugins search`.",
+      "List installable plugins from the canonical `vellum-ai/vellum-assistant` catalog at `experimental/plugins/`. The query is an ECMAScript regex matched case-insensitively against the directory name (e.g. `memory`, `^simple`). Empty query returns every entry. Mirrors the CLI's `assistant plugins search`.",
     tags: ["plugins"],
     queryParams: [
       {

@@ -12953,6 +12953,66 @@ paths:
           schema:
             type: string
           description: Optional substring filter applied to plugin id, name, and description.
+  /v1/plugins/search:
+    get:
+      operationId: plugins_search_get
+      summary: Search the plugin catalog
+      description:
+        List installable plugins from the canonical `vellum-ai/vellum-assistant` catalog at
+        `experimental/plugins/`. The query is an ECMAScript regex matched case-insensitively against the directory name
+        (e.g. `memory`, `^simple`). Empty query returns every entry. Mirrors the CLI's `assistant plugins search`.
+      tags:
+        - plugins
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  query:
+                    type: string
+                    description: Echo of the requested query (ECMAScript regex source).
+                  ref:
+                    type: string
+                    description: Git ref the catalog was listed at.
+                  matches:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                          description: Directory name under `experimental/plugins/`. Matches `assistant plugins install <name>`.
+                        path:
+                          type: string
+                          description: Repo-relative path of the match (e.g. `experimental/plugins/<name>`).
+                      required:
+                        - name
+                        - path
+                      additionalProperties: false
+                    description: Directory matches, sorted alphabetically by name.
+                required:
+                  - query
+                  - ref
+                  - matches
+                additionalProperties: false
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+          description:
+            ECMAScript regex pattern matched case-insensitively against catalog directory names. Empty/missing matches
+            everything.
+        - name: ref
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional git ref to list the catalog at. Defaults to the CLI's `DEFAULT_PLUGIN_REF` (typically `main`).
   /v1/profiler/runs:
     get:
       operationId: profiler_runs_get
