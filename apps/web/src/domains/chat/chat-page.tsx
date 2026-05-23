@@ -92,6 +92,7 @@ import { isChannelConversation } from "@/domains/chat/utils/conversation-channel
 import { buildMoveToGroupTargets } from "@/domains/chat/utils/group-conversations.js";
 import { ConversationActionsMenu } from "@/domains/chat/components/conversation-actions-menu.js";
 import { ConversationAssetsPill } from "@/domains/chat/components/conversation-assets-pill.js";
+import { AddCreditsModal } from "@/components/add-credits-modal.js";
 import { CommandPalette } from "@/components/command-palette/command-palette.js";
 import { shouldHandleShortcut } from "@/domains/chat/chat-layout.js";
 import { abortSubagent, fetchSubagentDetail } from "@/domains/chat/api/conversations.js";
@@ -156,7 +157,6 @@ export function ChatPage() {
   const [compactionCircuitOpenUntil, setCompactionCircuitOpenUntil] = useState<Date | null>(null);
   const [suggestion, setSuggestion] = useState<string | null>(null);
   const [showAddCreditsModal, setShowAddCreditsModal] = useState(false);
-  void showAddCreditsModal;
 
   const [restoredDraftConversationKey, setRestoredDraftConversationKey] = useState<string | null>(null);
   const [refreshEpoch, setRefreshEpoch] = useState(0);
@@ -1611,6 +1611,10 @@ export function ChatPage() {
   return (
     <>
       <ChatRouteContent {...chatRouteProps} />
+      <AddCreditsModal
+        open={showAddCreditsModal}
+        onOpenChange={setShowAddCreditsModal}
+      />
       <ConnectingToAssistant
         state={reachability.state}
         onRetry={() => reachability.probe({ showConnectingImmediately: true })}
