@@ -194,14 +194,19 @@ export function useMessageReconciliation({
       const { changed, assistantProgress, messagesAdded } =
         reconcileFromServerDetailed(serverMessages);
 
-      // Reconcile turn state: if messages changed and the turn is
-      // still stuck in a sending phase for the SAME turn we snapshotted,
-      // the terminal SSE event was likely lost during backgrounding.
-      // We gate on assistant-side progress, not just any changed history:
-      // the server assigning an id to the optimistic user message does not
-      // prove the assistant completed.
+      // Reconcile turn state: if the server confirms assistant-side
+      // progress and the turn is still stuck in a sending phase for the
+      // SAME turn we snapshotted, the terminal SSE event was likely lost
+      // during backgrounding. We gate on assistant-side progress, not on
+      // `changed` history equality — the latter is no longer a reliable
+      // staleness signal now that `reconcileMessages` preserves the
+      // client-owned `isStreaming` flag instead of stripping it. The real
+      // signal is inside `assistantProgress`: it returns true precisely
+      // when local is still marked streaming AND the server has the
+      // matching assistant row (suggesting SSE missed the terminal), or
+      // when server content has moved ahead of local (suggesting SSE
+      // missed deltas / whole messages).
       const wasStuck =
-        changed &&
         assistantProgress &&
         snapshotTurnId &&
         isSending(useTurnStore.getState()) &&
