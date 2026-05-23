@@ -1277,11 +1277,11 @@ export async function runDaemon(): Promise<void> {
     })();
 
     if (config.auditLog.retentionDays > 0) {
-      try {
-        rotateToolInvocations(config.auditLog.retentionDays);
-      } catch (err) {
-        log.warn({ err }, "Audit log rotation failed");
-      }
+      void rotateToolInvocations(config.auditLog.retentionDays).catch(
+        (err) => {
+          log.warn({ err }, "Audit log rotation failed");
+        },
+      );
     }
 
     const workspaceHeartbeat = new WorkspaceHeartbeatService();
