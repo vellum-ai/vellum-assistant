@@ -10,8 +10,34 @@ describe("parseConversation — originChannel plumbing", () => {
     expect(parseConversation("string")).toBeNull();
   });
 
-  test("returns null when no conversationId/id is present", () => {
+  test("returns null when no conversationId/id/conversationKey is present", () => {
     expect(parseConversation({})).toBeNull();
+  });
+
+  test("prefers conversationId over id and conversationKey", () => {
+    const parsed = parseConversation({
+      conversationId: "from-conversation-id",
+      id: "from-id",
+      conversationKey: "from-conversation-key",
+    });
+    expect(parsed?.conversationId).toBe("from-conversation-id");
+  });
+
+  test("falls back to id when conversationId is absent", () => {
+    const parsed = parseConversation({
+      id: "from-id",
+      conversationKey: "from-conversation-key",
+    });
+    expect(parsed?.conversationId).toBe("from-id");
+  });
+
+  test("falls back to conversationKey only when both conversationId and id are absent", () => {
+    // Daemon wire-format compatibility: SSE events may still carry the
+    // legacy `conversationKey` shape until the contract is updated.
+    const parsed = parseConversation({
+      conversationKey: "from-conversation-key",
+    });
+    expect(parsed?.conversationId).toBe("from-conversation-key");
   });
 
   test("leaves originChannel undefined when neither field is present", () => {

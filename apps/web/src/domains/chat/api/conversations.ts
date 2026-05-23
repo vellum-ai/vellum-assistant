@@ -191,16 +191,18 @@ export function parseConversation(raw: unknown): Conversation | null {
   if (!raw || typeof raw !== "object") return null;
 
   const record = raw as Record<string, unknown>;
-  // The current daemon wire format emits `conversationKey`; we also accept
-  // `conversationId` for forward-compat and `id` as a legacy fallback. All
-  // three are surfaced on the entity as `conversationId`.
+  // Prefer `conversationId` (and `id` as a synonym) since that is the
+  // canonical entity field name. `conversationKey` is the legacy daemon
+  // wire-format spelling, kept as a last-resort fallback for backward
+  // compatibility until the daemon SSE contract is updated. See
+  // LUM-1890 for the investigation on whether we can drop it entirely.
   const conversationId =
-    typeof record.conversationKey === "string"
-      ? record.conversationKey
-      : typeof record.conversationId === "string"
-        ? record.conversationId
-        : typeof record.id === "string"
-          ? record.id
+    typeof record.conversationId === "string"
+      ? record.conversationId
+      : typeof record.id === "string"
+        ? record.id
+        : typeof record.conversationKey === "string"
+          ? record.conversationKey
           : null;
 
   if (!conversationId) return null;
