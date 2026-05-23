@@ -88,10 +88,14 @@ jobs:
           if [ "$PREV_SHA" = "$HEAD_SHA" ]; then
             echo "No new commits since the last successful dev release (${PREV_SHA}) — cancelling run."
             echo "has_new_commits=false" >> "$GITHUB_OUTPUT"
-            gh run cancel "$RUN_ID" --repo "$REPO"
-            # Give the cancellation time to propagate so the gated root jobs
-            # never start; the has_new_commits=false output is the durable
-            # backstop if the cancel call is slow or fails.
+            # Best-effort: a transient cancel-API failure must not fail this
+            # gate job (that would turn an idle no-op into a workflow failure).
+            # The has_new_commits=false output is the durable backstop — every
+            # root job is gated on it and will be skipped regardless.
+            gh run cancel "$RUN_ID" --repo "$REPO" \
+              || echo "::warning::Failed to cancel run ${RUN_ID}; root jobs are gated on has_new_commits=false and will be skipped anyway."
+            # Give a successful cancellation time to propagate so the gated root
+            # jobs never start.
             sleep 15
             exit 0
           fi
