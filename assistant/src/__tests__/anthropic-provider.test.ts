@@ -268,9 +268,11 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     const dynamicBlock = "User workspace files here.";
     const prompt = staticBlock + SYSTEM_PROMPT_CACHE_BOUNDARY + dynamicBlock;
 
-    // Boundary (2 system) + tools (1) + turn-start (1) + tail (1) = 5 → must cap at 4
+    // 2 system + 1 tool + turn-anchor (Turn 1) + tail = 5 → drop static system
     const messages: Message[] = [
-      userMsg("Do something"),
+      userMsg("Turn 1"),
+      assistantMsg("Response 1"),
+      userMsg("Turn 2"),
       toolUseMsg("tu_1", "bash"),
       toolResultMsg("tu_1", "output"),
     ];
@@ -296,7 +298,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       ttl: "1h",
     });
 
-    // Turn-start + tail breakpoints still present
+    // Turn-anchor (Turn 1 — 2nd-most-recent stable user msg) + tail still present
     const sent = lastStreamParams!.messages as Array<{
       role: string;
       content: Array<{
@@ -304,9 +306,9 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
         cache_control?: { type: string; ttl?: string };
       }>;
     }>;
-    const turnStart = sent[0];
+    const turnAnchor = sent[0];
     expect(
-      turnStart.content[turnStart.content.length - 1].cache_control,
+      turnAnchor.content[turnAnchor.content.length - 1].cache_control,
     ).toEqual({ type: "ephemeral", ttl: "1h" });
     const lastMsg = sent[sent.length - 1];
     expect(lastMsg.content[lastMsg.content.length - 1].cache_control).toEqual({
@@ -364,9 +366,11 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     ).toBeUndefined();
   });
 
-  test("advancing tail: 5m cache on last block when tool results follow turn-starting message", async () => {
+  test("advancing tail: 5m cache on last block when tool results follow the memory-bearing user message", async () => {
     const messages: Message[] = [
-      userMsg("Do something"),
+      userMsg("Turn 1"),
+      assistantMsg("Response 1"),
+      userMsg("Turn 2"),
       toolUseMsg("tu_1", "bash"),
       toolResultMsg("tu_1", "output"),
     ];
@@ -380,13 +384,19 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       }>;
     }>;
 
-    // Turn-starting user message (first) keeps 1h
-    const turnStart = sent[0];
-    const turnStartLast = turnStart.content[turnStart.content.length - 1];
-    expect(turnStartLast.cache_control).toEqual({
+    // 2nd-most-recent user message (Turn 1, stable) is the primary 1h anchor
+    const turnAnchor = sent[0];
+    const turnAnchorLast = turnAnchor.content[turnAnchor.content.length - 1];
+    expect(turnAnchorLast.cache_control).toEqual({
       type: "ephemeral",
       ttl: "1h",
     });
+
+    // Memory-bearing user message (Turn 2) has no cache_control
+    const memoryBearing = sent[2];
+    for (const block of memoryBearing.content) {
+      expect(block.cache_control).toBeUndefined();
+    }
 
     // Last message (tool_result) gets 5m advancing tail
     const lastMessage = sent[sent.length - 1];
@@ -394,7 +404,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     expect(lastBlock.cache_control).toEqual({ type: "ephemeral", ttl: "5m" });
   });
 
-  test("turn-starting user message gets 1h cache on last block", async () => {
+  test("stable user messages get 1h cache anchors; memory-bearing most-recent is skipped", async () => {
     const messages: Message[] = [
       userMsg("Turn 1"),
       assistantMsg("Response 1"),
@@ -414,31 +424,41 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     }>;
 
     const userMessages = sent.filter((m) => m.role === "user");
-    // Oldest user message (Turn 1) has no cache_control
-    for (const block of userMessages[0].content) {
-      expect(block.cache_control).toBeUndefined();
-    }
-    // Previous-turn anchor (Turn 2) gets 1h cache on its last block to
-    // preserve the cached prefix across turn transitions
-    const prevTurn = userMessages[userMessages.length - 2];
-    const prevTurnLast = prevTurn.content[prevTurn.content.length - 1];
-    expect(prevTurnLast.cache_control).toEqual({
+    // Backstop anchor (Turn 1 — 3rd-most-recent) gets 1h on its last block.
+    // Keeps the previous turn's cache reachable as the primary anchor shifts.
+    const backstop = userMessages[0];
+    const backstopLast = backstop.content[backstop.content.length - 1];
+    expect(backstopLast.cache_control).toEqual({
       type: "ephemeral",
       ttl: "1h",
     });
-    // Current-turn anchor (Turn 3) gets 1h cache on its last block
-    const lastUser = userMessages[userMessages.length - 1];
-    const lastBlock = lastUser.content[lastUser.content.length - 1];
-    expect(lastBlock.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+    // Primary anchor (Turn 2 — 2nd-most-recent, stable / already-stripped)
+    // gets 1h on its last block.
+    const turnAnchor = userMessages[userMessages.length - 2];
+    const turnAnchorLast = turnAnchor.content[turnAnchor.content.length - 1];
+    expect(turnAnchorLast.cache_control).toEqual({
+      type: "ephemeral",
+      ttl: "1h",
+    });
+    // Memory-bearing user message (Turn 3 — most recent) has no cache_control.
+    // Its content is unstable across turns because memory gets stripped from
+    // history on subsequent turns.
+    const memoryBearing = userMessages[userMessages.length - 1];
+    for (const block of memoryBearing.content) {
+      expect(block.cache_control).toBeUndefined();
+    }
   });
 
-  test("disableTurnStartCache suppresses the 1h breakpoint on the turn-starting user message", async () => {
-    // One-shot callers (e.g. the memory router) send a single user message
-    // per call with content that changes every time. Caching the turn-start
-    // block would create unused entries — `disableTurnStartCache: true`
-    // opts out.
+  test("disableTurnStartCache suppresses the 1h breakpoint on the turn-anchor user message", async () => {
+    // One-shot callers (e.g. the memory router) want no caching on the
+    // turn-anchor position because their input changes every call —
+    // `disableTurnStartCache: true` opts out of the primary 1h anchor.
     await provider.sendMessage(
-      [userMsg("Pick relevant pages")],
+      [
+        userMsg("Earlier message"),
+        assistantMsg("Earlier reply"),
+        userMsg("Pick relevant pages"),
+      ],
       undefined,
       undefined,
       {
@@ -453,19 +473,24 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
         cache_control?: { type: string; ttl?: string };
       }>;
     }>;
-    const lastBlock = sent[0].content[sent[0].content.length - 1];
-    expect(lastBlock.cache_control).toBeUndefined();
+    // Without the flag, sent[0] (2nd-most-recent user msg) would carry a
+    // 1h anchor on its last block. With the flag, it's suppressed.
+    const turnAnchor = sent[0];
+    const turnAnchorLast = turnAnchor.content[turnAnchor.content.length - 1];
+    expect(turnAnchorLast.cache_control).toBeUndefined();
   });
 
-  test("previous-turn anchor is NOT applied during a tool-use loop", async () => {
+  test("backstop anchor is NOT applied during a tool-use loop", async () => {
     // When the request is mid tool-use (last msg is a tool_result), the
-    // turn-start anchor already covers the long prefix, so we must not
-    // place a second anchor on the prior turn — that would push us over
-    // the 4-breakpoint budget without adding cache value.
+    // turn-anchor + tail already cover the prefix, so we must not place a
+    // backstop anchor on the next-older turn — that would push us over the
+    // 4-breakpoint budget without adding cache value.
     const messages: Message[] = [
       userMsg("Turn 1"),
       assistantMsg("Response 1"),
       userMsg("Turn 2"),
+      assistantMsg("Response 2"),
+      userMsg("Turn 3"),
       toolUseMsg("tu_1", "bash"),
       toolResultMsg("tu_1", "output"),
     ];
@@ -478,12 +503,16 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
         cache_control?: { type: string; ttl?: string };
       }>;
     }>;
-    // Turn 1 user message must have no cache_control (would be the
-    // prev-turn-anchor if we applied it, which we shouldn't here)
+    // Turn 1 (3rd-most-recent, would be the backstop) must have no
+    // cache_control during a tool-use loop.
     const turn1 = sent[0];
     for (const block of turn1.content) {
       expect(block.cache_control).toBeUndefined();
     }
+    // Turn 2 (2nd-most-recent, stable) IS the primary anchor — gets 1h.
+    const turn2 = sent[2];
+    const turn2Last = turn2.content[turn2.content.length - 1];
+    expect(turn2Last.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
   });
 
   // -----------------------------------------------------------------------
@@ -518,15 +547,19 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
   // -----------------------------------------------------------------------
   // Multi-block user message: cache lands on LAST block
   // -----------------------------------------------------------------------
-  test("multi-block single user message gets cache on last block", async () => {
-    const multiBlockUser: Message = {
+  test("multi-block turn-anchor user message gets cache on its last block only", async () => {
+    const multiBlockTurnAnchor: Message = {
       role: "user",
       content: [
         { type: "text", text: "First block" },
         { type: "text", text: "Second block" },
       ],
     };
-    await provider.sendMessage([multiBlockUser]);
+    await provider.sendMessage([
+      multiBlockTurnAnchor,
+      assistantMsg("Reply"),
+      userMsg("Latest"),
+    ]);
 
     const sent = lastStreamParams!.messages as Array<{
       role: string;
@@ -536,9 +569,9 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
         cache_control?: { type: string; ttl?: string };
       }>;
     }>;
-    const user = sent[0];
-    expect(user.content[0].cache_control).toBeUndefined();
-    expect(user.content[1].cache_control).toEqual({
+    const anchor = sent[0];
+    expect(anchor.content[0].cache_control).toBeUndefined();
+    expect(anchor.content[1].cache_control).toEqual({
       type: "ephemeral",
       ttl: "1h",
     });
@@ -558,9 +591,11 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
   // -----------------------------------------------------------------------
   // Cache compatibility with workspace context injection
   // -----------------------------------------------------------------------
-  test("workspace-prepended single user message gets cache on last block", async () => {
-    // Simulates what applyRuntimeInjections does: prepend workspace block, keep user text as trailing
-    const workspaceInjectedUser: Message = {
+  test("workspace-prepended turn-anchor user message gets cache on its last block", async () => {
+    // Simulates what applyRuntimeInjections does: prepend workspace block,
+    // keep user text trailing. Place it on the turn-anchor (2nd-most-recent)
+    // position so we can verify the anchor lands on the LAST block.
+    const workspaceInjectedAnchor: Message = {
       role: "user",
       content: [
         {
@@ -570,7 +605,11 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
         { type: "text", text: "What files are in src?" },
       ],
     };
-    await provider.sendMessage([workspaceInjectedUser]);
+    await provider.sendMessage([
+      workspaceInjectedAnchor,
+      assistantMsg("Reply"),
+      userMsg("Follow-up"),
+    ]);
 
     const sent = lastStreamParams!.messages as Array<{
       role: string;
@@ -580,20 +619,21 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
         cache_control?: { type: string; ttl?: string };
       }>;
     }>;
-    const user = sent[0];
-    expect(user.content).toHaveLength(2);
+    const anchor = sent[0];
+    expect(anchor.content).toHaveLength(2);
     // Workspace block (first): no cache_control
-    expect(user.content[0].cache_control).toBeUndefined();
+    expect(anchor.content[0].cache_control).toBeUndefined();
     // User text (last): cache_control with 1h TTL
-    expect(user.content[1].cache_control).toEqual({
+    expect(anchor.content[1].cache_control).toEqual({
       type: "ephemeral",
       ttl: "1h",
     });
   });
 
-  test("workspace + multi-block single user message: cache on last block only", async () => {
-    // Simulates workspace prepended + extra context block appended
-    const injectedUser: Message = {
+  test("workspace + multi-block turn-anchor user message: cache on last block only", async () => {
+    // Simulates workspace prepended + extra context block appended on the
+    // turn-anchor (2nd-most-recent) position.
+    const injectedAnchor: Message = {
       role: "user",
       content: [
         {
@@ -607,7 +647,11 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
         },
       ],
     };
-    await provider.sendMessage([injectedUser]);
+    await provider.sendMessage([
+      injectedAnchor,
+      assistantMsg("Reply"),
+      userMsg("Follow-up"),
+    ]);
 
     const sent = lastStreamParams!.messages as Array<{
       role: string;
@@ -617,12 +661,12 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
         cache_control?: { type: string; ttl?: string };
       }>;
     }>;
-    const user = sent[0];
-    expect(user.content).toHaveLength(3);
+    const anchor = sent[0];
+    expect(anchor.content).toHaveLength(3);
     // Only last block gets cache_control
-    expect(user.content[0].cache_control).toBeUndefined();
-    expect(user.content[1].cache_control).toBeUndefined();
-    expect(user.content[2].cache_control).toEqual({
+    expect(anchor.content[0].cache_control).toBeUndefined();
+    expect(anchor.content[1].cache_control).toBeUndefined();
+    expect(anchor.content[2].cache_control).toEqual({
       type: "ephemeral",
       ttl: "1h",
     });
@@ -1860,27 +1904,27 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     const userMsgs = sent.filter((m) => m.role === "user");
     expect(userMsgs).toHaveLength(3);
 
-    // Oldest user message (turn 1): no cache_control
-    for (const block of userMsgs[0].content) {
+    // Backstop anchor (turn 1, 3rd-most-recent): 1h on last block. Fires
+    // here because the memory-bearing user msg is the very last message.
+    expect(userMsgs[0].content[0].cache_control).toBeUndefined();
+    expect(userMsgs[0].content[1].cache_control).toEqual({
+      type: "ephemeral",
+      ttl: "1h",
+    });
+
+    // Primary turn-anchor (turn 2, 2nd-most-recent, stable): 1h on last block.
+    const turnAnchor = userMsgs[userMsgs.length - 2];
+    expect(turnAnchor.content[0].cache_control).toBeUndefined();
+    expect(turnAnchor.content[1].cache_control).toEqual({
+      type: "ephemeral",
+      ttl: "1h",
+    });
+
+    // Memory-bearing user message (turn 3, most-recent): no cache_control.
+    const memoryBearing = userMsgs[userMsgs.length - 1];
+    for (const block of memoryBearing.content) {
       expect(block.cache_control).toBeUndefined();
     }
-
-    // Previous-turn anchor (turn 2): 1h cache on last block to preserve the
-    // cached prefix across turn transitions
-    const prevTurn = userMsgs[userMsgs.length - 2];
-    expect(prevTurn.content[0].cache_control).toBeUndefined();
-    expect(prevTurn.content[1].cache_control).toEqual({
-      type: "ephemeral",
-      ttl: "1h",
-    });
-
-    // Current-turn anchor (turn 3): 1h cache on last block
-    const lastUser = userMsgs[userMsgs.length - 1];
-    expect(lastUser.content[0].cache_control).toBeUndefined();
-    expect(lastUser.content[1].cache_control).toEqual({
-      type: "ephemeral",
-      ttl: "1h",
-    });
 
     // No top-level cache_control — breakpoints are set directly on blocks
     expect(
@@ -1888,8 +1932,10 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     ).toBeUndefined();
   });
 
-  test("tool loop: turn-starting user message gets 1h cache, last tool_result gets 5m advancing tail", async () => {
+  test("tool loop: 2nd-most-recent user message gets 1h cache, last tool_result gets 5m advancing tail", async () => {
     const messages: Message[] = [
+      userMsg("Earlier question"),
+      assistantMsg("Earlier reply"),
       userMsg("Read the config file"),
       toolUseMsg("tu_1", "file_read"),
       toolResultMsg("tu_1", "config contents here"),
@@ -1907,12 +1953,19 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       }>;
     }>;
 
-    // First message is the turn-starting user text — gets 1h cache
+    // 2nd-most-recent user msg with text ("Earlier question") — primary 1h anchor
     expect(sent[0].role).toBe("user");
     expect(sent[0].content[0].cache_control).toEqual({
       type: "ephemeral",
       ttl: "1h",
     });
+
+    // Memory-bearing user msg ("Read the config file") — no cache_control
+    const memoryBearing = sent[2];
+    expect(memoryBearing.role).toBe("user");
+    for (const block of memoryBearing.content) {
+      expect(block.cache_control).toBeUndefined();
+    }
 
     // Non-last tool result messages do NOT get cache_control
     const toolResultMsgs = sent.filter(
