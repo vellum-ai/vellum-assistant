@@ -955,28 +955,14 @@ function mergeToolResultsIntoAssistantMessages(
         parsedAssistantContent.set(lastAssistantIdx, assistantContent);
       }
       assistantContent.push(...toolResultBlocks);
+      // Merge case — fall through to the shared suppression check below.
     } else {
-      // No preceding assistant message (pagination boundary) — keep the
-      // original message as-is to avoid permanent data loss. The preceding
-      // assistant tool_use lives in the previous page; dropping the result
-      // here would be unrecoverable.
-      // Still strip system notices so internal prompt text isn't exposed.
-      const filteredBlocks = blocks.filter(
-        (b) =>
-          !(
-            typeof b === "object" &&
-            b !== null &&
-            isSystemNoticeText(b as Record<string, unknown>)
-          ),
-      );
-      result.push({
-        ...msg,
-        content:
-          filteredBlocks.length === blocks.length
-            ? msg.content
-            : JSON.stringify(filteredBlocks),
-      });
-      continue;
+      // No preceding assistant message (pagination boundary). Orphan
+      // tool_result blocks get silently dropped by renderHistoryContent
+      // anyway (no matching tool_use in this page), so behave the same as
+      // the merge-success branch: keep otherBlocks when there's real user
+      // content, otherwise suppress the row instead of letting it arrive
+      // at the client as a blank bubble.
     }
 
     // If the user message had only tool_result (+ system_notice) blocks,
@@ -992,7 +978,7 @@ function mergeToolResultsIntoAssistantMessages(
     if (realUserContent.length > 0) {
       result.push({ ...msg, content: JSON.stringify(otherBlocks) });
     }
-    // else: tool-result-only → suppressed (results already merged above)
+    // else: tool-result-only → suppressed
   }
 
   // Write back any modified assistant message content.
