@@ -18,7 +18,7 @@ interface UseOnboardingChoiceOptions {
   messages: DisplayMessage[];
   onboardingTasksEmpty: boolean;
   activeConversationId: string | null;
-  onboardingConversationKey: string | null;
+  onboardingConversationId: string | null;
   sendMessage: (content: string) => void;
 }
 
@@ -35,7 +35,7 @@ export function useOnboardingChoice({
   messages,
   onboardingTasksEmpty,
   activeConversationId,
-  onboardingConversationKey,
+  onboardingConversationId,
   sendMessage,
 }: UseOnboardingChoiceOptions): UseOnboardingChoiceReturn {
   const [phase, setPhase] = useState<"pending" | "visible" | "dismissed">(
@@ -45,12 +45,12 @@ export function useOnboardingChoice({
   // Latch ref: once an assistant message is seen, skip the .some() scan on
   // subsequent renders. Only computed while phase === "pending".
   const greetingSeenRef = useRef(false);
-  const greetingConversationKeyRef = useRef<string | null>(null);
+  const greetingConversationIdRef = useRef<string | null>(null);
 
   // Reset the greeting latch when the conversation changes so an assistant
   // message in one thread can't satisfy the latch for a different thread.
-  if (greetingConversationKeyRef.current !== activeConversationId) {
-    greetingConversationKeyRef.current = activeConversationId;
+  if (greetingConversationIdRef.current !== activeConversationId) {
+    greetingConversationIdRef.current = activeConversationId;
     greetingSeenRef.current = false;
   }
 
@@ -58,9 +58,9 @@ export function useOnboardingChoice({
     greetingSeenRef.current = messages.some((m) => m.role === "assistant");
   }
 
-  // Track the conversation key when the card became visible so we can
+  // Track the conversation id when the card became visible so we can
   // dismiss on conversation switch without racing the didOnboarding flag.
-  const visibleConversationKeyRef = useRef<string | null>(null);
+  const visibleConversationIdRef = useRef<string | null>(null);
 
   // Transition from pending -> visible when all conditions are met.
   useEffect(() => {
@@ -70,21 +70,21 @@ export function useOnboardingChoice({
       didOnboarding &&
       greetingSeenRef.current &&
       onboardingTasksEmpty &&
-      activeConversationId === onboardingConversationKey
+      activeConversationId === onboardingConversationId
     ) {
-      visibleConversationKeyRef.current = activeConversationId;
+      visibleConversationIdRef.current = activeConversationId;
       setPhase("visible");
     }
     // `messages` is not read in the body; listed so this effect re-fires
     // when a new message arrives and greetingSeenRef may have just latched.
-  }, [phase, isNative, didOnboarding, messages, onboardingTasksEmpty, activeConversationId, onboardingConversationKey]);
+  }, [phase, isNative, didOnboarding, messages, onboardingTasksEmpty, activeConversationId, onboardingConversationId]);
 
   // Dismiss if the user switches to a different conversation.
   useEffect(() => {
     if (
       phase === "visible" &&
-      visibleConversationKeyRef.current !== null &&
-      activeConversationId !== visibleConversationKeyRef.current
+      visibleConversationIdRef.current !== null &&
+      activeConversationId !== visibleConversationIdRef.current
     ) {
       setPhase("dismissed");
     }

@@ -374,7 +374,7 @@ export interface ChatRouteContentProps {
   // Onboarding (iOS post-hatch flow)
   onboardingTasksEmpty: boolean;
   didOnboarding: boolean;
-  onboardingConversationKey: string | null;
+  onboardingConversationId: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -450,7 +450,7 @@ export function ChatRouteContent({
   isChannelReadonly,
   onboardingTasksEmpty,
   didOnboarding,
-  onboardingConversationKey,
+  onboardingConversationId,
 }: ChatRouteContentProps) {
   const navigate = useNavigate();
 
@@ -581,7 +581,7 @@ export function ChatRouteContent({
     messages,
     onboardingTasksEmpty,
     activeConversationId,
-    onboardingConversationKey,
+    onboardingConversationId,
     sendMessage,
   });
 
