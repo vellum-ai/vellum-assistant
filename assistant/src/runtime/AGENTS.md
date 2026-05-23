@@ -161,10 +161,10 @@ All `/v1/*` endpoints share a per-client-IP sliding-window rate limiter (`middle
 
 When the limit is exceeded, the limiter returns 429 and logs a structured warning (module: `rate-limiter`) with the denied endpoint and a breakdown of which endpoints consumed the budget in the current window. This makes it easy to identify whether the cause is rapid conversation switching, polling, or unexpected request volume.
 
-Logs rotate daily into `~/.vellum/workspace/data/logs/assistant-YYYY-MM-DD.log` (or into the directory configured via `logFile.dir`). To watch rate limit events in real time:
+Logs rotate daily into `$VELLUM_WORKSPACE_DIR/data/logs/assistant-YYYY-MM-DD.log` (or into the directory configured via `logFile.dir`). To watch rate limit events in real time:
 
 ```bash
-tail -f ~/.vellum/workspace/data/logs/assistant-$(date -u +%Y-%m-%d).log | grep rate-limit
+tail -f "$VELLUM_WORKSPACE_DIR/data/logs/assistant-$(date -u +%Y-%m-%d).log" | grep rate-limit
 ```
 
 The provider-level rate limiter (`providers/ratelimit.ts`) also logs warnings (module: `rate-limit`) when request rate or token budget limits are enforced.

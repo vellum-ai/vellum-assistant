@@ -51,7 +51,7 @@ export function AccessConsentSetting() {
         </div>
         <p className="mt-1 text-body-small-default text-[var(--content-tertiary)]">
           Lets Vellum administrators reach privileged data on your assistant
-          pod for debugging — today this means tailing the daily daemon log
+          pod for debugging — today this means tailing the daily assistant log
           at{" "}
           <code className="rounded bg-[var(--surface-base)] px-1.5 font-mono text-[var(--content-secondary)] dark:bg-[var(--surface-lift)] dark:text-[var(--content-default)]">
             /workspace/data/logs/assistant-YYYY-MM-DD.log

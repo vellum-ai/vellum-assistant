@@ -159,10 +159,9 @@ export function getDbPath(): string {
 }
 
 /**
- * Returns the directory where daemon logs live: `<dataDir>/logs/`.
- *
- * Daemon logs are rotated daily by the logger (`assistant-YYYY-MM-DD.log`),
- * so callers want the directory and let the logger own the filename.
+ * Returns the directory where logs live: `<dataDir>/logs/`. Files rotate
+ * daily (`assistant-YYYY-MM-DD.log`), so callers ask for the directory and
+ * let the logger own the filename.
  */
 export function getLogsDir(): string {
   return join(getDataDir(), "logs");
