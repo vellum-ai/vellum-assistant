@@ -163,7 +163,6 @@ export function ChatPage() {
   const [autoGreetPending, setAutoGreetPending] = useState(
     () => peekPendingInitialMessage() !== null,
   );
-  const awaitingAutoGreetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [contextWindowUsage, setContextWindowUsage] = useState<ContextWindowUsage | null>(null);
   const [transcriptPagination, setTranscriptPagination] = useState<Omit<TranscriptPaginationState, "items">>({
     hasMore: false,
@@ -476,12 +475,6 @@ export function ChatPage() {
     autoGreetRef.current = true;
     setDidOnboarding(true);
     setAutoGreetPending(true);
-    if (awaitingAutoGreetTimeoutRef.current) {
-      clearTimeout(awaitingAutoGreetTimeoutRef.current);
-    }
-    awaitingAutoGreetTimeoutRef.current = setTimeout(() => {
-      setAutoGreetPending(false);
-    }, 10_000);
     const onboardingDraftKey =
       onboardingDraftConversationKeyRef.current ?? createDraftConversationKey();
     onboardingDraftConversationKeyRef.current = onboardingDraftKey;
@@ -492,12 +485,6 @@ export function ChatPage() {
     // losing all refs. Leave the context in sessionStorage so the new
     // mount's sendMessage hook and auto-send effect can consume it.
     void navigate(routes.conversation(onboardingDraftKey), { replace: true });
-    return () => {
-      if (awaitingAutoGreetTimeoutRef.current) {
-        clearTimeout(awaitingAutoGreetTimeoutRef.current);
-        awaitingAutoGreetTimeoutRef.current = null;
-      }
-    };
   }, [searchParams, navigate]);
 
   // -------------------------------------------------------------------------
@@ -683,15 +670,26 @@ export function ChatPage() {
     void sendMessage(message);
   }, [activeConversationKey, assistantId, reachability.state.phase, sendMessage]);
 
-  // Clear the auto-greet loading gate once messages arrive (the assistant
-  // responded) or the 10-second safety timeout expires. Matches platform's
-  // awaitingAutoGreet pattern.
+  // Clear the post-onboarding loading gate once the first message appears.
   useEffect(() => {
     if (!autoGreetPending) return;
     if (messages.length > 0) {
       setAutoGreetPending(false);
     }
   }, [autoGreetPending, messages.length]);
+
+  // The onboarding redirect remounts ChatPage after leaving
+  // `/assistant?onboarding=1`; a timeout armed on the first mount is cancelled
+  // during that remount. Arm the safety timer from the actual mounted page
+  // that is rendering the loading gate so a failed auto-send cannot strand
+  // the user on "Connecting..." until refresh.
+  useEffect(() => {
+    if (!autoGreetPending) return;
+    const timeout = setTimeout(() => {
+      setAutoGreetPending(false);
+    }, 10_000);
+    return () => clearTimeout(timeout);
+  }, [autoGreetPending]);
 
   // Derive onboardingTasksEmpty from the pending context in sessionStorage.
   // Runs once on mount — if initial message key is present, this is an
