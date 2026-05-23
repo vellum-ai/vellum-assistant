@@ -15796,16 +15796,41 @@ paths:
                 type: object
                 properties:
                   suggestion:
-                    type: string
+                    anyOf:
+                      - type: string
+                      - type: "null"
                   messageId:
-                    type: string
+                    anyOf:
+                      - type: string
+                      - type: "null"
                   source:
                     type: string
+                  stale:
+                    type: boolean
                 required:
                   - suggestion
                   - messageId
                   - source
                 additionalProperties: false
+      parameters:
+        - name: conversationId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Conversation ID to fetch a suggestion for. Either this or conversationKey is required.
+        - name: conversationKey
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Legacy conversation key. Either this or conversationId is required.
+        - name: messageId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional. Latest assistant message ID the client has seen — used to detect staleness.
   /v1/surface-actions:
     post:
       operationId: surfaceactions_post
