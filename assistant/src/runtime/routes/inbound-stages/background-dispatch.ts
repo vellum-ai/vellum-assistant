@@ -241,8 +241,12 @@ export function processChannelMessageInBackground(
         assistantId,
         deliveredTextResponseIndexes:
           getSlackDmLiveDeliveredTextResponseIndexes(eventId),
-        onTextResponseDelivered: (responseIndex) =>
-          addSlackDmLiveDeliveredTextResponseIndex(eventId, responseIndex),
+        onTextResponseDelivered: (responseIndex, reason) => {
+          addSlackDmLiveDeliveredTextResponseIndex(eventId, responseIndex);
+          if (reason === "before_tool") {
+            slackThinkingStatus?.refreshAfterReply();
+          }
+        },
       });
       const observeAgentEvent = (msg: ServerMessage): void => {
         if (
@@ -421,11 +425,13 @@ function startTelegramTypingHeartbeat(
 
 type SlackThinkingStatusController = {
   observeEvent: (msg: ServerMessage) => void;
+  refreshAfterReply: () => void;
   stop: () => void;
 };
 
 type SlackThinkingStatusHandle = {
   updateLoadingMessages: (loadingMessages?: string[]) => void;
+  refresh: (loadingMessages?: string[]) => void;
   clear: () => void;
 };
 
@@ -570,6 +576,13 @@ function createSlackThinkingStatusController(params: {
         start();
       }
     },
+    refreshAfterReply() {
+      if (stopped || !slackThinkingStatus) return;
+      // Slack clears assistant thread status when the app sends a reply, so
+      // live pre-tool replies need to reassert it while work continues.
+      slackThinkingStatus.refresh(currentLoadingMessages);
+      lastSentLoadingMessageKey = getLoadingMessagesKey(currentLoadingMessages);
+    },
     stop() {
       stopped = true;
       slackThinkingStatus?.clear();
@@ -681,6 +694,7 @@ function setSlackThinkingStatus(
     if (!messageTs) {
       return {
         updateLoadingMessages: () => {},
+        refresh: () => {},
         clear: () => {},
       };
     }
@@ -722,6 +736,7 @@ function setSlackThinkingStatus(
 
     return {
       updateLoadingMessages: () => {},
+      refresh: () => {},
       clear: clearReaction,
     };
   }
@@ -764,6 +779,10 @@ function setSlackThinkingStatus(
     );
   };
 
+  const refresh = (nextLoadingMessages?: string[]): void => {
+    updateLoadingMessages(nextLoadingMessages);
+  };
+
   const clearStatus = (): void => {
     if (cleared) return;
     cleared = true;
@@ -791,6 +810,7 @@ function setSlackThinkingStatus(
 
   return {
     updateLoadingMessages,
+    refresh,
     clear: clearStatus,
   };
 }

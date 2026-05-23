@@ -43,7 +43,10 @@ export function createSlackDmTextDeliveryController(params: {
   chatId: string;
   assistantId?: string;
   deliveredTextResponseIndexes?: readonly number[];
-  onTextResponseDelivered?: (responseIndex: number) => void;
+  onTextResponseDelivered?: (
+    responseIndex: number,
+    reason: "before_tool" | "message_complete",
+  ) => void;
 }): SlackDmTextDeliveryController | undefined {
   const { replyCallbackUrl } = params;
   if (!shouldDeliverSlackDmTextResponses(params) || !replyCallbackUrl) {
@@ -55,7 +58,6 @@ export function createSlackDmTextDeliveryController(params: {
   );
   const messageIdToResponseIndexes = new Map<string, number[]>();
   const responseIndexToMessageTs = new Map<number, string>();
-  const messagesWithUndeliveredText = new Set<string>();
   let textResponseIndex = 0;
   let pendingText = "";
   let currentMessageResponseIndexes: number[] = [];
@@ -75,7 +77,9 @@ export function createSlackDmTextDeliveryController(params: {
     currentMessageResponseIndexes = [];
   };
 
-  const flushPendingText = (): void => {
+  const flushPendingText = (
+    reason: "before_tool" | "message_complete",
+  ): void => {
     const text = pendingText;
     pendingText = "";
 
@@ -111,7 +115,7 @@ export function createSlackDmTextDeliveryController(params: {
         }
         deliveredTextResponseIndexes.add(currentResponseIndex);
         try {
-          params.onTextResponseDelivered?.(currentResponseIndex);
+          params.onTextResponseDelivered?.(currentResponseIndex, reason);
         } catch (err) {
           log.warn(
             { err, chatId: params.chatId, responseIndex: currentResponseIndex },
@@ -129,21 +133,16 @@ export function createSlackDmTextDeliveryController(params: {
       }
 
       if (msg.type === "message_complete") {
+        flushPendingText("message_complete");
         if (typeof msg.messageId === "string") {
           associateCurrentMessageResponses(msg.messageId);
-          if (
-            pendingText.replace(NO_RESPONSE_INLINE_RE, "").trim().length > 0
-          ) {
-            messagesWithUndeliveredText.add(msg.messageId);
-          }
         }
-        pendingText = "";
         currentMessageResponseIndexes = [];
         return;
       }
 
       if (msg.type === "tool_use_start") {
-        flushPendingText();
+        flushPendingText("before_tool");
       }
     },
     waitForPendingDeliveries: () => deliveryChain,
@@ -160,9 +159,13 @@ export function createSlackDmTextDeliveryController(params: {
       if (deliveredPrefixCount === 0) return undefined;
 
       const firstLiveResponseIndex = responseIndexes[0];
+      const allTextResponsesDelivered =
+        responseIndexes.length > 0 &&
+        responseIndexes.every((responseIndex) =>
+          deliveredTextResponseIndexes.has(responseIndex),
+        );
       const messageTs =
-        !messagesWithUndeliveredText.has(messageId) &&
-        firstLiveResponseIndex !== undefined
+        allTextResponsesDelivered && firstLiveResponseIndex !== undefined
           ? responseIndexToMessageTs.get(firstLiveResponseIndex)
           : undefined;
       return {

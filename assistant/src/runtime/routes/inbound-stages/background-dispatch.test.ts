@@ -423,11 +423,16 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
       deliveredChannelReplies
         .map((entry) => entry.payload.text)
         .filter(Boolean),
-    ).toEqual(["First response before the tool."]);
+    ).toEqual([
+      "First response before the tool.",
+      "Final response after the tool.",
+    ]);
     expect(
       deliveredChannelReplies.every((entry) => !entry.payload.thinking),
     ).toBe(true);
-    expect(replyDeliveryCalls).toEqual([{ messageId: "assistant-msg-final" }]);
+    expect(replyDeliveryCalls).toEqual([
+      { messageId: "assistant-msg-final", startFromSegment: 1 },
+    ]);
     expect(deliveredSegmentCounts).toEqual([
       { eventId: "evt-incremental-text", count: 1 },
     ]);
@@ -877,6 +882,97 @@ describe("Slack thinking status timing", () => {
     });
     expect(slackStatusLabels).toContain(statuses[0]!);
     expect(statuses[1]).toBe("");
+  });
+
+  test("refreshes Slack thinking status after live DM replies before more tools", async () => {
+    const conversationId = "conv-dm-refresh-status";
+    const channelId = "D-DM-REFRESH";
+    const threadTs = "1700000000.000015";
+
+    const processMessage: MessageProcessor = async (
+      _conversationId,
+      _content,
+      _attachmentIds,
+      options,
+    ) => {
+      options?.onEvent?.({
+        type: "assistant_text_delta",
+        text: "First live response.",
+        conversationId,
+      });
+      options?.onEvent?.({
+        type: "tool_use_start",
+        toolName: "web_search",
+        input: { query: "example" },
+        conversationId,
+        toolUseId: "toolu_1",
+      });
+
+      await flush();
+
+      options?.onEvent?.({
+        type: "assistant_text_delta",
+        text: "Final live response.",
+        conversationId,
+      });
+      options?.onEvent?.({
+        type: "message_complete",
+        conversationId,
+        messageId: "assistant-msg-refresh-status",
+      });
+      return { messageId: "user-msg-refresh-status" };
+    };
+
+    processChannelMessageInBackground({
+      processMessage,
+      conversationId,
+      eventId: "evt-dm-refresh-status",
+      content: "dm message",
+      sourceChannel: "slack",
+      sourceInterface: "slack",
+      externalChatId: channelId,
+      trustCtx,
+      metadataHints: [],
+      chatType: "im",
+      replyCallbackUrl: `https://example.test/deliver/slack?channel=${channelId}&threadTs=${threadTs}`,
+    });
+
+    await flush();
+
+    expect(
+      deliveredChannelReplies
+        .map((entry) => entry.payload.text)
+        .filter(Boolean),
+    ).toEqual(["First live response.", "Final live response."]);
+
+    const statuses = deliveredChannelReplies
+      .map((entry) => entry.payload.assistantThreadStatus)
+      .filter(Boolean);
+    expect(statuses).toEqual([
+      {
+        channel: channelId,
+        threadTs,
+        status: expect.any(String),
+        loadingMessages: ["Working on it..."],
+      },
+      {
+        channel: channelId,
+        threadTs,
+        status: expect.any(String),
+        loadingMessages: ["Working on it..."],
+      },
+      {
+        channel: channelId,
+        threadTs,
+        status: "",
+      },
+    ]);
+    expect(slackStatusLabels).toContain(
+      (statuses[0] as { status: string }).status,
+    );
+    expect(slackStatusLabels).toContain(
+      (statuses[1] as { status: string }).status,
+    );
   });
 
   test("does not set Slack thinking status for no_response text deltas", async () => {
