@@ -72,7 +72,7 @@ import { useInteractionStore } from "@/domains/interactions/interaction-store.js
 import type { SubagentEntry, SubagentState } from "@/domains/subagents/subagent-store.js";
 import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import { buildTranscriptItems } from "@/domains/chat/transcript/build-items.js";
-import type { TranscriptItem, TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
+import type { TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
 import type { HistoryPaginationResult } from "@/domains/chat/transcript/use-history-pagination.js";
 import {
   canStopGeneration,
@@ -228,8 +228,6 @@ export interface ChatRouteRefs {
   pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
   confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
   reconcileAfterNextStreamOpenRef: MutableRefObject<boolean>;
-  /** Ref populated by ChatRouteContent with the current transcript items for the debug API. */
-  transcriptItemsRef: MutableRefObject<TranscriptItem[]>;
   /**
    * Imperative handle to the mounted `<Transcript />`. Owned by ChatPage
    * so `useChatDebugApi` (installed there) can read scroll geometry
@@ -790,9 +788,6 @@ export function ChatRouteContent({
       showOnboardingChoice,
     ],
   );
-
-  // Populate the ref for the debug API (parent reads this synchronously).
-  refs.transcriptItemsRef.current = transcriptItems;
 
   // -------------------------------------------------------------------------
   // Scroll coordination

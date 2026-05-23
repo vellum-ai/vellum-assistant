@@ -42,8 +42,7 @@ import type { ChatError } from "@/domains/chat/types.js";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 import type { TranscriptHandle } from "@/domains/chat/transcript/transcript.js";
 import type { TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
-import { buildTranscriptItems } from "@/domains/chat/transcript/build-items.js";
-import { getThinkingStatusText, shouldShowThinkingIndicator, type UIContext } from "@/domains/messaging/turn-selectors.js";
+import { type UIContext } from "@/domains/messaging/turn-selectors.js";
 import { peekPendingPreChatContext, type PreChatOnboardingContext } from "@/domains/onboarding/prechat.js";
 import { createDraftConversationKey } from "@/domains/chat/utils/conversation-selection.js";
 import type { WebSyncRouter } from "@/lib/sync/web-sync-router.js";
@@ -240,7 +239,6 @@ export function ChatPage() {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const messagesRef = useRef<DisplayMessage[]>(messages);
   messagesRef.current = messages;
-  const transcriptItemsRef = useRef<ReturnType<typeof buildTranscriptItems>>([]);
   // Owned here so `useChatDebugApi` (also called from this component) can
   // read scroll geometry directly via `transcriptRef.current.getScrollElement()`.
   // Threaded down to ChatRouteContent through the `refs` prop and bound on
@@ -894,7 +892,6 @@ export function ChatPage() {
   // by which point initialization is complete.
   useChatDebugApi({
     messagesRef,
-    transcriptItemsRef,
     transcriptRef,
     streamContextRef,
     streamRef,
@@ -1300,51 +1297,6 @@ export function ChatPage() {
   };
   void _uiContext;
 
-  // Turn store state — used for building transcriptItems and debug API
-  const phase = useTurnStore.use.phase();
-  const pendingQueuedCount = useTurnStore.use.pendingQueuedCount();
-  const activeToolCallCount = useTurnStore.use.activeToolCallCount();
-  const activeTurnId = useTurnStore.use.activeTurnId();
-  const lastTerminalReason = useTurnStore.use.lastTerminalReason();
-  const statusText = useTurnStore.use.statusText();
-  const liveWebActivity = useTurnStore.use.liveWebActivity();
-  const turnState = { phase, pendingQueuedCount, activeToolCallCount, activeTurnId, lastTerminalReason, statusText, liveWebActivity };
-
-  // Thinking state and onboarding choice state — used for transcriptItems
-  const showThinking = useMemo(
-    () => shouldShowThinkingIndicator(turnState, _uiContext),
-    [turnState, _uiContext],
-  );
-  const thinkingLabel = useMemo(
-    () => getThinkingStatusText(turnState),
-    [turnState],
-  );
-
-  // Build transcriptItems for rendering and debug API
-  const transcriptItems = useMemo(
-    () => buildTranscriptItems({
-      messages,
-      pendingSecret,
-      pendingConfirmation,
-      pendingContactRequest: pendingContactRequest
-        ? {
-            requestId: pendingContactRequest.requestId,
-            channel: pendingContactRequest.channel,
-            placeholder: pendingContactRequest.placeholder,
-            label: pendingContactRequest.label,
-            description: pendingContactRequest.description,
-            role: pendingContactRequest.role,
-          }
-        : null,
-      isThinking: showThinking,
-      thinkingLabel,
-      errorNotice: null,
-      showOnboardingChoice: false, // TODO: wire onboarding choice state
-    }),
-    [messages, pendingSecret, pendingConfirmation, pendingContactRequest, showThinking, thinkingLabel],
-  );
-  transcriptItemsRef.current = transcriptItems;
-
   // -------------------------------------------------------------------------
   // Loading / error guards
   // -------------------------------------------------------------------------
@@ -1596,7 +1548,6 @@ export function ChatPage() {
       pendingLocalDeletionsRef,
       confirmationToolCallMapRef,
       reconcileAfterNextStreamOpenRef,
-      transcriptItemsRef,
       transcriptRef,
     },
     isChannelReadonly,
