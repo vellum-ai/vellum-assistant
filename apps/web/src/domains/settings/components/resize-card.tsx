@@ -71,8 +71,7 @@ export function ResizeCard({
   );
 
   const availableGib = onboardingQuery.data?.selected_storage_gib ?? null;
-  const currentGib =
-    healthz?.disk != null ? Math.round(healthz.disk.totalMb / 1024) : null;
+  const currentGib = assistant.provisioned_storage_gib ?? null;
 
   const [resizeModalOpen, setResizeModalOpen] = useState(false);
   const [selectedSize, setSelectedSize] = useState<MachineSizeEnum | null>(
