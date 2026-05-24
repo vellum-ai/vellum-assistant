@@ -258,9 +258,9 @@ export function ChatLayout() {
   const handleStartNewConversation = useCallback(() => {
     haptic.light();
     useViewerStore.getState().setMainView("chat");
-    const draftKey = createDraftConversationId();
-    useConversationStore.getState().setActiveConversationId(draftKey);
-    void navigate(routes.conversation(draftKey));
+    const draftConversationId = createDraftConversationId();
+    useConversationStore.getState().setActiveConversationId(draftConversationId);
+    void navigate(routes.conversation(draftConversationId));
   }, [navigate]);
 
   const handleOpenHome = useCallback(() => {
@@ -459,9 +459,9 @@ export function ChatLayout() {
     ({ silent }: { silent?: boolean } = {}) => {
       if (!silent) haptic.light();
       useViewerStore.getState().setMainView("chat");
-      const draftKey = createDraftConversationId();
-      useConversationStore.getState().setActiveConversationId(draftKey);
-      void navigate(routes.conversation(draftKey));
+      const draftConversationId = createDraftConversationId();
+      useConversationStore.getState().setActiveConversationId(draftConversationId);
+      void navigate(routes.conversation(draftConversationId));
     },
     [navigate],
   );

@@ -101,10 +101,10 @@ function HomePageRoute() {
       }
       onSuggestionSelected={(prompt) => {
         useViewerStore.getState().setMainView("chat");
-        const draftKey = createDraftConversationId();
-        useConversationStore.getState().setActiveConversationId(draftKey);
+        const draftConversationId = createDraftConversationId();
+        useConversationStore.getState().setActiveConversationId(draftConversationId);
         navigate(
-          `${routes.conversation(draftKey)}?prompt=${encodeURIComponent(prompt)}`,
+          `${routes.conversation(draftConversationId)}?prompt=${encodeURIComponent(prompt)}`,
         );
       }}
     />

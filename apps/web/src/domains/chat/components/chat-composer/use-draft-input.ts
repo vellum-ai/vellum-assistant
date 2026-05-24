@@ -81,7 +81,7 @@ export interface UseDraftInputParams {
    * `previousKeyRef`. Owned by ChatPage, written by `useSendMessage` when a
    * draft conversation receives its server-assigned ID.
    */
-  draftKeyResolutionRef: MutableRefObject<boolean>;
+  draftConversationIdResolutionRef: MutableRefObject<boolean>;
   /**
    * Fires after a non-empty saved draft is restored into the composer on a
    * genuine conversation switch. Used to render a transient "Draft restored"
@@ -112,7 +112,7 @@ export interface UseDraftInputReturn {
 export function useDraftInput({
   assistantId,
   activeConversationId,
-  draftKeyResolutionRef,
+  draftConversationIdResolutionRef,
   onDraftRestored,
 }: UseDraftInputParams): UseDraftInputReturn {
   const [input, setInputState] = useState("");
@@ -179,7 +179,7 @@ export function useDraftInput({
     // Draft-key resolution (draft-xxx → conv-yyy) is not a real conversation
     // switch — the user stays on the same conversation. Skip save/restore to
     // avoid clearing the composer.
-    if (draftKeyResolutionRef.current) {
+    if (draftConversationIdResolutionRef.current) {
       previousKeyRef.current = activeConversationId;
       return;
     }

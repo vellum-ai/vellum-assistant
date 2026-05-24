@@ -77,9 +77,9 @@ interface UseConversationLoaderParams {
 
   // Refs (owned by parent, read/written by this hook)
   assistantIdRef: MutableRefObject<string | null>;
-  draftKeyResolutionRef: MutableRefObject<boolean>;
-  previousConversationKeyRef: MutableRefObject<string | null>;
-  onboardingDraftConversationKeyRef: MutableRefObject<string | null>;
+  draftConversationIdResolutionRef: MutableRefObject<boolean>;
+  previousConversationIdRef: MutableRefObject<string | null>;
+  onboardingDraftConversationIdRef: MutableRefObject<string | null>;
   activeConversationIdRef: MutableRefObject<string | null>;
   contextWindowUsageByConversationRef: MutableRefObject<Map<string, ContextWindowUsage>>;
   dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
@@ -147,9 +147,9 @@ export function useConversationLoader({
   refreshEpoch,
   reachabilityReadyEpoch,
   assistantIdRef,
-  draftKeyResolutionRef,
-  previousConversationKeyRef,
-  onboardingDraftConversationKeyRef,
+  draftConversationIdResolutionRef,
+  previousConversationIdRef,
+  onboardingDraftConversationIdRef,
   activeConversationIdRef,
   contextWindowUsageByConversationRef,
   dismissedSurfaceIdsRef,
@@ -375,7 +375,7 @@ export function useConversationLoader({
     if (assistantStateKind !== "active") return;
     if (!chatContext) return;
 
-    const explicitKey =
+    const explicitConversationId =
       urlConversationKey ?? searchParams.get("conversationKey");
 
     // When only chatContext changed (e.g. from resolveDraftKey's
@@ -383,21 +383,21 @@ export function useConversationLoader({
     // a programmatic navigate() is in flight. Trust the store's
     // activeConversationId and let the URL catch up.
     if (
-      explicitKey != null &&
-      explicitKey === lastAppliedUrlKeyRef.current &&
+      explicitConversationId != null &&
+      explicitConversationId === lastAppliedUrlKeyRef.current &&
       assistantIdRef.current === chatContext.assistantId
     ) {
       return;
     }
-    lastAppliedUrlKeyRef.current = explicitKey;
+    lastAppliedUrlKeyRef.current = explicitConversationId;
 
     let onboardingDraftConversationId: string | null = null;
     if (searchParams.get("onboarding") === "1") {
-      onboardingDraftConversationKeyRef.current ??= createDraftConversationId();
-      onboardingDraftConversationId = onboardingDraftConversationKeyRef.current;
+      onboardingDraftConversationIdRef.current ??= createDraftConversationId();
+      onboardingDraftConversationId = onboardingDraftConversationIdRef.current;
     }
     const key = resolveBootstrappedConversationId({
-      queryParamKey: explicitKey,
+      queryParamKey: explicitConversationId,
       onboardingDraftConversationId,
       currentConversationId: activeConversationIdRef.current,
       currentAssistantId: assistantIdRef.current,
@@ -422,7 +422,7 @@ export function useConversationLoader({
     setAssistantId,
     assistantIdRef,
     activeConversationIdRef,
-    onboardingDraftConversationKeyRef,
+    onboardingDraftConversationIdRef,
   ]);
 
   // -------------------------------------------------------------------------
@@ -452,8 +452,8 @@ export function useConversationLoader({
     assistantId,
     assistantStateKind,
     activeConversationId,
-    draftKeyResolutionRef,
-    previousConversationKeyRef,
+    draftConversationIdResolutionRef,
+    previousConversationIdRef,
     contextWindowUsageByConversationRef,
     dismissedSurfaceIdsRef,
     needsNewBubbleRef,
@@ -496,12 +496,12 @@ export function useConversationLoader({
     ({ silent, initialMessage }: { silent?: boolean; initialMessage?: string } = {}) => {
       if (!silent) haptic.light();
       useViewerStore.getState().setMainView("chat");
-      const draftKey = createDraftConversationId();
+      const draftConversationId = createDraftConversationId();
       if (initialMessage) {
-        pendingInitialMessageRef.current = { conversationKey: draftKey, content: initialMessage };
+        pendingInitialMessageRef.current = { conversationKey: draftConversationId, content: initialMessage };
       }
-      useConversationStore.getState().setActiveConversationId(draftKey);
-      void navigate(routes.conversation(draftKey));
+      useConversationStore.getState().setActiveConversationId(draftConversationId);
+      void navigate(routes.conversation(draftConversationId));
     },
     [navigate, pendingInitialMessageRef],
   );

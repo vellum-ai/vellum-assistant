@@ -101,9 +101,9 @@ interface UseSendMessageParams {
   needsNewBubbleRef: MutableRefObject<boolean>;
   dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
   pendingOnboardingContextRef: MutableRefObject<PreChatOnboardingContext | null>;
-  onboardingDraftConversationKeyRef: MutableRefObject<string | null>;
-  draftKeyResolutionRef: MutableRefObject<boolean>;
-  previousConversationKeyRef: MutableRefObject<string | null>;
+  onboardingDraftConversationIdRef: MutableRefObject<string | null>;
+  draftConversationIdResolutionRef: MutableRefObject<boolean>;
+  previousConversationIdRef: MutableRefObject<string | null>;
   pendingQueuedStableIdsRef: MutableRefObject<string[]>;
   requestIdToStableIdRef: MutableRefObject<Map<string, string>>;
   pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
@@ -141,9 +141,9 @@ export function useSendMessage({
   needsNewBubbleRef,
   dismissedSurfaceIdsRef,
   pendingOnboardingContextRef,
-  onboardingDraftConversationKeyRef,
-  draftKeyResolutionRef,
-  previousConversationKeyRef,
+  onboardingDraftConversationIdRef,
+  draftConversationIdResolutionRef,
+  previousConversationIdRef,
   pendingQueuedStableIdsRef,
   requestIdToStableIdRef,
   pendingLocalDeletionsRef,
@@ -258,8 +258,8 @@ export function useSendMessage({
       }
       // Success — drain the ref so subsequent messages omit the field.
       pendingOnboardingContextRef.current = null;
-      if (onboardingDraftConversationKeyRef.current === activeConversationId) {
-        onboardingDraftConversationKeyRef.current = null;
+      if (onboardingDraftConversationIdRef.current === activeConversationId) {
+        onboardingDraftConversationIdRef.current = null;
       }
 
       if (isCurrentSendScope()) {
@@ -556,19 +556,19 @@ export function useSendMessage({
 
         // Resolve draft key -> server-assigned conversation ID.
         if (resolvedId && resolvedId !== activeConversationId) {
-          const newKey = resolvedId;
+          const newConversationId = resolvedId;
           useConversationStore
             .getState()
-            .transferProcessingConversationId(activeConversationId, newKey);
-          resolveDraftKey(queryClient, assistantId, activeConversationId, newKey);
-          resolveEditChatDraftKey(activeConversationId, newKey);
+            .transferProcessingConversationId(activeConversationId, newConversationId);
+          resolveDraftKey(queryClient, assistantId, activeConversationId, newConversationId);
+          resolveEditChatDraftKey(activeConversationId, newConversationId);
 
           // Only update active view state if the user is still on this conversation.
           if (activeConversationIdRef.current === activeConversationId) {
-            draftKeyResolutionRef.current = true;
-            previousConversationKeyRef.current = newKey;
-            useConversationStore.getState().setActiveConversationId(newKey);
-            void navigate(routes.conversation(newKey), { replace: true });
+            draftConversationIdResolutionRef.current = true;
+            previousConversationIdRef.current = newConversationId;
+            useConversationStore.getState().setActiveConversationId(newConversationId);
+            void navigate(routes.conversation(newConversationId), { replace: true });
           }
         }
 
