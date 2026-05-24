@@ -8,6 +8,7 @@ import {
   CLIENT_FLAG_DEFAULTS,
   flagKeyToStoreKey,
 } from "@/lib/feature-flags/feature-flag-catalog.js";
+import { useFlagQueryFreshness } from "@/lib/feature-flags/flag-query-freshness.js";
 
 interface ClientFlagValuesResponse {
   flags: Record<string, boolean>;
@@ -47,14 +48,17 @@ function mapFlags(
 }
 
 export function useClientFeatureFlagSync(enabled: boolean) {
+  // Freshness options are version-gated by the active assistant's
+  // daemon version: assistants on 0.8.5+ rely on the SSE push +
+  // `sse.opened` reconnect invalidation (see `useAssistantSyncStream`),
+  // older assistants fall back to a 5s interval poll. See
+  // `flag-query-freshness.ts` for the rationale.
+  const freshness = useFlagQueryFreshness();
   const { data } = useQuery({
     queryKey: CLIENT_FLAG_QUERY_KEY,
     queryFn: fetchClientFlagValues,
     enabled,
-    // Freshness is driven by the daemon's `sync_changed` push (see
-    // `useAssistantSyncStream`'s `featureFlagsClient` tag) and by an
-    // `sse.opened` reconnect invalidation. No interval poll.
-    staleTime: Infinity,
+    ...freshness,
     retry: 1,
   });
 
