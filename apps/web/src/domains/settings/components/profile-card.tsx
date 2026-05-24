@@ -310,14 +310,11 @@ function HandleEditor<T>({
   })();
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex items-start gap-2">
       <Input
         label={inputLabel}
         value={value}
         onChange={(e) => {
-          // Strip whitespace as the user types — pasted values often
-          // bring leading/trailing whitespace, and the server lowercases
-          // anyway, so do it here for clean preview.
           setValue(e.target.value.replace(/\s+/g, ""));
           setAvailability(null);
           setServerError(null);
@@ -341,8 +338,7 @@ function HandleEditor<T>({
         fullWidth
         data-testid={`${fieldId}-input`}
       />
-
-      <div className="flex justify-end">
+      <div className="mt-[26px]">
         <Button
           variant="primary"
           size="compact"
@@ -615,7 +611,7 @@ export function ProfileCard({
   }, []);
 
   return (
-    <SettingsCard title="Profile" subtitle="Your public handle on Vellum.">
+    <SettingsCard title="Profile" subtitle="Manage your user and assistant handles.">
       {error ? (
         <p className="text-body-small-default text-[var(--system-negative-strong)]">
           {error}
