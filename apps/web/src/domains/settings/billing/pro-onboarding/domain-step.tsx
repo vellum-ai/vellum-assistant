@@ -1,7 +1,7 @@
 import { ArrowLeft, Mail } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { Button } from "@vellum/design-library/components/button";
 import { Modal } from "@vellum/design-library/components/modal";
@@ -10,6 +10,7 @@ import { Typography } from "@vellum/design-library/components/typography";
 import {
   assistantsActiveRetrieveOptions,
   assistantsDomainsListOptions,
+  assistantsListQueryKey,
   organizationsBillingSubscriptionOnboardingDomainCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen.js";
 import { useEnvironmentStore } from "@/lib/environment/environment-store.js";
@@ -19,6 +20,7 @@ import { IconBadge, StepDots } from "./primitives.js";
 import { DOMAIN_EXIT_DELAY_MS, extractOnboardingErrorMessage } from "./utils.js";
 
 export function DomainStep({ onBack, onExit }: { onBack: () => void; onExit: () => void }) {
+  const queryClient = useQueryClient();
   const emailRootDomain = useEnvironmentStore.use.emailRootDomain();
   const { data: activeAssistant } = useQuery(assistantsActiveRetrieveOptions());
   const assistantId = activeAssistant?.id;
@@ -75,6 +77,7 @@ export function DomainStep({ onBack, onExit }: { onBack: () => void; onExit: () 
         onSuccess: () => {
           setErrorMsg(null);
           setConfirmed(true);
+          void queryClient.invalidateQueries({ queryKey: assistantsListQueryKey() });
         },
         onError: (err) => {
           setErrorMsg(
