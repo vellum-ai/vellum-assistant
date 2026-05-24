@@ -68,6 +68,38 @@ describe("runAsyncSqlite", () => {
     expect(result.backend).toBe("in-process-blocking");
   });
 
+  test("in-process fallback emits changes() count on stdout after a DELETE", async () => {
+    // Regression for Codex P1 on #31894: callers (e.g. prune jobs) rely
+    // on reading the row count off `result.stdout`. The CLI backend
+    // populates this naturally when the SQL ends with `SELECT changes();`,
+    // but `bun:sqlite`'s `exec()` discards SELECT results — so the
+    // in-process backend has to synthesize the same line, or the
+    // re-enqueue gate in pruneOld*Job silently never fires on hosts
+    // without the sqlite3 CLI.
+    const sqlite = getSqlite();
+    sqlite.exec(
+      "CREATE TABLE IF NOT EXISTS async_changes_probe (id INTEGER PRIMARY KEY)",
+    );
+    sqlite.exec("DELETE FROM async_changes_probe");
+    sqlite.exec(
+      "INSERT INTO async_changes_probe (id) VALUES (1),(2),(3),(4),(5)",
+    );
+
+    const result = await runAsyncSqlite(
+      "DELETE FROM async_changes_probe WHERE id <= 3; SELECT changes();",
+      { forceBackend: "in-process-blocking" },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.backend).toBe("in-process-blocking");
+    // The synthesized stdout matches what the CLI backend would emit:
+    // a bare integer on its own line. The exact format keeps the
+    // parser in cleanup.ts backend-agnostic.
+    expect(result.stdout).toBe("3\n");
+
+    sqlite.exec("DROP TABLE async_changes_probe");
+  });
+
   test.if(sqlite3Available)(
     "sqlite3 CLI backend reports the right backend on success",
     async () => {

@@ -44,8 +44,11 @@ export async function pruneOldLlmRequestLogsJob(
 
   // Inline the cutoff and batch limit (both integers, both validated)
   // and chain `SELECT changes()` so we can read the row count from the
-  // subprocess's stdout. The CLI prints `changes()` as a bare integer
-  // on its own line in default output mode.
+  // subprocess's stdout. The sqlite3 CLI prints `changes()` as a bare
+  // integer on its own line in default output mode; the in-process
+  // fallback backend in `db-async-query.ts` synthesizes the same shape
+  // by capturing `changes()` atomically after `exec()`. Both backends
+  // end up on the parser path below.
   const result = await runAsyncSqlite(
     `DELETE FROM llm_request_logs WHERE rowid IN (SELECT rowid FROM llm_request_logs WHERE created_at < ${cutoffMs} LIMIT ${PRUNE_LOG_BATCH_LIMIT});
 SELECT changes();`,
