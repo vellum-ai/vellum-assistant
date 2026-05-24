@@ -105,10 +105,9 @@ export function useConversationSecondaryActions({
 
   const handleForkConversationFromMenu = useCallback(() => {
     const latestPersisted = messagesRef.current.findLast(
-      (m) => m.daemonMessageId != null || m.id != null,
+      (m) => m.id != null,
     );
-    const throughMessageId =
-      latestPersisted?.daemonMessageId ?? latestPersisted?.id;
+    const throughMessageId = latestPersisted?.id;
     if (!throughMessageId) return;
     void handleForkConversation(throughMessageId);
   }, [handleForkConversation]);
@@ -157,10 +156,9 @@ export function useConversationSecondaryActions({
         conversation.conversationId === activeConversation?.conversationId;
       if (isActiveConversation) {
         const latestAssistant = messagesRef.current.findLast(
-          (m) => m.role === "assistant" && (m.daemonMessageId ?? m.id),
+          (m) => m.role === "assistant" && m.id != null,
         );
-        const messageId =
-          latestAssistant?.daemonMessageId ?? latestAssistant?.id;
+        const messageId = latestAssistant?.id;
         if (messageId) {
           params.set("messageId", messageId);
         }

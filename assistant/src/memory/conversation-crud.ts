@@ -582,15 +582,35 @@ export function forkConversation(params: {
     );
   }
 
-  const copyBoundaryIndex =
+  const initialBoundaryIndex =
     throughMessageId == null
       ? sourceMessages.length - 1
       : sourceMessages.findIndex((message) => message.id === throughMessageId);
 
-  if (throughMessageId != null && copyBoundaryIndex === -1) {
+  if (throughMessageId != null && initialBoundaryIndex === -1) {
     throw new UserError(
       `Message ${throughMessageId} does not belong to conversation ${conversationId}`,
     );
+  }
+
+  // If the boundary lands on an assistant row, advance past consecutive
+  // subsequent assistant rows. This mirrors the read-path merge logic
+  // (`mergeConsecutiveAssistantMessages`) so that "fork through message X"
+  // semantically means "fork through the entire assistant turn containing
+  // X" — robust to whichever DB row in a merged display turn the client
+  // addresses. Lets callers reference the turn by its display anchor id
+  // without needing to know about the merge cluster.
+  let copyBoundaryIndex = initialBoundaryIndex;
+  if (
+    copyBoundaryIndex >= 0 &&
+    sourceMessages[copyBoundaryIndex]?.role === "assistant"
+  ) {
+    while (
+      copyBoundaryIndex + 1 < sourceMessages.length &&
+      sourceMessages[copyBoundaryIndex + 1]?.role === "assistant"
+    ) {
+      copyBoundaryIndex += 1;
+    }
   }
 
   const visibleWindowStartIndex = Math.max(

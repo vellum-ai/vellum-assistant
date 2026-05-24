@@ -227,11 +227,11 @@ export function TranscriptMessageBody({
     }
   };
 
-  const forkMessageId = message.daemonMessageId ?? message.id;
+  const forkMessageId = message.id;
   const forkHandler = forkMessageId && onForkConversation
     ? () => onForkConversation(forkMessageId)
     : undefined;
-  const inspectMessageId = message.daemonMessageId ?? message.id;
+  const inspectMessageId = message.id;
   const inspectHandler = inspectMessageId && onInspectMessage
     ? () => onInspectMessage(inspectMessageId)
     : undefined;

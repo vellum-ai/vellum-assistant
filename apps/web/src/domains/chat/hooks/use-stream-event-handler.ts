@@ -11,6 +11,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useConversationStore } from "@/domains/conversations/conversation-store.js";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
+import { tailIsStreamingAssistant } from "@/domains/chat/hooks/stream-message-updaters.js";
 import { useTurnStore } from "@/domains/messaging/turn-store.js";
 import { useViewerStore } from "@/stores/viewer-store.js";
 import type { DiskPressureStatusEventPayload } from "@/assistant/use-disk-pressure-monitor.js";
@@ -276,14 +277,13 @@ export function useStreamEventHandler(
         }
       }
       // Suppress per-chunk text_delta noise — only log the first delta of a
-      // new bubble. "First delta" is derived from the message ref tail:
-      // if the tail isn't a streaming assistant, the next text_delta will
-      // open a fresh bubble. This replaces the previous `needsNewBubbleRef`
-      // latch with a tail-derivation read.
-      const tail = messagesRef.current[messagesRef.current.length - 1];
-      const tailIsStreaming =
-        !!tail && tail.role === "assistant" && !!tail.isStreaming;
-      if (event.type !== "assistant_text_delta" || !tailIsStreaming) {
+      // new assistant message. Derived from `messagesRef` instead of a latch
+      // so any write site that updates the messages array is naturally
+      // reflected here.
+      if (
+        event.type !== "assistant_text_delta" ||
+        !tailIsStreamingAssistant(messagesRef.current)
+      ) {
         recordChatDiagnostic(
           event.type === "assistant_text_delta"
             ? "sse_assistant_text_delta_start"

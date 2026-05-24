@@ -1039,7 +1039,7 @@ export function ChatPage() {
   // Layout header slot registration — topBarCenter + topBarRightSlot
   // -------------------------------------------------------------------------
   const hasPersistedMessage = useMemo(
-    () => messages.some((m) => m.daemonMessageId != null || m.id != null),
+    () => messages.some((m) => m.id != null),
     [messages],
   );
 

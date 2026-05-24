@@ -351,8 +351,6 @@ export function useSendMessage({
               updated[existingIdx] = {
                 stableId: existing?.stableId ?? newStableId("assistant-poll"),
                 id: reply.id,
-                daemonMessageId:
-                  reply.daemonMessageId ?? existing?.daemonMessageId,
                 role: "assistant",
                 content: reply.content,
                 timestamp: existing?.timestamp ?? Date.now(),
@@ -364,7 +362,6 @@ export function useSendMessage({
               {
                 stableId: newStableId("assistant-poll"),
                 id: reply.id,
-                ...(reply.daemonMessageId ? { daemonMessageId: reply.daemonMessageId } : {}),
                 role: "assistant",
                 content: reply.content,
                 timestamp: Date.now(),

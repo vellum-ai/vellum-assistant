@@ -214,6 +214,56 @@ describe("forkConversation", () => {
     ]);
   });
 
+  test("advances fork boundary through consecutive assistant rows after the requested message", async () => {
+    // When the read-path merges consecutive assistant DB rows into a single
+    // display row, the client only addresses the anchor id. Forking through
+    // the anchor must still include the merged tail rows that follow.
+    const source = createConversation("Multi-row turn thread");
+    await addMessage(source.id, "user", "Message 1", undefined, {
+      skipIndexing: true,
+    });
+    const anchor = await addMessage(
+      source.id,
+      "assistant",
+      "Assistant text segment",
+      undefined,
+      { skipIndexing: true },
+    );
+    const toolRow = await addMessage(
+      source.id,
+      "assistant",
+      "Tool turn row",
+      undefined,
+      { skipIndexing: true },
+    );
+    const tailRow = await addMessage(
+      source.id,
+      "assistant",
+      "Final assistant segment",
+      undefined,
+      { skipIndexing: true },
+    );
+    await addMessage(source.id, "user", "Next user turn", undefined, {
+      skipIndexing: true,
+    });
+
+    const fork = forkConversation({
+      conversationId: source.id,
+      throughMessageId: anchor.id,
+    });
+
+    // Boundary advances past the entire consecutive-assistant cluster, so the
+    // full turn is preserved in the fork — not just the anchor row.
+    expect(getMessages(fork.id).map((message) => message.content)).toEqual([
+      "Message 1",
+      "Assistant text segment",
+      "Tool turn row",
+      "Final assistant segment",
+    ]);
+    expect(fork.forkParentMessageId).toBe(tailRow.id);
+    expect(toolRow.id).not.toBe(anchor.id);
+  });
+
   test("preserves compacted context when forking from the visible window", async () => {
     const source = createConversation("Compacted thread");
     await addMessage(source.id, "user", "Message 1", undefined, {

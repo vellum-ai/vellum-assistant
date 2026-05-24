@@ -120,7 +120,6 @@ export function mapRuntimeToDisplayMessage(m: RuntimeMessage): DisplayMessage {
 
   const msg: DisplayMessage = {
     id: m.id,
-    ...(m.daemonMessageId ? { daemonMessageId: m.daemonMessageId } : {}),
     role: m.role,
     content: prepared.cleanedContent,
     stableId: newStableId("server"),

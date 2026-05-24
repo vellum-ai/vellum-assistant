@@ -72,7 +72,6 @@ let contextStub: ContextStub = {
 
 interface MessageListEntry {
   id: string;
-  daemonMessageId?: string;
   role: "user" | "assistant";
   content: string;
   timestamp: number;
@@ -338,7 +337,6 @@ describe("InspectPage — dual-mode chrome", () => {
     messageListStub = [
       {
         id: "msg-raw-1",
-        daemonMessageId: "msg-d-1",
         role: "user",
         content: "Hello there, how is the inspector going?",
         timestamp: 1,

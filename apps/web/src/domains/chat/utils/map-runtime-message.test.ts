@@ -185,7 +185,6 @@ describe("mapRuntimeToDisplayMessage", () => {
   test("preserves Slack message metadata alongside mapped message fields", () => {
     const m = makeMessage({
       id: "msg-slack",
-      daemonMessageId: "daemon-msg-slack",
       role: "user",
       content: "Slack reply",
       metadata: { source: "slack" },
@@ -221,7 +220,6 @@ describe("mapRuntimeToDisplayMessage", () => {
 
     expect(display).toMatchObject({
       id: "msg-slack",
-      daemonMessageId: "daemon-msg-slack",
       role: "user",
       content: "Slack reply",
       metadata: { source: "slack" },

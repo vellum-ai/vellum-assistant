@@ -412,7 +412,7 @@ function buildMessageScopeOptions(messages: RuntimeMessage[]): ScopeOption[] {
   const options: ScopeOption[] = [];
   let index = 1;
   for (const m of messages) {
-    const id = m.daemonMessageId ?? m.id;
+    const id = m.id;
     if (!id || seen.has(id)) continue;
     seen.add(id);
     const preview = previewContent(m.content);

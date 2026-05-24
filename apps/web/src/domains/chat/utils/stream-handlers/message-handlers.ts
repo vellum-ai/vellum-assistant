@@ -92,12 +92,10 @@ export function handleMessageComplete(
   ctx: StreamHandlerContext,
 ): void {
   const completedAttachments = toDisplayAttachments(event.attachments);
-  const rowMessageId = event.messageId;
   const displayMessageId = event.displayMessageId ?? event.messageId;
   ctx.setMessages((prev) =>
     finalizeMessageComplete(prev, {
       content: event.content,
-      rowMessageId,
       displayMessageId,
       attachments: completedAttachments,
     }),
@@ -125,12 +123,7 @@ export function handleGenerationHandoff(
   ctx.cancelReconciliation();
   ctx.turnActions.handoffGeneration();
   const displayMessageId = event.displayMessageId ?? event.messageId;
-  ctx.setMessages((prev) =>
-    stopStreaming(prev, {
-      displayMessageId,
-      rowMessageId: event.messageId,
-    }),
-  );
+  ctx.setMessages((prev) => stopStreaming(prev, { displayMessageId }));
 }
 
 export function handleGenerationCancelled(
