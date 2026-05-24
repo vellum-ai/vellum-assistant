@@ -283,6 +283,8 @@ async function tryConsumeCanonicalGuardianReply(params: {
   verifiedActorExternalUserId?: string;
   /** Verified actor principal ID for principal-based authorization. */
   verifiedActorPrincipalId?: string;
+  /** Originating client identifier for sync_changed self-echo suppression. */
+  originClientId?: string;
 }): Promise<{ consumed: boolean; messageId?: string }> {
   const {
     conversationId,
@@ -295,6 +297,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
     approvalConversationGenerator,
     verifiedActorExternalUserId,
     verifiedActorPrincipalId,
+    originClientId,
   } = params;
   const trimmedContent = content.trim();
 
@@ -409,7 +412,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
       });
       onEvent({ type: "message_complete", conversationId: conversationId });
     }
-    publishConversationMessagesChanged(conversationId);
+    publishConversationMessagesChanged(conversationId, originClientId);
   } catch (err) {
     log.warn(
       { err, conversationId },
@@ -1251,6 +1254,8 @@ export async function handleSendMessage(
 
   const actorPrincipalId = headers?.["x-vellum-actor-principal-id"];
   const principalType = headers?.["x-vellum-principal-type"];
+  const originClientId =
+    headers?.["x-vellum-client-id"]?.trim() || undefined;
 
   const { conversationKey, content, attachmentIds } = body;
   const clientMessageId =
@@ -1425,6 +1430,7 @@ export async function handleSendMessage(
       publishConversationListAndMetadataChanged(
         "created",
         mapping.conversationId,
+        originClientId,
       );
     }
   }
@@ -1689,7 +1695,7 @@ export async function handleSendMessage(
           conversationId,
         });
         broadcastMessage({ type: "message_complete", conversationId });
-        publishConversationMessagesChanged(conversationId);
+        publishConversationMessagesChanged(conversationId, originClientId);
         conversation.processing = false;
         silentlyWithLog(
           conversation.drainQueue(),
@@ -1767,6 +1773,7 @@ export async function handleSendMessage(
           : deps.approvalConversationGenerator,
       verifiedActorExternalUserId,
       verifiedActorPrincipalId,
+      originClientId,
     });
     if (inlineReplyResult.consumed) {
       return {
@@ -2014,7 +2021,7 @@ export async function handleSendMessage(
           type: "message_complete",
           conversationId: conversationId,
         });
-        publishConversationMessagesChanged(conversationId);
+        publishConversationMessagesChanged(conversationId, originClientId);
         conversation.processing = false;
         silentlyWithLog(conversation.drainQueue(), "slash-command queue drain");
       }, 0);
@@ -2065,7 +2072,7 @@ export async function handleSendMessage(
           messageId: persisted.id,
           clientMessageId,
         });
-        publishConversationMessagesChanged(conversationId);
+        publishConversationMessagesChanged(conversationId, originClientId);
         conversation.emitActivityState(
           "thinking",
           "context_compacting",
@@ -2092,10 +2099,10 @@ export async function handleSendMessage(
           conversationId,
         });
         broadcastMessage({ type: "message_complete", conversationId });
-        publishConversationMessagesChanged(conversationId);
+        publishConversationMessagesChanged(conversationId, originClientId);
       } catch (err) {
         if (assistantMessagePersisted) {
-          publishConversationMessagesChanged(conversationId);
+          publishConversationMessagesChanged(conversationId, originClientId);
         }
         log.error({ err, conversationId }, "Compact command failed");
         broadcastMessage({
@@ -2151,7 +2158,7 @@ export async function handleSendMessage(
         messageId: persisted.id,
         clientMessageId,
       });
-      publishConversationMessagesChanged(conversationId);
+      publishConversationMessagesChanged(conversationId, originClientId);
 
       const result = await conversation.forceClean();
       const responseText = formatCleanResult(result);
@@ -2172,10 +2179,10 @@ export async function handleSendMessage(
         conversationId,
       });
       broadcastMessage({ type: "message_complete", conversationId });
-      publishConversationMessagesChanged(conversationId);
+      publishConversationMessagesChanged(conversationId, originClientId);
     } catch (err) {
       if (assistantMessagePersisted) {
-        publishConversationMessagesChanged(conversationId);
+        publishConversationMessagesChanged(conversationId, originClientId);
       }
       log.error({ err, conversationId }, "Clean command failed");
       broadcastMessage({
@@ -2220,7 +2227,7 @@ export async function handleSendMessage(
     requestId,
     clientMessageId,
   });
-  publishConversationMessagesChanged(mapping.conversationId);
+  publishConversationMessagesChanged(mapping.conversationId, originClientId);
 
   // Fire-and-forget the agent loop; events flow to the hub via broadcastMessage.
   conversation

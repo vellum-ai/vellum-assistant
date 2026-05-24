@@ -67,11 +67,13 @@ export async function setInferenceProfileSession({
   profile,
   ttlSeconds,
   sessionId: callerSessionId,
+  originClientId,
 }: {
   conversationId: string;
   profile: string | null;
   ttlSeconds?: number | null;
   sessionId?: string;
+  originClientId?: string;
 }): Promise<InferenceProfileSessionResult> {
   const resolvedId = resolveConversationId(conversationId) ?? conversationId;
   const conversation = getConversation(resolvedId);
@@ -116,12 +118,15 @@ export async function setInferenceProfileSession({
       };
     }
     setConversationInferenceProfileSession(resolvedId, null, null, null);
-    publishConversationInferenceProfileChanged({
-      conversationId: resolvedId,
-      profile: null,
-      sessionId: null,
-      expiresAt: null,
-    });
+    publishConversationInferenceProfileChanged(
+      {
+        conversationId: resolvedId,
+        profile: null,
+        sessionId: null,
+        expiresAt: null,
+      },
+      originClientId,
+    );
     return {
       conversationId: resolvedId,
       profile: null,
@@ -184,12 +189,15 @@ export async function setInferenceProfileSession({
     newExpiresAt ?? null,
   );
 
-  publishConversationInferenceProfileChanged({
-    conversationId: resolvedId,
-    profile,
-    sessionId: newSessionId ?? null,
-    expiresAt: newExpiresAt ?? null,
-  });
+  publishConversationInferenceProfileChanged(
+    {
+      conversationId: resolvedId,
+      profile,
+      sessionId: newSessionId ?? null,
+      expiresAt: newExpiresAt ?? null,
+    },
+    originClientId,
+  );
 
   return {
     conversationId: resolvedId,
@@ -218,6 +226,7 @@ export async function setInferenceProfileSession({
  */
 export async function closeInferenceProfileSession(
   conversationId: string,
+  originClientId?: string,
 ): Promise<{
   conversationId: string;
   closed: { profile: string | null; sessionId: string | null } | null;
@@ -241,6 +250,7 @@ export async function closeInferenceProfileSession(
   const result = await setInferenceProfileSession({
     conversationId: resolvedId,
     profile: null,
+    originClientId,
   });
   return {
     conversationId: result.conversationId,
