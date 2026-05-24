@@ -24,9 +24,106 @@ import {
   UserSimulator,
 } from "../simulator/user-simulator";
 import type { Simulator } from "../simulator/types";
+import {
+  SubprocessFailedError,
+  type CommandResult,
+} from "../runtime/command-runner";
 import { createAgent } from "./create-agent";
 import { AgentEventCollector } from "./event-collector";
 import type { EvalProgressReporter, EvalProgressStep } from "./progress";
+
+/**
+ * Maximum number of stdout/stderr lines from a failed subprocess to
+ * inline into the test runner log via `EvalProgressEvent.details`.
+ *
+ * The full log still lands on disk (`subprocess-<step>.log`) and the
+ * report UI renders it inline below the runner log. The runner log
+ * itself stays scannable: 30 lines per stream is enough to spot the
+ * canonical failure modes (`bind: address already in use`, OOM,
+ * compile errors, …) without forcing the operator to scroll through
+ * a multi-megabyte image-build log to find the runner summary.
+ */
+const SUBPROCESS_DETAIL_LINE_CAP = 30;
+
+/**
+ * Build the `details` payload for an `EvalProgressEvent` that's
+ * bubbling up a `SubprocessFailedError`. The shape is intentionally
+ * compact so each entry renders on its own indented line in the
+ * console reporter:
+ *
+ *   exit code: 1
+ *   stderr (last 3 lines):
+ *     docker: Error response from daemon: ...
+ *     bind for 0.0.0.0:20100 failed: port is already allocated
+ *   stdout (last 2 lines):
+ *     building image vellum-assistant:test
+ *     image built in 12s
+ *
+ * Empty streams collapse to a single `stderr: (empty)` line so the
+ * caller can tell the difference between "no output" and "we didn't
+ * capture it".
+ *
+ * Exported for tests.
+ */
+export function subprocessFailureDetails(err: SubprocessFailedError): string[] {
+  const lines: string[] = [`exit code: ${err.result.exitCode}`];
+  appendStreamDetails(lines, "stderr", err.result.stderr);
+  appendStreamDetails(lines, "stdout", err.result.stdout);
+  return lines;
+}
+
+function appendStreamDetails(
+  lines: string[],
+  label: "stdout" | "stderr",
+  body: string,
+): void {
+  const tail = tailNonEmptyLines(body, SUBPROCESS_DETAIL_LINE_CAP);
+  if (tail.length === 0) {
+    lines.push(`${label}: (empty)`);
+    return;
+  }
+  lines.push(
+    `${label} (last ${tail.length} line${tail.length === 1 ? "" : "s"}):`,
+  );
+  for (const line of tail) lines.push(`  ${line}`);
+}
+
+function tailNonEmptyLines(body: string, cap: number): string[] {
+  const all = body.split(/\r?\n/);
+  // Strip purely-empty entries from the end. Subprocesses commonly
+  // emit a trailing newline that produces an empty `""` slot we'd
+  // otherwise count toward the cap.
+  while (all.length > 0 && all[all.length - 1].length === 0) all.pop();
+  if (all.length <= cap) return all;
+  return all.slice(-cap);
+}
+
+/**
+ * Subprocess descriptions baked into the adapter call sites read like
+ * `"hatch Vellum profile p1"`, `"setup command for profile p1"`,
+ * `"start Hermes container for p1"`, etc. Map the description to the
+ * runner step that was in flight so the bubbled-up error lands under
+ * the right header. Falls back to the runner's `currentStep` when no
+ * keyword matches, which is also the right thing for unrelated
+ * errors that happen to land in the same catch.
+ */
+function inferSubprocessStep(
+  description: string,
+  fallback: EvalProgressStep,
+): EvalProgressStep {
+  const lower = description.toLowerCase();
+  if (lower.startsWith("hatch") || lower.includes("hermes container"))
+    return "hatch";
+  if (lower.startsWith("setup")) return "setup";
+  if (lower.startsWith("seed conversation") || lower.startsWith("copy seed"))
+    return "setup";
+  if (lower.startsWith("send")) return "send";
+  return fallback;
+}
+
+// Re-export so tests can reach the helper without importing
+// `command-runner.ts` separately.
+export type { CommandResult };
 
 export const EVENT_QUIET_MS = 5_000;
 export const EVENT_MAX_MS = 30_000;
@@ -485,6 +582,21 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
         status: "error",
         message: err.headline,
         details: err.details,
+        turn: currentTurn,
+      });
+    } else if (err instanceof SubprocessFailedError) {
+      // Bubble subprocess failures up with full structured detail
+      // (exit code + last 30 stderr/stdout lines) so the test runner
+      // log shows *why* the hatch/setup command failed, not just the
+      // single-line `assertSuccess` summary. Re-derives the step from
+      // the description because the catch can fire from either the
+      // hatch block or the setup loop and `currentStep` only tracks
+      // the runner's own lifecycle.
+      progress({
+        step: inferSubprocessStep(err.description, failedStep),
+        status: "error",
+        message: `${err.description} failed`,
+        details: subprocessFailureDetails(err),
         turn: currentTurn,
       });
     } else {

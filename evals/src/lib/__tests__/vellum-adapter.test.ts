@@ -108,9 +108,13 @@ describe("VellumAgent", () => {
       // logPath routes hatch's stdout/stderr into the per-run
       // subprocess-hatch.log file so the report UI can render it
       // even when the run failed before assistant_complete fired.
+      // logStep tags every line in that file with `[hatch]` so the
+      // inline UI renderer can pick out which subprocess each line
+      // belongs to (matches the format the test runner log uses).
       opts: {
         env: {},
         logPath: expect.stringMatching(/\/subprocess-hatch\.log$/),
+        logStep: "hatch",
       },
     });
     expect(runner.runs[1]).toEqual({
@@ -148,6 +152,7 @@ describe("VellumAgent", () => {
       ],
       opts: {
         logPath: expect.stringMatching(/\/subprocess-setup-1\.log$/),
+        logStep: "setup-1",
       },
     });
     expect(runner.spawns).toEqual([]);

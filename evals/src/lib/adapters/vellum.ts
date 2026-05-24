@@ -235,6 +235,7 @@ export class VellumAgent implements BaseAgent {
         {
           env: selectProviderEnv(this.processEnv),
           logPath: runArtifacts(this.id).runDir + "/subprocess-hatch.log",
+          logStep: "hatch",
         },
       );
       assertSuccess(hatch, `hatch Vellum profile ${this.profile.id}`);
@@ -252,6 +253,7 @@ export class VellumAgent implements BaseAgent {
           {
             logPath:
               runArtifacts(this.id).runDir + `/subprocess-setup-${idx + 1}.log`,
+            logStep: `setup-${idx + 1}`,
           },
         );
         assertSuccess(setup, `setup command for profile ${this.profile.id}`);
