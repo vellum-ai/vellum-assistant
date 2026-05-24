@@ -1739,9 +1739,9 @@ const RUNTIME_INJECTION_PREFIXES = [
   // `<memory __injected>…`) are both stripped so each compaction
   // re-injects the freshest essentials/threads/recent/buffer view and
   // re-runs the activation pipeline, matching the `<knowledge_base>`
-  // cadence. The activation pipeline dedupes via `everInjected`, and
-  // compaction handles aggregate growth, so accumulation does not cause
-  // unbounded context growth. Both wrappers may appear in persisted rows.
+  // cadence. The pipeline re-renders the full top-K each turn and history is
+  // stripped, so memory context stays bounded to top-K and does not
+  // accumulate. Both wrappers may appear in persisted rows.
   "<memory>\n",
   "<info>\n",
   "<voice_call_control>",

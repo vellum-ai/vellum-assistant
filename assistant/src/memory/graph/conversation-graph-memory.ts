@@ -26,11 +26,6 @@ import type { QdrantSparseVector } from "../qdrant-client.js";
 import { memorySummaries } from "../schema.js";
 import { conversations } from "../schema/conversations.js";
 import {
-  clearEverInjected as clearV2EverInjected,
-  hydrate as hydrateV2State,
-  save as saveV2State,
-} from "../v2/activation-store.js";
-import {
   injectMemoryV2Block,
   type InjectMemoryV2Mode,
 } from "../v2/injection.js";
@@ -220,28 +215,6 @@ export class ConversationGraphMemory {
     // so we conservatively clear everything and reload.
     const upToTurn = this.tracker.getTurn();
     this.tracker.evictCompactedTurns(upToTurn);
-
-    // Mirror the eviction on the v2 activation row: the cached `<memory>`
-    // attachments those slugs lived on are gone, but `everInjected` would
-    // otherwise keep them deduped from per-turn deltas forever.
-    //
-    // Cleared unconditionally rather than filtered by `upToTurn`: the
-    // tracker's `currentTurn` is only persisted on graceful dispose while
-    // `everInjected` is persisted every turn, so a SIGKILL'd session can
-    // leave entries with `turn > tracker.currentTurn` that a turn-bounded
-    // filter would skip.
-    try {
-      const db = getDb();
-      const state = await hydrateV2State(db, this.conversationId);
-      if (state) {
-        await saveV2State(db, this.conversationId, clearV2EverInjected(state));
-      }
-    } catch (err) {
-      log.warn(
-        { err: err instanceof Error ? err.message : String(err) },
-        "Failed to evict v2 activation state on compaction (non-fatal)",
-      );
-    }
 
     this.needsReload = true;
     log.info(

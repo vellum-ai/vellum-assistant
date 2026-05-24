@@ -44,7 +44,7 @@ import { recordInjectionEvents } from "./injection-events.js";
 import { readPage, renderPageContent } from "./page-store.js";
 import { type RouterTurnPair, runRouter } from "./router.js";
 import { getSkillCapability, isSkillSlug } from "./skill-store.js";
-import type { ActivationState, EverInjectedEntry } from "./types.js";
+import type { ActivationState } from "./types.js";
 
 const log = getLogger("memory-v2-injection");
 
@@ -76,7 +76,7 @@ export interface InjectMemoryV2BlockParams {
   database: DrizzleDb;
   /** Conversation key for hydrate/save. */
   conversationId: string;
-  /** Caller-tracked turn number, persisted with each new everInjected entry. */
+  /** Caller-tracked turn number, persisted on the activation_state row. */
   currentTurn: number;
   /**
    * Recent assistant/user turn pairs, oldest first. Must contain at least
@@ -110,12 +110,12 @@ export interface InjectMemoryV2BlockResult {
    */
   block: string | null;
   /**
-   * Slugs we attempted to attach this turn (top-K minus everInjected).
-   * Always populated even when `block` is `null` — phantom slugs whose
-   * backing page is missing on disk land here and are recorded in
-   * `everInjected` so we don't infinite-retry next turn. Callers using
-   * this for "we injected N slugs" telemetry should cross-reference
-   * `block !== null` (or the activation log's `page_missing` status).
+   * Slugs we attempted to render this turn — the full top-K, minus synthetic
+   * slugs (skills, CLI commands) whose backing capability cache entry is
+   * missing. Always populated even when `block` is `null` (e.g. phantom slugs
+   * whose backing page is missing on disk still land here). Callers using this
+   * for "we injected N slugs" telemetry should cross-reference `block !== null`
+   * (or the activation log's `page_missing` status).
    */
   toInject: string[];
 }
@@ -169,10 +169,7 @@ export async function injectMemoryV2Block(
   // remains the default (flag-off) behavior — every code path past this
   // branch only runs when the router is disabled.
   //
-  // Runs on both `per-turn` and `context-load`. The `everInjected` dedupe
-  // concern from earlier doesn't apply post-compaction because
-  // `evictCompactedTurnsV2` in `ConversationGraphMemory.onCompacted`
-  // empties the list before this code runs. Router abstention on
+  // Runs on both `per-turn` and `context-load`. Router abstention on
   // context-load means no v2 pages restored that turn, which is preferable
   // to letting the activation graph pick something arbitrary.
   if (config.memory.v2.router.enabled) {
@@ -185,7 +182,6 @@ export async function injectMemoryV2Block(
       nowText,
       messageId,
       config,
-      priorState,
       signal,
     });
   }
@@ -234,11 +230,8 @@ export async function injectMemoryV2Block(
   // prior cached attachment to dedup against. Rendering the full top-K each
   // turn keeps the currently-relevant memory present (tracking live
   // activation) and bounds total context to top-K instead of accumulating.
-  const priorEverInjected: readonly EverInjectedEntry[] =
-    priorState?.everInjected ?? [];
   const { topNow } = selectInjections({
     A: finalActivation,
-    priorEverInjected,
     topK: top_k,
   });
   const slugsToRender = topNow;
@@ -285,7 +278,6 @@ export async function injectMemoryV2Block(
     mode,
     currentTurn,
     messageId,
-    priorEverInjected,
     slugsToRender,
     telemetryRows,
     config,
@@ -298,18 +290,16 @@ export async function injectMemoryV2Block(
  * router branch (PR 10) can reuse the same persistence + render +
  * telemetry-finalization pipeline. Performs:
  *
- *   1. Build `nextEverInjected` from `slugsToRender`, filtering out skill
- *      slugs whose capability cache entry is missing so future turns
- *      re-attempt attachment once the cache is populated.
+ *   1. Compute the rendered-slug set (`toInject`) from `slugsToRender`,
+ *      filtering out synthetic slugs whose capability cache entry is missing.
  *   2. Persist the next activation_state row.
  *   3. Render the injection block.
- *   4. Finalize per-row `status` (`injected | in_context | not_injected |
- *      page_missing | corrupt`) on the caller-provided telemetry rows
- *      using the render result.
+ *   4. Finalize per-row `status` (`injected | not_injected | page_missing |
+ *      corrupt`) on the caller-provided telemetry rows using the render result.
  *   5. Sort rows by `finalActivation` descending and flush the activation
  *      log — even when an error is thrown partway through, so silent
  *      failures remain observable.
- *   6. Return the rendered block plus `toInject = newlyInjected`.
+ *   6. Return the rendered block plus `toInject` (the rendered-slug set).
  *
  * The caller pre-builds `telemetryRows` with all per-candidate breakdown
  * fields filled in (router-mode callers can pass zeros where the
@@ -324,7 +314,6 @@ async function finalizeInjection(args: {
   mode: FinalizeInjectionMode;
   currentTurn: number;
   messageId: string;
-  priorEverInjected: readonly EverInjectedEntry[];
   slugsToRender: string[];
   telemetryRows: MemoryV2ConceptRowRecord[];
   config: AssistantConfig;
@@ -344,7 +333,6 @@ async function finalizeInjection(args: {
     conversationId,
     currentTurn,
     messageId,
-    priorEverInjected,
     slugsToRender,
     telemetryRows,
     config,
@@ -357,13 +345,13 @@ async function finalizeInjection(args: {
   // observable in the database.
   let mode: FinalizeInjectionMode = args.mode;
 
-  // Every rendered slug is freshly injected this turn: history is stripped
-  // (`stripAllMemoryInjections`) so nothing persists to dedup against, and we
-  // render the full top-K every turn. Synthetic slugs (skills, CLI commands)
-  // whose in-process cache entry is missing (e.g. startup race between the
-  // seed and the first turn, or stale Qdrant index pointing at an uninstalled
-  // skill / removed CLI command) are excluded — `renderInjectionBlock`
-  // silently drops them, so they aren't actually injected.
+  // We render the full top-K every turn; history is stripped
+  // (`stripAllMemoryInjections`) so nothing persists to dedup against.
+  // Synthetic slugs (skills, CLI commands) whose in-process cache entry is
+  // missing (e.g. startup race between the seed and the first turn, or a stale
+  // Qdrant index pointing at an uninstalled skill / removed CLI command) are
+  // excluded — `renderInjectionBlock` silently drops them, so they aren't
+  // actually injected.
   const missingSyntheticSlugs = new Set(
     slugsToRender.filter(
       (slug) =>
@@ -371,25 +359,15 @@ async function finalizeInjection(args: {
         (isCliCommandSlug(slug) && !getCliCommandCapability(slug)),
     ),
   );
-  // `everInjected` no longer gates *rendering* — we render the full top-K
-  // every turn (history is stripped, so nothing persists to dedup against).
-  // It is still recorded as a first-seen ledger for telemetry/history (the
-  // `toInject` return reports slugs injected for the first time this turn).
-  // Synthetic slugs whose cache entry is missing are excluded so future turns
-  // re-attempt the attach once the cache populates.
-  const everInjectedSet = new Set(priorEverInjected.map((entry) => entry.slug));
-  const newlyInjected = slugsToRender.filter(
-    (slug) => !everInjectedSet.has(slug) && !missingSyntheticSlugs.has(slug),
+  // `toInject` reports the slugs we actually attempted to render this turn —
+  // the full top-K minus the missing synthetic slugs above.
+  const toInject = slugsToRender.filter(
+    (slug) => !missingSyntheticSlugs.has(slug),
   );
-  const nextEverInjected: EverInjectedEntry[] = [
-    ...priorEverInjected,
-    ...newlyInjected.map((slug) => ({ slug, turn: currentTurn })),
-  ];
 
   const nextActivationState: ActivationState = {
     messageId,
     state: nextStateMap,
-    everInjected: nextEverInjected,
     currentTurn,
     updatedAt: Date.now(),
   };
@@ -492,7 +470,7 @@ async function finalizeInjection(args: {
   }
 
   if (caughtErr !== undefined && !args.bestEffort) throw caughtErr;
-  return { block, toInject: newlyInjected };
+  return { block, toInject };
 }
 
 /**
@@ -518,7 +496,6 @@ async function injectViaRouter(args: {
   nowText: string;
   messageId: string;
   config: AssistantConfig;
-  priorState: ActivationState | null;
   signal?: AbortSignal;
 }): Promise<InjectMemoryV2BlockResult> {
   const {
@@ -530,18 +507,13 @@ async function injectViaRouter(args: {
     nowText,
     messageId,
     config,
-    priorState,
     signal,
   } = args;
-
-  const priorEverInjected: readonly EverInjectedEntry[] =
-    priorState?.everInjected ?? [];
 
   const routerResult = await runRouter({
     workspaceDir,
     recentTurnPairs,
     nowText,
-    priorEverInjected,
     config,
     database,
     ...(signal ? { signal } : {}),
@@ -562,14 +534,13 @@ async function injectViaRouter(args: {
       "memory v2 router failure; skipping injection",
     );
     // Delegate the failure path to `finalizeInjection` with empty inputs
-    // and `mode: "errored"`. The helper persists a stub activation_state
-    // (preserving `priorEverInjected` so future turns still subtract
-    // previously-attached slugs) and writes the telemetry row through the
-    // same code path as the success branch — no inline duplication of
-    // `save` + `recordMemoryV2ActivationLog`. `bestEffort: true` matches
-    // the pre-refactor inline behavior of logging and continuing if the
-    // stub-state `save()` throws — we don't want a transient SQLite write
-    // to abort the turn on top of the router failure that already happened.
+    // and `mode: "errored"`. The helper persists a stub activation_state and
+    // writes the telemetry row through the same code path as the success
+    // branch — no inline duplication of `save` + `recordMemoryV2ActivationLog`.
+    // `bestEffort: true` matches the pre-refactor inline behavior of logging
+    // and continuing if the stub-state `save()` throws — we don't want a
+    // transient SQLite write to abort the turn on top of the router failure
+    // that already happened.
     return finalizeInjection({
       workspaceDir,
       database,
@@ -577,7 +548,6 @@ async function injectViaRouter(args: {
       mode: "errored",
       currentTurn,
       messageId,
-      priorEverInjected,
       slugsToRender: [],
       telemetryRows: [],
       config,
@@ -586,27 +556,18 @@ async function injectViaRouter(args: {
     });
   }
 
-  // Render every router-selected slug. There is no duplicate-content risk
-  // from re-picking already-injected pages: history is stripped every turn
-  // (`stripAllMemoryInjections`), so no prior cached attachment survives on an
-  // earlier user message to collide with. The router prompt invites re-picking
-  // pages "to re-anchor", and we now honor that by re-rendering them.
-  //
-  // Telemetry rows for prior-everInjected slugs the router did NOT re-pick are
-  // still emitted below, tagged `source: "carry_over"` (not `"router"`) so
-  // inspector queries can attribute selections correctly.
+  // Render every router-selected slug onto the current user message. History
+  // is stripped every turn (`stripAllMemoryInjections`), so the full selected
+  // set is rendered fresh each turn and total memory context stays bounded to
+  // the router's per-turn `max_page_ids` cap.
   const slugsToRender = routerResult.selectedSlugs;
 
-  // Build minimal telemetry rows for the union of router-selected slugs and
-  // prior `everInjected` slugs. Router-mode rows zero out every activation
-  // value (no spreading activation runs). Slugs the router picked carry
-  // their batch's tier tag from `routerResult.sourceBySlug` (e.g. `tier1`,
-  // `tier3:2`); prior-everInjected slugs the router did NOT re-pick get
-  // `source: "carry_over"`. The `status` placeholder is overwritten by
+  // Build minimal telemetry rows for the router-selected slugs. Router-mode
+  // rows zero out every activation value (no spreading activation runs); each
+  // slug carries its batch's tier tag from `routerResult.sourceBySlug` (e.g.
+  // `tier1`, `tier3:2`). The `status` placeholder is overwritten by
   // `finalizeInjection`.
-  const telemetrySlugs = new Set<string>(routerResult.selectedSlugs);
-  for (const entry of priorEverInjected) telemetrySlugs.add(entry.slug);
-  const telemetryRows: MemoryV2ConceptRowRecord[] = [...telemetrySlugs].map(
+  const telemetryRows: MemoryV2ConceptRowRecord[] = slugsToRender.map(
     (slug) => ({
       slug,
       finalActivation: 0,
@@ -619,7 +580,7 @@ async function injectViaRouter(args: {
       simAssistantRerankBoost: 0,
       inRerankPool: false,
       spreadContribution: 0,
-      source: routerResult.sourceBySlug.get(slug) ?? "carry_over",
+      source: routerResult.sourceBySlug.get(slug) ?? "router",
       status: "not_injected",
     }),
   );
@@ -631,7 +592,6 @@ async function injectViaRouter(args: {
     mode: "router",
     currentTurn,
     messageId,
-    priorEverInjected,
     slugsToRender,
     telemetryRows,
     config,

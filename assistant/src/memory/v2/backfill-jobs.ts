@@ -252,7 +252,6 @@ async function recomputeForConversation(
   return {
     messageId: priorState.messageId,
     state: sparseState,
-    everInjected: priorState.everInjected,
     currentTurn: priorState.currentTurn,
     updatedAt: Date.now(),
   };

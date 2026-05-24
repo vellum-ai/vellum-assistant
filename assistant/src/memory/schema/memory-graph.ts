@@ -159,9 +159,11 @@ export const memoryGraphNodeEdits = sqliteTable("memory_graph_node_edits", {
  * conversation; created lazily on first injection.
  *
  * - `stateJson`: sparse `{slug: activation}` map (only slugs > epsilon).
- * - `everInjectedJson`: append-only `[{slug, turn}]` list used to keep
- *   per-turn injections strictly delta-only. Pruned when compaction evicts
- *   the turns whose attached slugs lived on.
+ *
+ * The physical table also carries a legacy `ever_injected_json` column
+ * (created by migrations 232/241, `NOT NULL DEFAULT '[]'`). It is intentionally
+ * unmapped here — nothing reads it, and omitting it from inserts lets SQLite
+ * supply the default. Left in place to avoid a table-rewrite migration.
  *
  * No FK to conversations.id — fork() may copy state for a child
  * conversation that hasn't been persisted yet, and stale rows are cheap.
@@ -170,7 +172,6 @@ export const activationState = sqliteTable("activation_state", {
   conversationId: text("conversation_id").primaryKey(),
   messageId: text("message_id").notNull(),
   stateJson: text("state_json").notNull(),
-  everInjectedJson: text("ever_injected_json").notNull().default("[]"),
   currentTurn: integer("current_turn").notNull().default(0),
   updatedAt: integer("updated_at").notNull(),
 });

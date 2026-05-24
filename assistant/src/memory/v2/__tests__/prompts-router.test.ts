@@ -188,15 +188,18 @@ describe("renderRouterPrompt — content expectations", () => {
     expect(out).toContain("select_pages_to_inject");
   });
 
-  test("describes the already_injected_ids and now markers", () => {
+  test("describes the now marker and does not reference prior-turn picks", () => {
     const out = renderRouterPrompt({
       assistantName: "Aria",
       userName: "Alice",
       pageIndexBlock: SAMPLE_INDEX,
     });
 
-    expect(out).toContain("<already_injected_ids>");
     expect(out).toContain("<now>");
+    // The router is stateless about prior picks — it must not be told what it
+    // injected before (that signal drove memory drainage once history started
+    // being stripped every turn).
+    expect(out).not.toContain("<already_injected_ids>");
   });
 
   test("biases toward inclusion when in doubt", () => {

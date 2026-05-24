@@ -10,8 +10,7 @@
  *   - `spreadActivation`: orphan yields A == A_o; spread walks incoming edges
  *      only (A→B boosts B but not A); hops=2 reaches second-degree predecessors
  *      but not third; bounded in [0,1].
- *   - `selectInjections`: top-K rank, deterministic tie-break, delta against
- *      `everInjected`.
+ *   - `selectInjections`: top-K rank, deterministic tie-break.
  *
  * Hermetic by design: the embedding backend, qdrant client, and `getConfig`
  * are mocked at the module level so the suite never starts a real backend.
@@ -293,7 +292,6 @@ describe("selectCandidates", () => {
         "bob-coffee": 0.005, // below epsilon
         "carol-jazz": 0.2,
       },
-      everInjected: [],
       currentTurn: 1,
       updatedAt: 1,
     };
@@ -313,7 +311,6 @@ describe("selectCandidates", () => {
     const priorState: ActivationState = {
       messageId: "msg-1",
       state: { "alice-vscode": 0.5 },
-      everInjected: [],
       currentTurn: 1,
       updatedAt: 1,
     };
@@ -341,7 +338,6 @@ describe("selectCandidates", () => {
         "alice-vscode": 0.5, // in prior AND in ANN
         "carol-jazz": 0.3, // prior only
       },
-      everInjected: [],
       currentTurn: 1,
       updatedAt: 1,
     };
@@ -445,7 +441,6 @@ describe("computeOwnActivation", () => {
     const priorState: ActivationState = {
       messageId: "msg-1",
       state: { alice: 0.6 },
-      everInjected: [],
       currentTurn: 1,
       updatedAt: 1,
     };
@@ -476,7 +471,6 @@ describe("computeOwnActivation", () => {
     const priorState: ActivationState = {
       messageId: "msg-1",
       state: { alice: 1.0 },
-      everInjected: [],
       currentTurn: 1,
       updatedAt: 1,
     };
@@ -546,7 +540,6 @@ describe("computeOwnActivation", () => {
     const priorState: ActivationState = {
       messageId: "msg-1",
       state: { alice: 0.6 },
-      everInjected: [],
       currentTurn: 1,
       updatedAt: 1,
     };
@@ -1113,10 +1106,9 @@ describe("selectInjections", () => {
   test("returns empty when activation is empty", () => {
     const out = selectInjections({
       A: new Map(),
-      priorEverInjected: [],
       topK: 5,
     });
-    expect(out).toEqual({ topNow: [], toInject: [] });
+    expect(out).toEqual({ topNow: [] });
   });
 
   test("returns empty when topK is 0", () => {
@@ -1125,10 +1117,9 @@ describe("selectInjections", () => {
         ["alice", 0.5],
         ["bob", 0.4],
       ]),
-      priorEverInjected: [],
       topK: 0,
     });
-    expect(out).toEqual({ topNow: [], toInject: [] });
+    expect(out).toEqual({ topNow: [] });
   });
 
   test("ranks by activation descending and trims to topK", () => {
@@ -1139,35 +1130,9 @@ describe("selectInjections", () => {
         ["carol", 0.5],
         ["delta", 0.3],
       ]),
-      priorEverInjected: [],
       topK: 2,
     });
     expect(out.topNow).toEqual(["bob", "carol"]);
-    expect(out.toInject).toEqual(["bob", "carol"]);
-  });
-
-  test("subtracts everInjected slugs from toInject", () => {
-    const out = selectInjections({
-      A: new Map([
-        ["alice", 0.9],
-        ["bob", 0.7],
-        ["carol", 0.5],
-      ]),
-      priorEverInjected: [{ slug: "alice", turn: 0 }],
-      topK: 5,
-    });
-    expect(out.topNow).toEqual(["alice", "bob", "carol"]);
-    expect(out.toInject).toEqual(["bob", "carol"]);
-  });
-
-  test("returns empty toInject when every topNow slug has been injected", () => {
-    const out = selectInjections({
-      A: new Map([["alice", 0.9]]),
-      priorEverInjected: [{ slug: "alice", turn: 1 }],
-      topK: 5,
-    });
-    expect(out.topNow).toEqual(["alice"]);
-    expect(out.toInject).toEqual([]);
   });
 
   test("breaks ties by slug ascending for deterministic output", () => {
@@ -1177,7 +1142,6 @@ describe("selectInjections", () => {
         ["alice", 0.5],
         ["mike", 0.5],
       ]),
-      priorEverInjected: [],
       topK: 5,
     });
     expect(out.topNow).toEqual(["alice", "mike", "zeta"]);

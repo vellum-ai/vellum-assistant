@@ -403,8 +403,6 @@ and no activation state is mutated. Use this to preview the effect of a
 config knob change before flipping it in workspace config.json.
 
 Limitations:
-  - priorEverInjected is empty (single-turn simulation; live router dedups
-    against pages already in context).
   - NOW.md is read at simulate-time, not historical-turn time.
   - assistantMessage is empty.
 

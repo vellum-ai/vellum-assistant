@@ -5,7 +5,7 @@
 // One row per conversation. The row is hydrated on resume, mutated in-memory
 // across the turn, and written back at the end of the turn. Forking a
 // conversation copies the parent row so the child starts with the same
-// activation/everInjected snapshot.
+// activation snapshot.
 
 import { eq } from "drizzle-orm";
 
@@ -31,7 +31,6 @@ export async function hydrate(
   return ActivationStateSchema.parse({
     messageId: row.messageId,
     state: JSON.parse(row.stateJson),
-    everInjected: JSON.parse(row.everInjectedJson),
     currentTurn: row.currentTurn,
     updatedAt: row.updatedAt,
   });
@@ -47,14 +46,12 @@ export async function save(
   state: ActivationState,
 ): Promise<void> {
   const stateJson = JSON.stringify(state.state);
-  const everInjectedJson = JSON.stringify(state.everInjected);
   database
     .insert(activationState)
     .values({
       conversationId,
       messageId: state.messageId,
       stateJson,
-      everInjectedJson,
       currentTurn: state.currentTurn,
       updatedAt: state.updatedAt,
     })
@@ -63,7 +60,6 @@ export async function save(
       set: {
         messageId: state.messageId,
         stateJson,
-        everInjectedJson,
         currentTurn: state.currentTurn,
         updatedAt: state.updatedAt,
       },
@@ -74,10 +70,8 @@ export async function save(
 /**
  * Copy the parent conversation's activation row to a new conversation id.
  * No-op if the parent has no state (e.g. fork happened before any injection).
- *
- * The child row inherits everInjected as-is so previously-attached slugs are
- * not re-injected on the child's first turn — matching the v1 semantics where
- * a fork carries over all in-context memories.
+ * The child inherits the parent's activation map so its first turn starts from
+ * the same retrieval state.
  *
  * Synchronous so it can run inside the bun:sqlite transaction that wraps
  * `forkConversation()` — keeping the state copy atomic with the message and
@@ -101,7 +95,6 @@ export function forkActivationState(
       conversationId: newConversationId,
       messageId: row.messageId,
       stateJson: row.stateJson,
-      everInjectedJson: row.everInjectedJson,
       currentTurn: row.currentTurn,
       updatedAt: row.updatedAt,
     })
@@ -110,27 +103,9 @@ export function forkActivationState(
       set: {
         messageId: row.messageId,
         stateJson: row.stateJson,
-        everInjectedJson: row.everInjectedJson,
         currentTurn: row.currentTurn,
         updatedAt: row.updatedAt,
       },
     })
     .run();
-}
-
-/**
- * Clear all `everInjected` entries. Used after compaction: the cached
- * `<memory>` attachments those slugs lived on are gone, so future turns
- * should be free to re-inject them.
- *
- * Unconditionally empties the list rather than filtering by turn number.
- * `everInjected` is persisted on every turn while the in-memory tracker's
- * `currentTurn` is only snapshotted on graceful conversation dispose, so a
- * non-graceful shutdown (SIGKILL, crash) followed by a reload can leave
- * `everInjected` entries with `turn` values above the restored tracker's
- * `currentTurn`. A turn-bounded filter misses those stale entries and they
- * dedupe forever; a full clear is robust to that drift.
- */
-export function clearEverInjected(state: ActivationState): ActivationState {
-  return { ...state, everInjected: [] };
 }

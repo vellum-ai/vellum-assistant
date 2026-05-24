@@ -53,16 +53,15 @@ const PAGE_INDEX_PLACEHOLDER = "{{PAGE_INDEX}}";
  * with a `page_ids` array; the runtime parses the response via the tool
  * definition declared in the router job module.
  *
- * Recent message context and `<now>` / `<already_injected_ids>` blocks are
- * appended at the call site so we don't inadvertently expand `{{` inside
- * dynamic content.
+ * Recent message context and the `<now>` block are appended at the call site
+ * so we don't inadvertently expand `{{` inside dynamic content.
  *
  * Exported so the simulator route can return the bundled template verbatim
  * for the playground's "Load default" affordance.
  */
 export const ROUTER_PROMPT = `You are a background helper for ${ASSISTANT_NAME_PLACEHOLDER}. Your job is to route memory pages for the next assistant turn between ${ASSISTANT_NAME_PLACEHOLDER} and ${USER_NAME_PLACEHOLDER}.
 
-You will be shown the recent conversation, a \`<now>\` marker for the current time, an \`<already_injected_ids>\` block listing pages picked on the previous turn, and a \`# Concept Page Index\` listing every routable page on this workspace.
+You will be shown the recent conversation, a \`<now>\` marker for the current time, and a \`# Concept Page Index\` listing every routable page on this workspace.
 
 Pick the concept pages whose contents would help ${ASSISTANT_NAME_PLACEHOLDER} respond well on this turn. Lean toward inclusion when in doubt — missing a relevant page is a worse error than surfacing a few unused ones, because the assistant can ignore extras but can't summon context that wasn't loaded. Abstain (return an empty list) only when nothing in the index plausibly bears on the turn.
 
@@ -71,8 +70,6 @@ Index format. Each line of the index has the shape:
     [id] slug — summary (edges: a, b, c)
 
 \`id\` is a small integer used to refer to this page. \`edges\` are numeric IDs into the same list, pointing at related pages; you may follow them when one page strongly implies another.
-
-Already-injected pages. Pages whose IDs appear in \`<already_injected_ids>\` were picked on the previous turn. Do not pick them again unless ${ASSISTANT_NAME_PLACEHOLDER} should re-anchor on that material — e.g., the topic genuinely returns after drifting away. Routine continuity does not require re-picking; the prior turn's pages are already in the assistant's working context.
 
 Time. Bias toward pages that match the current state implied by \`<now>\` and the active conversational threads (what is happening today, what was just decided, who is being discussed). Stale pages with no bearing on the live conversation should be skipped even if their summaries look superficially relevant.
 
