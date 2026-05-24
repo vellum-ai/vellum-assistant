@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { postChatMessage } from "@/domains/chat/api/messages.js";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store.js";
 
 describe("postChatMessage onboarding payload", () => {
   let originalFetch: typeof fetch;
@@ -10,6 +11,11 @@ describe("postChatMessage onboarding payload", () => {
   beforeEach(() => {
     originalFetch = globalThis.fetch;
     capturedRequests = [];
+    // Reset the assistant-identity store so version-gated wire-field
+    // selection in `postChatMessage` defaults to the conservative legacy
+    // `conversationKey` path. Individual tests that exercise the new
+    // `conversationId` path opt in explicitly via `setIdentity(...)`.
+    useAssistantIdentityStore.getState().clearIdentity();
     // The vellum-api client request interceptor calls ensureCsrfCookie() on
     // mutating requests, which reads `document.cookie`. Stub a minimal
     // `document` so the bun test (Node) environment doesn't throw.
@@ -175,5 +181,95 @@ describe("postChatMessage onboarding payload", () => {
     const onboarding = body.onboarding as Record<string, unknown>;
     expect(onboarding).not.toHaveProperty("userName");
     expect(onboarding).not.toHaveProperty("assistantName");
+  });
+});
+
+describe("postChatMessage wire-field bilingual cutover", () => {
+  // Verifies the daemon-version gate selects the right wire field on
+  // `POST /v1/messages`. See `apps/web/src/assistant/version-compat.ts`
+  // for the cutover policy (legacy `conversationKey` for daemons older
+  // than 0.8.5, canonical `conversationId` for 0.8.5+).
+  let originalFetch: typeof fetch;
+  let originalDocument: unknown;
+  let capturedRequests: Array<{ url: string; body: string }> = [];
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+    capturedRequests = [];
+    useAssistantIdentityStore.getState().clearIdentity();
+    originalDocument = (globalThis as { document?: unknown }).document;
+    (globalThis as { document?: unknown }).document = { cookie: "csrftoken=test" };
+    globalThis.fetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input instanceof Request ? input.url : String(input);
+      let bodyText: string | undefined;
+      if (input instanceof Request) {
+        bodyText = await input.clone().text();
+      } else if (typeof init?.body === "string") {
+        bodyText = init.body;
+      }
+      capturedRequests.push({ url, body: bodyText ?? "" });
+      return new Response(
+        JSON.stringify({ accepted: true, messageId: "msg-1" }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    if (originalDocument === undefined) {
+      delete (globalThis as { document?: unknown }).document;
+    } else {
+      (globalThis as { document?: unknown }).document = originalDocument;
+    }
+    useAssistantIdentityStore.getState().clearIdentity();
+  });
+
+  function getMessageBody(): Record<string, unknown> {
+    const requests = capturedRequests.filter((r) => r.url.includes("/messages/"));
+    expect(requests).toHaveLength(1);
+    return JSON.parse(requests[0]!.body) as Record<string, unknown>;
+  }
+
+  test("uses conversationId wire field when daemon version >= 0.8.5", async () => {
+    useAssistantIdentityStore.getState().setIdentity("Vel", "0.8.5");
+
+    await postChatMessage("asst-1", "conv-internal-1", "hi");
+
+    const body = getMessageBody();
+    expect(body.conversationId).toBe("conv-internal-1");
+    expect(body).not.toHaveProperty("conversationKey");
+  });
+
+  test("uses conversationId wire field for newer daemons (e.g. 0.9.0)", async () => {
+    useAssistantIdentityStore.getState().setIdentity("Vel", "0.9.0");
+
+    await postChatMessage("asst-1", "conv-internal-2", "hi");
+
+    const body = getMessageBody();
+    expect(body.conversationId).toBe("conv-internal-2");
+    expect(body).not.toHaveProperty("conversationKey");
+  });
+
+  test("uses conversationKey wire field for daemons older than 0.8.5", async () => {
+    useAssistantIdentityStore.getState().setIdentity("Vel", "0.8.4");
+
+    await postChatMessage("asst-1", "conv-internal-3", "hi");
+
+    const body = getMessageBody();
+    expect(body.conversationKey).toBe("conv-internal-3");
+    expect(body).not.toHaveProperty("conversationId");
+  });
+
+  test("falls back to conversationKey when daemon version is unknown (identity not yet hydrated)", async () => {
+    // Default store state: version === null. This is the window
+    // between page load and the identity fetch resolving.
+    expect(useAssistantIdentityStore.getState().version).toBeNull();
+
+    await postChatMessage("asst-1", "conv-internal-4", "hi");
+
+    const body = getMessageBody();
+    expect(body.conversationKey).toBe("conv-internal-4");
+    expect(body).not.toHaveProperty("conversationId");
   });
 });
