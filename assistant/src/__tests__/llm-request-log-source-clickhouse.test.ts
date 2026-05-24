@@ -164,6 +164,30 @@ describe("ClickHouseLlmRequestLogSource", () => {
     expect(rows).toEqual([]);
   });
 
+  test("getRequestLogsByConversationId binds conversation id via parameterized placeholder", async () => {
+    // Regression guard: the conversation id flows from user-controlled
+    // input (conversationKey → conversations.id), so it must travel as a
+    // typed parameter, never as an inline string literal.
+    const recorder: FakeFetchCall[] = [];
+    const malicious = "conv-1' OR 1=1 --";
+    const src = makeSource({
+      body: JSON.stringify(SAMPLE_ROW) + "\n",
+      recorder,
+    });
+    const rows = await src.getRequestLogsByConversationId(malicious);
+    expect(rows).toHaveLength(1);
+    expect(recorder).toHaveLength(1);
+    const call = recorder[0]!;
+    const parsed = new URL(call.url);
+    expect(parsed.searchParams.get("param_assistant_id")).toBe(
+      "asst-fixture-001",
+    );
+    expect(parsed.searchParams.get("param_conversation_id")).toBe(malicious);
+    const body = String(call.init?.body ?? "");
+    expect(body).toContain("conversation_id = {conversation_id:String}");
+    expect(body).not.toContain(`'${malicious}'`);
+  });
+
   test("getRequestLogsByMessageId binds message ids via parameterized placeholders", async () => {
     // Regression for ATL-537. `getAssistantMessageIdsInTurn` returns the
     // caller-supplied id straight through when the message lookup misses,

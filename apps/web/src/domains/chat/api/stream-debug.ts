@@ -19,8 +19,8 @@ export interface SseDebugClient {
   id: string;
   /** The AbortController signal for this client attempt. */
   abortSignal: AbortSignal;
-  /** Conversation key the stream was opened against. */
-  conversationKey: string | undefined;
+  /** Conversation id the stream was opened against. */
+  conversationId: string | undefined;
   /** When the client was first registered (before the fetch started). */
   initiatedAt: number;
   /** When the first SSE data frame arrived (null until then). */
@@ -60,13 +60,13 @@ const events: SseDebugEventEntry[] = [];
  */
 export function registerSseClient(
   abortSignal: AbortSignal,
-  conversationKey: string | undefined,
+  conversationId: string | undefined,
 ): string {
   const id = `sse-${++nextClientId}`;
   const client: SseDebugClient = {
     id,
     abortSignal,
-    conversationKey,
+    conversationId,
     initiatedAt: Date.now(),
     establishedAt: null,
   };

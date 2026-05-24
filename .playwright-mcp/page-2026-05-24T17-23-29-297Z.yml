@@ -1,0 +1,308 @@
+- generic:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic:
+              - generic:
+                - link:
+                  - /url: /assistant
+                  - img
+                - heading [level=1]: Models & Services
+            - generic:
+              - complementary:
+                - navigation:
+                  - link:
+                    - /url: /assistant/settings/general
+                    - img
+                    - generic: General
+                  - link:
+                    - /url: /assistant/settings/ai
+                    - img
+                    - generic: Models & Services
+                  - link:
+                    - /url: /assistant/settings/integrations
+                    - img
+                    - generic: Integrations
+                  - link:
+                    - /url: /assistant/settings/schedules
+                    - img
+                    - generic: Schedules
+                  - link:
+                    - /url: /assistant/settings/voice
+                    - img
+                    - generic: Voice
+                  - link:
+                    - /url: /assistant/settings/devices
+                    - img
+                    - generic: Self-Hosted Assistants
+                  - link:
+                    - /url: /assistant/settings/privacy
+                    - img
+                    - generic: Permissions & Privacy
+                  - link:
+                    - /url: /assistant/settings/archive
+                    - img
+                    - generic: Archive
+                  - link:
+                    - /url: /assistant/settings/billing
+                    - img
+                    - generic: Billing
+                  - link:
+                    - /url: /assistant/settings/community
+                    - img
+                    - generic: Community
+                  - link:
+                    - /url: /assistant/settings/debug
+                    - img
+                    - generic: Debug
+                  - link:
+                    - /url: /assistant/settings/advanced
+                    - img
+                    - generic: Advanced
+              - main:
+                - generic:
+                  - generic:
+                    - img
+                    - paragraph:
+                      - text: Managed services are metered and deducted from your Vellum account balance.
+                      - link:
+                        - /url: https://www.vellum.ai/docs/pricing
+                        - text: View pricing
+                        - img
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - heading [level=2]: Language Model
+                          - paragraph: Configure the LLMs that power your assistant
+                      - generic:
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic: Default Profile
+                              - generic:
+                                - combobox:
+                                  - generic:
+                                    - generic: Balanced
+                                  - img
+                            - generic:
+                              - button: Providers
+                              - button: Profiles
+                              - button: 13 Overrides
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - heading [level=2]: Web Search
+                          - paragraph: Configure how your assistant should search the web
+                        - generic:
+                          - generic:
+                            - radiogroup:
+                              - radio [checked]: Managed
+                              - radio: Your Own
+                      - generic:
+                        - generic:
+                          - generic:
+                            - paragraph: Web search is included with managed inference.
+                            - generic:
+                              - button [disabled]: Save
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - heading [level=2]: Email
+                          - paragraph: Configure how your assistant sends and receives email
+                        - generic:
+                          - generic:
+                            - radiogroup:
+                              - radio [checked]: Managed
+                              - radio: Your Own
+                      - generic:
+                        - generic:
+                          - generic:
+                            - status:
+                              - generic:
+                                - img
+                              - generic:
+                                - paragraph: Managed email is a Pro plan feature
+                                - generic:
+                                  - text: Upgrade to register a <your-subdomain>.local.vellum.me address managed by Vellum, or switch to
+                                  - strong: Your Own
+                                  - text: to bring your own provider.
+                              - generic:
+                                - button: Upgrade to Pro
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - heading [level=2]: Image Generation
+                          - paragraph: Configure which model your assistant uses to generate images
+                        - generic:
+                          - generic:
+                            - radiogroup:
+                              - radio [checked]: Managed
+                              - radio: Your Own
+                      - generic:
+                        - generic:
+                          - generic:
+                            - generic: Active Model
+                            - generic:
+                              - generic:
+                                - combobox:
+                                  - generic:
+                                    - generic: Nano Banana 2
+                                  - img
+                              - button: Save
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - heading [level=2]: Text-to-Speech
+                          - paragraph: High-quality voice synthesis for conversations and read-aloud. Requires an ElevenLabs API key.
+                      - generic:
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic: Provider
+                              - generic:
+                                - combobox:
+                                  - generic:
+                                    - generic: ElevenLabs
+                                  - img
+                            - generic:
+                              - generic: API Key
+                              - generic:
+                                - generic:
+                                  - textbox:
+                                    - /placeholder: sk_…
+                            - generic:
+                              - generic: Voice ID
+                              - generic:
+                                - generic:
+                                  - textbox:
+                                    - /placeholder: Enter a voice ID
+                            - generic:
+                              - img
+                              - generic:
+                                - generic: Sign in to ElevenLabs, go to your Profile, and copy your API key.
+                                - link:
+                                  - /url: https://elevenlabs.io/app/settings/api-keys
+                                  - text: Open ElevenLabs API Keys
+                                  - img
+                            - generic:
+                              - button: Test
+                              - generic:
+                                - button [disabled]: Save
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - heading [level=2]: Speech-to-Text
+                          - paragraph: Fast, accurate speech-to-text transcription. Uses the same API key as Deepgram text-to-speech.
+                      - generic:
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic: Provider
+                              - generic:
+                                - combobox:
+                                  - generic:
+                                    - generic: Deepgram
+                                  - img
+                            - generic:
+                              - generic: API Key
+                              - generic:
+                                - generic:
+                                  - textbox:
+                                    - /placeholder: Enter your Deepgram API key
+                            - generic:
+                              - img
+                              - generic:
+                                - generic: Sign in to Deepgram, navigate to your API Keys page, and create or copy an existing key. This is the same key used for text-to-speech.
+                                - link:
+                                  - /url: https://console.deepgram.com/
+                                  - text: Open Deepgram Console
+                                  - img
+                            - generic:
+                              - button [disabled]: Save
+  - dialog "Provider Connections" [ref=e284]:
+    - generic [ref=e285]:
+      - heading "Provider Connections" [level=2] [ref=e286]:
+        - generic [ref=e287]: Provider Connections
+      - paragraph [ref=e288]: Manage inference provider connections. Each connection binds a name to a provider and auth configuration.
+    - generic [ref=e290]:
+      - generic [ref=e292]:
+        - generic [ref=e293]:
+          - generic [ref=e294]:
+            - generic [ref=e295]: anthropic-managed
+            - generic "Managed by Platform — auth is locked, but you can rename or disable this connection." [ref=e296]: Platform
+          - paragraph [ref=e297]: anthropic-managed · Anthropic · Managed proxy
+        - generic [ref=e298]:
+          - generic "Active — toggle to disable" [ref=e299]:
+            - switch "Disable anthropic-managed" [checked] [ref=e301] [cursor=pointer]
+          - button "Edit" [ref=e303] [cursor=pointer]
+          - button "Delete anthropic-managed" [disabled] [ref=e304]:
+            - img [ref=e306]
+      - generic [ref=e310]:
+        - generic [ref=e311]:
+          - generic [ref=e312]:
+            - generic [ref=e313]: openai-managed
+            - generic "Managed by Platform — auth is locked, but you can rename or disable this connection." [ref=e314]: Platform
+          - paragraph [ref=e315]: openai-managed · OpenAI · Managed proxy
+        - generic [ref=e316]:
+          - generic "Active — toggle to disable" [ref=e317]:
+            - switch "Disable openai-managed" [checked] [ref=e319] [cursor=pointer]
+          - button "Edit" [ref=e321] [cursor=pointer]
+          - button "Delete openai-managed" [disabled] [ref=e322]:
+            - img [ref=e324]
+      - generic [ref=e328]:
+        - generic [ref=e329]:
+          - generic [ref=e330]:
+            - generic [ref=e331]: gemini-managed
+            - generic "Managed by Platform — auth is locked, but you can rename or disable this connection." [ref=e332]: Platform
+          - paragraph [ref=e333]: gemini-managed · Google Gemini · Managed proxy
+        - generic [ref=e334]:
+          - generic "Active — toggle to disable" [ref=e335]:
+            - switch "Disable gemini-managed" [checked] [ref=e337] [cursor=pointer]
+          - button "Edit" [ref=e339] [cursor=pointer]
+          - button "Delete gemini-managed" [disabled] [ref=e340]:
+            - img [ref=e342]
+      - generic [ref=e346]:
+        - generic [ref=e347]:
+          - generic [ref=e348]:
+            - generic [ref=e349]: Fireworks
+            - generic "Managed by Platform — auth is locked, but you can rename or disable this connection." [ref=e350]: Platform
+          - paragraph [ref=e351]: fireworks-managed · Fireworks · Managed proxy
+        - generic [ref=e352]:
+          - generic "Active — toggle to disable" [ref=e353]:
+            - switch "Disable Fireworks" [checked] [ref=e355] [cursor=pointer]
+          - button "Edit" [ref=e357] [cursor=pointer]
+          - button "Delete fireworks-managed" [disabled] [ref=e358]:
+            - img [ref=e360]
+      - generic [ref=e364]:
+        - generic [ref=e365]:
+          - generic [ref=e367]: anthropic
+          - paragraph [ref=e368]: anthropic · Anthropic · API key · credential/anthropic/api_key
+        - generic [ref=e369]:
+          - generic "Active — toggle to disable" [ref=e370]:
+            - switch "Disable anthropic" [checked] [ref=e372] [cursor=pointer]
+          - button "Edit" [ref=e374] [cursor=pointer]
+          - button "Delete anthropic" [ref=e375] [cursor=pointer]:
+            - img [ref=e377]
+      - generic [ref=e381]:
+        - generic [ref=e382]:
+          - generic [ref=e384]: chatgpt-subscription
+          - paragraph [ref=e385]: OpenAI · ChatGPT Subscription
+        - generic [ref=e386]:
+          - generic "Active — toggle to disable" [ref=e387]:
+            - switch "Disable chatgpt-subscription" [checked] [ref=e389] [cursor=pointer]
+          - button "Edit" [ref=e391] [cursor=pointer]
+          - button "Delete chatgpt-subscription" [ref=e392] [cursor=pointer]:
+            - img [ref=e394]
+    - generic [ref=e397]:
+      - button "+ New Connection" [active] [ref=e398] [cursor=pointer]
+      - button "Done" [ref=e399] [cursor=pointer]
+    - button "Close" [ref=e400] [cursor=pointer]:
+      - img [ref=e401]

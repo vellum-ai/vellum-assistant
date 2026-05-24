@@ -27,7 +27,6 @@ import {
   conversationGroupsQueryKey,
 } from "@/lib/sync/query-tags.js";
 import {
-  isConversationMessagesSyncTag,
   isConversationMetadataSyncTag,
   SYNC_TAGS,
   type SyncChangedEvent,
@@ -103,15 +102,23 @@ export function useAssistantSyncStream(
             scheduleConversationListRefetch();
             break;
           default:
-            // Per-conversation message/metadata tags also bump the
-            // sidebar list. The per-conversation message fetch itself
-            // is owned by ChatPage's stream — we only debounce a list
-            // refresh here so the sidebar stays current on every
-            // route.
-            if (
-              isConversationMetadataSyncTag(tag) ||
-              isConversationMessagesSyncTag(tag)
-            ) {
+            // Per-conversation metadata tags still bump the sidebar
+            // list — every metadata emit already pairs with
+            // `conversationsList`, but keep this here as a belt-and-
+            // suspenders signal for any future caller that emits
+            // metadata in isolation.
+            //
+            // `:messages` tags intentionally do NOT trigger a list
+            // refresh. Refetching the entire paginated conversation
+            // list on every message persist (`limit=50&offset=0..N`
+            // for both foreground and background variants — ~14
+            // requests per write for assistants with a few hundred
+            // conversations) was disproportionate work for fields
+            // that the UI can tolerate going slightly stale between
+            // explicit list fetches. Consumers that need fresh
+            // `lastMessageAt`/attention state at high frequency can
+            // bind to the per-conversation message stream directly.
+            if (isConversationMetadataSyncTag(tag)) {
               scheduleConversationListRefetch();
             }
             break;

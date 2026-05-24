@@ -38,7 +38,7 @@ const { resetFeatureFlagDefaultsCache, _setRegistryCandidateOverrides } =
 
 // ---------------------------------------------------------------------------
 // Test-local registry with a GA flag (defaultEnabled: true) for the
-// "ignores remote false for GA flags" test. Written to an isolated temp path
+// "normalizes remote false for GA flags" test. Written to an isolated temp path
 // so we never touch the committed registry file.
 // ---------------------------------------------------------------------------
 const testRegistryPath = join(protectedDir, "feature-flag-registry.json");
@@ -459,7 +459,7 @@ describe("RemoteFeatureFlagSync", () => {
     );
   });
 
-  test("ignores remote false for GA flags (defaultEnabled: true in registry)", async () => {
+  test("normalizes remote false for GA flags (defaultEnabled: true in registry)", async () => {
     // The platform sends false for all flags it knows about (blanket-deny).
     // GA flags (defaultEnabled: true in the registry) should not be disabled
     // by remote overrides — only local persisted overrides can do that.
@@ -468,7 +468,8 @@ describe("RemoteFeatureFlagSync", () => {
     fetchMock = mock(async () =>
       Response.json({
         flags: {
-          // GA flag (defaultEnabled: true) — remote false should be dropped
+          // GA flag (defaultEnabled: true) — remote false should be normalized
+          // to true so the missing-key fallback does not disable it.
           "test-ga-flag": false,
           // Gated flag (defaultEnabled: false) — remote false is kept
           "email-channel": false,
@@ -488,14 +489,83 @@ describe("RemoteFeatureFlagSync", () => {
 
     clearRemoteFeatureFlagStoreCache();
     const cached = readRemoteFeatureFlags();
-    // test-ga-flag (GA, remote false) should be absent
-    expect(cached["test-ga-flag"]).toBeUndefined();
+    // test-ga-flag (GA, remote false) should be normalized to true
+    expect(cached["test-ga-flag"]).toBe(true);
     // email-channel (gated, remote false) should be present
     expect(cached["email-channel"]).toBe(false);
     // test-ga-flag-true (unknown but true) should be present
     expect(cached["test-ga-flag-true"]).toBe(true);
     // unknown-flag (not in registry, remote false) should be present
     expect(cached["unknown-flag"]).toBe(false);
+  });
+
+  test("calls onChanged when remote flags change", async () => {
+    fetchMock = mock(async () =>
+      Response.json({
+        flags: { "new-flag": true },
+      }),
+    );
+
+    const onChanged = mock(() => {});
+    const sync = new RemoteFeatureFlagSync({
+      credentials: fakeCredentialCache(defaultCredentials()),
+      onChanged,
+    });
+    await sync.start();
+    sync.stop();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(onChanged).toHaveBeenCalledTimes(1);
+  });
+
+  test("does not call onChanged when remote flags have not changed", async () => {
+    // First sync to seed the file
+    fetchMock = mock(async () =>
+      Response.json({
+        flags: { "stable-flag": true },
+      }),
+    );
+
+    const onChanged1 = mock(() => {});
+    const sync1 = new RemoteFeatureFlagSync({
+      credentials: fakeCredentialCache(defaultCredentials()),
+      onChanged: onChanged1,
+    });
+    await sync1.start();
+    sync1.stop();
+    expect(onChanged1).toHaveBeenCalledTimes(1);
+
+    // Second sync with same data — onChanged should NOT fire
+    fetchMock = mock(async () =>
+      Response.json({
+        flags: { "stable-flag": true },
+      }),
+    );
+
+    const onChanged2 = mock(() => {});
+    const sync2 = new RemoteFeatureFlagSync({
+      credentials: fakeCredentialCache(defaultCredentials()),
+      onChanged: onChanged2,
+    });
+    await sync2.start();
+    sync2.stop();
+    expect(onChanged2).not.toHaveBeenCalled();
+  });
+
+  test("does not call onChanged on fetch failure", async () => {
+    fetchMock = mock(
+      async () => new Response("Internal Server Error", { status: 500 }),
+    );
+
+    const onChanged = mock(() => {});
+    const sync = new RemoteFeatureFlagSync({
+      credentials: fakeCredentialCache(defaultCredentials()),
+      onChanged,
+    });
+    await sync.start();
+    sync.stop();
+
+    expect(onChanged).not.toHaveBeenCalled();
   });
 
   test("trims whitespace from credential values", async () => {

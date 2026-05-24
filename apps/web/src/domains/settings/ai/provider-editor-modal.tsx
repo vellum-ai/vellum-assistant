@@ -26,6 +26,7 @@ import {
   updateConnection,
   writeSecret,
 } from "@/domains/settings/ai/provider-connections-client.js";
+import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder.js";
 import { toKebabCase } from "@/domains/settings/ai/slugify.js";
 import { providerSupportsPlatformAuth } from "@/assistant/llm-model-catalog.js";
 
@@ -43,12 +44,13 @@ const CONNECTION_PROVIDERS: ConnectionProvider[] = [
   "openai-compatible",
 ];
 
-type AuthType = "api_key" | "platform" | "none";
+type AuthType = "api_key" | "platform" | "none" | "oauth_subscription";
 
 const AUTH_TYPE_DISPLAY_NAMES: Record<AuthType, string> = {
   api_key: "API Key",
   platform: "Platform (managed proxy)",
   none: "None (local / no auth)",
+  oauth_subscription: "ChatGPT Subscription",
 };
 
 // NOTE: The set of providers that support `platform` auth is sourced from
@@ -152,9 +154,7 @@ export function ProviderEditorContent({
   // New state for inline API key editing
   const [apiKeyValue, setApiKeyValue] = useState("");
   const [isAdvancedExpanded, setIsAdvancedExpanded] = useState(false);
-  const [maskedCredentialValue, setMaskedCredentialValue] = useState<
-    string | null
-  >(null);
+  const [hasStoredCredential, setHasStoredCredential] = useState(false);
   const [isLoadingCredential, setIsLoadingCredential] = useState(false);
   const [availableCredentials, setAvailableCredentials] = useState<
     CredentialEntry[]
@@ -178,9 +178,6 @@ export function ProviderEditorContent({
     null,
   );
   const chatgptStateRef = useRef<string>("");
-
-  const chatgptFlagEnabled =
-    chatgptSubscriptionEnabled && provider === "openai" && effectiveMode === "create";
 
   async function handleChatgptSignIn() {
     setChatgptOAuthState("starting");
@@ -258,23 +255,28 @@ export function ProviderEditorContent({
     }
   }
 
-  const loadMaskedValue = useCallback(
+  const loadCredentialPresence = useCallback(
     async (credRef: string) => {
       const parts = credRef.split("/");
       if (parts.length < 3 || parts[0] !== "credential") {
-        setMaskedCredentialValue(null);
+        setHasStoredCredential(false);
         return;
       }
       const service = parts[1];
       const field = parts.slice(2).join("/");
       setIsLoadingCredential(true);
-      const result = await readSecret(
-        assistantId,
-        "credential",
-        `${service}:${field}`,
-      );
-      setMaskedCredentialValue(result.masked);
-      setIsLoadingCredential(false);
+      try {
+        const result = await readSecret(
+          assistantId,
+          "credential",
+          `${service}:${field}`,
+        );
+        setHasStoredCredential(result.found);
+      } catch {
+        setHasStoredCredential(false);
+      } finally {
+        setIsLoadingCredential(false);
+      }
     },
     [assistantId],
   );
@@ -318,7 +320,7 @@ export function ProviderEditorContent({
 
     // Reset credential UI state
     setApiKeyValue("");
-    setMaskedCredentialValue(null);
+    setHasStoredCredential(false);
     setIsLoadingCredential(false);
     setAvailableCredentials([]);
     setIsCreatingNewCredential(false);
@@ -334,13 +336,13 @@ export function ProviderEditorContent({
 
     // Load credential data for edit mode with api_key auth
     if (connection?.auth.type === "api_key") {
-      void loadMaskedValue(connection.auth.credential);
+      void loadCredentialPresence(connection.auth.credential);
       void loadAvailableCredentials();
     } else if (!connection) {
       // Create mode: pre-load available credentials for the Advanced section
       void loadAvailableCredentials();
     }
-  }, [connection, loadMaskedValue, loadAvailableCredentials]);
+  }, [connection, loadCredentialPresence, loadAvailableCredentials]);
 
   // Auto-derive key from label when not dirty and in create mode
   function handleLabelChange(newLabel: string) {
@@ -380,7 +382,7 @@ export function ProviderEditorContent({
       setCredential(`credential/${provider}/api_key`);
     }
     setApiKeyValue("");
-    setMaskedCredentialValue(null);
+    setHasStoredCredential(false);
     setBaseUrl("");
     setConnectionModels("");
     // New connection starts active by convention; user can toggle off
@@ -430,6 +432,7 @@ export function ProviderEditorContent({
             } else {
               await writeSecret(assistantId, "api_key", provider, trimmedKey);
             }
+            setHasStoredCredential(true);
           } catch {
             setError("Failed to save API key. Please try again.");
             return;
@@ -437,7 +440,7 @@ export function ProviderEditorContent({
             setIsSavingKey(false);
           }
         } else if (
-          maskedCredentialValue === null &&
+          !hasStoredCredential &&
           effectiveMode === "create"
         ) {
           setError("Enter an API key or select an existing credential.");
@@ -445,6 +448,13 @@ export function ProviderEditorContent({
         }
 
         auth = { type: "api_key", credential: effectiveCredential };
+      } else if (authType === "oauth_subscription") {
+        // OAuth subscription connections are created by the OAuth flow
+        // (handleChatgptUrlSubmit), not through the normal Save path.
+        // If the user somehow reaches here, prompt them to use the
+        // sign-in button instead.
+        setError("Use the \"Sign in with ChatGPT\" button to connect your subscription.");
+        return;
       } else if (authType === "none") {
         auth = { type: "none" };
       } else {
@@ -532,6 +542,10 @@ export function ProviderEditorContent({
     providerCredentials.length > 0 ||
     isCreatingNewCredential ||
     isEditingApiKeyConnection;
+  const apiKeyPlaceholder = secretPlaceholder(
+    "Enter your API key",
+    hasStoredCredential,
+  );
 
   return (
     <Modal.Content size="md">
@@ -612,6 +626,12 @@ export function ProviderEditorContent({
                       return "api_key";
                     }
                     if (
+                      prev === "oauth_subscription" &&
+                      newProvider !== "openai"
+                    ) {
+                      return "api_key";
+                    }
+                    if (
                       prev === "platform" &&
                       !providerSupportsPlatformAuth(newProvider)
                     ) {
@@ -621,7 +641,7 @@ export function ProviderEditorContent({
                   });
                   setCredential(`credential/${newProvider}/api_key`);
                 }
-                setMaskedCredentialValue(null);
+                setHasStoredCredential(false);
               }
             }}
             disabled={effectiveMode !== "create"}
@@ -691,6 +711,15 @@ export function ProviderEditorContent({
               } else {
                 types = ["api_key"];
               }
+              // Add oauth_subscription when ChatGPT flag is enabled for
+              // OpenAI in create mode.
+              if (
+                chatgptSubscriptionEnabled &&
+                provider === "openai" &&
+                effectiveMode === "create"
+              ) {
+                types.push("oauth_subscription");
+              }
               // Preserve the current auth type in edit mode so existing
               // connections display their saved value even if the type is
               // no longer offered for new connections.
@@ -708,7 +737,7 @@ export function ProviderEditorContent({
         {/* API Key + Advanced disclosure — only shown for api_key auth */}
         {authType === "api_key" && (
           <>
-            {/* Primary: masked API Key field */}
+            {/* Primary: saved-state API Key field */}
             <div className="space-y-1">
               <label className="block text-body-small-default text-[var(--content-tertiary)]">
                 API Key
@@ -731,19 +760,10 @@ export function ProviderEditorContent({
                     setApiKeyValue(e.target.value);
                     setError(null);
                   }}
-                  placeholder={maskedCredentialValue ?? "Enter your API key"}
+                  placeholder={apiKeyPlaceholder}
                   disabled={isAuthLocked}
                   fullWidth
                 />
-              )}
-              {maskedCredentialValue !== null && apiKeyValue === "" && (
-                <Typography
-                  variant="body-small-default"
-                  as="p"
-                  className="text-[var(--content-tertiary)]"
-                >
-                  A key is configured. Enter a new value to replace it.
-                </Typography>
               )}
             </div>
 
@@ -804,7 +824,7 @@ export function ProviderEditorContent({
                           value={credential}
                           onChange={(v) => {
                             setCredential(v);
-                            void loadMaskedValue(v);
+                            void loadCredentialPresence(v);
                           }}
                           disabled={isAuthLocked}
                           options={dropdownOptions}
@@ -837,7 +857,7 @@ export function ProviderEditorContent({
                             setCredential(ref);
                             setIsCreatingNewCredential(false);
                             setNewCredentialName("");
-                            void loadMaskedValue(ref);
+                            void loadCredentialPresence(ref);
                           }}
                         >
                           Use
@@ -872,23 +892,9 @@ export function ProviderEditorContent({
           </>
         )}
 
-        {/* Status — always editable, including for managed connections. */}
-        <Toggle
-          checked={status === "active"}
-          onChange={(v) => setStatus(v ? "active" : "disabled")}
-          label="Active"
-        />
-
-        {/* ChatGPT Subscription OAuth — manual copy-paste flow */}
-        {chatgptFlagEnabled ? (
+        {/* ChatGPT Subscription OAuth — shown when auth type is oauth_subscription */}
+        {authType === "oauth_subscription" && (
           <div className="space-y-3 rounded-lg border border-[var(--border-default)] p-4">
-            <Typography
-              variant="body-medium-default"
-              as="p"
-              className="text-[var(--content-default)]"
-            >
-              ChatGPT Subscription
-            </Typography>
             <Typography
               variant="body-small-default"
               as="p"
@@ -1013,7 +1019,14 @@ export function ProviderEditorContent({
               </Button>
             ) : null}
           </div>
-        ) : null}
+        )}
+
+        {/* Status — always editable, including for managed connections. */}
+        <Toggle
+          checked={status === "active"}
+          onChange={(v) => setStatus(v ? "active" : "disabled")}
+          label="Active"
+        />
 
         {error && (
           <Typography

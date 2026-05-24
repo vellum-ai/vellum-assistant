@@ -62,7 +62,7 @@ export const LOAD_OLDER_THRESHOLD_PX = 200;
 export interface UseTranscriptScrollArgs {
   transcriptRef: RefObject<TranscriptHandle | null>;
   items: TranscriptItem[];
-  conversationKey: string | null;
+  conversationId: string | null;
   hasMore: boolean;
   isLoadingOlder: boolean;
   onLoadOlder: () => void;
@@ -136,6 +136,24 @@ export function findAnchorIndex(
   return -1;
 }
 
+/** Walk the items list backward and return the key of the most recent
+ *  user-role message item — the `LatestTurnRow` "anchor". Returns `null`
+ *  when the transcript has no user message (e.g. assistant-only history,
+ *  pure trailers, or an empty list). Mirrors `partitionLatestTurn`'s
+ *  anchor lookup so the items-effect can detect a new submit without
+ *  doing the full partition itself. */
+export function findLatestUserAnchorKey(
+  items: readonly TranscriptItem[],
+): string | null {
+  for (let i = items.length - 1; i >= 0; i -= 1) {
+    const item = items[i];
+    if (item && item.kind === "message" && item.message.role === "user") {
+      return item.key;
+    }
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Items-change decision helper (pure, exported for unit tests).
 // ---------------------------------------------------------------------------
@@ -163,7 +181,7 @@ export type ItemsChangeAction =
 export interface ItemsChangeContext {
   items: readonly TranscriptItem[];
   previousItems: readonly TranscriptItem[];
-  conversationKey: string | null;
+  conversationId: string | null;
   savedAnchor: AnchorSnapshot | null;
 }
 
@@ -182,7 +200,7 @@ export function decideItemsChangeAction(
   ctx: ItemsChangeContext,
 ): ItemsChangeAction {
   // When there's no active conversation we have nothing to coordinate.
-  if (ctx.conversationKey === null) return { kind: "none" };
+  if (ctx.conversationId === null) return { kind: "none" };
 
   // Anchor-preserving prepend correction — the reader is scrolled up,
   // a page of older messages just landed, and we need to keep their
@@ -214,7 +232,7 @@ export function useTranscriptScroll(
   const {
     transcriptRef,
     items,
-    conversationKey,
+    conversationId,
     hasMore,
     isLoadingOlder,
     onLoadOlder,
@@ -229,7 +247,7 @@ export function useTranscriptScroll(
     items,
     hasMore,
     isLoadingOlder,
-    conversationKey,
+    conversationId,
     onLoadOlder,
     isPinnedToLatest,
     showScrollToLatest,
@@ -239,7 +257,7 @@ export function useTranscriptScroll(
       items,
       hasMore,
       isLoadingOlder,
-      conversationKey,
+      conversationId,
       onLoadOlder,
       isPinnedToLatest,
       showScrollToLatest,
@@ -248,7 +266,7 @@ export function useTranscriptScroll(
     items,
     hasMore,
     isLoadingOlder,
-    conversationKey,
+    conversationId,
     onLoadOlder,
     isPinnedToLatest,
     showScrollToLatest,
@@ -259,6 +277,13 @@ export function useTranscriptScroll(
 
   // ---------- Previous items ref (for change detection) -----------------
   const previousItemsRef = useRef<TranscriptItem[]>(items);
+
+  // ---------- Previous latest-user-anchor key (submit detection) --------
+  // Seeded from the initial items so the items-effect's first run on
+  // mount does not register a spurious "new anchor" event.
+  const previousAnchorKeyRef = useRef<string | null>(
+    findLatestUserAnchorKey(items),
+  );
 
   // ---------- Auto-pin window --------------------------------------------
   // While `shouldAutoPinRef` is true, every layout change of the scroll
@@ -319,8 +344,13 @@ export function useTranscriptScroll(
     });
     savedAnchorRef.current = null;
     previousItemsRef.current = [];
+    // Force the items-effect's submit-detection block to treat the next
+    // run as a "new anchor" event so a fresh conversation lands at the
+    // latest message even if it happens to share an anchor key with the
+    // outgoing one (e.g. seeded fixtures, restored drafts).
+    previousAnchorKeyRef.current = null;
     engageAutoPin();
-  }, [conversationKey, engageAutoPin]);
+  }, [conversationId, engageAutoPin]);
 
   // -----------------------------------------------------------------------
   // Items change handler — runs in useLayoutEffect so the anchor correction
@@ -333,7 +363,7 @@ export function useTranscriptScroll(
     const action = decideItemsChangeAction({
       items,
       previousItems: prev,
-      conversationKey,
+      conversationId,
       savedAnchor: savedAnchorRef.current,
     });
 
@@ -353,15 +383,42 @@ export function useTranscriptScroll(
         break;
     }
 
-    // First-pass pin during the auto-pin window. The content
-    // ResizeObserver will catch any subsequent height changes (async
-    // min-height settle, late image loads) and re-pin until the
-    // window expires.
-    if (
+    // New-submit detection. When the latest user-message anchor changes
+    // (typically because the user just submitted a new message and the
+    // optimistic add landed in `messages`), the new `LatestTurnRow`
+    // expands to viewport min-height. We need to re-pin to the bottom so
+    // the new anchor sits at the top of the viewport.
+    //
+    // Why this is a separate code path from the existing `shouldAutoPinRef`
+    // block below: the upstream `scrollToLatest()` call in
+    // `handleSubmit` engages the auto-pin window BEFORE the optimistic
+    // user message is added. By the time the items-effect runs, layout
+    // can still be in flux (composer textarea resetting to one-line
+    // height changes scroll-container clientHeight; new LatestTurnRow's
+    // `viewportMinHeight` state may lag behind the underlying
+    // ResizeObserver tick). Re-engaging the auto-pin window from
+    // here — gated specifically on "anchor changed" — extends the
+    // content-ResizeObserver re-pin window so it covers the post-submit
+    // layout-settling phase, and the unconditional `scrollToLatest`
+    // below guarantees we hit the latest bottom even if the upstream
+    // window already lapsed.
+    const newAnchorKey = findLatestUserAnchorKey(items);
+    const prevAnchorKey = previousAnchorKeyRef.current;
+    previousAnchorKeyRef.current = newAnchorKey;
+    const isNewAnchor =
+      newAnchorKey !== null && newAnchorKey !== prevAnchorKey;
+    if (isNewAnchor) {
+      engageAutoPin();
+      transcriptRef.current?.scrollToLatest({ behavior: "auto" });
+    } else if (
       shouldAutoPinRef.current &&
       items.length > 0 &&
       transcriptRef.current
     ) {
+      // First-pass pin during the auto-pin window. The content
+      // ResizeObserver will catch any subsequent height changes (async
+      // min-height settle, late image loads) and re-pin until the
+      // window expires.
       transcriptRef.current.scrollToLatest({ behavior: "auto" });
     }
 
@@ -369,8 +426,10 @@ export function useTranscriptScroll(
     // browser does NOT fire a scroll event when scrollHeight grows under
     // a stationary scrollTop (the streaming case), so without this the
     // "Go to Newest" pill would only surface once the user touched the
-    // scroll wheel. Reading via the latestRef avoids putting the
-    // hasMore/isLoadingOlder/conversationKey flags in the dep array.
+    // scroll wheel. Read flags from closure (not latestRef) so the
+    // prepend render sees the just-flipped isLoadingOlder=false instead
+    // of the previous render's snapshot; latestRef is refreshed by a
+    // later useEffect that hasn't fired yet at this point.
     const el = transcriptRef.current?.getScrollElement();
     if (el) {
       const classification = classifyScrollPosition(
@@ -380,22 +439,45 @@ export function useTranscriptScroll(
           clientHeight: el.clientHeight,
         },
         {
-          hasMore: latestRef.current.hasMore,
-          isLoadingOlder: latestRef.current.isLoadingOlder,
-          hasConversation: latestRef.current.conversationKey !== null,
+          hasMore,
+          isLoadingOlder,
+          hasConversation: conversationId !== null,
         },
       );
-      if (classification.isPinned !== latestRef.current.isPinnedToLatest) {
+      if (classification.isPinned !== isPinnedToLatest) {
         setIsPinnedToLatest(classification.isPinned);
       }
-      if (
-        classification.showScrollToLatest !==
-        latestRef.current.showScrollToLatest
-      ) {
+      if (classification.showScrollToLatest !== showScrollToLatest) {
         setShowScrollToLatest(classification.showScrollToLatest);
       }
+
+      // Underfilled viewport: no scroll event can fire, so kick load-older
+      // from here. Skip the anchor save during auto-pin (resize observer re-pins).
+      if (classification.shouldLoadOlder) {
+        if (!shouldAutoPinRef.current) {
+          const firstItem = items[0];
+          if (firstItem) {
+            savedAnchorRef.current = {
+              key: firstItem.key,
+              scrollTop: el.scrollTop,
+              scrollHeight: el.scrollHeight,
+            };
+          }
+        }
+        onLoadOlder();
+      }
     }
-  }, [items, conversationKey, transcriptRef]);
+  }, [
+    items,
+    conversationId,
+    transcriptRef,
+    hasMore,
+    isLoadingOlder,
+    onLoadOlder,
+    isPinnedToLatest,
+    showScrollToLatest,
+    engageAutoPin,
+  ]);
 
   // -----------------------------------------------------------------------
   // Container resize re-pin. When the scroll container resizes (e.g. the
@@ -520,7 +602,7 @@ export function useTranscriptScroll(
     const classification = classifyScrollPosition(metrics, {
       hasMore: latest.hasMore,
       isLoadingOlder: latest.isLoadingOlder,
-      hasConversation: latest.conversationKey !== null,
+      hasConversation: latest.conversationId !== null,
     });
 
     if (classification.isPinned !== latest.isPinnedToLatest) {

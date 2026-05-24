@@ -15,8 +15,8 @@ import {
   type Conversation,
 } from "@/domains/chat/api/conversations.js";
 import {
-  loadLastViewedConversationKey,
-  saveLastViewedConversationKey,
+  loadLastViewedConversationId,
+  saveLastViewedConversationId,
 } from "@/domains/chat/utils/last-viewed-conversation-storage.js";
 import {
   formatLatency,
@@ -62,28 +62,28 @@ export function LogsTab({ assistantId }: LogsTabProps) {
   const activeConversationId = useMemo(() => {
     if (selectedConversationId) {
       const match = conversations.find(
-        (c) => c.conversationKey === selectedConversationId,
+        (c) => c.conversationId === selectedConversationId,
       );
       if (match) {
-        return match.conversationKey;
+        return match.conversationId;
       }
     }
-    const lastViewed = loadLastViewedConversationKey(assistantId);
+    const lastViewed = loadLastViewedConversationId(assistantId);
     if (lastViewed) {
       const match = conversations.find(
-        (c) => c.conversationKey === lastViewed,
+        (c) => c.conversationId === lastViewed,
       );
       if (match) {
-        return match.conversationKey;
+        return match.conversationId;
       }
     }
-    return conversations[0]?.conversationKey ?? "";
+    return conversations[0]?.conversationId ?? "";
   }, [assistantId, conversations, selectedConversationId]);
 
   const handleSelectConversation = useCallback(
-    (conversationKey: string) => {
-      setSelectedConversationId(conversationKey);
-      saveLastViewedConversationKey(assistantId, conversationKey);
+    (conversationId: string) => {
+      setSelectedConversationId(conversationId);
+      saveLastViewedConversationId(assistantId, conversationId);
     },
     [assistantId],
   );
@@ -197,7 +197,7 @@ function ConversationPicker({
         value={selectedConversationId}
         onChange={onSelect}
         options={conversations.map((conversation) => ({
-          value: conversation.conversationKey,
+          value: conversation.conversationId,
           label: conversationLabel(conversation),
         }))}
       />
@@ -210,7 +210,7 @@ function conversationLabel(conversation: Conversation): string {
   if (title) {
     return title;
   }
-  const shortId = conversation.conversationKey.slice(0, 8);
+  const shortId = conversation.conversationId.slice(0, 8);
   return `Conversation ${shortId}`;
 }
 

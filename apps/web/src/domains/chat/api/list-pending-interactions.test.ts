@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
-// Tests for listConversationKeysWithPendingInteractions — the bulk helper
+// Tests for listConversationIdsWithPendingInteractions — the bulk helper
 // used by use-attention-tracking to avoid one HTTP request per conversation.
 // ---------------------------------------------------------------------------
 
@@ -29,7 +29,7 @@ afterEach(() => {
   globalThis.document = originalDocument;
 });
 
-describe("listConversationKeysWithPendingInteractions", () => {
+describe("listConversationIdsWithPendingInteractions", () => {
   test("returns a set of conversation keys when interactions are pending", async () => {
     mockFetch(200, {
       interactions: [
@@ -39,10 +39,10 @@ describe("listConversationKeysWithPendingInteractions", () => {
         { requestId: "req-3", conversationId: "conv-A", kind: "confirmation" },
       ],
     });
-    const { listConversationKeysWithPendingInteractions } = await import(
+    const { listConversationIdsWithPendingInteractions } = await import(
       "@/domains/chat/api/interactions.js"
     );
-    const keys = await listConversationKeysWithPendingInteractions("asst-1");
+    const keys = await listConversationIdsWithPendingInteractions("asst-1");
     expect(keys.size).toBe(2);
     expect(keys.has("conv-A")).toBe(true);
     expect(keys.has("conv-B")).toBe(true);
@@ -50,19 +50,19 @@ describe("listConversationKeysWithPendingInteractions", () => {
 
   test("returns empty set when no interactions are pending", async () => {
     mockFetch(200, { interactions: [] });
-    const { listConversationKeysWithPendingInteractions } = await import(
+    const { listConversationIdsWithPendingInteractions } = await import(
       "@/domains/chat/api/interactions.js"
     );
-    const keys = await listConversationKeysWithPendingInteractions("asst-1");
+    const keys = await listConversationIdsWithPendingInteractions("asst-1");
     expect(keys.size).toBe(0);
   });
 
   test("returns empty set when interactions field is missing", async () => {
     mockFetch(200, {});
-    const { listConversationKeysWithPendingInteractions } = await import(
+    const { listConversationIdsWithPendingInteractions } = await import(
       "@/domains/chat/api/interactions.js"
     );
-    const keys = await listConversationKeysWithPendingInteractions("asst-1");
+    const keys = await listConversationIdsWithPendingInteractions("asst-1");
     expect(keys.size).toBe(0);
   });
 
@@ -74,10 +74,10 @@ describe("listConversationKeysWithPendingInteractions", () => {
       ),
     ) as unknown as typeof fetch;
     globalThis.fetch = fetchSpy;
-    const { listConversationKeysWithPendingInteractions } = await import(
+    const { listConversationIdsWithPendingInteractions } = await import(
       "@/domains/chat/api/interactions.js"
     );
-    await listConversationKeysWithPendingInteractions("asst-1");
+    await listConversationIdsWithPendingInteractions("asst-1");
     expect((fetchSpy as unknown as { mock: { calls: unknown[] } }).mock.calls)
       .toHaveLength(1);
   });
@@ -93,10 +93,10 @@ describe("listConversationKeysWithPendingInteractions", () => {
         { status: 200, headers: { "content-type": "application/json" } },
       );
     }) as unknown as typeof fetch;
-    const { listConversationKeysWithPendingInteractions } = await import(
+    const { listConversationIdsWithPendingInteractions } = await import(
       "@/domains/chat/api/interactions.js"
     );
-    await listConversationKeysWithPendingInteractions("asst-1");
+    await listConversationIdsWithPendingInteractions("asst-1");
     expect(capturedUrl).toBeTruthy();
     expect(capturedUrl!).toContain("pending-interactions");
     expect(capturedUrl!).not.toContain("conversationKey=");
@@ -110,48 +110,48 @@ describe("listConversationKeysWithPendingInteractions", () => {
         { requestId: "req-3", conversationId: "conv-real", kind: "secret" },
       ],
     });
-    const { listConversationKeysWithPendingInteractions } = await import(
+    const { listConversationIdsWithPendingInteractions } = await import(
       "@/domains/chat/api/interactions.js"
     );
-    const keys = await listConversationKeysWithPendingInteractions("asst-1");
+    const keys = await listConversationIdsWithPendingInteractions("asst-1");
     expect(keys.size).toBe(1);
     expect(keys.has("conv-real")).toBe(true);
   });
 
   test("returns empty set on 4xx response (silent failure)", async () => {
     mockFetch(404, { detail: "not found" });
-    const { listConversationKeysWithPendingInteractions } = await import(
+    const { listConversationIdsWithPendingInteractions } = await import(
       "@/domains/chat/api/interactions.js"
     );
-    const keys = await listConversationKeysWithPendingInteractions("asst-1");
+    const keys = await listConversationIdsWithPendingInteractions("asst-1");
     expect(keys.size).toBe(0);
   });
 
   test("throws on 5xx response so callers can decide whether to retry", async () => {
     mockFetch(500, { detail: "internal error" });
-    const { listConversationKeysWithPendingInteractions } = await import(
+    const { listConversationIdsWithPendingInteractions } = await import(
       "@/domains/chat/api/interactions.js"
     );
     await expect(
-      listConversationKeysWithPendingInteractions("asst-1"),
+      listConversationIdsWithPendingInteractions("asst-1"),
     ).rejects.toThrow(/failed: 500/);
   });
 
   test("returns empty set when response body is not an object", async () => {
     mockFetch(200, "not-an-object");
-    const { listConversationKeysWithPendingInteractions } = await import(
+    const { listConversationIdsWithPendingInteractions } = await import(
       "@/domains/chat/api/interactions.js"
     );
-    const keys = await listConversationKeysWithPendingInteractions("asst-1");
+    const keys = await listConversationIdsWithPendingInteractions("asst-1");
     expect(keys.size).toBe(0);
   });
 
   test("returns empty set when interactions is not an array", async () => {
     mockFetch(200, { interactions: "broken" });
-    const { listConversationKeysWithPendingInteractions } = await import(
+    const { listConversationIdsWithPendingInteractions } = await import(
       "@/domains/chat/api/interactions.js"
     );
-    const keys = await listConversationKeysWithPendingInteractions("asst-1");
+    const keys = await listConversationIdsWithPendingInteractions("asst-1");
     expect(keys.size).toBe(0);
   });
 });

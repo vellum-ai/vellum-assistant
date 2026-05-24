@@ -102,7 +102,6 @@ mock.module("@anthropic-ai/sdk", () => ({
 }));
 
 // Import after mocking
-import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../prompts/system-prompt.js";
 import {
   AnthropicProvider,
   isPlaceholderSentinelText,
@@ -228,28 +227,8 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     expect(assistant?.content).toEqual([{ type: "text", text: "I can help." }]);
   });
 
-  test("splits system prompt into two cache blocks on boundary marker", async () => {
-    const staticBlock = "You are a helpful assistant.";
-    const dynamicBlock = "User workspace files here.";
-    const prompt = staticBlock + SYSTEM_PROMPT_CACHE_BOUNDARY + dynamicBlock;
-
-    await provider.sendMessage([userMsg("Hi")], undefined, prompt);
-
-    const system = lastStreamParams!.system as Array<{
-      type: string;
-      text: string;
-      cache_control?: { type: string; ttl?: string };
-    }>;
-    expect(system).toHaveLength(2);
-    expect(system[0].text).toBe(staticBlock);
-    expect(system[0].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
-    expect(system[1].text).toBe(dynamicBlock);
-    expect(system[1].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
-  });
-
-  test("omits empty dynamic system block after cache boundary", async () => {
-    const staticBlock = "You are a helpful assistant.";
-    const prompt = staticBlock + SYSTEM_PROMPT_CACHE_BOUNDARY;
+  test("renders the system prompt as a single 1h-cached block", async () => {
+    const prompt = "You are a helpful assistant.";
 
     await provider.sendMessage([userMsg("Hi")], undefined, prompt);
 
@@ -259,16 +238,14 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       cache_control?: { type: string; ttl?: string };
     }>;
     expect(system).toHaveLength(1);
-    expect(system[0].text).toBe(staticBlock);
+    expect(system[0].text).toBe(prompt);
     expect(system[0].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
   });
 
-  test("drops static system block cache_control when total would exceed 4", async () => {
-    const staticBlock = "You are a helpful assistant.";
-    const dynamicBlock = "User workspace files here.";
-    const prompt = staticBlock + SYSTEM_PROMPT_CACHE_BOUNDARY + dynamicBlock;
-
-    // Boundary (2 system) + tools (1) + turn-start (1) + tail (1) = 5 → must cap at 4
+  test("applies the standard 4-breakpoint cache layout in a tool-use loop", async () => {
+    // system(1) + tools(1) + turn-start(1) + tail(1) = 4, the Anthropic
+    // per-request cap.  All four breakpoints should be present.
+    const prompt = "You are a helpful assistant.";
     const messages: Message[] = [
       userMsg("Do something"),
       toolUseMsg("tu_1", "bash"),
@@ -281,13 +258,9 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       text: string;
       cache_control?: { type: string; ttl?: string };
     }>;
-    expect(system).toHaveLength(2);
-    // Static block's cache_control dropped (small, cheap to re-read)
-    expect(system[0].cache_control).toBeUndefined();
-    // Dynamic block keeps its cache_control
-    expect(system[1].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+    expect(system).toHaveLength(1);
+    expect(system[0].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
 
-    // Tools breakpoint still present
     const tools = lastStreamParams!.tools as Array<{
       cache_control?: { type: string; ttl?: string };
     }>;
@@ -296,7 +269,6 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       ttl: "1h",
     });
 
-    // Turn-start + tail breakpoints still present
     const sent = lastStreamParams!.messages as Array<{
       role: string;
       content: Array<{
@@ -430,6 +402,31 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     const lastUser = userMessages[userMessages.length - 1];
     const lastBlock = lastUser.content[lastUser.content.length - 1];
     expect(lastBlock.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+  });
+
+  test("disableTurnStartCache suppresses the 1h breakpoint on the turn-starting user message", async () => {
+    // One-shot callers (e.g. the memory router) send a single user message
+    // per call with content that changes every time. Caching the turn-start
+    // block would create unused entries — `disableTurnStartCache: true`
+    // opts out.
+    await provider.sendMessage(
+      [userMsg("Pick relevant pages")],
+      undefined,
+      undefined,
+      {
+        config: { disableTurnStartCache: true },
+      },
+    );
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{
+        type: string;
+        cache_control?: { type: string; ttl?: string };
+      }>;
+    }>;
+    const lastBlock = sent[0].content[sent[0].content.length - 1];
+    expect(lastBlock.cache_control).toBeUndefined();
   });
 
   test("previous-turn anchor is NOT applied during a tool-use loop", async () => {

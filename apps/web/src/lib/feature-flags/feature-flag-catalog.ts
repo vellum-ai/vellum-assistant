@@ -59,17 +59,17 @@ for (const flag of flags) {
   STORE_KEY_TO_FLAG.set(kebabToStoreKey(flag.key), flag);
 }
 
-const STORE_KEY_TO_LD_KEY = new Map<string, string>();
+const STORE_KEY_TO_FLAG_KEY = new Map<string, string>();
 for (const flag of flags) {
-  STORE_KEY_TO_LD_KEY.set(kebabToStoreKey(flag.key), flag.key);
+  STORE_KEY_TO_FLAG_KEY.set(kebabToStoreKey(flag.key), flag.key);
 }
 
-export function ldKeyToStoreKey(ldKey: string): string {
-  return kebabToStoreKey(ldKey);
+export function flagKeyToStoreKey(flagKey: string): string {
+  return kebabToStoreKey(flagKey);
 }
 
-export function storeKeyToLdKey(storeKey: string): string | undefined {
-  return STORE_KEY_TO_LD_KEY.get(storeKey);
+export function storeKeyToFlagKey(storeKey: string): string | undefined {
+  return STORE_KEY_TO_FLAG_KEY.get(storeKey);
 }
 
 export function getFlagDefinition(storeKey: string): FlagDefinition | undefined {

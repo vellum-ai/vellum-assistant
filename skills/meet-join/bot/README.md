@@ -178,7 +178,7 @@ the meet subsystem, run this manual verification loop.
   - **Local override** — set `meet` to `true` in
     `~/.vellum/workspace/config.json` (or `$VELLUM_WORKSPACE_DIR/config.json`
     in Docker mode) under the assistant feature flags block, OR
-  - **LaunchDarkly** — flip the `meet` flag on for your platform user.
+  - **the feature flag provider** — flip the `meet` flag on for your platform user.
 - A throwaway Google Meet URL with at least one other human participant so
   you can watch the bot behavior live.
 

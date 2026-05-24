@@ -8,6 +8,7 @@ import type { Profile } from "../profile";
 import type {
   CommandResult,
   CommandRunner,
+  RunOptions,
   SpawnedProcess,
 } from "../runtime/command-runner";
 
@@ -40,7 +41,7 @@ class FakeProcess implements SpawnedProcess {
 interface RunCall {
   command: string;
   args: string[];
-  opts?: { env?: Record<string, string>; cwd?: string };
+  opts?: RunOptions;
 }
 
 class FakeRunner implements CommandRunner {
@@ -51,7 +52,7 @@ class FakeRunner implements CommandRunner {
   async run(
     command: string,
     args: string[],
-    opts?: { env?: Record<string, string>; cwd?: string },
+    opts?: RunOptions,
   ): Promise<CommandResult> {
     this.runs.push({ command, args, opts });
     const script = args.at(-1) ?? "";
@@ -104,7 +105,17 @@ describe("VellumAgent", () => {
         "--name",
         "eval-run-1",
       ],
-      opts: { env: {} },
+      // logPath routes hatch's stdout/stderr into the per-run
+      // subprocess-hatch.log file so the report UI can render it
+      // even when the run failed before assistant_complete fired.
+      // logStep tags every line in that file with `[hatch]` so the
+      // inline UI renderer can pick out which subprocess each line
+      // belongs to (matches the format the test runner log uses).
+      opts: {
+        env: {},
+        logPath: expect.stringMatching(/\/subprocess-hatch\.log$/),
+        logStep: "hatch",
+      },
     });
     expect(runner.runs[1]).toEqual({
       command: "docker",
@@ -128,7 +139,7 @@ describe("VellumAgent", () => {
     expect(runner.runs[3].args).toContain("--cap-add");
     expect(runner.runs[3].args).toContain("NET_ADMIN");
     expect(runner.runs[3].args).toContain("evals.vellum.ai/egress-recording=1");
-    // Setup command
+    // Setup command — also gets a per-step subprocess-setup-N.log
     expect(runner.runs[4]).toEqual({
       command: "vellum",
       args: [
@@ -139,6 +150,10 @@ describe("VellumAgent", () => {
         "-lc",
         "assistant plugins install simple-memory",
       ],
+      opts: {
+        logPath: expect.stringMatching(/\/subprocess-setup-1\.log$/),
+        logStep: "setup-1",
+      },
     });
     expect(runner.spawns).toEqual([]);
 
@@ -287,7 +302,7 @@ describe("VellumAgent", () => {
       override async run(
         command: string,
         args: string[],
-        opts?: { env?: Record<string, string>; cwd?: string },
+        opts?: RunOptions,
       ): Promise<CommandResult> {
         this.runs.push({ command, args, opts });
         if (args[0] === "hatch") {

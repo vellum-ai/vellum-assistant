@@ -99,7 +99,6 @@ mock.module("../../prompts/persona-resolver.js", () => ({
 }));
 mock.module("../../prompts/system-prompt.js", () => ({
   isTemplateContent: () => false,
-  SYSTEM_PROMPT_CACHE_BOUNDARY: "<<CACHE_BOUNDARY>>",
   buildCoreIdentityContext: () => "",
   buildSystemPrompt: () => "",
   ensurePromptFiles: () => {},

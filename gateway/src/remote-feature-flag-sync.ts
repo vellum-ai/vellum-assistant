@@ -42,6 +42,8 @@ export type RemoteFeatureFlagSyncConfig = {
   credentials: CredentialCache;
   /** Override the initial poll interval (ms) — useful for testing. Defaults to 10 000. */
   initialPollIntervalMs?: number;
+  /** Called when remote flags change on disk after a successful fetch. */
+  onChanged?: () => void;
 };
 
 /**
@@ -66,12 +68,14 @@ export class RemoteFeatureFlagSync {
   private currentIntervalMs: number;
   private readonly maxIntervalMs: number;
   private readonly credentials: CredentialCache;
+  private readonly onChanged?: () => void;
 
   constructor(config: RemoteFeatureFlagSyncConfig) {
     this.credentials = config.credentials;
     this.currentIntervalMs =
       config.initialPollIntervalMs ?? INITIAL_POLL_INTERVAL_MS;
     this.maxIntervalMs = getMaxPollIntervalMs();
+    this.onChanged = config.onChanged;
   }
 
   async start(): Promise<void> {
@@ -289,6 +293,7 @@ export class RemoteFeatureFlagSync {
     const meta = { count: Object.keys(result.values).length };
     if (changed) {
       log.info(meta, msg);
+      this.onChanged?.();
     } else {
       log.debug(meta, msg);
     }
@@ -367,8 +372,9 @@ export class RemoteFeatureFlagSync {
     // Filter to boolean values only (defensive), and prevent the platform
     // from disabling flags that are already GA (defaultEnabled: true in the
     // registry). The platform uses a blanket-deny posture, sending false for
-    // every flag it knows about. Without this filter, shipped features get
-    // silently turned off for all users.
+    // every flag it knows about. Store GA false values as true rather than
+    // omitting them: once a remote snapshot exists, missing keys fail closed
+    // to protect flags that are declared locally but unregistered remotely.
     const registry = loadFeatureFlagDefaults();
     const values: Record<string, boolean> = {};
     for (const [key, value] of Object.entries(body.flags)) {
@@ -376,8 +382,9 @@ export class RemoteFeatureFlagSync {
       if (!value && registry[key]?.defaultEnabled) {
         log.debug(
           { key },
-          "Ignoring remote false for GA flag (defaultEnabled: true)",
+          "Normalizing remote false for GA flag to true (defaultEnabled: true)",
         );
+        values[key] = true;
         continue;
       }
       values[key] = value;

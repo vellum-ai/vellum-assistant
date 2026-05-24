@@ -1,10 +1,9 @@
-import { Bot, Loader2, MoreVertical, Pencil, Plus, Search, User, UserPlus } from "lucide-react";
+import { Loader2, MoreVertical, Pencil, Plus, Search, UserPlus } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@vellum/design-library/components/button";
 import { Card } from "@vellum/design-library/components/card";
 import { Input } from "@vellum/design-library/components/input";
-import { Menu } from "@vellum/design-library/components/menu";
 import { PanelItem } from "@vellum/design-library/components/panel-item";
 
 import { ContactTypeBadge } from "@/domains/contacts/components/contact-type-badge.js";
@@ -22,8 +21,6 @@ interface ContactsListProps {
   onSelect: (selection: ContactSelection) => void;
   onAddContact: () => void;
   addingContact?: boolean;
-  onAddAssistant?: () => void;
-  a2aEnabled?: boolean;
 }
 
 export function ContactsList({
@@ -35,8 +32,6 @@ export function ContactsList({
   onSelect,
   onAddContact,
   addingContact = false,
-  onAddAssistant,
-  a2aEnabled = false,
 }: ContactsListProps) {
   const [search, setSearch] = useState("");
   const filtered = search.trim()
@@ -55,52 +50,15 @@ export function ContactsList({
           >
             Entries
           </h2>
-          {a2aEnabled ? (
-            addingContact ? (
-              <Button
-                variant="ghost"
-                iconOnly={<Loader2 className="animate-spin" aria-hidden />}
-                disabled
-                aria-label="Adding contact"
-                tintColor="var(--content-secondary)"
-              />
-            ) : (
-              <Menu.Root>
-                <Menu.Trigger asChild>
-                  <Button
-                    variant="ghost"
-                    iconOnly={<Plus aria-hidden />}
-                    aria-label="Add contact"
-                    tintColor="var(--content-secondary)"
-                  />
-                </Menu.Trigger>
-                <Menu.Content align="end">
-                  <Menu.Item leftIcon={<User className="h-3.5 w-3.5" />} onSelect={onAddContact}>
-                    Human
-                  </Menu.Item>
-                  <Menu.Item leftIcon={<Bot className="h-3.5 w-3.5" />} onSelect={onAddAssistant}>
-                    Assistant
-                  </Menu.Item>
-                </Menu.Content>
-              </Menu.Root>
-            )
-          ) : (
-            <Button
-              type="button"
-              variant="ghost"
-              iconOnly={
-                addingContact ? (
-                  <Loader2 className="animate-spin" aria-hidden />
-                ) : (
-                  <Plus aria-hidden />
-                )
-              }
-              onClick={onAddContact}
-              disabled={addingContact}
-              aria-label="Add contact"
-              tintColor="var(--content-secondary)"
-            />
-          )}
+          <Button
+            type="button"
+            variant="ghost"
+            iconOnly={addingContact ? <Loader2 className="animate-spin" aria-hidden /> : <Plus aria-hidden />}
+            onClick={onAddContact}
+            disabled={addingContact}
+            aria-label="Add contact"
+            tintColor="var(--content-secondary)"
+          />
         </div>
 
         <div className="flex flex-col gap-1">
@@ -165,53 +123,14 @@ export function ContactsList({
               </p>
             ) : null}
           </div>
-        ) : loading ? null : a2aEnabled ? (
-          addingContact ? (
-            <Button
-              type="button"
-              variant="ghost"
-              disabled
-              tintColor="var(--primary-base)"
-              leftIcon={<Loader2 className="animate-spin" aria-hidden />}
-            >
-              Add Contact
-            </Button>
-          ) : (
-            <Menu.Root>
-              <Menu.Trigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  tintColor="var(--primary-base)"
-                  leftIcon={<UserPlus aria-hidden />}
-                >
-                  Add Contact
-                </Button>
-              </Menu.Trigger>
-              <Menu.Content align="end">
-                <Menu.Item leftIcon={<User className="h-3.5 w-3.5" />} onSelect={onAddContact}>
-                  Human
-                </Menu.Item>
-                <Menu.Item leftIcon={<Bot className="h-3.5 w-3.5" />} onSelect={onAddAssistant}>
-                  Assistant
-                </Menu.Item>
-              </Menu.Content>
-            </Menu.Root>
-          )
-        ) : (
+        ) : loading ? null : (
           <Button
             type="button"
             variant="ghost"
             onClick={onAddContact}
             disabled={addingContact}
             tintColor="var(--primary-base)"
-            leftIcon={
-              addingContact ? (
-                <Loader2 className="animate-spin" aria-hidden />
-              ) : (
-                <UserPlus aria-hidden />
-              )
-            }
+            leftIcon={addingContact ? <Loader2 className="animate-spin" aria-hidden /> : <UserPlus aria-hidden />}
           >
             Add Contact
           </Button>

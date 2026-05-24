@@ -1,7 +1,6 @@
-import { Heart, Loader2, Monitor, Moon, RefreshCw, Sun } from "lucide-react";
+import { Heart, Monitor, Moon, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { Button } from "@vellum/design-library/components/button";
 import { SegmentControl } from "@vellum/design-library/components/segment-control";
 import { AssistantPicker } from "@/domains/settings/components/assistant-picker.js";
 import { AssistantSleepPolicy } from "@/domains/settings/components/assistant-sleep-policy.js";
@@ -10,6 +9,7 @@ import { ResizeCard } from "@/domains/settings/components/resize-card.js";
 import { DeleteAccountSection } from "@/domains/settings/components/delete-account-section.js";
 import { IOSAppCard } from "@/domains/settings/components/ios-app-card.js";
 import { MediaEmbedsCard } from "@/domains/settings/components/media-embeds-card.js";
+import { PreviewReleaseChannel } from "@/domains/settings/components/preview-release-channel.js";
 import { RetireAssistant } from "@/domains/settings/components/retire-assistant.js";
 import { SettingsCard } from "@/domains/settings/components/settings-card.js";
 import { TimezonePicker } from "@/domains/settings/components/timezone-picker.js";
@@ -17,7 +17,6 @@ import { ProfileCard } from "@/domains/settings/components/profile-card.js";
 import { AssistantOutOfStorageBanner } from "@/domains/settings/components/assistant-out-of-storage-banner.js";
 import {
   AssistantStatusPanel,
-  SystemResourcesPanel,
   useAssistantWithHealthz,
 } from "@/domains/settings/components/assistant-status-panel.js";
 
@@ -145,10 +144,8 @@ export function GeneralPage() {
 
   const platformAssistant = assistant?.is_local ? null : assistant;
 
-  const showSystemResources = platformAssistant != null;
-
   useEffect(() => {
-    if (!showSystemResources || window.location.hash !== "#storage-resources") {
+    if (!assistant || window.location.hash !== "#storage-resources") {
       return;
     }
 
@@ -157,7 +154,7 @@ export function GeneralPage() {
         .getElementById("storage-resources")
         ?.scrollIntoView({ block: "start" });
     });
-  }, [showSystemResources]);
+  }, [assistant]);
 
   return (
     <div className="max-w-[940px] space-y-4">
@@ -173,42 +170,13 @@ export function GeneralPage() {
         />
       </SettingsCard>
 
-      {isLoggedIn && <ProfileCard />}
+      {isLoggedIn && <ProfileCard assistant={platformAssistant} />}
 
-      {showSystemResources && (
-        <SettingsCard
-          id="storage-resources"
-          title="Storage & Resources"
-          compactAccessory
-          accessory={
-            <Button
-              variant="ghost"
-              size="compact"
-              iconOnly={
-                healthzLoading ? (
-                  <Loader2 className="animate-spin" />
-                ) : (
-                  <RefreshCw />
-                )
-              }
-              tooltip="Refresh resource metrics"
-              aria-label="Refresh resource metrics"
-              disabled={assistantLoading || healthzLoading}
-              onClick={() => void refetch()}
-            />
-          }
-        >
-          <SystemResourcesPanel
-            healthz={healthz}
-            healthzLoading={healthzLoading}
-          />
-        </SettingsCard>
-      )}
-
-      {platformAssistant && (
+      {assistant && (
         <ResizeCard
-          assistant={platformAssistant}
+          assistant={assistant}
           healthz={healthz}
+          healthzLoading={healthzLoading}
           refetch={refetch}
         />
       )}
@@ -224,7 +192,14 @@ export function GeneralPage() {
               platformAssistant.current_release_version ??
               null
             }
+            releaseChannel={platformAssistant.release_channel}
             onUpgradeComplete={() => {
+              void refetch();
+            }}
+          />
+          <PreviewReleaseChannel
+            assistantId={platformAssistant.id}
+            onComplete={() => {
               void refetch();
             }}
           />

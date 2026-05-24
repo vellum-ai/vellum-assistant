@@ -79,7 +79,6 @@ export function GenerateInviteLinkDialog({
       ? buildA2AInviteLink({
           senderAssistantId: assistantId,
           token: mutation.data.token,
-          senderGatewayUrl: mutation.data.senderGatewayUrl,
         })
       : "";
 

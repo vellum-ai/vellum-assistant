@@ -29,6 +29,7 @@ import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { fetchAssistantIdentity } from "@/assistant/identity.js";
+import { consumePendingAssistantName } from "@/domains/onboarding/prechat.js";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store.js";
 import type { AssistantState } from "@/domains/chat/hooks/use-assistant-lifecycle.js";
 
@@ -72,6 +73,23 @@ export function useAssistantIdentityInit({
     if (lastWrittenForRef.current !== assistantId) {
       useAssistantIdentityStore.getState().clearIdentity();
       lastWrittenForRef.current = null;
+    }
+  }, [isActive, assistantId]);
+
+  // Seed the store with the user-chosen name from onboarding before the
+  // async identity fetch resolves. Declared after the clear effect so
+  // React's effect execution order (declaration order) guarantees the
+  // clear runs first and this seed survives.
+  const seededRef = useRef(false);
+  useEffect(() => {
+    if (seededRef.current || !isActive) return;
+    seededRef.current = true;
+    const optimisticName = consumePendingAssistantName();
+    if (!optimisticName) return;
+    const { name: current } = useAssistantIdentityStore.getState();
+    if (!current) {
+      useAssistantIdentityStore.getState().setIdentity(optimisticName, null);
+      lastWrittenForRef.current = assistantId;
     }
   }, [isActive, assistantId]);
 

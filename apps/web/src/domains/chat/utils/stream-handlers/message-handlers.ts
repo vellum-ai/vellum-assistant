@@ -1,8 +1,6 @@
 import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics.js";
-import { newStableId } from "@/domains/chat/utils/stable-id.js";
 import {
   appendTextDelta,
-  createStreamingBubble,
   finalizeMessageComplete,
   finalizeOnIdle,
   stopStreaming,
@@ -17,18 +15,17 @@ export function handleAssistantTextDelta(
 ): void {
   ctx.cancelReconciliation();
   ctx.turnActions.onTextDelta();
-  if (ctx.needsNewBubbleRef.current) {
-    ctx.needsNewBubbleRef.current = false;
-    const stableId = newStableId("assistant-stream");
-    ctx.currentAssistantStableIdRef.current = stableId;
-    ctx.setMessages((prev) =>
-      createStreamingBubble(prev, event.text, event.messageId, stableId),
-    );
-  } else {
-    ctx.setMessages((prev) =>
-      appendTextDelta(prev, event.text, event.messageId),
-    );
-  }
+  ctx.setMessages((prev) => {
+    const next = appendTextDelta(prev, event.text, event.messageId);
+    const tail = next[next.length - 1];
+    // Stamp the stable-id ref to the streaming tail (no-op for extends; new
+    // id for creates). Subagent handlers read this to attribute nested
+    // notifications to the right parent bubble.
+    if (tail?.role === "assistant" && tail.isStreaming) {
+      ctx.currentAssistantStableIdRef.current = tail.stableId;
+    }
+    return next;
+  });
 }
 
 export function handleAssistantActivityState(
@@ -36,28 +33,28 @@ export function handleAssistantActivityState(
   epoch: number,
   ctx: StreamHandlerContext,
 ): void {
-  const convKey =
-    event.conversationKey ?? ctx.streamContextRef.current?.conversationKey;
+  const convId =
+    event.conversationId ?? ctx.streamContextRef.current?.conversationId;
 
-  if (convKey) {
+  if (convId) {
     const lastSeen =
-      ctx.lastActivityVersionRef.current.get(convKey) ?? 0;
+      ctx.lastActivityVersionRef.current.get(convId) ?? 0;
     if (event.activityVersion <= lastSeen) {
       recordChatDiagnostic("sse_activity_state_version_skipped", {
-        convKey,
+        convId,
         phase: event.phase,
         eventVersion: event.activityVersion,
         lastSeenVersion: lastSeen,
       });
       return;
     }
-    ctx.lastActivityVersionRef.current.set(convKey, event.activityVersion);
+    ctx.lastActivityVersionRef.current.set(convId, event.activityVersion);
   }
 
   if (event.phase === "thinking") {
     ctx.turnActions.onActivityThinking(event.statusText);
     recordChatDiagnostic("sse_activity_state_thinking_handled", {
-      convKey,
+      convId,
       reason: event.reason,
       activityVersion: event.activityVersion,
     });
@@ -66,7 +63,7 @@ export function handleAssistantActivityState(
 
   if (event.phase !== "idle") {
     recordChatDiagnostic("sse_activity_state_non_idle", {
-      convKey,
+      convId,
       phase: event.phase,
       reason: event.reason,
       activityVersion: event.activityVersion,
@@ -75,14 +72,13 @@ export function handleAssistantActivityState(
   }
 
   ctx.setMessages(finalizeOnIdle);
-  ctx.needsNewBubbleRef.current = true;
   const turnPhaseBefore = ctx.getTurnState().phase;
   ctx.turnActions.completeTurn();
-  if (convKey) {
-    ctx.clearProcessingKey(convKey);
+  if (convId) {
+    ctx.clearProcessingKey(convId);
   }
   recordChatDiagnostic("sse_activity_state_idle_handled", {
-    convKey,
+    convId,
     reason: event.reason,
     activityVersion: event.activityVersion,
     turnPhaseBefore,
@@ -106,15 +102,14 @@ export function handleMessageComplete(
       attachments: completedAttachments,
     }),
   );
-  ctx.needsNewBubbleRef.current = true;
   const turnPhaseBefore = ctx.getTurnState().phase;
   ctx.turnActions.completeTurn();
-  const convKey = ctx.streamContextRef.current?.conversationKey;
-  if (convKey) {
-    ctx.clearProcessingKey(convKey);
+  const convId = ctx.streamContextRef.current?.conversationId;
+  if (convId) {
+    ctx.clearProcessingKey(convId);
   }
   recordChatDiagnostic("sse_message_complete_handled", {
-    convKey,
+    convId,
     turnPhaseBefore,
     displayMessageId,
     hasContent: !!event.content,
@@ -136,7 +131,6 @@ export function handleGenerationHandoff(
       rowMessageId: event.messageId,
     }),
   );
-  ctx.needsNewBubbleRef.current = true;
 }
 
 export function handleGenerationCancelled(
@@ -144,10 +138,9 @@ export function handleGenerationCancelled(
   ctx: StreamHandlerContext,
 ): void {
   ctx.turnActions.cancelGeneration();
-  const convKey = ctx.streamContextRef.current?.conversationKey;
-  if (convKey) {
-    ctx.clearProcessingKey(convKey);
+  const convId = ctx.streamContextRef.current?.conversationId;
+  if (convId) {
+    ctx.clearProcessingKey(convId);
   }
   ctx.setMessages((prev) => stopStreaming(prev));
-  ctx.needsNewBubbleRef.current = true;
 }

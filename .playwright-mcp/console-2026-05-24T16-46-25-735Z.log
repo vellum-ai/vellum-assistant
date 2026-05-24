@@ -1,0 +1,1 @@
+[     832ms] [WARNING] Datadog Browser SDK: Customer data exceeds the recommended 3KiB threshold. More details: https://docs.datadoghq.com/real_user_monitoring/browser/troubleshooting/#customer-data-exceeds-the-recommended-threshold-warning @ https://auth-cdn.oaistatic.com/assets/datadog-BTgRrIvw.js:6

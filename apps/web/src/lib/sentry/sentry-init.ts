@@ -28,6 +28,7 @@ import { sanitizeUrl } from "@/lib/sentry/url-sanitize.js";
 const options: BrowserOptions = {
   dsn: import.meta.env.VITE_SENTRY_DSN,
   environment: import.meta.env.VITE_SENTRY_ENVIRONMENT ?? "local",
+  release: import.meta.env.VITE_APP_VERSION,
   tracesSampleRate: 0,
   // Attach a synthetic JS stack to `Sentry.captureMessage` calls so events
   // emitted without a thrown exception still resolve to a source location

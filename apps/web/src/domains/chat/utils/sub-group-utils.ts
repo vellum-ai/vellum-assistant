@@ -13,7 +13,7 @@ export interface SubGroup {
  * @param conversations - Flat list of conversations to partition.
  * @param getKey - Extract a grouping key from a conversation. Return an
  *   empty string to assign the conversation its own unique singleton key
- *   (`__single__:<conversationKey>`).
+ *   (`__single__:<conversationId>`).
  * @param makeLabel - Derive a human-readable label given the resolved key
  *   and the first conversation in the group.
  */
@@ -28,7 +28,7 @@ export function groupConversationsByKey(
   for (const conv of conversations) {
     const raw = getKey(conv);
     const key =
-      raw.length > 0 ? raw : `__single__:${conv.conversationKey}`;
+      raw.length > 0 ? raw : `__single__:${conv.conversationId}`;
     const existing = byKey.get(key);
     if (existing) {
       existing.conversations.push(conv);

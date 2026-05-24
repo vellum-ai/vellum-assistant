@@ -1,7 +1,7 @@
 /**
  * Push-based attention reconciliation: an `interaction_resolved` SSE event
- * removes the resolved conversation from both `attentionKeys` and
- * `processingKeys` without any HTTP polling.
+ * removes the resolved conversation from both `attentionConversationIds` and
+ * `processingConversationIds` without any HTTP polling.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -30,7 +30,7 @@ mock.module("@/domains/chat/api/conversations.js", () => ({
 }));
 
 mock.module("@/domains/chat/api/interactions.js", () => ({
-  listConversationKeysWithPendingInteractions: async () => new Set<string>(),
+  listConversationIdsWithPendingInteractions: async () => new Set<string>(),
 }));
 
 const { useAttentionTracking } = await import(
@@ -46,7 +46,7 @@ function wrapper({ children }: { children: ReactNode }) {
 
 function publishInteractionResolved(payload: {
   requestId: string;
-  conversationKey: string;
+  conversationId: string;
   state: "approved" | "rejected" | "answered" | "cancelled" | "superseded";
   kind?: string;
 }) {
@@ -54,7 +54,7 @@ function publishInteractionResolved(payload: {
     useEventBusStore.getState().publish("sse.event", {
       type: "interaction_resolved",
       requestId: payload.requestId,
-      conversationKey: payload.conversationKey,
+      conversationId: payload.conversationId,
       state: payload.state,
       // Cast through the daemon-mirrored union; tests intentionally feed
       // both user-facing and host-proxy kinds.
@@ -85,9 +85,9 @@ afterEach(() => {
 });
 
 describe("useAttentionTracking — interaction_resolved subscriber", () => {
-  test("removes the conversation from attentionKeys", () => {
-    useConversationStore.getState().addAttentionKey("conv-1");
-    expect(useConversationStore.getState().attentionKeys.has("conv-1")).toBe(true);
+  test("removes the conversation from attentionConversationIds", () => {
+    useConversationStore.getState().addAttentionConversationId("conv-1");
+    expect(useConversationStore.getState().attentionConversationIds.has("conv-1")).toBe(true);
 
     renderHook(
       () =>
@@ -100,16 +100,16 @@ describe("useAttentionTracking — interaction_resolved subscriber", () => {
 
     publishInteractionResolved({
       requestId: "req-1",
-      conversationKey: "conv-1",
+      conversationId: "conv-1",
       state: "approved",
     });
 
-    expect(useConversationStore.getState().attentionKeys.has("conv-1")).toBe(false);
+    expect(useConversationStore.getState().attentionConversationIds.has("conv-1")).toBe(false);
   });
 
-  test("removes the conversation from processingKeys", () => {
-    useConversationStore.getState().addProcessingKey("conv-2");
-    expect(useConversationStore.getState().processingKeys.has("conv-2")).toBe(true);
+  test("removes the conversation from processingConversationIds", () => {
+    useConversationStore.getState().addProcessingConversationId("conv-2");
+    expect(useConversationStore.getState().processingConversationIds.has("conv-2")).toBe(true);
 
     renderHook(
       () =>
@@ -122,19 +122,19 @@ describe("useAttentionTracking — interaction_resolved subscriber", () => {
 
     publishInteractionResolved({
       requestId: "req-2",
-      conversationKey: "conv-2",
+      conversationId: "conv-2",
       state: "answered",
       kind: "secret",
     });
 
-    expect(useConversationStore.getState().processingKeys.has("conv-2")).toBe(
+    expect(useConversationStore.getState().processingConversationIds.has("conv-2")).toBe(
       false,
     );
   });
 
   test("does not touch the active conversation", () => {
-    useConversationStore.getState().setActiveKey("conv-active");
-    useConversationStore.getState().addAttentionKey("conv-active");
+    useConversationStore.getState().setActiveConversationId("conv-active");
+    useConversationStore.getState().addAttentionConversationId("conv-active");
 
     renderHook(
       () =>
@@ -147,19 +147,19 @@ describe("useAttentionTracking — interaction_resolved subscriber", () => {
 
     publishInteractionResolved({
       requestId: "req-3",
-      conversationKey: "conv-active",
+      conversationId: "conv-active",
       state: "approved",
     });
 
     // Active conversation keeps its attention badge — the open chat view
     // owns the bubble lifecycle directly.
     expect(
-      useConversationStore.getState().attentionKeys.has("conv-active"),
+      useConversationStore.getState().attentionConversationIds.has("conv-active"),
     ).toBe(true);
   });
 
-  test("ignores events with an empty conversationKey", () => {
-    useConversationStore.getState().addAttentionKey("conv-7");
+  test("ignores events with an empty conversationId", () => {
+    useConversationStore.getState().addAttentionConversationId("conv-7");
 
     renderHook(
       () =>
@@ -172,17 +172,17 @@ describe("useAttentionTracking — interaction_resolved subscriber", () => {
 
     publishInteractionResolved({
       requestId: "req-7",
-      conversationKey: "",
+      conversationId: "",
       state: "cancelled",
     });
 
-    expect(useConversationStore.getState().attentionKeys.has("conv-7")).toBe(
+    expect(useConversationStore.getState().attentionConversationIds.has("conv-7")).toBe(
       true,
     );
   });
 
   test("superseded state also clears attention", () => {
-    useConversationStore.getState().addAttentionKey("conv-super");
+    useConversationStore.getState().addAttentionConversationId("conv-super");
 
     renderHook(
       () =>
@@ -195,19 +195,19 @@ describe("useAttentionTracking — interaction_resolved subscriber", () => {
 
     publishInteractionResolved({
       requestId: "req-super",
-      conversationKey: "conv-super",
+      conversationId: "conv-super",
       state: "superseded",
     });
 
     expect(
-      useConversationStore.getState().attentionKeys.has("conv-super"),
+      useConversationStore.getState().attentionConversationIds.has("conv-super"),
     ).toBe(false);
   });
 
   test("only clears state for kinds in the user-facing allowlist (host-proxy and unknown future kinds are ignored)", () => {
-    useConversationStore.getState().addProcessingKey("conv-host");
+    useConversationStore.getState().addProcessingConversationId("conv-host");
     expect(
-      useConversationStore.getState().processingKeys.has("conv-host"),
+      useConversationStore.getState().processingConversationIds.has("conv-host"),
     ).toBe(true);
 
     renderHook(
@@ -234,19 +234,19 @@ describe("useAttentionTracking — interaction_resolved subscriber", () => {
     ]) {
       publishInteractionResolved({
         requestId: `req-${kind}`,
-        conversationKey: "conv-host",
+        conversationId: "conv-host",
         state: "answered",
         kind,
       });
     }
 
     expect(
-      useConversationStore.getState().processingKeys.has("conv-host"),
+      useConversationStore.getState().processingConversationIds.has("conv-host"),
     ).toBe(true);
   });
 
   test("unsubscribes when assistantId becomes null", () => {
-    useConversationStore.getState().addAttentionKey("conv-detach");
+    useConversationStore.getState().addAttentionConversationId("conv-detach");
 
     const { rerender } = renderHook(
       ({ id }: { id: string | null }) =>
@@ -262,12 +262,12 @@ describe("useAttentionTracking — interaction_resolved subscriber", () => {
     // After unsubscribe, the event-resolved subscriber must not fire.
     publishInteractionResolved({
       requestId: "req-detach",
-      conversationKey: "conv-detach",
+      conversationId: "conv-detach",
       state: "approved",
     });
 
     expect(
-      useConversationStore.getState().attentionKeys.has("conv-detach"),
+      useConversationStore.getState().attentionConversationIds.has("conv-detach"),
     ).toBe(true);
   });
 });

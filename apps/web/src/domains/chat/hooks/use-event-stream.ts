@@ -2,7 +2,7 @@
  * Conversation-scoped consumer of the bus-owned SSE stream.
  *
  * Subscribes to `bus.sse.event` and routes events whose
- * `conversationKey` matches (or is missing on) the active conversation
+ * `conversationId` matches (or is missing on) the active conversation
  * to `handleStreamEvent`. Subscribes to `bus.sse.opened` to bump the
  * conversation epoch and run a reconcile pass on every non-fresh
  * (re)open — `"fresh"` is the very first connection per assistant
@@ -66,7 +66,7 @@ export interface UseEventStreamParams {
   /** Resolved assistant ID (null when not yet loaded). */
   assistantId: string | null;
   /** Currently active conversation key. */
-  activeConversationKey: string | null;
+  activeConversationId: string | null;
   /** Whether the active conversation has been persisted on the server. */
   conversationExistsOnServer: boolean;
 
@@ -81,7 +81,7 @@ export interface UseEventStreamParams {
   reconcileAfterNextStreamOpenRef: MutableRefObject<boolean>;
   streamContextRef: MutableRefObject<{
     assistantId: string;
-    conversationKey: string;
+    conversationId: string;
   } | null>;
 
   // Callbacks from useStreamEventHandler / useMessageReconciliation
@@ -117,7 +117,7 @@ export interface UseEventStreamParams {
 export function useEventStream({
   assistantStateKind,
   assistantId,
-  activeConversationKey,
+  activeConversationId,
   conversationExistsOnServer,
   streamRef,
   streamEpochRef,
@@ -186,10 +186,10 @@ export function useEventStream({
   // render-phase mutation would leave the ref pointing at a value
   // from an uncommitted render and the filter would reject events
   // for what is still the actually-committed conversation.
-  const activeConversationKeyLatestRef = useRef(activeConversationKey);
+  const activeConversationIdLatestRef = useRef(activeConversationId);
   useLayoutEffect(() => {
-    activeConversationKeyLatestRef.current = activeConversationKey;
-  }, [activeConversationKey]);
+    activeConversationIdLatestRef.current = activeConversationId;
+  }, [activeConversationId]);
 
   // --------------------------------------------------------------------------
   // Effect 1: Subscribe to the bus-owned SSE for the active conversation.
@@ -198,7 +198,7 @@ export function useEventStream({
     if (
       assistantStateKind !== "active" ||
       !assistantId ||
-      !activeConversationKey
+      !activeConversationId
     ) {
       return;
     }
@@ -208,11 +208,11 @@ export function useEventStream({
 
     const bus = useEventBusStore.getState();
     const capturedAssistantId = assistantId;
-    const capturedConversationKey = activeConversationKey;
+    const capturedConversationId = activeConversationId;
 
     streamContextRef.current = {
       assistantId: capturedAssistantId,
-      conversationKey: capturedConversationKey,
+      conversationId: capturedConversationId,
     };
     // `use-send-message.ts` reads `streamRef.current` as a presence bit
     // to decide whether SSE will deliver the response. We write a
@@ -222,8 +222,8 @@ export function useEventStream({
     streamRef.current = presence;
 
     const unsubEvent = bus.subscribe("sse.event", (event) => {
-      const eventConversationKey = (event as { conversationKey?: string })
-        .conversationKey;
+      const eventConversationId = (event as { conversationId?: string })
+        .conversationId;
       // Two-stage filter to prevent cross-conversation event leakage.
       // The bus opens a single unfiltered SSE connection, so every
       // event for every conversation flows through this subscriber.
@@ -231,9 +231,9 @@ export function useEventStream({
       // 1. Global events (`sync_changed`, `home_feed_updated`, etc.)
       //    are not tied to a conversation — always pass them through.
       // 2. Conversation-scoped events must have an explicit
-      //    `conversationKey` matching the current active conversation.
-      //    Events whose conversationKey is missing or mismatched are
-      //    rejected: a missing key is treated as "unknown
+      //    `conversationId` matching the current active conversation.
+      //    Events whose conversationId is missing or mismatched are
+      //    rejected: a missing id is treated as "unknown
       //    conversation" rather than "broadcast", because under the
       //    bus-owned unfiltered SSE there is no per-conversation
       //    subscription URL to fall back to for routing.
@@ -242,14 +242,14 @@ export function useEventStream({
         return;
       }
       if (
-        eventConversationKey === undefined ||
-        eventConversationKey !== activeConversationKeyLatestRef.current
+        eventConversationId === undefined ||
+        eventConversationId !== activeConversationIdLatestRef.current
       ) {
         recordChatDiagnostic("sse_event_wrong_conversation_filtered", {
-          eventConversationKey,
-          activeConversationKey: activeConversationKeyLatestRef.current,
+          eventConversationId,
+          activeConversationId: activeConversationIdLatestRef.current,
           eventType: event.type,
-          reason: eventConversationKey === undefined ? "missing" : "mismatch",
+          reason: eventConversationId === undefined ? "missing" : "mismatch",
         });
         return;
       }
@@ -264,7 +264,7 @@ export function useEventStream({
       }
       if (
         streamContextRef.current?.assistantId === capturedAssistantId &&
-        streamContextRef.current.conversationKey === capturedConversationKey
+        streamContextRef.current.conversationId === capturedConversationId
       ) {
         streamContextRef.current = null;
       }
@@ -272,7 +272,7 @@ export function useEventStream({
   }, [
     assistantStateKind,
     assistantId,
-    activeConversationKey,
+    activeConversationId,
     conversationExistsOnServer,
     streamRef,
     streamEpochRef,
@@ -291,12 +291,12 @@ export function useEventStream({
     if (
       assistantStateKind !== "active" ||
       !assistantId ||
-      !activeConversationKey
+      !activeConversationId
     ) {
       return;
     }
     const capturedAssistantId = assistantId;
-    const capturedConversationKey = activeConversationKey;
+    const capturedConversationId = activeConversationId;
 
     const unsub = useEventBusStore
       .getState()
@@ -305,7 +305,7 @@ export function useEventStream({
         const epoch = ++streamEpochRef.current;
         recordChatDiagnostic("sse_stream_opened", {
           assistantId: capturedAssistantId,
-          conversationKey: capturedConversationKey,
+          conversationId: capturedConversationId,
           epoch,
           cause,
         });
@@ -330,7 +330,7 @@ export function useEventStream({
           void (async () => {
             recordChatDiagnostic("sse_stream_reconnect", {
               assistantId: capturedAssistantId,
-              conversationKey: capturedConversationKey,
+              conversationId: capturedConversationId,
               epoch,
               cause,
             });
@@ -351,7 +351,7 @@ export function useEventStream({
             if (epoch !== streamEpochRef.current) {
               recordChatDiagnostic("sse_post_reconnect_stale", {
                 assistantId: capturedAssistantId,
-                conversationKey: capturedConversationKey,
+                conversationId: capturedConversationId,
                 epoch,
                 currentEpoch: streamEpochRef.current,
                 cause,
@@ -363,7 +363,7 @@ export function useEventStream({
             const latencyMs = Date.now() - startedAt;
             recordChatDiagnostic("sse_post_watchdog_reconcile_result", {
               assistantId: capturedAssistantId,
-              conversationKey: capturedConversationKey,
+              conversationId: capturedConversationId,
               epoch,
               latencyMs,
               changed: reconcileResult.changed,
@@ -397,7 +397,7 @@ export function useEventStream({
                 messagesAdded: reconcileResult.messagesAdded,
                 changed: reconcileResult.changed,
                 assistantProgress: reconcileResult.assistantProgress,
-                conversationKey: capturedConversationKey,
+                conversationId: capturedConversationId,
                 epoch,
               },
             });
@@ -412,7 +412,7 @@ export function useEventStream({
   }, [
     assistantStateKind,
     assistantId,
-    activeConversationKey,
+    activeConversationId,
     streamEpochRef,
     reconcileAfterNextStreamOpenRef,
     syncRouterRef,
@@ -431,12 +431,12 @@ export function useEventStream({
     if (
       assistantStateKind !== "active" ||
       !assistantId ||
-      !activeConversationKey
+      !activeConversationId
     ) {
       return;
     }
     const capturedAssistantId = assistantId;
-    const capturedConversationKey = activeConversationKey;
+    const capturedConversationId = activeConversationId;
 
     const unsub = useEventBusStore
       .getState()
@@ -444,15 +444,15 @@ export function useEventStream({
         const hadActiveTurn = isSending(useTurnStore.getState());
         recordChatDiagnostic("sse_stream_error", {
           assistantId: capturedAssistantId,
-          conversationKey: capturedConversationKey,
+          conversationId: capturedConversationId,
           epoch: streamEpochRef.current,
           messageLength: reason.length,
         });
         useTurnStore.getState().onSessionError();
         {
-          const convKey = streamContextRef.current?.conversationKey;
-          if (convKey) {
-            useConversationStore.getState().removeProcessingKey(convKey);
+          const convId = streamContextRef.current?.conversationId;
+          if (convId) {
+            useConversationStore.getState().removeProcessingConversationId(convId);
           }
         }
         // Idle SSE drops should reopen the stream without interrupting the
@@ -476,7 +476,7 @@ export function useEventStream({
   }, [
     assistantStateKind,
     assistantId,
-    activeConversationKey,
+    activeConversationId,
     streamEpochRef,
     streamContextRef,
   ]);
@@ -488,7 +488,7 @@ export function useEventStream({
     if (
       assistantStateKind !== "active" ||
       !assistantId ||
-      !activeConversationKey
+      !activeConversationId
     ) {
       return;
     }
@@ -507,7 +507,7 @@ export function useEventStream({
       }
       wasSending = nowSending;
     });
-  }, [assistantStateKind, assistantId, activeConversationKey]);
+  }, [assistantStateKind, assistantId, activeConversationId]);
 
   // --------------------------------------------------------------------------
   // Effect 5: Schedule a post-resume reconcile.
@@ -521,7 +521,7 @@ export function useEventStream({
     if (
       assistantStateKind !== "active" ||
       !assistantId ||
-      !activeConversationKey
+      !activeConversationId
     ) {
       return;
     }
@@ -532,7 +532,7 @@ export function useEventStream({
   }, [
     assistantStateKind,
     assistantId,
-    activeConversationKey,
+    activeConversationId,
     reconcileAfterNextStreamOpenRef,
   ]);
 

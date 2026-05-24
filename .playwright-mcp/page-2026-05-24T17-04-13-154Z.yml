@@ -1,0 +1,252 @@
+- generic:
+  - button "Open Next.js Dev Tools" [ref=e7] [cursor=pointer]:
+    - img [ref=e8]
+  - alert
+  - generic:
+    - generic:
+      - main:
+        - generic:
+          - generic:
+            - generic:
+              - generic:
+                - link:
+                  - /url: /assistant
+                  - img
+                - heading [level=1]: Models & Services
+            - generic:
+              - complementary:
+                - navigation:
+                  - button:
+                    - img
+                    - generic: General
+                  - button:
+                    - img
+                    - generic: Models & Services
+                  - button:
+                    - img
+                    - generic: Integrations
+                  - button:
+                    - img
+                    - generic: Schedules
+                  - button:
+                    - img
+                    - generic: Sounds
+                  - button:
+                    - img
+                    - generic: Voice
+                  - button:
+                    - img
+                    - generic: Self-Hosted Assistants
+                  - button:
+                    - img
+                    - generic: Permissions & Privacy
+                  - button:
+                    - img
+                    - generic: Archive
+                  - button:
+                    - img
+                    - generic: Billing
+                  - button:
+                    - img
+                    - generic: Community
+                  - button:
+                    - img
+                    - generic: Debug
+                  - button:
+                    - img
+                    - generic: Advanced
+                  - button:
+                    - img
+                    - generic: Developer
+              - main:
+                - generic:
+                  - generic:
+                    - img
+                    - paragraph:
+                      - text: Managed services are metered and deducted from your Vellum account balance.
+                      - link:
+                        - /url: https://www.vellum.ai/docs/pricing
+                        - text: View pricing
+                        - img
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - heading [level=2]: Language Model
+                          - paragraph: Configure the LLMs that power your assistant
+                      - generic:
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic: Default Profile
+                              - generic:
+                                - combobox:
+                                  - generic: Balanced
+                                  - img
+                            - generic:
+                              - button: Providers
+                              - button: Profiles
+                              - button: 13 Overrides
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - heading [level=2]: Web Search
+                          - paragraph: Configure how your assistant should search the web
+                        - generic:
+                          - generic:
+                            - radiogroup:
+                              - radio [checked]: Managed
+                              - radio: Your Own
+                      - generic:
+                        - generic:
+                          - generic:
+                            - paragraph: Web search is included with managed inference.
+                            - generic:
+                              - button: Save
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - heading [level=2]: Email
+                          - paragraph: Configure how your assistant sends and receives email
+                        - generic:
+                          - generic:
+                            - radiogroup:
+                              - radio [checked]: Managed
+                              - radio: Your Own
+                      - generic:
+                        - generic:
+                          - generic:
+                            - status:
+                              - generic:
+                                - img
+                              - generic:
+                                - paragraph: Managed email is a Pro plan feature
+                                - generic:
+                                  - text: Upgrade to register a <your-subdomain>.local.vellum.me address managed by Vellum, or switch to
+                                  - strong: Your Own
+                                  - text: to bring your own provider.
+                              - generic:
+                                - button: Upgrade to Pro
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - heading [level=2]: Image Generation
+                          - paragraph: Configure which model your assistant uses to generate images
+                        - generic:
+                          - generic:
+                            - radiogroup:
+                              - radio [checked]: Managed
+                              - radio: Your Own
+                      - generic:
+                        - generic:
+                          - generic:
+                            - generic: Active Model
+                            - generic:
+                              - generic:
+                                - combobox:
+                                  - generic: Nano Banana 2
+                                  - img
+                              - button: Save
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - heading [level=2]: Text-to-Speech
+                          - paragraph: High-quality voice synthesis for conversations and read-aloud. Requires an ElevenLabs API key.
+                      - generic:
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic: Provider
+                              - generic:
+                                - combobox:
+                                  - generic: ElevenLabs
+                                  - img
+                            - generic:
+                              - generic: API Key
+                              - generic:
+                                - generic:
+                                  - textbox:
+                                    - /placeholder: sk_…
+                            - generic:
+                              - generic: Voice ID
+                              - generic:
+                                - generic:
+                                  - textbox:
+                                    - /placeholder: Enter a voice ID
+                            - generic:
+                              - img
+                              - generic:
+                                - generic: Sign in to ElevenLabs, go to your Profile, and copy your API key.
+                                - link:
+                                  - /url: https://elevenlabs.io/app/settings/api-keys
+                                  - text: Open ElevenLabs API Keys
+                                  - img
+                            - generic:
+                              - button: Test
+                              - generic:
+                                - button [disabled]: Save
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - heading [level=2]: Speech-to-Text
+                          - paragraph: Fast, accurate speech-to-text transcription. Uses the same API key as Deepgram text-to-speech.
+                      - generic:
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic: Provider
+                              - generic:
+                                - combobox:
+                                  - generic: Deepgram
+                                  - img
+                            - generic:
+                              - generic: API Key
+                              - generic:
+                                - generic:
+                                  - textbox:
+                                    - /placeholder: Enter your Deepgram API key
+                            - generic:
+                              - img
+                              - generic:
+                                - generic: Sign in to Deepgram, navigate to your API Keys page, and create or copy an existing key. This is the same key used for text-to-speech.
+                                - link:
+                                  - /url: https://console.deepgram.com/
+                                  - text: Open Deepgram Console
+                                  - img
+                            - generic:
+                              - button [disabled]: Save
+    - region "Notifications alt+T"
+    - dialog "Edit Connection" [ref=e399]:
+      - generic [ref=e400]:
+        - heading "Edit Connection" [level=2] [ref=e401]:
+          - generic [ref=e402]: Edit Connection
+        - paragraph [ref=e403]: Editing "chatgpt-subscription".
+      - generic [ref=e404]:
+        - generic [ref=e405]:
+          - generic [ref=e406]: Display Name (optional)
+          - textbox "e.g. My Anthropic Key" [active] [ref=e409]
+        - generic [ref=e410]:
+          - generic [ref=e411]: Key
+          - textbox "e.g. anthropic-personal" [disabled] [ref=e414]: chatgpt-subscription
+        - generic [ref=e415]:
+          - generic [ref=e416]: Provider
+          - combobox "Provider" [disabled] [ref=e418]:
+            - generic [ref=e419]: OpenAI
+            - img [ref=e420]
+        - generic [ref=e422]:
+          - generic [ref=e423]: Auth Type
+          - combobox "Auth type" [ref=e425]:
+            - img [ref=e426]
+        - generic [ref=e428]:
+          - switch "Active" [checked] [ref=e429] [cursor=pointer]
+          - generic [ref=e432] [cursor=pointer]: Active
+      - generic [ref=e433]:
+        - button "Cancel" [ref=e434] [cursor=pointer]
+        - button "Save" [ref=e435] [cursor=pointer]
+      - button "Close" [ref=e436] [cursor=pointer]:
+        - img [ref=e438]

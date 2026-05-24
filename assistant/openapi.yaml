@@ -3,7 +3,7 @@
 openapi: 3.0.0
 info:
   title: Vellum Assistant API
-  version: 0.8.3
+  version: 0.8.4
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -1823,6 +1823,247 @@ paths:
               required:
                 - id
               additionalProperties: false
+  /v1/background-wake/drain-due:
+    post:
+      operationId: backgroundwake_draindue_post
+      summary: Drain due background wake work
+      description: Run due heartbeat and scheduler work for a background wake lease.
+      tags:
+        - background-wake
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  leaseId:
+                    type: string
+                  reason:
+                    type: string
+                  sourceGeneration:
+                    type: string
+                  startedAt:
+                    type: number
+                  deadlineAt:
+                    type: number
+                  counts:
+                    type: object
+                    properties:
+                      heartbeat:
+                        type: number
+                      scheduler:
+                        type: number
+                      total:
+                        type: number
+                    required:
+                      - heartbeat
+                      - scheduler
+                      - total
+                    additionalProperties: false
+                  nextIntent:
+                    anyOf:
+                      - type: object
+                        properties:
+                          nextWakeAt:
+                            type: number
+                          actualNextDueAt:
+                            type: number
+                          reason:
+                            type: string
+                            enum:
+                              - heartbeat
+                              - schedule
+                              - mixed
+                          sourceGeneration:
+                            type: string
+                          computedAt:
+                            type: number
+                          sourcePayload:
+                            type: object
+                            propertyNames:
+                              type: string
+                            additionalProperties: {}
+                        required:
+                          - nextWakeAt
+                          - actualNextDueAt
+                          - reason
+                          - sourceGeneration
+                          - computedAt
+                          - sourcePayload
+                        additionalProperties: false
+                      - type: "null"
+                required:
+                  - leaseId
+                  - reason
+                  - sourceGeneration
+                  - startedAt
+                  - deadlineAt
+                  - counts
+                  - nextIntent
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              anyOf:
+                - type: object
+                  properties:
+                    leaseId:
+                      type: string
+                      minLength: 1
+                    reason:
+                      type: string
+                      minLength: 1
+                    sourceGeneration:
+                      type: string
+                      minLength: 1
+                    startedAt:
+                      anyOf:
+                        - type: number
+                        - type: string
+                    deadlineAt:
+                      anyOf:
+                        - type: number
+                        - type: string
+                  required:
+                    - leaseId
+                    - reason
+                    - sourceGeneration
+                    - startedAt
+                    - deadlineAt
+                  additionalProperties: false
+                - type: object
+                  properties:
+                    lease_id:
+                      type: string
+                      minLength: 1
+                    reason:
+                      type: string
+                      minLength: 1
+                    source_generation:
+                      type: string
+                      minLength: 1
+                    started_at:
+                      anyOf:
+                        - type: number
+                        - type: string
+                    deadline_at:
+                      anyOf:
+                        - type: number
+                        - type: string
+                  required:
+                    - lease_id
+                    - reason
+                    - source_generation
+                    - started_at
+                    - deadline_at
+                  additionalProperties: false
+  /v1/background-wake/intent:
+    get:
+      operationId: backgroundwake_intent_get
+      summary: Get background wake intent
+      description: Return the current computed background wake intent.
+      tags:
+        - background-wake
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  intent:
+                    anyOf:
+                      - type: object
+                        properties:
+                          nextWakeAt:
+                            type: number
+                          actualNextDueAt:
+                            type: number
+                          reason:
+                            type: string
+                            enum:
+                              - heartbeat
+                              - schedule
+                              - mixed
+                          sourceGeneration:
+                            type: string
+                          computedAt:
+                            type: number
+                          sourcePayload:
+                            type: object
+                            propertyNames:
+                              type: string
+                            additionalProperties: {}
+                        required:
+                          - nextWakeAt
+                          - actualNextDueAt
+                          - reason
+                          - sourceGeneration
+                          - computedAt
+                          - sourcePayload
+                        additionalProperties: false
+                      - type: "null"
+                required:
+                  - intent
+                additionalProperties: false
+  /v1/background-wake/prepare-sleep:
+    post:
+      operationId: backgroundwake_preparesleep_post
+      summary: Prepare for assistant sleep
+      description: Return the current background wake intent and whether sleep should be deferred.
+      tags:
+        - background-wake
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  intent:
+                    anyOf:
+                      - type: object
+                        properties:
+                          nextWakeAt:
+                            type: number
+                          actualNextDueAt:
+                            type: number
+                          reason:
+                            type: string
+                            enum:
+                              - heartbeat
+                              - schedule
+                              - mixed
+                          sourceGeneration:
+                            type: string
+                          computedAt:
+                            type: number
+                          sourcePayload:
+                            type: object
+                            propertyNames:
+                              type: string
+                            additionalProperties: {}
+                        required:
+                          - nextWakeAt
+                          - actualNextDueAt
+                          - reason
+                          - sourceGeneration
+                          - computedAt
+                          - sourcePayload
+                        additionalProperties: false
+                      - type: "null"
+                  deferSleep:
+                    type: boolean
+                required:
+                  - intent
+                  - deferSleep
+                additionalProperties: false
   /v1/backup/destinations:
     get:
       operationId: backup_destinations_get
@@ -3406,6 +3647,19 @@ paths:
       description:
         Returns the full catalog of LLM call sites with display names, descriptions, and domain groupings. Used by
         clients to render the per-call-site override settings UI.
+      tags:
+        - config
+      responses:
+        "200":
+          description: Successful response
+  /v1/config/llm/profiles:
+    get:
+      operationId: config_llm_profiles_get
+      summary: List defined LLM profiles
+      description:
+        Returns the sorted list of profile names defined in `llm.profiles` plus the workspace-wide active profile.
+        Used to populate per-call profile dropdowns (e.g. memory router playground) without requiring the caller to type
+        profile names.
       tags:
         - config
       responses:
@@ -5432,6 +5686,76 @@ paths:
           schema:
             type: string
           description: Optional conversation ID filter
+  /v1/conversations/llm-context:
+    get:
+      operationId: conversations_llmcontext_get
+      summary: Get LLM context for a conversation
+      description: Returns normalized LLM request/response logs for an entire conversation.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversationKey:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  conversationId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  conversationKind:
+                    type: string
+                    enum:
+                      - user
+                      - background
+                      - background_memory_consolidation
+                      - scheduled
+                  conversationTotalEstimatedCostUsd:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  logs:
+                    type: array
+                    items: {}
+                  memoryRecall:
+                    anyOf:
+                      - type: object
+                        properties: {}
+                        additionalProperties: {}
+                      - type: "null"
+                  memoryV2Activation:
+                    anyOf:
+                      - type: object
+                        properties: {}
+                        additionalProperties: {}
+                      - type: "null"
+                required:
+                  - conversationId
+                  - conversationKind
+                  - conversationTotalEstimatedCostUsd
+                  - logs
+                  - memoryRecall
+                  - memoryV2Activation
+                additionalProperties: false
+      parameters:
+        - name: conversationKey
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Stable external conversation key.
+        - name: conversationId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Internal conversation identifier.
   /v1/conversations/rename:
     post:
       operationId: conversations_rename_post
@@ -11096,6 +11420,18 @@ paths:
               type: object
               properties: {}
               additionalProperties: false
+  /v1/memory/v2/now-text:
+    get:
+      operationId: memory_v2_nowtext_get
+      summary: Return the current rendered `<now>` body
+      description:
+        Returns the current NOW.md (autoloaded essentials/threads/recent). Used by the memory router playground to
+        seed its `<now>` text area with a production-like default so callers can edit from a realistic baseline.
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
   /v1/memory/v2/reembed-skills:
     post:
       operationId: memory_v2_reembedskills_post
@@ -11114,6 +11450,19 @@ paths:
               type: object
               properties: {}
               additionalProperties: false
+  /v1/memory/v2/router-prompt-template:
+    get:
+      operationId: memory_v2_routerprompttemplate_get
+      summary: Return the bundled router system-prompt template
+      description:
+        Returns the bundled `ROUTER_PROMPT` body with placeholders intact (`{{ASSISTANT_NAME}}`, `{{USER_NAME}}`,
+        `{{PAGE_INDEX}}`). Used by the memory router playground's 'Load default' affordance so users have a known-good
+        starting point when authoring an inline prompt override.
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
   /v1/memory/v2/simulate-router:
     post:
       operationId: memory_v2_simulaterouter_post
@@ -11135,9 +11484,22 @@ paths:
             schema:
               type: object
               properties:
-                query:
+                recentTurnPairs:
+                  minItems: 1
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      assistantMessage:
+                        type: string
+                      userMessage:
+                        type: string
+                    required:
+                      - assistantMessage
+                      - userMessage
+                    additionalProperties: false
+                nowText:
                   type: string
-                  minLength: 1
                 configOverrides:
                   type: object
                   properties:
@@ -11160,8 +11522,14 @@ paths:
                           maximum: 9007199254740991
                         - type: "null"
                   additionalProperties: false
+                profileOverride:
+                  type: string
+                  minLength: 1
+                routerPromptOverride:
+                  type: string
+                  maxLength: 1000000
               required:
-                - query
+                - recentTurnPairs
               additionalProperties: false
   /v1/memory/v2/validate:
     post:
@@ -12522,6 +12890,168 @@ paths:
           required: true
           schema:
             type: string
+  /v1/plugins:
+    get:
+      operationId: plugins_get
+      summary: List installed plugins
+      description:
+        Return one entry per directory under `<workspaceDir>/plugins/`, sorted alphabetically. Matches the CLI's
+        `assistant plugins list`. Supports `?q=<text>` for case-insensitive substring matching across plugin id, name,
+        and description.
+      tags:
+        - plugins
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plugins:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          description: Plugin's directory name (kebab-case). Matches `assistant plugins install <id>`.
+                        name:
+                          type: string
+                          description: Display name. Equal to `id` today.
+                        description:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                          description: From `package.json#description`; `null` when unknown.
+                        version:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                          description: From `package.json#version`; `null` when unknown.
+                        path:
+                          description: Absolute path to the plugin directory on the assistant host.
+                          type: string
+                        issues:
+                          description: Non-fatal issues with this entry (missing `package.json`, malformed JSON, ...). Omitted when clean.
+                          type: array
+                          items:
+                            type: string
+                      required:
+                        - id
+                        - name
+                        - description
+                        - version
+                      additionalProperties: false
+                required:
+                  - plugins
+                additionalProperties: false
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional substring filter applied to plugin id, name, and description.
+  /v1/plugins/{name}:
+    delete:
+      operationId: plugins_by_name_delete
+      summary: Uninstall a plugin
+      description:
+        Remove the directory at `<workspaceDir>/plugins/<name>/`. Mirrors the CLI's `assistant plugins uninstall
+        <name>` (without the interactive confirmation — the API caller is responsible for any prompt). The plugin name
+        is sanitized by the same regex the CLI uses; `../escape`-style values, hidden names, and absolute paths return
+        400. Missing plugins return 404. The assistant must be restarted to drop the plugin from the running runtime.
+      tags:
+        - plugins
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                    description: Directory name that was removed. Echoes the request's `:name` path parameter after sanitization.
+                  target:
+                    type: string
+                    description: Absolute path that was removed on the assistant host. Useful for audit logs and confirmation toasts.
+                required:
+                  - name
+                  - target
+                additionalProperties: false
+        "400":
+          description: The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters).
+        "404":
+          description: No plugin directory exists with the given name.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+  /v1/plugins/search:
+    get:
+      operationId: plugins_search_get
+      summary: Search the plugin catalog
+      description:
+        List installable plugins from the canonical `vellum-ai/vellum-assistant` catalog at
+        `experimental/plugins/`. The query is an ECMAScript regex matched case-insensitively against the directory name
+        (e.g. `memory`, `^simple`). Empty query returns every entry. Mirrors the CLI's `assistant plugins search`.
+      tags:
+        - plugins
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  query:
+                    type: string
+                    description: Echo of the requested query (ECMAScript regex source).
+                  ref:
+                    type: string
+                    description: Git ref the catalog was listed at.
+                  matches:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                          description: Directory name under `experimental/plugins/`. Matches `assistant plugins install <name>`.
+                        path:
+                          type: string
+                          description: Repo-relative path of the match (e.g. `experimental/plugins/<name>`).
+                      required:
+                        - name
+                        - path
+                      additionalProperties: false
+                    description: Directory matches, sorted alphabetically by name.
+                required:
+                  - query
+                  - ref
+                  - matches
+                additionalProperties: false
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+          description:
+            ECMAScript regex pattern matched case-insensitively against catalog directory names. Empty/missing matches
+            everything.
+        - name: ref
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional git ref to list the catalog at. Defaults to the CLI's `DEFAULT_PLUGIN_REF` (typically `main`).
   /v1/profiler/runs:
     get:
       operationId: profiler_runs_get
@@ -15437,16 +15967,41 @@ paths:
                 type: object
                 properties:
                   suggestion:
-                    type: string
+                    anyOf:
+                      - type: string
+                      - type: "null"
                   messageId:
-                    type: string
+                    anyOf:
+                      - type: string
+                      - type: "null"
                   source:
                     type: string
+                  stale:
+                    type: boolean
                 required:
                   - suggestion
                   - messageId
                   - source
                 additionalProperties: false
+      parameters:
+        - name: conversationId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Conversation ID to fetch a suggestion for. Either this or conversationKey is required.
+        - name: conversationKey
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Legacy conversation key. Either this or conversationId is required.
+        - name: messageId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional. Latest assistant message ID the client has seen — used to detect staleness.
   /v1/surface-actions:
     post:
       operationId: surfaceactions_post

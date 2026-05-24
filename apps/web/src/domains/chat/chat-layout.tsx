@@ -34,12 +34,15 @@ import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-fl
 import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
 import { useViewerStore } from "@/stores/viewer-store.js";
 import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
+import { useAuthStore } from "@/stores/auth-store.js";
+import { canUseLlmInspector } from "@/domains/chat/inspector/access.js";
+import type { Conversation } from "@/domains/chat/api/conversations.js";
 
 import { OfflineBanner } from "@/components/offline-banner.js";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu.js";
 import { PreferencesMenu } from "@/domains/chat/components/preferences-menu.js";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store.js";
-import { createDraftConversationKey } from "@/domains/chat/utils/conversation-selection.js";
+import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection.js";
 import { ChatLayoutHeader } from "./chat-layout-header.js";
 
 /**
@@ -255,9 +258,9 @@ export function ChatLayout() {
   const handleStartNewConversation = useCallback(() => {
     haptic.light();
     useViewerStore.getState().setMainView("chat");
-    const draftKey = createDraftConversationKey();
-    useConversationStore.getState().setActiveKey(draftKey);
-    void navigate(routes.conversation(draftKey));
+    const draftConversationId = createDraftConversationId();
+    useConversationStore.getState().setActiveConversationId(draftConversationId);
+    void navigate(routes.conversation(draftConversationId));
   }, [navigate]);
 
   const handleOpenHome = useCallback(() => {
@@ -407,21 +410,21 @@ export function ChatLayout() {
     };
   }, [drawerVisible]);
 
-  const activeConversationKey = useConversationStore.use.activeConversationKey();
-  const processingKeys = useConversationStore.use.processingKeys();
-  const attentionKeys = useConversationStore.use.attentionKeys();
-  const setActiveKey = useConversationStore.use.setActiveKey();
+  const activeConversationId = useConversationStore.use.activeConversationId();
+  const processingConversationIds = useConversationStore.use.processingConversationIds();
+  const attentionConversationIds = useConversationStore.use.attentionConversationIds();
+  const setActiveConversationId = useConversationStore.use.setActiveConversationId();
 
   const handleSelectConversation = useCallback(
     (key: string) => {
       haptic.light();
       useViewerStore.getState().setMainView("chat");
       useSubagentStore.getState().reset();
-      setActiveKey(key);
+      setActiveConversationId(key);
       navigate(routes.conversation(key));
       setDrawerOpen(false);
     },
-    [setActiveKey, navigate],
+    [setActiveConversationId, navigate],
   );
 
   // --- Sidebar conversation actions (pin / rename / archive / mark / move) ---
@@ -456,9 +459,9 @@ export function ChatLayout() {
     ({ silent }: { silent?: boolean } = {}) => {
       if (!silent) haptic.light();
       useViewerStore.getState().setMainView("chat");
-      const draftKey = createDraftConversationKey();
-      useConversationStore.getState().setActiveKey(draftKey);
-      void navigate(routes.conversation(draftKey));
+      const draftConversationId = createDraftConversationId();
+      useConversationStore.getState().setActiveConversationId(draftConversationId);
+      void navigate(routes.conversation(draftConversationId));
     },
     [navigate],
   );
@@ -474,7 +477,7 @@ export function ChatLayout() {
     handleRenameConversation,
   } = useConversationActions({
     assistantId: lifecycle.assistantId,
-    activeConversationKey,
+    activeConversationId,
     conversations,
     refreshConversations,
     switchConversation: handleSelectConversation,
@@ -488,6 +491,23 @@ export function ChatLayout() {
 
   const isLibraryActive = location.pathname.startsWith("/assistant/library");
 
+  // Inspector affordance for the sidebar context menu. The topbar variant
+  // (in `chat-page.tsx`) uses `useConversationSecondaryActions` so it can
+  // enrich the URL with the latest assistant `messageId` from the active
+  // transcript. The sidebar doesn't hold transcript state, so we navigate
+  // with just `conversationId` and let `InspectPage` resolve the latest
+  // assistant message via `ResolveLatestMessage`.
+  const authUser = useAuthStore.use.user();
+  const showLlmInspector = canUseLlmInspector(authUser);
+  const handleInspectConversation = useCallback(
+    (conversation: Conversation) => {
+      const params = new URLSearchParams();
+      params.set("conversationId", conversation.conversationId);
+      void navigate(`${routes.inspect}?${params.toString()}`);
+    },
+    [navigate],
+  );
+
   const renderSideMenu = useCallback(
     (args: SideMenuRenderArgs): ReactNode => (
       <AssistantSideMenu
@@ -497,9 +517,9 @@ export function ChatLayout() {
         variant={args.variant}
         conversations={conversations}
         conversationGroups={conversationGroups}
-        activeConversationKey={activeConversationKey ?? undefined}
-        processingConversationKeys={processingKeys}
-        attentionConversationKeys={attentionKeys}
+        activeConversationId={activeConversationId ?? undefined}
+        processingConversationIds={processingConversationIds}
+        attentionConversationIds={attentionConversationIds}
         onSelectConversation={handleSelectConversation}
         onStartNewConversation={handleStartNewConversation}
         isIntelligenceActive={isIdentityActive}
@@ -516,12 +536,13 @@ export function ChatLayout() {
         onRemoveFromGroup={handleRemoveFromGroup}
         onRenameGroup={handleRenameGroup}
         onDeleteGroup={handleDeleteGroup}
+        onInspect={showLlmInspector ? handleInspectConversation : undefined}
         footerBanner={footerBanner}
         footerAction={
           <PreferencesMenu
             assistantId={lifecycle.assistantId}
             assistantVersion={assistantVersion}
-            activeConversationKey={activeConversationKey}
+            activeConversationId={activeConversationId}
           />
         }
         onClose={args.onClose}
@@ -534,9 +555,9 @@ export function ChatLayout() {
       assistantVersion,
       conversations,
       conversationGroups,
-      activeConversationKey,
-      processingKeys,
-      attentionKeys,
+      activeConversationId,
+      processingConversationIds,
+      attentionConversationIds,
       handleSelectConversation,
       handleStartNewConversation,
       handleTogglePinConversation,
@@ -553,6 +574,8 @@ export function ChatLayout() {
       handleOpenIdentity,
       isLibraryActive,
       handleOpenLibrary,
+      showLlmInspector,
+      handleInspectConversation,
       footerBanner,
     ],
   );

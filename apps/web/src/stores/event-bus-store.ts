@@ -51,7 +51,7 @@ export interface BusEventMap {
    * Re-broadcast of an SSE event received on the bus-owned
    * assistant-scoped `/v1/events` connection. Subscribers narrow on
    * `payload.type`. Conversation-scoped consumers must filter on
-   * `payload.conversationKey` themselves — the bus delivers every
+   * `event.conversationId` themselves — the bus delivers every
    * event the underlying stream sees.
    */
   "sse.event": AssistantEvent;

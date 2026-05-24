@@ -12,7 +12,6 @@ import { join } from "node:path";
 import { and, asc, desc, eq, gt } from "drizzle-orm";
 
 import type { AssistantConfig } from "../../config/types.js";
-import { resolveGuardianPersona } from "../../prompts/persona-resolver.js";
 import { buildCoreIdentityContext } from "../../prompts/system-prompt.js";
 import {
   extractToolUse,
@@ -1026,10 +1025,7 @@ export async function runGraphExtraction(
   const candidateNodeIds = new Set(candidateNodes.map((n) => n.id));
 
   // 4. Build prompt
-  const userPersona = resolveGuardianPersona();
-  const identityContext = buildCoreIdentityContext({
-    userPersona: userPersona ?? undefined,
-  });
+  const identityContext = buildCoreIdentityContext();
 
   const activeSet = opts?.activeContextNodeIds
     ? new Set(opts.activeContextNodeIds)

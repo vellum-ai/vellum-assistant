@@ -60,15 +60,21 @@ function makeDelete(conversationId: string): [Request, string[]] {
 // ---------------------------------------------------------------------------
 
 describe("GET /v1/permissions/thresholds/conversations/:conversationId", () => {
-  test("returns 404 for nonexistent conversation", async () => {
+  test("returns 200 with threshold:null when no override exists", async () => {
+    // "No override" is the common case — every conversation reads this
+    // endpoint to decide whether to apply a per-conversation threshold,
+    // and only a small fraction have one configured. Returning 200 with
+    // `{ threshold: null }` (rather than 404) avoids surfacing a
+    // misleading network error in the browser console for the default
+    // case and matches the IPC contract, which also returns null.
     const handler = createConversationThresholdGetHandler();
     const [req, params] = makeGet("conv-xyz");
 
     const res = await handler(req, params);
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(200);
 
     const body = await res.json();
-    expect(body.error).toBe("No override for this conversation");
+    expect(body).toEqual({ threshold: null });
   });
 
   test("returns threshold after PUT creates it", async () => {
@@ -160,7 +166,7 @@ describe("PUT /v1/permissions/thresholds/conversations/:conversationId", () => {
 });
 
 describe("DELETE /v1/permissions/thresholds/conversations/:conversationId", () => {
-  test("removes existing override, subsequent GET returns 404", async () => {
+  test("removes existing override, subsequent GET returns threshold:null", async () => {
     const putHandler = createConversationThresholdPutHandler();
     const getHandler = createConversationThresholdGetHandler();
     const deleteHandler = createConversationThresholdDeleteHandler();
@@ -174,10 +180,12 @@ describe("DELETE /v1/permissions/thresholds/conversations/:conversationId", () =
     const delRes = await deleteHandler(delReq, delParams);
     expect(delRes.status).toBe(204);
 
-    // Verify gone
+    // Verify gone — GET now reports the absence as a normal 200 result.
     const [getReq, getParams] = makeGet("conv-del");
     const getRes = await getHandler(getReq, getParams);
-    expect(getRes.status).toBe(404);
+    expect(getRes.status).toBe(200);
+    const body = await getRes.json();
+    expect(body).toEqual({ threshold: null });
   });
 
   test("returns 204 on nonexistent conversation (idempotent)", async () => {

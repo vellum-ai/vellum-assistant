@@ -110,6 +110,7 @@ interface ResolvedSection {
 
 function resolveSection(
   id: string,
+  ctx: SectionRenderContext,
   workspaceDir: string,
 ): ResolvedSection | null {
   const workspacePath = join(workspaceDir, `${id}.md`);
@@ -139,15 +140,28 @@ function resolveSection(
 
   // A bundled section may delegate its body to a workspace file outside
   // the section override directory (e.g. `SOUL.md` at the workspace
-  // root).  Read it now; missing/empty files yield "", which
-  // `renderSection` then gates off via its empty-body check (or via the
-  // section's `transform`, if set).
+  // root).  `workspacePath` may be a single path or an array of paths
+  // tried in order — the first one whose file exists and has non-empty
+  // content wins.  Each entry may reference `{{ctx-key}}` variables
+  // (e.g. `users/{{userSlug}}.md`) that are interpolated against the
+  // render context before resolution.  Missing/empty files yield "",
+  // which `renderSection` then gates off via its empty-body check (or
+  // via the section's `transform`, if set).
   if (bundled.workspacePath) {
-    const filePath = getWorkspacePromptPath(bundled.workspacePath);
+    const paths = Array.isArray(bundled.workspacePath)
+      ? bundled.workspacePath
+      : [bundled.workspacePath];
     let body = "";
-    if (existsSync(filePath)) {
+    for (const pathTemplate of paths) {
+      const interpolated = interpolateWorkspacePath(pathTemplate, ctx);
+      const filePath = getWorkspacePromptPath(interpolated);
+      if (!existsSync(filePath)) continue;
       try {
-        body = readFileSync(filePath, "utf-8");
+        const content = readFileSync(filePath, "utf-8");
+        if (content.trim().length > 0) {
+          body = content;
+          break;
+        }
       } catch (err) {
         log.warn({ err, filePath, id }, "Failed to read section workspacePath");
       }
@@ -162,12 +176,30 @@ function resolveSection(
   };
 }
 
+/**
+ * Interpolate `{{key}}` references in a workspace-path template against
+ * `ctx`. Section / inverted-section tags are not supported in paths —
+ * only flat variable substitution. Unresolved keys stay literal so a
+ * typo surfaces as a missing file rather than silently rendering an
+ * unrelated section.
+ */
+function interpolateWorkspacePath(
+  template: string,
+  ctx: SectionRenderContext,
+): string {
+  return template.replace(VARIABLE, (match, key: string) => {
+    const value = ctx[key];
+    if (value === undefined || value === null) return match;
+    return String(value);
+  });
+}
+
 function renderSection(
   id: string,
   ctx: SectionRenderContext,
   workspaceDir: string,
 ): string | null {
-  const section = resolveSection(id, workspaceDir);
+  const section = resolveSection(id, ctx, workspaceDir);
   if (section === null) return null;
 
   if (!isEnabled(section.enabled, ctx)) return null;

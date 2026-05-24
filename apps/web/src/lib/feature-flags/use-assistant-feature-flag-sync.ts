@@ -3,10 +3,10 @@ import { useQuery } from "@tanstack/react-query";
 
 import { client } from "@/generated/api/client.gen.js";
 import { assertHasResponse } from "@/lib/api-errors.js";
-import { useAssistantFeatureFlagStore, setAssistantIdForFlags } from "@/lib/feature-flags/assistant-feature-flag-store.js";
+import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
 import {
   ASSISTANT_FLAG_DEFAULTS,
-  ldKeyToStoreKey,
+  flagKeyToStoreKey,
 } from "@/lib/feature-flags/feature-flag-catalog.js";
 
 interface FeatureFlagEntry {
@@ -23,12 +23,22 @@ interface AssistantFlagValuesResponse {
 
 const VALID_KEYS = new Set(Object.keys(ASSISTANT_FLAG_DEFAULTS));
 
+const ASSISTANT_FLAG_VALUES_QUERY_KEY = "assistant-feature-flag-values" as const;
+
+/**
+ * Shared so the Developer panel can layer a `refetchInterval` observer
+ * on the exact same query key and let TanStack Query dedupe the fetch.
+ */
+export function assistantFlagValuesQueryKey(assistantId: string | null) {
+  return [ASSISTANT_FLAG_VALUES_QUERY_KEY, assistantId] as const;
+}
+
 function mapFlags(
   entries: FeatureFlagEntry[],
 ): Record<string, boolean> {
   const mapped: Record<string, boolean> = {};
   for (const entry of entries) {
-    const storeKey = ldKeyToStoreKey(entry.key);
+    const storeKey = flagKeyToStoreKey(entry.key);
     if (VALID_KEYS.has(storeKey)) {
       mapped[storeKey] = entry.enabled;
     }
@@ -36,7 +46,7 @@ function mapFlags(
   return mapped;
 }
 
-async function fetchAssistantFlagValues(
+export async function fetchAssistantFlagValues(
   assistantId: string,
 ): Promise<AssistantFlagValuesResponse> {
   const { data, error, response } = await client.get<
@@ -60,30 +70,42 @@ async function fetchAssistantFlagValues(
   return data as AssistantFlagValuesResponse;
 }
 
+/**
+ * Fetches `/v1/assistants/:id/feature-flags` once per assistant and
+ * resets the store on assistant switch. Mount on `RootLayout`.
+ */
 export function useAssistantFeatureFlagSync(assistantId: string | null) {
   const enabled = assistantId !== null;
   const prevAssistantId = useRef(assistantId);
 
   useEffect(() => {
     if (prevAssistantId.current !== assistantId) {
-      useAssistantFeatureFlagStore.getState().setFlags(ASSISTANT_FLAG_DEFAULTS);
+      // Reset to registry defaults AND clear hasHydrated — until the next
+      // /feature-flags response lands, callers must treat current values
+      // as provisional. See `hasHydrated` doc on the store.
+      useAssistantFeatureFlagStore.getState().resetForAssistantSwitch();
       prevAssistantId.current = assistantId;
     }
-    setAssistantIdForFlags(assistantId);
   }, [assistantId]);
 
   const { data } = useQuery({
-    queryKey: ["assistant-feature-flag-values", assistantId] as const,
+    queryKey: assistantFlagValuesQueryKey(assistantId),
     queryFn: () => fetchAssistantFlagValues(assistantId!),
     enabled,
     staleTime: 5_000,
-    refetchInterval: 5_000,
     retry: 1,
   });
 
   useEffect(() => {
     if (data?.flags) {
-      useAssistantFeatureFlagStore.getState().setFlags(mapFlags(data.flags));
+      const store = useAssistantFeatureFlagStore.getState();
+      store.setFlags(mapFlags(data.flags));
+      // Mark hydrated AFTER values are written so a consumer subscribing
+      // to both fields sees the real flag in the same render that
+      // hasHydrated flips to true.
+      store.markHydrated();
     }
   }, [data]);
 }
+
+

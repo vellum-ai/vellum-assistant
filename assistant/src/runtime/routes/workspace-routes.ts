@@ -59,9 +59,12 @@ function isSoundsWorkspacePath(path: string): boolean {
   );
 }
 
-function publishSoundsConfigUpdatedForPaths(paths: string[]): void {
+function publishSoundsConfigUpdatedForPaths(
+  paths: string[],
+  originClientId?: string,
+): void {
   if (paths.some(isSoundsWorkspacePath)) {
-    publishSoundsConfigUpdated();
+    publishSoundsConfigUpdated(originClientId);
   }
 }
 
@@ -263,7 +266,7 @@ function handleWorkspaceFileContent({
 // POST /v1/workspace/write — create or overwrite a file
 // ---------------------------------------------------------------------------
 
-function handleWorkspaceWrite({ body }: RouteHandlerArgs) {
+function handleWorkspaceWrite({ body, headers }: RouteHandlerArgs) {
   const path = body?.path as string | undefined;
   const content = body?.content as string | undefined;
   const encoding = body?.encoding as string | undefined;
@@ -292,7 +295,10 @@ function handleWorkspaceWrite({ body }: RouteHandlerArgs) {
 
   mkdirSync(dirname(resolved), { recursive: true });
   writeFileSync(resolved, buffer);
-  publishSoundsConfigUpdatedForPaths([path]);
+  publishSoundsConfigUpdatedForPaths(
+    [path],
+    headers?.["x-vellum-client-id"]?.trim() || undefined,
+  );
 
   return { path, size: buffer.byteLength };
 }
@@ -301,7 +307,7 @@ function handleWorkspaceWrite({ body }: RouteHandlerArgs) {
 // POST /v1/workspace/mkdir — create directories
 // ---------------------------------------------------------------------------
 
-function handleWorkspaceMkdir({ body }: RouteHandlerArgs) {
+function handleWorkspaceMkdir({ body, headers }: RouteHandlerArgs) {
   const path = body?.path as string | undefined;
   if (!path) {
     throw new BadRequestError("path is required");
@@ -320,7 +326,10 @@ function handleWorkspaceMkdir({ body }: RouteHandlerArgs) {
   }
 
   mkdirSync(resolved, { recursive: true });
-  publishSoundsConfigUpdatedForPaths([path]);
+  publishSoundsConfigUpdatedForPaths(
+    [path],
+    headers?.["x-vellum-client-id"]?.trim() || undefined,
+  );
   return { path };
 }
 
@@ -328,7 +337,7 @@ function handleWorkspaceMkdir({ body }: RouteHandlerArgs) {
 // POST /v1/workspace/rename — rename/move files and directories
 // ---------------------------------------------------------------------------
 
-function handleWorkspaceRename({ body }: RouteHandlerArgs) {
+function handleWorkspaceRename({ body, headers }: RouteHandlerArgs) {
   const oldPath = body?.oldPath as string | undefined;
   const newPath = body?.newPath as string | undefined;
   if (!oldPath || !newPath) {
@@ -360,7 +369,10 @@ function handleWorkspaceRename({ body }: RouteHandlerArgs) {
 
   mkdirSync(dirname(resolvedNew), { recursive: true });
   renameSync(resolvedOld, resolvedNew);
-  publishSoundsConfigUpdatedForPaths([oldPath, newPath]);
+  publishSoundsConfigUpdatedForPaths(
+    [oldPath, newPath],
+    headers?.["x-vellum-client-id"]?.trim() || undefined,
+  );
   return { oldPath, newPath };
 }
 
@@ -368,7 +380,7 @@ function handleWorkspaceRename({ body }: RouteHandlerArgs) {
 // POST /v1/workspace/delete — delete files and directories
 // ---------------------------------------------------------------------------
 
-function handleWorkspaceDelete({ body }: RouteHandlerArgs) {
+function handleWorkspaceDelete({ body, headers }: RouteHandlerArgs) {
   const path = body?.path as string | undefined;
   if (!path) {
     throw new BadRequestError("path is required");
@@ -388,7 +400,10 @@ function handleWorkspaceDelete({ body }: RouteHandlerArgs) {
   }
 
   rmSync(resolved, { recursive: true, force: true });
-  publishSoundsConfigUpdatedForPaths([path]);
+  publishSoundsConfigUpdatedForPaths(
+    [path],
+    headers?.["x-vellum-client-id"]?.trim() || undefined,
+  );
   return { success: true };
 }
 

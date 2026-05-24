@@ -1,0 +1,4 @@
+[   19510ms] [WARNING] No `HydrateFallback` element provided to render during initial hydration @ https://dev-assistant.vellum.ai/assistant/assets/index-DI_l1VJn.js:9
+[   19654ms] [ERROR] Failed to load resource: the server responded with a status of 400 () @ https://dev-assistant.vellum.ai/v1/assistants/?hosting=platform:0
+[   19658ms] [ERROR] Failed to load resource: the server responded with a status of 400 () @ https://dev-assistant.vellum.ai/v1/feature-flags/client-flag-values/:0
+[   21375ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://dev-assistant.vellum.ai/v1/assistants/019e4cca-02a3-7061-9ea2-bc1e6c864c71/surfaces/f255b106-02d3-435e-978e-dd84da8ed328?conversationId=b4f38cde-eaeb-4de5-9372-2c38373efd46:0

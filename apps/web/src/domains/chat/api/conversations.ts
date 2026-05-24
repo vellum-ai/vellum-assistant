@@ -24,7 +24,7 @@ import {
 // ---------------------------------------------------------------------------
 
 export interface Conversation {
-  conversationKey: string;
+  conversationId: string;
   title?: string;
   createdAt?: string;
   lastMessageAt?: string;
@@ -191,14 +191,21 @@ export function parseConversation(raw: unknown): Conversation | null {
   if (!raw || typeof raw !== "object") return null;
 
   const record = raw as Record<string, unknown>;
-  const conversationKey =
-    typeof record.conversationKey === "string"
-      ? record.conversationKey
+  // Read `conversationId` (the canonical entity field name) with `id` as a
+  // synonym. The sole production caller of `parseConversation` is
+  // `listConversations`, which consumes `GET /v1/conversations/` records
+  // built by the daemon's `serializeConversationSummary` — that serializer
+  // emits `id` only today, so the `conversationId` branch exists for
+  // forward compatibility once the daemon migrates to the canonical name
+  // (LUM-1890 Phase 1).
+  const conversationId =
+    typeof record.conversationId === "string"
+      ? record.conversationId
       : typeof record.id === "string"
         ? record.id
         : null;
 
-  if (!conversationKey) return null;
+  if (!conversationId) return null;
 
   const attention =
     record.assistantAttention &&
@@ -227,7 +234,7 @@ export function parseConversation(raw: unknown): Conversation | null {
   const originChannel = bindingSourceChannel ?? conversationOriginChannel;
 
   return {
-    conversationKey,
+    conversationId,
     title,
     createdAt: normalizeTimestamp(record.createdAt),
     lastMessageAt: normalizeTimestamp(record.lastMessageAt ?? record.updatedAt),
@@ -376,10 +383,10 @@ export async function listConversations(
   const seen = new Set<string>();
   const conversations: Conversation[] = [];
   for (const conversation of [...foreground, ...background]) {
-    if (seen.has(conversation.conversationKey)) {
+    if (seen.has(conversation.conversationId)) {
       continue;
     }
-    seen.add(conversation.conversationKey);
+    seen.add(conversation.conversationId);
     conversations.push(conversation);
   }
 
@@ -419,7 +426,7 @@ export function canMarkUnread(conversation: Conversation): boolean {
   return (
     !conversation.hasUnseenLatestAssistantMessage &&
     !isBackgroundConversation(conversation) &&
-    conversation.conversationKey != null &&
+    conversation.conversationId != null &&
     conversation.latestAssistantMessageAt != null
   );
 }
@@ -434,20 +441,20 @@ export function canMarkRead(conversation: Conversation): boolean {
   return (
     conversation.hasUnseenLatestAssistantMessage === true &&
     !isBackgroundConversation(conversation) &&
-    conversation.conversationKey != null
+    conversation.conversationId != null
   );
 }
 
 async function postConversationAttentionAction(
   endpoint: "seen" | "unread",
   assistantId: string,
-  conversationKey: string,
+  conversationId: string,
 ): Promise<void> {
   const request = client.post<unknown, unknown>({
     ...SDK_BASE_OPTIONS,
     url: `/v1/assistants/{assistant_id}/conversations/${endpoint}/`,
     path: { assistant_id: assistantId },
-    body: { conversationId: conversationKey },
+    body: { conversationId },
     headers: { "Content-Type": "application/json" },
     throwOnError: false,
   });
@@ -470,26 +477,26 @@ async function postConversationAttentionAction(
 
 export async function markConversationSeen(
   assistantId: string,
-  conversationKey: string,
+  conversationId: string,
 ): Promise<void> {
-  await postConversationAttentionAction("seen", assistantId, conversationKey);
+  await postConversationAttentionAction("seen", assistantId, conversationId);
 }
 
 export async function markConversationUnread(
   assistantId: string,
-  conversationKey: string,
+  conversationId: string,
 ): Promise<void> {
-  await postConversationAttentionAction("unread", assistantId, conversationKey);
+  await postConversationAttentionAction("unread", assistantId, conversationId);
 }
 
 export async function archiveConversation(
   assistantId: string,
-  conversationKey: string,
+  conversationId: string,
 ): Promise<void> {
   const { error, response } = await client.post<unknown, unknown>({
     ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/conversations/{conversation_id}/archive",
-    path: { assistant_id: assistantId, conversation_id: conversationKey },
+    path: { assistant_id: assistantId, conversation_id: conversationId },
     throwOnError: false,
   });
   assertHasResponse(
@@ -509,12 +516,12 @@ export async function archiveConversation(
 
 export async function unarchiveConversation(
   assistantId: string,
-  conversationKey: string,
+  conversationId: string,
 ): Promise<void> {
   const { error, response } = await client.post<unknown, unknown>({
     ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/conversations/{conversation_id}/unarchive",
-    path: { assistant_id: assistantId, conversation_id: conversationKey },
+    path: { assistant_id: assistantId, conversation_id: conversationId },
     throwOnError: false,
   });
   assertHasResponse(
@@ -536,12 +543,12 @@ export async function unarchiveConversation(
 // to match the pattern of other conversation operations in this file.
 export async function analyzeConversation(
   assistantId: string,
-  conversationKey: string,
-): Promise<{ conversationKey: string }> {
+  conversationId: string,
+): Promise<{ conversationId: string }> {
   const { data, error, response } = await client.post<unknown, unknown>({
     ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/conversations/{conversation_id}/analyze",
-    path: { assistant_id: assistantId, conversation_id: conversationKey },
+    path: { assistant_id: assistantId, conversation_id: conversationId },
     throwOnError: false,
   });
   assertHasResponse(
@@ -576,17 +583,17 @@ export async function analyzeConversation(
     );
   }
 
-  return { conversationKey: newConversationId };
+  return { conversationId: newConversationId };
 }
 
 export async function cancelGeneration(
   assistantId: string,
-  conversationKey: string,
+  conversationId: string,
 ): Promise<void> {
   const { error, response } = await client.post<unknown, unknown>({
     ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/conversations/{conversation_id}/cancel",
-    path: { assistant_id: assistantId, conversation_id: conversationKey },
+    path: { assistant_id: assistantId, conversation_id: conversationId },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to cancel generation.");
@@ -602,14 +609,14 @@ export async function cancelGeneration(
  */
 export async function abortSubagent(
   assistantId: string,
-  conversationKey: string,
+  conversationId: string,
   subagentId: string,
 ): Promise<void> {
   const { error, response } = await client.post<unknown, unknown>({
     ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/subagents/{subagent_id}/abort",
     path: { assistant_id: assistantId, subagent_id: subagentId },
-    body: { conversationId: conversationKey },
+    body: { conversationId },
     headers: { "Content-Type": "application/json" },
     throwOnError: false,
   });
@@ -674,13 +681,13 @@ export async function forkConversation(
 // to match the pattern of other conversation operations in this file.
 export async function renameConversation(
   assistantId: string,
-  conversationKey: string,
+  conversationId: string,
   name: string,
 ): Promise<void> {
   const { error, response } = await client.patch<unknown, unknown>({
     ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/conversations/{conversation_id}/name",
-    path: { assistant_id: assistantId, conversation_id: conversationKey },
+    path: { assistant_id: assistantId, conversation_id: conversationId },
     body: { name },
     headers: { "Content-Type": "application/json" },
     throwOnError: false,

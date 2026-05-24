@@ -35,7 +35,7 @@ describe("registerSseClient", () => {
     const clients = getSseClients();
     const found = clients.find((c) => c.id === id);
     expect(found).toBeDefined();
-    expect(found!.conversationKey).toBe("conv-2");
+    expect(found!.conversationId).toBe("conv-2");
     expect(found!.abortSignal).toBe(ctrl.signal);
     expect(found!.establishedAt).toBeNull();
     expect(found!.initiatedAt).toBeGreaterThanOrEqual(before);

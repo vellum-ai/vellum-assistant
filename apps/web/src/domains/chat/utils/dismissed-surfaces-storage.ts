@@ -9,7 +9,7 @@
 // entirely even if still pending. We persist resolved IDs here so rehydration
 // can filter them out safely.
 //
-// Shape on disk: { [conversationKey]: string[] }, keyed per assistant.
+// Shape on disk: { [conversationId]: string[] }, keyed per assistant.
 
 import type { DisplayMessage } from "@/domains/chat/types/types.js";
 
@@ -50,7 +50,7 @@ function safeParse(raw: string | null): StoredMap {
 
 export function loadDismissedSurfaceIds(
   assistantId: string,
-  conversationKey: string,
+  conversationId: string,
 ): Set<string> {
   if (typeof window === "undefined") {
     return new Set();
@@ -58,7 +58,7 @@ export function loadDismissedSurfaceIds(
   try {
     const raw = window.localStorage.getItem(storageKey(assistantId));
     const map = safeParse(raw);
-    const ids = map[conversationKey];
+    const ids = map[conversationId];
     return ids ? new Set(ids) : new Set();
   } catch {
     return new Set();
@@ -67,7 +67,7 @@ export function loadDismissedSurfaceIds(
 
 export function saveDismissedSurfaceIds(
   assistantId: string,
-  conversationKey: string,
+  conversationId: string,
   ids: Set<string>,
 ): void {
   if (typeof window === "undefined") {
@@ -82,7 +82,7 @@ export function saveDismissedSurfaceIds(
     if (idArray.length > MAX_IDS_PER_CONVERSATION) {
       idArray = idArray.slice(idArray.length - MAX_IDS_PER_CONVERSATION);
     }
-    existing[conversationKey] = idArray;
+    existing[conversationId] = idArray;
 
     const entries = Object.entries(existing);
     if (entries.length > MAX_ENTRIES_PER_ASSISTANT) {

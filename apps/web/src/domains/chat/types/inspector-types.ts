@@ -5,7 +5,7 @@
  * + `assistant/src/runtime/routes/llm-context-normalization.ts`). The
  * route is reachable on web through the gateway's runtime-proxy
  * wildcard at
- * `/v1/assistants/{assistantId}/messages/{messageId}/llm-context/`.
+ * `/v1/assistants/{assistantId}/conversations/llm-context/`.
  */
 
 /**
@@ -166,7 +166,7 @@ export interface MemoryV2ActivationLog {
 
 /**
  * The full payload returned by
- * `GET /v1/messages/{messageId}/llm-context`. Hydrates the Overview /
+ * `GET /v1/conversations/llm-context`. Hydrates the Overview /
  * Memory / Prompt / Response tabs from a single fetch.
  *
  * `conversationTotalEstimatedCostUsd` is the running total of priced
@@ -176,7 +176,9 @@ export interface MemoryV2ActivationLog {
  * as "unavailable".
  */
 export interface LlmContextResponse {
-  messageId: string;
+  messageId?: string | null;
+  conversationKey?: string | null;
+  conversationId?: string | null;
   conversationKind: string;
   conversationTotalEstimatedCostUsd?: number | null;
   logs: LLMRequestLogEntry[];

@@ -1,4 +1,5 @@
-import { readdir } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
 
 import {
   readAssistantEvents,
@@ -38,6 +39,20 @@ export interface ReportRunSummary {
   totalCostUsd?: number;
 }
 
+/**
+ * One per-subprocess log written by an adapter (Vellum hatch, Hermes setup, …).
+ *
+ * Carries the on-disk filename so the report UI can link to the raw file
+ * download, plus the full file contents so the same UI can inline-render
+ * the log in the same `[ts] [step] glyph msg` shape as the runner log.
+ * Vargas's feedback called out that scrolling to a separate file just to
+ * see why hatch failed was a regression vs. the previous in-page surface.
+ */
+export interface SubprocessLogFile {
+  name: string;
+  content: string;
+}
+
 /** Full execution detail — drilled-into view from session → test → profile. */
 export interface ReportRunDetail extends ReportRunSummary {
   metadata?: RunMetadata;
@@ -47,11 +62,29 @@ export interface ReportRunDetail extends ReportRunSummary {
   assistantEvents: AgentEvent[];
   simulatorMessages: AgentMessage[];
   progressEvents: PersistedProgressEvent[];
+  /**
+   * Per-subprocess stdout/stderr logs the adapters tee'd to the run
+   * directory (e.g. `subprocess-hatch.log`, `subprocess-setup-1.log`).
+   * Each entry carries the filename plus the full file content so the
+   * UI can inline-render the log in the same shape as the runner log
+   * AND still expose a raw-download link at
+   * `/api/runs/<runId>/files/<name>` for piping into other tools.
+   * Empty when no adapter call produced a log.
+   */
+  subprocessLogs: SubprocessLogFile[];
+  /**
+   * Filenames of any container-forensics artifacts written by the vellum
+   * adapter on hatch failure: `docker-inspect.json` and/or `docker-logs.txt`.
+   * Empty when the run never hit the catch path. Same URL contract as
+   * `subprocessLogs`.
+   */
+  dockerArtifacts: string[];
 }
 
 export type SessionStatus =
   | "completed"
   | "failed"
+  | "abandoned"
   | "partial"
   | "running"
   | "unknown";
@@ -177,6 +210,71 @@ export async function listReportRunIds(): Promise<string[]> {
   }
 }
 
+/**
+ * Set of bare filenames that may appear at the top of a run directory and
+ * should NOT be surfaced as `subprocessLogs` or `dockerArtifacts` (they're
+ * the structured artifacts loaded by their own readers above).
+ */
+const STRUCTURED_RUN_FILES = new Set<string>([
+  "run.json",
+  "metrics.json",
+  "transcript.json",
+  "assistant-events.json",
+  "simulator-messages.json",
+  "usage.json",
+  "progress.ndjson",
+]);
+
+/** Filenames the docker-forensics capture path writes on hatch failure. */
+const DOCKER_ARTIFACT_NAMES = new Set<string>([
+  "docker-inspect.json",
+  "docker-logs.txt",
+]);
+
+/**
+ * List run-directory files that should be exposed as raw downloadable
+ * artifacts on the run-detail page. Returns the subprocess logs with
+ * their full contents already loaded (so the UI can inline-render them)
+ * and docker snapshot filenames (which stay as raw downloads — they're
+ * structured JSON / multi-megabyte container stdout that don't make
+ * sense to inline).
+ */
+async function listExtraArtifacts(runDir: string): Promise<{
+  subprocessLogs: SubprocessLogFile[];
+  dockerArtifacts: string[];
+}> {
+  let entries: string[];
+  try {
+    entries = await readdir(runDir);
+  } catch {
+    return { subprocessLogs: [], dockerArtifacts: [] };
+  }
+  const subprocessNames: string[] = [];
+  const dockerArtifacts: string[] = [];
+  for (const name of entries.sort()) {
+    if (STRUCTURED_RUN_FILES.has(name)) continue;
+    if (DOCKER_ARTIFACT_NAMES.has(name)) {
+      dockerArtifacts.push(name);
+      continue;
+    }
+    if (/^subprocess-[a-z0-9\-]+\.log$/.test(name)) {
+      subprocessNames.push(name);
+      continue;
+    }
+  }
+  // Read every subprocess log's contents in parallel. Per-file errors
+  // collapse to empty strings so one unreadable log doesn't blank the
+  // whole page — the operator still sees the filename and can click
+  // through to the raw endpoint to diagnose.
+  const subprocessLogs = await Promise.all(
+    subprocessNames.map(async (name) => ({
+      name,
+      content: await readFile(join(runDir, name), "utf8").catch(() => ""),
+    })),
+  );
+  return { subprocessLogs, dockerArtifacts };
+}
+
 export async function readReportRun(runId: string): Promise<ReportRunDetail> {
   const artifacts = runArtifacts(runId);
   const [
@@ -187,6 +285,7 @@ export async function readReportRun(runId: string): Promise<ReportRunDetail> {
     assistantEvents,
     simulatorMessages,
     progressEvents,
+    extras,
   ] = await Promise.all([
     readRunMetadata(runId),
     readMetricResults(runId),
@@ -195,6 +294,7 @@ export async function readReportRun(runId: string): Promise<ReportRunDetail> {
     readAssistantEvents(runId),
     readSimulatorMessages(runId),
     readProgressEvents(runId),
+    listExtraArtifacts(artifacts.runDir),
   ]);
 
   const summary = summarize({
@@ -223,6 +323,8 @@ export async function readReportRun(runId: string): Promise<ReportRunDetail> {
     assistantEvents,
     simulatorMessages,
     progressEvents,
+    subprocessLogs: extras.subprocessLogs,
+    dockerArtifacts: extras.dockerArtifacts,
   };
 }
 
@@ -258,8 +360,15 @@ function deriveSessionStatus(runs: ReportRunSummary[]): SessionStatus {
   if (states.has("running")) return "running";
   const hasFailed = states.has("failed");
   const hasCompleted = states.has("completed");
-  if (hasFailed && hasCompleted) return "partial";
+  const hasAbandoned = states.has("abandoned");
+  // Mixed terminal outcomes — surface as "partial" so the index makes it
+  // clear something didn't fully succeed. Abandoned counts as a non-success.
+  if ((hasFailed || hasAbandoned) && hasCompleted) return "partial";
   if (hasFailed) return "failed";
+  // All terminal runs are abandoned — surface that explicitly so it's
+  // distinguishable from clean failure and so the user knows to investigate
+  // stuck/killed processes rather than test bugs.
+  if (hasAbandoned) return "abandoned";
   if (hasCompleted) return "completed";
   return "unknown";
 }

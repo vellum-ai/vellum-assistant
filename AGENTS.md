@@ -166,7 +166,7 @@ The daemon uses `DAEMON_INTERNAL_ASSISTANT_ID` (`'self'`) from `assistant/src/ru
 
 ## Assistant Feature Flags
 
-See `meta/feature-flags/AGENTS.md` for naming, registry, resolver, and the required companion PR in `vellum-assistant-platform` (LaunchDarkly Terraform).
+See `meta/feature-flags/AGENTS.md` for naming, registry, resolver, and the required companion PR in `vellum-assistant-platform` (Terraform).
 
 **Permission controls v2 rule**: Under `permission-controls-v2`, do not introduce new deterministic approval modes for assistant-owned actions beyond the conversation-scoped host computer access gate. No global toggles, no per-tool or per-command approvals, no 10-minute or conversation-wide approval verbs, no wildcard scopes, and no persistent trust-rule UI for v2 flows. If a v2 path needs consent, prefer model-mediated conversation flow unless it is a true host-computer or identity-boundary enforcement case.
 

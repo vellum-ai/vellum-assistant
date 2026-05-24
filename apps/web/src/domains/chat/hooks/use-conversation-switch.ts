@@ -35,12 +35,11 @@ import type { AssistantStateKind, ChatError } from "@/domains/chat/types.js";
 export interface UseConversationSwitchParams {
   assistantId: string | null;
   assistantStateKind: AssistantStateKind;
-  activeConversationKey: string | null;
+  activeConversationId: string | null;
 
   // Refs owned by the parent that the reset clears or refreshes.
-  draftKeyResolutionRef: MutableRefObject<boolean>;
-  previousConversationKeyRef: MutableRefObject<string | null>;
-  needsNewBubbleRef: MutableRefObject<boolean>;
+  draftConversationIdResolutionRef: MutableRefObject<boolean>;
+  previousConversationIdRef: MutableRefObject<string | null>;
   streamingMessageIdsRef: MutableRefObject<Set<string>>;
   pendingQueuedStableIdsRef: MutableRefObject<string[]>;
   requestIdToStableIdRef: MutableRefObject<Map<string, string>>;
@@ -84,10 +83,9 @@ export interface ConversationSwitchHandles {
 export function useConversationSwitch({
   assistantId,
   assistantStateKind,
-  activeConversationKey,
-  draftKeyResolutionRef,
-  previousConversationKeyRef,
-  needsNewBubbleRef,
+  activeConversationId,
+  draftConversationIdResolutionRef,
+  previousConversationIdRef,
   streamingMessageIdsRef,
   pendingQueuedStableIdsRef,
   requestIdToStableIdRef,
@@ -111,39 +109,40 @@ export function useConversationSwitch({
   const lastAppliedDataRef = useRef(0);
 
   useEffect(() => {
-    if (assistantStateKind !== "active" || !assistantId || !activeConversationKey) {
+    if (assistantStateKind !== "active" || !assistantId || !activeConversationId) {
       return;
     }
 
     // Draft-key resolution (draft→server ID) is not a real switch.
-    if (draftKeyResolutionRef.current) {
-      draftKeyResolutionRef.current = false;
+    if (draftConversationIdResolutionRef.current) {
+      draftConversationIdResolutionRef.current = false;
       return;
     }
 
     // Track outgoing conversation's attention state.
-    const outgoingKey = previousConversationKeyRef.current;
+    const outgoingConversationId = previousConversationIdRef.current;
     const isConversationSwitch = Boolean(
-      outgoingKey && outgoingKey !== activeConversationKey,
+      outgoingConversationId && outgoingConversationId !== activeConversationId,
     );
-    if (isConversationSwitch && outgoingKey) {
+    if (isConversationSwitch && outgoingConversationId) {
       const interactionSnapshot = useInteractionStore.getState();
       if (interactionSnapshot.pendingSecret || interactionSnapshot.pendingConfirmation) {
-        useConversationStore.getState().addAttentionKey(outgoingKey);
+        useConversationStore.getState().addAttentionConversationId(outgoingConversationId);
       }
     }
-    previousConversationKeyRef.current = activeConversationKey;
+    previousConversationIdRef.current = activeConversationId;
 
     recordChatDiagnostic("conversation_switch_reset", {
       assistantId,
-      conversationKey: activeConversationKey,
-      outgoingConversationKey: outgoingKey ?? null,
+      conversationId: activeConversationId,
+      outgoingConversationId: outgoingConversationId ?? null,
     });
 
     // Reset all per-conversation state so nothing leaks between threads.
     useTurnStore.getState().resetTurn();
     setIsLoadingHistory(true);
-    needsNewBubbleRef.current = true;
+    // `setMessages([])` makes the tail derivation return "create new bubble"
+    // for any subsequent stream event — no separate latch needed.
     setMessages([]);
     streamingMessageIdsRef.current.clear();
     pendingQueuedStableIdsRef.current = [];
@@ -163,11 +162,11 @@ export function useConversationSwitch({
     setCompactionCircuitOpenUntil(null);
     lastSuggestionMsgIdRef.current = null;
     setContextWindowUsage(
-      contextWindowUsageByConversationRef.current.get(activeConversationKey) ?? null,
+      contextWindowUsageByConversationRef.current.get(activeConversationId) ?? null,
     );
     dismissedSurfaceIdsRef.current = loadDismissedSurfaceIds(
       assistantId,
-      activeConversationKey,
+      activeConversationId,
     );
     setError((prev) =>
       shouldSuppressGenericChatErrorNotice(prev) ? prev : null,
@@ -180,14 +179,13 @@ export function useConversationSwitch({
   }, [
     assistantStateKind,
     assistantId,
-    activeConversationKey,
+    activeConversationId,
     resetChatAttachments,
     // Refs (stable references, listed for completeness):
-    draftKeyResolutionRef,
-    previousConversationKeyRef,
+    draftConversationIdResolutionRef,
+    previousConversationIdRef,
     contextWindowUsageByConversationRef,
     dismissedSurfaceIdsRef,
-    needsNewBubbleRef,
     streamingMessageIdsRef,
     pendingQueuedStableIdsRef,
     requestIdToStableIdRef,

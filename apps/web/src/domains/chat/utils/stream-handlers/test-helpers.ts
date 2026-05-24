@@ -14,13 +14,12 @@ export function makeCtx(
     router: { push: mock(() => {}) },
     isNative: false,
     streamContextRef: {
-      current: { assistantId: "ast-1", conversationKey: "conv-1" },
+      current: { assistantId: "ast-1", conversationId: "conv-1" },
     },
-    activeConversationKeyRef: { current: "conv-1" },
+    activeConversationIdRef: { current: "conv-1" },
     assistantIdRef: { current: "ast-1" },
     setMessages: mock(() => {}),
     messagesRef: { current: [] },
-    needsNewBubbleRef: { current: false },
     turnActions: {
       requestSend: mock(() => {}),
       acceptSend: mock(() => {}),

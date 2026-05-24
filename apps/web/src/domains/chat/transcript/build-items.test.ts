@@ -407,6 +407,150 @@ describe("buildTranscriptItems", () => {
   });
 
   // ---------------------------------------------------------------------------
+  // Blank user-row filter — pagination-boundary orphans
+  //
+  // At a history-pagination boundary, the runtime keeps tool_result-only
+  // user rows even when their parent tool_use lives on a previous page
+  // (to avoid permanent data loss). `renderHistoryContent` then drops the
+  // orphan tool_result block, leaving the row on the wire with no content,
+  // no segments, no surfaces, no attachments, and no tool calls — a blank
+  // user bubble. The projection layer drops these so they don't render.
+  // ---------------------------------------------------------------------------
+
+  test("truly blank user rows (no content, no segments, no surfaces, no attachments, no tool calls) are dropped", () => {
+    const blank = makeMessage({
+      id: "m1",
+      role: "user",
+      content: "",
+      stableId: "s-blank-server",
+    });
+
+    const items = buildTranscriptItems({
+      ...emptyInput(),
+      messages: [blank],
+    });
+
+    expect(items).toHaveLength(0);
+  });
+
+  test("blank user rows with whitespace-only content are dropped", () => {
+    const whitespace = makeMessage({
+      id: "m1",
+      role: "user",
+      content: "   \n\t  ",
+      stableId: "s-blank-ws",
+    });
+
+    const items = buildTranscriptItems({
+      ...emptyInput(),
+      messages: [whitespace],
+    });
+
+    expect(items).toHaveLength(0);
+  });
+
+  test("blank user rows with empty textSegments are dropped", () => {
+    const emptySegments = makeMessage({
+      id: "m1",
+      role: "user",
+      content: "",
+      stableId: "s-empty-segments",
+      textSegments: [{ type: "text", content: "" }],
+    });
+
+    const items = buildTranscriptItems({
+      ...emptyInput(),
+      messages: [emptySegments],
+    });
+
+    expect(items).toHaveLength(0);
+  });
+
+  test("user rows with non-empty textSegments are kept (even if content is empty)", () => {
+    // Some history paths populate textSegments instead of (or in addition to)
+    // the flat content field — those rows are meaningful and must render.
+    const segmentsOnly = makeMessage({
+      id: "m1",
+      role: "user",
+      content: "",
+      stableId: "s-segments-only",
+      textSegments: [{ type: "text", content: "Hello via segments" }],
+    });
+
+    const items = buildTranscriptItems({
+      ...emptyInput(),
+      messages: [segmentsOnly],
+    });
+
+    expect(items).toHaveLength(1);
+    expect((items[0] as MessageItem).message).toBe(segmentsOnly);
+  });
+
+  test("user rows with slackMessage chip are kept (even if content is empty)", () => {
+    const slack = makeMessage({
+      id: "m1",
+      role: "user",
+      content: "",
+      stableId: "s-slack",
+      slackMessage: {
+        channelId: "C123",
+        channelTs: "1700000000.000100",
+      },
+    });
+
+    const items = buildTranscriptItems({
+      ...emptyInput(),
+      messages: [slack],
+    });
+
+    expect(items).toHaveLength(1);
+    expect((items[0] as MessageItem).message).toBe(slack);
+  });
+
+  test("queued blank user rows are NOT dropped (queued marker handles them)", () => {
+    // A blank user row with queueStatus="queued" passes through the filter
+    // so the projection layer can collapse it into a single QueuedMarker
+    // entry — dropping would hide the user's pending intent.
+    const queued = makeMessage({
+      id: undefined,
+      role: "user",
+      content: "Send when ready",
+      stableId: "s-queued",
+      queueStatus: "queued",
+      queuePosition: 1,
+    });
+
+    const items = buildTranscriptItems({
+      ...emptyInput(),
+      messages: [queued],
+    });
+
+    // Queued marker collapses queued rows into a single QueuedMarkerItem.
+    expect(items).toHaveLength(1);
+    expect(items[0]!.kind).toBe("queuedMarker");
+  });
+
+  test("assistant blank rows are NOT dropped (filter is user-only)", () => {
+    // Assistant rows can legitimately be empty during streaming setup —
+    // the streaming layer fills them in. The blank-row filter must not
+    // touch them.
+    const blankAssistant = makeMessage({
+      id: "m1",
+      role: "assistant",
+      content: "",
+      stableId: "s-assistant-blank",
+    });
+
+    const items = buildTranscriptItems({
+      ...emptyInput(),
+      messages: [blankAssistant],
+    });
+
+    expect(items).toHaveLength(1);
+    expect((items[0] as MessageItem).message).toBe(blankAssistant);
+  });
+
+  // ---------------------------------------------------------------------------
   // Confirmation path — inline attachment vs standalone fallback
   // ---------------------------------------------------------------------------
 

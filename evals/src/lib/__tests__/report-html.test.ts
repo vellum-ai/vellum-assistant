@@ -144,6 +144,8 @@ const executionDetail: ReportRunDetail = {
       emittedAt: "2026-05-15T12:00:00.500Z",
     },
   ],
+  subprocessLogs: [],
+  dockerArtifacts: [],
 };
 
 describe("report html", () => {
@@ -298,5 +300,172 @@ describe("report html", () => {
     expect(html).not.toContain("Cost pricing");
     expect(html).not.toContain("Partial pricing");
     expect(html).not.toContain("Cost unavailable");
+  });
+
+  // -- no-silent-stuck UI surfaces -------------------------------------------
+
+  test("index page renders a Delete-all form only when there are sessions", () => {
+    // The form is the entire interactive contract now — POST to the
+    // server-side endpoint, server 303-redirects back to `/`. No client
+    // JS involved, so we just assert the form markup is there.
+    const populated = renderReportPage({
+      kind: "index",
+      sessions: [sessionSummary],
+    });
+    expect(populated).toContain('action="/api/runs/delete-all"');
+    expect(populated).toContain('method="post"');
+    expect(populated).toContain("Delete all non-running");
+
+    const empty = renderReportPage({ kind: "index", sessions: [] });
+    expect(empty).not.toContain('action="/api/runs/delete-all"');
+    expect(empty).not.toContain("Delete all non-running");
+  });
+
+  test("pages ship no client-side JS — every delete is a plain HTML form", () => {
+    // The old implementation injected an IIFE that did fetch+delete. The
+    // current implementation is hydration-free: <details> + <form method="post">
+    // with the server returning 303s. If a <script> tag ever sneaks back in,
+    // someone's reintroduced the hacky-html pattern.
+    const index = renderReportPage({
+      kind: "index",
+      sessions: [sessionSummary],
+    });
+    const execution = renderReportPage({
+      kind: "execution",
+      run: { ...executionDetail, status: "failed" },
+    });
+    for (const html of [index, execution]) {
+      expect(html).not.toMatch(/<script\b/i);
+      // And no React-synthetic onClick attribute leaked through (renderToStaticMarkup
+      // strips them today; this guards against a future switch to renderToString).
+      expect(html).not.toMatch(/\sonClick=/i);
+      expect(html).not.toMatch(/\sonSubmit=/i);
+    }
+  });
+
+  test("execution page surfaces docker forensics artifacts as links to the file endpoint", () => {
+    const html = renderReportPage({
+      kind: "execution",
+      run: {
+        ...executionDetail,
+        status: "failed",
+        dockerArtifacts: ["docker-inspect.json", "docker-logs.txt"],
+      },
+    });
+    expect(html).toContain("Docker snapshot");
+    expect(html).toContain("docker-inspect.json");
+    expect(html).toContain(
+      `/api/runs/${encodeURIComponent(executionDetail.runId)}/files/docker-inspect.json`,
+    );
+    expect(html).toContain(
+      `/api/runs/${encodeURIComponent(executionDetail.runId)}/files/docker-logs.txt`,
+    );
+  });
+
+  test("execution page inlines subprocess logs in the same format as the test runner log", () => {
+    // Vargas's r2 feedback: each subprocess log must render inline,
+    // line-by-line, in the same `[ts] [step] glyph msg` shape the
+    // runner log already uses — no more clicking through to a raw
+    // file just to see why hatch failed. The raw download is still
+    // available via a sibling `raw` link.
+    const hatchContent =
+      "[2026-05-23 14:42:05] [hatch]     \u2022 @vellumai/cli v0.8.4\n" +
+      "[2026-05-23 14:42:06] [hatch]     \u2717 docker: bind: address already in use\n";
+    const setupContent =
+      "[2026-05-23 14:42:08] [setup-1]   \u2022 assistant plugins install simple-memory\n";
+    const html = renderReportPage({
+      kind: "execution",
+      run: {
+        ...executionDetail,
+        status: "failed",
+        subprocessLogs: [
+          { name: "subprocess-hatch.log", content: hatchContent },
+          { name: "subprocess-setup-1.log", content: setupContent },
+        ],
+      },
+    });
+    expect(html).toContain("Subprocess logs");
+    // Filename labels above each block.
+    expect(html).toContain("subprocess-hatch.log");
+    expect(html).toContain("subprocess-setup-1.log");
+    // Inline content — the actual lines, not just the filename.
+    expect(html).toContain("@vellumai/cli v0.8.4");
+    expect(html).toContain("bind: address already in use");
+    expect(html).toContain("assistant plugins install simple-memory");
+    // Tag column reuses the runner log's `[step/glyph]` shape so the
+    // operator can read both panels with the same eye scan. React
+    // escapes the bullet/cross glyphs as HTML entities.
+    expect(html).toMatch(/\[hatch\/(?:&#x2022;|&bull;|\u2022)\]/);
+    expect(html).toMatch(/\[hatch\/(?:&#x2717;|\u2717)\]/);
+    expect(html).toMatch(/\[setup-1\/(?:&#x2022;|&bull;|\u2022)\]/);
+    // No legacy `[STDOUT]` / `[STDERR]` markers leak through.
+    expect(html).not.toContain("[STDOUT]");
+    expect(html).not.toContain("[STDERR]");
+    // Raw download link still present for piping into other tools.
+    expect(html).toContain(
+      `/api/runs/${encodeURIComponent(executionDetail.runId)}/files/subprocess-hatch.log`,
+    );
+    expect(html).toContain(">raw</a>");
+  });
+
+  test("execution page renders unparsable subprocess content as raw lines", () => {
+    // Legacy `[STDOUT] foo` / `[STDERR] bar` log files (predate r2) or
+    // anything else that doesn't match the canonical `[ts] [step] glyph
+    // msg` shape should still appear — fall back to a one-column row
+    // so an operator inspecting an older run can still read the log.
+    const legacyContent =
+      "[STDOUT] legacy line without timestamp\nfree-form garbage\n";
+    const html = renderReportPage({
+      kind: "execution",
+      run: {
+        ...executionDetail,
+        status: "failed",
+        subprocessLogs: [
+          { name: "subprocess-hatch.log", content: legacyContent },
+        ],
+      },
+    });
+    expect(html).toContain("[STDOUT] legacy line without timestamp");
+    expect(html).toContain("free-form garbage");
+  });
+
+  test("execution page renders the (empty) placeholder when a subprocess log file is empty", () => {
+    // An empty file means the subprocess emitted zero output; don't
+    // collapse the section since the operator may still want to
+    // click through to the raw endpoint (or notice the absence).
+    const html = renderReportPage({
+      kind: "execution",
+      run: {
+        ...executionDetail,
+        status: "failed",
+        subprocessLogs: [{ name: "subprocess-hatch.log", content: "" }],
+      },
+    });
+    expect(html).toContain("subprocess-hatch.log");
+    expect(html).toContain("(empty)");
+  });
+
+  test("execution page omits Docker/Subprocess sections when there are no artifacts", () => {
+    const html = renderReportPage({ kind: "execution", run: executionDetail });
+    expect(html).not.toContain("Docker snapshot");
+    expect(html).not.toContain("Subprocess logs");
+  });
+
+  test("execution page exposes a Delete-run POST form with backToSession hidden field when the run failed", () => {
+    // Debug section only fires for non-completed runs or when there's an
+    // error/heartbeat to surface — gate it explicitly with `failed`.
+    const html = renderReportPage({
+      kind: "execution",
+      run: { ...executionDetail, status: "failed" },
+    });
+    expect(html).toContain(
+      `action="/api/runs/${encodeURIComponent(executionDetail.runId)}/delete"`,
+    );
+    expect(html).toContain('method="post"');
+    expect(html).toContain('name="backToSession"');
+    expect(html).toContain(`value="${executionDetail.sessionId}"`);
+    // Summary + confirm-button copy still ships.
+    expect(html).toContain("Delete run");
+    expect(html).toContain("Yes, delete this run");
   });
 });

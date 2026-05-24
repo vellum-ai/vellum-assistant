@@ -22,6 +22,7 @@ let lastStreamParams: Record<string, unknown> | null = null;
 let lastStreamOptions: Record<string, unknown> | null = null;
 let lastConstructorOptions: Record<string, unknown> | null = null;
 let shouldThrow: Error | null = null;
+const DEFAULT_SDK_TIMEOUT_MS = 1_860_000;
 
 // Simulate OpenAI.APIError
 class FakeAPIError extends Error {
@@ -200,6 +201,19 @@ describe("OpenAIResponsesProvider", () => {
     expect(lastConstructorOptions).toEqual({
       apiKey: "sk-custom",
       baseURL: "https://proxy.example.com/v1",
+      timeout: DEFAULT_SDK_TIMEOUT_MS,
+    });
+  });
+
+  test("passes configured stream timeout plus buffer to OpenAI client", () => {
+    new OpenAIResponsesProvider("sk-custom", "gpt-5.4", {
+      streamTimeoutMs: 300_000,
+    });
+
+    expect(lastConstructorOptions).toEqual({
+      apiKey: "sk-custom",
+      baseURL: undefined,
+      timeout: 360_000,
     });
   });
 
@@ -271,18 +285,6 @@ describe("OpenAIResponsesProvider", () => {
       const role = (item as Record<string, unknown>).role;
       expect(role).not.toBe("system");
     }
-  });
-
-  test("strips SYSTEM_PROMPT_CACHE_BOUNDARY from system prompt", async () => {
-    fakeStreamEvents = [textDeltaEvent("OK"), completedEvent(10, 2)];
-
-    await provider.sendMessage(
-      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      "Before\n<!-- SYSTEM_PROMPT_CACHE_BOUNDARY -->\nAfter",
-    );
-
-    expect(lastStreamParams!.instructions).toBe("Before\nAfter");
   });
 
   // -----------------------------------------------------------------------

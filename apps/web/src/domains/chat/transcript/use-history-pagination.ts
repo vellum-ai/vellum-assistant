@@ -35,12 +35,12 @@ export const CONVERSATION_HISTORY_QUERY_KEY = "conversation-history" as const;
 
 export function conversationHistoryQueryKey(
   assistantId: string | null,
-  conversationKey: string | null,
+  conversationId: string | null,
 ) {
   return [
     CONVERSATION_HISTORY_QUERY_KEY,
     assistantId ?? "",
-    conversationKey ?? "",
+    conversationId ?? "",
   ] as const;
 }
 
@@ -50,7 +50,7 @@ export function conversationHistoryQueryKey(
 
 interface UseHistoryPaginationParams {
   assistantId: string | null;
-  conversationKey: string | null;
+  conversationId: string | null;
   enabled: boolean;
 }
 
@@ -95,31 +95,31 @@ const EMPTY_MESSAGES: DisplayMessage[] = [];
 
 export function useHistoryPagination({
   assistantId,
-  conversationKey,
+  conversationId,
   enabled,
 }: UseHistoryPaginationParams): HistoryPaginationResult {
   const queryClient = useQueryClient();
 
   const queryKey = useMemo(
-    () => conversationHistoryQueryKey(assistantId, conversationKey),
-    [assistantId, conversationKey],
+    () => conversationHistoryQueryKey(assistantId, conversationId),
+    [assistantId, conversationId],
   );
 
   const query = useInfiniteQuery({
     queryKey,
     queryFn: async ({ pageParam, signal }) => {
-      if (!assistantId || !conversationKey) {
-        throw new Error("Missing assistantId or conversationKey");
+      if (!assistantId || !conversationId) {
+        throw new Error("Missing assistantId or conversationId");
       }
       void signal; // AbortController signal available for future use
       if (pageParam != null) {
         return fetchOlderHistoryPage(
           assistantId,
-          conversationKey,
+          conversationId,
           pageParam,
         );
       }
-      return fetchLatestHistoryPage(assistantId, conversationKey);
+      return fetchLatestHistoryPage(assistantId, conversationId);
     },
     initialPageParam: null as number | null,
     getNextPageParam: (lastPage): number | undefined => {
@@ -128,7 +128,7 @@ export function useHistoryPagination({
       }
       return undefined;
     },
-    enabled: enabled && !!assistantId && !!conversationKey,
+    enabled: enabled && !!assistantId && !!conversationId,
     // Always refetch in the background — mirrors the existing
     // "restore from cache then fetch latest and reconcile" pattern.
     staleTime: 0,

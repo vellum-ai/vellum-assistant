@@ -14,6 +14,7 @@ import {
 import { useAuthStore } from "@/stores/auth-store.js";
 import { reportError } from "@/lib/errors/report.js";
 import { useEnvironmentStore } from "@/lib/environment/environment-store.js";
+import { DevModeVersionUnlock } from "@/domains/settings/components/dev-mode-version-unlock.js";
 
 const CURRENT_ASSISTANT_QUERY_KEY = ["currentAssistant"] as const;
 
@@ -166,20 +167,11 @@ export function AssistantStatusPanel({
       <Value>{new Date(assistant.created).toLocaleDateString()}</Value>
 
       <Label>Version</Label>
-      {healthzLoading && !assistant.current_release_version ? (
-        <span className="flex items-center gap-2 text-body-medium-lighter text-[var(--content-tertiary)]">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Loading version...
-        </span>
-      ) : version ? (
-        <span className="break-all text-body-medium-lighter text-[var(--content-default)]">
-          {version}
-        </span>
-      ) : (
-        <span className="text-body-medium-lighter text-[var(--content-tertiary)]">
-          —
-        </span>
-      )}
+      <DevModeVersionUnlock
+        version={version ?? null}
+        loading={healthzLoading && !assistant.current_release_version}
+        assistantId={assistant.id ?? null}
+      />
     </div>
   );
 }

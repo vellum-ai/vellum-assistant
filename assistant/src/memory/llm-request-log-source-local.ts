@@ -11,6 +11,7 @@
 import type { LlmRequestLogSource } from "./llm-request-log-source.js";
 import {
   getRequestLogById,
+  getRequestLogsByConversationId,
   getRequestLogsByMessageId,
   type LogRow,
 } from "./llm-request-log-store.js";
@@ -22,5 +23,11 @@ export class LocalLlmRequestLogSource implements LlmRequestLogSource {
 
   async getRequestLogsByMessageId(messageId: string): Promise<LogRow[]> {
     return getRequestLogsByMessageId(messageId);
+  }
+
+  async getRequestLogsByConversationId(
+    conversationId: string,
+  ): Promise<LogRow[]> {
+    return getRequestLogsByConversationId(conversationId);
   }
 }

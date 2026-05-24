@@ -1,4 +1,3 @@
-import { newStableId } from "@/domains/chat/utils/stable-id.js";
 import {
   applyToolProgress,
   applyToolResult,
@@ -27,16 +26,16 @@ export function handleToolUseStart(
     status: "running",
     startedAt: Date.now(),
   };
-  const shouldCreateNewBubble = ctx.needsNewBubbleRef.current;
-  ctx.needsNewBubbleRef.current = false;
-  let stableId: string | undefined;
-  if (shouldCreateNewBubble) {
-    stableId = newStableId("assistant-tool");
-    ctx.currentAssistantStableIdRef.current = stableId;
-  }
-  ctx.setMessages((prev) =>
-    upsertToolCall(prev, newToolCall, shouldCreateNewBubble, stableId),
-  );
+  ctx.setMessages((prev) => {
+    const next = upsertToolCall(prev, newToolCall);
+    const tail = next[next.length - 1];
+    // Stamp the stable-id ref to the streaming tail (no-op for extends; new
+    // id for creates). See parallel logic in handleAssistantTextDelta.
+    if (tail?.role === "assistant" && tail.isStreaming) {
+      ctx.currentAssistantStableIdRef.current = tail.stableId;
+    }
+    return next;
+  });
 }
 
 export function handleToolProgress(

@@ -308,6 +308,12 @@ export function reconcileMessages(
       const stableId = localMsg?.stableId ?? newStableId("server");
 
       const msg: DisplayMessage = { stableId, id: m.id, role: m.role, content: prepared.cleanedContent };
+      // `isStreaming` is a client-owned, live-only flag — server snapshots
+      // never carry it. Preserve the local row's value so a sync-driven
+      // reconcile that lands mid-turn doesn't flip the active bubble to
+      // "completed" and cause downstream bubble-split / footer-injection
+      // glitches.
+      if (localMsg?.isStreaming) msg.isStreaming = true;
       if (m.daemonMessageId || localMsg?.daemonMessageId) {
         msg.daemonMessageId = m.daemonMessageId ?? localMsg?.daemonMessageId;
       }
@@ -537,13 +543,17 @@ export function reconcileMessages(
           }
         }
       } else {
-        reconciled.push({ ...m, isStreaming: false });
+        // Optimistic user message — preserve as-is. User rows are never
+        // `isStreaming`, but we still avoid overriding the field so any
+        // future client-owned flags pass through unchanged.
+        reconciled.push(m);
       }
     } else {
       // Message received via SSE (with or without a server-assigned id) that
       // the history endpoint didn't return — likely due to brief replication
-      // lag or pagination limits. Preserve it to prevent it from vanishing.
-      reconciled.push({ ...m, isStreaming: false });
+      // lag or pagination limits. Preserve it to prevent it from vanishing,
+      // including its `isStreaming` flag if the assistant turn is still live.
+      reconciled.push(m);
     }
   }
 

@@ -1,0 +1,281 @@
+- generic [ref=e4]:
+  - banner [ref=e5]:
+    - generic [ref=e6]:
+      - button "Toggle sidebar" [expanded] [ref=e7] [cursor=pointer]:
+        - img [ref=e9]
+      - button "Home (unread notifications)" [ref=e12] [cursor=pointer]:
+        - img [ref=e14]
+      - button "Search (Ctrl+K)" [ref=e17] [cursor=pointer]:
+        - img [ref=e19]
+      - button "Back (Ctrl+[)" [disabled] [ref=e22]:
+        - img [ref=e24]
+      - button "Forward (Ctrl+])" [disabled] [ref=e26]:
+        - img [ref=e28]
+    - button "Greeting" [ref=e31] [cursor=pointer]:
+      - generic [ref=e32]: Greeting
+      - img [ref=e34]
+  - generic [ref=e36]:
+    - complementary "Navigation" [ref=e37]:
+      - navigation "Assistant navigation" [ref=e38]:
+        - generic [ref=e39]:
+          - button "Iris" [ref=e40] [cursor=pointer]:
+            - img [ref=e41]
+            - generic [ref=e49]: Iris
+          - button "Library" [ref=e50] [cursor=pointer]:
+            - img [ref=e51]
+            - generic [ref=e56]: Library
+          - separator [ref=e57]
+        - generic [ref=e59]:
+          - generic [ref=e60]:
+            - generic [ref=e61]: Conversations
+            - button "New conversation" [ref=e63] [cursor=pointer]:
+              - img [ref=e65]
+          - generic [ref=e68]:
+            - heading "Pinned" [level=3] [ref=e71]:
+              - button "Pinned" [ref=e72] [cursor=pointer]:
+                - generic [ref=e73]:
+                  - img [ref=e74]
+                  - img [ref=e76]
+                - generic [ref=e78]: Pinned
+            - generic [ref=e79]:
+              - generic [ref=e80]:
+                - heading "Recents" [level=3] [ref=e81]:
+                  - button "Recents" [expanded] [ref=e82] [cursor=pointer]:
+                    - generic [ref=e83]:
+                      - img [ref=e84]
+                      - img [ref=e87]
+                    - generic [ref=e89]: Recents
+                - generic [ref=e91]: "6"
+              - region "Recents" [ref=e92]:
+                - list [ref=e93]:
+                  - button "Greeting" [ref=e124] [cursor=pointer]:
+                    - generic [ref=e125]:
+                      - button "Pin conversation" [ref=e126]:
+                        - img [ref=e127]
+                      - generic [ref=e130]: Greeting
+                    - button "Conversation actions" [ref=e133]:
+                      - img [ref=e134]
+                  - button "Heartbeat check complete." [ref=e94] [cursor=pointer]:
+                    - generic [ref=e95]:
+                      - button "Pin conversation" [ref=e96]:
+                        - img [ref=e98]
+                      - generic [ref=e101]: Heartbeat check complete.
+                    - button "Conversation actions" [ref=e104]:
+                      - img [ref=e105]
+                  - button "Hello Discussion" [ref=e109] [cursor=pointer]:
+                    - generic [ref=e110]:
+                      - button "Pin conversation" [ref=e111]:
+                        - img [ref=e113]
+                      - generic [ref=e116]: Hello Discussion
+                    - button "Conversation actions" [ref=e119]:
+                      - img [ref=e120]
+                  - button "Iris is ready" [ref=e138] [cursor=pointer]:
+                    - generic [ref=e139]:
+                      - button "Pin conversation" [ref=e140]:
+                        - img [ref=e142]
+                      - generic [ref=e145]: Iris is ready
+                    - button "Conversation actions" [ref=e148]:
+                      - img [ref=e149]
+                  - button "Fresh start questions" [ref=e153] [cursor=pointer]:
+                    - generic [ref=e154]:
+                      - button "Pin conversation" [ref=e155]:
+                        - img [ref=e157]
+                      - generic [ref=e160]: Fresh start questions
+                    - button "Conversation actions" [ref=e163]:
+                      - img [ref=e164]
+                  - button "Show more" [ref=e168] [cursor=pointer]:
+                    - generic [ref=e170]: Show more
+            - heading "Scheduled" [level=3] [ref=e173]:
+              - button "Scheduled" [ref=e174] [cursor=pointer]:
+                - generic [ref=e175]:
+                  - img [ref=e176]
+                  - img [ref=e178]
+                - generic [ref=e180]: Scheduled
+            - generic [ref=e182]:
+              - heading "Background" [level=3] [ref=e183]:
+                - button "Background" [ref=e184] [cursor=pointer]:
+                  - generic [ref=e185]:
+                    - img [ref=e186]
+                    - img [ref=e190]
+                  - generic [ref=e192]: Background
+              - generic [ref=e194]: "56"
+        - generic [ref=e195]:
+          - separator [ref=e196]
+          - button "Preferences" [ref=e197] [cursor=pointer]:
+            - img [ref=e198]
+            - generic [ref=e199]: Preferences
+            - img [ref=e200]
+    - main [ref=e202]:
+      - generic [ref=e203]:
+        - generic [ref=e206]:
+          - generic [ref=e209]:
+            - paragraph [ref=e212]: hi
+            - generic [ref=e214]:
+              - generic "Friday, May 22, 2026 at 5:58:35 AM EDT" [ref=e215]: May 22, 5:58 AM
+              - button "Copy" [ref=e216] [cursor=pointer]:
+                - img [ref=e217]
+              - button "Fork from here" [ref=e220] [cursor=pointer]:
+                - img [ref=e221]
+              - button "Inspect" [ref=e225] [cursor=pointer]:
+                - img [ref=e226]
+          - generic [ref=e233]:
+            - paragraph [ref=e236]: Hey. Good to see you back.
+            - button "Completed 1 step" [ref=e238]:
+              - img [ref=e239]
+              - generic [ref=e242]: Completed 1 step
+              - img [ref=e244]
+            - paragraph [ref=e248]: What's on your mind?
+            - generic [ref=e250]:
+              - generic "Friday, May 22, 2026 at 5:58:39 AM EDT" [ref=e251]: May 22, 5:58 AM
+              - button "Copy" [ref=e252] [cursor=pointer]:
+                - img [ref=e253]
+              - button "Fork from here" [ref=e256] [cursor=pointer]:
+                - img [ref=e257]
+              - button "Inspect" [ref=e261] [cursor=pointer]:
+                - img [ref=e262]
+          - generic [ref=e269]:
+            - paragraph [ref=e272]: what is 2+2?
+            - generic [ref=e274]:
+              - generic "Friday, May 22, 2026 at 9:03:20 AM EDT" [ref=e275]: May 22, 9:03 AM
+              - button "Copy" [ref=e276] [cursor=pointer]:
+                - img [ref=e277]
+              - button "Fork from here" [ref=e280] [cursor=pointer]:
+                - img [ref=e281]
+              - button "Inspect" [ref=e285] [cursor=pointer]:
+                - img [ref=e286]
+          - generic [ref=e293]:
+            - list [ref=e296]:
+              - listitem [ref=e297]
+            - button "Completed 1 step" [ref=e299]:
+              - img [ref=e300]
+              - generic [ref=e303]: Completed 1 step
+              - img [ref=e305]
+            - generic [ref=e308]:
+              - generic "Friday, May 22, 2026 at 9:03:24 AM EDT" [ref=e309]: May 22, 9:03 AM
+              - button "Copy" [ref=e310] [cursor=pointer]:
+                - img [ref=e311]
+              - button "Fork from here" [ref=e314] [cursor=pointer]:
+                - img [ref=e315]
+              - button "Inspect" [ref=e319] [cursor=pointer]:
+                - img [ref=e320]
+          - generic [ref=e520]:
+            - paragraph [ref=e523]: What were the top tech news headlines today, May 22 2026?
+            - generic [ref=e525]:
+              - generic "Friday, May 22, 2026 at 12:52:36 PM EDT" [ref=e526]: May 22, 12:52 PM
+              - button "Copy" [ref=e527] [cursor=pointer]:
+                - img [ref=e528]
+              - button "Fork from here" [ref=e531] [cursor=pointer]:
+                - img [ref=e532]
+              - button "Inspect" [ref=e536] [cursor=pointer]:
+                - img [ref=e537]
+          - generic [ref=e544]:
+            - button "Expand steps" [ref=e546] [cursor=pointer]:
+              - generic [ref=e552]:
+                - generic [ref=e553]: Searching the web
+                - generic [ref=e554]: "|"
+                - generic [ref=e555]: Searching top tech news headlines today May 22 2026
+              - generic [ref=e557]: 1 step
+            - generic [ref=e561]:
+              - generic [ref=e562]:
+                - generic [ref=e563]: Pulling today's tech headlines
+                - generic [ref=e564]: Completed
+              - generic [ref=e565]:
+                - generic [ref=e566]:
+                  - generic [ref=e567]: "1"
+                  - generic [ref=e568]:
+                    - text: Search for top tech news May 22, 2026
+                    - paragraph [ref=e569]: Search tool unavailable
+                  - img [ref=e571]
+                - generic [ref=e575]:
+                  - generic [ref=e576]: "2"
+                  - generic [ref=e577]: Fetch tech news sites directly
+                  - img [ref=e579]
+                - generic [ref=e582]:
+                  - generic [ref=e583]: "3"
+                  - generic [ref=e584]: Summarize headlines
+                  - img [ref=e586]
+            - paragraph [ref=e591]: Search tool is down right now. Let me try fetching directly from a tech news source.
+            - button "Expand steps" [ref=e593] [cursor=pointer]:
+              - generic [ref=e594]:
+                - img [ref=e595]
+                - generic [ref=e598]:
+                  - generic [ref=e599]: Thinking
+                  - generic [ref=e600]: "|"
+                  - generic [ref=e601]: theverge.com
+              - generic [ref=e603]: 2 steps
+            - generic [ref=e605]:
+              - paragraph [ref=e606]: "Here's what's leading today, May 22, pulled from TechCrunch and The Verge:"
+              - paragraph [ref=e607]:
+                - strong [ref=e608]: Google's bad day
+              - list [ref=e609]:
+                - listitem [ref=e610]: AI Overviews are visibly broken — searching the word "disregard" makes the AI go blank. Part of a broader narrative that "Google Search as you know it is over."
+                - listitem [ref=e611]: Google appealed the search monopoly ruling, arguing it won "fair and square" and wants the data-sharing order with rivals thrown out.
+                - listitem [ref=e612]: "On the product side: Google's AI glasses got a hands-on review — verdict was \"almost there.\""
+              - paragraph [ref=e613]:
+                - strong [ref=e614]: Waymo trouble
+              - list [ref=e615]:
+                - listitem [ref=e616]: Waymo suspended freeway driving and paused service in Atlanta and San Antonio over safety concerns, including robotaxis driving into floods.
+              - paragraph [ref=e617]:
+                - strong [ref=e618]: SpaceX
+              - list [ref=e619]:
+                - listitem [ref=e620]: Starship V3's first launch was scrubbed just before liftoff.
+                - listitem [ref=e621]: Coverage of the upcoming SpaceX IPO is heavy — analysis of who benefits (mostly Musk and his inner circle) and how it consolidates his power.
+              - paragraph [ref=e622]:
+                - strong [ref=e623]: Meta / social
+              - list [ref=e624]:
+                - listitem [ref=e625]: Meta quietly launched a Reddit-like app called Forum.
+              - paragraph [ref=e626]:
+                - strong [ref=e627]: Security / breaches
+              - list [ref=e628]:
+                - listitem [ref=e629]: Trump Mobile confirmed a data breach exposing customer phone numbers and home addresses (first surfaced by YouTuber Coffeezilla).
+                - listitem [ref=e630]: Kash Patel's clothing brand site was taken down after reports it was hacked.
+                - listitem [ref=e631]: Law enforcement shut down a VPN service used by two dozen ransomware gangs.
+              - paragraph [ref=e632]:
+                - strong [ref=e633]: AI / apps
+              - list [ref=e634]:
+                - listitem [ref=e635]: Spotify rolled out an AI remix tool — reception is skeptical ("more of everything, less of what you want").
+                - listitem [ref=e636]: Huxe, the audio generation app from ex-NotebookLM developers, is shutting down.
+                - listitem [ref=e637]: Apple is arguing in court that the Epic lawsuit shouldn't reshape App Store rules for all developers.
+              - paragraph [ref=e638]:
+                - strong [ref=e639]: IPO watch
+              - list [ref=e640]:
+                - listitem [ref=e641]: Smart ring maker Oura filed to go public.
+              - paragraph [ref=e642]: Want me to go deeper on any of these?
+            - generic [ref=e644]:
+              - generic "Friday, May 22, 2026 at 12:53:10 PM EDT" [ref=e645]: May 22, 12:53 PM
+              - button "Copy" [ref=e646] [cursor=pointer]:
+                - img [ref=e647]
+              - button "Fork from here" [ref=e650] [cursor=pointer]:
+                - img [ref=e651]
+              - button "Inspect" [ref=e655] [cursor=pointer]:
+                - img [ref=e656]
+          - generic [ref=e326]:
+            - generic [ref=e328]:
+              - paragraph [ref=e662]: What's the weather like in San Francisco right now?
+              - generic [ref=e333]:
+                - generic "Sunday, May 24, 2026 at 11:51:54 AM EDT" [ref=e663]: Today, 11:51 AM
+                - button "Copy" [ref=e335] [cursor=pointer]:
+                  - img [ref=e336]
+            - generic [ref=e669]: Thinking…
+            - img "Assistant avatar" [ref=e470] [cursor=pointer]
+        - generic [ref=e471]:
+          - status "Download the macOS app" [ref=e473]:
+            - generic [ref=e474]:
+              - img [ref=e476]
+              - generic [ref=e478]:
+                - paragraph [ref=e479]: Get the macOS app
+                - paragraph [ref=e480]: Computer use · terminal access · native automation
+              - button "Download macOS app" [ref=e481] [cursor=pointer]:
+                - img [ref=e483]
+                - text: Download
+              - button "Dismiss" [ref=e486] [cursor=pointer]:
+                - img [ref=e488]
+          - generic [ref=e492]:
+            - textbox "What would you like to do?" [active] [ref=e494]
+            - generic [ref=e495]:
+              - generic [ref=e496]:
+                - button "Conversation settings" [ref=e497] [cursor=pointer]:
+                  - img [ref=e499]
+                - img "Context window 7% full" [ref=e501]
+              - button "Stop generating" [ref=e671] [cursor=pointer]:
+                - img [ref=e673]

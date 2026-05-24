@@ -215,6 +215,30 @@ describe("IPC feature flag routes", () => {
     expect(flags["email-channel"]).toBe(true); // remote overrides default
   });
 
+  test("get_feature_flags disables declared flags missing from a remote snapshot", async () => {
+    writeFileSync(
+      remoteFeatureFlagStorePath,
+      JSON.stringify({
+        version: 1,
+        values: { "email-channel": true },
+      }),
+    );
+    clearRemoteFeatureFlagStoreCache();
+
+    if (existsSync(featureFlagStorePath)) {
+      rmSync(featureFlagStorePath);
+    }
+    clearFeatureFlagStoreCache();
+
+    await startServerAndConnect();
+    const res = await sendRequest(client, "get_feature_flags");
+
+    expect(res.error).toBeUndefined();
+    const flags = res.result as Record<string, boolean>;
+    expect(flags["email-channel"]).toBe(true);
+    expect(flags["browser"]).toBe(false);
+  });
+
   test("get_feature_flag returns value for a known flag", async () => {
     await startServerAndConnect();
     const res = await sendRequest(client, "get_feature_flag", {

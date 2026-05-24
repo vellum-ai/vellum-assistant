@@ -617,6 +617,7 @@ final class ConversationRestorer {
     func handleConversationTitleUpdated(_ response: ConversationTitleUpdatedMessage) {
         guard let delegate else { return }
         guard let index = delegate.conversations.firstIndex(where: { $0.conversationId == response.conversationId }) else { return }
+        guard delegate.conversations[index].title != response.title else { return }
         delegate.conversations[index].title = response.title
     }
 
@@ -674,9 +675,11 @@ final class ConversationRestorer {
             for attempt in 1...maxAttempts {
                 // Fetch foreground and background conversations in parallel so
                 // background conversations don't consume pagination slots from
-                // the main list.
-                async let foregroundResult = conversationListClient.fetchConversationList(offset: 0, limit: 50, conversationType: nil)
-                async let backgroundResult = conversationListClient.fetchConversationList(offset: 0, limit: 50, conversationType: "background")
+                // the main list. Each side paginates until the daemon reports
+                // `hasMore == false`; without this the sidebar truncates at the
+                // first 50 rows (LUM-1618 on web, fixed for macOS here).
+                async let foregroundResult = self.fetchAllConversationPages(conversationType: nil)
+                async let backgroundResult = self.fetchAllConversationPages(conversationType: "background")
                 let foreground = await foregroundResult
                 let background = await backgroundResult
 
@@ -692,11 +695,11 @@ final class ConversationRestorer {
                     // Set serverOffset from foreground count BEFORE merging.
                     // loadMoreConversations pages the foreground endpoint only,
                     // so the offset must not include merged background rows.
-                    self.delegate?.serverOffset = foreground.nextOffset ?? foreground.conversations.count
+                    self.delegate?.serverOffset = foreground.conversations.count
                     let merged = ConversationListResponse(
                         type: foreground.type,
                         conversations: foreground.conversations + uniqueBackground,
-                        hasMore: foreground.hasMore,
+                        hasMore: false,
                         groups: foreground.groups
                     )
                     self.handleConversationListResponse(merged, updateServerOffset: false)
@@ -711,5 +714,51 @@ final class ConversationRestorer {
             log.warning("All \(maxAttempts) conversation list fetch attempts failed, falling back to last active conversation")
             self.delegate?.restoreLastActiveConversation()
         }
+    }
+
+    /// Matches `ConversationListStore.loadAllRemainingConversations` so cold
+    /// restore and "load all" share a tested page size. Larger than the web
+    /// client's 50 because macOS talks to the daemon over loopback — the
+    /// per-request overhead dominates, so fewer round-trips win.
+    private static let conversationListPageSize = 200
+
+    /// Safety cap on the pagination loop — `50 * 200 = 10,000` conversations
+    /// per type. Bounded so a malformed `hasMore` from the server can't spin
+    /// forever.
+    private static let conversationListMaxPages = 50
+
+    /// Page through every conversation of the given type, accumulating until
+    /// the daemon reports `hasMore == false` or the safety cap is hit. Returns
+    /// `nil` if any page request fails so the caller's retry/fallback logic
+    /// can drive recovery from a single-shot failure.
+    private func fetchAllConversationPages(conversationType: String?) async -> ConversationListResponse? {
+        let pageSize = Self.conversationListPageSize
+        var accumulated: [ConversationListResponseItem] = []
+        var firstPage: ConversationListResponse?
+
+        for page in 0..<Self.conversationListMaxPages {
+            let offset = page * pageSize
+            guard let response = await conversationListClient.fetchConversationList(
+                offset: offset, limit: pageSize, conversationType: conversationType
+            ) else {
+                return nil
+            }
+            if firstPage == nil { firstPage = response }
+            accumulated.append(contentsOf: response.conversations)
+            let hasMore = response.hasMore ?? false
+            if !hasMore || response.conversations.isEmpty { break }
+        }
+
+        guard let first = firstPage else { return nil }
+        // Groups are sent with the first page only; preserve them on the
+        // synthesized response. `hasMore` is forced to false because we've
+        // already exhausted the server (or hit the safety cap).
+        return ConversationListResponse(
+            type: first.type,
+            conversations: accumulated,
+            hasMore: false,
+            nextOffset: nil,
+            groups: first.groups
+        )
     }
 }

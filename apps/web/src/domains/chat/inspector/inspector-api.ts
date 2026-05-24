@@ -1,15 +1,38 @@
-
 import { queryOptions, useQuery } from "@tanstack/react-query";
 
-import { client } from "@/generated/api/client.gen.js";
+import {
+  assertHasResponse,
+  client,
+  extractErrorMessage,
+} from "@/domains/chat/api/client.js";
+import {
+  fetchConversationMessages,
+  type RuntimeMessage,
+} from "@/domains/chat/api/messages.js";
 
-import type { LlmContextResponse } from "@/domains/chat/types/inspector-types.js";
+import type {
+  LlmContextResponse,
+  LLMRequestLogEntry,
+  MemoryRecallLog,
+  MemoryV2ActivationLog,
+} from "@/domains/chat/types/inspector-types.js";
 
 /**
- * Query helpers for the conversation LLM context inspector. Wraps the
- * daemon's `GET /v1/messages/{messageId}/llm-context` endpoint,
- * reached through the gateway's runtime-proxy wildcard at
- * `/v1/assistants/{assistantId}/messages/{messageId}/llm-context/`.
+ * Query helpers for the inspector. Two fetch modes:
+ *
+ * - **Conversation mode** (`messageId` omitted) — calls
+ *   `GET /v1/conversations/llm-context`, reachable via the platform's
+ *   `RuntimeProxyWildcardView` at
+ *   `/v1/assistants/{assistantId}/conversations/llm-context/`. On
+ *   daemons that predate the conversation-scoped endpoint, the client
+ *   transparently falls back to fanning out per-message fetches.
+ *
+ * - **Message mode** (`messageId` provided) — calls
+ *   `GET /v1/messages/{messageId}/llm-context`, reachable at
+ *   `/v1/assistants/{assistantId}/messages/{messageId}/llm-context/`.
+ *   The page enters this mode when the URL carries `?messageId=…` —
+ *   either from the per-message "Inspect this message" hover action,
+ *   or from the in-page "filter to this message" control.
  *
  * The wildcard proxy isn't typed in `@tanstack/react-query.gen` so we
  * call `client.get` directly and provide our own response type from
@@ -28,44 +51,41 @@ export class LlmContextRequestError extends Error {
 
 export function llmContextQueryOptions(
   assistantId: string | undefined,
-  messageId: string | undefined,
+  conversationId: string | undefined,
+  messageId: string | null | undefined,
 ) {
-  const enabled = Boolean(assistantId && messageId);
+  const normalizedMessageId = messageId || undefined;
+  const enabled = Boolean(
+    assistantId && (normalizedMessageId || conversationId),
+  );
   return queryOptions({
     queryKey: [
       "assistants",
       assistantId,
-      "messages",
-      messageId,
       "llm-context",
+      normalizedMessageId
+        ? { scope: "message", messageId: normalizedMessageId }
+        : { scope: "conversation", conversationId },
     ] as const,
     queryFn: async ({ signal }): Promise<LlmContextResponse> => {
-      if (!assistantId || !messageId) {
-        throw new LlmContextRequestError(0, "Missing assistantId or messageId");
+      if (!assistantId) {
+        throw new LlmContextRequestError(0, "Missing assistantId");
       }
-      const { data, response } = await client.get<LlmContextResponse>({
-        url: "/v1/assistants/{assistant_id}/messages/{message_id}/llm-context/",
-        path: { assistant_id: assistantId, message_id: messageId },
+      if (normalizedMessageId) {
+        return await fetchMessageLlmContextOrThrow(
+          assistantId,
+          normalizedMessageId,
+          signal,
+        );
+      }
+      if (!conversationId) {
+        throw new LlmContextRequestError(0, "Missing conversationId");
+      }
+      return await fetchConversationLlmContext(
+        assistantId,
+        conversationId,
         signal,
-        throwOnError: false,
-      });
-      if (!response || !response.ok) {
-        const text = await response
-          ?.clone()
-          .text()
-          .catch(() => "");
-        throw new LlmContextRequestError(
-          response?.status ?? 0,
-          text || response?.statusText || "Failed to load LLM context",
-        );
-      }
-      if (!data) {
-        throw new LlmContextRequestError(
-          response.status,
-          "Empty response from LLM context endpoint",
-        );
-      }
-      return data;
+      );
     },
     enabled,
     staleTime: 30_000,
@@ -74,7 +94,225 @@ export function llmContextQueryOptions(
 
 export function useLlmContext(
   assistantId: string | undefined,
-  messageId: string | undefined,
+  conversationId: string | undefined,
+  messageId?: string | null,
 ) {
-  return useQuery(llmContextQueryOptions(assistantId, messageId));
+  return useQuery(
+    llmContextQueryOptions(assistantId, conversationId, messageId),
+  );
+}
+
+/**
+ * Lightweight query used by the "filter to message" dropdown in
+ * conversation mode. Returns the conversation's message list so the
+ * UI can render a labelled scope selector.
+ *
+ * Cached by `(assistantId, conversationId)` and short-stale (30s) —
+ * the dropdown is rendered alongside the inspector logs and a fresh
+ * fetch on every keystroke would be wasteful.
+ */
+export function useConversationMessageList(
+  assistantId: string | undefined,
+  conversationId: string | undefined,
+) {
+  const enabled = Boolean(assistantId && conversationId);
+  return useQuery({
+    queryKey: [
+      "assistants",
+      assistantId,
+      "conversations",
+      conversationId,
+      "messages",
+      "for-inspector",
+    ] as const,
+    queryFn: async (): Promise<RuntimeMessage[]> => {
+      if (!assistantId || !conversationId) return [];
+      return await fetchConversationMessages(assistantId, conversationId);
+    },
+    enabled,
+    staleTime: 30_000,
+  });
+}
+
+/**
+ * Try the conversation-scoped endpoint first. If the daemon doesn't
+ * know that route (404), fall back to the per-message endpoint for
+ * every message in the conversation. Exported for testing.
+ */
+export async function fetchConversationLlmContext(
+  assistantId: string,
+  conversationId: string,
+  signal: AbortSignal | undefined,
+): Promise<LlmContextResponse> {
+  const { data, error, response } = await client.get<LlmContextResponse>({
+    url: "/v1/assistants/{assistant_id}/conversations/llm-context/",
+    path: { assistant_id: assistantId },
+    query: { conversationId },
+    signal,
+    throwOnError: false,
+  });
+
+  assertHasResponse(response, error, "Failed to fetch LLM context");
+
+  if (response.status === 404) {
+    return await fetchConversationLlmContextFromPerMessage(
+      assistantId,
+      conversationId,
+      signal,
+    );
+  }
+
+  if (!response.ok) {
+    const msg = extractErrorMessage(
+      error,
+      response,
+      "Failed to load LLM context",
+    );
+    throw new LlmContextRequestError(response.status, msg);
+  }
+
+  if (!data) {
+    throw new LlmContextRequestError(
+      response.status,
+      "Empty response from LLM context endpoint",
+    );
+  }
+
+  return data;
+}
+
+/**
+ * Fetch the LLM context for a single message. Throws if the request
+ * fails — the page renders an error state instead of falling back,
+ * since there's no meaningful "all messages" fallback when the user
+ * explicitly scoped to one message. Exported for testing.
+ */
+export async function fetchMessageLlmContextOrThrow(
+  assistantId: string,
+  messageId: string,
+  signal: AbortSignal | undefined,
+): Promise<LlmContextResponse> {
+  const { data, error, response } = await client.get<LlmContextResponse>({
+    url: "/v1/assistants/{assistant_id}/messages/{message_id}/llm-context/",
+    path: { assistant_id: assistantId, message_id: messageId },
+    signal,
+    throwOnError: false,
+  });
+  assertHasResponse(response, error, "Failed to fetch message LLM context");
+  if (!response.ok) {
+    const msg = extractErrorMessage(
+      error,
+      response,
+      "Failed to load LLM context",
+    );
+    throw new LlmContextRequestError(response.status, msg);
+  }
+  if (!data) {
+    throw new LlmContextRequestError(
+      response.status,
+      "Empty response from message LLM context endpoint",
+    );
+  }
+  return data;
+}
+
+/**
+ * Legacy fallback. Fetches every message in the conversation, calls
+ * the per-message LLM context endpoint for each, and merges the logs
+ * (de-duplicated by log id, ordered chronologically). Used when the
+ * daemon predates `GET /v1/conversations/llm-context`.
+ *
+ * Each per-message call returns the entire turn that contains the
+ * message, so adjacent messages frequently return overlapping log
+ * sets — the dedup pass collapses them. Memory recall / v2 activation
+ * are turn-scoped, so we keep the most recent non-null one observed.
+ */
+async function fetchConversationLlmContextFromPerMessage(
+  assistantId: string,
+  conversationId: string,
+  signal: AbortSignal | undefined,
+): Promise<LlmContextResponse> {
+  const messages = await fetchConversationMessages(
+    assistantId,
+    conversationId,
+  );
+
+  const messageIds: string[] = [];
+  const seenMessageId = new Set<string>();
+  for (const m of messages) {
+    const id = m.daemonMessageId ?? m.id;
+    if (!id || seenMessageId.has(id)) continue;
+    seenMessageId.add(id);
+    messageIds.push(id);
+  }
+
+  if (messageIds.length === 0) {
+    return {
+      conversationId,
+      conversationKind: "user",
+      conversationTotalEstimatedCostUsd: null,
+      logs: [],
+      memoryRecall: null,
+      memoryV2Activation: null,
+    };
+  }
+
+  const perMessage = await Promise.all(
+    messageIds.map((messageId) =>
+      fetchMessageLlmContextTolerant(assistantId, messageId, signal),
+    ),
+  );
+
+  let conversationKind = "user";
+  let conversationTotalEstimatedCostUsd: number | null = null;
+  let memoryRecall: MemoryRecallLog | null = null;
+  let memoryV2Activation: MemoryV2ActivationLog | null = null;
+
+  const seenLogId = new Set<string>();
+  const allLogs: LLMRequestLogEntry[] = [];
+
+  for (const r of perMessage) {
+    if (!r) continue;
+    if (r.conversationKind) conversationKind = r.conversationKind;
+    if (r.conversationTotalEstimatedCostUsd != null) {
+      conversationTotalEstimatedCostUsd = r.conversationTotalEstimatedCostUsd;
+    }
+    if (r.memoryRecall) memoryRecall = r.memoryRecall;
+    if (r.memoryV2Activation) memoryV2Activation = r.memoryV2Activation;
+    for (const log of r.logs ?? []) {
+      if (seenLogId.has(log.id)) continue;
+      seenLogId.add(log.id);
+      allLogs.push(log);
+    }
+  }
+
+  allLogs.sort((a, b) => a.createdAt - b.createdAt);
+
+  return {
+    conversationId,
+    conversationKind,
+    conversationTotalEstimatedCostUsd,
+    logs: allLogs,
+    memoryRecall,
+    memoryV2Activation,
+  };
+}
+
+/**
+ * Single per-message fetch used by the legacy fallback. Tolerant of
+ * missing data and per-call 404s — those just contribute zero logs.
+ */
+async function fetchMessageLlmContextTolerant(
+  assistantId: string,
+  messageId: string,
+  signal: AbortSignal | undefined,
+): Promise<LlmContextResponse | null> {
+  const { data, response } = await client.get<LlmContextResponse>({
+    url: "/v1/assistants/{assistant_id}/messages/{message_id}/llm-context/",
+    path: { assistant_id: assistantId, message_id: messageId },
+    signal,
+    throwOnError: false,
+  });
+  if (!response || !response.ok || !data) return null;
+  return data;
 }

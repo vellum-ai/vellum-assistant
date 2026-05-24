@@ -9,15 +9,18 @@ import { getAvatarImagePath } from "../../util/platform.js";
 import { broadcastMessage } from "../assistant-event-hub.js";
 import { publishSyncInvalidation } from "./sync-publisher.js";
 
-export function publishAvatarChanged(): void {
+export function publishAvatarChanged(originClientId?: string): void {
   broadcastMessage({
     type: "avatar_updated",
     avatarPath: getAvatarImagePath(),
   });
-  void publishSyncInvalidation([SYNC_TAGS.assistantAvatar]);
+  void publishSyncInvalidation([SYNC_TAGS.assistantAvatar], originClientId);
 }
 
-export function publishIdentityChanged(fields: IdentityFields): void {
+export function publishIdentityChanged(
+  fields: IdentityFields,
+  originClientId?: string,
+): void {
   broadcastMessage({
     type: "identity_changed",
     name: fields.name,
@@ -26,42 +29,48 @@ export function publishIdentityChanged(fields: IdentityFields): void {
     emoji: fields.emoji,
     home: fields.home,
   });
-  void publishSyncInvalidation([SYNC_TAGS.assistantIdentity]);
+  void publishSyncInvalidation([SYNC_TAGS.assistantIdentity], originClientId);
 }
 
-export function publishConfigChanged(): void {
+export function publishConfigChanged(originClientId?: string): void {
   broadcastMessage({ type: "config_changed" });
-  void publishSyncInvalidation([SYNC_TAGS.assistantConfig]);
+  void publishSyncInvalidation([SYNC_TAGS.assistantConfig], originClientId);
 }
 
-export function publishSoundsConfigUpdated(): void {
+export function publishSoundsConfigUpdated(originClientId?: string): void {
   broadcastMessage({ type: "sounds_config_updated" });
-  void publishSyncInvalidation([SYNC_TAGS.assistantSounds]);
+  void publishSyncInvalidation([SYNC_TAGS.assistantSounds], originClientId);
 }
 
-export function publishSchedulesChanged(): void {
-  void publishSyncInvalidation([SYNC_TAGS.assistantSchedules]);
+export function publishSchedulesChanged(originClientId?: string): void {
+  void publishSyncInvalidation([SYNC_TAGS.assistantSchedules], originClientId);
 }
 
 export function publishConversationListChanged(
   reason: ConversationListInvalidatedReason,
+  originClientId?: string,
 ): void {
   broadcastMessage({
     type: "conversation_list_invalidated",
     reason,
   });
-  void publishSyncInvalidation([SYNC_TAGS.conversationsList]);
+  void publishSyncInvalidation([SYNC_TAGS.conversationsList], originClientId);
 }
 
 export function publishConversationMessagesChanged(
   conversationId: string,
+  originClientId?: string,
 ): void {
-  void publishSyncInvalidation([conversationMessagesSyncTag(conversationId)]);
+  void publishSyncInvalidation(
+    [conversationMessagesSyncTag(conversationId)],
+    originClientId,
+  );
 }
 
 export function publishConversationListAndMetadataChanged(
   reason: ConversationListInvalidatedReason,
   conversationIds: string | string[],
+  originClientId?: string,
 ): void {
   const ids = Array.isArray(conversationIds)
     ? conversationIds
@@ -70,15 +79,21 @@ export function publishConversationListAndMetadataChanged(
     type: "conversation_list_invalidated",
     reason,
   });
-  void publishSyncInvalidation([
-    SYNC_TAGS.conversationsList,
-    ...ids.map((conversationId) => conversationMetadataSyncTag(conversationId)),
-  ]);
+  void publishSyncInvalidation(
+    [
+      SYNC_TAGS.conversationsList,
+      ...ids.map((conversationId) =>
+        conversationMetadataSyncTag(conversationId),
+      ),
+    ],
+    originClientId,
+  );
 }
 
 export function publishConversationTitleChanged(
   conversationId: string,
   title: string,
+  originClientId?: string,
 ): void {
   broadcastMessage(
     {
@@ -88,18 +103,21 @@ export function publishConversationTitleChanged(
     },
     conversationId,
   );
-  void publishSyncInvalidation([
-    SYNC_TAGS.conversationsList,
-    conversationMetadataSyncTag(conversationId),
-  ]);
+  void publishSyncInvalidation(
+    [SYNC_TAGS.conversationsList, conversationMetadataSyncTag(conversationId)],
+    originClientId,
+  );
 }
 
-export function publishConversationInferenceProfileChanged(params: {
-  conversationId: string;
-  profile: string | null;
-  sessionId?: string | null;
-  expiresAt?: number | null;
-}): void {
+export function publishConversationInferenceProfileChanged(
+  params: {
+    conversationId: string;
+    profile: string | null;
+    sessionId?: string | null;
+    expiresAt?: number | null;
+  },
+  originClientId?: string,
+): void {
   broadcastMessage(
     {
       type: "conversation_inference_profile_updated",
@@ -110,8 +128,11 @@ export function publishConversationInferenceProfileChanged(params: {
     },
     params.conversationId,
   );
-  void publishSyncInvalidation([
-    SYNC_TAGS.conversationsList,
-    conversationMetadataSyncTag(params.conversationId),
-  ]);
+  void publishSyncInvalidation(
+    [
+      SYNC_TAGS.conversationsList,
+      conversationMetadataSyncTag(params.conversationId),
+    ],
+    originClientId,
+  );
 }

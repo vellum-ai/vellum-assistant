@@ -1,7 +1,7 @@
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 import { saveContextWindowUsage } from "@/domains/chat/utils/context-window-storage.js";
 import {
-  extractConversationKey,
+  extractConversationId,
   postLocalNotification,
   sendNotificationIntentAck,
 } from "@/runtime/notifications.js";
@@ -35,12 +35,12 @@ export function handleUsageUpdate(
   const streamCtx = ctx.streamContextRef.current;
   if (streamCtx) {
     ctx.contextWindowUsageByConversationRef.current.set(
-      streamCtx.conversationKey,
+      streamCtx.conversationId,
       usage,
     );
     saveContextWindowUsage(
       streamCtx.assistantId,
-      streamCtx.conversationKey,
+      streamCtx.conversationId,
       usage,
     );
   }
@@ -58,17 +58,15 @@ export function handleConversationTitleUpdated(
   event: ConversationTitleUpdatedEvent,
   ctx: StreamHandlerContext,
 ): void {
-  // `patchConversation` looks up the conversation by `conversationKey`
-  // (see `conversation-queries.ts:197`). The daemon's `conversationId`
-  // is the internal mapping-table id and is not guaranteed to equal a
-  // conversation key, so use the parser-hydrated `conversationKey`
-  // (set in `event-parser.ts` via `withParsedConversationKey` or the
-  // envelope fallback in `stream.ts`) when present.
-  const key = event.conversationKey ?? event.conversationId;
+  // `patchConversation` looks up the Conversation entity by its
+  // `conversationId` field in the React Query cache. The event's
+  // `conversationId` (hydrated in `event-parser.ts` via
+  // `withParsedConversationId` or the envelope fallback in `stream.ts`)
+  // is the value to match against.
   patchConversation(
     ctx.queryClient,
     ctx.assistantIdRef.current,
-    key,
+    event.conversationId,
     { title: event.title },
   );
 }
@@ -91,12 +89,12 @@ export function handleNotificationIntent(
     return;
   }
 
-  const metadataConversationKey = extractConversationKey(
+  const metadataConversationId = extractConversationId(
     event.deepLinkMetadata,
   );
   if (
-    metadataConversationKey &&
-    metadataConversationKey === ctx.activeConversationKeyRef.current
+    metadataConversationId &&
+    metadataConversationId === ctx.activeConversationIdRef.current
   ) {
     if (ackAssistantId && event.deliveryId) {
       void sendNotificationIntentAck(

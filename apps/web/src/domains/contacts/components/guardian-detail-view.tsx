@@ -5,6 +5,7 @@ import { Input } from "@vellum/design-library/components/input";
 
 import { ContactChannelsSection } from "@/domains/contacts/components/contact-channels-section.js";
 import { ContactTypeBadge } from "@/domains/contacts/components/contact-type-badge.js";
+import { ShareConnectionLinkButton } from "@/domains/contacts/components/share-connection-link-button.js";
 import { SettingsCard } from "@/domains/settings/components/settings-card.js";
 import type { ChannelInfo, ContactPayload } from "@/domains/contacts/types.js";
 
@@ -21,6 +22,7 @@ interface GuardianDetailViewProps {
   onSetupChannel?: (type: string) => void;
   onVerifyChannel?: (type: string) => void;
   onRevokeChannel?: (channelId: string, type: string) => void;
+  onGenerateInviteLink?: () => void;
 }
 
 export function GuardianDetailView(props: GuardianDetailViewProps) {
@@ -40,6 +42,7 @@ function GuardianDetailViewInner({
   onSetupChannel,
   onVerifyChannel,
   onRevokeChannel,
+  onGenerateInviteLink,
 }: GuardianDetailViewProps) {
   const principalId = contact.displayName.startsWith("vellum-principal-");
   const initialName = principalId ? "" : contact.displayName;
@@ -135,6 +138,8 @@ function GuardianDetailViewInner({
           onRevokeChannel={onRevokeChannel}
         />
       </SettingsCard>
+
+      {onGenerateInviteLink ? <ShareConnectionLinkButton onClick={onGenerateInviteLink} /> : null}
     </div>
   );
 }

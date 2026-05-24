@@ -1,28 +1,59 @@
-import { ArrowLeft, Globe } from "lucide-react";
+import { ArrowLeft, Mail } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 
 import { Button } from "@vellum/design-library/components/button";
-import { Input } from "@vellum/design-library/components/input";
 import { Modal } from "@vellum/design-library/components/modal";
 import { Notice } from "@vellum/design-library/components/notice";
 import { Typography } from "@vellum/design-library/components/typography";
-import { organizationsBillingSubscriptionOnboardingDomainCreateMutation } from "@/generated/api/@tanstack/react-query.gen.js";
+import {
+  assistantsActiveRetrieveOptions,
+  assistantsDomainsListOptions,
+  organizationsBillingSubscriptionOnboardingDomainCreateMutation,
+} from "@/generated/api/@tanstack/react-query.gen.js";
 import { useEnvironmentStore } from "@/lib/environment/environment-store.js";
 
+import { DomainField } from "@/domains/settings/components/domain-field.js";
 import { IconBadge, StepDots } from "./primitives.js";
 import { DOMAIN_EXIT_DELAY_MS, extractOnboardingErrorMessage } from "./utils.js";
 
 export function DomainStep({ onBack, onExit }: { onBack: () => void; onExit: () => void }) {
   const emailRootDomain = useEnvironmentStore.use.emailRootDomain();
+  const { data: activeAssistant } = useQuery(assistantsActiveRetrieveOptions());
+  const assistantId = activeAssistant?.id;
+
+  const { data: domainsData } = useQuery({
+    ...assistantsDomainsListOptions({
+      path: { assistant_id: assistantId ?? "" },
+    }),
+    enabled: !!assistantId,
+  });
+  const existingDomain = domainsData?.results?.[0];
+
   const [subdomain, setSubdomain] = useState("");
+  const [emailUsername, setEmailUsername] = useState("hi");
+  const [prefilled, setPrefilled] = useState(false);
+
+  useEffect(() => {
+    if (prefilled) return;
+    if (existingDomain) {
+      setSubdomain(existingDomain.subdomain);
+      setPrefilled(true);
+      return;
+    }
+    if (!activeAssistant?.handle || subdomain) return;
+    setSubdomain(activeAssistant.handle);
+    setPrefilled(true);
+  }, [activeAssistant?.handle, existingDomain, prefilled, subdomain]);
+
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState(false);
   const domainMutation = useMutation(
     organizationsBillingSubscriptionOnboardingDomainCreateMutation(),
   );
 
+  const isLocked = !!existingDomain || confirmed;
   const busy = domainMutation.isPending || confirmed;
 
   useEffect(() => {
@@ -34,7 +65,12 @@ export function DomainStep({ onBack, onExit }: { onBack: () => void; onExit: () 
   const handleSet = () => {
     if (busy || !subdomain) return;
     domainMutation.mutate(
-      { body: { subdomain } },
+      {
+        body: {
+          subdomain,
+          ...(emailUsername ? { email_username: emailUsername } : {}),
+        },
+      },
       {
         onSuccess: () => {
           setErrorMsg(null);
@@ -67,50 +103,65 @@ export function DomainStep({ onBack, onExit }: { onBack: () => void; onExit: () 
         style={{ animation: "onboarding-step-in 350ms ease-out" }}
       >
         <div className="flex flex-col items-center gap-3 pb-2 text-center">
-          <IconBadge icon={Globe} />
+          <IconBadge icon={Mail} />
           <div className="space-y-2">
             <Typography variant="title-small" as="h1">
-              Pick a custom subdomain
+              Assistant email
             </Typography>
             <Typography
               variant="body-medium-lighter"
               as="p"
               className="text-[var(--content-secondary)]"
             >
-              You&apos;ll be able to email your assistant at{" "}
-              <span className="font-mono text-[var(--content-default)]">
-                hi@{subdomain || "<subdomain>"}.{emailRootDomain}
-              </span>
+              Set up an email address for your assistant.
             </Typography>
           </div>
         </div>
 
-        <div className="flex items-end gap-2">
-          <Input
-            fullWidth
-            value={subdomain}
-            onChange={(e) =>
-              setSubdomain(e.target.value.toLowerCase().trim())
-            }
-            disabled={busy}
-            placeholder="my-assistant"
-            label="Subdomain"
-          />
+        <div className="space-y-1.5">
           <Typography
-            variant="body-medium-lighter"
-            as="span"
-            className="mb-2.5 whitespace-nowrap text-[var(--content-secondary)]"
+            variant="body-small-default"
+            as="label"
+            className="text-[var(--content-secondary)]"
           >
-            .{emailRootDomain}
+            Email address
           </Typography>
+          <DomainField
+            subdomain={subdomain}
+            onSubdomainChange={(v) => {
+              setSubdomain(v);
+              if (errorMsg) setErrorMsg(null);
+            }}
+            domainSuffix={emailRootDomain}
+            disabled={busy}
+            error={errorMsg}
+            locked={isLocked}
+            lockedMessage="This domain has been set and cannot be changed."
+            prefix={
+              <>
+                <input
+                  value={emailUsername}
+                  onChange={(e) => setEmailUsername(e.target.value.toLowerCase().trim())}
+                  disabled={busy || isLocked}
+                  readOnly={isLocked}
+                  placeholder="hi"
+                  aria-label="Email username"
+                  size={Math.max(emailUsername.length, 2)}
+                  className="h-full w-0 min-w-[2ch] flex-none bg-transparent pl-3 pr-1.5 text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                  style={{ width: `${Math.max(emailUsername.length, 2) + 1.5}ch` }}
+                />
+                <span className="shrink-0 font-mono text-[var(--content-secondary)]">@</span>
+              </>
+            }
+          />
         </div>
 
-        <Notice tone="info">
-          This will also become your assistant&apos;s public handle.
-          You won&apos;t be able to change it once set.
-        </Notice>
-
-        {errorMsg ? <Notice tone="error">{errorMsg}</Notice> : null}
+        {!isLocked && (
+          <Notice tone="info">
+            <span className="font-mono">{subdomain || "<subdomain>"}</span> will also become your assistant&apos;s public handle.
+            You won&apos;t be able to change it once set.
+          </Notice>
+        )}
         {confirmed ? (
           <Notice tone="success">Domain set — redirecting…</Notice>
         ) : null}
@@ -129,22 +180,34 @@ export function DomainStep({ onBack, onExit }: { onBack: () => void; onExit: () 
           <StepDots current={1} />
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            data-testid="onboarding-domain-skip"
-            disabled={busy}
-            onClick={handleSkip}
-          >
-            Do later
-          </Button>
-          <Button
-            variant="primary"
-            data-testid="onboarding-domain-set"
-            disabled={!subdomain || busy}
-            onClick={handleSet}
-          >
-            Set domain
-          </Button>
+          {isLocked ? (
+            <Button
+              variant="primary"
+              data-testid="onboarding-domain-continue"
+              onClick={onExit}
+            >
+              Continue
+            </Button>
+          ) : (
+            <>
+              <Button
+                variant="ghost"
+                data-testid="onboarding-domain-skip"
+                disabled={busy}
+                onClick={handleSkip}
+              >
+                Do later
+              </Button>
+              <Button
+                variant="primary"
+                data-testid="onboarding-domain-set"
+                disabled={!subdomain || busy}
+                onClick={handleSet}
+              >
+                Set domain
+              </Button>
+            </>
+          )}
         </div>
       </Modal.Footer>
     </>

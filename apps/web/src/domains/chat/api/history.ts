@@ -10,7 +10,11 @@
 // organization header) exactly the same way `./api.ts` does.
 
 import { client } from "@/generated/api/client.gen.js";
-import { ApiError, assertHasResponse, extractErrorMessage } from "@/lib/api-errors.js";
+import {
+  ApiError,
+  assertHasResponse,
+  extractErrorMessage,
+} from "@/lib/api-errors.js";
 import {
   recordChatDiagnostic,
   summarizeDisplayMessages,
@@ -19,7 +23,10 @@ import {
 import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message.js";
 import { dedupeDisplayMessages } from "@/domains/chat/utils/reconcile.js";
 import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types.js";
-import type { RuntimeMessage, RuntimeSubagentNotification } from "@/domains/chat/api/messages.js";
+import type {
+  RuntimeMessage,
+  RuntimeSubagentNotification,
+} from "@/domains/chat/api/messages.js";
 
 const SDK_BASE_OPTIONS =
   typeof window === "undefined"
@@ -146,11 +153,11 @@ async function fetchPaginatedHistory(
  */
 export async function fetchLatestHistoryPage(
   assistantId: string,
-  conversationKey: string,
+  conversationId: string,
   limit: number = DEFAULT_LATEST_LIMIT,
 ): Promise<PaginatedHistoryResult> {
   return fetchPaginatedHistory(assistantId, {
-    conversationKey,
+    conversationId,
     page: "latest",
     limit: String(limit),
   });
@@ -164,12 +171,12 @@ export async function fetchLatestHistoryPage(
  */
 export async function fetchOlderHistoryPage(
   assistantId: string,
-  conversationKey: string,
+  conversationId: string,
   beforeTimestamp: number,
   limit: number = DEFAULT_OLDER_LIMIT,
 ): Promise<PaginatedHistoryResult> {
   return fetchPaginatedHistory(assistantId, {
-    conversationKey,
+    conversationId,
     beforeTimestamp: String(beforeTimestamp),
     limit: String(limit),
   });

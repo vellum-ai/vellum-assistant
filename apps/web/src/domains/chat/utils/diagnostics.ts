@@ -247,7 +247,6 @@ export function summarizeAssistantEvent(
 
   for (const key of [
     "messageId",
-    "conversationKey",
     "requestId",
     "surfaceId",
     "surfaceType",

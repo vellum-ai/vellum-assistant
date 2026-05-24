@@ -247,6 +247,10 @@ export class AssistantEventHub {
    * Publish an event to all matching subscribers.
    *
    * Matching rules:
+   * - if `excludeClientId` is set, the subscriber with that clientId is
+   *   skipped regardless of every other rule (self-echo suppression — the
+   *   client that originated the mutation does not receive its own
+   *   invalidation back through the hub).
    * - if `targetClientId` is set, deliver only to the subscriber with that
    *   clientId, bypassing the conversation-id filter entirely (the web-origin
    *   event's conversationId differs from the macOS client's subscribed
@@ -264,6 +268,14 @@ export class AssistantEventHub {
     options?: {
       targetCapability?: HostProxyCapability;
       targetClientId?: string;
+      /**
+       * Skip the subscriber with this `clientId`. Used for self-echo
+       * suppression on `sync_changed`: the route handler echoes the
+       * originating tab's `X-Vellum-Client-Id` back on the event, and the
+       * hub uses it here to avoid re-delivering the invalidation to the
+       * tab that already mutated its own optimistic state.
+       */
+      excludeClientId?: string;
     },
   ): Promise<void> {
     if (event.conversationId) {
@@ -276,11 +288,23 @@ export class AssistantEventHub {
 
     const targetCapability = options?.targetCapability;
     const targetClientId = options?.targetClientId;
+    const excludeClientId = options?.excludeClientId;
     const snapshot = Array.from(this.subscribers);
     const errors: unknown[] = [];
 
     for (const entry of snapshot) {
       if (!entry.active) continue;
+
+      // Self-echo suppression: the originating client never receives the
+      // event back. Checked before every other rule so it composes with
+      // both targeted and untargeted broadcasts.
+      if (
+        excludeClientId != null &&
+        entry.type === "client" &&
+        entry.clientId === excludeClientId
+      ) {
+        continue;
+      }
 
       if (targetClientId != null) {
         // Targeted: bypass conversation filter, deliver only to the named client.
@@ -539,9 +563,24 @@ export function broadcastMessage(
       : resolvedConversationId;
   const event = buildAssistantEvent(msg, scopedConversationId);
   const targetCapability = capabilityForMessageType(msg.type);
+  // Self-echo suppression: a `sync_changed` carrying an `originClientId`
+  // means a specific client just mutated the resource. The hub must not
+  // re-deliver the invalidation to that client — it already updated its
+  // optimistic state locally and a redundant invalidation would clobber it
+  // with a flash of stale-then-fresh data. Daemon-internal emits (agent
+  // loop, FS watcher, cron) leave `originClientId` unset and the event
+  // fans out to every subscriber as before.
+  const excludeClientId =
+    msg.type === "sync_changed" &&
+    typeof msg.originClientId === "string" &&
+    msg.originClientId.length > 0
+      ? msg.originClientId
+      : undefined;
   const publishOptions =
-    targetCapability != null || targetClientId != null
-      ? { targetCapability, targetClientId }
+    targetCapability != null ||
+    targetClientId != null ||
+    excludeClientId != null
+      ? { targetCapability, targetClientId, excludeClientId }
       : undefined;
   _hubChain = _hubChain
     .then(() => assistantEventHub.publish(event, publishOptions))

@@ -38,12 +38,17 @@ for email and web presence. DNS managed by the Vellum platform.
 
 Examples:
   $ assistant domain register velly
+  $ assistant domain register velly --email-username hello
   $ assistant domain register --json
   $ assistant domain status`,
       );
 
       domain
         .command("register [subdomain]")
+        .option(
+          "--email-username <username>",
+          "Also register an email address (e.g. --email-username hello → hello@<subdomain>.domain)",
+        )
         .description(
           `Register a custom subdomain on ${baseDomain} for this assistant`,
         )
@@ -54,12 +59,19 @@ Arguments:
   subdomain   The subdomain to register (e.g. "velly" → velly.${baseDomain}).
               If omitted, the platform derives it from the assistant's name.
 
+Options:
+  --email-username <username>  Also register an email address for the domain
+                               (e.g. --email-username hello → hello@velly.${baseDomain})
+
 Registers a subdomain at <subdomain>.${baseDomain}. DNS managed by the
 Vellum platform — no manual DNS changes needed.
 
 Examples:
   $ assistant domain register velly
   ✓ Registered velly.${baseDomain}
+
+  $ assistant domain register velly --email-username hello
+  ✓ Registered velly.${baseDomain} (email: hello@velly.${baseDomain})
 
   $ assistant domain register
   ✓ Registered my-assistant.${baseDomain}
@@ -68,10 +80,17 @@ Examples:
   {"domain":"velly.${baseDomain}","id":"...","status":"active","verified":true}`,
         )
         .action(
-          async (subdomain: string | undefined, _opts: unknown, cmd: Command) => {
+          async (
+            subdomain: string | undefined,
+            opts: { emailUsername?: string },
+            cmd: Command,
+          ) => {
             const body: Record<string, string> = {};
             if (subdomain) {
               body.subdomain = subdomain;
+            }
+            if (opts.emailUsername) {
+              body.email_username = opts.emailUsername;
             }
 
             const r = await cliIpcCall<{
@@ -82,6 +101,7 @@ Examples:
               verified?: boolean;
               created_at?: string;
               created?: string;
+              email_error?: { detail: string; code: string };
             }>("domain_register", { body });
 
             if (!r.ok)
@@ -104,7 +124,18 @@ Examples:
             if (shouldOutputJson(cmd)) {
               writeOutput(cmd, data);
             } else {
-              log.info(`✓ Registered ${displayDomain}`);
+              if (opts.emailUsername && !data.email_error) {
+                log.info(
+                  `✓ Registered ${displayDomain} (email: ${opts.emailUsername}@${displayDomain})`,
+                );
+              } else {
+                log.info(`✓ Registered ${displayDomain}`);
+              }
+              if (data.email_error) {
+                log.warn(
+                  `⚠ Email registration failed: ${data.email_error.detail}`,
+                );
+              }
               if (data.verified === false) {
                 log.info(
                   "  ⚠ Domain verification pending — this usually resolves within a few seconds.",

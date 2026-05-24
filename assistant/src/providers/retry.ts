@@ -47,9 +47,18 @@ const EFFORT_SUPPORTED_PROVIDERS = new Set([
 /**
  * Providers that consume the `thinking` config. Anthropic uses it directly on
  * the wire; OpenRouter either forwards it to its Anthropic-compatible path or
- * translates it into the unified `reasoning` parameter on OpenAI-compat calls.
+ * translates it into the unified `reasoning` parameter on OpenAI-compat calls;
+ * Gemini reads `thinking.level` to populate `thinkingConfig.thinkingLevel`.
  */
-const THINKING_AWARE_PROVIDERS = new Set(["anthropic", "openrouter"]);
+const THINKING_AWARE_PROVIDERS = new Set(["anthropic", "openrouter", "gemini"]);
+
+/**
+ * Providers that consume Gemini-only thinking extras (`level`,
+ * `streamThinking`). For other thinking-aware providers, we scrub these from
+ * the normalized wire payload because Anthropic's SDK rejects unknown keys
+ * inside the `thinking` object with "Extra inputs are not permitted".
+ */
+const THINKING_EXTRA_FIELDS_AWARE_PROVIDERS = new Set(["gemini"]);
 
 /**
  * Providers that consume the `verbosity` config. Currently OpenAI (mapped to
@@ -289,12 +298,34 @@ function normalizeSendMessageOptions(
   }
 
   // thinking is Anthropic-specific on the wire; OpenRouter reads it as a
-  // signal for its unified reasoning parameter. Strip it for other providers.
+  // signal for its unified reasoning parameter; Gemini reads `level` from it.
+  // Strip it for other providers.
   if (
     !THINKING_AWARE_PROVIDERS.has(providerName) &&
     nextConfig.thinking !== undefined
   ) {
     delete nextConfig.thinking;
+  }
+
+  // Strip Gemini-only extras (`level`, `streamThinking`) from the wire
+  // `thinking` object for providers that don't read them. Anthropic in
+  // particular rejects unknown keys inside `thinking` with "Extra inputs are
+  // not permitted"; the OpenRouter Anthropic-compat path hits the same SDK.
+  if (
+    nextConfig.thinking !== undefined &&
+    !THINKING_EXTRA_FIELDS_AWARE_PROVIDERS.has(providerName) &&
+    typeof nextConfig.thinking === "object" &&
+    nextConfig.thinking !== null
+  ) {
+    const wire = nextConfig.thinking as Record<string, unknown>;
+    if (wire.level !== undefined || wire.streamThinking !== undefined) {
+      const scrubbed: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(wire)) {
+        if (key === "level" || key === "streamThinking") continue;
+        scrubbed[key] = value;
+      }
+      nextConfig.thinking = scrubbed;
+    }
   }
 
   // Anthropic (and OpenRouter fronting Anthropic) rejects requests that

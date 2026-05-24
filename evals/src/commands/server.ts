@@ -1,9 +1,16 @@
 /** `evals server` — local HTML report browser for .runs artifacts. */
+import { readdir, readFile, rm } from "node:fs/promises";
 import { spawn } from "node:child_process";
+import { join } from "node:path";
 
 import type { Command } from "commander";
 
 import { renderReportPage, type ReportPageInput } from "../lib/report-html";
+import {
+  readRunMetadata,
+  RUNS_DIR,
+  scavengeAbandonedRuns,
+} from "../lib/metrics";
 import {
   findExecutionRunId,
   listReportSessions,
@@ -19,6 +26,43 @@ function jsonResponse(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value, null, 2), {
     status,
     headers: { "content-type": "application/json; charset=utf-8" },
+  });
+}
+
+/**
+ * Issues a 303 See Other to `location`. Used by the form-driven delete
+ * endpoints so a successful POST navigates the browser to the next page
+ * (session detail, or `/`) — no JS, no fetch, no hand-rolled IIFE.
+ */
+function redirectResponse(location: string): Response {
+  return new Response(null, { status: 303, headers: { location } });
+}
+
+/**
+ * Renders a minimal HTML error page for the form-driven delete endpoints.
+ * We can't use `notFoundPage` here because that machinery is shaped around
+ * the report schema; this is a flat, no-frills page with a link back so
+ * the user is never stranded if a POST fails server-side.
+ */
+function errorPage(message: string, backHref: string, status = 500): Response {
+  const safe = message.replace(/[&<>"']/g, (c) => {
+    switch (c) {
+      case "&":
+        return "&amp;";
+      case "<":
+        return "&lt;";
+      case ">":
+        return "&gt;";
+      case '"':
+        return "&quot;";
+      default:
+        return "&#39;";
+    }
+  });
+  const body = `<!doctype html><html><head><meta charset="utf-8"><title>Error</title><meta name="viewport" content="width=device-width, initial-scale=1"></head><body style="font-family: system-ui, sans-serif; max-width: 640px; margin: 4rem auto; padding: 0 1rem; line-height: 1.5"><h1>Something went wrong</h1><p>${safe}</p><p><a href="${backHref}">Back</a></p></body></html>`;
+  return new Response(body, {
+    status,
+    headers: { "content-type": "text/html; charset=utf-8" },
   });
 }
 
@@ -41,11 +85,38 @@ function notFoundJson(message: string): Response {
   return jsonResponse({ error: message }, 404);
 }
 
+/**
+ * Validates that a runId is safe to use in file system operations.
+ * Returns true if it matches the expected format (eval-...-<timestamp>),
+ * preventing path traversal attacks.
+ */
+function isValidRunId(runId: string): boolean {
+  return /^eval-[a-z0-9\-]+-\d{14}$/.test(runId);
+}
+
+/**
+ * Allowlist of bare filenames the GET file endpoint will serve from a
+ * run directory. The list is closed (no path-segment characters allowed
+ * in the name) so a malicious URL like `..%2Fetc%2Fpasswd` can never
+ * match — `isValidRunId` is the first defense, this is the second.
+ *
+ * Allowed:
+ *   - `subprocess-<step>.log` — adapter subprocess tee output
+ *   - `docker-inspect.json` / `docker-logs.txt` — hatch-failure forensics
+ */
+function isAllowedRunArtifactName(name: string): boolean {
+  if (name === "docker-inspect.json" || name === "docker-logs.txt") return true;
+  return /^subprocess-[a-z0-9\-]+\.log$/.test(name);
+}
+
 export async function handleRequest(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const path = url.pathname.replace(/\/+$/, "") || "/";
+  const method = request.method.toUpperCase();
 
   if (path === "/") {
+    // Run scavenger on each index page load to catch stale runs.
+    await scavengeAbandonedRuns();
     const sessions = await listReportSessions();
     return pageResponse({ kind: "index", sessions });
   }
@@ -128,7 +199,160 @@ export async function handleRequest(request: Request): Promise<Response> {
     return pageResponse({ kind: "session", session });
   }
 
+  // GET /api/runs/:runId/files/:name — serve a per-run diagnostic artifact
+  // as plain text. Allowed names are the subprocess log tee outputs plus the
+  // docker forensics dump emitted by the vellum adapter on hatch failure.
+  const apiRunFile = path.match(/^\/api\/runs\/([^/]+)\/files\/(.+)$/);
+  if (apiRunFile && method === "GET") {
+    const [, runIdEnc, fileNameEnc] = apiRunFile;
+    const runId = decodeURIComponent(runIdEnc);
+    const fileName = decodeURIComponent(fileNameEnc);
+
+    if (!isValidRunId(runId)) {
+      return jsonResponse({ error: `Invalid runId format: ${runId}` }, 400);
+    }
+    if (!isAllowedRunArtifactName(fileName)) {
+      return jsonResponse({ error: `Invalid file name: ${fileName}` }, 400);
+    }
+
+    try {
+      const filePath = join(RUNS_DIR, runId, fileName);
+      const content = await readFile(filePath, "utf-8");
+      const contentType = fileName.endsWith(".json")
+        ? "application/json; charset=utf-8"
+        : "text/plain; charset=utf-8";
+      return new Response(content, {
+        status: 200,
+        headers: { "content-type": contentType },
+      });
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("ENOENT")) {
+        return notFoundJson(`File not found: ${runId}/${fileName}`);
+      }
+      return jsonResponse(
+        { error: err instanceof Error ? err.message : "Failed to read file" },
+        500,
+      );
+    }
+  }
+
+  // DELETE /api/runs/:runId — JSON API: remove a specific run directory.
+  // POST   /api/runs/:runId/delete — form endpoint: same effect, 303-redirects
+  //                                  to the referenced session (or `/`).
+  // Both routes funnel through `deleteRunOnDisk` so behaviour stays in lockstep.
+  const apiDeleteRun = path.match(/^\/api\/runs\/([^/]+)$/);
+  if (apiDeleteRun && method === "DELETE") {
+    const runId = decodeURIComponent(apiDeleteRun[1]);
+    if (!isValidRunId(runId)) {
+      return jsonResponse({ error: `Invalid runId format: ${runId}` }, 400);
+    }
+    const result = await deleteRunOnDisk(runId);
+    if (!result.ok) return jsonResponse({ error: result.error }, 500);
+    return jsonResponse({ deleted: runId });
+  }
+
+  const apiDeleteRunForm = path.match(/^\/api\/runs\/([^/]+)\/delete$/);
+  if (apiDeleteRunForm && method === "POST") {
+    const runId = decodeURIComponent(apiDeleteRunForm[1]);
+    if (!isValidRunId(runId)) {
+      return errorPage(`Invalid runId format: ${runId}`, "/", 400);
+    }
+    let backToSession: string | undefined;
+    try {
+      const form = await request.formData();
+      const raw = form.get("backToSession");
+      if (typeof raw === "string" && raw.length > 0) backToSession = raw;
+    } catch {
+      // No body / not form-encoded — fall through with no session hint.
+    }
+    const result = await deleteRunOnDisk(runId);
+    if (!result.ok) {
+      const back = backToSession
+        ? `/sessions/${encodeURIComponent(backToSession)}`
+        : "/";
+      return errorPage(`Failed to delete run: ${result.error}`, back, 500);
+    }
+    return redirectResponse(
+      backToSession ? `/sessions/${encodeURIComponent(backToSession)}` : "/",
+    );
+  }
+
+  // DELETE /api/runs        — JSON API: bulk-delete every non-running run.
+  // POST   /api/runs/delete-all — form endpoint: same effect, 303 to `/`.
+  // We scavenge stale heartbeats first so a 60s-dead run still gets cleaned up
+  // even though it hasn't been flipped to `abandoned` yet by the index page.
+  if (path === "/api/runs" && method === "DELETE") {
+    const result = await deleteAllNonRunningOnDisk();
+    if (!result.ok) return jsonResponse({ error: result.error }, 500);
+    return jsonResponse({ deleted: result.deleted, skipped: result.skipped });
+  }
+
+  if (path === "/api/runs/delete-all" && method === "POST") {
+    const result = await deleteAllNonRunningOnDisk();
+    if (!result.ok) {
+      return errorPage(`Failed to delete runs: ${result.error}`, "/", 500);
+    }
+    return redirectResponse("/");
+  }
+
   return notFoundPage(`No route matches ${url.pathname}.`);
+}
+
+/**
+ * Shared implementation for the JSON-DELETE and form-POST delete endpoints.
+ * Returns a tagged result so each entry point can shape its own response —
+ * JSON for scripts, 303-redirect for the browser-driven form.
+ */
+async function deleteRunOnDisk(
+  runId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const runPath = join(RUNS_DIR, runId);
+    await rm(runPath, { recursive: true, force: true });
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Failed to delete run",
+    };
+  }
+}
+
+/**
+ * Shared implementation for the JSON-DELETE and form-POST bulk-delete
+ * endpoints. Scavenges stale heartbeats first, then walks every run dir
+ * that matches the runId shape and removes any whose status is not
+ * currently `running`.
+ */
+async function deleteAllNonRunningOnDisk(): Promise<
+  { ok: true; deleted: number; skipped: number } | { ok: false; error: string }
+> {
+  try {
+    await scavengeAbandonedRuns();
+    const runDirs = await readdir(RUNS_DIR).catch(() => [] as string[]);
+    let deleted = 0;
+    let skipped = 0;
+    for (const runDir of runDirs) {
+      if (!isValidRunId(runDir)) continue;
+      const metadata = await readRunMetadata(runDir).catch(() => undefined);
+      if (metadata && metadata.status === "running") {
+        skipped += 1;
+        continue;
+      }
+      try {
+        await rm(join(RUNS_DIR, runDir), { recursive: true, force: true });
+        deleted += 1;
+      } catch {
+        // Silently skip on error — next bulk-delete will pick it up.
+      }
+    }
+    return { ok: true, deleted, skipped };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Failed to delete runs",
+    };
+  }
 }
 
 /** Subset of the Bun.serve handle that callers need. */
@@ -240,7 +464,9 @@ export function registerServerCommand(program: Command): void {
       (value) => Number(value),
       DEFAULT_PORT,
     )
-    .action((opts: { host: string; port: number }) => {
+    .action(async (opts: { host: string; port: number }) => {
+      // Before starting the server, clean up any stale runs.
+      await scavengeAbandonedRuns();
       const { url } = startReportServer(opts);
       console.log(`Evals report server listening on ${url}`);
     });

@@ -122,7 +122,7 @@ src/
   lib/                             # third-party integrations & infrastructure
     sentry/                        #   Sentry error reporting (init, consent control)
     auth/                          #   allauth client, CSRF, auth middleware
-    feature-flags/                 #   LaunchDarkly provider
+    feature-flags/                 #   feature flag provider
     sync/                          #   server state sync (tag registry, router)
     api-client.ts                  #   HeyAPI configured client + interceptors
     telemetry/                     #   client identity for daemon registration
@@ -230,6 +230,46 @@ Examples of correct splits:
   confirmations) have their own state machine, independent from the
   turn lifecycle (idle → sending → receiving → complete).
 
+### Conversation identifiers: `conversationId` vs `conversationKey`
+
+The daemon uses two identifiers for conversations:
+
+| Identifier | Format | Source table | Example |
+|---|---|---|---|
+| `conversationId` | UUID | `conversations` (all DB versions) | `a1b2c3d4-e5f6-...` |
+| `conversationKey` | Arbitrary string | `conversation_keys` (migration 101+) | `default:slack:C0123` |
+
+For **web-originated** conversations, the key happens to equal the UUID —
+but that is an implementation coincidence, not a contract. Channel-bound
+conversations (Slack, email, Telegram) have keys like
+`default:slack:C0123` that differ from their UUID.
+
+**Rules:**
+
+1. **API queries must send `conversationId` (the UUID), never
+   `conversationKey`.** The `conversation_keys` table is migration-
+   version-dependent — older assistants don't have it, and queries
+   that rely on it silently return empty results.
+
+   ```ts
+   // Correct
+   query: { conversationId }
+
+   // Wrong — breaks on older DB versions
+   query: { conversationKey }
+   ```
+
+2. **URL route params carry UUIDs.** The route param is currently named
+   `:conversationKey` for historical reasons but the value must be a
+   UUID. Never put a channel-scoped key (e.g. `default:slack:C0123`)
+   in the URL.
+
+3. **When the codebase says `conversationKey`, read it as "the
+   identifier we route by" — which for web is always a UUID.** This
+   naming is a known source of confusion. New code should prefer
+   `conversationId` where possible; renaming existing fields is
+   tracked as incremental cleanup.
+
 ### Top-level shared directories
 
 Code used across multiple domains lives in top-level shared
@@ -259,7 +299,7 @@ owns it.
 | `hooks/` | Cross-domain React hooks | `use-is-mobile.ts`, `use-visible-viewport.ts`, `use-keyboard-shortcuts.ts` |
 | `utils/` | Pure utility functions (no side effects, no third-party SDKs) | `format.ts`, `browser.ts`, `network-status.ts`, `stable-id.ts` |
 | `types/` | Shared type definitions | `window.d.ts`, `api-types.ts` |
-| `lib/` | Third-party integrations and infrastructure wrappers (have side effects, configure SDK instances, manage lifecycle) | `sentry/` (error reporting), `auth/` (allauth + CSRF), `feature-flags/` (LaunchDarkly), `sync/` (state sync), `api-client.ts` (HeyAPI) |
+| `lib/` | Third-party integrations and infrastructure wrappers (have side effects, configure SDK instances, manage lifecycle) | `sentry/` (error reporting), `auth/` (allauth + CSRF), `feature-flags/, `sync/` (state sync), `api-client.ts` (HeyAPI) |
 | `runtime/` | Framework adapters and native platform bridges | `route-adapter.ts`, `native-auth.ts`, `native-deep-link.ts`, `app-bridge.ts` |
 | `components/` | Cross-domain shared UI | `error-boundary.tsx`, `sign-in-gate.tsx`, `providers.tsx` |
 
@@ -271,7 +311,7 @@ owns it.
 |---|---|---|
 | **Purpose** | Third-party SDK integrations, infrastructure wrappers, code with initialization or lifecycle | Pure helper functions with no side effects |
 | **Side effects?** | Yes — initializes SDKs, configures interceptors, manages consent/lifecycle | No — pure input→output, no global state, no I/O |
-| **Third-party SDK dependency?** | Yes — wraps `@sentry/react`, `@heyapi/client-fetch`, LaunchDarkly, etc. | No — only standard library / language utilities |
+| **Third-party SDK dependency?** | Yes — wraps `@sentry/react`, `@heyapi/client-fetch`, etc. | No — only standard library / language utilities |
 | **Subdirectories?** | Yes — each integration gets its own directory (e.g. `lib/sentry/`, `lib/auth/`, `lib/sync/`) | Flat — individual utility files at the top level |
 | **Examples** | `lib/sentry/sentry-init.ts`, `lib/auth/allauth-client.ts`, `lib/api-client.ts` | `utils/format.ts`, `utils/browser.ts`, `utils/cn.ts` |
 
@@ -286,7 +326,7 @@ Reference: [Bulletproof React — `lib/` directory](https://github.com/alan2207/
 
 Both contain infrastructure code, but they serve different purposes:
 
-- **`lib/`** — wraps *external* third-party services and SDKs (Sentry, HeyAPI, LaunchDarkly, allauth). These are vendor integrations the app consumes.
+- **`lib/`** — wraps *external* third-party services and SDKs (Sentry, HeyAPI, allauth). These are vendor integrations the app consumes.
 - **`runtime/`** — adapts the app to its *host environment* (Capacitor native bridges, route adapters, platform detection). These handle differences between web, iOS, and macOS without third-party SDK dependencies.
 
 If the code imports a third-party SDK and configures it → `lib/`. If it bridges between the app and the native platform or framework runtime → `runtime/`.

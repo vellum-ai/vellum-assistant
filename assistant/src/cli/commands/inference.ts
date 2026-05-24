@@ -30,6 +30,54 @@ interface InferenceSendResult {
   };
 }
 
+const DEFAULT_INFERENCE_IPC_TIMEOUT_MS = 32 * 60 * 1000;
+const MAX_TIMER_TIMEOUT_MS = 2_147_483_647;
+const MAX_INFERENCE_TIMEOUT_SECONDS = Math.floor(MAX_TIMER_TIMEOUT_MS / 1000);
+
+function parsePositiveIntegerOption(
+  raw: string | undefined,
+  flagName: string,
+  options: { max?: number } = {},
+): { ok: true; value: number | undefined } | { ok: false; error: string } {
+  if (raw === undefined) {
+    return { ok: true, value: undefined };
+  }
+
+  const trimmed = raw.trim();
+  if (!/^\d+$/.test(trimmed)) {
+    return {
+      ok: false,
+      error: `Invalid ${flagName} value. Must be a positive integer.`,
+    };
+  }
+
+  const value = Number(trimmed);
+  if (
+    !Number.isSafeInteger(value) ||
+    value < 1 ||
+    (options.max !== undefined && value > options.max)
+  ) {
+    return {
+      ok: false,
+      error:
+        `Invalid ${flagName} value. Must be a positive integer` +
+        (options.max !== undefined ? ` no greater than ${options.max}` : "") +
+        ".",
+    };
+  }
+
+  return { ok: true, value };
+}
+
+function writeCliError(message: string, jsonOutput?: boolean): void {
+  if (jsonOutput) {
+    process.stdout.write(JSON.stringify({ ok: false, error: message }) + "\n");
+  } else {
+    log.error(message);
+  }
+  process.exitCode = 1;
+}
+
 // ── Send subcommand ──────────────────────────────────────────────────
 
 /**
@@ -47,6 +95,11 @@ function attachSendSubcommand(group: Command): void {
       "Apply a named inference profile from llm.profiles for this single call",
     )
     .option("--max-tokens <n>", "Max response tokens", undefined)
+    .option(
+      "--timeout-seconds <seconds>",
+      "Maximum time to wait for the inference response",
+      undefined,
+    )
     .option("--json", "Output structured JSON")
     .argument("[message...]", "User message (joined with spaces)")
     .addHelpText(
@@ -59,12 +112,15 @@ Behavioral notes:
     only. It does NOT open a session — to pin a profile to a conversation,
     use 'assistant inference profile open <name>'.
   - --profile layers below --model: --model still wins on the model field.
+  - Long-running requests wait up to 32 minutes by default. Use
+    --timeout-seconds to adjust the wait budget for this call.
   - Requires a configured LLM provider (see 'assistant config set').
 
 Examples:
   $ assistant inference send "What is 2+2?"
   $ echo "Summarize this" | assistant inference send
   $ assistant llm send --system-prompt "You are a poet" "Write a haiku"
+  $ assistant inference send --timeout-seconds 300 "Draft a long memo"
   $ assistant inference send --model claude-sonnet-4-20250514 --json "Hello"
   $ assistant inference send --profile balanced "Explain RFC 1149"`,
     )
@@ -76,29 +132,36 @@ Examples:
           model?: string;
           profile?: string;
           maxTokens?: string;
+          timeoutSeconds?: string;
           json?: boolean;
         },
       ) => {
         const { systemPrompt, model, profile, json: jsonOutput } = opts;
-        const maxTokens = opts.maxTokens
-          ? parseInt(opts.maxTokens, 10)
-          : undefined;
+        const parsedMaxTokens = parsePositiveIntegerOption(
+          opts.maxTokens,
+          "--max-tokens",
+        );
+        const parsedTimeoutSeconds = parsePositiveIntegerOption(
+          opts.timeoutSeconds,
+          "--timeout-seconds",
+          { max: MAX_INFERENCE_TIMEOUT_SECONDS },
+        );
 
-        if (
-          opts.maxTokens !== undefined &&
-          (!Number.isFinite(maxTokens) || maxTokens! < 1)
-        ) {
-          const msg = "Invalid --max-tokens value. Must be a positive integer.";
-          if (jsonOutput) {
-            process.stdout.write(
-              JSON.stringify({ ok: false, error: msg }) + "\n",
-            );
-          } else {
-            log.error(msg);
-          }
-          process.exitCode = 1;
+        if (!parsedMaxTokens.ok) {
+          writeCliError(parsedMaxTokens.error, jsonOutput);
           return;
         }
+
+        if (!parsedTimeoutSeconds.ok) {
+          writeCliError(parsedTimeoutSeconds.error, jsonOutput);
+          return;
+        }
+
+        const maxTokens = parsedMaxTokens.value;
+        const timeoutMs =
+          parsedTimeoutSeconds.value !== undefined
+            ? parsedTimeoutSeconds.value * 1000
+            : DEFAULT_INFERENCE_IPC_TIMEOUT_MS;
 
         // Determine user message: positional args or stdin.
         let messageText = messageParts.length > 0 ? messageParts.join(" ") : "";
@@ -114,14 +177,7 @@ Examples:
         if (!messageText) {
           const msg =
             "No message provided. Pass a message as an argument or pipe via stdin.";
-          if (jsonOutput) {
-            process.stdout.write(
-              JSON.stringify({ ok: false, error: msg }) + "\n",
-            );
-          } else {
-            log.error(msg);
-          }
-          process.exitCode = 1;
+          writeCliError(msg, jsonOutput);
           return;
         }
 
@@ -135,17 +191,14 @@ Examples:
         const ipcResult = await cliIpcCall<InferenceSendResult>(
           "inference_send",
           { body },
+          { timeoutMs },
         );
 
         if (!ipcResult.ok) {
-          if (jsonOutput) {
-            process.stdout.write(
-              JSON.stringify({ ok: false, error: ipcResult.error }) + "\n",
-            );
-          } else {
-            log.error(ipcResult.error ?? "Unknown error occurred");
-          }
-          process.exitCode = 1;
+          writeCliError(
+            ipcResult.error ?? "Unknown error occurred",
+            jsonOutput,
+          );
           return;
         }
 
@@ -179,9 +232,9 @@ export function registerInferenceCommand(program: Command): void {
     transport: "ipc",
     description: "LLM inference operations",
     build: (inference) => {
-  inference.addHelpText(
-    "after",
-    `
+      inference.addHelpText(
+        "after",
+        `
 The inference command group sends requests to your configured LLM provider.
 The provider is resolved from your assistant config (llm.default.provider).
 
@@ -191,11 +244,11 @@ Examples:
   $ assistant llm send --system-prompt "Be concise" "What is TCP?"
   $ assistant inference send --model claude-sonnet-4-20250514 --json "Hello"
   $ assistant inference send --profile balanced "Explain RFC 1149"`,
-  );
+      );
 
-  attachSendSubcommand(inference);
-  attachSessionSubcommand(inference);
-  attachProvidersSubcommand(inference);
+      attachSendSubcommand(inference);
+      attachSessionSubcommand(inference);
+      attachProvidersSubcommand(inference);
     },
   });
 

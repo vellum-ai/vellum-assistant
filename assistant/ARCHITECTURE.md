@@ -807,7 +807,7 @@ The assistant feature-flag resolver (`src/config/assistant-feature-flags.ts`) is
 
 1. `~/.vellum/protected/feature-flags.json` overrides (local) or gateway HTTP API (Docker/containerized) — written by the gateway's PATCH endpoint
 2. Defaults registry `defaultEnabled` — from the unified registry (`meta/feature-flags/feature-flag-registry.json`, filtered to `scope: "assistant"`)
-3. `true` — unknown/undeclared flags with no persisted override default to enabled
+3. `false` — unknown/undeclared flags with no override fail closed
 
 **Storage:** Flags are persisted in `~/.vellum/protected/feature-flags.json` (local) or `GATEWAY_SECURITY_DIR/feature-flags.json` (Docker), managed by the gateway's `/v1/feature-flags` API (see [`gateway/ARCHITECTURE.md`](../gateway/ARCHITECTURE.md)). The daemon's config watcher monitors the protected directory and hot-reloads flag changes, so mutations take effect on the next tool resolution or session.
 

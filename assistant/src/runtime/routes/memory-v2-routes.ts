@@ -32,6 +32,7 @@ import {
   readPage,
   renderPageContent,
 } from "../../memory/v2/page-store.js";
+import { ROUTER_PROMPT } from "../../memory/v2/prompts/router.js";
 import { type RouterSource, runRouter } from "../../memory/v2/router.js";
 import { seedV2SkillEntries } from "../../memory/v2/skill-store.js";
 import { getLogger } from "../../util/logger.js";
@@ -347,10 +348,47 @@ const SimulateRouterOverridesSchema = z
   })
   .strict();
 
+const RecentTurnPairSchema = z
+  .object({
+    assistantMessage: z.string(),
+    userMessage: z.string(),
+  })
+  .strict();
+
 const MemoryV2SimulateRouterParams = z
   .object({
-    query: z.string().min(1, "query must be non-empty"),
+    /**
+     * Recent (assistant, user) turn pairs to render inside `<last_turn>`,
+     * oldest first. Required; must contain at least one entry. The last
+     * entry's `userMessage` is the just-arrived turn the router is
+     * routing for (must be non-empty); earlier entries are conversation
+     * history. The oldest pair's `assistantMessage` may be empty for a
+     * first-turn scenario — the daemon skips that `[assistant]:` line
+     * the same way `runRouterBatch` does in prod.
+     */
+    recentTurnPairs: z
+      .array(RecentTurnPairSchema)
+      .min(1, "recentTurnPairs must contain at least one entry")
+      .refine(
+        (pairs) => pairs[pairs.length - 1].userMessage.length > 0,
+        "the last recentTurnPairs entry's userMessage must be non-empty",
+      ),
+    /**
+     * Verbatim `<now>` body. When omitted, the daemon loads the workspace's
+     * live NOW.md so callers that don't care about per-call now context get
+     * production-like behavior for free. Pass an explicit string (including
+     * the empty string) to override.
+     */
+    nowText: z.string().optional(),
     configOverrides: SimulateRouterOverridesSchema.optional(),
+    profileOverride: z.string().min(1).optional(),
+    /**
+     * Inline router system-prompt override (simulator only). Empty /
+     * whitespace-only strings are normalized to "no override" so a
+     * cleared textarea behaves the same as never opening it. The 1 MiB
+     * cap mirrors the file-path size guard in `resolveRouterPrompt`.
+     */
+    routerPromptOverride: z.string().max(1_000_000).optional(),
   })
   .strict();
 
@@ -380,6 +418,10 @@ export interface MemoryV2SimulateRouterResult {
   };
   /** Page index size the router was given (post-tier-carve, all batches). */
   totalCandidatePages: number;
+  /** The profile name passed as a per-call override, if any. */
+  profileOverride: string | null;
+  /** `true` when an inline `routerPromptOverride` was applied this call. */
+  routerPromptOverridden: boolean;
 }
 
 /**
@@ -423,23 +465,70 @@ export async function handleSimulateRouter({
   body = {},
 }: RouteHandlerArgs): Promise<MemoryV2SimulateRouterResult> {
   requireMemoryV2Enabled();
-  const { query, configOverrides } = MemoryV2SimulateRouterParams.parse(body);
+  const {
+    recentTurnPairs,
+    nowText: rawNowText,
+    configOverrides,
+    profileOverride,
+    routerPromptOverride: rawRouterPromptOverride,
+  } = MemoryV2SimulateRouterParams.parse(body);
+
+  // Normalize whitespace-only strings to "no override" so the
+  // bundled/file prompt resolution behaves the same as a cleared editor.
+  const routerPromptOverride =
+    rawRouterPromptOverride !== undefined &&
+    rawRouterPromptOverride.trim().length > 0
+      ? rawRouterPromptOverride
+      : undefined;
 
   const liveConfig = loadConfig();
   const mergedConfig = applySimulateOverrides(liveConfig, configOverrides);
   const effectiveRouter = mergedConfig.memory.v2.router;
 
+  // Validate the requested profile name against the configured profile
+  // catalog so the caller gets a structured 400 instead of a silent fall-
+  // through (the resolver tolerates missing override-profile references by
+  // design, but the playground wants the user to know they typo'd).
+  if (profileOverride !== undefined) {
+    const profiles = liveConfig.llm?.profiles ?? {};
+    if (!Object.prototype.hasOwnProperty.call(profiles, profileOverride)) {
+      const available = Object.keys(profiles).sort();
+      const hint =
+        available.length > 0
+          ? ` Available profiles: ${available.join(", ")}.`
+          : " No profiles defined in llm.profiles.";
+      throw new RouteError(
+        `Profile "${profileOverride}" is not defined in llm.profiles.${hint}`,
+        "MEMORY_V2_SIMULATE_INVALID_PROFILE",
+        400,
+      );
+    }
+  }
+
   const workspaceDir = getWorkspaceDir();
-  const nowText = await loadNowText(workspaceDir);
+  // Caller can override `<now>` explicitly; otherwise fall back to the
+  // live workspace NOW.md so a UI that doesn't supply nowText still
+  // exercises a production-like context.
+  const nowText =
+    rawNowText !== undefined ? rawNowText : await loadNowText(workspaceDir);
 
   const routerResult = await runRouter({
     workspaceDir,
-    userMessage: query,
-    assistantMessage: "",
+    recentTurnPairs,
     nowText,
     priorEverInjected: [],
     config: mergedConfig,
     database: getDb(),
+    ...(profileOverride !== undefined
+      ? { overrideProfile: profileOverride }
+      : {}),
+    ...(routerPromptOverride !== undefined ? { routerPromptOverride } : {}),
+    // Always return the full union — the simulator's job is to surface
+    // what the router actually picked across all batches, not what
+    // injection.ts would have trimmed it to. The `max_page_ids` knob is
+    // still echoed in `effectiveConfig` so the UI can show the live cap
+    // as informational context.
+    disableUnionCap: true,
   });
 
   const pageIndex = await getPageIndex(workspaceDir);
@@ -482,7 +571,35 @@ export async function handleSimulateRouter({
         : {}),
     },
     totalCandidatePages: pageIndex.entries.length,
+    profileOverride: profileOverride ?? null,
+    routerPromptOverridden: routerPromptOverride !== undefined,
   };
+}
+
+// ── Router prompt template (bundled default for the playground editor) ──
+
+export interface MemoryV2RouterPromptTemplateResult {
+  /** The bundled router prompt body, placeholders intact. */
+  template: string;
+}
+
+async function handleGetRouterPromptTemplate(): Promise<MemoryV2RouterPromptTemplateResult> {
+  requireMemoryV2Enabled();
+  return { template: ROUTER_PROMPT };
+}
+
+// ── Current `<now>` body (default value for the playground editor) ──────
+
+export interface MemoryV2NowTextResult {
+  /** The current rendered NOW.md body (autoloaded essentials/threads/recent). */
+  nowText: string;
+}
+
+async function handleGetNowText(): Promise<MemoryV2NowTextResult> {
+  requireMemoryV2Enabled();
+  const workspaceDir = getWorkspaceDir();
+  const nowText = await loadNowText(workspaceDir);
+  return { nowText };
 }
 
 // ── Route definitions ───────────────────────────────────────────────────
@@ -575,5 +692,25 @@ export const ROUTES: RouteDefinition[] = [
       "Runs the memory router against the live page index + EMA scores with optional tier_size / batch_size overrides, without recording an injection event or writing an activation log. Returns the slugs that would have been selected, per-slug tier provenance, EMA scores, and the effective router config so operators can validate knob changes before flipping them in workspace config.",
     tags: ["memory"],
     requestBody: MemoryV2SimulateRouterParams,
+  },
+  {
+    operationId: "memory_v2_router_prompt_template",
+    method: "GET",
+    endpoint: "memory/v2/router-prompt-template",
+    handler: handleGetRouterPromptTemplate,
+    summary: "Return the bundled router system-prompt template",
+    description:
+      "Returns the bundled `ROUTER_PROMPT` body with placeholders intact (`{{ASSISTANT_NAME}}`, `{{USER_NAME}}`, `{{PAGE_INDEX}}`). Used by the memory router playground's 'Load default' affordance so users have a known-good starting point when authoring an inline prompt override.",
+    tags: ["memory"],
+  },
+  {
+    operationId: "memory_v2_now_text",
+    method: "GET",
+    endpoint: "memory/v2/now-text",
+    handler: handleGetNowText,
+    summary: "Return the current rendered `<now>` body",
+    description:
+      "Returns the current NOW.md (autoloaded essentials/threads/recent). Used by the memory router playground to seed its `<now>` text area with a production-like default so callers can edit from a realistic baseline.",
+    tags: ["memory"],
   },
 ];

@@ -143,7 +143,6 @@ function emitResolved(
     type: "interaction_resolved",
     requestId,
     conversationId: interaction.conversationId,
-    conversationKey: interaction.conversationId,
     kind: interaction.kind,
     state,
   });

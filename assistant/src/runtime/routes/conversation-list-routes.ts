@@ -111,7 +111,7 @@ function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
   return response;
 }
 
-function handleRecordSeen({ body = {} }: RouteHandlerArgs) {
+function handleRecordSeen({ body = {}, headers }: RouteHandlerArgs) {
   const rawConversationId = body.conversationId as string | undefined;
   if (!rawConversationId) {
     throw new BadRequestError("Missing conversationId");
@@ -142,7 +142,11 @@ function handleRecordSeen({ body = {} }: RouteHandlerArgs) {
     });
 
     if (wasUnseen) {
-      publishConversationListAndMetadataChanged("seen_changed", conversationId);
+      publishConversationListAndMetadataChanged(
+        "seen_changed",
+        conversationId,
+        headers?.["x-vellum-client-id"]?.trim() || undefined,
+      );
     }
 
     return { ok: true };
@@ -152,7 +156,7 @@ function handleRecordSeen({ body = {} }: RouteHandlerArgs) {
   }
 }
 
-function handleMarkUnread({ body = {} }: RouteHandlerArgs) {
+function handleMarkUnread({ body = {}, headers }: RouteHandlerArgs) {
   const rawConversationId = body.conversationId as string | undefined;
   if (!rawConversationId) {
     throw new BadRequestError("Missing conversationId");
@@ -162,7 +166,11 @@ function handleMarkUnread({ body = {} }: RouteHandlerArgs) {
   try {
     const changed = markConversationUnread(conversationId);
     if (changed) {
-      publishConversationListAndMetadataChanged("seen_changed", conversationId);
+      publishConversationListAndMetadataChanged(
+        "seen_changed",
+        conversationId,
+        headers?.["x-vellum-client-id"]?.trim() || undefined,
+      );
     }
     return { ok: true };
   } catch (err) {

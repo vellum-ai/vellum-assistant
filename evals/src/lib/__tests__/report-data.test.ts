@@ -342,4 +342,55 @@ describe("report data", () => {
       await findExecutionRunId(sessionTag, "t1", "missing"),
     ).toBeUndefined();
   });
+
+  test("listReportSessions surfaces 'abandoned' for sessions whose only terminal runs are abandoned", async () => {
+    // Codex P2: deriveSessionStatus used to fall through to 'unknown' when
+    // every run was abandoned, hiding the actual outcome on the index page.
+    // The scavenger now marks stuck runs abandoned — make sure the index
+    // does not lie about it.
+    const sessionTag = `session-abandoned-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const runId = await freshRunId("abandoned");
+    await writeRunMetadata(runId, {
+      runId,
+      sessionId: sessionTag,
+      profileId: "p1",
+      testId: "t1",
+      status: "abandoned",
+      startedAt: "2026-05-22T13:00:00.000Z",
+      completedAt: "2026-05-22T13:05:00.000Z",
+      error: "scavenged",
+      artifactDir: runArtifacts(runId).runDir,
+    });
+    const sessions = await listReportSessions();
+    const ours = sessions.find((s) => s.sessionId === sessionTag);
+    expect(ours).toBeDefined();
+    expect(ours!.status).toBe("abandoned");
+  });
+
+  test("listReportSessions surfaces 'partial' when abandoned + completed runs coexist in one session", async () => {
+    const sessionTag = `session-partial-abandoned-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const okRun = await freshRunId("partial-ok");
+    const lostRun = await freshRunId("partial-lost");
+    await writeRunMetadata(okRun, {
+      runId: okRun,
+      sessionId: sessionTag,
+      profileId: "p1",
+      testId: "t1",
+      status: "completed",
+      artifactDir: runArtifacts(okRun).runDir,
+    });
+    await writeRunMetadata(lostRun, {
+      runId: lostRun,
+      sessionId: sessionTag,
+      profileId: "p2",
+      testId: "t1",
+      status: "abandoned",
+      error: "scavenged",
+      artifactDir: runArtifacts(lostRun).runDir,
+    });
+    const sessions = await listReportSessions();
+    const ours = sessions.find((s) => s.sessionId === sessionTag);
+    expect(ours).toBeDefined();
+    expect(ours!.status).toBe("partial");
+  });
 });

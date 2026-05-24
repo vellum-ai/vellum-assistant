@@ -13,8 +13,8 @@ import { countBadge } from "@/domains/chat/components/sidebar-count-badge.js";
 interface SubGroupAccordionProps {
   subGroups: SubGroup[];
   isSingleRow: (group: SubGroup) => boolean;
-  activeConversationKey?: string;
-  attentionConversationKeys?: Set<string>;
+  activeConversationId?: string;
+  attentionConversationIds?: Set<string>;
   onSelectConversation: (key: string) => void;
   renderActions: (conversation: Conversation) => ReactNode;
   renderPinToggle: (conversation: Conversation) => ReactNode;
@@ -24,8 +24,8 @@ interface SubGroupAccordionProps {
 export function SubGroupAccordion({
   subGroups,
   isSingleRow,
-  activeConversationKey,
-  attentionConversationKeys,
+  activeConversationId,
+  attentionConversationIds,
   onSelectConversation,
   renderActions,
   renderPinToggle,
@@ -43,14 +43,14 @@ export function SubGroupAccordion({
               leadingSlot={renderPinToggle(c)}
               label={c.title ?? "Untitled"}
               marqueeOnHover
-              active={c.conversationKey === activeConversationKey}
-              onSelect={() => onSelectConversation(c.conversationKey)}
+              active={c.conversationId === activeConversationId}
+              onSelect={() => onSelectConversation(c.conversationId)}
               trailingAction={renderActions(c)}
             />,
           );
         }
-        const groupHasAttention = attentionConversationKeys
-          ? group.conversations.some(c => attentionConversationKeys.has(c.conversationKey))
+        const groupHasAttention = attentionConversationIds
+          ? group.conversations.some(c => attentionConversationIds.has(c.conversationId))
           : false;
         return (
           <CollapsibleNavSection.Root
@@ -72,8 +72,8 @@ export function SubGroupAccordion({
                       leadingSlot={renderPinToggle(c)}
                       label={c.title ?? "Untitled"}
                       marqueeOnHover
-                      active={c.conversationKey === activeConversationKey}
-                      onSelect={() => onSelectConversation(c.conversationKey)}
+                      active={c.conversationId === activeConversationId}
+                      onSelect={() => onSelectConversation(c.conversationId)}
                       trailingAction={renderActions(c)}
                     />,
                   ),
@@ -93,8 +93,8 @@ export function SubGroupAccordion({
 
 interface CategorySubGroupsProps {
   subGroups: SubGroup[];
-  activeConversationKey?: string;
-  attentionConversationKeys?: Set<string>;
+  activeConversationId?: string;
+  attentionConversationIds?: Set<string>;
   onSelectConversation: (key: string) => void;
   renderActions: (conversation: Conversation) => ReactNode;
   renderPinToggle: (conversation: Conversation) => ReactNode;
@@ -106,8 +106,8 @@ export function BackgroundSubGroups(props: CategorySubGroupsProps) {
     <SubGroupAccordion
       subGroups={props.subGroups}
       isSingleRow={(g) => g.key.startsWith("__single__:")}
-      activeConversationKey={props.activeConversationKey}
-      attentionConversationKeys={props.attentionConversationKeys}
+      activeConversationId={props.activeConversationId}
+      attentionConversationIds={props.attentionConversationIds}
       onSelectConversation={props.onSelectConversation}
       renderActions={props.renderActions}
       renderPinToggle={props.renderPinToggle}
@@ -121,8 +121,8 @@ export function ScheduledSubGroups(props: CategorySubGroupsProps) {
     <SubGroupAccordion
       subGroups={props.subGroups}
       isSingleRow={(g) => g.conversations.length === 1}
-      activeConversationKey={props.activeConversationKey}
-      attentionConversationKeys={props.attentionConversationKeys}
+      activeConversationId={props.activeConversationId}
+      attentionConversationIds={props.attentionConversationIds}
       onSelectConversation={props.onSelectConversation}
       renderActions={props.renderActions}
       renderPinToggle={props.renderPinToggle}

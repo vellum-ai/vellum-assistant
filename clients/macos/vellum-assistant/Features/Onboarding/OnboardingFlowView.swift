@@ -383,7 +383,7 @@ struct OnboardingFlowView: View {
         state.hatchTotalSteps = 3
         state.hatchCurrentStep = 0
         state.hatchProgressTarget = 0.0
-        state.hatchStepLabel = "Setting up your assistant\u{2026}"
+        state.hatchStepLabel = "Getting things ready\u{2026}"
         state.isManagedHatch = true
         state.isHatching = true
 
@@ -425,7 +425,7 @@ struct OnboardingFlowView: View {
         guard !state.hatchCompleted else { return }
         state.hatchTotalSteps = 3
         state.hatchCurrentStep = 1
-        state.hatchStepLabel = "Provisioning assistant..."
+        state.hatchStepLabel = "Setting up your assistant\u{2026}"
         state.hatchProgressTarget = 0.33
 
         do {
@@ -440,7 +440,7 @@ struct OnboardingFlowView: View {
         // Phase 2: Poll the assistant-scoped gateway health endpoint.
         guard !state.hatchCompleted else { return }
         state.hatchCurrentStep = 2
-        state.hatchStepLabel = "Connecting to assistant..."
+        state.hatchStepLabel = "Connecting to your assistant\u{2026}"
         state.hatchProgressTarget = 0.66
 
         // Use ContinuousClock rather than wall-clock so NTP adjustments or

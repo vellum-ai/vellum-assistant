@@ -144,15 +144,15 @@ export function ArchivePage() {
   }, [conversations]);
 
   const handleUnarchive = useCallback(
-    async (conversationKey: string) => {
+    async (conversationId: string) => {
       if (!assistantId) return;
-      setPendingUnarchiveId(conversationKey);
+      setPendingUnarchiveId(conversationId);
       try {
-        await unarchiveConversation(assistantId, conversationKey);
+        await unarchiveConversation(assistantId, conversationId);
         setConversations((prev) => {
           if (!prev) return prev;
           return prev.map((c) =>
-            c.conversationKey === conversationKey
+            c.conversationId === conversationId
               ? { ...c, archivedAt: undefined }
               : c,
           );
@@ -197,13 +197,13 @@ export function ArchivePage() {
       <Card noPadding className="px-4">
         {archived.map((conversation, index) => (
           <ArchivedConversationRow
-            key={conversation.conversationKey}
+            key={conversation.conversationId}
             conversation={conversation}
             isFirst={index === 0}
             onUnarchive={() => {
-              void handleUnarchive(conversation.conversationKey);
+              void handleUnarchive(conversation.conversationId);
             }}
-            isPending={pendingUnarchiveId === conversation.conversationKey}
+            isPending={pendingUnarchiveId === conversation.conversationId}
           />
         ))}
       </Card>

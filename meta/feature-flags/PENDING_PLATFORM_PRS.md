@@ -2,7 +2,7 @@
 
 This file tracks assistant feature flags that have been declared in
 `feature-flag-registry.json` but do not yet have a corresponding
-LaunchDarkly/Terraform entry in the `vellum-assistant-platform` repo. Per
+Terraform entry in the `vellum-assistant-platform` repo. Per
 `CLAUDE.md` (see the Assistant Feature Flags section) and
 `meta/feature-flags/AGENTS.md`, a new flag in this registry requires a
 companion PR in `vellum-assistant-platform` to provision the flag on the

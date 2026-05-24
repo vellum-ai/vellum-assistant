@@ -18,16 +18,22 @@ import {
 
 export async function getPendingInteractions(
   assistantId: string,
-  conversationKey: string,
-): Promise<{ pendingConfirmation?: Record<string, unknown>; pendingSecret?: Record<string, unknown> }> {
-  const { data, error, response } = await client.get<{
-    pendingConfirmation?: Record<string, unknown>;
-    pendingSecret?: Record<string, unknown>;
-  }, unknown>({
+  conversationId: string,
+): Promise<{
+  pendingConfirmation?: Record<string, unknown>;
+  pendingSecret?: Record<string, unknown>;
+}> {
+  const { data, error, response } = await client.get<
+    {
+      pendingConfirmation?: Record<string, unknown>;
+      pendingSecret?: Record<string, unknown>;
+    },
+    unknown
+  >({
     ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/pending-interactions/",
     path: { assistant_id: assistantId },
-    query: { conversationKey },
+    query: { conversationId },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to fetch pending interactions");
@@ -51,9 +57,9 @@ export async function getPendingInteractions(
  * conversation on mount / poll. The returned set contains every conversation
  * key that has at least one pending interaction; callers reconcile against
  * their own state. Conversation key equals conversation id in the web client
- * (see `parseConversation` / `readEventConversationKey`).
+ * (see `parseConversation` / `readEventConversationId`).
  */
-export async function listConversationKeysWithPendingInteractions(
+export async function listConversationIdsWithPendingInteractions(
   assistantId: string,
 ): Promise<Set<string>> {
   const { data, error, response } = await client.get<unknown, unknown>({
@@ -62,15 +68,11 @@ export async function listConversationKeysWithPendingInteractions(
     path: { assistant_id: assistantId },
     throwOnError: false,
   });
-  assertHasResponse(
-    response,
-    error,
-    "Failed to list pending interactions",
-  );
+  assertHasResponse(response, error, "Failed to list pending interactions");
   if (!response.ok) {
     if (response.status >= 500) {
       throw new Error(
-        `listConversationKeysWithPendingInteractions failed: ${response.status}`,
+        `listConversationIdsWithPendingInteractions failed: ${response.status}`,
       );
     }
     return new Set();
@@ -79,7 +81,9 @@ export async function listConversationKeysWithPendingInteractions(
     return new Set();
   }
   const payload = data as { interactions?: unknown };
-  const interactions = Array.isArray(payload.interactions) ? payload.interactions : [];
+  const interactions = Array.isArray(payload.interactions)
+    ? payload.interactions
+    : [];
   const keys = new Set<string>();
   for (const i of interactions) {
     if (i && typeof i === "object") {
@@ -236,7 +240,11 @@ export async function submitQuestionResponse(
       body,
       throwOnError: false,
     });
-    assertHasResponse(httpResponse, error, "Failed to submit question response");
+    assertHasResponse(
+      httpResponse,
+      error,
+      "Failed to submit question response",
+    );
     if (!httpResponse.ok) {
       const msg = extractErrorMessage(error, httpResponse);
       return { ok: false, status: httpResponse.status, error: msg };

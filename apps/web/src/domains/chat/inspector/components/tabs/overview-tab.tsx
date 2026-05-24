@@ -2,7 +2,6 @@ import { type ReactNode } from "react";
 
 import { Card } from "@vellum/design-library";
 import {
-  compactToolNames,
   displayProvider,
   displayText,
   formatCacheTokens,
@@ -10,9 +9,7 @@ import {
   formatCount,
   formattedCreatedAt,
   isProviderOnlySummary,
-  MISSING_VALUE,
   summaryFallbackMessage,
-  truncatedResponsePreview,
 } from "@/domains/chat/inspector/inspector-formatters.js";
 import type {
   LLMCallSummary,
@@ -32,9 +29,8 @@ interface MetadataRow {
 /**
  * Overview tab rendering the normalized summary as a stack of cards:
  * optional conversation totals, identity (provider/model/created-at),
- * usage (token + cost rows), response preview, and tool-call list.
- * Falls back to a single explanatory card when the daemon couldn't
- * normalize the call.
+ * and usage (token + cost rows). Falls back to a single explanatory
+ * card when the daemon couldn't normalize the call.
  */
 export function OverviewTab({
   entry,
@@ -77,14 +73,6 @@ export function OverviewTab({
         subtitle="Token and call counts normalized by the assistant route."
         rows={buildUsageRows(summary)}
       />
-      <SecondaryCard
-        title="Response preview"
-        body={truncatedResponsePreview(summary.responsePreview ?? null)}
-      />
-      <SecondaryCard
-        title="Tool calls"
-        body={compactToolNames(summary.toolCallNames ?? null)}
-      />
     </div>
   );
 }
@@ -121,7 +109,6 @@ function buildIdentityRows(
     { label: "Provider", value: displayProvider(summary.provider ?? null) },
     { label: "Model", value: displayText(summary.model ?? null) },
     { label: "Created", value: formattedCreatedAt(createdAt) },
-    { label: "Status", value: displayText(summary.status ?? null) },
     { label: "Stop reason", value: displayText(summary.stopReason ?? null) },
   ];
   if (agentLoopExitReason != null && agentLoopExitReason.trim().length > 0) {
@@ -150,7 +137,7 @@ function buildUsageRows(summary: LLMCallSummary): MetadataRow[] {
       value: formatCount(summary.requestMessageCount),
     },
     { label: "Tools available", value: formatCount(summary.requestToolCount) },
-    { label: "Tool calls", value: formatCount(summary.responseToolCallCount) },
+    { label: "Tool calls", value: formatCount(summary.responseToolCallCount ?? 0) },
   ];
   if (
     summary.durationMs != null &&
@@ -209,28 +196,6 @@ function MetadataCard({
             <MetadataRowItem key={row.label} row={row} />
           ))}
         </div>
-      </div>
-    </Card>
-  );
-}
-
-function SecondaryCard({
-  title,
-  body,
-}: {
-  title: string;
-  body: string;
-}): ReactNode {
-  return (
-    <Card padding="md">
-      <div className="flex flex-col gap-2">
-        <CardHeader title={title} />
-        <p
-          className="select-text whitespace-pre-wrap break-words text-body-medium-lighter"
-          style={{ color: "var(--content-secondary)" }}
-        >
-          {body || MISSING_VALUE}
-        </p>
       </div>
     </Card>
   );

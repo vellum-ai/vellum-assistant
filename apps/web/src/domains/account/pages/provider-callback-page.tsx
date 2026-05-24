@@ -119,7 +119,19 @@ export function ProviderCallbackPage() {
           }
           case "error":
             if (nativeParams) {
-              redirectToNativeApp(nativeParams, outcome.message);
+              // TEMPORARY DEBUG (revert once iOS sign-in cache-miss is
+              // diagnosed): suppress the redirect-back-to-native so the
+              // Safari sheet stays open and the actual getSession()
+              // failure mode is inspectable. Without this, ASWebAuth
+              // catches the scheme:// redirect, closes the sheet, and
+              // destroys the Web Inspector window before anything can
+              // be read.
+              console.log("[debug native auth] getSession result:", result);
+              console.log("[debug native auth] classification outcome:", outcome);
+              console.log("[debug native auth] nativeParams:", nativeParams);
+              setFallbackError(
+                `[debug] ${outcome.message} :: result=${JSON.stringify(result).slice(0, 800)}`,
+              );
               return;
             }
             setFallbackError(outcome.message);

@@ -15,12 +15,12 @@ import {
 import { toast } from "@vellum/design-library";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import {
-  createDraftConversationKey,
-  resolveBootstrappedConversationKey,
+  createDraftConversationId,
+  resolveBootstrappedConversationId,
 } from "@/domains/chat/utils/conversation-selection.js";
 import {
-  loadLastViewedConversationKey,
-  saveLastViewedConversationKey,
+  loadLastViewedConversationId,
+  saveLastViewedConversationId,
 } from "@/domains/chat/utils/last-viewed-conversation-storage.js";
 import type { TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
@@ -35,12 +35,12 @@ import type { AssistantStateKind, ChatError } from "@/domains/chat/types.js";
 import { useConversationHistory } from "@/domains/chat/hooks/use-conversation-history.js";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { getChatContext } from "@/domains/chat/api/assistant.js";
 import { ApiError } from "@/domains/chat/api/client.js";
 import { type Conversation } from "@/domains/chat/api/conversations.js";
 import {
   chatContextQueryKey,
   conversationGroupsQueryKey,
+  useChatContextQuery,
 } from "@/domains/conversations/conversation-queries.js";
 
 // ---------------------------------------------------------------------------
@@ -60,9 +60,9 @@ interface UseConversationLoaderParams {
   // Identity / routing
   assistantId: string | null;
   assistantStateKind: AssistantStateKind;
-  activeConversationKey: string | null;
-  /** Conversation key from the URL path param (e.g. `/assistant/conversations/:key`). */
-  urlConversationKey: string | null;
+  activeConversationId: string | null;
+  /** Conversation id from the URL path param (e.g. `/assistant/conversations/:conversationId`). */
+  urlConversationId: string | null;
   searchParams: SearchParamsLike;
   /** React Router navigate function for path-based routing. */
   navigate: NavigateFunction;
@@ -77,13 +77,12 @@ interface UseConversationLoaderParams {
 
   // Refs (owned by parent, read/written by this hook)
   assistantIdRef: MutableRefObject<string | null>;
-  draftKeyResolutionRef: MutableRefObject<boolean>;
-  previousConversationKeyRef: MutableRefObject<string | null>;
-  onboardingDraftConversationKeyRef: MutableRefObject<string | null>;
-  activeConversationKeyRef: MutableRefObject<string | null>;
+  draftConversationIdResolutionRef: MutableRefObject<boolean>;
+  previousConversationIdRef: MutableRefObject<string | null>;
+  onboardingDraftConversationIdRef: MutableRefObject<string | null>;
+  activeConversationIdRef: MutableRefObject<string | null>;
   contextWindowUsageByConversationRef: MutableRefObject<Map<string, ContextWindowUsage>>;
   dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
-  needsNewBubbleRef: MutableRefObject<boolean>;
   streamingMessageIdsRef: MutableRefObject<Set<string>>;
   pendingQueuedStableIdsRef: MutableRefObject<string[]>;
   requestIdToStableIdRef: MutableRefObject<Map<string, string>>;
@@ -92,7 +91,7 @@ interface UseConversationLoaderParams {
   lastSuggestionMsgIdRef: MutableRefObject<string | null>;
   autoGreetRef: MutableRefObject<boolean>;
   conversationListInvalidatedTimerRef: MutableRefObject<ReturnType<typeof setTimeout> | null>;
-  pendingInitialMessageRef: MutableRefObject<{ conversationKey: string; content: string } | null>;
+  pendingInitialMessageRef: MutableRefObject<{ conversationId: string; content: string } | null>;
 
   // State setters
   setAssistantId: Dispatch<SetStateAction<string | null>>;
@@ -107,7 +106,6 @@ interface UseConversationLoaderParams {
 
   // Callbacks
   resetChatAttachments: () => void;
-  syncNeedsNewBubbleFromMessages: (nextMessages: DisplayMessage[]) => void;
 
   // Error classification
   shouldSuppressGenericChatErrorNotice: (prev: ChatError | null) => boolean;
@@ -138,8 +136,8 @@ interface UseConversationLoaderParams {
 export function useConversationLoader({
   assistantId,
   assistantStateKind,
-  activeConversationKey,
-  urlConversationKey,
+  activeConversationId,
+  urlConversationId,
   searchParams,
   navigate,
   conversations,
@@ -147,13 +145,12 @@ export function useConversationLoader({
   refreshEpoch,
   reachabilityReadyEpoch,
   assistantIdRef,
-  draftKeyResolutionRef,
-  previousConversationKeyRef,
-  onboardingDraftConversationKeyRef,
-  activeConversationKeyRef,
+  draftConversationIdResolutionRef,
+  previousConversationIdRef,
+  onboardingDraftConversationIdRef,
+  activeConversationIdRef,
   contextWindowUsageByConversationRef,
   dismissedSurfaceIdsRef,
-  needsNewBubbleRef,
   streamingMessageIdsRef,
   pendingQueuedStableIdsRef,
   requestIdToStableIdRef,
@@ -173,7 +170,6 @@ export function useConversationLoader({
   setSuggestion,
   setCompactionCircuitOpenUntil,
   resetChatAttachments,
-  syncNeedsNewBubbleFromMessages,
   shouldSuppressGenericChatErrorNotice,
 }: UseConversationLoaderParams) {
   // -------------------------------------------------------------------------
@@ -232,121 +228,196 @@ export function useConversationLoader({
   }, [conversationListInvalidatedTimerRef]);
 
   // -------------------------------------------------------------------------
-  // Init effect -- fetch conversations when the assistant becomes active
+  // Chat context query subscription
+  //
+  // The bootstrapping data (assistant id + conversation list + default
+  // conversation key) is owned by a single `useChatContextQuery` here.
+  // Sibling consumers in `ChatLayout`, `ChatPage`, and `useAttentionTracking`
+  // mount the same query — they all share one cache entry under
+  // `chatContextQueryKey(assistantId)`, so dedupe and structural-sharing are
+  // automatic.
+  //
+  // The query owns:
+  // - fetch initiation (on first subscribe + on invalidations below)
+  // - retry semantics (React Query defaults)
+  // - error state (surfaced as `query.isError` / `query.error`)
+  // - cache lifetime (`data` from the last successful fetch is preserved
+  //   across subsequent failed refetches)
+  //
+  // We never `try/catch` a fetch here. A failed refetch keeps the previously
+  // cached `data` available, so the UI keeps showing the conversations we
+  // already have. A genuine "no data at all" failure surfaces via the banner
+  // consumer below.
+  // -------------------------------------------------------------------------
+  const chatContextQuery = useChatContextQuery(
+    assistantId,
+    assistantStateKind === "active",
+  );
+  const chatContext = chatContextQuery.data ?? null;
+  const chatContextError = chatContextQuery.error;
+  const chatContextIsError = chatContextQuery.isError;
+
+  // -------------------------------------------------------------------------
+  // Refresh-epoch / reachability-epoch ticks
+  //
+  // Pull-to-refresh and post-restart reachability are signaled via the
+  // epoch counters. They mean "treat any cached data as stale and refetch."
+  // Invalidating the query marks the cache entry stale; subscribed consumers
+  // (this hook included) refetch automatically. We skip the very first
+  // render (`epoch === 0` on both) because the query's initial fetch is
+  // already in-flight by then.
+  // -------------------------------------------------------------------------
+  const firstRefreshTickRef = useRef(true);
+  useEffect(() => {
+    if (firstRefreshTickRef.current) {
+      firstRefreshTickRef.current = false;
+      return;
+    }
+    if (assistantStateKind !== "active" || !assistantId) return;
+    void queryClient.invalidateQueries({
+      queryKey: chatContextQueryKey(assistantId),
+    });
+  }, [
+    refreshEpoch,
+    reachabilityReadyEpoch,
+    assistantStateKind,
+    assistantId,
+    queryClient,
+  ]);
+
+  // -------------------------------------------------------------------------
+  // 401 auth-failure toast
+  //
+  // Effect-scoped so the toast fires once per transition to a 401 error,
+  // not on every render. The banner consumer below intentionally skips 401
+  // because this toast already surfaces the right message.
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    if (chatContextError instanceof ApiError && chatContextError.status === 401) {
+      toast.error("Failed to authenticate user.");
+    }
+  }, [chatContextError]);
+
+  // -------------------------------------------------------------------------
+  // Banner consumer
+  //
+  // Raise the chat-context load-failed banner only when (a) the query is
+  // in error state AND (b) we have no cached data to fall back on. A
+  // refetch failure that leaves the previous `data` intact is a *refresh*
+  // failure, not a load failure — the user is still looking at a
+  // populated UI, so there is nothing useful to say.
+  //
+  // When the query recovers (data arrives), clear any prior load-failed
+  // banner. Other error codes are left untouched.
   // -------------------------------------------------------------------------
   useEffect(() => {
     if (assistantStateKind !== "active") return;
+    const isAuthFail =
+      chatContextError instanceof ApiError && chatContextError.status === 401;
+    const hasUsableData =
+      !!chatContext && chatContext.conversations.length > 0;
 
-    let cancelled = false;
-
-    const init = async () => {
-      try {
-        // Always fetch (not just read cache): this effect re-runs when
-        // `refreshEpoch` or `reachabilityReadyEpoch` changes, and those
-        // changes specifically signal "treat any cached data as stale
-        // and pick up server-side changes" (pull-to-refresh, pod
-        // recovery, conversation removal, etc.). `fetchQuery` with
-        // `staleTime: 0` forces a fresh request and writes through to
-        // the same cache that `useConversationListQuery` (mounted in
-        // `ChatLayout`) subscribes to — so the sidebar refreshes too,
-        // and concurrent fetches on initial mount dedup via the
-        // shared query key.
-        // https://tanstack.com/query/latest/docs/reference/QueryClient#queryclientfetchquery
-        const ctx = await queryClient.fetchQuery({
-          queryKey: chatContextQueryKey(assistantId),
-          queryFn: getChatContext,
-          staleTime: 0,
-        });
-        if (!ctx || cancelled) return;
-
-        // Path param is the canonical source; fall back to legacy search param.
-        const explicitKey = urlConversationKey ?? searchParams.get("conversationKey");
-        let onboardingDraftConversationKey: string | null = null;
-        if (searchParams.get("onboarding") === "1") {
-          onboardingDraftConversationKeyRef.current ??= createDraftConversationKey();
-          onboardingDraftConversationKey = onboardingDraftConversationKeyRef.current;
-        }
-        const key = resolveBootstrappedConversationKey({
-          queryParamKey: explicitKey,
-          onboardingDraftConversationKey,
-          currentConversationKey: activeConversationKeyRef.current,
-          currentAssistantId: assistantIdRef.current,
-          nextAssistantId: ctx.assistantId,
-          storedConversationKey: loadLastViewedConversationKey(ctx.assistantId),
-          defaultConversationKey: ctx.conversationKey,
-          conversations: ctx.conversations,
-        });
-
-        if (cancelled) return;
-
-        setAssistantId(ctx.assistantId);
-        setError((prev) =>
-          prev?.code === CHAT_CONTEXT_LOAD_FAILED_CODE ? null : prev,
-        );
-
-        // The conversation list is already in the React Query cache via
-        // `fetchQuery` above; subscribed consumers (`ChatLayout`,
-        // `ChatPage`) will re-render with the populated list on the next
-        // commit. Set the active key in the client store within the same
-        // effect tick so React batches both updates and consumers never
-        // observe an active key with an empty list.
-        useConversationStore.getState().setActiveKey(key);
-
-        // Ensure the URL reflects the active conversation so the page is
-        // deep-linkable from the moment it loads.  `replace` avoids a
-        // spurious history entry. This also moves ChatPage from the index
-        // route (where it renders inside ConversationKeyRedirect) to the
-        // canonical conversations/:key route before any user interaction,
-        // preventing a remount when draft keys resolve during sendMessage.
-        if (key) {
-          void navigate(routes.conversation(key), { replace: true });
-        }
-      } catch (err) {
-        if (cancelled) return;
-        if (err instanceof ApiError && err.status === 401) {
-          toast.error("Failed to authenticate user.");
-        } else {
-          Sentry.captureException(err, {
-            level: "warning",
-            tags: { context: "getChatContext.init" },
-          });
-          setError((prev) => {
-            if (shouldSuppressGenericChatErrorNotice(prev)) return prev;
-            return {
-              code: CHAT_CONTEXT_LOAD_FAILED_CODE,
-              message:
-                err instanceof ApiError && err.status >= 500
-                  ? "We couldn't reach your assistant. We'll keep checking the connection."
-                  : "We couldn't load your conversations. Please refresh and try again.",
-            };
-          });
-        }
-      }
-    };
-
-    init();
-
-    return () => {
-      cancelled = true;
-    };
-    // `reachabilityReadyEpoch` is intentionally in the deps: when the
-    // assistant pod recovers from a restart we want to re-run
-    // getChatContext() so the conversation list populates without a
-    // manual reload.
+    if (chatContextIsError && !hasUsableData && !isAuthFail) {
+      Sentry.captureException(chatContextError, {
+        level: "warning",
+        tags: { context: "getChatContext.bootstrap" },
+      });
+      setError((prev) => {
+        if (shouldSuppressGenericChatErrorNotice(prev)) return prev;
+        const status =
+          chatContextError instanceof ApiError ? chatContextError.status : 0;
+        return {
+          code: CHAT_CONTEXT_LOAD_FAILED_CODE,
+          message:
+            status >= 500
+              ? "We couldn't reach your assistant. We'll keep checking the connection."
+              : "We couldn't load your conversations. Please refresh and try again.",
+        };
+      });
+      return;
+    }
+    if (hasUsableData) {
+      setError((prev) =>
+        prev?.code === CHAT_CONTEXT_LOAD_FAILED_CODE ? null : prev,
+      );
+    }
   }, [
     assistantStateKind,
-    urlConversationKey,
-    searchParams,
-    navigate,
-    reachabilityReadyEpoch,
-    refreshEpoch,
-    assistantIdRef,
-    activeConversationKeyRef,
-    onboardingDraftConversationKeyRef,
-    conversationGroupsUI,
-    setAssistantId,
+    chatContext,
+    chatContextError,
+    chatContextIsError,
     setError,
     shouldSuppressGenericChatErrorNotice,
+  ]);
+
+  // -------------------------------------------------------------------------
+  // Bootstrap routing
+  //
+  // When chat context arrives in the cache (from any source — this hook's
+  // own subscription or a sibling subscriber that fetched first), resolve
+  // the bootstrap conversation key and write it into the URL + client
+  // store. Idempotent: `resolveBootstrappedConversationId` prefers the
+  // currently-active key when one is set, so a refetch with the same data
+  // shape (de-duped by React Query's structural sharing) does not churn
+  // the route.
+  //
+  // This effect intentionally does not raise the banner — error handling
+  // lives in the banner-consumer effect above. Decoupling lets the
+  // routing logic run as soon as data is available, even if the *most
+  // recent* fetch failed (we still have last-known-good data to land on).
+  // -------------------------------------------------------------------------
+  const lastAppliedUrlConversationIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (assistantStateKind !== "active") return;
+    if (!chatContext) return;
+
+    const explicitConversationId = urlConversationId;
+
+    // When only chatContext changed (e.g. from resolveDraftKey's
+    // setQueryData) but the URL hasn't changed, the URL key is stale —
+    // a programmatic navigate() is in flight. Trust the store's
+    // activeConversationId and let the URL catch up.
+    if (
+      explicitConversationId != null &&
+      explicitConversationId === lastAppliedUrlConversationIdRef.current &&
+      assistantIdRef.current === chatContext.assistantId
+    ) {
+      return;
+    }
+    lastAppliedUrlConversationIdRef.current = explicitConversationId;
+
+    let onboardingDraftConversationId: string | null = null;
+    if (searchParams.get("onboarding") === "1") {
+      onboardingDraftConversationIdRef.current ??= createDraftConversationId();
+      onboardingDraftConversationId = onboardingDraftConversationIdRef.current;
+    }
+    const key = resolveBootstrappedConversationId({
+      queryParamKey: explicitConversationId,
+      onboardingDraftConversationId,
+      currentConversationId: activeConversationIdRef.current,
+      currentAssistantId: assistantIdRef.current,
+      nextAssistantId: chatContext.assistantId,
+      storedConversationId: loadLastViewedConversationId(chatContext.assistantId),
+      defaultConversationId: chatContext.conversationId,
+      conversations: chatContext.conversations,
+    });
+
+    setAssistantId(chatContext.assistantId);
+
+    useConversationStore.getState().setActiveConversationId(key);
+    if (key) {
+      void navigate(routes.conversation(key), { replace: true });
+    }
+  }, [
+    chatContext,
+    assistantStateKind,
+    urlConversationId,
+    searchParams,
+    navigate,
+    setAssistantId,
+    assistantIdRef,
+    activeConversationIdRef,
+    onboardingDraftConversationIdRef,
   ]);
 
   // -------------------------------------------------------------------------
@@ -354,20 +425,20 @@ export function useConversationLoader({
   // -------------------------------------------------------------------------
   const conversationExistsOnServer = useMemo(
     () =>
-      activeConversationKey != null &&
+      activeConversationId != null &&
       conversations.some(
-        (c) => c.conversationKey === activeConversationKey && !c.draft,
+        (c) => c.conversationId === activeConversationId && !c.draft,
       ),
-    [activeConversationKey, conversations],
+    [activeConversationId, conversations],
   );
 
   // -------------------------------------------------------------------------
   // Save last-viewed conversation per assistant
   // -------------------------------------------------------------------------
   useEffect(() => {
-    if (!assistantId || !activeConversationKey) return;
-    saveLastViewedConversationKey(assistantId, activeConversationKey);
-  }, [assistantId, activeConversationKey]);
+    if (!assistantId || !activeConversationId) return;
+    saveLastViewedConversationId(assistantId, activeConversationId);
+  }, [assistantId, activeConversationId]);
 
   // -------------------------------------------------------------------------
   // Delegate: conversation history loading and caching
@@ -375,12 +446,11 @@ export function useConversationLoader({
   const historyResult = useConversationHistory({
     assistantId,
     assistantStateKind,
-    activeConversationKey,
-    draftKeyResolutionRef,
-    previousConversationKeyRef,
+    activeConversationId,
+    draftConversationIdResolutionRef,
+    previousConversationIdRef,
     contextWindowUsageByConversationRef,
     dismissedSurfaceIdsRef,
-    needsNewBubbleRef,
     streamingMessageIdsRef,
     pendingQueuedStableIdsRef,
     requestIdToStableIdRef,
@@ -397,7 +467,6 @@ export function useConversationLoader({
     setSuggestion,
     setCompactionCircuitOpenUntil,
     resetChatAttachments,
-    syncNeedsNewBubbleFromMessages,
     shouldSuppressGenericChatErrorNotice,
   });
 
@@ -407,10 +476,10 @@ export function useConversationLoader({
   const switchConversation = useCallback(
     (key: string) => {
       useViewerStore.getState().setMainView("chat");
-      if (key === activeConversationKey) return;
+      if (key === activeConversationId) return;
       void navigate(routes.conversation(key));
     },
-    [activeConversationKey, navigate],
+    [activeConversationId, navigate],
   );
 
   // -------------------------------------------------------------------------
@@ -420,12 +489,12 @@ export function useConversationLoader({
     ({ silent, initialMessage }: { silent?: boolean; initialMessage?: string } = {}) => {
       if (!silent) haptic.light();
       useViewerStore.getState().setMainView("chat");
-      const draftKey = createDraftConversationKey();
+      const draftConversationId = createDraftConversationId();
       if (initialMessage) {
-        pendingInitialMessageRef.current = { conversationKey: draftKey, content: initialMessage };
+        pendingInitialMessageRef.current = { conversationId: draftConversationId, content: initialMessage };
       }
-      useConversationStore.getState().setActiveKey(draftKey);
-      void navigate(routes.conversation(draftKey));
+      useConversationStore.getState().setActiveConversationId(draftConversationId);
+      void navigate(routes.conversation(draftConversationId));
     },
     [navigate, pendingInitialMessageRef],
   );

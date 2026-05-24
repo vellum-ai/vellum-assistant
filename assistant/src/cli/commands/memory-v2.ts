@@ -469,7 +469,15 @@ Examples:
               "memory_v2_simulate_router",
               {
                 body: {
-                  query: opts.query,
+                  // The CLI flag is still named `--query` for backwards
+                  // compatibility. It becomes the just-arrived
+                  // `userMessage` of a single (empty assistant, user)
+                  // pair — i.e. a first-turn scenario. nowText uses
+                  // the server default (live NOW.md), preserving the
+                  // existing single-turn CLI semantics.
+                  recentTurnPairs: [
+                    { assistantMessage: "", userMessage: opts.query },
+                  ],
                   ...(configOverrides ? { configOverrides } : {}),
                 },
               },

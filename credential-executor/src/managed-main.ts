@@ -74,6 +74,8 @@ import {
 import { MANAGED_LOCAL_STATIC_REJECTION_ERROR } from "./managed-errors.js";
 import type { SecureKeyBackend } from "@vellumai/credential-storage";
 import { createLocalSecureKeyBackend } from "./materializers/local-secure-key-backend.js";
+import type { LocalMaterialiser } from "./materializers/local.js";
+import type { LocalSubjectResolverDeps } from "./subjects/local.js";
 import {
   handleCredentialRoute,
   type CredentialRouteDeps,
@@ -139,7 +141,6 @@ function buildHandlers(
   const platformBaseUrl = process.env["VELLUM_PLATFORM_URL"] ?? "";
 
   const {
-    getAssistantApiKey,
     getManagedSubjectOptions,
     getManagedMaterializerOptions,
   } = buildLazyGetters({
@@ -187,8 +188,8 @@ function buildHandlers(
     }),
   };
 
-  const localSubjectDepsStub = {
-    metadataStore: { getById: () => undefined, list: () => [] } as any,
+  const localSubjectDepsStub: LocalSubjectResolverDeps = {
+    metadataStore: { getById: () => undefined, list: () => [] } as unknown as LocalSubjectResolverDeps["metadataStore"],
     oauthConnections: { getById: () => undefined },
   };
 
@@ -197,7 +198,7 @@ function buildHandlers(
   const httpDeps = {
     persistentGrantStore,
     temporaryGrantStore,
-    localMaterialiser: localMaterialiserStub as any,
+    localMaterialiser: localMaterialiserStub as unknown as LocalMaterialiser,
     localSubjectDeps: localSubjectDepsStub,
     get managedSubjectOptions() {
       return getManagedSubjectOptions();
@@ -640,13 +641,11 @@ async function main(): Promise<void> {
     );
   }
 
-  // Start health server on dedicated port
+  // Start health server on dedicated port. The returned handle isn't
+  // needed because the server lifetime is bound to controller.signal,
+  // which fires on shutdown and triggers Bun.serve's stop().
   const healthPort = getHealthPort();
-  const healthServer = startHealthServer(
-    healthPort,
-    controller.signal,
-    credentialDeps,
-  );
+  startHealthServer(healthPort, controller.signal, credentialDeps);
   log.info(`Health server listening on port ${healthPort}`);
 
   // Wait for exactly one assistant connection on the bootstrap socket

@@ -1,23 +1,20 @@
-/* eslint-disable no-restricted-syntax -- LUM-1768: file contains dark: pairs pending semantic-token migration */
-
 import { useQuery } from "@tanstack/react-query";
 import {
   ChevronDown,
   Loader2,
   Search,
   Sparkles,
-  X,
 } from "lucide-react";
 import { Suspense, useEffect, useMemo, useState } from "react";
 
 import { useSearchParams, useNavigate } from "react-router";
 
+import { Input } from "@vellum/design-library/components/input";
+import { Notice } from "@vellum/design-library/components/notice";
 import { Popover } from "@vellum/design-library/components/popover";
 import { toast } from "@vellum/design-library/components/toast";
 import { IntegrationDetailModal } from "@/domains/settings/components/integration-detail-modal.js";
 import { IntegrationRow } from "@/domains/settings/components/integration-row.js";
-import { Button } from "@vellum/design-library/components/button";
-import { Input } from "@vellum/design-library/components/input";
 import { assistantsOauthConnectionsListOptions } from "@/generated/api/@tanstack/react-query.gen.js";
 import type { OAuthConnection } from "@/generated/api/types.gen.js";
 import { type Assistant, getAssistant } from "@/assistant/api.js";
@@ -240,21 +237,14 @@ function IntegrationsPanelInner() {
   return (
     <div className="space-y-4">
       {!bannerDismissed && (
-        <div className="flex items-center gap-2 rounded-md border border-sky-200/70 bg-sky-50 px-3 py-2 text-body-medium-lighter text-[var(--content-default)] dark:border-sky-900/60 dark:bg-sky-950/30">
-          <Sparkles className="h-3.5 w-3.5 shrink-0 text-sky-600 dark:text-sky-400" />
-          <span className="flex-1">
-            <span className="text-body-medium-default">Tip:</span> You can enable
-            integrations by mentioning them in chat.
-          </span>
-          <Button
-            variant="ghost"
-            size="compact"
-            iconOnly={<X />}
-            onClick={dismissBanner}
-            aria-label="Dismiss tip"
-            className="shrink-0"
-          />
-        </div>
+        <Notice
+          tone="info"
+          icon={<Sparkles className="h-3.5 w-3.5" />}
+          onDismiss={dismissBanner}
+        >
+          <span className="text-body-medium-default">Tip:</span> You can enable
+          integrations by mentioning them in chat.
+        </Notice>
       )}
 
       <div className="flex items-center gap-2">
@@ -274,7 +264,7 @@ function IntegrationsPanelInner() {
               type="button"
               aria-haspopup="listbox"
               aria-expanded={filterMenuOpen}
-              className="flex w-36 cursor-pointer items-center justify-between gap-2 rounded-md border border-[var(--border-element)] bg-white px-3 py-1.5 text-body-medium-lighter text-[var(--content-default)] transition-colors hover:bg-[var(--surface-base)] dark:border-[var(--border-base)] dark:bg-[var(--surface-lift)] dark:text-[var(--content-default)] dark:hover:bg-[var(--ghost-hover)]"
+              className="flex w-36 cursor-pointer items-center justify-between gap-2 rounded-md border border-[var(--border-element)] bg-[var(--surface-lift)] px-3 py-1.5 text-body-medium-lighter text-[var(--content-default)] transition-colors hover:bg-[var(--ghost-hover)]"
             >
               <span>{selectedFilterLabel}</span>
               <ChevronDown className="h-3.5 w-3.5" />
@@ -328,7 +318,7 @@ function IntegrationsPanelInner() {
             No assistant found. Hatch an assistant to connect integrations.
           </p>
         ) : filteredProviders.length === 0 ? (
-          <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-[var(--border-element)] px-4 py-12 text-center dark:border-[var(--border-base)]">
+          <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-[var(--border-element)] px-4 py-12 text-center">
             <Search className="h-6 w-6 text-[var(--content-disabled)]" />
             <p className="text-body-medium-default text-[var(--content-default)]">
               {emptyStateTitle}

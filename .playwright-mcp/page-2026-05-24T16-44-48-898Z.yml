@@ -1,0 +1,157 @@
+- generic [ref=e4]:
+  - banner [ref=e676]:
+    - generic [ref=e677]:
+      - button "Toggle sidebar" [expanded] [ref=e678] [cursor=pointer]:
+        - img [ref=e680]
+      - button "Home (unread notifications)" [ref=e683] [cursor=pointer]:
+        - img [ref=e685]
+      - button "Search (Ctrl+K)" [ref=e688] [cursor=pointer]:
+        - img [ref=e690]
+      - button "Back (Ctrl+[)" [ref=e693] [cursor=pointer]:
+        - img [ref=e695]
+      - button "Forward (Ctrl+])" [disabled] [ref=e697]:
+        - img [ref=e699]
+    - button "Greeting" [ref=e1347] [cursor=pointer]:
+      - generic [ref=e1348]: Greeting
+      - img [ref=e1350]
+  - generic [ref=e707]:
+    - complementary "Navigation" [ref=e708]:
+      - navigation "Assistant navigation" [ref=e709]:
+        - generic [ref=e710]:
+          - button "Iris" [ref=e711] [cursor=pointer]:
+            - img [ref=e712]
+            - generic [ref=e720]: Iris
+          - button "Library" [ref=e721] [cursor=pointer]:
+            - img [ref=e722]
+            - generic [ref=e727]: Library
+          - separator [ref=e728]
+        - generic [ref=e730]:
+          - generic [ref=e731]:
+            - generic [ref=e732]: Conversations
+            - button "New conversation" [ref=e734] [cursor=pointer]:
+              - img [ref=e736]
+          - generic [ref=e739]:
+            - heading "Pinned" [level=3] [ref=e742]:
+              - button "Pinned" [ref=e743] [cursor=pointer]:
+                - generic [ref=e744]:
+                  - img [ref=e745]
+                  - img [ref=e747]
+                - generic [ref=e749]: Pinned
+            - generic [ref=e750]:
+              - generic [ref=e751]:
+                - heading "Recents" [level=3] [ref=e752]:
+                  - button "Recents" [expanded] [ref=e753] [cursor=pointer]:
+                    - generic [ref=e754]:
+                      - img [ref=e755]
+                      - img [ref=e758]
+                    - generic [ref=e760]: Recents
+                - generic [ref=e762]: "13"
+              - region "Recents" [ref=e763]:
+                - list [ref=e764]:
+                  - button "Greeting" [active] [ref=e1352] [cursor=pointer]:
+                    - generic [ref=e1353]:
+                      - button "Pin conversation" [ref=e1354]:
+                        - img [ref=e1355]
+                      - generic [ref=e1358]: Greeting
+                    - button "Conversation actions" [ref=e1361]:
+                      - img [ref=e1362]
+                  - button "Greeting" [ref=e1366] [cursor=pointer]:
+                    - generic [ref=e1367]:
+                      - button "Pin conversation" [ref=e1368]:
+                        - img [ref=e1369]
+                      - generic [ref=e1372]: Greeting
+                    - button "Conversation actions" [ref=e1375]:
+                      - img [ref=e1376]
+                  - button "Counting to Ten" [ref=e765] [cursor=pointer]:
+                    - generic [ref=e766]:
+                      - button "Pin conversation" [ref=e767]:
+                        - img [ref=e769]
+                      - generic [ref=e772]: Counting to Ten
+                    - button "Conversation actions" [ref=e775]:
+                      - img [ref=e776]
+                  - button "Olympic Games History 1896-2024" [ref=e780] [cursor=pointer]:
+                    - generic [ref=e781]:
+                      - button "Pin conversation" [ref=e782]:
+                        - img [ref=e783]
+                      - generic [ref=e786]: Olympic Games History 1896-2024
+                    - button "Conversation actions" [ref=e789]:
+                      - img [ref=e790]
+                  - button "Olympic Games History 1896-2024" [ref=e794] [cursor=pointer]:
+                    - generic [ref=e795]:
+                      - button "Pin conversation" [ref=e796]:
+                        - img [ref=e797]
+                      - generic [ref=e800]: Olympic Games History 1896-2024
+                    - button "Conversation actions" [ref=e803]:
+                      - img [ref=e804]
+                  - button "Show more" [ref=e837] [cursor=pointer]:
+                    - generic [ref=e839]: Show more
+            - heading "Scheduled" [level=3] [ref=e842]:
+              - button "Scheduled" [ref=e843] [cursor=pointer]:
+                - generic [ref=e844]:
+                  - img [ref=e845]
+                  - img [ref=e847]
+                - generic [ref=e849]: Scheduled
+            - generic [ref=e851]:
+              - heading "Background" [level=3] [ref=e852]:
+                - button "Background" [ref=e853] [cursor=pointer]:
+                  - generic [ref=e854]:
+                    - img [ref=e855]
+                    - img [ref=e859]
+                  - generic [ref=e861]: Background
+              - generic [ref=e863]: "64"
+        - generic [ref=e864]:
+          - generic [ref=e865]:
+            - button "Dismiss" [ref=e866] [cursor=pointer]:
+              - img [ref=e867]
+            - generic [ref=e870]:
+              - generic [ref=e871]:
+                - paragraph [ref=e872]: Get the macOS App
+                - paragraph [ref=e873]: Computer use, terminal access, native automation & more.
+              - button "Download" [ref=e874] [cursor=pointer]:
+                - img [ref=e876]
+                - text: Download
+          - separator [ref=e879]
+          - button "Preferences" [ref=e880] [cursor=pointer]:
+            - img [ref=e881]
+            - generic [ref=e882]: Preferences
+            - img [ref=e883]
+    - main [ref=e885]:
+      - generic [ref=e886]:
+        - generic [ref=e1383]:
+          - generic [ref=e1385]:
+            - paragraph [ref=e1388]: hi
+            - generic [ref=e1390]:
+              - generic "Sunday, May 24, 2026 at 12:44:42 PM EDT" [ref=e1391]: Today, 12:44 PM
+              - button "Copy" [ref=e1392] [cursor=pointer]:
+                - img [ref=e1393]
+              - button "Fork from here" [ref=e1396] [cursor=pointer]:
+                - img [ref=e1397]
+              - button "Inspect" [ref=e1401] [cursor=pointer]:
+                - img [ref=e1402]
+          - generic [ref=e1408]:
+            - paragraph [ref=e1411]: Hey.
+            - generic [ref=e1413]:
+              - generic "Sunday, May 24, 2026 at 12:44:42 PM EDT" [ref=e1414]: Today, 12:44 PM
+              - button "Copy" [ref=e1415] [cursor=pointer]:
+                - img [ref=e1416]
+              - button "Fork from here" [ref=e1419] [cursor=pointer]:
+                - img [ref=e1420]
+              - button "Inspect" [ref=e1424] [cursor=pointer]:
+                - img [ref=e1425]
+          - img "Assistant avatar" [ref=e1432] [cursor=pointer]
+        - generic [ref=e1321]:
+          - generic [ref=e1322]:
+            - generic: what's up
+            - textbox [ref=e1434]
+          - generic [ref=e1324]:
+            - generic [ref=e1325]:
+              - button "Conversation settings" [ref=e1326] [cursor=pointer]:
+                - img [ref=e1328]
+              - img "Context window 6% full" [ref=e1436]
+            - generic [ref=e1333]:
+              - button "Attach file" [ref=e1439] [cursor=pointer]:
+                - img [ref=e1441]
+              - button "Start voice input" [ref=e1443] [cursor=pointer]:
+                - img [ref=e1445]
+              - button "Send message" [disabled] [ref=e1448]:
+                - img [ref=e1450]

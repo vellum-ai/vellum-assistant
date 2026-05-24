@@ -65,12 +65,12 @@ async function fetchAssistantId(): Promise<string | null> {
 export interface ChatContext {
   assistantId: string;
   conversations: Conversation[];
-  conversationKey: string;
+  conversationId: string;
 }
 
 /**
  * Build the chat context by fetching the assistant and listing its
- * conversations.  The returned `conversationKey` defaults to the latest
+ * conversations.  The returned `conversationId` defaults to the latest
  * conversation; callers may override it (e.g. from a query-param).
  */
 export async function getChatContext(): Promise<ChatContext | null> {
@@ -86,9 +86,9 @@ export async function getChatContext(): Promise<ChatContext | null> {
   // sidebar section and must never be selected implicitly. If only background
   // conversations exist, use the assistant id as a fresh standard-chat key.
   const latestForeground = active.find((c) => !isBackgroundConversation(c));
-  const conversationKey = latestForeground
-    ? latestForeground.conversationKey
+  const conversationId = latestForeground
+    ? latestForeground.conversationId
     : assistantId;
 
-  return { assistantId, conversations, conversationKey };
+  return { assistantId, conversations, conversationId };
 }

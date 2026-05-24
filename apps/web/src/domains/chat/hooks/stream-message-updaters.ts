@@ -31,6 +31,20 @@ export function finalizeRunningToolCalls(
   );
 }
 
+/**
+ * Whether the next streaming chunk should extend the tail bubble or start
+ * a fresh one. Derived directly from the message array — the boundary
+ * events that previously latched this decision (idle, message_complete,
+ * generation_handoff, generation_cancelled, dequeued, conversation switch)
+ * all leave the tail in a state where `isStreaming` is either `false` or
+ * the tail is no longer an assistant row, so the derivation answers
+ * correctly without any shared flag.
+ */
+export function tailIsStreamingAssistant(prev: DisplayMessage[]): boolean {
+  const last = prev[prev.length - 1];
+  return !!last && last.role === "assistant" && !!last.isStreaming;
+}
+
 // ---------------------------------------------------------------------------
 // assistant_text_delta
 // ---------------------------------------------------------------------------
@@ -58,15 +72,28 @@ export function createStreamingBubble(
   ];
 }
 
-/** Append text to the last streaming assistant bubble. */
+/**
+ * Append text to the streaming assistant tail bubble, creating one if the
+ * tail isn't a streaming assistant row.
+ *
+ * The "should I open a new bubble" question is derived from the message
+ * array itself — when the previous turn finalized (via `finalizeOnIdle`,
+ * `finalizeMessageComplete`, `stopStreaming`, conversation switch, or a
+ * user message append), the tail's `isStreaming` flag is already false
+ * (or the tail is no longer an assistant row), so this updater branches
+ * to `createStreamingBubble` without needing a shared latch.
+ */
 export function appendTextDelta(
   prev: DisplayMessage[],
   text: string,
   messageId?: string,
+  stableId?: string,
 ): DisplayMessage[] {
-  const last = prev[prev.length - 1];
-  if (!last || last.role !== "assistant" || !last.isStreaming) return prev;
+  if (!tailIsStreamingAssistant(prev)) {
+    return createStreamingBubble(prev, text, messageId, stableId);
+  }
 
+  const last = prev[prev.length - 1]!;
   const segments = [...(last.textSegments ?? [])];
   const order = [...(last.contentOrder ?? [])];
   const lastOrderEntry = order[order.length - 1];
@@ -102,14 +129,28 @@ export function appendTextDelta(
 // assistant_activity_state (idle)
 // ---------------------------------------------------------------------------
 
-/** Finalize running tool calls on ALL streaming assistant messages (idle signal). */
+/**
+ * Finalize all streaming assistant messages when the daemon signals turn
+ * idle. Sets `isStreaming: false` on each streaming assistant row and
+ * marks any running tool calls as completed.
+ *
+ * Flipping `isStreaming` here is what lets `appendTextDelta` /
+ * `upsertToolCall` derive "next chunk should open a new bubble" from the
+ * message array alone — without this, the previous turn's tail would
+ * still look like a streaming assistant when the next turn's first chunk
+ * arrives, and the next chunk would erroneously extend it.
+ */
 export function finalizeOnIdle(prev: DisplayMessage[]): DisplayMessage[] {
   let changed = false;
   const updated = prev.map((m) => {
     if (m.role !== "assistant" || !m.isStreaming) return m;
-    if (!m.toolCalls?.some((tc) => tc.status === "running")) return m;
     changed = true;
-    return { ...m, toolCalls: finalizeRunningToolCalls(m.toolCalls)! };
+    const finalized = finalizeRunningToolCalls(m.toolCalls);
+    return {
+      ...m,
+      isStreaming: false,
+      ...(finalized ? { toolCalls: finalized } : {}),
+    };
   });
   return changed ? updated : prev;
 }
@@ -389,21 +430,23 @@ export function completeSurface(
 // tool_use_start
 // ---------------------------------------------------------------------------
 
-/** Insert or update a tool call on an assistant message. */
+/**
+ * Insert or update a tool call on the streaming assistant tail bubble,
+ * creating a new bubble if the tail isn't a streaming assistant row.
+ *
+ * The bubble-creation decision is derived from `prev` itself — no shared
+ * latch passes through. Same finalization invariant as `appendTextDelta`:
+ * boundary events leave the tail with `isStreaming: false` (or non-
+ * assistant), so this updater opens a fresh bubble correctly.
+ */
 export function upsertToolCall(
   prev: DisplayMessage[],
   toolCall: ChatMessageToolCall,
-  shouldCreateNewBubble: boolean,
   stableId?: string,
 ): DisplayMessage[] {
-  const lastIdx = prev.length - 1;
-  const last = prev[lastIdx];
-
-  if (
-    !shouldCreateNewBubble &&
-    last?.role === "assistant" &&
-    last.isStreaming
-  ) {
+  if (tailIsStreamingAssistant(prev)) {
+    const lastIdx = prev.length - 1;
+    const last = prev[lastIdx]!;
     const existingIdx =
       last.toolCalls?.findIndex((tc) => tc.id === toolCall.id) ?? -1;
     if (existingIdx !== -1) {

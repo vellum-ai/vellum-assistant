@@ -1,0 +1,281 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - button "vellum menu" [ref=e5] [cursor=pointer]:
+        - img "vellum" [ref=e6]
+        - generic "menu" [ref=e7]
+      - generic [ref=e10]:
+        - generic [ref=e11]:
+          - generic [ref=e17]:
+            - generic [ref=e18]:
+              - generic [ref=e19]: Inbox Cleaned
+              - generic [ref=e20]: 2m ago
+            - paragraph [ref=e21]: Unsubscribed from 23 newsletters and cleaned up your inbox.
+          - generic [ref=e24]:
+            - generic [ref=e25]:
+              - generic [ref=e26]: Shipped!
+              - generic [ref=e27]: 15m ago
+            - paragraph [ref=e28]: Vibe coded a habit tracker app. It’s now live at your dev URL.
+          - generic [ref=e31]:
+            - generic [ref=e32]:
+              - generic [ref=e33]: Caught Up
+              - generic [ref=e34]: just now
+            - paragraph [ref=e35]: Summarized 14 Slack threads and flagged 3 action items for you.
+          - generic [ref=e38]:
+            - generic [ref=e39]:
+              - generic [ref=e40]: Pickup Sorted
+              - generic [ref=e41]: 1h ago
+            - paragraph [ref=e42]: Kids need pickup at 3pm. Moved your meeting and texted Sarah you’re on it.
+          - generic [ref=e44]:
+            - heading "Focus on the things you love." [level=1] [ref=e45]
+            - paragraph [ref=e46]: Your assistant can do everything else.
+            - link "GO TO IRIS" [ref=e48] [cursor=pointer]:
+              - /url: /assistant
+              - img [ref=e49]
+              - text: GO TO IRIS
+        - generic [ref=e52]:
+          - generic [ref=e53]:
+            - generic [ref=e54]:
+              - generic [ref=e55]: 01 HATCH
+              - generic [ref=e56]: Bring them to life
+              - paragraph [ref=e57]: Name them once and they’re yours everywhere. Web app, macOS, iOS, and CLI. One assistant, one memory, every platform.
+              - generic [ref=e58]:
+                - button "One assistant Same context everywhere" [ref=e59] [cursor=pointer]:
+                  - generic [ref=e60]:
+                    - generic [ref=e61]: One assistant
+                    - generic [ref=e62]: Same context everywhere
+                - button "Multi-platform Web, macOS, iOS & CLI" [ref=e63] [cursor=pointer]:
+                  - generic [ref=e64]:
+                    - generic [ref=e65]: Multi-platform
+                    - generic [ref=e66]: Web, macOS, iOS & CLI
+                - button "Instant setup Live in under a minute" [ref=e67] [cursor=pointer]:
+                  - generic [ref=e68]:
+                    - generic [ref=e69]: Instant setup
+                    - generic [ref=e70]: Live in under a minute
+              - button "Inside their space" [ref=e72] [cursor=pointer]:
+                - generic [ref=e75]: Inside their space
+            - generic [ref=e77]:
+              - generic [ref=e79]: Hi I'm new. Who am I?
+              - generic:
+                - generic:
+                  - generic:
+                    - img "Architecture diagram":
+                      - generic: Gateway
+                      - generic: auth · filter
+                      - generic: IPC
+                      - generic: Assistant
+                      - generic: HTTP + SSE
+                      - generic: IPC
+                      - generic: Credential Executor
+                      - generic: secrets vault
+                      - generic:
+                        - generic: Channels
+                        - generic:
+                          - generic: Telegram
+                        - generic:
+                          - generic: Slack
+                        - generic:
+                          - generic: Email
+                        - generic:
+                          - generic: Phone
+                      - generic:
+                        - generic: Clients
+                        - generic:
+                          - generic: macOS
+                        - generic:
+                          - generic: iOS
+                        - generic:
+                          - generic: Web App
+                        - generic:
+                          - generic: CLI
+                        - generic:
+                          - generic: Chrome Extension
+                      - generic: HTTP
+                      - generic: HTTP
+                      - generic:
+                        - generic: Workspace
+                        - generic:
+                          - generic: IDENTITY.md
+                        - generic:
+                          - generic: SOUL.md
+                        - generic:
+                          - generic: USER.md
+                        - generic:
+                          - generic: HEARTBEAT.md
+                        - generic:
+                          - generic: config.json
+                      - generic:
+                        - generic: Memory Cortex
+                      - generic:
+                        - generic: Trusted Contexts
+                      - generic:
+                        - generic: Permissions
+          - button "Scroll to next" [ref=e80] [cursor=pointer]:
+            - img [ref=e81]
+        - generic [ref=e84]:
+          - heading "They remember the same way you do." [level=2] [ref=e86]
+          - generic [ref=e87]:
+            - generic [ref=e88]:
+              - button "episodic" [ref=e89] [cursor=pointer]:
+                - img [ref=e91]
+                - generic [ref=e104]: episodic
+              - button "semantic" [ref=e105] [cursor=pointer]:
+                - img [ref=e107]
+                - generic [ref=e119]: semantic
+              - button "procedural" [ref=e120] [cursor=pointer]:
+                - img [ref=e122]
+                - generic [ref=e135]: procedural
+              - button "emotional" [ref=e136] [cursor=pointer]:
+                - img [ref=e138]
+                - generic [ref=e152]: emotional
+            - generic [ref=e153]:
+              - generic [ref=e155]:
+                - generic [ref=e156]: "> [MEM·EP01] Logged: helped junior debug 3hrs, calendar cleared"
+                - generic [ref=e157]: "> [MEM·SE02] Learned: TypeScript preferred, YAML avoided, graph-based thinking"
+                - generic [ref=e158]: "> [MEM·PR03] Pattern: tests > code > refactor, auto-drafting enabled"
+                - generic [ref=e159]: "> [MEM·EM04] Observed: silence = processing, hold all pings"
+                - generic [ref=e160]: "> [MEM·PS05] Scheduled: Jun 12 recital, flowers ordered, PM blocked"
+                - generic [ref=e161]: "> [MEM·BH06] Routine: 3:15pm walk daily, notifications paused"
+                - generic [ref=e162]: "> [MEM·NR07] Identity: recovering perfectionist, shipping > perfecting"
+                - generic [ref=e163]: "> [MEM·SH08] Rule: no pings before 9am, auto-enforced"
+                - generic [ref=e164]: "> [MEM·EP01] Logged: helped junior debug 3hrs, calendar cleared"
+                - generic [ref=e165]: "> [MEM·SE02] Learned: TypeScript preferred, YAML avoided, graph-based thinking"
+                - generic [ref=e166]: "> [MEM·PR03] Pattern: tests > code > refactor, auto-drafting enabled"
+                - generic [ref=e167]: "> [MEM·EM04] Observed: silence = processing, hold all pings"
+                - generic [ref=e168]: "> [MEM·PS05] Scheduled: Jun 12 recital, flowers ordered, PM blocked"
+                - generic [ref=e169]: "> [MEM·BH06] Routine: 3:15pm walk daily, notifications paused"
+                - generic [ref=e170]: "> [MEM·NR07] Identity: recovering perfectionist, shipping > perfecting"
+                - generic [ref=e171]: "> [MEM·SH08] Rule: no pings before 9am, auto-enforced"
+                - generic [ref=e172]: "> [MEM·EP01] Logged: helped junior debug 3hrs, calendar cleared"
+                - generic [ref=e173]: "> [MEM·SE02] Learned: TypeScript preferred, YAML avoided, graph-based thinking"
+                - generic [ref=e174]: "> [MEM·PR03] Pattern: tests > code > refactor, auto-drafting enabled"
+                - generic [ref=e175]: "> [MEM·EM04] Observed: silence = processing, hold all pings"
+                - generic [ref=e176]: "> [MEM·PS05] Scheduled: Jun 12 recital, flowers ordered, PM blocked"
+                - generic [ref=e177]: "> [MEM·BH06] Routine: 3:15pm walk daily, notifications paused"
+                - generic [ref=e178]: "> [MEM·NR07] Identity: recovering perfectionist, shipping > perfecting"
+                - generic [ref=e179]: "> [MEM·SH08] Rule: no pings before 9am, auto-enforced"
+                - generic [ref=e180]: "> [MEM·EP01] Logged: helped junior debug 3hrs, calendar cleared"
+                - generic [ref=e181]: "> [MEM·SE02] Learned: TypeScript preferred, YAML avoided, graph-based thinking"
+                - generic [ref=e182]: "> [MEM·PR03] Pattern: tests > code > refactor, auto-drafting enabled"
+                - generic [ref=e183]: "> [MEM·EM04] Observed: silence = processing, hold all pings"
+                - generic [ref=e184]: "> [MEM·PS05] Scheduled: Jun 12 recital, flowers ordered, PM blocked"
+                - generic [ref=e185]: "> [MEM·BH06] Routine: 3:15pm walk daily, notifications paused"
+                - generic [ref=e186]: "> [MEM·NR07] Identity: recovering perfectionist, shipping > perfecting"
+                - generic [ref=e187]: "> [MEM·SH08] Rule: no pings before 9am, auto-enforced"
+                - generic [ref=e188]: "> [MEM·EP01] Logged: helped junior debug 3hrs, calendar cleared"
+                - generic [ref=e189]: "> [MEM·SE02] Learned: TypeScript preferred, YAML avoided, graph-based thinking"
+                - generic [ref=e190]: "> [MEM·PR03] Pattern: tests > code > refactor, auto-drafting enabled"
+                - generic [ref=e191]: "> [MEM·EM04] Observed: silence = processing, hold all pings"
+                - generic [ref=e192]: "> [MEM·PS05] Scheduled: Jun 12 recital, flowers ordered, PM blocked"
+                - generic [ref=e193]: "> [MEM·BH06] Routine: 3:15pm walk daily, notifications paused"
+                - generic [ref=e194]: "> [MEM·NR07] Identity: recovering perfectionist, shipping > perfecting"
+                - generic [ref=e195]: "> [MEM·SH08] Rule: no pings before 9am, auto-enforced"
+                - generic [ref=e196]: "> [MEM·EP01] Logged: helped junior debug 3hrs, calendar cleared"
+                - generic [ref=e197]: "> [MEM·SE02] Learned: TypeScript preferred, YAML avoided, graph-based thinking"
+                - generic [ref=e198]: "> [MEM·PR03] Pattern: tests > code > refactor, auto-drafting enabled"
+                - generic [ref=e199]: "> [MEM·EM04] Observed: silence = processing, hold all pings"
+                - generic [ref=e200]: "> [MEM·PS05] Scheduled: Jun 12 recital, flowers ordered, PM blocked"
+                - generic [ref=e201]: "> [MEM·BH06] Routine: 3:15pm walk daily, notifications paused"
+                - generic [ref=e202]: "> [MEM·NR07] Identity: recovering perfectionist, shipping > perfecting"
+                - generic [ref=e203]: "> [MEM·SH08] Rule: no pings before 9am, auto-enforced"
+              - generic:
+                - generic:
+                  - generic: EPISODIC RECALL
+                  - paragraph: Last Thursday he dropped everything to help a junior debug. I cleared his calendar without asking.
+                  - generic:
+                    - generic: MEM·EP01
+            - generic [ref=e204]:
+              - button "prospective" [ref=e205] [cursor=pointer]:
+                - img [ref=e207]
+                - generic [ref=e220]: prospective
+              - button "behavioral" [ref=e221] [cursor=pointer]:
+                - img [ref=e223]
+                - generic [ref=e235]: behavioral
+              - button "narrative" [ref=e236] [cursor=pointer]:
+                - img [ref=e238]
+                - generic [ref=e250]: narrative
+              - button "shared" [ref=e251] [cursor=pointer]:
+                - img [ref=e253]
+                - generic [ref=e267]: shared
+        - generic [ref=e268]:
+          - generic [ref=e269]:
+            - heading "Trust is earned, not assumed." [level=2] [ref=e270]
+            - paragraph [ref=e271]: Your assistant knows your life. That's a relationship worth protecting — through action, not promises.
+          - generic [ref=e272]:
+            - button "Your secrets stay in your hands. Passwords and credentials are stored securely in your macOS Keychain when self-hosted, or in an isolated vault on the managed platform. A deterministic service executes them. The AI never sees, touches, or stores them." [ref=e273] [cursor=pointer]:
+              - generic [ref=e274]:
+                - img [ref=e276]
+                - heading "Your secrets stay in your hands." [level=3] [ref=e279]
+              - paragraph [ref=e282]: Passwords and credentials are stored securely in your macOS Keychain when self-hosted, or in an isolated vault on the managed platform. A deterministic service executes them. The AI never sees, touches, or stores them.
+            - 'button "You decide how much freedom they get. Strict: they ask before every action. Conservative: they handle the safe stuff on their own. Relaxed: they only check in for the big decisions. Full access: complete autonomy. You choose — and you can change your mind anytime." [ref=e283] [cursor=pointer]':
+              - generic [ref=e284]:
+                - img [ref=e286]
+                - heading "You decide how much freedom they get." [level=3] [ref=e289]
+              - generic:
+                - paragraph: "Strict: they ask before every action. Conservative: they handle the safe stuff on their own. Relaxed: they only check in for the big decisions. Full access: complete autonomy. You choose — and you can change your mind anytime."
+            - button "Your life isn’t training data. Whether you self-host or use the managed platform, your data is yours. Conversations reach the LLM for responses, but are never used for training. Telemetry is off by default. The value flows to you." [ref=e291] [cursor=pointer]:
+              - generic [ref=e292]:
+                - img [ref=e294]
+                - heading "Your life isn’t training data." [level=3] [ref=e298]
+              - generic:
+                - paragraph: Whether you self-host or use the managed platform, your data is yours. Conversations reach the LLM for responses, but are never used for training. Telemetry is off by default. The value flows to you.
+          - link "Read more →" [ref=e300] [cursor=pointer]:
+            - /url: /docs/trust-security
+        - generic [ref=e301]:
+          - generic [ref=e304]:
+            - heading "Ready to meet yours?" [level=2] [ref=e305]
+            - paragraph [ref=e306]: Pick a name and share your world. Then watch the relationship grow.
+            - link "GO TO IRIS" [ref=e307] [cursor=pointer]:
+              - /url: /assistant
+              - img [ref=e308]
+              - text: GO TO IRIS
+          - generic [ref=e313]:
+            - generic [ref=e314]:
+              - generic [ref=e315]:
+                - heading "Product" [level=4] [ref=e316]
+                - link "Product" [ref=e317] [cursor=pointer]:
+                  - /url: /product
+                - link "Download" [ref=e318] [cursor=pointer]:
+                  - /url: /download
+                - link "Pricing" [ref=e319] [cursor=pointer]:
+                  - /url: /docs/pricing
+              - generic [ref=e320]:
+                - heading "Resources" [level=4] [ref=e321]
+                - link "Docs" [ref=e322] [cursor=pointer]:
+                  - /url: /docs
+                - link "Blog" [ref=e323] [cursor=pointer]:
+                  - /url: /blog
+                - link "Community" [ref=e324] [cursor=pointer]:
+                  - /url: /community
+              - generic [ref=e325]:
+                - heading "Company" [level=4] [ref=e326]
+                - link "About" [ref=e327] [cursor=pointer]:
+                  - /url: /about-us
+                - link "Careers" [ref=e328] [cursor=pointer]:
+                  - /url: https://jobs.ashbyhq.com/vellum
+                - link "Contact" [ref=e329] [cursor=pointer]:
+                  - /url: mailto:hello@vellum.com
+              - generic [ref=e330]:
+                - heading "Legal" [level=4] [ref=e331]
+                - link "Privacy" [ref=e332] [cursor=pointer]:
+                  - /url: /docs/privacy-policy
+                - link "Terms" [ref=e333] [cursor=pointer]:
+                  - /url: /docs/vellum-terms-of-use
+                - link "Data Sharing" [ref=e334] [cursor=pointer]:
+                  - /url: /docs/data-sharing
+            - generic [ref=e335]:
+              - generic [ref=e336]: © 2026 Vellum
+              - generic [ref=e337]:
+                - link "Twitter" [ref=e338] [cursor=pointer]:
+                  - /url: https://twitter.com/vaboratory
+                  - img [ref=e339]
+                - link "GitHub" [ref=e341] [cursor=pointer]:
+                  - /url: https://github.com/vellum-ai
+                  - img [ref=e342]
+    - generic:
+      - generic: They remember where you left off.
+      - link "Go to Iris":
+        - /url: /assistant
+        - img
+        - text: Go to Iris
+  - alert [ref=e344]

@@ -81,7 +81,7 @@ describe("postChatMessage onboarding payload", () => {
     expect(body.content).toBe("hello");
   });
 
-  test("includes normalized onboarding and seeds profile files before posting the message", async () => {
+  test("includes normalized onboarding and seeds profile files concurrently with the message post", async () => {
     await postChatMessage("asst-1", "K", "hello", [], {
       tools: ["github", "linear"],
       tasks: ["code-building", "writing"],
@@ -89,8 +89,10 @@ describe("postChatMessage onboarding payload", () => {
       userName: "Ada",
       assistantName: "Vel",
     });
+    // Profile seeding is fire-and-forget — flush the microtask queue so
+    // the concurrent writes settle before we assert.
+    await new Promise((r) => setTimeout(r, 0));
 
-    expect(capturedRequests.at(-1)?.url).toContain("/messages/");
     const body = getRequestBody();
     expect(body.onboarding).toEqual({
       tools: ["GitHub", "Linear"],

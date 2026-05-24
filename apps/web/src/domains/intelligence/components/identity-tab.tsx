@@ -7,6 +7,7 @@ import { ConstellationView } from "@/domains/intelligence/components/constellati
 import { SkillDetail } from "@/domains/intelligence/components/skills/skill-detail.js";
 import { AvatarManagementModal } from "@/components/avatar/avatar-management-modal.js";
 import { ChatAvatar } from "@/components/avatar/chat-avatar.js";
+import { deleteAvatar } from "@/domains/avatar/api.js";
 import { useAssistantAvatar } from "@/domains/avatar/use-assistant-avatar.js";
 import type { CharacterComponents, CharacterTraits } from "@/domains/avatar/types.js";
 import { fetchSkills, installSkill, uninstallSkill } from "@/domains/intelligence/skills/api.js";
@@ -230,6 +231,17 @@ export function IdentityTab({ assistantId, onOpenThread }: IdentityTabProps) {
     setModalOpen(false);
   }, []);
 
+  const handleGenerateWithAI = useCallback(() => {
+    onOpenThread?.("I'd like to create a custom AI-generated avatar.");
+  }, [onOpenThread]);
+
+  const handleDeleteAvatar = useCallback(async () => {
+    const ok = await deleteAvatar(assistantId);
+    if (ok) {
+      invalidateAvatar();
+    }
+  }, [assistantId, invalidateAvatar]);
+
   const invalidateSkills = useCallback(() => {
     void queryClient.invalidateQueries({
       queryKey: ["assistantSkills", assistantId],
@@ -380,6 +392,8 @@ export function IdentityTab({ assistantId, onOpenThread }: IdentityTabProps) {
         customImageUrl={customImageUrl}
         onSaveCharacter={handleAvatarChange}
         onUploadImage={handleAvatarChange}
+        onGenerateWithAI={onOpenThread ? handleGenerateWithAI : undefined}
+        onDeleteAvatar={handleDeleteAvatar}
       />
       {removalDialog}
     </div>

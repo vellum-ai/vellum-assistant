@@ -95,7 +95,7 @@ mock.module("../permissions/checker.js", () => ({
 mock.module("../memory/tool-usage-store.js", () => ({
   recordToolInvocation: () => {},
   getRecentInvocations: () => [],
-  rotateToolInvocations: () => 0,
+  rotateToolInvocations: async () => 0,
 }));
 
 // ── Tool registry: return a stub tool whose execute records the call ─

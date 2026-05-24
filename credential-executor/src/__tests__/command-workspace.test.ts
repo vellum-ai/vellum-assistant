@@ -235,7 +235,6 @@ describe("stageInputs", () => {
       secrets: new Set(),
     };
 
-    let scratchDir: string | undefined;
     try {
       stageInputs(config);
     } catch {

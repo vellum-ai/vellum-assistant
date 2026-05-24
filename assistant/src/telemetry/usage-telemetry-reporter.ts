@@ -234,6 +234,7 @@ export class UsageTelemetryReporter {
             output_tokens: e.outputTokens,
             cache_creation_input_tokens: e.cacheCreationInputTokens ?? null,
             cache_read_input_tokens: e.cacheReadInputTokens ?? null,
+            raw_usage: e.rawUsage,
             actor: e.actor,
             llm_call_site: e.callSite,
             inference_profile: e.inferenceProfile,

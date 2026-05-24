@@ -316,8 +316,11 @@ if [ -z "${SIGN_IDENTITY:-}" ]; then
         # A self-signed cert satisfies this without Apple Developer enrollment.
         if [ -z "$SIGN_IDENTITY" ] && command -v openssl >/dev/null 2>&1; then
             _CERT_CN="Vellum Local Development"
-            # Check if we already created this cert in a previous build
-            if ! _valid_codesign_identities | grep -q "$_CERT_CN"; then
+            # Check if we already created this cert in a previous build.
+            # Use find-identity WITHOUT -v: self-signed certs are untrusted
+            # (CSSMERR_TP_NOT_TRUSTED) so -v filters them out, causing a new
+            # cert to be created on every build invocation.
+            if ! security find-identity -p codesigning 2>/dev/null | grep -q "$_CERT_CN"; then
                 echo ""
                 echo "No codesigning certificate found in keychain."
                 echo "Creating self-signed certificate '$_CERT_CN' for local development..."

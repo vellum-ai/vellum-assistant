@@ -55,20 +55,26 @@ export interface BuildTranscriptItemsInput {
  * Every returned item carries a non-empty, distinct `key`.
  */
 function isInvalidMessage(message: DisplayMessage): boolean {
-  // Phantom tool calls synthesized by the daemon when a tool_result block
-  // has no matching tool_use (orphan). They come through as user messages
-  // and render as a confusing "Completed 1 step / Used unknown" chip.
-  // Dropping the whole message is correct — without the parent tool_use
-  // we can't tell the user what tool ran, so the result is meaningless.
-  return (
-    message.role === "user" &&
-    (!message.content || message.content.trim().length === 0) &&
-    (!message.surfaces || message.surfaces.length === 0) &&
-    (!message.attachments || message.attachments.length === 0) &&
-    message.toolCalls != null &&
-    message.toolCalls.length > 0 &&
-    message.toolCalls.every((tc) => tc.toolName === "unknown")
-  );
+  // Assistant rows always render; queued user rows collapse into a marker upstream.
+  if (message.role !== "user") return false;
+  if (message.queueStatus === "queued") return false;
+
+  // Any meaningful signal short-circuits as valid. Without one of these the
+  // row is a blank bubble (e.g. an orphan tool_result at a pagination boundary
+  // that the daemon's renderer already stripped).
+  if (message.content && message.content.trim().length > 0) return false;
+  if (
+    message.textSegments?.some(
+      (s) => typeof s.content === "string" && s.content.trim().length > 0,
+    )
+  )
+    return false;
+  if (message.surfaces && message.surfaces.length > 0) return false;
+  if (message.attachments && message.attachments.length > 0) return false;
+  if (message.slackMessage) return false;
+  if (message.toolCalls?.some((tc) => tc.toolName !== "unknown")) return false;
+
+  return true;
 }
 
 export function buildTranscriptItems(

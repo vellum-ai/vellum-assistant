@@ -23,14 +23,14 @@ import type { ContextWindowUsage } from "@/domains/chat/components/context-windo
 
 export interface UseContextWindowUsageHydrationParams {
   assistantId: string | null;
-  activeConversationKey: string | null;
+  activeConversationId: string | null;
   contextWindowUsageByConversationRef: MutableRefObject<Map<string, ContextWindowUsage>>;
   setContextWindowUsage: Dispatch<SetStateAction<ContextWindowUsage | null>>;
 }
 
 export function useContextWindowUsageHydration({
   assistantId,
-  activeConversationKey,
+  activeConversationId,
   contextWindowUsageByConversationRef,
   setContextWindowUsage,
 }: UseContextWindowUsageHydrationParams): void {
@@ -49,15 +49,15 @@ export function useContextWindowUsageHydration({
       }
     }
     contextWindowUsageByConversationRef.current = merged;
-    if (activeConversationKey) {
-      const cached = merged.get(activeConversationKey);
+    if (activeConversationId) {
+      const cached = merged.get(activeConversationId);
       if (cached) {
         setContextWindowUsage(cached);
       }
     }
   }, [
     assistantId,
-    activeConversationKey,
+    activeConversationId,
     contextWindowUsageByConversationRef,
     setContextWindowUsage,
   ]);
