@@ -498,6 +498,115 @@ describe("macOS browser backend fallback (no extension, no cdp-inspect)", () => 
   });
 });
 
+describe("POST /v1/messages — body.conversationId direct id lookup", () => {
+  // The handler accepts two scope inputs with distinct semantics:
+  //
+  //   - `body.conversationId` is the assistant-minted internal id and is
+  //     looked up directly. A missing row is a 404 — clients must obtain
+  //     the id from a prior daemon response.
+  //   - `body.conversationKey` is an external key (non-vellum channels /
+  //     web idempotency); resolved via the conversation_keys table and
+  //     materialised on first use.
+  //
+  // When both are sent, `conversationId` wins and `conversationKey` is
+  // ignored. (Don't combine — fetch by one and then the other.)
+
+  async function sendMessage(
+    body: Record<string, unknown>,
+    successStatus = 202,
+  ): Promise<Response> {
+    return callHandler(
+      (args) =>
+        handleSendMessage(args, {
+          sendMessageDeps: {
+            getOrCreateConversation: async (conversationId: string) =>
+              getOrCreateFakeConversation(conversationId),
+            assistantEventHub: new AssistantEventHub(),
+            resolveAttachments: () => [],
+          },
+        }),
+      new Request("http://localhost/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-vellum-principal-type": authContext.principalType,
+        },
+        body: JSON.stringify(body),
+      }),
+      undefined,
+      successStatus,
+    );
+  }
+
+  test("body.conversationId=<existing-id> scopes the send to that conversation", async () => {
+    // Pre-materialise a conversation via the key path, then send a message
+    // by its assistant-minted internal id.
+    const externalKey = `pre-materialised-${crypto.randomUUID()}`;
+    const seeded = getOrCreateConversationMapping(externalKey);
+
+    const response = await sendMessage({
+      conversationId: seeded.conversationId,
+      content: "Direct id lookup — should reuse the existing conversation.",
+      sourceChannel: "vellum",
+      interface: "macos",
+    });
+
+    expect(response.status).toBe(202);
+    const body = (await response.json()) as {
+      accepted: boolean;
+      conversationId: string;
+    };
+    expect(body.accepted).toBe(true);
+    expect(body.conversationId).toBe(seeded.conversationId);
+
+    // No new external-key row should be materialised under the internal id.
+    expect(getConversationByKey(seeded.conversationId)).toBeNull();
+  });
+
+  test("body.conversationId=<non-existent-id> returns 404", async () => {
+    const response = await sendMessage(
+      {
+        conversationId: `does-not-exist-${crypto.randomUUID()}`,
+        content: "Should 404 — unknown internal id.",
+        sourceChannel: "vellum",
+        interface: "macos",
+      },
+      404,
+    );
+    expect(response.status).toBe(404);
+    const body = (await response.json()) as {
+      error?: { code?: string; message?: string };
+    };
+    expect(body.error?.code).toBe("NOT_FOUND");
+    expect(body.error?.message).toMatch(/not found/i);
+  });
+
+  test("body.conversationId is honored and body.conversationKey is ignored when both are sent", async () => {
+    // Seed a conversation for the id we'll send. Also seed a separate
+    // conversation under a key the client will pass alongside — but the
+    // handler must scope to the id, NOT the key.
+    const idSeed = getOrCreateConversationMapping(
+      `id-honored-${crypto.randomUUID()}`,
+    );
+    const keyValue = `key-ignored-${crypto.randomUUID()}`;
+    const keySeed = getOrCreateConversationMapping(keyValue);
+    expect(idSeed.conversationId).not.toBe(keySeed.conversationId);
+
+    const response = await sendMessage({
+      conversationId: idSeed.conversationId,
+      conversationKey: keyValue,
+      content: "Both fields sent — id should win.",
+      sourceChannel: "vellum",
+      interface: "macos",
+    });
+
+    expect(response.status).toBe(202);
+    const body = (await response.json()) as { conversationId: string };
+    expect(body.conversationId).toBe(idSeed.conversationId);
+    expect(body.conversationId).not.toBe(keySeed.conversationId);
+  });
+});
+
 describe("conversationKey send path disk-view regression", () => {
   test("first send on a fresh conversationKey creates disk-view dir and writes user+assistant records", async () => {
     const conversationKey = `fresh-conv-key-${crypto.randomUUID()}`;

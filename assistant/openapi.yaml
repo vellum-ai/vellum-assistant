@@ -4695,8 +4695,10 @@ paths:
                 properties:
                   id:
                     type: string
+                    description: Assistant-minted internal conversation id. The authoritative identifier for the conversation.
                   conversationKey:
                     type: string
+                    description: Echo of the optional external key supplied by the client (or the value the daemon minted when omitted).
                   conversationType:
                     type: string
                   created:
@@ -4715,14 +4717,15 @@ paths:
               type: object
               properties:
                 conversationKey:
+                  description:
+                    Optional external key. Echoed back in the response. Non-vellum channels (Telegram, WhatsApp) use this to
+                    scope to a logical channel thread; vellum-web clients can omit it and rely on the assistant-minted
+                    `id`.
                   type: string
-                  description: Idempotency key for the conversation
                 conversationType:
                   description: Only standard conversations are created by this endpoint
                   type: string
                   const: standard
-              required:
-                - conversationKey
               additionalProperties: false
   /v1/conversations/{conversationId}/slack-channel/resolve:
     post:
@@ -7730,12 +7733,20 @@ paths:
         "200":
           description: Successful response
       parameters:
+        - name: conversationId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Scope to a single conversation by its assistant-minted internal id. 404s if no such conversation exists.
         - name: conversationKey
           in: query
           required: false
           schema:
             type: string
-          description: Scope to a single conversation
+          description:
+            Scope to a single conversation by an external key (non-vellum channels) or the web idempotency key.
+            Materializes a row on first use. Ignored when conversationId is also provided.
   /v1/events/emit:
     post:
       operationId: events_emit_post

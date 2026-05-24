@@ -26,6 +26,7 @@ import { z } from "zod";
 import type { HostProxyCapability } from "../../channels/types.js";
 import { parseInterfaceId, supportsHostProxy } from "../../channels/types.js";
 import { emitContactChange } from "../../contacts/contact-events.js";
+import { getConversation } from "../../memory/conversation-crud.js";
 import { getOrCreateConversation } from "../../memory/conversation-key-store.js";
 import { getLogger } from "../../util/logger.js";
 import { formatSseFrame, formatSseHeartbeat } from "../assistant-event.js";
@@ -39,7 +40,11 @@ import {
   assistantEventHub,
 } from "../assistant-event-hub.js";
 import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
-import { BadRequestError, ServiceUnavailableError } from "./errors.js";
+import {
+  BadRequestError,
+  NotFoundError,
+  ServiceUnavailableError,
+} from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("events-routes");
@@ -220,9 +225,17 @@ const defaultSseShedReporter: SseShedReporter = (reason, inst) => {
  * Stream assistant events as Server-Sent Events.
  *
  * Query params:
- *   conversationKey -- optional; when provided, scopes the stream to one
- *                      conversation. When omitted, the stream delivers events
- *                      from ALL conversations for this assistant.
+ *   conversationId  -- optional; assistant-minted internal conversation id.
+ *                      When provided, the stream is scoped to that one
+ *                      conversation; the daemon 404s if no such conversation
+ *                      exists (clients must obtain the id from a prior
+ *                      response).
+ *   conversationKey -- optional; external key (non-vellum channels) or the
+ *                      web idempotency key. Resolved via the conversation
+ *                      keys table; materializes a row on first use.
+ *                      Ignored when `conversationId` is also provided.
+ *   When both are omitted, the stream delivers events from ALL
+ *   conversations for this assistant.
  *
  * Headers (optional):
  *   X-Vellum-Client-Id    -- stable per-install UUID identifying this client.
@@ -248,8 +261,18 @@ export function handleSubscribeAssistantEvents(
 ): ReadableStream<Uint8Array> {
   const { queryParams, headers, abortSignal } = args;
 
-  const conversationKey = queryParams?.conversationKey;
-  if ("conversationKey" in (queryParams ?? {}) && !conversationKey?.trim()) {
+  const rawConversationId = queryParams?.conversationId;
+  const rawConversationKey = queryParams?.conversationKey;
+  if (
+    "conversationId" in (queryParams ?? {}) &&
+    !rawConversationId?.trim()
+  ) {
+    throw new BadRequestError("conversationId must not be empty");
+  }
+  if (
+    "conversationKey" in (queryParams ?? {}) &&
+    !rawConversationKey?.trim()
+  ) {
     throw new BadRequestError("conversationKey must not be empty");
   }
 
@@ -293,10 +316,25 @@ export function handleSubscribeAssistantEvents(
     "host_browser",
   ];
 
+  // Resolve the scope. `conversationId` (when supplied) is the
+  // assistant-minted internal id — looked up directly; 404 if absent.
+  // Otherwise fall through to `conversationKey`, which is treated as an
+  // external key and resolved via the conversation_keys table
+  // (materialized on first use, preserving the existing subscribe-time
+  // create behavior for the web idempotency flow).
   const filter: AssistantEventFilter = {};
-  if (conversationKey) {
-    const mapping = getOrCreateConversation(conversationKey);
+  let scopeConversationKey: string | null = null;
+  if (rawConversationId) {
+    const existing = getConversation(rawConversationId);
+    if (!existing) {
+      throw new NotFoundError(`Conversation ${rawConversationId} not found`);
+    }
+    filter.conversationId = existing.id;
+    scopeConversationKey = existing.id;
+  } else if (rawConversationKey) {
+    const mapping = getOrCreateConversation(rawConversationKey);
     filter.conversationId = mapping.conversationId;
+    scopeConversationKey = rawConversationKey;
   }
 
   const encoder = new TextEncoder();
@@ -316,7 +354,7 @@ export function handleSubscribeAssistantEvents(
     heartbeatsSent: 0,
     clientId,
     interfaceId,
-    conversationKey: conversationKey ?? null,
+    conversationKey: scopeConversationKey,
   };
 
   ensureEventLoopDelayMonitorStarted();
@@ -471,8 +509,14 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["events"],
     queryParams: [
       {
+        name: "conversationId",
+        description:
+          "Scope to a single conversation by its assistant-minted internal id. 404s if no such conversation exists.",
+      },
+      {
         name: "conversationKey",
-        description: "Scope to a single conversation",
+        description:
+          "Scope to a single conversation by an external key (non-vellum channels) or the web idempotency key. Materializes a row on first use. Ignored when conversationId is also provided.",
       },
     ],
     responseHeaders: {
