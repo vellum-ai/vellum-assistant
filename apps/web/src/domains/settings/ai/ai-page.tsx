@@ -1165,7 +1165,7 @@ function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceCardProp
                 open={registerConfirmOpen}
                 title="Set Subdomain"
                 message={<><code className="rounded bg-[var(--surface-active)] px-1 py-0.5 font-mono text-[0.9em]">{subdomainDraft.trim().toLowerCase() || "subdomain"}</code> will also become your assistant's public handle. You won't be able to change it once set.</>}
-                confirmLabel="Set Subdomain"
+                confirmLabel="Confirm"
                 onConfirm={handleRegisterDomain}
                 onCancel={() => setRegisterConfirmOpen(false)}
               />
