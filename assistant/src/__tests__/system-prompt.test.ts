@@ -401,26 +401,26 @@ describe("buildSystemPrompt", () => {
   });
 
   describe("BOOTSTRAP.md user persona placeholder", () => {
-    test("substitutes {{USER_PERSONA_FILE}} with users/<slug>.md when a guardian slug is resolvable", () => {
+    test("substitutes {{userSlug}} with the resolved slug when a guardian slug is resolvable", () => {
       // Simulate a guardian contact whose userFile resolves to alice.md.
       mockPersona.userSlug = "alice";
       writeFileSync(
         join(TEST_DIR, "BOOTSTRAP.md"),
-        "# First run\n\nSave facts to users/{{USER_PERSONA_FILE}} immediately.",
+        "# First run\n\nSave facts to users/{{userSlug}}.md immediately.",
       );
       const result = buildSystemPrompt();
       expect(result).toContain("users/alice.md");
-      expect(result).not.toContain("{{USER_PERSONA_FILE}}");
+      expect(result).not.toContain("{{userSlug}}");
     });
 
     test("falls back to users/default.md when no slug is resolvable", () => {
       writeFileSync(
         join(TEST_DIR, "BOOTSTRAP.md"),
-        "# First run\n\nSave facts to users/{{USER_PERSONA_FILE}} immediately.",
+        "# First run\n\nSave facts to users/{{userSlug}}.md immediately.",
       );
       const result = buildSystemPrompt();
       expect(result).toContain("users/default.md");
-      expect(result).not.toContain("{{USER_PERSONA_FILE}}");
+      expect(result).not.toContain("{{userSlug}}");
     });
 
     test("substitutes the unmodified bundled BOOTSTRAP.md template", () => {
@@ -434,7 +434,7 @@ describe("buildSystemPrompt", () => {
       writeFileSync(join(TEST_DIR, "BOOTSTRAP.md"), bundled);
       const result = buildSystemPrompt();
       expect(result).toContain("users/alice.md");
-      expect(result).not.toContain("{{USER_PERSONA_FILE}}");
+      expect(result).not.toContain("{{userSlug}}");
     });
   });
 

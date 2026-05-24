@@ -269,19 +269,12 @@ export function maybeReseedBootstrapForCohort(cohort: string): void {
 }
 
 /**
- * Build the system prompt from ~/.vellum prompt files.
- *
- * Composition:
- *   1. Bundled static sections (`renderWorkspaceSections`), in id-sort
- *      order.  Includes `08-identity` (IDENTITY.md), `09-soul`
- *      (SOUL.md), `10-user-persona` (`users/{{userSlug}}.md` →
- *      `users/default.md`), `11-channel-persona`
- *      (`channels/{{channelSlug}}.md`), `12-voice` (VOICE.md), and
- *      `13-bootstrap` (BOOTSTRAP.md + first-run ritual wrapper +
- *      optional onboarding-context block).  All backed by workspace
- *      files.
- *   2. Dynamic suffix — currently just the `# Connected Services`
- *      block built from the live OAuth + managed-credential caches.
+ * Build the system prompt from `BUNDLED_SYSTEM_SECTIONS` (with
+ * workspace overrides per section), followed by the dynamic
+ * `# Connected Services` suffix.  Per-section behaviour lives in
+ * `system-sections.ts`; the renderer in `sections.ts` handles
+ * frontmatter `enabled:` predicates, `{{variable}}` interpolation,
+ * and file-backed bodies.
  */
 export interface BuildSystemPromptOptions {
   hasNoClient?: boolean;
@@ -308,18 +301,6 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
     maybeReseedBootstrapForCohort(options.onboardingContext.cohort);
   }
 
-  // Pre-compute `includeBootstrap` so it's on `ctx` for the
-  // `08-identity` and `13-bootstrap` section transforms (the former
-  // gates the unmodified IDENTITY.md template behind bootstrap
-  // presence; the latter uses it as its `enabled:` predicate).  Both
-  // sections re-read BOOTSTRAP.md from disk via their own
-  // `workspacePath` resolution — this read exists only to derive the
-  // boolean, which depends on the post-`stripCommentLines` content
-  // length (matches the section renderer's empty-body gate).
-  const includeBootstrap =
-    !!readPromptFile(getWorkspacePromptPath("BOOTSTRAP.md")) &&
-    !options?.excludeBootstrap;
-
   // Slugs used by the persona sections (`10-user-persona`,
   // `11-channel-persona`) and the BOOTSTRAP block.  `userSlug` is the
   // raw slug derived from the caller's trust context (falling back to
@@ -343,27 +324,14 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
     ...options,
     isContainerized: getIsContainerized(),
     workspaceDir: getWorkspaceDir(),
-    includeBootstrap,
     userSlug,
     channelSlug,
-    // BOOTSTRAP.md references `{{USER_PERSONA_FILE}}`; the renderer's
-    // variable pass resolves it from ctx at render time.  Stored as
-    // `<slug>.md` (not `users/<slug>.md`) because the file references
-    // it as `users/{{USER_PERSONA_FILE}}`.
-    USER_PERSONA_FILE: `${userSlug}.md`,
   };
 
-  // Single array.  Everything pushed before `dynamicStart` lands in the
-  // static (cached) prefix; everything after lands in the dynamic suffix.
-  // The two halves are joined around `SYSTEM_PROMPT_CACHE_BOUNDARY` so the
-  // Anthropic provider can key its prompt cache on the prefix.
-  //
-  // IDENTITY.md / SOUL.md / user persona / channel persona / VOICE.md /
-  // BOOTSTRAP.md all render via workspace-backed bundled sections
-  // (`08-identity` / `09-soul` / `10-user-persona` /
-  // `11-channel-persona` / `12-voice` / `13-bootstrap`) inside
-  // `renderWorkspaceSections`, so they sit in the static prefix in
-  // that order.
+  // Everything pushed before `dynamicStart` lands in the static
+  // (cached) prefix; everything after lands in the dynamic suffix.
+  // The two halves are joined around `SYSTEM_PROMPT_CACHE_BOUNDARY`
+  // so the Anthropic provider can key its prompt cache on the prefix.
   const systemParts: string[] = [...renderWorkspaceSections(ctx)];
   const dynamicStart = systemParts.length;
 

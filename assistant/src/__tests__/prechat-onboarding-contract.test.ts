@@ -82,16 +82,11 @@ const { buildSystemPrompt, SYSTEM_PROMPT_CACHE_BOUNDARY } =
   await import("../prompts/system-prompt.js");
 
 /**
- * Extract the `13-bootstrap` section from the assembled prompt — the
- * `# First-Run Ritual` header through whatever follows in the static
- * prefix.  Returns "" when the section isn't rendered (no BOOTSTRAP.md,
- * `excludeBootstrap: true`, etc.).
- *
- * Prior to the BOOTSTRAP-as-section refactor this helper was named
- * `dynamicBlock` and sliced everything after `SYSTEM_PROMPT_CACHE_BOUNDARY`;
- * `13-bootstrap` now renders inside the static prefix via
- * `renderWorkspaceSections`, so we slice from the ritual marker instead
- * to keep the assertions scoped to the bootstrap+onboarding payload.
+ * Slice the assembled system prompt from the `# First-Run Ritual`
+ * marker through the cache boundary (or end of string), returning just
+ * the `13-bootstrap` section's rendered payload.  Returns "" when the
+ * section isn't rendered (no BOOTSTRAP.md, `excludeBootstrap: true`,
+ * etc.).
  */
 function bootstrapBlock(result: string): string {
   const ritualIdx = result.indexOf("# First-Run Ritual");
