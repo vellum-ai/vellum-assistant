@@ -1,5 +1,5 @@
 /**
- * Chat debug API — installable under `window._vellumDebug.events`.
+ * Events surface exposed under `window._vellumDebug.events`.
  *
  * Provides live introspection of SSE stream state: active clients, abort
  * signals, and a rolling buffer of the last 1 000 parsed events.
@@ -9,9 +9,10 @@
  *   window._vellumDebug.events.getClients()
  *   window._vellumDebug.events.getEvents()
  *
- * This module is safe to import anywhere; it does **not** install itself on
- * `window` until {@link installVellumDebugApi} is called (typically once,
- * from the app root).
+ * The accessors here read directly from the module-state registry in
+ * `stream-debug.ts`. Installation onto `window` is performed by
+ * `installVellumDebugApi` in `utils/debug-api.ts`, alongside the chat
+ * namespace, so both halves of the debug API mount/unmount together.
  */
 
 import type {
@@ -23,10 +24,6 @@ import {
   getSseEvents,
 } from "@/domains/chat/api/stream-debug.js";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 export interface ChatDebugEventsApi {
   /** Snapshot of currently-live SSE clients. */
   getClients: () => SseDebugClient[];
@@ -34,39 +31,11 @@ export interface ChatDebugEventsApi {
   getEvents: () => SseDebugEventEntry[];
 }
 
-export interface VellumDebugApi {
-  events: ChatDebugEventsApi;
-}
-
-declare global {
-  interface Window {
-    _vellumDebug?: VellumDebugApi;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Installation
-// ---------------------------------------------------------------------------
-
 /**
- * Idempotently installs `window._vellumDebug.events`.
- *
- * Safe to call multiple times (e.g. from React's strict-mode double-mount).
+ * Singleton events surface. Stable identity across the app's lifetime
+ * so the consolidated installer can identity-check on teardown.
  */
-export function installVellumDebugApi(): void {
-  if (typeof window === "undefined") return;
-
-  const existing = window._vellumDebug;
-  if (existing?.events) {
-    // Already installed — don't overwrite, so we don't lose refs.
-    return;
-  }
-
-  window._vellumDebug = {
-    ...existing,
-    events: {
-      getClients: getSseClients,
-      getEvents: getSseEvents,
-    },
-  };
-}
+export const eventsDebugApi: ChatDebugEventsApi = {
+  getClients: getSseClients,
+  getEvents: getSseEvents,
+};

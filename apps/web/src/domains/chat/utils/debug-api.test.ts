@@ -17,7 +17,7 @@ import type {
 } from "@/domains/chat/utils/debug-api.js";
 import {
   createChatDebugApi,
-  installChatDebugApi,
+  installVellumDebugApi,
 } from "@/domains/chat/utils/debug-api.js";
 import {
   INITIAL_TURN_STATE,
@@ -603,41 +603,67 @@ describe("createChatDebugApi.listPendingInteractions", () => {
 });
 
 // ---------------------------------------------------------------------------
-//  installChatDebugApi
+//  installVellumDebugApi
 // ---------------------------------------------------------------------------
 
-describe("installChatDebugApi", () => {
-  test("attaches to window._vellumDebug.chat", () => {
+type DebugWindow = Window & {
+  _vellumDebug?: {
+    chat?: unknown;
+    events?: { getClients: unknown; getEvents: unknown };
+    other?: unknown;
+  };
+};
+
+describe("installVellumDebugApi", () => {
+  test("attaches both .events and .chat in one call", () => {
     const api = createChatDebugApi(makeRefs());
-    const uninstall = installChatDebugApi(api);
-    expect(
-      (globalThis as unknown as Window & { _vellumDebug?: { chat?: unknown } })
-        ._vellumDebug?.chat,
-    ).toBe(api);
+    const uninstall = installVellumDebugApi(api);
+    const root = (globalThis as unknown as DebugWindow)._vellumDebug;
+    expect(root?.chat).toBe(api);
+    expect(root?.events).toBeDefined();
+    expect(typeof root?.events?.getClients).toBe("function");
+    expect(typeof root?.events?.getEvents).toBe("function");
     uninstall();
   });
 
-  test("removes on uninstall", () => {
+  test("removes both .events and .chat on uninstall", () => {
     const api = createChatDebugApi(makeRefs());
-    const uninstall = installChatDebugApi(api);
+    const uninstall = installVellumDebugApi(api);
     uninstall();
-    expect(
-      (globalThis as unknown as Window & { _vellumDebug?: { chat?: unknown } })
-        ._vellumDebug?.chat,
-    ).toBeUndefined();
+    const root = (globalThis as unknown as DebugWindow)._vellumDebug;
+    // Root should be gone entirely since nothing else was attached.
+    expect(root).toBeUndefined();
   });
 
   test("preserves sibling debug namespaces when uninstalling", () => {
-    const win = globalThis as {
-      window: { _vellumDebug?: { chat?: unknown; other?: unknown } };
-    };
+    const win = globalThis as unknown as { window: DebugWindow };
     win.window._vellumDebug = { other: "keep" };
 
     const api = createChatDebugApi(makeRefs());
-    const uninstall = installChatDebugApi(api);
+    const uninstall = installVellumDebugApi(api);
     uninstall();
     expect(win.window._vellumDebug?.chat).toBeUndefined();
-    expect(win.window._vellumDebug?.other).toBeDefined();
+    expect(win.window._vellumDebug?.events).toBeUndefined();
+    expect(win.window._vellumDebug?.other).toBe("keep");
+
+    // Cleanup so we don't leak state into other tests.
+    delete win.window._vellumDebug;
+  });
+
+  test("identity-checks chat on teardown so a newer mount isn't clobbered", () => {
+    const first = createChatDebugApi(makeRefs());
+    const uninstallFirst = installVellumDebugApi(first);
+
+    const second = createChatDebugApi(makeRefs());
+    installVellumDebugApi(second);
+
+    // First mount's teardown runs after second mount installed —
+    // simulates strict-mode double-mount or hot-reload races.
+    uninstallFirst();
+
+    const root = (globalThis as unknown as DebugWindow)._vellumDebug;
+    expect(root?.chat).toBe(second);
+    expect(root?.events).toBeDefined();
   });
 });
 
