@@ -20,6 +20,10 @@ import {
 } from "../../channels/types.js";
 import { isHttpAuthDisabled } from "../../config/env.js";
 import { getConfig } from "../../config/loader.js";
+import {
+  mergeConsecutiveAssistantMessages,
+  mergeToolResultsIntoAssistantMessages,
+} from "../../conversations/message-consolidation.js";
 import { createApprovalConversationGenerator } from "../../daemon/approval-generators.js";
 import type { Conversation } from "../../daemon/conversation.js";
 import {
@@ -86,10 +90,6 @@ import {
   getOrCreateConversation,
 } from "../../memory/conversation-key-store.js";
 import { searchConversations } from "../../memory/conversation-queries.js";
-import {
-  mergeConsecutiveAssistantMessages,
-  mergeToolResultsIntoAssistantMessages,
-} from "../../memory/message-consolidation.js";
 import { recordOnboardingEvent } from "../../memory/onboarding-events-store.js";
 import { buildSlackMessageDeepLinks } from "../../messaging/providers/slack/deep-link.js";
 import {

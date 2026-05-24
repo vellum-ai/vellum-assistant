@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type { MessageRow } from "../conversation-crud.js";
+import type { MessageRow } from "../../memory/conversation-crud.js";
 import {
   findDisplayTurnEndIndex,
   isToolResultOnlyUserMessage,

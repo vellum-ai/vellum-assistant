@@ -31,8 +31,8 @@
  * agree on cluster boundaries without duplicating the merge code.
  */
 
+import type { MessageRow } from "../memory/conversation-crud.js";
 import { getLogger } from "../util/logger.js";
-import type { MessageRow } from "./conversation-crud.js";
 
 const log = getLogger("message-consolidation");
 
