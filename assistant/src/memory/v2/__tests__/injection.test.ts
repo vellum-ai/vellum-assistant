@@ -607,7 +607,7 @@ describe("injectMemoryV2Block", () => {
     expect(persisted!.messageId).toBe("msg-1");
   });
 
-  test("second turn with overlapping topNow returns null block + empty toInject", async () => {
+  test("second turn re-renders the still-relevant slug; toInject empty (already first-seen)", async () => {
     // Turn 1 — seed alice as injected.
     stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
     await injectMemoryV2Block({
@@ -622,8 +622,10 @@ describe("injectMemoryV2Block", () => {
       config: makeConfig(),
     });
 
-    // Turn 2 — the same slug is still top-of-mind. After subtracting
-    // everInjected, toInject is empty → block is null.
+    // Turn 2 — the same slug is still top-of-mind. We render the full top-K
+    // every turn (history is stripped, so nothing persists to dedup against),
+    // so alice is re-rendered into the block. `toInject` stays empty because
+    // she was already first-seen on turn 1.
     stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
     const result = await injectMemoryV2Block({
       database: db,
@@ -641,7 +643,8 @@ describe("injectMemoryV2Block", () => {
     });
 
     expect(result.toInject).toEqual([]);
-    expect(result.block).toBeNull();
+    expect(result.block).not.toBeNull();
+    expect(result.block).toContain("# memory/concepts/alice-vscode.md");
 
     // State still advanced (currentTurn moved forward) and the existing
     // everInjected entry is preserved (no duplicate added).
@@ -653,7 +656,7 @@ describe("injectMemoryV2Block", () => {
     expect(persisted!.messageId).toBe("msg-2");
   });
 
-  test("new topic appears → only the new slug attaches", async () => {
+  test("new topic appears → block re-renders the full top-K; toInject reports only the new slug", async () => {
     // Turn 1 — seed alice.
     stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
     await injectMemoryV2Block({
@@ -669,8 +672,9 @@ describe("injectMemoryV2Block", () => {
     });
 
     // Turn 2 — carol is now in the candidate pool with high relevance.
-    // Both alice (carry-forward) and carol should appear in topNow, but only
-    // carol should be in toInject (alice was already attached on turn 1).
+    // Both alice (carry-forward) and carol appear in topNow and are rendered
+    // into the block (full top-K each turn). `toInject` reports only carol,
+    // since alice was already first-seen on turn 1.
     stageTurn([
       { slug: "alice-vscode", denseScore: 0.6 },
       { slug: "carol-jazz", denseScore: 0.95 },
@@ -691,10 +695,10 @@ describe("injectMemoryV2Block", () => {
     });
 
     expect(result.toInject).toEqual(["carol-jazz"]);
+    // The block re-renders the full current top-K — both carol AND alice —
+    // because history is stripped and nothing persists on prior turns.
     expect(result.block).toContain("# memory/concepts/carol-jazz.md");
-    // The block only shows the new slug — alice's attachment lives on the
-    // previous turn's user message.
-    expect(result.block).not.toContain("# memory/concepts/alice-vscode.md");
+    expect(result.block).toContain("# memory/concepts/alice-vscode.md");
 
     const persisted = await hydrate(db, "conv-1");
     expect(persisted!.everInjected).toEqual([
@@ -1038,7 +1042,7 @@ describe("injectMemoryV2Block", () => {
     );
   });
 
-  test("skills participate in everInjected — an attached skill is not re-attached on the next turn", async () => {
+  test("skills are first-seen once in everInjected but re-rendered every turn", async () => {
     // Turn 1: skill ranks high, gets attached.
     const skillEntry = {
       id: "example-skill-a",
@@ -1059,9 +1063,10 @@ describe("injectMemoryV2Block", () => {
     expect(result1.toInject).toEqual(["skills/example-skill-a"]);
     expect(result1.block).toContain("### Skills You Can Use");
 
-    // Turn 2: same skill ranks top again. It is already in `everInjected`, so
-    // `toInject` is empty and the block is null — the attachment from turn 1
-    // remains visible to the agent via the cached prior user message.
+    // Turn 2: same skill ranks top again. It is re-rendered into the block
+    // (full top-K every turn — history is stripped, so the turn-1 attachment
+    // no longer persists). `toInject` is empty because it was first-seen on
+    // turn 1.
     stageTurn([{ slug: "skills/example-skill-a", denseScore: 0.9 }]);
     stageSkills([skillEntry]);
     const result2 = await injectMemoryV2Block({
@@ -1076,7 +1081,8 @@ describe("injectMemoryV2Block", () => {
       config: makeConfig(),
     });
     expect(result2.toInject).toEqual([]);
-    expect(result2.block).toBeNull();
+    expect(result2.block).not.toBeNull();
+    expect(result2.block).toContain("### Skills You Can Use");
 
     const persisted = await hydrate(db, "conv-1");
     expect(persisted!.everInjected).toEqual([
@@ -1237,7 +1243,7 @@ describe("injectMemoryV2Block", () => {
     expect(persisted!.everInjected).toEqual([]);
   });
 
-  test("cli-commands participate in everInjected so they dedupe across turns", async () => {
+  test("cli-commands are first-seen once in everInjected but re-rendered every turn", async () => {
     const entry = {
       id: "config",
       description: "Manage configuration",
@@ -1268,8 +1274,10 @@ describe("injectMemoryV2Block", () => {
       messageId: "msg-2",
       config: makeConfig(),
     });
+    // Re-rendered into the block every turn; toInject empty (first-seen turn 1).
     expect(result2.toInject).toEqual([]);
-    expect(result2.block).toBeNull();
+    expect(result2.block).not.toBeNull();
+    expect(result2.block).toContain("### CLI Commands You Can Use");
 
     const persisted = await hydrate(db, "conv-1");
     expect(persisted!.everInjected).toEqual([
@@ -1372,7 +1380,7 @@ describe("injectMemoryV2Block", () => {
   // ---------------------------------------------------------------------------
 
   test("writes one activation-log row per turn with concept rows partitioned and sorted", async () => {
-    // Turn 1: seed alice as injected so turn 2 has an `in_context` candidate.
+    // Turn 1: seed alice so turn 2 has a carried-forward candidate.
     stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
     await injectMemoryV2Block({
       database: db,
@@ -1387,9 +1395,10 @@ describe("injectMemoryV2Block", () => {
     });
     expect(telemetryState.recordCalls.length).toBe(1);
 
-    // Turn 2: alice carries forward (now `in_context`); carol is freshly
-    // surfaced (`injected`); bob would be a candidate only if it carried
-    // forward, but with no prior bob entry it doesn't appear here.
+    // Turn 2: alice carries forward and carol is freshly surfaced; both are
+    // rendered into the block (full top-K every turn) so both read `injected`.
+    // bob would be a candidate only if it carried forward, but with no prior
+    // bob entry it doesn't appear here.
     stageTurn([
       { slug: "alice-vscode", denseScore: 0.6 },
       { slug: "carol-jazz", denseScore: 0.95 },
@@ -1436,9 +1445,9 @@ describe("injectMemoryV2Block", () => {
     }
 
     const byslug = new Map(row.concepts.map((c) => [c.slug, c]));
-    // Alice was attached on turn 1 → status `in_context` on turn 2.
-    expect(byslug.get("alice-vscode")!.status).toBe("in_context");
-    // Carol is freshly injected on turn 2.
+    // Both are rendered into the block on turn 2 (full top-K every turn), so
+    // both read `injected` — there is no `in_context` state anymore.
+    expect(byslug.get("alice-vscode")!.status).toBe("injected");
     expect(byslug.get("carol-jazz")!.status).toBe("injected");
   });
 
@@ -2049,7 +2058,7 @@ describe("injectMemoryV2Block", () => {
       expect(phantom!.source).toBe("tier3:0");
     });
 
-    test("flag-on: router re-picking a prior-everInjected slug does NOT re-render it; non-overlapping picks render and append to everInjected", async () => {
+    test("flag-on: router re-picking a prior-everInjected slug re-renders it; everInjected gains only first-seen slugs", async () => {
       // Turn 1: router picks alice. Standard append.
       routerState.nextResult = {
         selectedSlugs: ["alice-vscode"],
@@ -2069,9 +2078,9 @@ describe("injectMemoryV2Block", () => {
       expect(turn1.toInject).toEqual(["alice-vscode"]);
 
       // Turn 2: router re-picks alice (the "re-anchor" prompt branch) AND
-      // adds bob. The block must NOT contain alice's body — her cached
-      // attachment from turn 1 is still on the prior user message — but
-      // must contain bob's.
+      // adds bob. Both are rendered into the block — history is stripped every
+      // turn, so there is no prior attachment to collide with. `toInject`
+      // reports only bob (alice was already first-seen on turn 1).
       telemetryState.recordCalls.length = 0;
       routerState.nextResult = {
         selectedSlugs: ["alice-vscode", "bob-coffee"],
@@ -2089,15 +2098,15 @@ describe("injectMemoryV2Block", () => {
         config: makeConfig({ router: { enabled: true } }),
       });
 
-      // Re-picked alice was deduped; only bob is freshly injected.
+      // Re-picked alice is re-rendered; bob is freshly injected.
       expect(turn2.toInject).toEqual(["bob-coffee"]);
       expect(turn2.block).not.toBeNull();
       expect(turn2.block).toContain("# memory/concepts/bob-coffee.md");
       expect(turn2.block).toContain("Bob takes his coffee");
-      expect(turn2.block).not.toContain("VS Code");
-      expect(turn2.block).not.toContain("# memory/concepts/alice-vscode.md");
+      expect(turn2.block).toContain("# memory/concepts/alice-vscode.md");
+      expect(turn2.block).toContain("VS Code");
 
-      // everInjected only gained bob — alice was already there.
+      // everInjected only gained bob — alice was already there (first-seen ledger).
       const persisted = await hydrate(db, "conv-router-dedup");
       expect(persisted!.everInjected).toEqual([
         { slug: "alice-vscode", turn: 1 },
@@ -2150,7 +2159,10 @@ describe("injectMemoryV2Block", () => {
       expect(aliceRow).toBeDefined();
       expect(bobRow).toBeDefined();
       expect(aliceRow!.source).toBe("carry_over");
-      expect(aliceRow!.status).toBe("in_context");
+      // The router did not re-pick alice this turn, so she is not rendered —
+      // `not_injected`. (History is stripped, so an un-re-picked slug genuinely
+      // drops from context; there is no `in_context` carry-over anymore.)
+      expect(aliceRow!.status).toBe("not_injected");
       expect(bobRow!.source).toBe("tier3:0");
       expect(bobRow!.status).toBe("injected");
     });
