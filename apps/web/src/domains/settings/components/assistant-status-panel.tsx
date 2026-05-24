@@ -170,6 +170,7 @@ export function AssistantStatusPanel({
       <DevModeVersionUnlock
         version={version ?? null}
         loading={healthzLoading && !assistant.current_release_version}
+        assistantId={assistant.id ?? null}
       />
     </div>
   );

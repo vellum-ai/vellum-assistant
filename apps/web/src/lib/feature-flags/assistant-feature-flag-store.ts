@@ -5,20 +5,6 @@ import { client } from "@/generated/api/client.gen.js";
 import { ASSISTANT_FLAG_DEFAULTS, storeKeyToLdKey } from "@/lib/feature-flags/feature-flag-catalog.js";
 
 /**
- * Tiny dedicated store for "which assistant do flag overrides belong to".
- *
- * Lives outside `useAssistantFeatureFlagStore` so it can be subscribed
- * to from `useAssistantFeatureFlagPolling` (currently only mounted on
- * the Developer → Feature Flags panel) without forcing the polling
- * hook to also rerender on every flag-value change. `setAssistantIdForFlags`
- * is the one mutator and is called by `useAssistantFeatureFlagIdTracker`
- * on `RootLayout`.
- */
-const useFlagAssistantIdStore = create<{ id: string | null }>(() => ({
-  id: null,
-}));
-
-/**
  * Internal store fields that are NOT feature flag values. Surfaces that
  * enumerate flags (e.g. the feature flags settings panel) iterate over
  * `ALL_FLAGS` from the registry rather than the store's own keys, so
@@ -37,7 +23,14 @@ interface AssistantFeatureFlagMeta {
 
 interface AssistantFeatureFlagActions {
   setFlags: (flags: Record<string, boolean>) => void;
-  setFlag: (key: string, value: boolean) => void;
+  /**
+   * Apply an override and PATCH the server. `assistantId` is passed in
+   * by the caller (e.g. the Developer panel or the dev-mode unlock
+   * gesture) rather than read from a module-level cache, so this store
+   * doesn't need its own copy of the active assistant — that lives in
+   * the assistant lifecycle on `RootLayout`.
+   */
+  setFlag: (key: string, value: boolean, assistantId: string | null) => void;
   /** Marks the store as having received real /feature-flags data. */
   markHydrated: () => void;
   /** Called on assistant switch: resets to defaults + clears hasHydrated. */
@@ -62,11 +55,10 @@ const useAssistantFeatureFlagStoreBase = create<AssistantFeatureFlagStore>()(
           return changed ? flags : prev;
         }),
 
-      setFlag: (key: string, value: boolean) => {
+      setFlag: (key: string, value: boolean, assistantId: string | null) => {
         set({ [key]: value });
 
         const ldKey = storeKeyToLdKey(key);
-        const assistantId = useFlagAssistantIdStore.getState().id;
         if (assistantId && ldKey) {
           void client.patch({
             url: `/v1/assistants/${assistantId}/feature-flags/${ldKey}`,
@@ -86,17 +78,3 @@ const useAssistantFeatureFlagStoreBase = create<AssistantFeatureFlagStore>()(
 export const useAssistantFeatureFlagStore = createSelectors(
   useAssistantFeatureFlagStoreBase,
 );
-
-export function setAssistantIdForFlags(id: string | null) {
-  if (useFlagAssistantIdStore.getState().id === id) return;
-  useFlagAssistantIdStore.setState({ id });
-}
-
-/**
- * React hook that returns the assistant whose flag values the override
- * panel writes to. Subscribed to a tiny dedicated zustand store so the
- * polling hook stays decoupled from flag-value rerenders.
- */
-export function useCurrentFlagAssistantId(): string | null {
-  return useFlagAssistantIdStore((s) => s.id);
-}

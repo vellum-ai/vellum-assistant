@@ -9,11 +9,19 @@ const MESSAGE_DURATION_MS = 2000;
 export interface DevModeVersionUnlockProps {
   version: string | null;
   loading: boolean;
+  /**
+   * Active assistant id for PATCH'ing the `settingsDeveloperNav`
+   * override server-side. `null` when the parent panel hasn't resolved
+   * the active assistant yet — toggle is still functional client-side,
+   * the server PATCH is just skipped.
+   */
+  assistantId: string | null;
 }
 
 export function DevModeVersionUnlock({
   version,
   loading,
+  assistantId,
 }: DevModeVersionUnlockProps) {
   const tapCountRef = useRef(0);
   const dismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -25,7 +33,7 @@ export function DevModeVersionUnlock({
       tapCountRef.current = 0;
       const store = useAssistantFeatureFlagStore.getState();
       const nowEnabled = !store.settingsDeveloperNav;
-      store.setFlag("settingsDeveloperNav", nowEnabled);
+      store.setFlag("settingsDeveloperNav", nowEnabled, assistantId);
       setMessage(
         nowEnabled ? "Developer mode enabled" : "Developer mode disabled",
       );
@@ -37,7 +45,7 @@ export function DevModeVersionUnlock({
         dismissTimerRef.current = null;
       }, MESSAGE_DURATION_MS);
     }
-  }, []);
+  }, [assistantId]);
 
   useEffect(
     () => () => {

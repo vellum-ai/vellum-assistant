@@ -3,11 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { client } from "@/generated/api/client.gen.js";
 import { assertHasResponse } from "@/lib/api-errors.js";
-import {
-  setAssistantIdForFlags,
-  useAssistantFeatureFlagStore,
-  useCurrentFlagAssistantId,
-} from "@/lib/feature-flags/assistant-feature-flag-store.js";
+import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
 import {
   ASSISTANT_FLAG_DEFAULTS,
   ldKeyToStoreKey,
@@ -26,6 +22,12 @@ interface AssistantFlagValuesResponse {
 }
 
 const VALID_KEYS = new Set(Object.keys(ASSISTANT_FLAG_DEFAULTS));
+
+const ASSISTANT_FLAG_VALUES_QUERY_KEY = "assistant-feature-flag-values" as const;
+
+function flagValuesQueryKey(assistantId: string | null) {
+  return [ASSISTANT_FLAG_VALUES_QUERY_KEY, assistantId] as const;
+}
 
 function mapFlags(
   entries: FeatureFlagEntry[],
@@ -65,21 +67,25 @@ async function fetchAssistantFlagValues(
 }
 
 /**
- * Lightweight, app-wide effect that:
+ * App-root sync hook: fetches `/v1/assistants/:id/feature-flags` once
+ * per assistant, applies it to the store, marks `hasHydrated`, and
+ * resets the store on assistant switch.
  *
- *   1. Pushes the current assistantId into the assistant-feature-flag
- *      store so {@link useAssistantFeatureFlagStore} `setFlag` overrides
- *      can PATCH the correct assistant.
- *   2. Resets the store to registry defaults whenever the active
- *      assistant switches, so flag values from the previous assistant
- *      don't leak across the boundary.
+ * Mounted on `RootLayout`. No `refetchInterval` — the rest of the app
+ * reads from the store hydrated from registry defaults + localStorage
+ * overrides + this one server response. Live updates while the
+ * Developer panel is open are layered on by
+ * {@link useAssistantFeatureFlagPolling} using the same query key.
  *
- * Mount this on the app root. Polling the actual flag values is a
- * separate concern and lives in {@link useAssistantFeatureFlagPolling}
- * (currently mounted only on the Developer → Feature Flags panel to
- * keep network noise off chat-bound SSE debugging).
+ * Pre-cleanup behaviour was a 5s poll from this exact location, which
+ * showed up as one of the dominant request types in the network log
+ * and made SSE debugging noisy on every authenticated route. Dropping
+ * `refetchInterval` here is the perf win; preserving `markHydrated()`
+ * on first response is what keeps `PluginsPage` / `IntelligenceLayout`
+ * gating correct.
  */
-export function useAssistantFeatureFlagIdTracker(assistantId: string | null) {
+export function useAssistantFeatureFlagSync(assistantId: string | null) {
+  const enabled = assistantId !== null;
   const prevAssistantId = useRef(assistantId);
 
   useEffect(() => {
@@ -90,33 +96,13 @@ export function useAssistantFeatureFlagIdTracker(assistantId: string | null) {
       useAssistantFeatureFlagStore.getState().resetForAssistantSwitch();
       prevAssistantId.current = assistantId;
     }
-    setAssistantIdForFlags(assistantId);
   }, [assistantId]);
-}
-
-/**
- * Polls `/v1/assistants/{id}/feature-flags` and pushes results into the
- * assistant feature flag store. Mount this only when the Developer tab
- * surfaces live flag values; the rest of the app reads the store
- * populated from registry defaults + localStorage overrides without
- * needing a live server signal.
- *
- * Reads the active assistantId from the same source the id-tracker
- * writes to, so a caller doesn't need to thread it through outlet
- * context. Pair with {@link useAssistantFeatureFlagIdTracker} on the
- * app root so assistant switches still reset the store and overrides
- * know which assistant they belong to.
- */
-export function useAssistantFeatureFlagPolling() {
-  const assistantId = useCurrentFlagAssistantId();
-  const enabled = assistantId !== null;
 
   const { data } = useQuery({
-    queryKey: ["assistant-feature-flag-values", assistantId] as const,
+    queryKey: flagValuesQueryKey(assistantId),
     queryFn: () => fetchAssistantFlagValues(assistantId!),
     enabled,
     staleTime: 5_000,
-    refetchInterval: 5_000,
     retry: 1,
   });
 
@@ -130,4 +116,30 @@ export function useAssistantFeatureFlagPolling() {
       store.markHydrated();
     }
   }, [data]);
+}
+
+/**
+ * Developer-panel-only "live refresh" observer. Same query key as
+ * {@link useAssistantFeatureFlagSync}, just adds a 5s
+ * `refetchInterval` while mounted. TanStack Query dedupes the fetch,
+ * so refetches only happen while the panel is open — and the sync
+ * hook on `RootLayout` is what writes the refetched values back to
+ * the store.
+ *
+ * Caller supplies `assistantId` directly (e.g. from
+ * `assistantsActiveRetrieveOptions()`); the panel sits below
+ * `SettingsLayout` which doesn't propagate the root outlet context,
+ * so a parameter is simpler than adding a parallel tracker.
+ */
+export function useAssistantFeatureFlagPolling(assistantId: string | null) {
+  const enabled = assistantId !== null;
+
+  useQuery({
+    queryKey: flagValuesQueryKey(assistantId),
+    queryFn: () => fetchAssistantFlagValues(assistantId!),
+    enabled,
+    staleTime: 5_000,
+    refetchInterval: 5_000,
+    retry: 1,
+  });
 }

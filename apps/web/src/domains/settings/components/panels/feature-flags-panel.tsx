@@ -1,9 +1,11 @@
+import { useQuery } from "@tanstack/react-query";
 import { Search } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { Tag, type TagTone } from "@vellum/design-library/components/tag";
 import { Toggle } from "@vellum/design-library/components/toggle";
 import { SettingsCard } from "@/domains/settings/components/settings-card.js";
+import { assistantsActiveRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen.js";
 import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
 import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
 import { useAssistantFeatureFlagPolling } from "@/lib/feature-flags/use-assistant-feature-flag-sync.js";
@@ -30,11 +32,18 @@ interface FlagDisplayEntry {
 }
 
 export function FeatureFlagsPanel() {
-  // Mount the assistant flag poller only on this panel so the rest of
-  // the app doesn't churn through `/v1/assistants/:id/feature-flags`
-  // every 5s — readers across chat/contacts/settings rely on the store
-  // hydrated from registry defaults + localStorage overrides.
-  useAssistantFeatureFlagPolling();
+  // Same TanStack Query the rest of /settings/* (lifecycle panel,
+  // billing, onboarding) uses for the active assistant. Cheap, cached
+  // app-wide, and avoids carrying a parallel "current assistant for
+  // flags" copy via the root outlet context.
+  const { data: activeAssistant } = useQuery(assistantsActiveRetrieveOptions());
+  const assistantId = activeAssistant?.id ?? null;
+
+  // Live-poll `/v1/assistants/:id/feature-flags` only while this panel
+  // is open. Same query key as the root-level
+  // `useAssistantFeatureFlagSync`, so TanStack Query dedupes — the
+  // root hook is what writes refetched values back into the store.
+  useAssistantFeatureFlagPolling(assistantId);
 
   const [searchText, setSearchText] = useState("");
   const clientState = useClientFeatureFlagStore();
@@ -109,7 +118,11 @@ export function FeatureFlagsPanel() {
         {filteredFlags.length > 0 && (
           <div className="max-h-[500px] space-y-2 overflow-y-auto">
             {filteredFlags.map((flag) => (
-              <FeatureFlagRow key={flag.storeKey} flag={flag} />
+              <FeatureFlagRow
+                key={flag.storeKey}
+                flag={flag}
+                assistantId={assistantId}
+              />
             ))}
           </div>
         )}
@@ -120,6 +133,12 @@ export function FeatureFlagsPanel() {
 
 interface FeatureFlagRowProps {
   flag: FlagDisplayEntry;
+  /**
+   * Active assistant id for PATCH'ing assistant-scoped overrides.
+   * `null` while the active-assistant query is still in-flight; toggle
+   * is still functional client-side, the server PATCH is just skipped.
+   */
+  assistantId: string | null;
 }
 
 function ScopeChips({ scope }: { scope: FlagScope }) {
@@ -134,7 +153,7 @@ function ScopeChips({ scope }: { scope: FlagScope }) {
   return <Tag tone={SCOPE_TONE[scope]}>{scope}</Tag>;
 }
 
-function FeatureFlagRow({ flag }: FeatureFlagRowProps) {
+function FeatureFlagRow({ flag, assistantId }: FeatureFlagRowProps) {
   const clientSetFlag = useClientFeatureFlagStore.use.setFlag();
   const assistantSetFlag = useAssistantFeatureFlagStore.use.setFlag();
 
@@ -143,7 +162,7 @@ function FeatureFlagRow({ flag }: FeatureFlagRowProps) {
       clientSetFlag(flag.storeKey, next);
     }
     if (scopeIncludes(flag.scope, "assistant")) {
-      assistantSetFlag(flag.storeKey, next);
+      assistantSetFlag(flag.storeKey, next, assistantId);
     }
   };
 
