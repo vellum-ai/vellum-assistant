@@ -426,10 +426,12 @@ Examples:
       const parentOpts = browser.opts() as {
         session?: string;
         json?: boolean;
+        targetClientId?: string;
       };
       const sessionId = parentOpts.session ?? "default";
       const jsonMode = parentOpts.json ?? false;
       const conversationId = resolveContextConversationId();
+      const targetClientId = parentOpts.targetClientId;
 
       const ipcResult = await cliIpcCall<{
         ok: boolean;
@@ -448,6 +450,7 @@ Examples:
             command: "list",
             sessionId,
             ...(conversationId ? { conversationId } : {}),
+            ...(targetClientId ? { targetClientId } : {}),
           },
         },
         { timeoutMs: 30_000 },
@@ -497,10 +500,12 @@ Examples:
       const parentOpts = browser.opts() as {
         session?: string;
         json?: boolean;
+        targetClientId?: string;
       };
       const sessionId = parentOpts.session ?? "default";
       const jsonMode = parentOpts.json ?? false;
       const conversationId = resolveContextConversationId();
+      const targetClientId = parentOpts.targetClientId;
 
       const ipcResult = await cliIpcCall<{ ok: boolean; tab?: unknown }>(
         "browser_tabs",
@@ -510,6 +515,7 @@ Examples:
             sessionId,
             tabId: opts.tabId,
             ...(conversationId ? { conversationId } : {}),
+            ...(targetClientId ? { targetClientId } : {}),
           },
         },
         { timeoutMs: 30_000 },
@@ -544,10 +550,12 @@ Examples:
       const parentOpts = browser.opts() as {
         session?: string;
         json?: boolean;
+        targetClientId?: string;
       };
       const sessionId = parentOpts.session ?? "default";
       const jsonMode = parentOpts.json ?? false;
       const conversationId = resolveContextConversationId();
+      const targetClientId = parentOpts.targetClientId;
 
       const ipcResult = await cliIpcCall<{
         ok: boolean;
@@ -561,6 +569,7 @@ Examples:
             sessionId,
             ...(opts.url ? { url: opts.url } : {}),
             ...(conversationId ? { conversationId } : {}),
+            ...(targetClientId ? { targetClientId } : {}),
           },
         },
         { timeoutMs: 30_000 },
@@ -601,10 +610,12 @@ Examples:
       const parentOpts = browser.opts() as {
         session?: string;
         json?: boolean;
+        targetClientId?: string;
       };
       const sessionId = parentOpts.session ?? "default";
       const jsonMode = parentOpts.json ?? false;
       const conversationId = resolveContextConversationId();
+      const targetClientId = parentOpts.targetClientId;
 
       const ipcResult = await cliIpcCall<{
         ok: boolean;
@@ -618,6 +629,7 @@ Examples:
             sessionId,
             tabId: opts.tabId,
             ...(conversationId ? { conversationId } : {}),
+            ...(targetClientId ? { targetClientId } : {}),
           },
         },
         { timeoutMs: 30_000 },

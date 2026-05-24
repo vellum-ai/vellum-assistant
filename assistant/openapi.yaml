@@ -2866,6 +2866,9 @@ paths:
                   type: number
                 url:
                   type: string
+                targetClientId:
+                  type: string
+                  minLength: 1
               required:
                 - command
               additionalProperties: false

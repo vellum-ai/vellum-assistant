@@ -24,10 +24,13 @@ const BrowserTabsParams = z.object({
   conversationId: z.string().min(1).optional(),
   tabId: z.number().optional(),
   url: z.string().optional(),
+  // Route tab operations to a specific extension client in multi-client
+  // setups. Mirrors browser/execute's `target_client_id` semantics.
+  targetClientId: z.string().min(1).optional(),
 });
 
 async function handleBrowserTabs({ body = {} }: RouteHandlerArgs) {
-  const { command, sessionId, conversationId, tabId, url } =
+  const { command, sessionId, conversationId, tabId, url, targetClientId } =
     BrowserTabsParams.parse(body);
 
   const conversation = conversationId
@@ -44,8 +47,10 @@ async function handleBrowserTabs({ body = {} }: RouteHandlerArgs) {
     transportInterface: conversation?.transportInterface,
   } as unknown as ToolContext;
 
+  const cdpOptions = { mode: "extension" as const, targetClientId };
+
   if (command === "list") {
-    const cdp = getCdpClient(context, { mode: "extension" });
+    const cdp = getCdpClient(context, cdpOptions);
     try {
       const tabs = await cdp.listTabs();
       return { ok: true, tabs };
@@ -58,7 +63,7 @@ async function handleBrowserTabs({ body = {} }: RouteHandlerArgs) {
     if (tabId === undefined) {
       throw new BadRequestError("tabId is required for the select command");
     }
-    const cdp = getCdpClient(context, { mode: "extension" });
+    const cdp = getCdpClient(context, cdpOptions);
     try {
       const result = await cdp.selectTab(tabId);
       const clientId =
@@ -79,7 +84,7 @@ async function handleBrowserTabs({ body = {} }: RouteHandlerArgs) {
   }
 
   if (command === "new") {
-    const cdp = getCdpClient(context, { mode: "extension" });
+    const cdp = getCdpClient(context, cdpOptions);
     try {
       const result = await cdp.send<{ tabId?: number | string; clientId?: string }>(
         "Vellum.createTab",
@@ -109,8 +114,14 @@ async function handleBrowserTabs({ body = {} }: RouteHandlerArgs) {
         if (url) {
           await cdp.send("Page.navigate", { url });
         }
-      } else {
-        clearPinnedTab(resolvedConversationId);
+      } else if (targetClientId) {
+        // Only scope-clear the targeted client's pin. With the per-(conversationId,
+        // clientId) pin store (#31361), passing no clientId to clearPinnedTab
+        // would wipe pins for *every* connected client on this conversation
+        // and break their routing — so we skip the clear entirely when the
+        // caller didn't explicitly target a client. The stale pin (if any)
+        // is overwritten on the next successful tab operation.
+        clearPinnedTab(resolvedConversationId, targetClientId);
       }
       return { ok: true, tabId: newTabIdNum, clientId };
     } finally {
@@ -122,7 +133,7 @@ async function handleBrowserTabs({ body = {} }: RouteHandlerArgs) {
     if (tabId === undefined) {
       throw new BadRequestError("tabId is required for the close command");
     }
-    const cdp = getCdpClient(context, { mode: "extension" });
+    const cdp = getCdpClient(context, cdpOptions);
     try {
       const result = await cdp.closeTab(tabId);
       return { ok: true, ...result };
