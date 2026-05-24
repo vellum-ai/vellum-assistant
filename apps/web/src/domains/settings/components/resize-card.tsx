@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { Button } from "@vellum/design-library/components/button";
+import { Checkbox } from "@vellum/design-library/components/checkbox";
 import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { Modal } from "@vellum/design-library/components/modal";
 import { Notice } from "@vellum/design-library/components/notice";
@@ -77,7 +78,7 @@ export function ResizeCard({
   const [selectedSize, setSelectedSize] = useState<MachineSizeEnum | null>(
     null,
   );
-  const [storageModalOpen, setStorageModalOpen] = useState(false);
+  const [expandStorage, setExpandStorage] = useState(false);
   const [upgradeModalOpen, setUpgradeModalOpen] = useState<"storage" | "machine" | null>(null);
 
   const resizeMutation = useMutation({
@@ -87,8 +88,8 @@ export function ResizeCard({
         id: "assistant-resize",
       });
       setSelectedSize(null);
+      setExpandStorage(false);
       setResizeModalOpen(false);
-      setStorageModalOpen(false);
       void refetch();
     },
     onError: (error) => {
@@ -162,14 +163,14 @@ export function ResizeCard({
       <button
         type="button"
         disabled={isLoading}
-        onClick={() => setStorageModalOpen(true)}
+        onClick={() => { setExpandStorage(true); setResizeModalOpen(true); }}
         className="flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/15 px-3 py-1.5 text-body-small-default font-medium text-amber-400 transition-colors hover:bg-amber-500/25 disabled:opacity-50"
       >
         <Sparkles className="h-3.5 w-3.5" />
         Increase Storage
       </button>
     ) : (
-      <Button variant="ghost" size="compact" disabled={isLoading} onClick={() => setStorageModalOpen(true)}>
+      <Button variant="ghost" size="compact" disabled={isLoading} onClick={() => setResizeModalOpen(true)}>
         Resize
       </Button>
     )
@@ -348,38 +349,53 @@ export function ResizeCard({
         </Modal.Content>
       </Modal.Root>
 
-      {/* Resize machine modal (pro plan) */}
+      {/* Resize modal (pro plan) — machine + storage in one */}
       <Modal.Root
         open={resizeModalOpen}
         onOpenChange={(o) => {
           if (!o) {
             setResizeModalOpen(false);
             setSelectedSize(null);
+            setExpandStorage(false);
           }
         }}
       >
         <Modal.Content size="sm">
           <Modal.Header>
-            <Modal.Title>Resize Machine</Modal.Title>
+            <Modal.Title>Resize Assistant</Modal.Title>
             <Modal.Description>
-              Larger machine sizes are already included in your plan. Select a
-              size to resize to — your assistant will briefly restart.
+              Adjust your assistant's compute resources. Changes are included
+              in your plan — your assistant will briefly restart.
             </Modal.Description>
           </Modal.Header>
           <Modal.Body>
-            {allowedSizes.length === 0 ? (
-              <Notice tone="warning">
-                No machine tier configured. Contact support.
-              </Notice>
-            ) : (
-              <Dropdown
-                options={machineSizeOptions}
-                value={selectedSize ?? currentSize}
-                onChange={setSelectedSize}
-                aria-label="Compute machine size"
-                data-testid="resize-machine-size"
-              />
-            )}
+            <div className="flex flex-col gap-4">
+              {allowedSizes.length === 0 ? (
+                <Notice tone="warning">
+                  No machine tier configured. Contact support.
+                </Notice>
+              ) : (
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-label-medium-default text-[var(--content-secondary)]">
+                    Machine Size
+                  </span>
+                  <Dropdown
+                    options={machineSizeOptions}
+                    value={selectedSize ?? currentSize}
+                    onChange={setSelectedSize}
+                    aria-label="Compute machine size"
+                    data-testid="resize-machine-size"
+                  />
+                </div>
+              )}
+              {canGrowStorage && (
+                <Checkbox
+                  checked={expandStorage}
+                  onCheckedChange={(v) => setExpandStorage(v === true)}
+                  label={`Expand storage to ${availableGib} GiB (currently ${currentGib} GiB)`}
+                />
+              )}
+            </div>
           </Modal.Body>
           <Modal.Footer>
             <Button
@@ -387,62 +403,28 @@ export function ResizeCard({
               onClick={() => {
                 setResizeModalOpen(false);
                 setSelectedSize(null);
+                setExpandStorage(false);
               }}
             >
               Cancel
             </Button>
             <Button
-              disabled={effectiveSelectedSize == null || isLoading}
+              disabled={(effectiveSelectedSize == null && !expandStorage) || isLoading}
               leftIcon={
                 isLoading ? <Loader2 className="animate-spin" /> : undefined
               }
               onClick={() => {
-                if (effectiveSelectedSize == null) return;
+                const body: { machine_size?: MachineSizeEnum; storage_gib?: number } = {};
+                if (effectiveSelectedSize != null) {
+                  body.machine_size = effectiveSelectedSize;
+                }
+                if (expandStorage && availableGib != null) {
+                  body.storage_gib = availableGib;
+                }
                 resizeMutation.mutate({
                   path: { id: assistant.id },
-                  body: { machine_size: effectiveSelectedSize },
+                  body,
                 });
-              }}
-            >
-              Apply
-            </Button>
-          </Modal.Footer>
-        </Modal.Content>
-      </Modal.Root>
-
-      {/* Resize storage modal (pro plan) */}
-      <Modal.Root
-        open={storageModalOpen}
-        onOpenChange={(o) => { if (!o) setStorageModalOpen(false); }}
-      >
-        <Modal.Content size="sm">
-          <Modal.Header>
-            <Modal.Title>Resize Storage</Modal.Title>
-            <Modal.Description>
-              Your plan includes up to {availableGib} GiB of storage.
-              This will expand your disk from {currentGib ?? "?"} GiB
-              to {availableGib} GiB — your assistant will briefly restart.
-            </Modal.Description>
-          </Modal.Header>
-          <Modal.Footer>
-            <Button
-              variant="ghost"
-              onClick={() => setStorageModalOpen(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              disabled={isLoading}
-              leftIcon={
-                isLoading ? <Loader2 className="animate-spin" /> : undefined
-              }
-              onClick={() => {
-                if (availableGib == null) return;
-                resizeMutation.mutate({
-                  path: { id: assistant.id },
-                  body: { storage_gib: availableGib },
-                });
-                setStorageModalOpen(false);
               }}
             >
               Apply
