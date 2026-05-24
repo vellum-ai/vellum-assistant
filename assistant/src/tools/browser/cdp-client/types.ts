@@ -190,8 +190,14 @@ export interface ScopedCdpClient extends CdpClient {
 
   /**
    * Close a browser tab by ID. Throws if backend doesn't support it.
+   * The optional `clientId` identifies which extension client actually
+   * closed the tab — used to scope pin cleanup in multi-client setups.
    */
-  closeTab(tabId: number): Promise<{ closed: boolean; tabId: number }>;
+  closeTab(tabId: number): Promise<{
+    closed: boolean;
+    tabId: number;
+    clientId?: string;
+  }>;
 }
 
 /**
