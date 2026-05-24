@@ -6,7 +6,7 @@ import {
   Info,
   Loader2,
 } from "lucide-react";
-import { useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import {
   type ReactNode,
   useCallback,
@@ -864,6 +864,7 @@ interface EmailServiceCardProps {
 function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceCardProps) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const emailRootDomain = useEnvironmentStore.use.emailRootDomain();
   const [mode, setMode] = useState<ServiceMode>(
     () => getLocalSetting(LS_EMAIL_MODE, "managed") as ServiceMode,
@@ -936,6 +937,16 @@ function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceCardProp
     enabled: !!assistantId && !!address?.id && mode === "managed",
     refetchOnWindowFocus: false,
   });
+
+  useEffect(() => {
+    if (searchParams.get("release") !== "1" || !domain || address) return;
+    setReleaseConfirmOpen(true);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete("release");
+      return next;
+    }, { replace: true });
+  }, [address, domain, searchParams, setSearchParams]);
 
   // -- Mutations -------------------------------------------------------------
   const registerDomain = useMutation(assistantsDomainsCreateMutation());

@@ -531,13 +531,15 @@ function AssistantHandleSection({
           data-testid="assistant-handle-input"
         />
         <p className="text-body-small-default text-[var(--content-tertiary)]">
-          Cannot change handle while a registered subdomain matches it.{" "}
+          Your handle is locked because it's used as your email subdomain.
+          To change it,{" "}
           <Link
-            to={`${routes.settings.ai}#email`}
+            to={`${routes.settings.ai}?release=1#email`}
             className="text-[var(--content-link)] underline hover:text-[var(--content-link-hover)]"
           >
-            View subdomain settings
-          </Link>
+            release the subdomain
+          </Link>{" "}
+          first.
         </p>
       </div>
     );
