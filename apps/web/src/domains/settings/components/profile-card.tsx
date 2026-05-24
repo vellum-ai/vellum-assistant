@@ -310,7 +310,7 @@ function HandleEditor<T>({
   })();
 
   return (
-    <div className="flex items-start gap-2">
+    <div className="flex flex-col gap-4">
       <Input
         label={inputLabel}
         value={value}
@@ -338,7 +338,7 @@ function HandleEditor<T>({
         fullWidth
         data-testid={`${fieldId}-input`}
       />
-      <div className="mt-[26px]">
+      <div className="flex justify-end">
         <Button
           variant="primary"
           size="compact"
@@ -611,7 +611,7 @@ export function ProfileCard({
   }, []);
 
   return (
-    <SettingsCard title="Profile" subtitle="Manage your user and assistant handles.">
+    <SettingsCard title="Profile" subtitle="Manage your user and assistant public handles.">
       {error ? (
         <p className="text-body-small-default text-[var(--system-negative-strong)]">
           {error}
