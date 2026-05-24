@@ -1906,7 +1906,7 @@ describe('createHostBrowserDispatcher', () => {
 
       const payload = JSON.parse(harness.results[0].content);
       expect(Array.isArray(payload.tabs)).toBe(true);
-      expect(payload.tabs).toHaveLength(2);
+      expect(payload.tabs.length).toBe(2);
       expect(payload.tabs[0].tabId).toBe(1);
       expect(payload.tabs[0].url).toBe('https://example.com');
       expect(payload.tabs[0].active).toBe(true);
@@ -2156,6 +2156,171 @@ describe('createHostBrowserDispatcher', () => {
       await harness.dispatcher.handle(request);
 
       expect(harness.resolveTargetCalls.length).toBe(0);
+    });
+  });
+
+  // ── P1 cancel-race regression: getClientId() await window ─────────
+  //
+  // The cancel guard was checked BEFORE deps.getClientId() but NOT AGAIN
+  // after it resolved. A cancel arriving while getClientId() was in flight
+  // could still emit a ghost success envelope. These tests assert both the
+  // throw-path (cancel wins) and the success-path (no cancel → envelope).
+
+  describe('cancel-race regression — getClientId() window (Codex P1)', () => {
+    const mockTab = {
+      id: 42,
+      windowId: 10,
+      url: 'https://example.com',
+      title: 'Example',
+      active: true,
+      pinned: false,
+    };
+
+    /**
+     * Build a dispatcher with a controllable getClientId dep without going
+     * through createHarness, so we can wire a getClientId that blocks on a
+     * gate until the test releases it.
+     */
+    function makeDispatcherWithGetClientId(
+      getClientIdImpl: () => Promise<string>,
+    ): { dispatcher: HostBrowserDispatcher; results: HostBrowserResultEnvelope[] } {
+      const proxy = createMockCdpProxy();
+      const results: HostBrowserResultEnvelope[] = [];
+      const dispatcher = createHostBrowserDispatcher({
+        cdpProxy: proxy,
+        resolveTarget: async () => ({ tabId: 42 }),
+        postResult: async (r) => {
+          results.push(r);
+        },
+        forwardCdpEvent: () => {},
+        forwardSessionInvalidated: () => {},
+        createTab: async () => ({ tabId: 99 }),
+        getClientId: getClientIdImpl,
+      });
+      return { dispatcher, results };
+    }
+
+    beforeEach(() => {
+      (globalThis as unknown as { chrome: unknown }).chrome = {
+        ...(globalThis as unknown as { chrome: Record<string, unknown> }).chrome,
+        tabs: {
+          query: async () => [mockTab],
+          update: async (_tabId: number, _props: unknown) => mockTab,
+          remove: async (_tabId: number) => undefined,
+        },
+      };
+    });
+
+    test('Vellum.createTab — cancel during getClientId() does not post success envelope', async () => {
+      let getClientIdCalls = 0;
+      let releaseGetClientId: () => void = () => {};
+      const gate = new Promise<void>((r) => {
+        releaseGetClientId = r;
+      });
+
+      const { dispatcher, results } = makeDispatcherWithGetClientId(async () => {
+        getClientIdCalls++;
+        await gate;
+        return 'clientA';
+      });
+
+      const request: HostBrowserRequestEnvelope = {
+        type: 'host_browser_request',
+        requestId: 'createTab-getid-cancel',
+        conversationId: 'conv-1',
+        cdpMethod: 'Vellum.createTab',
+      };
+
+      const handlePromise = dispatcher.handle(request);
+      // Wait until getClientId has started so the cancel lands in the gap.
+      await waitFor(() => getClientIdCalls === 1);
+
+      dispatcher.cancel({
+        type: 'host_browser_cancel',
+        requestId: 'createTab-getid-cancel',
+      });
+      releaseGetClientId();
+      await handlePromise;
+
+      // Critical: no ghost success envelope must be posted.
+      expect(results.length).toBe(0);
+    });
+
+    test('Vellum.createTab — no cancel: getClientId() completes and success envelope is posted', async () => {
+      const { dispatcher, results } = makeDispatcherWithGetClientId(
+        async () => 'clientB',
+      );
+
+      const request: HostBrowserRequestEnvelope = {
+        type: 'host_browser_request',
+        requestId: 'createTab-getid-success',
+        conversationId: 'conv-1',
+        cdpMethod: 'Vellum.createTab',
+      };
+
+      await dispatcher.handle(request);
+
+      expect(results.length).toBe(1);
+      expect(results[0].isError).toBe(false);
+      const payload = JSON.parse(results[0].content);
+      expect(payload.tabId).toBe('99');
+      expect(payload.clientId).toBe('clientB');
+    });
+
+    test('Vellum.selectTab — cancel during getClientId() does not post success envelope', async () => {
+      let getClientIdCalls = 0;
+      let releaseGetClientId: () => void = () => {};
+      const gate = new Promise<void>((r) => {
+        releaseGetClientId = r;
+      });
+
+      const { dispatcher, results } = makeDispatcherWithGetClientId(async () => {
+        getClientIdCalls++;
+        await gate;
+        return 'clientA';
+      });
+
+      const request: HostBrowserRequestEnvelope = {
+        type: 'host_browser_request',
+        requestId: 'selectTab-getid-cancel',
+        conversationId: 'conv-1',
+        cdpMethod: 'Vellum.selectTab',
+        cdpParams: { tabId: 42 },
+      };
+
+      const handlePromise = dispatcher.handle(request);
+      await waitFor(() => getClientIdCalls === 1);
+
+      dispatcher.cancel({
+        type: 'host_browser_cancel',
+        requestId: 'selectTab-getid-cancel',
+      });
+      releaseGetClientId();
+      await handlePromise;
+
+      expect(results.length).toBe(0);
+    });
+
+    test('Vellum.selectTab — no cancel: getClientId() completes and success envelope is posted', async () => {
+      const { dispatcher, results } = makeDispatcherWithGetClientId(
+        async () => 'clientB',
+      );
+
+      const request: HostBrowserRequestEnvelope = {
+        type: 'host_browser_request',
+        requestId: 'selectTab-getid-success',
+        conversationId: 'conv-1',
+        cdpMethod: 'Vellum.selectTab',
+        cdpParams: { tabId: 42 },
+      };
+
+      await dispatcher.handle(request);
+
+      expect(results.length).toBe(1);
+      expect(results[0].isError).toBe(false);
+      const payload = JSON.parse(results[0].content);
+      expect(payload.tabId).toBe(42);
+      expect(payload.clientId).toBe('clientB');
     });
   });
 });

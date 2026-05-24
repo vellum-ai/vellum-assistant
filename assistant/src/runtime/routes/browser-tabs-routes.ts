@@ -14,9 +14,9 @@ import {
   setPinnedTab,
 } from "../../tools/browser/pinned-tabs.js";
 import type { ToolContext } from "../../tools/types.js";
-import { BadRequestError, ServiceUnavailableError } from "./errors.js";
-import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 import { browserCliConversationKey } from "./browser-routes.js";
+import { BadRequestError } from "./errors.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const BrowserTabsParams = z.object({
   command: z.enum(["list", "select", "new", "close"]),
@@ -85,26 +85,34 @@ async function handleBrowserTabs({ body = {} }: RouteHandlerArgs) {
         "Vellum.createTab",
         {},
       );
-      const newTabId =
+      // Normalise to string for internal use (setCdpSessionId / setPinnedTab)
+      // and keep the numeric form for the API response.
+      const newTabIdStr: string | undefined =
         typeof result?.tabId === "number"
           ? String(result.tabId)
           : typeof result?.tabId === "string"
             ? result.tabId
             : undefined;
+      const newTabIdNum: number | undefined =
+        typeof result?.tabId === "number"
+          ? result.tabId
+          : typeof result?.tabId === "string"
+            ? parseInt(result.tabId, 10)
+            : undefined;
       const clientId =
         typeof result?.clientId === "string" && result.clientId.length > 0
           ? result.clientId
           : undefined;
-      if (newTabId) {
-        cdp.setCdpSessionId?.(newTabId);
-        setPinnedTab(resolvedConversationId, newTabId, clientId);
+      if (newTabIdStr) {
+        cdp.setCdpSessionId?.(newTabIdStr);
+        setPinnedTab(resolvedConversationId, newTabIdStr, clientId);
         if (url) {
           await cdp.send("Page.navigate", { url });
         }
       } else {
         clearPinnedTab(resolvedConversationId);
       }
-      return { ok: true, tabId: newTabId, clientId };
+      return { ok: true, tabId: newTabIdNum, clientId };
     } finally {
       cdp.dispose();
     }
@@ -152,7 +160,7 @@ export const ROUTES: RouteDefinition[] = [
         )
         .optional(),
       tab: z.unknown().optional(),
-      tabId: z.string().optional(),
+      tabId: z.number().optional(),
       clientId: z.string().optional(),
       closed: z.boolean().optional(),
     }),

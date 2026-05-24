@@ -381,6 +381,9 @@ export function createHostBrowserDispatcher(
           const clientId = deps.getClientId
             ? await deps.getClientId()
             : undefined;
+          // Re-check after getClientId() — a cancel that arrived while it was
+          // in flight must not produce a ghost success envelope.
+          if (abort.signal.aborted || cancelledRequestIds.has(requestId)) return;
           await deps.postResult({
             requestId,
             content: JSON.stringify({
@@ -485,6 +488,9 @@ export function createHostBrowserDispatcher(
           const updatedTab = await chrome.tabs.update(tabId, { active: true });
           if (abort.signal.aborted || cancelledRequestIds.has(requestId)) return;
           const clientId = deps.getClientId ? await deps.getClientId() : undefined;
+          // Re-check after getClientId() — a cancel that arrived while it was
+          // in flight must not produce a ghost success envelope.
+          if (abort.signal.aborted || cancelledRequestIds.has(requestId)) return;
           await deps.postResult({
             requestId,
             content: JSON.stringify({
