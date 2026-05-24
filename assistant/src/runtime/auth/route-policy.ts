@@ -946,6 +946,11 @@ registerPolicy("domain/status", {
   allowedPrincipalTypes: ["local"],
 });
 
+registerPolicy("domain/verification-status", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
 // Email management (IPC-local)
 registerPolicy("email/register", {
   requiredScopes: ["settings.write"],
