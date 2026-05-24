@@ -863,7 +863,7 @@ const EMAIL_BYO_PROVIDERS: readonly EmailByoProvider[] = [
 
 function DomainVerificationChip({
   status,
-  message,
+  message: _message,
   isLoading,
 }: {
   status: string | undefined;
