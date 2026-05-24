@@ -437,9 +437,15 @@ function classifyCore(
           errorCategory: "image_dimensions_too_large",
         };
       }
+      // Extract the provider detail after "API error (NNN): " prefix
+      const detailMatch = message.match(/API error \(\d+\):\s*(.+)/i);
+      const detail = detailMatch?.[1];
+      const suffix = detail
+        ? `: ${detail.length > 200 ? detail.slice(0, 200) + "…" : detail}`
+        : "";
       return {
         code: "PROVIDER_API",
-        userMessage: `The AI provider rejected the request (HTTP ${error.statusCode}).`,
+        userMessage: `The AI provider rejected the request (HTTP ${error.statusCode})${suffix}`,
         retryable: true,
         errorCategory: "provider_api_error",
       };
