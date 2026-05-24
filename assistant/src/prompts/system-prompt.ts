@@ -21,7 +21,6 @@ import {
 } from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";
 import { cleanupBootstrapFiles } from "./bootstrap-cleanup.js";
-import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "./cache-boundary.js";
 import {
   resolveGuardianPersona,
   resolveUserSlug,
@@ -30,8 +29,6 @@ import { renderWorkspaceSections } from "./sections.js";
 import { isTemplateContent } from "./template-detection.js";
 
 export { isTemplateContent };
-
-export { SYSTEM_PROMPT_CACHE_BOUNDARY };
 
 /**
  * Maps onboarding cohort identifiers to their cohort-specific bootstrap
@@ -277,9 +274,8 @@ export interface BuildSystemPromptOptions {
 
 /**
  * Build the system prompt by rendering `BUNDLED_SYSTEM_SECTIONS` (with
- * workspace overrides per section) and appending the
- * `SYSTEM_PROMPT_CACHE_BOUNDARY` marker.  Per-section behaviour lives
- * in `system-sections.ts`; the renderer in `sections.ts` handles
+ * workspace overrides per section).  Per-section behaviour lives in
+ * `system-sections.ts`; the renderer in `sections.ts` handles
  * frontmatter `enabled:` predicates, `{{variable}}` interpolation,
  * file-backed bodies, and runtime-computed transforms.
  */
@@ -318,17 +314,13 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
     channelSlug,
   };
 
-  // Every system-prompt block now flows through the bundled section
+  // Every system-prompt block flows through the bundled section
   // pipeline — including runtime-computed entries like
   // `14-connected-services` whose body is derived from live OAuth
-  // caches.  The trailing `SYSTEM_PROMPT_CACHE_BOUNDARY` marks the
-  // stable-instruction cache breakpoint for the Anthropic provider;
-  // with no dynamic content following, every provider treats the
-  // prompt as a single cached block (Anthropic filters the empty
-  // dynamic half before constructing system blocks).
-  return (
-    renderWorkspaceSections(ctx).join("\n\n") + SYSTEM_PROMPT_CACHE_BOUNDARY
-  );
+  // caches.  The whole prompt is treated as a single cached block by
+  // the Anthropic provider; per-provider details live in each
+  // provider's client.
+  return renderWorkspaceSections(ctx).join("\n\n");
 }
 
 // Re-export from shared util so existing importers don't break.

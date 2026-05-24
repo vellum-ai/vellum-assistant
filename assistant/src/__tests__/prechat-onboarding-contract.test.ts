@@ -78,23 +78,19 @@ mock.module("../prompts/persona-resolver.js", () => ({
   resolveGuardianPersona: () => mockPersona.guardianPersona,
 }));
 
-const { buildSystemPrompt, SYSTEM_PROMPT_CACHE_BOUNDARY } =
-  await import("../prompts/system-prompt.js");
+const { buildSystemPrompt } = await import("../prompts/system-prompt.js");
 
 /**
  * Slice the assembled system prompt from the `# First-Run Ritual`
- * marker through the cache boundary (or end of string), returning just
- * the `13-bootstrap` section's rendered payload.  Returns "" when the
+ * marker through the end of the prompt, returning just the
+ * `13-bootstrap` section's rendered payload.  Returns "" when the
  * section isn't rendered (no BOOTSTRAP.md, `excludeBootstrap: true`,
  * etc.).
  */
 function bootstrapBlock(result: string): string {
   const ritualIdx = result.indexOf("# First-Run Ritual");
   if (ritualIdx < 0) return "";
-  const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY, ritualIdx);
-  return boundaryIdx >= 0
-    ? result.slice(ritualIdx, boundaryIdx)
-    : result.slice(ritualIdx);
+  return result.slice(ritualIdx);
 }
 
 describe("pre-chat onboarding contract", () => {

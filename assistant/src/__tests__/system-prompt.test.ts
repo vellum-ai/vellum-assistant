@@ -90,47 +90,8 @@ mock.module("../prompts/persona-resolver.js", () => ({
 }));
 
 // Import after mock
-const {
-  buildSystemPrompt,
-  ensurePromptFiles,
-  stripCommentLines,
-  SYSTEM_PROMPT_CACHE_BOUNDARY,
-} = await import("../prompts/system-prompt.js");
-
-/**
- * Returns the prompt content that lives after the
- * `SYSTEM_PROMPT_CACHE_BOUNDARY` marker, with any remaining vestigial
- * headings stripped.  Every bundled section — including the
- * runtime-computed `14-connected-services` block — renders into the
- * static prefix before the boundary, so this slice is now always
- * empty in the standard test path; tests use it to assert that no
- * dynamic-suffix content has leaked in.
- *
- * Sections in the static prefix (SOUL, IDENTITY, persona, BOOTSTRAP,
- * Connected Services, …) are asserted against the full prompt string
- * directly rather than through this helper.
- */
-function basePrompt(result: string): string {
-  const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
-  let s =
-    boundaryIdx >= 0
-      ? result.slice(boundaryIdx + SYSTEM_PROMPT_CACHE_BOUNDARY.length)
-      : result;
-  for (const heading of [
-    "## Configuration",
-    "## Skills Catalog",
-    "## External Communications Identity",
-    "## Dynamic Skill Authoring Workflow",
-  ]) {
-    if (s.startsWith(heading)) {
-      s = "";
-      break;
-    }
-    const idx = s.indexOf(`\n\n${heading}`);
-    if (idx !== -1) s = s.slice(0, idx);
-  }
-  return s;
-}
+const { buildSystemPrompt, ensurePromptFiles, stripCommentLines } =
+  await import("../prompts/system-prompt.js");
 
 describe("buildSystemPrompt", () => {
   beforeEach(() => {
@@ -161,19 +122,11 @@ describe("buildSystemPrompt", () => {
     }
   });
 
-  test("returns empty string when no files exist", () => {
-    const result = buildSystemPrompt();
-    expect(basePrompt(result)).toBe("");
-  });
-
   test("uses SOUL.md when it exists", () => {
     writeFileSync(join(TEST_DIR, "SOUL.md"), "# My Soul\n\nBe awesome.");
     const result = buildSystemPrompt();
-    // SOUL.md renders as the `09-soul` workspace-backed section in the
-    // static (cached) prefix before SYSTEM_PROMPT_CACHE_BOUNDARY.
-    const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
-    expect(boundaryIdx).toBeGreaterThan(-1);
-    expect(result.slice(0, boundaryIdx)).toContain("# My Soul\n\nBe awesome.");
+    // SOUL.md renders as the `09-soul` workspace-backed section.
+    expect(result).toContain("# My Soul\n\nBe awesome.");
   });
 
   test("uses IDENTITY.md when it exists", () => {
@@ -182,42 +135,40 @@ describe("buildSystemPrompt", () => {
       "# My Identity\n\nI am Vellum.",
     );
     const result = buildSystemPrompt();
-    // IDENTITY.md renders as the `08-identity` workspace-backed section
-    // in the static (cached) prefix before SYSTEM_PROMPT_CACHE_BOUNDARY.
-    const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
-    expect(boundaryIdx).toBeGreaterThan(-1);
-    expect(result.slice(0, boundaryIdx)).toContain(
-      "# My Identity\n\nI am Vellum.",
-    );
+    // IDENTITY.md renders as the `08-identity` workspace-backed section.
+    expect(result).toContain("# My Identity\n\nI am Vellum.");
   });
 
   test("composes IDENTITY.md + SOUL.md when both exist", () => {
     writeFileSync(join(TEST_DIR, "IDENTITY.md"), "# Identity\n\nI am Vellum.");
     writeFileSync(join(TEST_DIR, "SOUL.md"), "# Soul\n\nBe thoughtful.");
     const result = buildSystemPrompt();
-    // Both render in the static (cached) prefix, IDENTITY before SOUL
-    // (sections `08-identity` and `09-soul`).
-    const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
-    expect(boundaryIdx).toBeGreaterThan(-1);
-    const staticBlock = result.slice(0, boundaryIdx);
-    expect(staticBlock).toContain("# Identity\n\nI am Vellum.");
-    expect(staticBlock).toContain("# Soul\n\nBe thoughtful.");
-    const identityIdx = staticBlock.indexOf("# Identity\n\nI am Vellum.");
-    const soulIdx = staticBlock.indexOf("# Soul\n\nBe thoughtful.");
+    // IDENTITY renders before SOUL (sections `08-identity` then
+    // `09-soul`).
+    expect(result).toContain("# Identity\n\nI am Vellum.");
+    expect(result).toContain("# Soul\n\nBe thoughtful.");
+    const identityIdx = result.indexOf("# Identity\n\nI am Vellum.");
+    const soulIdx = result.indexOf("# Soul\n\nBe thoughtful.");
     expect(identityIdx).toBeLessThan(soulIdx);
-    expect(basePrompt(result)).toBe("");
   });
 
   test("ignores empty SOUL.md", () => {
     writeFileSync(join(TEST_DIR, "SOUL.md"), "   \n  \n  ");
+    writeFileSync(join(TEST_DIR, "IDENTITY.md"), "# Identity\n\nI am Vellum.");
     const result = buildSystemPrompt();
-    expect(basePrompt(result)).toBe("");
+    // IDENTITY renders but SOUL is gated off by the renderer's
+    // empty-body check; no SOUL content should appear.
+    expect(result).toContain("# Identity\n\nI am Vellum.");
+    expect(result).not.toContain("   \n  \n  ");
   });
 
   test("ignores empty IDENTITY.md", () => {
     writeFileSync(join(TEST_DIR, "IDENTITY.md"), "");
+    writeFileSync(join(TEST_DIR, "SOUL.md"), "# Soul\n\nBe thoughtful.");
     const result = buildSystemPrompt();
-    expect(basePrompt(result)).toBe("");
+    // SOUL renders but IDENTITY's empty file is gated off by the
+    // renderer's empty-body check.
+    expect(result).toContain("# Soul\n\nBe thoughtful.");
   });
 
   test("trims whitespace from file content", () => {
@@ -225,10 +176,8 @@ describe("buildSystemPrompt", () => {
     const result = buildSystemPrompt();
     // SOUL.md renders via the `09-soul` workspace-backed section;
     // stripCommentLines + trim run inside the section renderer.
-    const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
-    const staticBlock = result.slice(0, boundaryIdx);
-    expect(staticBlock).toContain("Be kind");
-    expect(staticBlock).not.toContain("\n  Be kind  \n");
+    expect(result).toContain("Be kind");
+    expect(result).not.toContain("\n  Be kind  \n");
   });
 
   test("does not include skills catalog in system prompt", () => {
@@ -301,9 +250,6 @@ describe("buildSystemPrompt", () => {
     writeFileSync(join(TEST_DIR, "IDENTITY.md"), "Identity");
     writeFileSync(join(TEST_DIR, "SOUL.md"), "Soul");
     const result = buildSystemPrompt();
-    // Both IDENTITY and SOUL render in the static (cached) prefix; the
-    // dynamic block sliced by basePrompt is empty here.
-    expect(basePrompt(result)).toBe("");
     expect(result).toContain("Identity");
     expect(result).toContain("Soul");
   });
@@ -319,7 +265,6 @@ describe("buildSystemPrompt", () => {
     const result = buildSystemPrompt();
     expect(result).not.toContain("stale user content");
     expect(result).toContain("Identity");
-    expect(basePrompt(result)).toBe("");
   });
 
   test("includes resolved user persona in the static prefix", () => {
@@ -335,10 +280,8 @@ describe("buildSystemPrompt", () => {
     writeFileSync(join(TEST_DIR, "IDENTITY.md"), "Identity");
     writeFileSync(join(TEST_DIR, "SOUL.md"), "Soul");
     const result = buildSystemPrompt();
-    // IDENTITY, SOUL, and the user persona all render in the static
-    // (cached) prefix as workspace-backed bundled sections; the dynamic
-    // block sliced by basePrompt is empty here.
-    expect(basePrompt(result)).toBe("");
+    // IDENTITY, SOUL, and the user persona all render as workspace-backed
+    // bundled sections in the assembled prompt.
     expect(result).toContain("Identity");
     expect(result).toContain("Soul");
     expect(result).toContain("# User persona");
@@ -383,9 +326,6 @@ describe("buildSystemPrompt", () => {
       "- Prefers lowercase. Replies tightly. Skips greetings.",
     );
     const result = buildSystemPrompt();
-    // Renders in the static (cached) prefix — basePrompt (dynamic
-    // block) stays empty.
-    expect(basePrompt(result)).toBe("");
     expect(result).toContain("# Voice Profile");
     expect(result).toContain("Prefers lowercase");
   });
@@ -609,8 +549,14 @@ describe("buildSystemPrompt", () => {
 
   test("file with only comment lines is treated as empty", () => {
     writeFileSync(join(TEST_DIR, "SOUL.md"), "_ All comments\n_ Nothing else");
+    writeFileSync(join(TEST_DIR, "IDENTITY.md"), "# Identity\n\nI am Vellum.");
     const result = buildSystemPrompt();
-    expect(basePrompt(result)).toBe("");
+    // Comment-only SOUL.md gets stripped down to "" by
+    // `stripCommentLines` and is then gated off by the renderer's
+    // empty-body check; only IDENTITY contributes content here.
+    expect(result).toContain("# Identity\n\nI am Vellum.");
+    expect(result).not.toContain("_ All comments");
+    expect(result).not.toContain("_ Nothing else");
   });
 
   describe("workspace system prompt sections", () => {
@@ -643,11 +589,7 @@ describe("buildSystemPrompt", () => {
       );
       const result = buildSystemPrompt();
       expect(result.startsWith("You are operating in demo mode.")).toBe(true);
-      // Prefix lives in the static (cached) block.
-      const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
-      expect(boundaryIdx).toBeGreaterThan(-1);
-      const staticBlock = result.slice(0, boundaryIdx);
-      expect(staticBlock).toContain("You are operating in demo mode.");
+      expect(result).toContain("You are operating in demo mode.");
     });
 
     test("workspace file without frontmatter is rendered as-is (always-on)", () => {
@@ -723,13 +665,10 @@ describe("buildSystemPrompt", () => {
       expect(result.startsWith("Custom prefix")).toBe(true);
       // IDENTITY.md renders via 08-identity in the static prefix after
       // the 00-prefix slot.
-      const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
-      const staticBlock = result.slice(0, boundaryIdx);
-      const prefixIdx = staticBlock.indexOf("Custom prefix");
-      const identityIdx = staticBlock.indexOf("I am Vellum.");
+      const prefixIdx = result.indexOf("Custom prefix");
+      const identityIdx = result.indexOf("I am Vellum.");
       expect(prefixIdx).toBeGreaterThan(-1);
       expect(identityIdx).toBeGreaterThan(prefixIdx);
-      expect(basePrompt(result)).toBe("");
     });
 
     test("parallel tool calls section is sourced from workspace when present", () => {
@@ -905,11 +844,7 @@ describe("buildSystemPrompt", () => {
         expect(result).toContain(
           "Run `assistant --help` to discover commands.",
         );
-        // Section lives in the static (cached) block.
-        const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
-        expect(boundaryIdx).toBeGreaterThan(-1);
-        const staticBlock = result.slice(0, boundaryIdx);
-        expect(staticBlock).toContain("## Assistant CLI");
+        expect(result).toContain("## Assistant CLI");
       });
 
       test("bundled cli-reference default renders when no workspace override", () => {
@@ -950,11 +885,7 @@ describe("buildSystemPrompt", () => {
         // The no-client body (em-dash separator after sandbox `bash`) must
         // not leak when the with-client variant is active.
         expect(result).not.toContain("install tools yourself; (2) browser");
-        // Section lives in the static (cached) block.
-        const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
-        expect(boundaryIdx).toBeGreaterThan(-1);
-        const staticBlock = result.slice(0, boundaryIdx);
-        expect(staticBlock).toContain("## External Service Access");
+        expect(result).toContain("## External Service Access");
       });
 
       test("hasNoClient=true renders the two-tier (no host_bash) priority list", () => {
@@ -1063,8 +994,7 @@ describe("buildSystemPrompt", () => {
 
       test("paired {{#flag}} + {{^flag}} acts as if/else", () => {
         // Use long unique markers — single letters collide with substrings
-        // in the rest of the system prompt (e.g. "B" lives inside
-        // SYSTEM_PROMPT_CACHE_BOUNDARY, "A" inside "API keys").
+        // in the rest of the system prompt (e.g. "A" inside "API keys").
         mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
         writeFileSync(
           SECTION_FILE,
@@ -1129,11 +1059,7 @@ describe("buildSystemPrompt", () => {
         const result = buildSystemPrompt();
         expect(result).toContain("## Sending Files to the User");
         expect(result).toContain("Use the `<vellum-attachment />` tag.");
-        // Section lives in the static (cached) block.
-        const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
-        expect(boundaryIdx).toBeGreaterThan(-1);
-        const staticBlock = result.slice(0, boundaryIdx);
-        expect(staticBlock).toContain("## Sending Files to the User");
+        expect(result).toContain("## Sending Files to the User");
       });
 
       test("renders after the cli-reference section to preserve original order", () => {
@@ -1179,11 +1105,7 @@ describe("buildSystemPrompt", () => {
         const result = buildSystemPrompt();
         expect(result).toContain("## Credential Security");
         expect(result).toContain("Workspace override marker BRAVO_TANGO_7.");
-        // Section lives in the static (cached) block.
-        const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
-        expect(boundaryIdx).toBeGreaterThan(-1);
-        const staticBlock = result.slice(0, boundaryIdx);
-        expect(staticBlock).toContain("## Credential Security");
+        expect(result).toContain("## Credential Security");
       });
 
       test("bundled credential-security default renders when no workspace override", () => {
@@ -1223,11 +1145,7 @@ describe("buildSystemPrompt", () => {
         const result = buildSystemPrompt();
         expect(result).toContain("## External Content");
         expect(result).toContain("Workspace override marker NEBULA_9X.");
-        // Section lives in the static (cached) block.
-        const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
-        expect(boundaryIdx).toBeGreaterThan(-1);
-        const staticBlock = result.slice(0, boundaryIdx);
-        expect(staticBlock).toContain("## External Content");
+        expect(result).toContain("## External Content");
       });
 
       test("bundled external-content default renders when no workspace override", () => {

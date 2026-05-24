@@ -54,8 +54,9 @@ mock.module("../../config/loader.js", () => ({
   setNestedValue: () => {},
 }));
 
-const { buildSystemPrompt, ensurePromptFiles, SYSTEM_PROMPT_CACHE_BOUNDARY } =
-  await import("../system-prompt.js");
+const { buildSystemPrompt, ensurePromptFiles } = await import(
+  "../system-prompt.js"
+);
 
 describe("task_progress hint in parallel-tool-calls section", () => {
   beforeEach(() => {
@@ -85,11 +86,4 @@ describe("task_progress hint in parallel-tool-calls section", () => {
     expect(withExcludePrefix).toContain("task_progress");
   });
 
-  test("hint lives in the static (cached) block before SYSTEM_PROMPT_CACHE_BOUNDARY", () => {
-    const result = buildSystemPrompt();
-    const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
-    expect(boundaryIdx).toBeGreaterThan(-1);
-    const staticBlock = result.slice(0, boundaryIdx);
-    expect(staticBlock).toContain("task_progress");
-  });
 });

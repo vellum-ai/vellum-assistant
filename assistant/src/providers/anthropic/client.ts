@@ -1,6 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
 
-import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/system-prompt.js";
 import { isAbortReason } from "../../util/abort-reasons.js";
 import { ProviderError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
@@ -1072,38 +1071,17 @@ export class AnthropicProvider implements Provider {
       };
 
       if (systemPrompt) {
-        const boundaryIdx = systemPrompt.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
-        if (boundaryIdx >= 0) {
-          // Split into two cache blocks: static instructions (stable across
-          // turns) and dynamic workspace content (changes when files are
-          // edited).  The static prefix stays cached even when workspace
-          // files change, saving ~8-10K tokens of cache creation per turn.
-          // Both blocks use 1-hour cache TTL to avoid repeated cache misses
-          // for conversations with turn gaps exceeding the default 5-minute
-          // window.
-          const staticBlock = systemPrompt.slice(0, boundaryIdx);
-          const dynamicBlock = systemPrompt.slice(
-            boundaryIdx + SYSTEM_PROMPT_CACHE_BOUNDARY.length,
-          );
-          const systemBlocks = [staticBlock, dynamicBlock]
-            .filter((text) => text.length > 0)
-            .map((text) => ({
-              type: "text" as const,
-              text,
-              cache_control: cacheControl,
-            }));
-          if (systemBlocks.length > 0) {
-            params.system = systemBlocks;
-          }
-        } else {
-          params.system = [
-            {
-              type: "text" as const,
-              text: systemPrompt,
-              cache_control: cacheControl,
-            },
-          ];
-        }
+        // The whole system prompt is rendered as a single cached
+        // block.  A 1-hour cache TTL is used (when supported by the
+        // model) so the breakpoint survives turn gaps that exceed the
+        // default 5-minute window.
+        params.system = [
+          {
+            type: "text" as const,
+            text: systemPrompt,
+            cache_control: cacheControl,
+          },
+        ];
       }
 
       if (tools && tools.length > 0) {
@@ -1181,9 +1159,8 @@ export class AnthropicProvider implements Provider {
       // cache_creation tokens per new turn). Skipped during tool-use loops
       // where the current turn-start already covers the same prefix and a
       // second anchor would blow the 4-breakpoint budget.
-      let prevTurnAnchorIdx = -1;
       if (turnStartIdx === msgs.length - 1 && turnStartIdx > 0) {
-        prevTurnAnchorIdx = findUserTextMsgIdx(turnStartIdx - 1);
+        const prevTurnAnchorIdx = findUserTextMsgIdx(turnStartIdx - 1);
         if (prevTurnAnchorIdx >= 0)
           applyCacheControlToLastBlock(prevTurnAnchorIdx);
       }
@@ -1194,7 +1171,6 @@ export class AnthropicProvider implements Provider {
       // cheaply without conflicting with the 1h breakpoints above.
       // Skip thinking/redacted_thinking blocks — Anthropic doesn't allow
       // cache_control on those types.
-      let tailBreakpointApplied = false;
       if (turnStartIdx >= 0 && turnStartIdx < sentMessages.length - 1) {
         const lastMsg = sentMessages[sentMessages.length - 1];
         if (Array.isArray(lastMsg.content) && lastMsg.content.length > 0) {
@@ -1216,34 +1192,15 @@ export class AnthropicProvider implements Provider {
           if (tailBlock && typeof tailBlock !== "string") {
             (tailBlock as unknown as Record<string, unknown>).cache_control =
               tailCacheControl;
-            tailBreakpointApplied = true;
           }
         }
       }
 
-      // Enforce Anthropic API maximum of 4 cache_control blocks.
-      // With the system prompt boundary split into 2 cached blocks AND
-      // tools + turn-start + (tail OR prev-turn-anchor), we'd have 5.
-      // Drop the static system block's breakpoint — it's small (<1K
-      // tokens) so the re-read cost is negligible, while the dynamic
-      // block (workspace context) rarely changes mid-session and
-      // benefits more from caching. Tail and prev-turn-anchor are
-      // mutually exclusive (prev-turn-anchor only fires when turn-start
-      // is the last message, which is the exact condition that suppresses
-      // the tail), so we never exceed 5.
-      const hasToolCacheBreakpoint =
-        params.tools?.some(
-          (t) => "cache_control" in t && t.cache_control != null,
-        ) ?? false;
-      if (
-        (tailBreakpointApplied || prevTurnAnchorIdx >= 0) &&
-        Array.isArray(params.system) &&
-        params.system.length === 2 &&
-        hasToolCacheBreakpoint
-      ) {
-        delete (params.system[0] as unknown as Record<string, unknown>)
-          .cache_control;
-      }
+      // Cache-breakpoint accounting: system(1) + tools(1) + turn-start(1) +
+      // (tail OR prev-turn-anchor)(1) = 4 — exactly Anthropic's per-request
+      // cap.  Tail and prev-turn-anchor are mutually exclusive (the latter
+      // only fires when turn-start is the last message, which suppresses
+      // the tail), so the total can't drift past 4.
 
       // Strip orphaned UTF-16 surrogates so the Anthropic JSON parser never
       // sees invalid strings produced by upstream surrogate-splitting `.slice()` calls.

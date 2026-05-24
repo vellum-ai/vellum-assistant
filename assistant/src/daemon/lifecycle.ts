@@ -546,11 +546,12 @@ export async function runDaemon(): Promise<void> {
       }
     } // end if (dbReady)
 
-    // Populate the managed-connection cache so buildIntegrationSection()
-    // can include platform-managed OAuth connections (e.g. Twitter) in the
-    // system prompt's "Connected Services" section from the first turn.
-    // This is an HTTP-only call with no DB dependency, so it runs regardless
-    // of dbReady. A periodic refresh keeps the cache current when users
+    // Populate the managed-connection cache so the `14-connected-services`
+    // bundled section (rendered by `renderConnectedServices()` in
+    // system-sections.ts) can include platform-managed OAuth connections
+    // (e.g. Twitter) in the system prompt from the first turn.  This is
+    // an HTTP-only call with no DB dependency, so it runs regardless of
+    // dbReady.  A periodic refresh keeps the cache current when users
     // connect/disconnect managed providers while the assistant is running.
     void refreshManagedConnectionCache().catch((err) =>
       log.warn(

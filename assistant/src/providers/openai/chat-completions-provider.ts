@@ -1,6 +1,5 @@
 import OpenAI from "openai";
 
-import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/cache-boundary.js";
 import { isAbortReason } from "../../util/abort-reasons.js";
 import { ProviderError } from "../../util/errors.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
@@ -597,7 +596,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
     if (systemPrompt) {
       result.push({
         role: "system",
-        content: systemPrompt.replaceAll(SYSTEM_PROMPT_CACHE_BOUNDARY, "\n"),
+        content: systemPrompt,
       });
     }
 

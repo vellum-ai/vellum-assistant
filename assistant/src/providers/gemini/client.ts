@@ -1,7 +1,6 @@
 import type * as genai from "@google/genai";
 import { ApiError, GoogleGenAI, ThinkingLevel } from "@google/genai";
 
-import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/cache-boundary.js";
 import { isAbortReason } from "../../util/abort-reasons.js";
 import { ProviderError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
@@ -227,10 +226,7 @@ export class GeminiProvider implements Provider {
       const geminiConfig: genai.GenerateContentConfig = {};
 
       if (systemPrompt) {
-        geminiConfig.systemInstruction = systemPrompt.replaceAll(
-          SYSTEM_PROMPT_CACHE_BOUNDARY,
-          "\n",
-        );
+        geminiConfig.systemInstruction = systemPrompt;
       }
       if (maxTokens) {
         geminiConfig.maxOutputTokens = maxTokens;
