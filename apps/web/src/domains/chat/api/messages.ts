@@ -24,6 +24,7 @@ import {
   type PreChatOnboardingContext,
 } from "@/domains/onboarding/prechat.js";
 import { persistPreChatOnboardingProfile } from "@/domains/onboarding/prechat-profile.js";
+import { pickConversationIdWireField } from "@/lib/backwards-compat/conversation-id-wire-field.js";
 
 const POLL_INTERVAL_MS = 1000;
 const POLL_TIMEOUT_MS = 120_000;
@@ -485,11 +486,12 @@ export async function postChatMessage(
   attachmentIds: string[] = [],
   onboarding?: PreChatOnboardingContext,
 ): Promise<PostMessageResult> {
+  // Daemon 0.8.5+ accepts `conversationId` on this endpoint as a direct
+  // internal-id lookup; older daemons only understand the legacy
+  // `conversationKey` (external-key path). The gate that picks between
+  // them lives in `lib/backwards-compat/conversation-id-wire-field.ts`.
   const body: Record<string, unknown> = {
-    // Daemon's send-message endpoint reads `body.conversationKey` only
-    // (see assistant/src/runtime/routes/conversation-routes.ts handleSendMessage).
-    // The web-side parameter is conversationId; map to the wire field here.
-    conversationKey: conversationId,
+    [pickConversationIdWireField()]: conversationId,
     content,
     sourceChannel: "vellum",
     interface: "vellum",
