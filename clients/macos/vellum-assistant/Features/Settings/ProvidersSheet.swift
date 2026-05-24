@@ -1293,6 +1293,16 @@ struct ProvidersSheet: View {
             return
         }
 
+        // OAuth subscription connections are created by the OAuth sign-in
+        // flow (handleChatgptUrlSubmit), not the Create/Save button. Block
+        // commitEditor so a user who selects "ChatGPT Subscription" and
+        // clicks Create without completing the OAuth flow doesn't end up
+        // with a broken connection missing OAuth tokens.
+        if draft.authType == "oauth_subscription" {
+            actionError = "Use the \"Sign in with ChatGPT\" button to connect your subscription."
+            return
+        }
+
         var credentialRef = draft.credential.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if draft.authType == "api_key" {
