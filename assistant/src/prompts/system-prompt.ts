@@ -286,10 +286,10 @@ export function maybeReseedBootstrapForCohort(cohort: string): void {
  *   1. Bundled static sections (`renderWorkspaceSections`), in id-sort
  *      order.  Includes `08-identity` (IDENTITY.md), `09-soul`
  *      (SOUL.md), `10-user-persona` (`users/{{userSlug}}.md` →
- *      `users/default.md`), and `11-channel-persona`
- *      (`channels/{{channelSlug}}.md`), all backed by workspace files.
- *   2. Accumulated VOICE.md, after the cache boundary.
- *   3. If BOOTSTRAP.md exists, the first-run ritual block.
+ *      `users/default.md`), `11-channel-persona`
+ *      (`channels/{{channelSlug}}.md`), and `12-voice` (VOICE.md),
+ *      all backed by workspace files.
+ *   2. If BOOTSTRAP.md exists, the first-run ritual block.
  */
 export interface BuildSystemPromptOptions {
   hasNoClient?: boolean;
@@ -355,19 +355,13 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // The two halves are joined around `SYSTEM_PROMPT_CACHE_BOUNDARY` so the
   // Anthropic provider can key its prompt cache on the prefix.
   //
-  // IDENTITY.md / SOUL.md / user persona / channel persona all render
-  // via workspace-backed bundled sections (`08-identity` / `09-soul` /
-  // `10-user-persona` / `11-channel-persona`) inside
-  // `renderWorkspaceSections`, so they sit in the static prefix in that
-  // order.
+  // IDENTITY.md / SOUL.md / user persona / channel persona / VOICE.md
+  // all render via workspace-backed bundled sections (`08-identity` /
+  // `09-soul` / `10-user-persona` / `11-channel-persona` / `12-voice`)
+  // inside `renderWorkspaceSections`, so they sit in the static prefix
+  // in that order.
   const systemParts: string[] = [...renderWorkspaceSections(ctx)];
   const dynamicStart = systemParts.length;
-
-  // Surface accumulated voice markers when VOICE.md has content.
-  const voiceContent = readPromptFile(getWorkspacePromptPath("VOICE.md"));
-  if (voiceContent) {
-    systemParts.push("# Voice Profile\n\n" + voiceContent);
-  }
 
   if (includeBootstrap) {
     const bootstrapWithSlug = bootstrap.replaceAll(

@@ -147,6 +147,7 @@ describe("buildSystemPrompt", () => {
       "USER.md",
       "BOOTSTRAP.md",
       "UPDATES.md",
+      "VOICE.md",
       "skills",
       "users",
       "channels",
@@ -369,6 +370,34 @@ describe("buildSystemPrompt", () => {
     const result = buildSystemPrompt();
     expect(result).toContain("# Channel persona");
     expect(result).toContain("This is the Vellum channel.");
+  });
+
+  test("includes VOICE.md as the 12-voice section with prepended heading", () => {
+    // VOICE.md flows through the `12-voice` bundled section.  The
+    // section transform prepends `# Voice Profile` so the file itself
+    // stays heading-free; the model writes voice markers as plain
+    // bullets / lines.
+    writeFileSync(
+      join(TEST_DIR, "VOICE.md"),
+      "- Prefers lowercase. Replies tightly. Skips greetings.",
+    );
+    const result = buildSystemPrompt();
+    // Renders in the static (cached) prefix — basePrompt (dynamic
+    // block) stays empty.
+    expect(basePrompt(result)).toBe("");
+    expect(result).toContain("# Voice Profile");
+    expect(result).toContain("Prefers lowercase");
+  });
+
+  test("omits the 12-voice section when VOICE.md is missing", () => {
+    const result = buildSystemPrompt();
+    expect(result).not.toContain("# Voice Profile");
+  });
+
+  test("omits the 12-voice section when VOICE.md is empty / whitespace-only", () => {
+    writeFileSync(join(TEST_DIR, "VOICE.md"), "   \n\n  \n");
+    const result = buildSystemPrompt();
+    expect(result).not.toContain("# Voice Profile");
   });
 
   describe("BOOTSTRAP.md user persona placeholder", () => {
