@@ -4,7 +4,7 @@ import { getDb } from "../../../../memory/db-connection.js";
 import { getNode, updateNode } from "../../../../memory/graph/store.js";
 import {
   enqueueMemoryJob,
-  isMemoryV1Enabled,
+  isMemoryEnabled,
 } from "../../../../memory/jobs-store.js";
 import { memoryGraphNodes } from "../../../../memory/schema.js";
 import type {
@@ -126,7 +126,7 @@ export async function executePlaybookUpdate(
       lastAccessed: Date.now(),
     });
 
-    if (isMemoryV1Enabled()) {
+    if (isMemoryEnabled()) {
       enqueueMemoryJob("embed_graph_node", { nodeId: existing.id });
     }
 

@@ -13,7 +13,7 @@ import { getDb } from "./db-connection.js";
 import { selectedBackendSupportsMultimodal } from "./embedding-backend.js";
 import {
   enqueueMemoryJob,
-  isMemoryV1Enabled,
+  isMemoryEnabled,
   upsertDebouncedJob,
 } from "./jobs-store.js";
 import { isMemoryRetrospectiveConversation } from "./memory-retrospective-enqueue.js";
@@ -143,14 +143,14 @@ export async function indexMessageNow(
 
       if (existing?.contentHash === hash) {
         skippedEmbedJobs++;
-      } else if (isMemoryV1Enabled()) {
+      } else if (isMemoryEnabled()) {
         enqueueMemoryJob("embed_segment", { segmentId }, Date.now(), tx);
       }
     }
 
     // Enqueue embed_attachment jobs for image content blocks when the
     // embedding provider supports multimodal (Gemini only).
-    if (isMemoryV1Enabled()) {
+    if (isMemoryEnabled()) {
       for (const block of mediaBlocks) {
         enqueueMemoryJob(
           "embed_attachment",
@@ -227,7 +227,7 @@ export async function indexMessageNow(
         extractRunAfter = graphBatchFired
           ? Date.now()
           : Date.now() + idleTimeoutMs;
-        if (isMemoryV1Enabled()) {
+        if (isMemoryEnabled()) {
           upsertDebouncedJob(
             "graph_extract",
             {
@@ -317,7 +317,7 @@ export async function indexMessageNow(
     // jobs-worker.ts. Debounced on the same idle timeout — no threshold
     // trigger needed since summaries compress the whole conversation, not
     // incremental batches.
-    if (v2Config == null && isMemoryV1Enabled()) {
+    if (v2Config == null && isMemoryEnabled()) {
       upsertDebouncedJob(
         "build_conversation_summary",
         { conversationId: input.conversationId },
@@ -380,12 +380,12 @@ export async function indexMessageNow(
 }
 
 export function enqueueBackfillJob(force = false): string {
-  if (!isMemoryV1Enabled()) return "";
+  if (!isMemoryEnabled()) return "";
   return enqueueMemoryJob("backfill", { force });
 }
 
 export function enqueueRebuildIndexJob(): string {
-  if (!isMemoryV1Enabled()) return "";
+  if (!isMemoryEnabled()) return "";
   return enqueueMemoryJob("rebuild_index", {});
 }
 

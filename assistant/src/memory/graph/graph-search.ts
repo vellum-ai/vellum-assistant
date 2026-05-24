@@ -11,7 +11,7 @@ import { embedAndUpsert } from "../job-utils.js";
 import { asString } from "../job-utils.js";
 import {
   enqueueMemoryJob,
-  isMemoryV1Enabled,
+  isMemoryEnabled,
   type MemoryJob,
 } from "../jobs-store.js";
 import { isQdrantBreakerOpen } from "../qdrant-circuit-breaker.js";
@@ -242,7 +242,7 @@ export async function embedGraphNodeJob(
  * Enqueue an embedding job for a graph node (async, for live conversations).
  */
 export function enqueueGraphNodeEmbed(nodeId: string): void {
-  if (!isMemoryV1Enabled()) return;
+  if (!isMemoryEnabled()) return;
   enqueueMemoryJob("embed_graph_node", { nodeId });
 }
 
@@ -287,6 +287,6 @@ export async function embedGraphTriggerJob(
  * Enqueue a trigger embedding job.
  */
 export function enqueueGraphTriggerEmbed(triggerId: string): void {
-  if (!isMemoryV1Enabled()) return;
+  if (!isMemoryEnabled()) return;
   enqueueMemoryJob("graph_trigger_embed", { triggerId });
 }

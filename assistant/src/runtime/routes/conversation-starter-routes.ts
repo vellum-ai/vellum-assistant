@@ -23,7 +23,7 @@ import {
 import { getDb } from "../../memory/db-connection.js";
 import {
   enqueueMemoryJob,
-  isMemoryV1Enabled,
+  isMemoryEnabled,
 } from "../../memory/jobs-store.js";
 import { conversationStarters, memoryJobs } from "../../memory/schema.js";
 import { NotFoundError } from "./errors.js";
@@ -206,7 +206,7 @@ function handleListConversationStarters({
       checkpointAhead ||
       (invalidItemCount > 0 && totalActive > 0 && !withinCooldown);
 
-    if (shouldRefresh && !hasActiveJob && isMemoryV1Enabled()) {
+    if (shouldRefresh && !hasActiveJob && isMemoryEnabled()) {
       enqueueMemoryJob("generate_conversation_starters", { scopeId });
       hasActiveJob = true;
     }
@@ -228,7 +228,7 @@ function handleListConversationStarters({
 
   const existing = hasActiveConversationStarterJob(db, scopeId);
 
-  if (!existing && isMemoryV1Enabled()) {
+  if (!existing && isMemoryEnabled()) {
     enqueueMemoryJob("generate_conversation_starters", { scopeId });
   }
 

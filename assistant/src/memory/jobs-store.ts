@@ -73,21 +73,8 @@ export const SLOW_LLM_JOB_TYPES: MemoryJobType[] = [
   "graph_bootstrap",
 ];
 
-/**
- * Memory v1 is the long-term memory subsystem (embeds, graph, retrospective,
- * conversation analyze, conversation starters, summarization). Callers that
- * enqueue v1 jobs should gate on this before calling so that the queue does
- * not accumulate `pending` rows that will never be dispatched (the worker
- * early-returns when `memory.enabled === false`).
- *
- * Returns `true` unless `config.memory.enabled` is explicitly `false` —
- * the schema default is `true`, so missing or partial configs (common in
- * tests) read as "enabled". Defensive `try/catch`: if config loading fails
- * we default to `enabled` so the gate does not introduce a new failure
- * mode (callers that already have their own `getConfig` try/catch keep
- * controlling the silent-failure semantic).
- */
-export function isMemoryV1Enabled(): boolean {
+/** Returns `false` only when `config.memory.enabled` is explicitly `false`; defaults to `true` on missing config or load errors. */
+export function isMemoryEnabled(): boolean {
   try {
     return getConfig().memory?.enabled !== false;
   } catch {

@@ -5,7 +5,7 @@ import { createNode, updateNode } from "../../../../memory/graph/store.js";
 import type { NewNode } from "../../../../memory/graph/types.js";
 import {
   enqueueMemoryJob,
-  isMemoryV1Enabled,
+  isMemoryEnabled,
 } from "../../../../memory/jobs-store.js";
 import { memoryGraphNodes } from "../../../../memory/schema.js";
 import type {
@@ -119,7 +119,7 @@ export async function executePlaybookCreate(
       sourceConversations: [`playbook:${node.id}`],
     });
 
-    if (isMemoryV1Enabled()) {
+    if (isMemoryEnabled()) {
       enqueueMemoryJob("embed_graph_node", { nodeId: node.id });
     }
 

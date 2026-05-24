@@ -23,7 +23,7 @@ import {
 } from "../../skills/skill-memory.js";
 import { getLogger } from "../../util/logger.js";
 import { getDb } from "../db-connection.js";
-import { enqueueMemoryJob, isMemoryV1Enabled } from "../jobs-store.js";
+import { enqueueMemoryJob, isMemoryEnabled } from "../jobs-store.js";
 import { memoryGraphNodes } from "../schema.js";
 import { createNode } from "./store.js";
 
@@ -268,7 +268,7 @@ function upsertCapabilityNode(sourceKey: string, content: string): void {
       })
       .where(eq(memoryGraphNodes.id, existing.id))
       .run();
-    if (isMemoryV1Enabled()) {
+    if (isMemoryEnabled()) {
       enqueueMemoryJob("embed_graph_node", { nodeId: existing.id });
     }
     return;
@@ -303,7 +303,7 @@ function upsertCapabilityNode(sourceKey: string, content: string): void {
     scopeId: "default",
   });
 
-  if (isMemoryV1Enabled()) {
+  if (isMemoryEnabled()) {
     enqueueMemoryJob("embed_graph_node", { nodeId: node.id });
   }
   log.info({ sourceKey, nodeId: node.id }, "Created capability graph node");

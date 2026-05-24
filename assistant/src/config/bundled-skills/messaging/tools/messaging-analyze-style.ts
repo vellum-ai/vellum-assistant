@@ -4,7 +4,7 @@ import { v4 as uuid } from "uuid";
 import { getDb } from "../../../../memory/db-connection.js";
 import {
   enqueueMemoryJob,
-  isMemoryV1Enabled,
+  isMemoryEnabled,
 } from "../../../../memory/jobs-store.js";
 import { memoryGraphNodes } from "../../../../memory/schema.js";
 import { clampUnitInterval } from "../../../../memory/validation.js";
@@ -59,7 +59,7 @@ function upsertMemoryItem(opts: {
       })
       .where(eq(memoryGraphNodes.id, existing.id))
       .run();
-    if (isMemoryV1Enabled()) {
+    if (isMemoryEnabled()) {
       enqueueMemoryJob("embed_graph_node", { nodeId: existing.id });
     }
   } else {
@@ -87,7 +87,7 @@ function upsertMemoryItem(opts: {
         scopeId: opts.scopeId,
       })
       .run();
-    if (isMemoryV1Enabled()) {
+    if (isMemoryEnabled()) {
       enqueueMemoryJob("embed_graph_node", { nodeId: id });
     }
   }

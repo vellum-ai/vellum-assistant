@@ -1,20 +1,19 @@
-// Tests for the memory-v1 enqueue gate.
+// Tests for the memory enqueue gate.
 //
 // Architecture under test:
-//   1. `isMemoryV1Enabled()` (jobs-store.ts) reads `config.memory.enabled`
+//   1. `isMemoryEnabled()` (jobs-store.ts) reads `config.memory.enabled`
 //      and returns `true` unless explicitly `false`.
-//   2. Each call site that enqueues a memory-v1 job gates on this helper
+//   2. Each call site that enqueues a memory job gates on this helper
 //      before calling `enqueueMemoryJob` / `upsertDebouncedJob` etc.
 //      `enqueueMemoryJob` itself is *not* gated — it preserves its
-//      "always returns a real job id" contract, and non-v1 jobs
-//      (`delete_qdrant_vectors`, `prune_*`, `memory_v2_*`) flow through
-//      unchanged.
+//      "always returns a real job id" contract, and non-memory jobs
+//      (`delete_qdrant_vectors`, `prune_*`) flow through unchanged.
 //
 // We verify (1) directly across the four config-shape variants, then
-// smoke-test (2) at two central v1 entry-point helpers:
+// smoke-test (2) at two central entry-point helpers:
 //   - `enqueueAutoAnalysisIfEnabled`
 //   - `enqueueMemoryRetrospectiveIfEnabled`
-// Each call site re-checks `isMemoryV1Enabled()` itself, so we don't
+// Each call site re-checks `isMemoryEnabled()` itself, so we don't
 // repeat 30+ identical scenarios — the helper test is the contract.
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -28,7 +27,7 @@ mock.module("../../util/logger.js", () => ({
 }));
 
 // Mutable config shape, mutated per-test. `null` means "no `memory` key
-// at all" — exercises the defensive `?.` chain in `isMemoryV1Enabled`.
+// at all" — exercises the defensive `?.` chain in `isMemoryEnabled`.
 type MemoryEnabledShape = boolean | null | undefined;
 let memoryEnabled: MemoryEnabledShape = true;
 let getConfigThrows = false;
@@ -116,7 +115,7 @@ mock.module("../db-connection.js", () => ({
 }));
 
 // Now load the real modules under test.
-const { isMemoryV1Enabled } = await import("../jobs-store.js");
+const { isMemoryEnabled } = await import("../jobs-store.js");
 const { enqueueAutoAnalysisIfEnabled } = await import(
   "../auto-analysis-enqueue.js"
 );
@@ -132,28 +131,28 @@ beforeEach(() => {
 });
 
 // ---------------------------------------------------------------------
-// isMemoryV1Enabled() contract
+// isMemoryEnabled() contract
 // ---------------------------------------------------------------------
 
-describe("isMemoryV1Enabled", () => {
+describe("isMemoryEnabled", () => {
   test("returns true when memory.enabled is true", () => {
     memoryEnabled = true;
-    expect(isMemoryV1Enabled()).toBe(true);
+    expect(isMemoryEnabled()).toBe(true);
   });
 
   test("returns true when memory.enabled is undefined (schema default)", () => {
     memoryEnabled = undefined;
-    expect(isMemoryV1Enabled()).toBe(true);
+    expect(isMemoryEnabled()).toBe(true);
   });
 
   test("returns true when memory key is absent (partial config)", () => {
     memoryEnabled = null;
-    expect(isMemoryV1Enabled()).toBe(true);
+    expect(isMemoryEnabled()).toBe(true);
   });
 
   test("returns false ONLY when memory.enabled is explicitly false", () => {
     memoryEnabled = false;
-    expect(isMemoryV1Enabled()).toBe(false);
+    expect(isMemoryEnabled()).toBe(false);
   });
 
   test("returns true (defensive) when getConfig throws", () => {
@@ -162,7 +161,7 @@ describe("isMemoryV1Enabled", () => {
     // own getConfig try/catch (e.g. enqueueAutoAnalysisIfEnabled) keep
     // controlling the silent-failure semantic for the rest of their flow.
     getConfigThrows = true;
-    expect(isMemoryV1Enabled()).toBe(true);
+    expect(isMemoryEnabled()).toBe(true);
   });
 });
 

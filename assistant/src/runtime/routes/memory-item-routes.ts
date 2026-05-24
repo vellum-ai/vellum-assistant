@@ -46,7 +46,7 @@ import type {
 } from "../../memory/graph/types.js";
 import {
   enqueueMemoryJob,
-  isMemoryV1Enabled,
+  isMemoryEnabled,
 } from "../../memory/jobs-store.js";
 import { withQdrantBreaker } from "../../memory/qdrant-circuit-breaker.js";
 import { getQdrantClient } from "../../memory/qdrant-client.js";
@@ -528,7 +528,7 @@ async function handleCreateMemoryItem(body: Record<string, unknown>) {
   };
 
   const created = createNode(newNode);
-  if (isMemoryV1Enabled()) {
+  if (isMemoryEnabled()) {
     enqueueMemoryJob("embed_graph_node", { nodeId: created.id });
   }
 
@@ -624,7 +624,7 @@ async function handleUpdateMemoryItem(
 
   updateNode(id, changes);
 
-  if (contentChanged && isMemoryV1Enabled()) {
+  if (contentChanged && isMemoryEnabled()) {
     enqueueMemoryJob("embed_graph_node", { nodeId: id });
   }
 

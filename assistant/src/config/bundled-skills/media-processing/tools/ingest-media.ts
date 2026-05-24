@@ -3,7 +3,7 @@ import { basename, extname } from "node:path";
 
 import {
   enqueueMemoryJob,
-  isMemoryV1Enabled,
+  isMemoryEnabled,
 } from "../../../../memory/jobs-store.js";
 import {
   computeFileHashStreaming,
@@ -202,7 +202,7 @@ export async function run(
   updateMediaAssetStatus(asset.id, "processing");
 
   // Enqueue a processing job via the existing jobs framework
-  if (isMemoryV1Enabled()) {
+  if (isMemoryEnabled()) {
     enqueueMemoryJob("media_processing", {
       mediaAssetId: asset.id,
       stage: "ingest",

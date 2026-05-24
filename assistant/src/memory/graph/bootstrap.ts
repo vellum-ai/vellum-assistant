@@ -23,7 +23,7 @@ import { getDb } from "../db-connection.js";
 import {
   enqueueMemoryJob,
   hasActiveJobOfType,
-  isMemoryV1Enabled,
+  isMemoryEnabled,
 } from "../jobs-store.js";
 import { initQdrantClient, resolveQdrantUrl } from "../qdrant-client.js";
 import { rawAll, rawGet, rawRun } from "../raw-query.js";
@@ -346,7 +346,7 @@ export function maybeEnqueueGraphBootstrap(): void {
   // Don't enqueue if already in progress
   if (hasActiveJobOfType("graph_bootstrap")) return;
 
-  if (!isMemoryV1Enabled()) return;
+  if (!isMemoryEnabled()) return;
 
   log.info(
     { segmentCount, hasJournalFiles },
@@ -398,7 +398,7 @@ const KIND_TO_PREFIX: Record<string, string> = {
  */
 export function migrateToolCreatedItems(): void {
   if (getMemoryCheckpoint(MIGRATE_ITEMS_CHECKPOINT)) return;
-  if (!isMemoryV1Enabled()) return;
+  if (!isMemoryEnabled()) return;
 
   const kinds = Object.keys(KIND_TO_PREFIX);
   const placeholders = kinds.map(() => "?").join(", ");
