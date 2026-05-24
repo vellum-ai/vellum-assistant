@@ -17,8 +17,8 @@ import { describe, expect, test } from "bun:test";
 import type { AssistantEvent } from "../runtime/assistant-event.js";
 import {
   AssistantEventHub,
-  broadcastMessage,
   assistantEventHub,
+  broadcastMessage,
 } from "../runtime/assistant-event-hub.js";
 
 function makeSyncChangedEvent(originClientId?: string): AssistantEvent {
@@ -114,14 +114,12 @@ describe("AssistantEventHub — self-echo suppression (excludeClientId)", () => 
     const hub = new AssistantEventHub();
     const receivedProcess: AssistantEvent[] = [];
 
-    // A process subscriber happens to share a name with a clientId — must
-    // never be suppressed because excludeClientId only matches `type:
-    // "client"` entries.
+    // A process subscriber sits in the same hub as a client whose id
+    // matches `excludeClientId`. It must never be suppressed because
+    // `excludeClientId` only matches `type: "client"` entries — process
+    // entries have no `clientId` field at all.
     hub.subscribe({
       type: "process",
-      // Note: process entries have no clientId; we use a clashing name
-      // through `subscriberName` to confirm the field separation.
-      subscriberName: "client-a",
       callback: (e) => {
         receivedProcess.push(e);
       },
@@ -278,9 +276,10 @@ describe("broadcastMessage — derives excludeClientId from sync_changed.originC
       broadcastMessage({
         type: "sync_changed",
         tags: ["resource:test"],
-        // @ts-expect-error — sneaking in an empty string to exercise the
-        // length-zero guard. Production code path can't produce this
-        // because `buildSyncChangedMessage` trims + drops empty values.
+        // Exercise the length-zero guard. `originClientId?: string` accepts
+        // empty strings at the type level, but production code path can't
+        // produce one — `buildSyncChangedMessage` trims and drops empty
+        // values before calling `broadcastMessage`.
         originClientId: "",
       });
       await new Promise((r) => setTimeout(r, 0));
