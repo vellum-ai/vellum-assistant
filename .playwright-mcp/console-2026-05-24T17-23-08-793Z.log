@@ -1,5 +1,0 @@
-[    1051ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:3002/assistant/node_modules/.vite/deps/react-dom_client.js?v=d9e19c74:14337
-[    1128ms] [WARNING] No `HydrateFallback` element provided to render during initial hydration @ http://localhost:3002/assistant/@vite/client:509
-[    1277ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://localhost:3002/assistant/settings/ai:0
-[    1277ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://localhost:3002/assistant/settings/ai:0
-[    1277ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://localhost:3002/assistant/settings/ai:0
