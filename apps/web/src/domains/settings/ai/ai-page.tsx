@@ -438,6 +438,7 @@ function ModeToggle({ mode, onChange }: ModeToggleProps) {
 }
 
 interface ServiceCardProps {
+  id?: string;
   title: string;
   subtitle: string;
   mode: ServiceMode;
@@ -445,9 +446,10 @@ interface ServiceCardProps {
   children: ReactNode;
 }
 
-function ServiceCard({ title, subtitle, mode, onModeChange, children }: ServiceCardProps) {
+function ServiceCard({ id, title, subtitle, mode, onModeChange, children }: ServiceCardProps) {
   return (
     <SettingsCard
+      id={id}
       title={title}
       subtitle={subtitle}
       accessory={<ModeToggle mode={mode} onChange={onModeChange} />}
@@ -1083,6 +1085,7 @@ function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceCardProp
 
   return (
     <ServiceCard
+      id="email"
       title="Email"
       subtitle="Configure how your assistant sends and receives email"
       mode={mode}
