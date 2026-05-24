@@ -61,7 +61,6 @@ export function createStreamingBubble(
     {
       stableId: stableId ?? newStableId("assistant-stream"),
       id: messageId,
-      ...(messageId ? { daemonMessageId: messageId } : {}),
       role: "assistant",
       content: text,
       isStreaming: true,
@@ -118,7 +117,6 @@ export function appendTextDelta(
       ...last,
       content: last.content + text,
       id: messageId ?? last.id,
-      daemonMessageId: messageId ?? last.daemonMessageId,
       textSegments: segments,
       contentOrder: order,
     },
@@ -164,12 +162,11 @@ export function finalizeMessageComplete(
   prev: DisplayMessage[],
   opts: {
     content?: string;
-    rowMessageId?: string;
     displayMessageId?: string;
     attachments?: DisplayAttachment[];
   },
 ): DisplayMessage[] {
-  const { content, rowMessageId, displayMessageId, attachments } = opts;
+  const { content, displayMessageId, attachments } = opts;
   const last = prev[prev.length - 1];
 
   if (last?.role === "assistant" && last.isStreaming) {
@@ -180,7 +177,6 @@ export function finalizeMessageComplete(
         ...last,
         isStreaming: false,
         id: displayMessageId ?? last.id,
-        ...(rowMessageId ? { daemonMessageId: rowMessageId } : {}),
         content: content || last.content,
         ...(attachments ? { attachments } : {}),
         ...(finalized ? { toolCalls: finalized } : {}),
@@ -194,7 +190,6 @@ export function finalizeMessageComplete(
         m.id === displayMessageId
           ? {
               ...m,
-              ...(rowMessageId ? { daemonMessageId: rowMessageId } : {}),
               ...(content ? { content } : {}),
               ...(attachments && !m.attachments ? { attachments } : {}),
             }
@@ -206,7 +201,6 @@ export function finalizeMessageComplete(
       {
         stableId: newStableId("assistant-complete"),
         id: displayMessageId,
-        ...(rowMessageId ? { daemonMessageId: rowMessageId } : {}),
         role: "assistant" as const,
         content: content ?? "",
         timestamp: Date.now(),
@@ -225,7 +219,7 @@ export function finalizeMessageComplete(
 /** Stop streaming on the last assistant message (handoff or cancellation). */
 export function stopStreaming(
   prev: DisplayMessage[],
-  opts?: { displayMessageId?: string; rowMessageId?: string },
+  opts?: { displayMessageId?: string },
 ): DisplayMessage[] {
   const last = prev[prev.length - 1];
   if (!last || last.role !== "assistant" || !last.isStreaming) return prev;
@@ -236,9 +230,6 @@ export function stopStreaming(
       ...last,
       isStreaming: false,
       ...(opts?.displayMessageId ? { id: opts.displayMessageId } : {}),
-      ...(opts?.rowMessageId
-        ? { daemonMessageId: opts.rowMessageId }
-        : {}),
     },
   ];
 }
@@ -284,9 +275,7 @@ export function attachSurface(
   let targetIdx = -1;
 
   if (messageId) {
-    targetIdx = prev.findIndex(
-      (m) => m.id === messageId || m.daemonMessageId === messageId,
-    );
+    targetIdx = prev.findIndex((m) => m.id === messageId);
   }
   if (targetIdx === -1) {
     for (let i = prev.length - 1; i >= 0; i--) {

@@ -148,8 +148,6 @@ export interface RuntimeAttachmentMetadata {
 
 export interface RuntimeMessagePayload {
   id: string;
-  /** Concrete persisted assistant row id for row-scoped actions. */
-  daemonMessageId?: string;
   role: string;
   content: string;
   timestamp: string;

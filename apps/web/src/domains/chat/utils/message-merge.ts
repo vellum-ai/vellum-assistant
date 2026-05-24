@@ -8,7 +8,6 @@ export function messagesEqual(a: DisplayMessage[], b: DisplayMessage[]): boolean
     const bm = b[i]!;
     if (
       am.stableId !== bm.stableId ||
-      am.daemonMessageId !== bm.daemonMessageId ||
       am.id !== bm.id ||
       am.role !== bm.role ||
       am.content !== bm.content ||
@@ -28,7 +27,6 @@ export function messagesEqual(a: DisplayMessage[], b: DisplayMessage[]): boolean
     // Compare any arbitrary passthrough fields beyond the known set
     const knownKeys = new Set([
       "stableId",
-      "daemonMessageId",
       "id",
       "role",
       "content",

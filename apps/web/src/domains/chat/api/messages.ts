@@ -84,8 +84,6 @@ export interface RuntimeSubagentNotification {
 
 export interface RuntimeMessage {
   id: string;
-  /** Concrete persisted assistant row id for row-scoped actions. */
-  daemonMessageId?: string;
   role: "user" | "assistant";
   content: string;
   surfaces?: Surface[];

@@ -146,14 +146,10 @@ describe("stopStreaming", () => {
     expect(result).toBe(prev);
   });
 
-  it("applies optional displayMessageId and rowMessageId", () => {
+  it("applies optional displayMessageId", () => {
     const msg = makeAssistantMsg();
-    const result = stopStreaming([msg], {
-      displayMessageId: "d-1",
-      rowMessageId: "r-1",
-    });
+    const result = stopStreaming([msg], { displayMessageId: "d-1" });
     expect(result[0]!.id).toBe("d-1");
-    expect(result[0]!.daemonMessageId).toBe("r-1");
   });
 });
 

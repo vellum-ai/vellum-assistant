@@ -141,8 +141,6 @@ export function useConversationSwitch({
     // Reset all per-conversation state so nothing leaks between threads.
     useTurnStore.getState().resetTurn();
     setIsLoadingHistory(true);
-    // `setMessages([])` makes the tail derivation return "create new bubble"
-    // for any subsequent stream event — no separate latch needed.
     setMessages([]);
     streamingMessageIdsRef.current.clear();
     pendingQueuedStableIdsRef.current = [];

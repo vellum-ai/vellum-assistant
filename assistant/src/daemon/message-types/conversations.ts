@@ -404,10 +404,8 @@ export interface HistoryResponse {
   type: "history_response";
   conversationId: string;
   messages: Array<{
-    /** Database ID used by clients for the rendered message bubble. */
+    /** Database ID used by clients for the rendered message. */
     id?: string;
-    /** Concrete persisted row ID for row-scoped actions such as TTS/fork. */
-    daemonMessageId?: string;
     role: string;
     text: string;
     timestamp: number;

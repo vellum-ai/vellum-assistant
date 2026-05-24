@@ -240,7 +240,7 @@ async function fetchConversationLlmContextFromPerMessage(
   const messageIds: string[] = [];
   const seenMessageId = new Set<string>();
   for (const m of messages) {
-    const id = m.daemonMessageId ?? m.id;
+    const id = m.id;
     if (!id || seenMessageId.has(id)) continue;
     seenMessageId.add(id);
     messageIds.push(id);

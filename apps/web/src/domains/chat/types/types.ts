@@ -72,10 +72,12 @@ export interface DisplayMessage {
    *  remounts when the server assigns or rewrites its `id`. */
   stableId: string;
   /**
-   * Concrete persisted assistant row id for row-scoped actions such as fork.
-   * `id` is the display bubble id and can differ for merged tool turns.
+   * Server-assigned message id. Absent for optimistic user messages prior to
+   * server reconciliation. For assistant turns that the server merges across
+   * multiple DB rows (consecutive assistant rows), this is the display
+   * anchor — server-side actions (fork, inspect) accept this id and resolve
+   * the merged cluster internally.
    */
-  daemonMessageId?: string;
   id?: string;
   role: "user" | "assistant";
   content: string;

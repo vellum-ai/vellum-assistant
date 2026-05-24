@@ -53,6 +53,7 @@ import { forkGraphMemoryState } from "./graph/graph-memory-state-store.js";
 import { indexMessageNow } from "./indexer.js";
 import { MEMORY_RETROSPECTIVE_SOURCES } from "./memory-retrospective-constants.js";
 import { forkRetrospectiveState } from "./memory-retrospective-state.js";
+import { findDisplayTurnEndIndex } from "./message-consolidation.js";
 import { rawExec, rawGet, rawRun } from "./raw-query.js";
 import {
   channelInboundEvents,
@@ -582,16 +583,29 @@ export function forkConversation(params: {
     );
   }
 
-  const copyBoundaryIndex =
+  const initialBoundaryIndex =
     throughMessageId == null
       ? sourceMessages.length - 1
       : sourceMessages.findIndex((message) => message.id === throughMessageId);
 
-  if (throughMessageId != null && copyBoundaryIndex === -1) {
+  if (throughMessageId != null && initialBoundaryIndex === -1) {
     throw new UserError(
       `Message ${throughMessageId} does not belong to conversation ${conversationId}`,
     );
   }
+
+  // Extend the boundary to cover the full display turn the client
+  // addressed. The read-path collapses each assistant turn across
+  // multiple DB rows — consecutive assistant rows AND tool-result-only
+  // user rows between them — so "fork through message X" semantically
+  // means "fork through the entire display turn containing X" no matter
+  // which DB row in the cluster the client supplied. Single source of
+  // truth is `findDisplayTurnEndIndex`, shared with the read path so
+  // both stay in sync.
+  const copyBoundaryIndex = findDisplayTurnEndIndex(
+    sourceMessages,
+    initialBoundaryIndex,
+  );
 
   const visibleWindowStartIndex = Math.max(
     0,

@@ -236,7 +236,6 @@ describe("getChatHistory", () => {
         messages: [
           {
             id: "msg-slack",
-            daemonMessageId: "daemon-msg-slack",
             role: "user",
             content:
               "Slack reply\n[File attachment] file.pdf, type=application/pdf",
@@ -258,7 +257,6 @@ describe("getChatHistory", () => {
     }
     expect(result.messages[0]).toMatchObject({
       id: "msg-slack",
-      daemonMessageId: "daemon-msg-slack",
       role: "user",
       content: "Slack reply",
       metadata: { source: "slack" },

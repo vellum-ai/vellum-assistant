@@ -28,7 +28,7 @@ interface FakeResponse {
 
 const requests: FakeRequest[] = [];
 let nextResponses: FakeResponse[] = [];
-let mockMessages: Array<{ id: string; daemonMessageId?: string }> = [];
+let mockMessages: Array<{ id: string }> = [];
 
 mock.module("@/generated/api/client.gen.js", () => ({
   client: {
@@ -216,14 +216,13 @@ describe("fetchConversationLlmContext — legacy fallback (404)", () => {
     expect(result.logs.map((l) => l.id)).toEqual(["log-a", "log-b", "log-c"]);
   });
 
-  test("prefers daemonMessageId when present, falls back to id, and dedupes", async () => {
+  test("fetches by message id and dedupes consecutive duplicates", async () => {
     nextResponses = [
       { status: 404, body: null }, // new endpoint absent
-      // First message is fetched by its daemonMessageId.
       {
         status: 200,
         body: {
-          messageId: "daemon-1",
+          messageId: "raw-1",
           conversationKey: null,
           conversationId: null,
           conversationKind: "user",
@@ -248,7 +247,7 @@ describe("fetchConversationLlmContext — legacy fallback (404)", () => {
       },
     ];
     mockMessages = [
-      { id: "raw-1", daemonMessageId: "daemon-1" },
+      { id: "raw-1" },
       { id: "raw-2" },
       // Duplicate of #2 — should be deduped, not refetched.
       { id: "raw-2" },
@@ -259,7 +258,7 @@ describe("fetchConversationLlmContext — legacy fallback (404)", () => {
     expect(requests).toHaveLength(3); // 1 initial + 2 per-message
     expect(requests[1]!.path).toEqual({
       assistant_id: "asst-1",
-      message_id: "daemon-1",
+      message_id: "raw-1",
     });
     expect(requests[2]!.path).toEqual({
       assistant_id: "asst-1",

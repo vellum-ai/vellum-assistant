@@ -125,14 +125,13 @@ describe("TranscriptMessageBody", () => {
     expect(html).not.toContain(">Assistant<");
   });
 
-  test("passes daemon message id to inspect handler", () => {
+  test("passes message id to inspect handler", () => {
     const inspectedIds: string[] = [];
     const { getByTitle } = render(
       <TranscriptMessageBody
         message={{
           stableId: "stable-1",
           id: "local-1",
-          daemonMessageId: "daemon-1",
           role: "assistant",
           content: "hello",
         }}
@@ -144,7 +143,7 @@ describe("TranscriptMessageBody", () => {
     );
 
     fireEvent.click(getByTitle("Inspect"));
-    expect(inspectedIds).toEqual(["daemon-1"]);
+    expect(inspectedIds).toEqual(["local-1"]);
   });
 
   test("falls back to message id for inspect handler", () => {

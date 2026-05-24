@@ -240,13 +240,10 @@ export function reconcileMessages(
     null,
   );
 
-  // Build lookups of local messages by display id and concrete daemon row id so
-  // we can preserve client-side state (e.g. toolCalls accumulated from SSE
-  // events with richer streaming metadata). During reconnect/background gaps,
-  // history may return the merged display id before message_complete rewrites
-  // the local streamed row away from the concrete row id.
+  // Build a lookup of local messages by server-assigned id so we can preserve
+  // client-side state (e.g. toolCalls accumulated from SSE events with richer
+  // streaming metadata) when the server snapshot lands.
   const localById = new Map<string, DisplayMessage>();
-  const localByDaemonMessageId = new Map<string, DisplayMessage>();
   // Track which local messages have already been matched to a server row so
   // the fallback match (role + content + timestamp) used for optimistic rows
   // can't steal a local row that's already been claimed by the id lookup.
@@ -254,9 +251,6 @@ export function reconcileMessages(
   for (const m of local) {
     if (m.id) {
       localById.set(m.id, m);
-    }
-    if (m.daemonMessageId) {
-      localByDaemonMessageId.set(m.daemonMessageId, m);
     }
   }
 
@@ -270,11 +264,6 @@ export function reconcileMessages(
       const prepared = prepareServerMessage(m);
 
       let localMsg = localById.get(m.id);
-      if (!localMsg && m.daemonMessageId) {
-        localMsg =
-          localByDaemonMessageId.get(m.daemonMessageId) ??
-          localById.get(m.daemonMessageId);
-      }
       if (localMsg) {
         claimedLocal.add(localMsg);
       } else {
@@ -314,9 +303,6 @@ export function reconcileMessages(
       // "completed" and cause downstream bubble-split / footer-injection
       // glitches.
       if (localMsg?.isStreaming) msg.isStreaming = true;
-      if (m.daemonMessageId || localMsg?.daemonMessageId) {
-        msg.daemonMessageId = m.daemonMessageId ?? localMsg?.daemonMessageId;
-      }
       if (m.metadata) msg.metadata = m.metadata;
       if (m.subagentNotification) msg.isSubagentNotification = true;
       if (prepared.slackMessage ?? localMsg?.slackMessage) {
