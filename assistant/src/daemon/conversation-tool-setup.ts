@@ -655,8 +655,6 @@ export function createResolveToolsCallback(
     ctx.allowedToolNames = turnAllowed;
     const baseDefs = injectActivityField(allBaseDefs, ACTIVITY_SKIP_SET);
 
-    // Inject the switch_inference_profile tool when auto-routing is enabled
-    // and the model has multiple profiles to choose from.
     const config = getConfig();
     if (
       isAssistantFeatureFlagEnabled("query-complexity-routing", config) &&

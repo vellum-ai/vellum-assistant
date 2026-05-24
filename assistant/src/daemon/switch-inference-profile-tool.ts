@@ -3,6 +3,14 @@ import type { ToolDefinition } from "../providers/types.js";
 
 export const SWITCH_INFERENCE_PROFILE_TOOL_NAME = "switch_inference_profile";
 
+const PROFILE_DESCRIPTION_FALLBACKS: Record<string, string> = {
+  "quality-optimized":
+    "Most capable model for complex reasoning, multi-step analysis, math, and coding",
+  balanced: "Good balance of quality, cost, and speed for most tasks",
+  "cost-optimized":
+    "Fast responses for simple factual questions, short lookups, and casual chat",
+};
+
 export function buildSwitchInferenceProfileToolDef(
   profiles: Record<string, ProfileEntry>,
   currentProfile?: string,
@@ -15,15 +23,20 @@ export function buildSwitchInferenceProfileToolDef(
   const profileDescriptions = entries
     .map(([key, entry]) => {
       const label = entry.label ?? key;
-      const desc = entry.description ? `: ${entry.description}` : "";
+      const desc =
+        entry.description || PROFILE_DESCRIPTION_FALLBACKS[key] || "";
+      const descSuffix = desc ? `: ${desc}` : "";
       const current = key === currentProfile ? " (current)" : "";
-      return `- ${key} — ${label}${desc}${current}`;
+      return `- ${key} — ${label}${descSuffix}${current}`;
     })
     .join("\n");
 
+  const currentEntry = currentProfile ? profiles[currentProfile] : undefined;
+  const currentLabel = currentEntry?.label ?? currentProfile ?? "current";
+
   return {
     name: SWITCH_INFERENCE_PROFILE_TOOL_NAME,
-    description: `Switch to a different inference profile for this response. Only call this if the current profile is poorly suited for the query — e.g., a simple factual question is hitting a heavy reasoning model, or a complex multi-step problem needs a more capable model. Do NOT call this if the current profile is adequate.\n\nAvailable profiles:\n${profileDescriptions}`,
+    description: `Switch to a different inference profile BEFORE answering. You MUST call this tool when the user's query requires capabilities beyond what your current profile ("${currentLabel}") provides. Examples of when to switch to a more capable profile: multi-step reasoning or analysis, math proofs or derivations, complex coding tasks, detailed creative writing, or any task requiring deep thought. Examples of when to switch to a faster profile: simple greetings, one-word answers, factual lookups. When in doubt about whether you can handle the query well, switch to a more capable profile.\n\nAvailable profiles:\n${profileDescriptions}`,
     input_schema: {
       type: "object" as const,
       properties: {
