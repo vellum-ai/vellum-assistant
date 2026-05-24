@@ -186,6 +186,7 @@ interface ChromeTab {
   /** URL of a tab that hasn't committed yet (e.g. during loading). */
   pendingUrl?: string;
   active?: boolean;
+  pinned?: boolean;
   title?: string;
   index?: number;
 }
@@ -217,6 +218,11 @@ interface ChromeTabsCaptureVisibleTabOptions {
   quality?: number;
 }
 
+interface ChromeTabsOnRemovedEvent {
+  addListener(listener: (tabId: number, removeInfo: { windowId: number; isWindowClosing: boolean }) => void): void;
+  removeListener(listener: (tabId: number, removeInfo: { windowId: number; isWindowClosing: boolean }) => void): void;
+}
+
 interface ChromeTabsNamespace {
   query(queryInfo: ChromeTabsQueryInfo): Promise<ChromeTab[]>;
   get(tabId: number): Promise<ChromeTab>;
@@ -225,10 +231,12 @@ interface ChromeTabsNamespace {
     tabId: number,
     updateProperties: ChromeTabsUpdateProperties,
   ): Promise<ChromeTab | undefined>;
+  remove(tabIds: number | number[]): Promise<void>;
   captureVisibleTab(
     windowId: number,
     options?: ChromeTabsCaptureVisibleTabOptions,
   ): Promise<string>;
+  onRemoved: ChromeTabsOnRemovedEvent;
 }
 
 interface ChromeWindowsNamespace {
