@@ -67,8 +67,8 @@ interface UseConversationHistoryParams {
   activeConversationId: string | null;
 
   // Refs (owned by parent, read/written by this hook)
-  draftKeyResolutionRef: MutableRefObject<boolean>;
-  previousConversationKeyRef: MutableRefObject<string | null>;
+  draftConversationIdResolutionRef: MutableRefObject<boolean>;
+  previousConversationIdRef: MutableRefObject<string | null>;
 
   contextWindowUsageByConversationRef: MutableRefObject<Map<string, ContextWindowUsage>>;
   dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
@@ -111,8 +111,8 @@ export function useConversationHistory({
   assistantId,
   assistantStateKind,
   activeConversationId,
-  draftKeyResolutionRef,
-  previousConversationKeyRef,
+  draftConversationIdResolutionRef,
+  previousConversationIdRef,
   contextWindowUsageByConversationRef,
   dismissedSurfaceIdsRef,
   needsNewBubbleRef,
@@ -154,8 +154,8 @@ export function useConversationHistory({
     assistantId,
     assistantStateKind,
     activeConversationId,
-    draftKeyResolutionRef,
-    previousConversationKeyRef,
+    draftConversationIdResolutionRef,
+    previousConversationIdRef,
     needsNewBubbleRef,
     streamingMessageIdsRef,
     pendingQueuedStableIdsRef,

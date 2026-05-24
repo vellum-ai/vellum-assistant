@@ -38,8 +38,8 @@ export interface UseConversationSwitchParams {
   activeConversationId: string | null;
 
   // Refs owned by the parent that the reset clears or refreshes.
-  draftKeyResolutionRef: MutableRefObject<boolean>;
-  previousConversationKeyRef: MutableRefObject<string | null>;
+  draftConversationIdResolutionRef: MutableRefObject<boolean>;
+  previousConversationIdRef: MutableRefObject<string | null>;
   needsNewBubbleRef: MutableRefObject<boolean>;
   streamingMessageIdsRef: MutableRefObject<Set<string>>;
   pendingQueuedStableIdsRef: MutableRefObject<string[]>;
@@ -85,8 +85,8 @@ export function useConversationSwitch({
   assistantId,
   assistantStateKind,
   activeConversationId,
-  draftKeyResolutionRef,
-  previousConversationKeyRef,
+  draftConversationIdResolutionRef,
+  previousConversationIdRef,
   needsNewBubbleRef,
   streamingMessageIdsRef,
   pendingQueuedStableIdsRef,
@@ -116,28 +116,28 @@ export function useConversationSwitch({
     }
 
     // Draft-key resolution (draft→server ID) is not a real switch.
-    if (draftKeyResolutionRef.current) {
-      draftKeyResolutionRef.current = false;
+    if (draftConversationIdResolutionRef.current) {
+      draftConversationIdResolutionRef.current = false;
       return;
     }
 
     // Track outgoing conversation's attention state.
-    const outgoingKey = previousConversationKeyRef.current;
+    const outgoingConversationId = previousConversationIdRef.current;
     const isConversationSwitch = Boolean(
-      outgoingKey && outgoingKey !== activeConversationId,
+      outgoingConversationId && outgoingConversationId !== activeConversationId,
     );
-    if (isConversationSwitch && outgoingKey) {
+    if (isConversationSwitch && outgoingConversationId) {
       const interactionSnapshot = useInteractionStore.getState();
       if (interactionSnapshot.pendingSecret || interactionSnapshot.pendingConfirmation) {
-        useConversationStore.getState().addAttentionConversationId(outgoingKey);
+        useConversationStore.getState().addAttentionConversationId(outgoingConversationId);
       }
     }
-    previousConversationKeyRef.current = activeConversationId;
+    previousConversationIdRef.current = activeConversationId;
 
     recordChatDiagnostic("conversation_switch_reset", {
       assistantId,
       conversationId: activeConversationId,
-      outgoingConversationId: outgoingKey ?? null,
+      outgoingConversationId: outgoingConversationId ?? null,
     });
 
     // Reset all per-conversation state so nothing leaks between threads.
@@ -183,8 +183,8 @@ export function useConversationSwitch({
     activeConversationId,
     resetChatAttachments,
     // Refs (stable references, listed for completeness):
-    draftKeyResolutionRef,
-    previousConversationKeyRef,
+    draftConversationIdResolutionRef,
+    previousConversationIdRef,
     contextWindowUsageByConversationRef,
     dismissedSurfaceIdsRef,
     needsNewBubbleRef,

@@ -260,12 +260,12 @@ export function ChatPage() {
   const needsNewBubbleRef = useRef(true);
   const dismissedSurfaceIdsRef = useRef<Set<string>>(new Set());
   const pendingOnboardingContextRef = useRef<PreChatOnboardingContext | null>(null);
-  const onboardingDraftConversationKeyRef = useRef<string | null>(null);
+  const onboardingDraftConversationIdRef = useRef<string | null>(null);
   const [didOnboarding, setDidOnboarding] = useState(false);
   const [onboardingTasksEmpty, setOnboardingTasksEmpty] = useState(false);
   const [onboardingConversationId, setOnboardingConversationId] = useState<string | null>(null);
-  const draftKeyResolutionRef = useRef(false);
-  const previousConversationKeyRef = useRef<string | null>(null);
+  const draftConversationIdResolutionRef = useRef(false);
+  const previousConversationIdRef = useRef<string | null>(null);
   const pendingQueuedStableIdsRef = useRef<string[]>([]);
   const requestIdToStableIdRef = useRef<Map<string, string>>(new Map());
   const pendingLocalDeletionsRef = useRef<Set<string>>(new Set());
@@ -328,7 +328,7 @@ export function ChatPage() {
   const { input, setInput, saveDraft, clearDraft } = useDraftInput({
     assistantId,
     activeConversationId,
-    draftKeyResolutionRef,
+    draftConversationIdResolutionRef,
     onDraftRestored: setRestoredDraftConversationKey,
   });
 
@@ -408,9 +408,9 @@ export function ChatPage() {
     refreshEpoch,
     reachabilityReadyEpoch,
     assistantIdRef,
-    draftKeyResolutionRef,
-    previousConversationKeyRef,
-    onboardingDraftConversationKeyRef,
+    draftConversationIdResolutionRef,
+    previousConversationIdRef,
+    onboardingDraftConversationIdRef,
     activeConversationIdRef,
     contextWindowUsageByConversationRef,
     dismissedSurfaceIdsRef,
@@ -473,16 +473,16 @@ export function ChatPage() {
     autoGreetRef.current = true;
     setDidOnboarding(true);
     setAutoGreetPending(true);
-    const onboardingDraftKey =
-      onboardingDraftConversationKeyRef.current ?? createDraftConversationId();
-    onboardingDraftConversationKeyRef.current = onboardingDraftKey;
-    setOnboardingConversationId(onboardingDraftKey);
-    useConversationStore.getState().setActiveConversationId(onboardingDraftKey);
+    const onboardingDraftConversationId =
+      onboardingDraftConversationIdRef.current ?? createDraftConversationId();
+    onboardingDraftConversationIdRef.current = onboardingDraftConversationId;
+    setOnboardingConversationId(onboardingDraftConversationId);
+    useConversationStore.getState().setActiveConversationId(onboardingDraftConversationId);
     // Do NOT drain sessionStorage here — this ChatPage instance unmounts
     // when we navigate to /conversations/:key (different route entry),
     // losing all refs. Leave the context in sessionStorage so the new
     // mount's sendMessage hook and auto-send effect can consume it.
-    void navigate(routes.conversation(onboardingDraftKey), { replace: true });
+    void navigate(routes.conversation(onboardingDraftConversationId), { replace: true });
   }, [searchParams, navigate]);
 
   // -------------------------------------------------------------------------
@@ -613,9 +613,9 @@ export function ChatPage() {
     needsNewBubbleRef,
     dismissedSurfaceIdsRef,
     pendingOnboardingContextRef,
-    onboardingDraftConversationKeyRef,
-    draftKeyResolutionRef,
-    previousConversationKeyRef,
+    onboardingDraftConversationIdRef,
+    draftConversationIdResolutionRef,
+    previousConversationIdRef,
     pendingQueuedStableIdsRef,
     requestIdToStableIdRef,
     pendingLocalDeletionsRef,
