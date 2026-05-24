@@ -146,6 +146,52 @@ private actor RecordingConversationListClient: ConversationListClientProtocol {
     func sendConversationSeen(_ signal: ConversationSeenSignal) async -> Bool { true }
 }
 
+/// Mock that returns paged responses (`hasMore=true` until the configured
+/// total is exhausted) so tests can verify the restorer drains every page
+/// instead of stopping at the first.
+private actor PagedConversationListClient: ConversationListClientProtocol {
+    private let totalsByType: [String?: Int]
+    private(set) var fetchRequests: [(offset: Int, limit: Int, conversationType: String?)] = []
+
+    init(totalForeground: Int, totalBackground: Int) {
+        self.totalsByType = [nil: totalForeground, "background": totalBackground]
+    }
+
+    func fetchConversationList(offset: Int, limit: Int, conversationType: String?) async -> ConversationListResponse? {
+        fetchRequests.append((offset: offset, limit: limit, conversationType: conversationType))
+        let total = totalsByType[conversationType] ?? 0
+        let remaining = max(0, total - offset)
+        let pageCount = min(remaining, limit)
+        let prefix = conversationType ?? "fg"
+        let items: [ConversationListResponseItem] = (0..<pageCount).map { i in
+            let dict: [String: Any] = [
+                "id": "\(prefix)-\(offset + i)",
+                "title": "row \(offset + i)",
+                "updatedAt": 1_700_000_000 + offset + i,
+            ]
+            let data = try! JSONSerialization.data(withJSONObject: dict)
+            return try! JSONDecoder().decode(ConversationListResponseItem.self, from: data)
+        }
+        let nextOffset = offset + pageCount
+        return ConversationListResponse(
+            type: "conversation_list_response",
+            conversations: items,
+            hasMore: nextOffset < total,
+            nextOffset: nextOffset,
+            groups: nil
+        )
+    }
+
+    func switchConversation(conversationId: String) async -> Bool { true }
+    func renameConversation(conversationId: String, name: String) async -> Bool { true }
+    func clearAllConversations() async -> Bool { true }
+    func cancelGeneration(conversationId: String) async -> Bool { true }
+    func undoLastMessage(conversationId: String) async -> Int? { nil }
+    func searchConversations(query: String, limit: Int?, maxMessagesPerConversation: Int?) async -> ConversationSearchResponse? { nil }
+    func reorderConversations(updates: [ReorderConversationsRequestUpdate]) async -> Bool { true }
+    func sendConversationSeen(_ signal: ConversationSeenSignal) async -> Bool { true }
+}
+
 // MARK: - Helpers
 
 /// Build a ConversationListResponseMessage via JSON round-trip.
@@ -915,6 +961,42 @@ struct ConversationRestorerTests {
 
         try? await Task.sleep(nanoseconds: 500_000_000)
         #expect(await listClient.fetchRequests.count == 2)
+    }
+
+    @Test @MainActor
+    func fetchConversationListPaginatesUntilHasMoreIsFalse() async {
+        let dc = GatewayConnectionManager()
+        let listClient = PagedConversationListClient(totalForeground: 450, totalBackground: 700)
+        let restorer = ConversationRestorer(
+            connectionManager: dc,
+            eventStreamClient: dc.eventStreamClient,
+            conversationHistoryClient: NoopConversationHistoryClient(),
+            conversationListClient: listClient
+        )
+        let delegate = MockConversationRestorerDelegate(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
+        restorer.delegate = delegate
+
+        restorer.scheduleInvalidationRefetch()
+
+        // scheduleInvalidationRefetch debounces 250ms before fetching; give the
+        // pagination loop enough time to drain both endpoints.
+        try? await Task.sleep(nanoseconds: 1_500_000_000)
+
+        // Foreground: 450 rows -> ceil(450/200) = 3 pages (offsets 0, 200, 400).
+        // Background: 700 rows -> ceil(700/200) = 4 pages (offsets 0, 200, 400, 600).
+        let requests = await listClient.fetchRequests
+        let foregroundRequests = requests.filter { $0.conversationType == nil }
+        let backgroundRequests = requests.filter { $0.conversationType == "background" }
+        #expect(foregroundRequests.count == 3)
+        #expect(backgroundRequests.count == 4)
+        #expect(foregroundRequests.map(\.offset) == [0, 200, 400])
+        #expect(backgroundRequests.map(\.offset) == [0, 200, 400, 600])
+
+        // After draining, every row from both endpoints should be present and
+        // the sidebar's "Load More" affordance should be disabled.
+        #expect(delegate.conversations.count == 1150)
+        #expect(delegate.hasMoreConversations == false)
+        #expect(delegate.serverOffset == 450)
     }
 
     @Test @MainActor
