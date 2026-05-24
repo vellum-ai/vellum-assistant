@@ -6,7 +6,10 @@ import { join } from "node:path";
 import {
   cleanupOrphanedEvalContainers,
   EVAL_CONTAINER_SUFFIXES,
+  EVAL_NETWORK_SUFFIX,
+  EVAL_VOLUME_SUFFIXES,
   inferRunIdFromContainerName,
+  removeOrphanedRunResources,
   shouldRemoveOrphan,
 } from "../orphan-cleanup";
 import type {
@@ -72,6 +75,14 @@ describe("EVAL_CONTAINER_SUFFIXES order", () => {
     );
     expect(hermesJailIdx).toBeLessThan(hermesIdx);
   });
+
+  test("includes the gateway + credential-executor containers vellum hatch creates", () => {
+    // The original PR #31918 sweep missed these two, leaving the
+    // gateway container's host port 20100 reservation alive and
+    // causing the next run to fail with `port is already allocated`.
+    expect(EVAL_CONTAINER_SUFFIXES).toContain("-gateway");
+    expect(EVAL_CONTAINER_SUFFIXES).toContain("-credential-executor");
+  });
 });
 
 describe("inferRunIdFromContainerName", () => {
@@ -82,6 +93,14 @@ describe("inferRunIdFromContainerName", () => {
     ],
     [
       "eval-vellum-bare-timeline-recall-20260520135745-assistant-egress-jail",
+      "eval-vellum-bare-timeline-recall-20260520135745",
+    ],
+    [
+      "eval-vellum-bare-timeline-recall-20260520135745-gateway",
+      "eval-vellum-bare-timeline-recall-20260520135745",
+    ],
+    [
+      "eval-vellum-bare-timeline-recall-20260520135745-credential-executor",
       "eval-vellum-bare-timeline-recall-20260520135745",
     ],
     [
@@ -201,6 +220,92 @@ describe("shouldRemoveOrphan", () => {
   });
 });
 
+describe("removeOrphanedRunResources", () => {
+  test("issues docker rm for every container suffix + network rm + volume rm per suffix", async () => {
+    const runId = "eval-vellum-bare-x-20260524160000";
+    const runner = new ScriptedRunner(async () => ({
+      exitCode: 0,
+      stdout: "",
+      stderr: "",
+    }));
+
+    const counts = await removeOrphanedRunResources(runner, runId);
+
+    // Containers: one `docker rm -f` per suffix.
+    const rmContainerCalls = runner.calls.filter(
+      (c) => c.args[0] === "rm" && c.args[1] === "-f",
+    );
+    expect(rmContainerCalls).toHaveLength(EVAL_CONTAINER_SUFFIXES.length);
+    for (const suffix of EVAL_CONTAINER_SUFFIXES) {
+      expect(
+        rmContainerCalls.some((c) => c.args[2] === `${runId}${suffix}`),
+      ).toBe(true);
+    }
+
+    // Network: exactly one `docker network rm`.
+    const netCalls = runner.calls.filter(
+      (c) => c.args[0] === "network" && c.args[1] === "rm",
+    );
+    expect(netCalls).toHaveLength(1);
+    expect(netCalls[0].args[2]).toBe(`${runId}${EVAL_NETWORK_SUFFIX}`);
+
+    // Volumes: one `docker volume rm` per suffix.
+    const volCalls = runner.calls.filter(
+      (c) => c.args[0] === "volume" && c.args[1] === "rm",
+    );
+    expect(volCalls).toHaveLength(EVAL_VOLUME_SUFFIXES.length);
+    for (const suffix of EVAL_VOLUME_SUFFIXES) {
+      expect(volCalls.some((c) => c.args[2] === `${runId}${suffix}`)).toBe(
+        true,
+      );
+    }
+
+    expect(counts.containers).toBe(EVAL_CONTAINER_SUFFIXES.length);
+    expect(counts.networks).toBe(1);
+    expect(counts.volumes).toBe(EVAL_VOLUME_SUFFIXES.length);
+  });
+
+  test("a missing-container exit (1) does not count as removed but does not throw", async () => {
+    const runner = new ScriptedRunner(async () => ({
+      exitCode: 1,
+      stdout: "",
+      stderr: "Error: No such container",
+    }));
+    const counts = await removeOrphanedRunResources(
+      runner,
+      "eval-x-y-12345678901234",
+    );
+    expect(counts.containers).toBe(0);
+    expect(counts.networks).toBe(0);
+    expect(counts.volumes).toBe(0);
+  });
+
+  test("a thrown spawn error per resource is swallowed so one failure doesn't block the rest", async () => {
+    let calls = 0;
+    const runner = new ScriptedRunner(async () => {
+      calls += 1;
+      // First call (first container) throws; everything after returns
+      // success. The function should not propagate the throw and
+      // should still tally the successful removals.
+      if (calls === 1) throw new Error("simulated spawn failure");
+      return { exitCode: 0, stdout: "", stderr: "" };
+    });
+
+    const counts = await removeOrphanedRunResources(
+      runner,
+      "eval-x-y-12345678901234",
+    );
+    // Total resource attempts: containers + 1 network + volumes
+    const totalAttempts =
+      EVAL_CONTAINER_SUFFIXES.length + 1 + EVAL_VOLUME_SUFFIXES.length;
+    expect(calls).toBe(totalAttempts);
+    // First container threw → not counted. Remaining containers + net + vols all succeeded.
+    expect(counts.containers).toBe(EVAL_CONTAINER_SUFFIXES.length - 1);
+    expect(counts.networks).toBe(1);
+    expect(counts.volumes).toBe(EVAL_VOLUME_SUFFIXES.length);
+  });
+});
+
 describe("cleanupOrphanedEvalContainers", () => {
   async function setupRunsDir(
     runs: Array<{ runId: string; metadata?: RunMetadata }>,
@@ -216,7 +321,7 @@ describe("cleanupOrphanedEvalContainers", () => {
     return dir;
   }
 
-  test("removes orphaned containers and keeps fresh ones — end-to-end sweep", async () => {
+  test("removes orphaned runs and keeps fresh ones — end-to-end sweep", async () => {
     const NOW_MS = new Date("2026-05-23T14:42:05Z").getTime();
     const fresh = new Date(NOW_MS - 5_000).toISOString();
     const stale = new Date(NOW_MS - 120_000).toISOString();
@@ -259,14 +364,16 @@ describe("cleanupOrphanedEvalContainers", () => {
       // (4. No metadata at all — directory missing, simulated below)
     ]);
     try {
-      // docker ps -a returns 5 containers — fresh, stale, done, ghost
-      // (no .runs dir), and an unrelated container that must be left
-      // alone.
+      // docker ps -a returns 5 eval containers spread across 4 runs
+      // (fresh with assistant+jail, stale with assistant+gateway,
+      // done with credential-executor, ghost with assistant) plus an
+      // unrelated container that must be left alone.
       const dockerNames = [
         "eval-vellum-fresh-12345678901234-assistant",
         "eval-vellum-fresh-12345678901234-assistant-egress-jail",
         "eval-vellum-stale-12345678901235-assistant",
-        "eval-vellum-done-12345678901236-assistant",
+        "eval-vellum-stale-12345678901235-gateway",
+        "eval-vellum-done-12345678901236-credential-executor",
         "eval-vellum-ghost-12345678901237-assistant",
         "my-unrelated-app",
       ];
@@ -278,7 +385,12 @@ describe("cleanupOrphanedEvalContainers", () => {
             stderr: "",
           };
         }
-        if (command === "docker" && args[0] === "rm") {
+        if (
+          command === "docker" &&
+          (args[0] === "rm" ||
+            (args[0] === "network" && args[1] === "rm") ||
+            (args[0] === "volume" && args[1] === "rm"))
+        ) {
           return { exitCode: 0, stdout: "", stderr: "" };
         }
         throw new Error(`unexpected docker call: ${command} ${args.join(" ")}`);
@@ -291,28 +403,81 @@ describe("cleanupOrphanedEvalContainers", () => {
       });
 
       expect(report.skipReason).toBeUndefined();
-      // Removed: stale, done, ghost. Kept: fresh + its egress jail
-      // (both belong to the same fresh runId).
-      expect(report.removed).toBe(3);
-      expect(report.kept).toBe(2);
-      const removedSet = new Set(report.removedNames);
-      expect(removedSet.has("eval-vellum-stale-12345678901235-assistant")).toBe(
-        true,
+      // Removed: stale, done, ghost. Kept: fresh.
+      expect(report.removedRuns).toBe(3);
+      expect(report.keptRuns).toBe(1);
+      const removedSet = new Set(report.removedRunIds);
+      expect(removedSet.has("eval-vellum-stale-12345678901235")).toBe(true);
+      expect(removedSet.has("eval-vellum-done-12345678901236")).toBe(true);
+      expect(removedSet.has("eval-vellum-ghost-12345678901237")).toBe(true);
+      expect(removedSet.has("eval-vellum-fresh-12345678901234")).toBe(false);
+      // Unrelated container never participates.
+      const unrelatedCalls = runner.calls.filter((c) =>
+        c.args.includes("my-unrelated-app"),
       );
-      expect(removedSet.has("eval-vellum-done-12345678901236-assistant")).toBe(
-        true,
+      expect(unrelatedCalls).toHaveLength(0);
+      // Per-resource counts reflect the full sweep: 3 removed runs ×
+      // (container suffixes + 1 network + volume suffixes).
+      expect(report.removedContainers).toBe(3 * EVAL_CONTAINER_SUFFIXES.length);
+      expect(report.removedNetworks).toBe(3);
+      expect(report.removedVolumes).toBe(3 * EVAL_VOLUME_SUFFIXES.length);
+    } finally {
+      await rm(runsDir, { recursive: true, force: true });
+    }
+  });
+
+  test("dedupes runIds across multiple matching container suffixes — reads metadata once per run", async () => {
+    // A real run has assistant + gateway + credential-executor + jail
+    // — 4 containers, one runId. The cleanup should call
+    // `readRunMetadata` (i.e. inspect the runs dir) exactly once and
+    // issue the full resource sweep exactly once.
+    const NOW_MS = Date.now();
+    const stale = new Date(NOW_MS - 120_000).toISOString();
+    const runId = "eval-vellum-bare-x-20260524160000";
+    const runsDir = await setupRunsDir([
+      {
+        runId,
+        metadata: {
+          runId,
+          profileId: "vellum-bare",
+          testId: "x",
+          status: "running",
+          lastHeartbeatAt: stale,
+          artifactDir: "",
+        },
+      },
+    ]);
+    try {
+      const runner = new ScriptedRunner(async (command, args) => {
+        if (command === "docker" && args[0] === "ps") {
+          return {
+            exitCode: 0,
+            stdout: [
+              `${runId}-assistant`,
+              `${runId}-assistant-egress-jail`,
+              `${runId}-gateway`,
+              `${runId}-credential-executor`,
+            ].join("\n"),
+            stderr: "",
+          };
+        }
+        return { exitCode: 0, stdout: "", stderr: "" };
+      });
+
+      const report = await cleanupOrphanedEvalContainers({
+        runner,
+        runsDir,
+        now: () => NOW_MS,
+      });
+      expect(report.removedRuns).toBe(1);
+      expect(report.removedRunIds).toEqual([runId]);
+      // Exactly one full resource sweep (container removals are
+      // attempted for every suffix, not just the ones that appeared
+      // in `docker ps`).
+      const containerRms = runner.calls.filter(
+        (c) => c.args[0] === "rm" && c.args[1] === "-f",
       );
-      expect(removedSet.has("eval-vellum-ghost-12345678901237-assistant")).toBe(
-        true,
-      );
-      expect(removedSet.has("eval-vellum-fresh-12345678901234-assistant")).toBe(
-        false,
-      );
-      // Unrelated container is never touched.
-      expect(removedSet.has("my-unrelated-app")).toBe(false);
-      // Exactly one docker ps + one docker rm per removed container.
-      const rmCalls = runner.calls.filter((c) => c.args[0] === "rm");
-      expect(rmCalls).toHaveLength(3);
+      expect(containerRms).toHaveLength(EVAL_CONTAINER_SUFFIXES.length);
     } finally {
       await rm(runsDir, { recursive: true, force: true });
     }
@@ -326,8 +491,8 @@ describe("cleanupOrphanedEvalContainers", () => {
       runner,
       runsDir: ".runs",
     });
-    expect(report.removed).toBe(0);
-    expect(report.kept).toBe(0);
+    expect(report.removedRuns).toBe(0);
+    expect(report.keptRuns).toBe(0);
     expect(report.skipReason).toContain("ENOENT");
   });
 
@@ -341,7 +506,7 @@ describe("cleanupOrphanedEvalContainers", () => {
       runner,
       runsDir: ".runs",
     });
-    expect(report.removed).toBe(0);
+    expect(report.removedRuns).toBe(0);
     expect(report.skipReason).toContain("permission denied");
   });
 });
