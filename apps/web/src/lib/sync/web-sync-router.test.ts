@@ -7,6 +7,13 @@
  * with our own origin id (reconnect-redeliver, direct injection path,
  * etc.), the router drops it before any handler can fight the
  * optimistic update the originating mutation already applied.
+ *
+ * The router resolves "own id" via the module-level singleton in
+ * `@/lib/telemetry/client-identity`. Tests read the same singleton to
+ * synthesize a matching event id, and pick any other uuid to exercise
+ * the "differs" branch.
+ *
+ * @jest-environment happy-dom
  */
 
 import { describe, expect, test } from "bun:test";
@@ -18,17 +25,15 @@ import {
   SYNC_TAGS,
   type SyncChangedEvent,
 } from "@/lib/sync/types.js";
+import { getClientId } from "@/lib/telemetry/client-identity.js";
 
-const OWN_CLIENT_ID = "11111111-1111-1111-1111-111111111111";
 const OTHER_CLIENT_ID = "22222222-2222-2222-2222-222222222222";
 
 interface HarnessOptions {
-  ownClientId?: string;
   activeConversationId?: string | null;
 }
 
 function createHarness(opts: HarnessOptions = {}) {
-  const ownClientId = opts.ownClientId ?? OWN_CLIENT_ID;
   const activeConversationIdRef = {
     current: opts.activeConversationId ?? null,
   };
@@ -65,18 +70,17 @@ function createHarness(opts: HarnessOptions = {}) {
       calls.refreshActiveConversationMessages += 1;
       return { changed: false, messagesAdded: 0, assistantProgress: false };
     },
-    getOwnClientId: () => ownClientId,
   });
   return { router, calls, activeConversationIdRef };
 }
 
 describe("createWebSyncRouter — self-echo drop", () => {
-  test("drops sync_changed when originClientId matches own id", async () => {
+  test("drops sync_changed when originClientId matches our own client id", async () => {
     const { router, calls } = createHarness();
     const event: SyncChangedEvent = {
       type: "sync_changed",
       tags: [SYNC_TAGS.assistantAvatar, SYNC_TAGS.conversationsList],
-      originClientId: OWN_CLIENT_ID,
+      originClientId: getClientId(),
     };
 
     const result = await router.dispatchSyncChanged(event);
@@ -91,7 +95,7 @@ describe("createWebSyncRouter — self-echo drop", () => {
     expect(calls.scheduleConversationListRefetch).toBe(0);
   });
 
-  test("dispatches normally when originClientId differs from own id", async () => {
+  test("dispatches normally when originClientId differs from our own", async () => {
     const { router, calls } = createHarness();
     const event: SyncChangedEvent = {
       type: "sync_changed",
@@ -123,13 +127,12 @@ describe("createWebSyncRouter — self-echo drop", () => {
     expect(calls.scheduleConversationListRefetch).toBe(1);
   });
 
-  test("does not drop when origin id is empty string", async () => {
+  test("does not drop when originClientId is empty string", async () => {
     // An empty origin id should never have been emitted in the first
     // place — the daemon trims and only sets the field when truthy.
-    // Pin the invariant: even if "" sneaks through and matches our
-    // own id (also somehow ""), we still dispatch. Empty is never a
-    // real match.
-    const { router, calls } = createHarness({ ownClientId: "" });
+    // Pin the invariant: even if "" sneaks through, we still dispatch.
+    // Empty is never a real match.
+    const { router, calls } = createHarness();
     const event: SyncChangedEvent = {
       type: "sync_changed",
       tags: [SYNC_TAGS.assistantAvatar],
@@ -155,7 +158,7 @@ describe("createWebSyncRouter — self-echo drop", () => {
         conversationMetadataSyncTag(conversationId),
         conversationMessagesSyncTag(conversationId),
       ],
-      originClientId: OWN_CLIENT_ID,
+      originClientId: getClientId(),
     };
 
     await router.dispatchSyncChanged(event);
@@ -176,41 +179,5 @@ describe("createWebSyncRouter — self-echo drop", () => {
     expect(result.dispatch.invokedHandlers).toBeGreaterThan(0);
     expect(calls.invalidateAvatar).toBe(1);
     expect(calls.scheduleConversationListRefetch).toBe(1);
-  });
-});
-
-describe("createWebSyncRouter — default getClientId", () => {
-  test("falls back to module getClientId when option is omitted", async () => {
-    // Smoke test for the default branch: when getOwnClientId is not
-    // provided, the router resolves to the module-level getClientId().
-    // We can't easily assert the id value (it's a uuid bound to the
-    // happy-dom process), but we can assert that dispatch with an
-    // origin id we *know* doesn't match it still fires handlers.
-    const activeConversationIdRef = { current: null as string | null };
-    let invalidateAvatarCalls = 0;
-    const router = createWebSyncRouter({
-      activeConversationIdRef,
-      invalidateAvatar: () => {
-        invalidateAvatarCalls += 1;
-      },
-      refreshAssistantIdentity: async () => {},
-      invalidateAssistantConfig: () => {},
-      invalidateAssistantSounds: () => {},
-      invalidateAssistantSchedules: () => {},
-      scheduleConversationListRefetch: () => {},
-      refreshActiveConversationMessages: async () => ({
-        changed: false,
-        messagesAdded: 0,
-        assistantProgress: false,
-      }),
-    });
-
-    await router.dispatchSyncChanged({
-      type: "sync_changed",
-      tags: [SYNC_TAGS.assistantAvatar],
-      originClientId: "00000000-0000-0000-0000-deadbeef0000",
-    });
-
-    expect(invalidateAvatarCalls).toBe(1);
   });
 });

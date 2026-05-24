@@ -31,13 +31,6 @@ export interface WebSyncRouterOptions {
   invalidateAssistantSchedules: () => void;
   scheduleConversationListRefetch: () => void;
   refreshActiveConversationMessages: () => Promise<ActiveConversationMessagesRefreshResult>;
-  /**
-   * Override for the page's own client id. Defaults to `getClientId()` from
-   * `@/lib/telemetry/client-identity`. Tests pass a stub so they can pin
-   * both the "origin id matches" and "origin id differs" branches without
-   * busting the module cache of the singleton.
-   */
-  getOwnClientId?: () => string;
 }
 
 const EMPTY_DISPATCH_RESULT: SyncDispatchResult = {
@@ -62,7 +55,6 @@ export function createWebSyncRouter(
   options: WebSyncRouterOptions,
 ): WebSyncRouter {
   const registry = createSyncTagRegistry();
-  const getOwnClientId = options.getOwnClientId ?? getClientId;
   const registrations: SyncHandlerRegistration[] = [
     registry.register(SYNC_TAGS.assistantAvatar, options.invalidateAvatar),
     registry.register(SYNC_TAGS.assistantIdentity, () =>
@@ -117,7 +109,7 @@ export function createWebSyncRouter(
       // check so an accidental "" never collapses to a self-match.
       if (
         event.originClientId &&
-        event.originClientId === getOwnClientId()
+        event.originClientId === getClientId()
       ) {
         return Promise.resolve(EMPTY_DISPATCH_RESULT);
       }
