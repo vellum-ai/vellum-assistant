@@ -137,6 +137,7 @@ export function ChatPage() {
   const deployToVercel = useAssistantFeatureFlagStore.use.deployToVercel();
   const doctor = useClientFeatureFlagStore.use.doctor();
   const conversationGroupsUI = useAssistantFeatureFlagStore.use.conversationGroupsUI();
+  const selfHostedChatEnabled = useClientFeatureFlagStore.use.selfHostedAssistant();
 
   // -------------------------------------------------------------------------
   // Local state
@@ -178,13 +179,20 @@ export function ChatPage() {
   // Conversation list / groups (server state via TanStack Query)
   // -------------------------------------------------------------------------
   const isAssistantActive = assistantState.kind === "active";
+  // The chat surface also renders for self-hosted assistants when the
+  // `self-hosted-assistant` flag is on (see the early-return below). In that
+  // mode the assistant is reachable from the API just like an active one, so
+  // queries / effects that gate on "assistant can be talked to" should fire.
+  const shouldRenderChat =
+    isAssistantActive ||
+    (assistantState.kind === "self_hosted" && selfHostedChatEnabled);
   const { conversations } = useConversationListQuery(
     assistantId,
-    isAssistantActive,
+    shouldRenderChat,
   );
   const { conversationGroups } = useConversationGroupsQuery(
     assistantId,
-    isAssistantActive && conversationGroupsUI,
+    shouldRenderChat && conversationGroupsUI,
   );
 
   // -------------------------------------------------------------------------
@@ -311,7 +319,7 @@ export function ChatPage() {
   // -------------------------------------------------------------------------
   const diskPressure = useDiskPressureMonitor({
     assistantId,
-    enabled: assistantState.kind === "active",
+    enabled: shouldRenderChat,
   });
   const diskPressureChatBlockReason = getDiskPressureChatBlockReason({
     monitorEnabled: diskPressure.mode !== null,
@@ -508,9 +516,9 @@ export function ChatPage() {
   );
 
   useEffect(() => {
-    if (assistantState.kind !== "active" || !assistantId) return;
+    if (!shouldRenderChat || !assistantId) return;
     void refreshAssistantIdentity();
-  }, [assistantState.kind, assistantId, reachabilityReadyEpoch, refreshAssistantIdentity]);
+  }, [shouldRenderChat, assistantId, reachabilityReadyEpoch, refreshAssistantIdentity]);
 
   // -------------------------------------------------------------------------
   // Sync router
@@ -1321,7 +1329,7 @@ export function ChatPage() {
     return <PlatformHostedScreen />;
   }
 
-  if (assistantState.kind === "self_hosted") {
+  if (assistantState.kind === "self_hosted" && !selfHostedChatEnabled) {
     return <SelfHostedScreen />;
   }
 
@@ -1344,7 +1352,9 @@ export function ChatPage() {
   }
 
   // -------------------------------------------------------------------------
-  // Props assembly (only reached when assistantState.kind === "active")
+  // Props assembly (only reached when shouldRenderChat is true — i.e.
+  // assistantState.kind === "active", or self_hosted with the
+  // `self-hosted-assistant` flag on)
   // -------------------------------------------------------------------------
   const handleReviewDiskUsage = () => {
     haptic.light();
