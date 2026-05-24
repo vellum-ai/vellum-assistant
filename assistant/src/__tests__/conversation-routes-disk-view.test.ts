@@ -498,13 +498,23 @@ describe("macOS browser backend fallback (no extension, no cdp-inspect)", () => 
   });
 });
 
-describe("LUM-1890 Phase 1 bilingual — POST /v1/messages accepts body.conversationId", () => {
-  // The handler accepts both `body.conversationKey` (legacy) and
-  // `body.conversationId` (canonical). When both are sent, `conversationId`
-  // wins. These tests are removable after Phase 4 deprecates `conversationKey`
-  // on the wire.
+describe("POST /v1/messages — body.conversationId direct id lookup", () => {
+  // The handler accepts two scope inputs with distinct semantics:
+  //
+  //   - `body.conversationId` is the assistant-minted internal id and is
+  //     looked up directly. A missing row is a 404 — clients must obtain
+  //     the id from a prior daemon response.
+  //   - `body.conversationKey` is an external key (non-vellum channels /
+  //     web idempotency); resolved via the conversation_keys table and
+  //     materialised on first use.
+  //
+  // When both are sent, `conversationId` wins and `conversationKey` is
+  // ignored. (Don't combine — fetch by one and then the other.)
 
-  async function sendMessage(body: Record<string, unknown>): Promise<Response> {
+  async function sendMessage(
+    body: Record<string, unknown>,
+    successStatus = 202,
+  ): Promise<Response> {
     return callHandler(
       (args) =>
         handleSendMessage(args, {
@@ -524,15 +534,19 @@ describe("LUM-1890 Phase 1 bilingual — POST /v1/messages accepts body.conversa
         body: JSON.stringify(body),
       }),
       undefined,
-      202,
+      successStatus,
     );
   }
 
-  test("body.conversationId alone resolves and persists like body.conversationKey", async () => {
-    const conversationId = `phase1-id-only-${crypto.randomUUID()}`;
+  test("body.conversationId=<existing-id> scopes the send to that conversation", async () => {
+    // Pre-materialise a conversation via the key path, then send a message
+    // by its assistant-minted internal id.
+    const externalKey = `pre-materialised-${crypto.randomUUID()}`;
+    const seeded = getOrCreateConversationMapping(externalKey);
+
     const response = await sendMessage({
-      conversationId,
-      content: "Bilingual surface 1 — conversationId only.",
+      conversationId: seeded.conversationId,
+      content: "Direct id lookup — should reuse the existing conversation.",
       sourceChannel: "vellum",
       interface: "macos",
     });
@@ -543,36 +557,53 @@ describe("LUM-1890 Phase 1 bilingual — POST /v1/messages accepts body.conversa
       conversationId: string;
     };
     expect(body.accepted).toBe(true);
+    expect(body.conversationId).toBe(seeded.conversationId);
 
-    // The key store mapping must be created under the inbound value, so
-    // a subsequent send under either field name resolves to the same row.
-    const mapping = getOrCreateConversationMapping(conversationId);
-    expect(mapping.created).toBe(false);
-    expect(mapping.conversationId).toBe(body.conversationId);
+    // No new external-key row should be materialised under the internal id.
+    expect(getConversationByKey(seeded.conversationId)).toBeNull();
   });
 
-  test("body.conversationId wins over body.conversationKey when both are sent", async () => {
-    const idValue = `phase1-id-wins-${crypto.randomUUID()}`;
-    const keyValue = `phase1-key-loses-${crypto.randomUUID()}`;
+  test("body.conversationId=<non-existent-id> returns 404", async () => {
+    const response = await sendMessage(
+      {
+        conversationId: `does-not-exist-${crypto.randomUUID()}`,
+        content: "Should 404 — unknown internal id.",
+        sourceChannel: "vellum",
+        interface: "macos",
+      },
+      404,
+    );
+    expect(response.status).toBe(404);
+    const body = (await response.json()) as {
+      error?: { code?: string; message?: string };
+    };
+    expect(body.error?.code).toBe("NOT_FOUND");
+    expect(body.error?.message).toMatch(/not found/i);
+  });
+
+  test("body.conversationId is honored and body.conversationKey is ignored when both are sent", async () => {
+    // Seed a conversation for the id we'll send. Also seed a separate
+    // conversation under a key the client will pass alongside — but the
+    // handler must scope to the id, NOT the key.
+    const idSeed = getOrCreateConversationMapping(
+      `id-honored-${crypto.randomUUID()}`,
+    );
+    const keyValue = `key-ignored-${crypto.randomUUID()}`;
+    const keySeed = getOrCreateConversationMapping(keyValue);
+    expect(idSeed.conversationId).not.toBe(keySeed.conversationId);
 
     const response = await sendMessage({
-      conversationId: idValue,
+      conversationId: idSeed.conversationId,
       conversationKey: keyValue,
-      content: "Bilingual surface 1 — precedence check.",
+      content: "Both fields sent — id should win.",
       sourceChannel: "vellum",
       interface: "macos",
     });
 
     expect(response.status).toBe(202);
     const body = (await response.json()) as { conversationId: string };
-
-    // The internal conversation id must trace back to `idValue`, NOT
-    // `keyValue`. Confirm via the key store: only `idValue` should have
-    // been materialised; `keyValue` should not exist.
-    const idMapping = getConversationByKey(idValue);
-    const keyMapping = getConversationByKey(keyValue);
-    expect(idMapping?.conversationId).toBe(body.conversationId);
-    expect(keyMapping).toBeNull();
+    expect(body.conversationId).toBe(idSeed.conversationId);
+    expect(body.conversationId).not.toBe(keySeed.conversationId);
   });
 });
 

@@ -4616,19 +4616,16 @@ paths:
                 properties:
                   id:
                     type: string
-                  conversationId:
-                    type: string
-                    description: Echo of the requested conversationId/conversationKey (canonical name).
+                    description: Assistant-minted internal conversation id. The authoritative identifier for the conversation.
                   conversationKey:
                     type: string
-                    description: Legacy echo of the requested conversationId/conversationKey. Carries the same value as conversationId.
+                    description: Echo of the optional external key supplied by the client (or the value the daemon minted when omitted).
                   conversationType:
                     type: string
                   created:
                     type: boolean
                 required:
                   - id
-                  - conversationId
                   - conversationKey
                   - conversationType
                   - created
@@ -4640,11 +4637,11 @@ paths:
             schema:
               type: object
               properties:
-                conversationId:
-                  description: Idempotency key for the conversation (canonical name; preferred over conversationKey).
-                  type: string
                 conversationKey:
-                  description: Legacy synonym for conversationId. When both are sent, conversationId wins.
+                  description:
+                    Optional external key. Echoed back in the response. Non-vellum channels (Telegram, WhatsApp) use this to
+                    scope to a logical channel thread; vellum-web clients can omit it and rely on the assistant-minted
+                    `id`.
                   type: string
                 conversationType:
                   description: Only standard conversations are created by this endpoint
@@ -7662,13 +7659,15 @@ paths:
           required: false
           schema:
             type: string
-          description: Scope to a single conversation (canonical name; preferred when sending fresh requests).
+          description: Scope to a single conversation by its assistant-minted internal id. 404s if no such conversation exists.
         - name: conversationKey
           in: query
           required: false
           schema:
             type: string
-          description: Scope to a single conversation (legacy synonym for conversationId).
+          description:
+            Scope to a single conversation by an external key (non-vellum channels) or the web idempotency key.
+            Materializes a row on first use. Ignored when conversationId is also provided.
   /v1/events/emit:
     post:
       operationId: events_emit_post

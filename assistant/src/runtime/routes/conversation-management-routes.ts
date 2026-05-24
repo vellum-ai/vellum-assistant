@@ -85,14 +85,9 @@ function cancelScheduleIfLast(conversationId: string): void {
 // ---------------------------------------------------------------------------
 
 function handleCreateConversation({ body = {}, headers }: RouteHandlerArgs) {
-  // LUM-1890 Phase 1: bilingual acceptance for the idempotency key. Prefer
-  // the canonical `conversationId` when the client sends it; fall back to
-  // the legacy `conversationKey`. When neither is sent, mint a UUID.
-  const requestedConversationKey =
-    (body.conversationId as string | undefined) ??
-    (body.conversationKey as string | undefined) ??
-    crypto.randomUUID();
-  const result = getOrCreateConversation(requestedConversationKey, {
+  const conversationKey =
+    (body.conversationKey as string | undefined) ?? crypto.randomUUID();
+  const result = getOrCreateConversation(conversationKey, {
     conversationType: "standard",
   });
   if (result.created) {
@@ -106,20 +101,21 @@ function handleCreateConversation({ body = {}, headers }: RouteHandlerArgs) {
   log.info(
     {
       conversationId: result.conversationId,
-      conversationKey: requestedConversationKey,
+      conversationKey,
       created: result.created,
     },
     "Created conversation via POST",
   );
-  // The response emits both `conversationId` (new canonical name) and
-  // `conversationKey` (legacy echo). Both carry the same value — whatever
-  // the client supplied (or the UUID we minted). The web client will
-  // migrate to reading `conversationId` in LUM-1890 Phase 2; for now the
-  // additive field is forward-compat only.
+  // `id` is the assistant-minted internal `conversations.id` — the
+  // authoritative identifier for this conversation. `conversationKey`
+  // echoes the optional external key supplied by the client (or the
+  // UUID we minted) and is the identifier non-vellum channel adapters
+  // (Telegram, WhatsApp, etc.) use to scope to a logical channel
+  // thread. Vellum-web clients can ignore `conversationKey` and use
+  // `id` directly.
   return {
     id: result.conversationId,
-    conversationId: requestedConversationKey,
-    conversationKey: requestedConversationKey,
+    conversationKey,
     conversationType: normalizeConversationType(result.conversationType),
     created: result.created,
   };
@@ -437,17 +433,11 @@ export const ROUTES: RouteDefinition[] = [
     description: "Create or get an existing conversation by key.",
     tags: ["conversations"],
     requestBody: z.object({
-      conversationId: z
-        .string()
-        .optional()
-        .describe(
-          "Idempotency key for the conversation (canonical name; preferred over conversationKey).",
-        ),
       conversationKey: z
         .string()
         .optional()
         .describe(
-          "Legacy synonym for conversationId. When both are sent, conversationId wins.",
+          "Optional external key. Echoed back in the response. Non-vellum channels (Telegram, WhatsApp) use this to scope to a logical channel thread; vellum-web clients can omit it and rely on the assistant-minted `id`.",
         ),
       conversationType: z
         .literal("standard")
@@ -455,16 +445,15 @@ export const ROUTES: RouteDefinition[] = [
         .describe("Only standard conversations are created by this endpoint"),
     }),
     responseBody: z.object({
-      id: z.string(),
-      conversationId: z
+      id: z
         .string()
         .describe(
-          "Echo of the requested conversationId/conversationKey (canonical name).",
+          "Assistant-minted internal conversation id. The authoritative identifier for the conversation.",
         ),
       conversationKey: z
         .string()
         .describe(
-          "Legacy echo of the requested conversationId/conversationKey. Carries the same value as conversationId.",
+          "Echo of the optional external key supplied by the client (or the value the daemon minted when omitted).",
         ),
       conversationType: z.string(),
       created: z.boolean(),
