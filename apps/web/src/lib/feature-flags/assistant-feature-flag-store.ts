@@ -2,9 +2,7 @@ import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors.js";
 import { client } from "@/generated/api/client.gen.js";
-import { ASSISTANT_FLAG_DEFAULTS, storeKeyToLdKey } from "@/lib/feature-flags/feature-flag-catalog.js";
-
-let currentAssistantId: string | null = null;
+import { ASSISTANT_FLAG_DEFAULTS, storeKeyToFlagKey } from "@/lib/feature-flags/feature-flag-catalog.js";
 
 /**
  * Internal store fields that are NOT feature flag values. Surfaces that
@@ -25,7 +23,14 @@ interface AssistantFeatureFlagMeta {
 
 interface AssistantFeatureFlagActions {
   setFlags: (flags: Record<string, boolean>) => void;
-  setFlag: (key: string, value: boolean) => void;
+  /**
+   * Apply an override and PATCH the server. `assistantId` is passed in
+   * by the caller (e.g. the Developer panel or the dev-mode unlock
+   * gesture) rather than read from a module-level cache, so this store
+   * doesn't need its own copy of the active assistant — that lives in
+   * the assistant lifecycle on `RootLayout`.
+   */
+  setFlag: (key: string, value: boolean, assistantId: string | null) => void;
   /** Marks the store as having received real /feature-flags data. */
   markHydrated: () => void;
   /** Called on assistant switch: resets to defaults + clears hasHydrated. */
@@ -50,13 +55,13 @@ const useAssistantFeatureFlagStoreBase = create<AssistantFeatureFlagStore>()(
           return changed ? flags : prev;
         }),
 
-      setFlag: (key: string, value: boolean) => {
+      setFlag: (key: string, value: boolean, assistantId: string | null) => {
         set({ [key]: value });
 
-        const ldKey = storeKeyToLdKey(key);
-        if (currentAssistantId && ldKey) {
+        const flagKey = storeKeyToFlagKey(key);
+        if (assistantId && flagKey) {
           void client.patch({
-            url: `/v1/assistants/${currentAssistantId}/feature-flags/${ldKey}`,
+            url: `/v1/assistants/${assistantId}/feature-flags/${flagKey}`,
             body: { enabled: value },
             throwOnError: false,
           } as Parameters<typeof client.patch>[0]);
@@ -73,7 +78,3 @@ const useAssistantFeatureFlagStoreBase = create<AssistantFeatureFlagStore>()(
 export const useAssistantFeatureFlagStore = createSelectors(
   useAssistantFeatureFlagStoreBase,
 );
-
-export function setAssistantIdForFlags(id: string | null) {
-  currentAssistantId = id;
-}

@@ -28,7 +28,7 @@ import { deleteQueuedMessage, steerToMessage } from "@/domains/chat/api/messages
 
 interface UseMessageQueueParams {
   assistantId: string | null;
-  activeConversationKey: string | null;
+  activeConversationId: string | null;
   messages: DisplayMessage[];
 
   // Refs
@@ -48,7 +48,7 @@ interface UseMessageQueueParams {
 
 export function useMessageQueue({
   assistantId,
-  activeConversationKey,
+  activeConversationId,
   messages,
   pendingQueuedStableIdsRef,
   requestIdToStableIdRef,
@@ -77,7 +77,7 @@ export function useMessageQueue({
 
   const handleCancelQueuedMessage = useCallback(
     (stableId: string) => {
-      if (!assistantId || !activeConversationKey) {
+      if (!assistantId || !activeConversationId) {
         return;
       }
       let targetRequestId: string | undefined;
@@ -89,13 +89,13 @@ export function useMessageQueue({
       }
       setMessages((prev) => prev.filter((m) => m.stableId !== stableId));
       if (targetRequestId) {
-        void deleteQueuedMessage(assistantId, activeConversationKey, targetRequestId);
+        void deleteQueuedMessage(assistantId, activeConversationId, targetRequestId);
       } else {
         pendingLocalDeletionsRef.current.add(stableId);
         useTurnStore.getState().deleteQueuedMessage();
       }
     },
-    [assistantId, activeConversationKey],
+    [assistantId, activeConversationId],
   );
 
   const handleCancelAllQueued = useCallback(() => {
@@ -106,7 +106,7 @@ export function useMessageQueue({
 
   const handleSteerMessage = useCallback(
     (stableId: string) => {
-      if (!assistantId || !activeConversationKey) {
+      if (!assistantId || !activeConversationId) {
         return;
       }
       let targetRequestId: string | undefined;
@@ -118,7 +118,7 @@ export function useMessageQueue({
       }
       if (targetRequestId) {
         setMessages((prev) => clearQueueStatus(prev, stableId));
-        steerToMessage(assistantId, activeConversationKey, targetRequestId).then(
+        steerToMessage(assistantId, activeConversationId, targetRequestId).then(
           (ok) => {
             if (!ok) {
               setMessages((prev) =>
@@ -133,7 +133,7 @@ export function useMessageQueue({
         );
       }
     },
-    [assistantId, activeConversationKey],
+    [assistantId, activeConversationId],
   );
 
   const handleEditQueueTail = useCallback(() => {

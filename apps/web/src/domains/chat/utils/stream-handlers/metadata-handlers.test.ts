@@ -95,9 +95,9 @@ describe("handleConversationTitleUpdated", () => {
       chatContextQueryKey(ctx.assistantIdRef.current),
       {
         assistantId: ctx.assistantIdRef.current ?? "",
-        conversationKey: "conv-1",
+        conversationId: "conv-1",
         conversations: [
-          { conversationKey: "conv-1", title: "Old Title" } as Conversation,
+          { conversationId: "conv-1", title: "Old Title" } as Conversation,
         ],
       },
     );
@@ -115,7 +115,7 @@ describe("handleConversationTitleUpdated", () => {
       chatContextQueryKey(ctx.assistantIdRef.current),
     );
     const conv = cached?.conversations.find(
-      (c) => c.conversationKey === "conv-1",
+      (c) => c.conversationId === "conv-1",
     );
     expect(conv?.title).toBe("New Title");
   });

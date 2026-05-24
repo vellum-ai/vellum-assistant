@@ -41,14 +41,17 @@ function handleListGroups() {
   return { groups: groups.map(serializeGroup) };
 }
 
-function handleCreateGroup({ body = {} }: RouteHandlerArgs) {
+function handleCreateGroup({ body = {}, headers }: RouteHandlerArgs) {
   const name = body.name;
   if (!name || typeof name !== "string") {
     throw new BadRequestError("Missing or invalid name");
   }
   try {
     const group = createGroup(name);
-    publishConversationListChanged("created");
+    publishConversationListChanged(
+      "created",
+      headers?.["x-vellum-client-id"]?.trim() || undefined,
+    );
     return serializeGroup(group);
   } catch (err) {
     if (
@@ -63,7 +66,11 @@ function handleCreateGroup({ body = {} }: RouteHandlerArgs) {
   }
 }
 
-function handleUpdateGroup({ pathParams = {}, body = {} }: RouteHandlerArgs) {
+function handleUpdateGroup({
+  pathParams = {},
+  body = {},
+  headers,
+}: RouteHandlerArgs) {
   const groupId = pathParams.groupId;
   const existing = getGroup(groupId);
   if (!existing) {
@@ -92,11 +99,14 @@ function handleUpdateGroup({ pathParams = {}, body = {} }: RouteHandlerArgs) {
   if (!updated) {
     throw new NotFoundError("Group not found");
   }
-  publishConversationListChanged("reordered");
+  publishConversationListChanged(
+    "reordered",
+    headers?.["x-vellum-client-id"]?.trim() || undefined,
+  );
   return serializeGroup(updated);
 }
 
-function handleDeleteGroup({ pathParams = {} }: RouteHandlerArgs) {
+function handleDeleteGroup({ pathParams = {}, headers }: RouteHandlerArgs) {
   const groupId = pathParams.groupId;
   const existing = getGroup(groupId);
   if (!existing) {
@@ -106,10 +116,13 @@ function handleDeleteGroup({ pathParams = {} }: RouteHandlerArgs) {
     throw new ForbiddenError("System groups cannot be deleted");
   }
   deleteGroup(groupId);
-  publishConversationListChanged("reordered");
+  publishConversationListChanged(
+    "reordered",
+    headers?.["x-vellum-client-id"]?.trim() || undefined,
+  );
 }
 
-function handleReorderGroups({ body = {} }: RouteHandlerArgs) {
+function handleReorderGroups({ body = {}, headers }: RouteHandlerArgs) {
   const updates = body.updates as
     | Array<{ groupId: string; sortPosition: number }>
     | undefined;
@@ -135,7 +148,10 @@ function handleReorderGroups({ body = {} }: RouteHandlerArgs) {
     }
   }
   reorderGroups(updates);
-  publishConversationListChanged("reordered");
+  publishConversationListChanged(
+    "reordered",
+    headers?.["x-vellum-client-id"]?.trim() || undefined,
+  );
   return { ok: true };
 }
 

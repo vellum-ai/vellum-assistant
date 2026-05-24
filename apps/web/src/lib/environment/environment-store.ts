@@ -13,13 +13,21 @@ interface EnvironmentActions {
 
 type EnvironmentStore = EnvironmentConfig & EnvironmentActions;
 
-const DEFAULT_ENVIRONMENT: EnvironmentConfig = {
-  emailRootDomain: "vellum.me",
-  isNonProduction: false,
-};
+function getDefaultEnvironment(): EnvironmentConfig {
+  const env = import.meta.env.VITE_SENTRY_ENVIRONMENT;
+  const isNonProduction = !env || env !== "production";
+
+  let emailRootDomain: string;
+  if (!env || env === "local") emailRootDomain = "local.vellum.me";
+  else if (env === "dev") emailRootDomain = "dev.vellum.me";
+  else if (env === "staging") emailRootDomain = "staging.vellum.me";
+  else emailRootDomain = "vellum.me";
+
+  return { emailRootDomain, isNonProduction };
+}
 
 const useEnvironmentStoreBase = create<EnvironmentStore>()((set) => ({
-  ...DEFAULT_ENVIRONMENT,
+  ...getDefaultEnvironment(),
   setEnvironment: (config) => set(config),
 }));
 

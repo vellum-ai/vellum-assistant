@@ -1,6 +1,6 @@
 ---
 name: vellum-feature-flag-rollout
-description: Guide Vellum Assistant feature flag changes and rollout hygiene. Use when adding, editing, reviewing, or documenting assistant feature flags, rollout-gated behavior, or LaunchDarkly/platform flag follow-up work.
+description: Guide Vellum Assistant feature flag changes and rollout hygiene. Use when adding, editing, reviewing, or documenting assistant feature flags, rollout-gated behavior, or platform flag follow-up work.
 ---
 
 # Vellum Feature Flag Rollout

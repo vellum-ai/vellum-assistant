@@ -8,11 +8,11 @@ import {
 } from "@/domains/chat/utils/scheduled-sub-groups.js";
 
 function makeConversation(
-  conversationKey: string,
+  conversationId: string,
   scheduleJobId?: string,
   title?: string,
 ): Conversation {
-  return { conversationKey, scheduleJobId, title };
+  return { conversationId, scheduleJobId, title };
 }
 
 describe("formatScheduledSubGroupLabel", () => {
@@ -82,7 +82,7 @@ describe("groupScheduledConversationsByJobId", () => {
     expect(result).toHaveLength(1);
     expect(result[0]?.key).toBe("job-1");
     expect(result[0]?.label).toBe("Daily standup");
-    expect(result[0]?.conversations.map((c) => c.conversationKey)).toEqual([
+    expect(result[0]?.conversations.map((c) => c.conversationId)).toEqual([
       "a",
       "b",
       "c",

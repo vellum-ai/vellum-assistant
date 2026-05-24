@@ -5,16 +5,17 @@
  * TanStack Query — see `conversation-queries.ts`. This store owns only
  * state that has no server counterpart:
  *
- * - `activeConversationKey` — URL/navigation-local selection
- * - `editingConversationKey` — UI mode (app-edit-chat target)
- * - `processingKeys` — in-flight assistant responses
+ * - `activeConversationId` — URL/navigation-local selection
+ * - `editingConversationId` — UI mode (app-edit-chat target)
+ * - `processingConversationIds` — in-flight assistant responses
  * - `processingSnapshots` — `latestAssistantMessageAt` snapshot taken when
- *   each key was added to `processingKeys`; the attention-tracking
- *   graduation logic compares the current value against this snapshot to
- *   detect when the assistant has finished responding. Entries are added
- *   by `addProcessingKey` and cleared by every action that removes from
- *   `processingKeys`, so the two collections stay in sync.
- * - `attentionKeys` — conversations with pending interactions
+ *   each conversation id was added to `processingConversationIds`; the
+ *   attention-tracking graduation logic compares the current value against
+ *   this snapshot to detect when the assistant has finished responding.
+ *   Entries are added by `addProcessingConversationId` and cleared by every
+ *   action that removes from `processingConversationIds`, so the two
+ *   collections stay in sync.
+ * - `attentionConversationIds` — conversations with pending interactions
  *
  * @see https://zustand.docs.pmnd.rs/guides/flux-inspired-practice
  * @see ./conversation-queries.ts for the server-state half
@@ -64,30 +65,36 @@ function deleteFromMap<K, V>(prev: Map<K, V>, key: K): Map<K, V> {
 // ---------------------------------------------------------------------------
 
 export interface ConversationListState {
-  activeConversationKey: string | null;
-  editingConversationKey: string | null;
-  processingKeys: Set<string>;
+  activeConversationId: string | null;
+  editingConversationId: string | null;
+  processingConversationIds: Set<string>;
   processingSnapshots: Map<string, string | undefined>;
-  attentionKeys: Set<string>;
+  attentionConversationIds: Set<string>;
 }
 
 export interface ConversationListActions {
-  // --- Active / editing key ---
-  setActiveKey: (key: string | null) => void;
-  setEditingKey: (key: string | null) => void;
+  // --- Active / editing conversation id ---
+  setActiveConversationId: (conversationId: string | null) => void;
+  setEditingConversationId: (conversationId: string | null) => void;
 
-  // --- Processing keys (and their snapshots, kept atomic) ---
-  addProcessingKey: (key: string, snapshot?: string) => void;
-  removeProcessingKey: (key: string) => void;
-  removeMultipleProcessingKeys: (keys: string[]) => void;
-  transferProcessingKey: (oldKey: string, newKey: string) => void;
+  // --- Processing conversation ids (and their snapshots, kept atomic) ---
+  addProcessingConversationId: (conversationId: string, snapshot?: string) => void;
+  removeProcessingConversationId: (conversationId: string) => void;
+  removeMultipleProcessingConversationIds: (conversationIds: string[]) => void;
+  transferProcessingConversationId: (
+    oldConversationId: string,
+    newConversationId: string,
+  ) => void;
 
-  // --- Attention keys ---
-  addAttentionKey: (key: string) => void;
-  removeAttentionKey: (key: string) => void;
+  // --- Attention conversation ids ---
+  addAttentionConversationId: (conversationId: string) => void;
+  removeAttentionConversationId: (conversationId: string) => void;
 
   // --- Compound ---
-  graduateProcessingKey: (key: string, hasPendingInteraction: boolean) => void;
+  graduateProcessingConversationId: (
+    conversationId: string,
+    hasPendingInteraction: boolean,
+  ) => void;
 
   // --- Reset ---
   reset: () => void;
@@ -96,11 +103,11 @@ export interface ConversationListActions {
 type ConversationListStore = ConversationListState & ConversationListActions;
 
 const INITIAL_STATE: ConversationListState = {
-  activeConversationKey: null,
-  editingConversationKey: null,
-  processingKeys: new Set(),
+  activeConversationId: null,
+  editingConversationId: null,
+  processingConversationIds: new Set(),
   processingSnapshots: new Map(),
-  attentionKeys: new Set(),
+  attentionConversationIds: new Set(),
 };
 
 // ---------------------------------------------------------------------------
@@ -111,79 +118,90 @@ export const useConversationStore = createSelectors(
   create<ConversationListStore>((set, get) => ({
     ...INITIAL_STATE,
 
-    // --- Active / editing key ---
+    // --- Active / editing conversation id ---
 
-    setActiveKey: (key) => {
-      set({ activeConversationKey: key });
+    setActiveConversationId: (conversationId) => {
+      set({ activeConversationId: conversationId });
     },
 
-    setEditingKey: (key) => {
-      set({ editingConversationKey: key });
+    setEditingConversationId: (conversationId) => {
+      set({ editingConversationId: conversationId });
     },
 
-    // --- Processing keys ---
+    // --- Processing conversation ids ---
 
-    addProcessingKey: (key, snapshot) => {
-      const { processingKeys, processingSnapshots } = get();
+    addProcessingConversationId: (conversationId, snapshot) => {
+      const { processingConversationIds, processingSnapshots } = get();
       const nextSnapshots = new Map(processingSnapshots);
-      nextSnapshots.set(key, snapshot);
+      nextSnapshots.set(conversationId, snapshot);
       set({
-        processingKeys: addToSet(processingKeys, key),
+        processingConversationIds: addToSet(processingConversationIds, conversationId),
         processingSnapshots: nextSnapshots,
       });
     },
 
-    removeProcessingKey: (key) => {
+    removeProcessingConversationId: (conversationId) => {
       set({
-        processingKeys: removeFromSet(get().processingKeys, key),
-        processingSnapshots: deleteFromMap(get().processingSnapshots, key),
+        processingConversationIds: removeFromSet(get().processingConversationIds, conversationId),
+        processingSnapshots: deleteFromMap(get().processingSnapshots, conversationId),
       });
     },
 
-    removeMultipleProcessingKeys: (keys) => {
-      const { processingKeys, processingSnapshots } = get();
+    removeMultipleProcessingConversationIds: (conversationIds) => {
+      const { processingConversationIds, processingSnapshots } = get();
       let nextSnapshots = processingSnapshots;
-      for (const key of keys) {
-        nextSnapshots = deleteFromMap(nextSnapshots, key);
+      for (const id of conversationIds) {
+        nextSnapshots = deleteFromMap(nextSnapshots, id);
       }
       set({
-        processingKeys: removeMultipleFromSet(processingKeys, keys),
+        processingConversationIds: removeMultipleFromSet(
+          processingConversationIds,
+          conversationIds,
+        ),
         processingSnapshots: nextSnapshots,
       });
     },
 
-    transferProcessingKey: (oldKey, newKey) => {
-      const { processingKeys, processingSnapshots } = get();
-      if (!processingKeys.has(oldKey)) return;
-      const nextKeys = new Set(processingKeys);
-      nextKeys.delete(oldKey);
-      nextKeys.add(newKey);
+    transferProcessingConversationId: (oldConversationId, newConversationId) => {
+      const { processingConversationIds, processingSnapshots } = get();
+      if (!processingConversationIds.has(oldConversationId)) return;
+      const nextIds = new Set(processingConversationIds);
+      nextIds.delete(oldConversationId);
+      nextIds.add(newConversationId);
       const nextSnapshots = new Map(processingSnapshots);
-      const snapshot = nextSnapshots.get(oldKey);
-      nextSnapshots.delete(oldKey);
-      nextSnapshots.set(newKey, snapshot);
-      set({ processingKeys: nextKeys, processingSnapshots: nextSnapshots });
+      const snapshot = nextSnapshots.get(oldConversationId);
+      nextSnapshots.delete(oldConversationId);
+      nextSnapshots.set(newConversationId, snapshot);
+      set({ processingConversationIds: nextIds, processingSnapshots: nextSnapshots });
     },
 
-    // --- Attention keys ---
+    // --- Attention conversation ids ---
 
-    addAttentionKey: (key) => {
-      set({ attentionKeys: addToSet(get().attentionKeys, key) });
+    addAttentionConversationId: (conversationId) => {
+      set({ attentionConversationIds: addToSet(get().attentionConversationIds, conversationId) });
     },
 
-    removeAttentionKey: (key) => {
-      set({ attentionKeys: removeFromSet(get().attentionKeys, key) });
+    removeAttentionConversationId: (conversationId) => {
+      set({
+        attentionConversationIds: removeFromSet(
+          get().attentionConversationIds,
+          conversationId,
+        ),
+      });
     },
 
     // --- Compound ---
 
-    graduateProcessingKey: (key, hasPendingInteraction) => {
+    graduateProcessingConversationId: (conversationId, hasPendingInteraction) => {
       set((state) => ({
-        processingKeys: removeFromSet(state.processingKeys, key),
-        processingSnapshots: deleteFromMap(state.processingSnapshots, key),
-        attentionKeys: hasPendingInteraction
-          ? addToSet(state.attentionKeys, key)
-          : state.attentionKeys,
+        processingConversationIds: removeFromSet(
+          state.processingConversationIds,
+          conversationId,
+        ),
+        processingSnapshots: deleteFromMap(state.processingSnapshots, conversationId),
+        attentionConversationIds: hasPendingInteraction
+          ? addToSet(state.attentionConversationIds, conversationId)
+          : state.attentionConversationIds,
       }));
     },
 
@@ -192,9 +210,9 @@ export const useConversationStore = createSelectors(
     reset: () => {
       set({
         ...INITIAL_STATE,
-        processingKeys: new Set(),
+        processingConversationIds: new Set(),
         processingSnapshots: new Map(),
-        attentionKeys: new Set(),
+        attentionConversationIds: new Set(),
       });
     },
   })),

@@ -31,7 +31,7 @@ const SDK_BASE_OPTIONS =
  * iOS truncates `userInfo` payloads and we don't need the full daemon event.
  */
 export interface NotificationTapPayload {
-  conversationKey?: string;
+  conversationId?: string;
   sourceEventName: string;
   deliveryId?: string;
 }
@@ -173,22 +173,19 @@ function toNotificationId(seed: string): number {
 }
 
 /**
- * Resolve the conversation this notification should deep-link to. The daemon
- * emits either `conversationId` (the internal daemon ID) or `conversationKey`
- * (the key the web sidebar indexes by) in `deepLinkMetadata`; for this client
- * both are the same value (the web app has no notion of a separate
- * conversationId — see the comment in `parseAssistantEvent` for
- * `conversation_title_updated`). Accept whichever one the upstream provides
- * so tap navigation and active-conversation suppression stay consistent.
+ * Resolve the conversation this notification should deep-link to.
+ *
+ * Daemon-side notification emitters set `deepLinkMetadata.conversationId`
+ * explicitly in `broadcaster.ts` (the only production construction site
+ * for vellum-channel deep links). The web client receives notifications
+ * only on the vellum channel, so `conversationId` is always present in
+ * `deepLinkMetadata` for any notification that reaches this code path.
  */
-export function extractConversationKey(
+export function extractConversationId(
   metadata: Record<string, unknown> | undefined,
 ): string | undefined {
   if (!metadata) return undefined;
-  const { conversationId, conversationKey } = metadata;
-  if (typeof conversationKey === "string" && conversationKey.length > 0) {
-    return conversationKey;
-  }
+  const { conversationId } = metadata;
   if (typeof conversationId === "string" && conversationId.length > 0) {
     return conversationId;
   }
@@ -282,9 +279,9 @@ export async function postLocalNotification(
     return;
   }
 
-  const conversationKey = extractConversationKey(args.deepLinkMetadata);
+  const conversationId = extractConversationId(args.deepLinkMetadata);
   const tapPayload: NotificationTapPayload = {
-    conversationKey,
+    conversationId,
     sourceEventName: args.sourceEventName,
     deliveryId: args.deliveryId,
   };

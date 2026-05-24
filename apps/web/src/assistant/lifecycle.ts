@@ -52,7 +52,7 @@ export function shouldRecoverFromHatchFailure(status?: number): boolean {
 
 /**
  * The Django hatch endpoint returns 503 + `{ code: "platform_hosted_disabled" }`
- * when the `platform-hosted-enabled` LaunchDarkly flag is off (global capacity
+ * when the `platform-hosted-enabled` feature flag is off (global capacity
  * kill-switch). The onboarding flow surfaces this as a user-friendly message
  * instead of recovering / retrying.
  */

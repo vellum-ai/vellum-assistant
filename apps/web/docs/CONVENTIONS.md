@@ -122,7 +122,7 @@ src/
   lib/                             # third-party integrations & infrastructure
     sentry/                        #   Sentry error reporting (init, consent control)
     auth/                          #   allauth client, CSRF, auth middleware
-    feature-flags/                 #   LaunchDarkly provider
+    feature-flags/                 #   feature flag provider
     sync/                          #   server state sync (tag registry, router)
     api-client.ts                  #   HeyAPI configured client + interceptors
     telemetry/                     #   client identity for daemon registration
@@ -299,7 +299,7 @@ owns it.
 | `hooks/` | Cross-domain React hooks | `use-is-mobile.ts`, `use-visible-viewport.ts`, `use-keyboard-shortcuts.ts` |
 | `utils/` | Pure utility functions (no side effects, no third-party SDKs) | `format.ts`, `browser.ts`, `network-status.ts`, `stable-id.ts` |
 | `types/` | Shared type definitions | `window.d.ts`, `api-types.ts` |
-| `lib/` | Third-party integrations and infrastructure wrappers (have side effects, configure SDK instances, manage lifecycle) | `sentry/` (error reporting), `auth/` (allauth + CSRF), `feature-flags/` (LaunchDarkly), `sync/` (state sync), `api-client.ts` (HeyAPI) |
+| `lib/` | Third-party integrations and infrastructure wrappers (have side effects, configure SDK instances, manage lifecycle) | `sentry/` (error reporting), `auth/` (allauth + CSRF), `feature-flags/, `sync/` (state sync), `api-client.ts` (HeyAPI) |
 | `runtime/` | Framework adapters and native platform bridges | `route-adapter.ts`, `native-auth.ts`, `native-deep-link.ts`, `app-bridge.ts` |
 | `components/` | Cross-domain shared UI | `error-boundary.tsx`, `sign-in-gate.tsx`, `providers.tsx` |
 
@@ -311,7 +311,7 @@ owns it.
 |---|---|---|
 | **Purpose** | Third-party SDK integrations, infrastructure wrappers, code with initialization or lifecycle | Pure helper functions with no side effects |
 | **Side effects?** | Yes — initializes SDKs, configures interceptors, manages consent/lifecycle | No — pure input→output, no global state, no I/O |
-| **Third-party SDK dependency?** | Yes — wraps `@sentry/react`, `@heyapi/client-fetch`, LaunchDarkly, etc. | No — only standard library / language utilities |
+| **Third-party SDK dependency?** | Yes — wraps `@sentry/react`, `@heyapi/client-fetch`, etc. | No — only standard library / language utilities |
 | **Subdirectories?** | Yes — each integration gets its own directory (e.g. `lib/sentry/`, `lib/auth/`, `lib/sync/`) | Flat — individual utility files at the top level |
 | **Examples** | `lib/sentry/sentry-init.ts`, `lib/auth/allauth-client.ts`, `lib/api-client.ts` | `utils/format.ts`, `utils/browser.ts`, `utils/cn.ts` |
 
@@ -326,7 +326,7 @@ Reference: [Bulletproof React — `lib/` directory](https://github.com/alan2207/
 
 Both contain infrastructure code, but they serve different purposes:
 
-- **`lib/`** — wraps *external* third-party services and SDKs (Sentry, HeyAPI, LaunchDarkly, allauth). These are vendor integrations the app consumes.
+- **`lib/`** — wraps *external* third-party services and SDKs (Sentry, HeyAPI, allauth). These are vendor integrations the app consumes.
 - **`runtime/`** — adapts the app to its *host environment* (Capacitor native bridges, route adapters, platform detection). These handle differences between web, iOS, and macOS without third-party SDK dependencies.
 
 If the code imports a third-party SDK and configures it → `lib/`. If it bridges between the app and the native platform or framework runtime → `runtime/`.

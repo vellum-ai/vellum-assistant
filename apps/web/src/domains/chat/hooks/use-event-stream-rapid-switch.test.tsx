@@ -16,7 +16,7 @@ type StreamContext = { assistantId: string; conversationId: string };
 type CapturedEvent = {
   event: AssistantEvent;
   epoch: number;
-  /** Snapshot of activeConversationKey at the moment the handler ran. */
+  /** Snapshot of activeConversationId at the moment the handler ran. */
   activeKeyAtHandlerTime: string;
 };
 
@@ -43,7 +43,7 @@ function renderEventStreamWithCapture(
       useEventStream({
         assistantStateKind: "active",
         assistantId: "asst-1",
-        activeConversationKey: key,
+        activeConversationId: key,
         conversationExistsOnServer: true,
         streamRef,
         streamEpochRef,

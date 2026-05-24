@@ -10,6 +10,7 @@ import {
   SYNC_TAGS,
   type SyncChangedEvent,
 } from "@/lib/sync/types.js";
+import { getClientId } from "@/lib/telemetry/client-identity.js";
 
 export interface ActiveConversationMessagesRefreshResult {
   changed: boolean;
@@ -22,7 +23,7 @@ interface CurrentRef<T> {
 }
 
 export interface WebSyncRouterOptions {
-  activeConversationKeyRef: CurrentRef<string | null>;
+  activeConversationIdRef: CurrentRef<string | null>;
   invalidateAvatar: () => void;
   refreshAssistantIdentity: (force?: boolean) => Promise<void>;
   invalidateAssistantConfig: () => void;
@@ -31,6 +32,13 @@ export interface WebSyncRouterOptions {
   scheduleConversationListRefetch: () => void;
   refreshActiveConversationMessages: () => Promise<ActiveConversationMessagesRefreshResult>;
 }
+
+const EMPTY_DISPATCH_RESULT: SyncDispatchResult = {
+  handledTags: [],
+  unknownTags: [],
+  invokedHandlers: 0,
+  errors: [],
+};
 
 export interface WebSyncReconnectResult {
   dispatch: SyncDispatchResult;
@@ -82,20 +90,37 @@ export function createWebSyncRouter(
       // We still need the active-conversation message refetch when
       // the tag matches the currently-open conversation — those
       // message rows are owned by a separate query.
-      if (tagMatchesActiveConversation(tag, options.activeConversationKeyRef)) {
+      if (tagMatchesActiveConversation(tag, options.activeConversationIdRef)) {
         return options.refreshActiveConversationMessages().then(() => {});
       }
     }),
   ];
 
   return {
-    dispatchSyncChanged: (event) => registry.dispatch(event),
+    dispatchSyncChanged: (event) => {
+      // Defensive self-echo drop. The daemon's hub already skips the
+      // originating SSE subscriber when it can match the origin client
+      // id to a live subscriber; this guard catches any sync_changed
+      // that still surfaces to our page with our own origin id (e.g.
+      // a reconnect that re-delivered a queued event) before it can
+      // fight the optimistic update the mutation's onSuccess applied.
+      // Empty string is never a real id — the daemon trims and only
+      // emits originClientId when truthy. We mirror the hub's length
+      // check so an accidental "" never collapses to a self-match.
+      if (
+        event.originClientId &&
+        event.originClientId === getClientId()
+      ) {
+        return Promise.resolve(EMPTY_DISPATCH_RESULT);
+      }
+      return registry.dispatch(event);
+    },
     dispatchReconnect: async () => {
       const dispatch = await registry.dispatchReconnect();
-      const activeConversationKey = options.activeConversationKeyRef.current;
+      const activeConversationId = options.activeConversationIdRef.current;
       let activeConversationMessages: ActiveConversationMessagesRefreshResult | null =
         null;
-      if (activeConversationKey) {
+      if (activeConversationId) {
         try {
           activeConversationMessages =
             await options.refreshActiveConversationMessages();
@@ -115,11 +140,11 @@ export function createWebSyncRouter(
 
 function tagMatchesActiveConversation(
   tag: string,
-  activeConversationKeyRef: CurrentRef<string | null>,
+  activeConversationIdRef: CurrentRef<string | null>,
 ): boolean {
   const parsed = parseConversationSyncTag(tag);
   return (
     parsed !== null &&
-    parsed.conversationId === activeConversationKeyRef.current
+    parsed.conversationId === activeConversationIdRef.current
   );
 }

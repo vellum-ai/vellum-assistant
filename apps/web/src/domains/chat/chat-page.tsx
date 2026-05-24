@@ -42,10 +42,9 @@ import type { ChatError } from "@/domains/chat/types.js";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 import type { TranscriptHandle } from "@/domains/chat/transcript/transcript.js";
 import type { TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
-import { buildTranscriptItems } from "@/domains/chat/transcript/build-items.js";
-import { getThinkingStatusText, shouldShowThinkingIndicator, type UIContext } from "@/domains/messaging/turn-selectors.js";
-import { clearPendingInitialMessage, peekPendingInitialMessage, type PreChatOnboardingContext } from "@/domains/onboarding/prechat.js";
-import { createDraftConversationKey } from "@/domains/chat/utils/conversation-selection.js";
+import { type UIContext } from "@/domains/messaging/turn-selectors.js";
+import { peekPendingPreChatContext, type PreChatOnboardingContext } from "@/domains/onboarding/prechat.js";
+import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection.js";
 import type { WebSyncRouter } from "@/lib/sync/web-sync-router.js";
 import type { SyncChangedEvent } from "@/lib/sync/types.js";
 
@@ -92,13 +91,14 @@ import { isChannelConversation } from "@/domains/chat/utils/conversation-channel
 import { buildMoveToGroupTargets } from "@/domains/chat/utils/group-conversations.js";
 import { ConversationActionsMenu } from "@/domains/chat/components/conversation-actions-menu.js";
 import { ConversationAssetsPill } from "@/domains/chat/components/conversation-assets-pill.js";
+import { AddCreditsModal } from "@/components/add-credits-modal.js";
 import { CommandPalette } from "@/components/command-palette/command-palette.js";
 import { shouldHandleShortcut } from "@/domains/chat/chat-layout.js";
 import { abortSubagent, fetchSubagentDetail } from "@/domains/chat/api/conversations.js";
 import { MobileAppOverlay } from "@/domains/chat/components/mobile-app-overlay.js";
 import { MobileDocumentOverlay } from "@/domains/chat/components/mobile-document-overlay.js";
 import { MobileSubagentDetailOverlay } from "@/domains/chat/components/mobile-subagent-detail-overlay.js";
-import { getEditChatKey, setEditChatKey } from "@/domains/chat/utils/edit-chat-session.js";
+import { getEditChatConversationId, setEditChatConversationId } from "@/domains/chat/utils/edit-chat-session.js";
 import { routes } from "@/utils/routes.js";
 import { haptic } from "@/utils/haptics.js";
 import type { AssistantIdentity } from "@/assistant/identity.js";
@@ -120,7 +120,7 @@ export function ChatPage() {
   const isNative = useIsNativePlatform();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { conversationKey: urlConversationKey } = useParams<{ conversationKey?: string }>();
+  const { conversationId: urlConversationId } = useParams<{ conversationId?: string }>();
   const {
     assistantId,
     assistantState,
@@ -149,21 +149,19 @@ export function ChatPage() {
   // without this seed the brief window between mount and the history effect
   // dispatching `setIsLoadingHistory(true)` leaves the user staring at a
   // blank pane — none of `ChatScrollArea`'s four branches match
-  // (`isLoadingHistory` false, `activeConversationKey` null, no messages).
+  // (`isLoadingHistory` false, `activeConversationId` null, no messages).
   // Set to true means "we're bootstrapping" until the history hook resolves
   // and flips it false (for both real conversations and empty drafts).
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [compactionCircuitOpenUntil, setCompactionCircuitOpenUntil] = useState<Date | null>(null);
   const [suggestion, setSuggestion] = useState<string | null>(null);
   const [showAddCreditsModal, setShowAddCreditsModal] = useState(false);
-  void showAddCreditsModal;
 
-  const [restoredDraftConversationKey, setRestoredDraftConversationKey] = useState<string | null>(null);
+  const [restoredDraftConversationId, setRestoredDraftConversationId] = useState<string | null>(null);
   const [refreshEpoch, setRefreshEpoch] = useState(0);
   const [autoGreetPending, setAutoGreetPending] = useState(
-    () => peekPendingInitialMessage() !== null,
+    () => peekPendingPreChatContext()?.initialMessage != null,
   );
-  const awaitingAutoGreetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [contextWindowUsage, setContextWindowUsage] = useState<ContextWindowUsage | null>(null);
   const [transcriptPagination, setTranscriptPagination] = useState<Omit<TranscriptPaginationState, "items">>({
     hasMore: false,
@@ -192,9 +190,9 @@ export function ChatPage() {
   // -------------------------------------------------------------------------
   // Zustand store selectors
   // -------------------------------------------------------------------------
-  const activeConversationKey = useConversationStore.use.activeConversationKey();
-  const editingConversationKey = useConversationStore.use.editingConversationKey();
-  const processingKeys = useConversationStore.use.processingKeys();
+  const activeConversationId = useConversationStore.use.activeConversationId();
+  const editingConversationId = useConversationStore.use.editingConversationId();
+  const processingConversationIds = useConversationStore.use.processingConversationIds();
   const viewerState = useViewerStore(useShallow((s) => ({
     mainView: s.mainView,
     activeAppId: s.activeAppId,
@@ -228,7 +226,7 @@ export function ChatPage() {
         activeAppId === appId &&
         (mainView === "app" || mainView === "app-editing")
       ) {
-        useConversationStore.getState().setEditingKey(null);
+        useConversationStore.getState().setEditingConversationId(null);
       }
     },
     [],
@@ -241,7 +239,6 @@ export function ChatPage() {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const messagesRef = useRef<DisplayMessage[]>(messages);
   messagesRef.current = messages;
-  const transcriptItemsRef = useRef<ReturnType<typeof buildTranscriptItems>>([]);
   // Owned here so `useChatDebugApi` (also called from this component) can
   // read scroll geometry directly via `transcriptRef.current.getScrollElement()`.
   // Threaded down to ChatRouteContent through the `refs` prop and bound on
@@ -249,8 +246,8 @@ export function ChatPage() {
   const transcriptRef = useRef<TranscriptHandle | null>(null);
 
 
-  const activeConversationKeyRef = useRef<string | null>(activeConversationKey);
-  useEffect(() => { activeConversationKeyRef.current = activeConversationKey; }, [activeConversationKey]);
+  const activeConversationIdRef = useRef<string | null>(activeConversationId);
+  useEffect(() => { activeConversationIdRef.current = activeConversationId; }, [activeConversationId]);
 
   const assistantIdRef = useRef<string | null>(assistantId);
   useEffect(() => { assistantIdRef.current = assistantId; }, [assistantId]);
@@ -260,15 +257,14 @@ export function ChatPage() {
   const streamEpochRef = useRef(0);
   const streamContextRef = useRef<{ assistantId: string; conversationId: string } | null>(null);
   const reconcileAfterNextStreamOpenRef = useRef(false);
-  const needsNewBubbleRef = useRef(true);
   const dismissedSurfaceIdsRef = useRef<Set<string>>(new Set());
   const pendingOnboardingContextRef = useRef<PreChatOnboardingContext | null>(null);
-  const onboardingDraftConversationKeyRef = useRef<string | null>(null);
+  const onboardingDraftConversationIdRef = useRef<string | null>(null);
   const [didOnboarding, setDidOnboarding] = useState(false);
   const [onboardingTasksEmpty, setOnboardingTasksEmpty] = useState(false);
-  const [onboardingConversationKey, setOnboardingConversationKey] = useState<string | null>(null);
-  const draftKeyResolutionRef = useRef(false);
-  const previousConversationKeyRef = useRef<string | null>(null);
+  const [onboardingConversationId, setOnboardingConversationId] = useState<string | null>(null);
+  const draftConversationIdResolutionRef = useRef(false);
+  const previousConversationIdRef = useRef<string | null>(null);
   const pendingQueuedStableIdsRef = useRef<string[]>([]);
   const requestIdToStableIdRef = useRef<Map<string, string>>(new Map());
   const pendingLocalDeletionsRef = useRef<Set<string>>(new Set());
@@ -278,14 +274,14 @@ export function ChatPage() {
   const autoGreetRef = useRef(false);
   const initialPageOldestTsRef = useRef<number | null>(null);
   const conversationListInvalidatedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingInitialMessageRef = useRef<{ conversationKey: string; content: string } | null>(null);
+  const pendingInitialMessageRef = useRef<{ conversationId: string; content: string } | null>(null);
   const expandedToolCallIdsRef = useRef<Set<string>>(new Set());
   const contextWindowUsageByConversationRef = useRef<Map<string, ContextWindowUsage>>(new Map());
   const syncRouterRef = useRef<WebSyncRouter | null>(null);
 
   useContextWindowUsageHydration({
     assistantId,
-    activeConversationKey,
+    activeConversationId,
     contextWindowUsageByConversationRef,
     setContextWindowUsage,
   });
@@ -330,9 +326,9 @@ export function ChatPage() {
   // -------------------------------------------------------------------------
   const { input, setInput, saveDraft, clearDraft } = useDraftInput({
     assistantId,
-    activeConversationKey,
-    draftKeyResolutionRef,
-    onDraftRestored: setRestoredDraftConversationKey,
+    activeConversationId,
+    draftConversationIdResolutionRef,
+    onDraftRestored: setRestoredDraftConversationId,
   });
 
   // -------------------------------------------------------------------------
@@ -379,15 +375,10 @@ export function ChatPage() {
   // Derived state
   // -------------------------------------------------------------------------
   const activeConversation = useMemo(
-    () => conversations.find((c) => c.conversationKey === activeConversationKey),
-    [conversations, activeConversationKey],
+    () => conversations.find((c) => c.conversationId === activeConversationId),
+    [conversations, activeConversationId],
   );
   const isChannelReadonly = isChannelConversation(activeConversation);
-
-  const syncNeedsNewBubbleFromMessages = useCallback((nextMessages: DisplayMessage[]) => {
-    const lastMsg = nextMessages[nextMessages.length - 1];
-    needsNewBubbleRef.current = !lastMsg || lastMsg.role !== "assistant" || !lastMsg.isStreaming;
-  }, []);
 
   // -------------------------------------------------------------------------
   // Conversation loader
@@ -402,8 +393,8 @@ export function ChatPage() {
   } = useConversationLoader({
     assistantId,
     assistantStateKind: assistantState.kind,
-    activeConversationKey,
-    urlConversationKey: urlConversationKey ?? null,
+    activeConversationId,
+    urlConversationId: urlConversationId ?? null,
     searchParams,
     navigate,
     conversations,
@@ -411,13 +402,12 @@ export function ChatPage() {
     refreshEpoch,
     reachabilityReadyEpoch,
     assistantIdRef,
-    draftKeyResolutionRef,
-    previousConversationKeyRef,
-    onboardingDraftConversationKeyRef,
-    activeConversationKeyRef,
+    draftConversationIdResolutionRef,
+    previousConversationIdRef,
+    onboardingDraftConversationIdRef,
+    activeConversationIdRef,
     contextWindowUsageByConversationRef,
     dismissedSurfaceIdsRef,
-    needsNewBubbleRef,
     streamingMessageIdsRef,
     pendingQueuedStableIdsRef,
     requestIdToStableIdRef,
@@ -437,7 +427,6 @@ export function ChatPage() {
     setSuggestion,
     setCompactionCircuitOpenUntil,
     resetChatAttachments,
-    syncNeedsNewBubbleFromMessages,
     shouldSuppressGenericChatErrorNotice,
   });
 
@@ -476,28 +465,16 @@ export function ChatPage() {
     autoGreetRef.current = true;
     setDidOnboarding(true);
     setAutoGreetPending(true);
-    if (awaitingAutoGreetTimeoutRef.current) {
-      clearTimeout(awaitingAutoGreetTimeoutRef.current);
-    }
-    awaitingAutoGreetTimeoutRef.current = setTimeout(() => {
-      setAutoGreetPending(false);
-    }, 10_000);
-    const onboardingDraftKey =
-      onboardingDraftConversationKeyRef.current ?? createDraftConversationKey();
-    onboardingDraftConversationKeyRef.current = onboardingDraftKey;
-    setOnboardingConversationKey(onboardingDraftKey);
-    useConversationStore.getState().setActiveKey(onboardingDraftKey);
+    const onboardingDraftConversationId =
+      onboardingDraftConversationIdRef.current ?? createDraftConversationId();
+    onboardingDraftConversationIdRef.current = onboardingDraftConversationId;
+    setOnboardingConversationId(onboardingDraftConversationId);
+    useConversationStore.getState().setActiveConversationId(onboardingDraftConversationId);
     // Do NOT drain sessionStorage here — this ChatPage instance unmounts
     // when we navigate to /conversations/:key (different route entry),
     // losing all refs. Leave the context in sessionStorage so the new
     // mount's sendMessage hook and auto-send effect can consume it.
-    void navigate(routes.conversation(onboardingDraftKey), { replace: true });
-    return () => {
-      if (awaitingAutoGreetTimeoutRef.current) {
-        clearTimeout(awaitingAutoGreetTimeoutRef.current);
-        awaitingAutoGreetTimeoutRef.current = null;
-      }
-    };
+    void navigate(routes.conversation(onboardingDraftConversationId), { replace: true });
   }, [searchParams, navigate]);
 
   // -------------------------------------------------------------------------
@@ -511,7 +488,7 @@ export function ChatPage() {
     setMessages,
     streamContextRef,
     streamEpochRef,
-    activeConversationKeyRef,
+    activeConversationIdRef,
     initialPageOldestTsRef,
   });
 
@@ -542,7 +519,7 @@ export function ChatPage() {
 
   useEffect(() => {
     const syncRouter = createWebSyncRouter({
-      activeConversationKeyRef,
+      activeConversationIdRef,
       invalidateAvatar,
       refreshAssistantIdentity,
       invalidateAssistantConfig: () => {},
@@ -577,12 +554,11 @@ export function ChatPage() {
     push,
     isNative,
     streamEpochRef,
-    activeConversationKeyRef,
+    activeConversationIdRef,
     streamContextRef,
     assistantIdRef,
     setMessages,
     messagesRef,
-    needsNewBubbleRef,
     setError,
     streamRef,
     cancelReconciliation,
@@ -616,21 +592,20 @@ export function ChatPage() {
     handleEditQueueTail,
   } = useSendMessage({
     assistantId,
-    activeConversationKey,
+    activeConversationId,
     diskPressureChatBlockReason,
     messages,
     assistantIdRef,
-    activeConversationKeyRef,
+    activeConversationIdRef,
     messagesRef,
     streamRef,
     streamContextRef,
     streamEpochRef,
-    needsNewBubbleRef,
     dismissedSurfaceIdsRef,
     pendingOnboardingContextRef,
-    onboardingDraftConversationKeyRef,
-    draftKeyResolutionRef,
-    previousConversationKeyRef,
+    onboardingDraftConversationIdRef,
+    draftConversationIdResolutionRef,
+    previousConversationIdRef,
     pendingQueuedStableIdsRef,
     requestIdToStableIdRef,
     pendingLocalDeletionsRef,
@@ -654,17 +629,17 @@ export function ChatPage() {
   const promptConsumedRef = useRef<string | null>(null);
   useEffect(() => {
     const prompt = searchParams.get("prompt");
-    if (!prompt || !activeConversationKey || promptConsumedRef.current === prompt) return;
+    if (!prompt || !activeConversationId || promptConsumedRef.current === prompt) return;
     promptConsumedRef.current = prompt;
     void sendMessage(prompt);
-  }, [searchParams, activeConversationKey, sendMessage]);
+  }, [searchParams, activeConversationId, sendMessage]);
 
   // Kick off a background reachability probe immediately when a pending
   // onboarding message exists, instead of waiting for a 502 from
   // getChatContext to trigger the unreachable-bus.
   useEffect(() => {
     if (!assistantId) return;
-    const message = peekPendingInitialMessage();
+    const message = peekPendingPreChatContext()?.initialMessage;
     if (!message) return;
     if (reachability.state.phase === "idle") {
       reachability.probe({ mode: "background" });
@@ -674,24 +649,34 @@ export function ChatPage() {
   // Auto-send onboarding initial message once the daemon is reachable.
   const initialMessageConsumedRef = useRef(false);
   useEffect(() => {
-    if (initialMessageConsumedRef.current || !assistantId || !activeConversationKey) return;
+    if (initialMessageConsumedRef.current || !assistantId || !activeConversationId) return;
     if (reachability.state.phase !== "ready") return;
-    const message = peekPendingInitialMessage();
+    const message = peekPendingPreChatContext()?.initialMessage;
     if (!message) return;
     initialMessageConsumedRef.current = true;
-    clearPendingInitialMessage();
     void sendMessage(message);
-  }, [activeConversationKey, assistantId, reachability.state.phase, sendMessage]);
+  }, [activeConversationId, assistantId, reachability.state.phase, sendMessage]);
 
-  // Clear the auto-greet loading gate once messages arrive (the assistant
-  // responded) or the 10-second safety timeout expires. Matches platform's
-  // awaitingAutoGreet pattern.
+  // Clear the post-onboarding loading gate once the first message appears.
   useEffect(() => {
     if (!autoGreetPending) return;
     if (messages.length > 0) {
       setAutoGreetPending(false);
     }
   }, [autoGreetPending, messages.length]);
+
+  // The onboarding redirect remounts ChatPage after leaving
+  // `/assistant?onboarding=1`; a timeout armed on the first mount is cancelled
+  // during that remount. Arm the safety timer from the actual mounted page
+  // that is rendering the loading gate so a failed auto-send cannot strand
+  // the user on "Connecting..." until refresh.
+  useEffect(() => {
+    if (!autoGreetPending) return;
+    const timeout = setTimeout(() => {
+      setAutoGreetPending(false);
+    }, 10_000);
+    return () => clearTimeout(timeout);
+  }, [autoGreetPending]);
 
   // Derive onboardingTasksEmpty from the pending context in sessionStorage.
   // Runs once on mount — if initial message key is present, this is an
@@ -730,12 +715,12 @@ export function ChatPage() {
   // Clear question prompt when conversation changes
   useEffect(() => {
     useInteractionStore.getState().dismissQuestion();
-  }, [activeConversationKey]);
+  }, [activeConversationId]);
 
   // Reset subagent state when conversation changes
   useEffect(() => {
     useSubagentStore.getState().reset();
-  }, [activeConversationKey]);
+  }, [activeConversationId]);
 
   // -------------------------------------------------------------------------
   // Subagent detail fetching
@@ -824,7 +809,7 @@ export function ChatPage() {
   const fetchedSubagentsRef = useRef<Map<string, number>>(new Map());
   useEffect(() => {
     fetchedSubagentsRef.current.clear();
-  }, [activeConversationKey]);
+  }, [activeConversationId]);
   useEffect(() => {
     if (!assistantId) return;
     const entries = Object.values(subagentState.byId);
@@ -846,7 +831,7 @@ export function ChatPage() {
     setError,
     messagesRef,
     streamContextRef,
-    activeConversationKeyRef,
+    activeConversationIdRef,
     confirmationToolCallMapRef,
   });
 
@@ -856,7 +841,7 @@ export function ChatPage() {
   useEventStream({
     assistantStateKind: assistantState.kind,
     assistantId,
-    activeConversationKey,
+    activeConversationId,
     conversationExistsOnServer,
     streamRef,
     streamEpochRef,
@@ -880,7 +865,7 @@ export function ChatPage() {
   // -------------------------------------------------------------------------
   const refreshLatestMessages = useRefreshLatestMessages({
     assistantId,
-    activeConversationKeyRef,
+    activeConversationIdRef,
     messagesRef,
     setMessages,
     dismissedSurfaceIdsRef,
@@ -897,12 +882,11 @@ export function ChatPage() {
   // by which point initialization is complete.
   useChatDebugApi({
     messagesRef,
-    transcriptItemsRef,
     transcriptRef,
     streamContextRef,
     streamRef,
     streamEpochRef,
-    activeConversationKeyRef,
+    activeConversationIdRef,
     getAssistantId: () => assistantIdRef.current,
     getTurnState: () => useTurnStore.getState(),
     getUIContext: () => _uiContext,
@@ -940,7 +924,7 @@ export function ChatPage() {
   // -------------------------------------------------------------------------
   useSyncChatStore({
     messages,
-    activeConversationKey,
+    activeConversationId,
     assistantId,
     sendMessage,
   });
@@ -978,7 +962,7 @@ export function ChatPage() {
     handleRenameConversation,
   } = useConversationActions({
     assistantId,
-    activeConversationKey,
+    activeConversationId,
     conversations,
     refreshConversations,
     switchConversation,
@@ -996,7 +980,7 @@ export function ChatPage() {
     handleCopyConversation,
   } = useConversationSecondaryActions({
     assistantId,
-    activeConversationKey,
+    activeConversationId,
     activeConversation: activeConversation ?? null,
     assistantIdentityName: assistantIdentity?.name ?? undefined,
     messagesRef,
@@ -1019,7 +1003,7 @@ export function ChatPage() {
       assistantId,
       assistantName: assistantIdentity?.name ?? undefined,
       conversations,
-      activeConversationKey: activeConversationKey ?? undefined,
+      activeConversationId: activeConversationId ?? undefined,
       startNewConversation: () => startNewConversation(),
       switchConversation,
       navigate: (to: string | number) => {
@@ -1081,7 +1065,7 @@ export function ChatPage() {
         onArchive={() => handleArchiveConversation(activeConversation)}
         onUnarchive={() => handleUnarchiveConversation(activeConversation)}
         onAnalyze={
-          !isChannelReadonly && activeConversation.conversationKey
+          !isChannelReadonly && activeConversation.conversationId
             ? () => handleAnalyzeConversation(activeConversation)
             : undefined
         }
@@ -1091,12 +1075,12 @@ export function ChatPage() {
             : undefined
         }
         onOpenInNewWindow={
-          activeConversation.conversationKey
+          activeConversation.conversationId
             ? () => handleOpenInNewWindow(activeConversation)
             : undefined
         }
         onInspect={
-          showLlmInspector && activeConversation.conversationKey
+          showLlmInspector && activeConversation.conversationId
             ? () => handleInspectConversation(activeConversation)
             : undefined
         }
@@ -1106,7 +1090,7 @@ export function ChatPage() {
             : undefined
         }
         onRefresh={
-          activeConversation.conversationKey != null
+          activeConversation.conversationId != null
             ? refreshLatestMessages
             : undefined
         }
@@ -1189,12 +1173,12 @@ export function ChatPage() {
       haptic.light();
       await useViewerStore.getState().loadApp(assistantId, appId);
       const { activeAppId, openedAppState } = useViewerStore.getState();
-      if (activeConversationKey && openedAppState && activeAppId === appId) {
-        useConversationStore.getState().setEditingKey(activeConversationKey);
+      if (activeConversationId && openedAppState && activeAppId === appId) {
+        useConversationStore.getState().setEditingConversationId(activeConversationId);
         useViewerStore.getState().enterAppEditing();
       }
     },
-    [assistantId, activeConversationKey],
+    [assistantId, activeConversationId],
   );
 
   const handleOpenDocument = useCallback(
@@ -1206,17 +1190,17 @@ export function ChatPage() {
   );
 
   const topBarRightContent = useMemo(() => {
-    if (!activeConversation?.conversationKey || !assistantId) return null;
+    if (!activeConversation?.conversationId || !assistantId) return null;
     return (
       <ConversationAssetsPill
         assistantId={assistantId}
-        conversationId={activeConversation.conversationKey}
+        conversationId={activeConversation.conversationId}
         refreshKey={assetsRefreshKey}
         onOpenApp={handleOpenAppFromChat}
         onOpenDocument={handleOpenDocument}
       />
     );
-  }, [activeConversation?.conversationKey, assistantId, assetsRefreshKey, handleOpenAppFromChat, handleOpenDocument]);
+  }, [activeConversation?.conversationId, assistantId, assetsRefreshKey, handleOpenAppFromChat, handleOpenDocument]);
 
   useEffect(() => {
     setTopBarRightSlot(topBarRightContent);
@@ -1241,13 +1225,13 @@ export function ChatPage() {
   useEffect(() => {
     const lastMsg = messages[messages.length - 1];
     if (!lastMsg || lastMsg.role !== "assistant" || lastMsg.isStreaming) return;
-    if (!assistantId || !activeConversationKey) return;
+    if (!assistantId || !activeConversationId) return;
     const msgId = lastMsg.id ?? null;
     if (msgId === lastSuggestionMsgIdRef.current) return;
     lastSuggestionMsgIdRef.current = msgId;
 
     const controller = new AbortController();
-    void fetchSuggestion(assistantId, activeConversationKey, lastMsg.id, controller.signal)
+    void fetchSuggestion(assistantId, activeConversationId, lastMsg.id, controller.signal)
       .then((r) => {
         if (controller.signal.aborted) return;
         if (inputSnapshotRef.current) return;
@@ -1255,7 +1239,7 @@ export function ChatPage() {
       })
       .catch(() => {});
     return () => { controller.abort(); };
-  }, [messages, assistantId, activeConversationKey, setSuggestion]);
+  }, [messages, assistantId, activeConversationId, setSuggestion]);
 
   // -------------------------------------------------------------------------
   // Nudge sidebar footer banner — push into the layout via outlet context
@@ -1279,7 +1263,7 @@ export function ChatPage() {
     return false;
   }, [messages]);
 
-  const activeConversationIsProcessing = activeConversationKey != null && processingKeys.has(activeConversationKey);
+  const activeConversationIsProcessing = activeConversationId != null && processingConversationIds.has(activeConversationId);
   const activeConversationHasPendingAssistantResponse = useMemo(
     () => hasPendingAssistantResponse(messages),
     [messages],
@@ -1302,51 +1286,6 @@ export function ChatPage() {
     hasPendingAssistantResponse: activeConversationHasPendingAssistantResponse,
   };
   void _uiContext;
-
-  // Turn store state — used for building transcriptItems and debug API
-  const phase = useTurnStore.use.phase();
-  const pendingQueuedCount = useTurnStore.use.pendingQueuedCount();
-  const activeToolCallCount = useTurnStore.use.activeToolCallCount();
-  const activeTurnId = useTurnStore.use.activeTurnId();
-  const lastTerminalReason = useTurnStore.use.lastTerminalReason();
-  const statusText = useTurnStore.use.statusText();
-  const liveWebActivity = useTurnStore.use.liveWebActivity();
-  const turnState = { phase, pendingQueuedCount, activeToolCallCount, activeTurnId, lastTerminalReason, statusText, liveWebActivity };
-
-  // Thinking state and onboarding choice state — used for transcriptItems
-  const showThinking = useMemo(
-    () => shouldShowThinkingIndicator(turnState, _uiContext),
-    [turnState, _uiContext],
-  );
-  const thinkingLabel = useMemo(
-    () => getThinkingStatusText(turnState),
-    [turnState],
-  );
-
-  // Build transcriptItems for rendering and debug API
-  const transcriptItems = useMemo(
-    () => buildTranscriptItems({
-      messages,
-      pendingSecret,
-      pendingConfirmation,
-      pendingContactRequest: pendingContactRequest
-        ? {
-            requestId: pendingContactRequest.requestId,
-            channel: pendingContactRequest.channel,
-            placeholder: pendingContactRequest.placeholder,
-            label: pendingContactRequest.label,
-            description: pendingContactRequest.description,
-            role: pendingContactRequest.role,
-          }
-        : null,
-      isThinking: showThinking,
-      thinkingLabel,
-      errorNotice: null,
-      showOnboardingChoice: false, // TODO: wire onboarding choice state
-    }),
-    [messages, pendingSecret, pendingConfirmation, pendingContactRequest, showThinking, thinkingLabel],
-  );
-  transcriptItemsRef.current = transcriptItems;
 
   // -------------------------------------------------------------------------
   // Loading / error guards
@@ -1432,15 +1371,15 @@ export function ChatPage() {
     setError,
     isLoadingHistory,
     conversations,
-    activeConversationKey,
+    activeConversationId,
     activeConversation,
-    processingKeys,
+    processingConversationIds,
     mainView: viewerState.mainView,
     openedAppState: viewerState.openedAppState,
     openedDocumentState: viewerState.openedDocumentState,
-    editingConversationKey,
-    restoredDraftConversationKey,
-    setRestoredDraftConversationKey,
+    editingConversationId,
+    restoredDraftConversationId,
+    setRestoredDraftConversationId,
     saveDraft,
     clearDraft,
     avatar: {
@@ -1534,11 +1473,11 @@ export function ChatPage() {
     },
     handleCloseApp: () => {
       useViewerStore.getState().closeApp();
-      useConversationStore.getState().setEditingKey(null);
+      useConversationStore.getState().setEditingConversationId(null);
       useViewerStore.getState().setMainView("chat");
     },
     handleCloseEditPanel: () => {
-      useConversationStore.getState().setEditingKey(null);
+      useConversationStore.getState().setEditingConversationId(null);
       useViewerStore.getState().exitAppEditing();
     },
     handleEditApp: () => {
@@ -1546,13 +1485,13 @@ export function ChatPage() {
       if (!openedAppState || !assistantId) return;
 
       const appId = openedAppState.appId;
-      const conversationKey = getEditChatKey(assistantId, appId) ?? crypto.randomUUID();
-      setEditChatKey(assistantId, appId, conversationKey);
-      useConversationStore.getState().setEditingKey(conversationKey);
+      const conversationId = getEditChatConversationId(assistantId, appId) ?? crypto.randomUUID();
+      setEditChatConversationId(assistantId, appId, conversationId);
+      useConversationStore.getState().setEditingConversationId(conversationId);
       useViewerStore.getState().enterAppEditing();
 
-      if (activeConversationKey !== conversationKey) {
-        navigateToConversation(conversationKey);
+      if (activeConversationId !== conversationId) {
+        navigateToConversation(conversationId);
       }
     },
     handleShareApp: () => {
@@ -1571,9 +1510,9 @@ export function ChatPage() {
     onSubagentClick: (id: string) => { useViewerStore.getState().openSubagentDetail(id); },
     onCloseSubagentDetail: () => { useViewerStore.getState().closeSubagentDetail(); },
     onStopSubagent: async (subagentId: string) => {
-      if (!assistantId || !activeConversationKey) return;
+      if (!assistantId || !activeConversationId) return;
       try {
-        await abortSubagent(assistantId, activeConversationKey, subagentId);
+        await abortSubagent(assistantId, activeConversationId, subagentId);
       } catch {
         // Best-effort — the daemon may have already completed
       }
@@ -1586,7 +1525,7 @@ export function ChatPage() {
     refs: {
       inputRef,
       messagesRef,
-      activeConversationKeyRef,
+      activeConversationIdRef,
       assistantIdRef,
       streamContextRef,
       expandedToolCallIdsRef,
@@ -1599,18 +1538,21 @@ export function ChatPage() {
       pendingLocalDeletionsRef,
       confirmationToolCallMapRef,
       reconcileAfterNextStreamOpenRef,
-      transcriptItemsRef,
       transcriptRef,
     },
     isChannelReadonly,
     onboardingTasksEmpty,
     didOnboarding,
-    onboardingConversationKey,
+    onboardingConversationId,
   };
 
   return (
     <>
       <ChatRouteContent {...chatRouteProps} />
+      <AddCreditsModal
+        open={showAddCreditsModal}
+        onOpenChange={setShowAddCreditsModal}
+      />
       <ConnectingToAssistant
         state={reachability.state}
         onRetry={() => reachability.probe({ showConnectingImmediately: true })}
@@ -1667,7 +1609,7 @@ export function ChatPage() {
               }}
               onClose={() => {
                 useViewerStore.getState().closeApp();
-                useConversationStore.getState().setEditingKey(null);
+                useConversationStore.getState().setEditingConversationId(null);
                 useViewerStore.getState().setMainView("chat");
               }}
               onShare={() => {
@@ -1715,9 +1657,9 @@ export function ChatPage() {
                 useViewerStore.getState().closeSubagentDetail();
               }}
               onStop={async (subagentId: string) => {
-                if (!assistantId || !activeConversationKey) return;
+                if (!assistantId || !activeConversationId) return;
                 try {
-                  await abortSubagent(assistantId, activeConversationKey, subagentId);
+                  await abortSubagent(assistantId, activeConversationId, subagentId);
                 } catch {
                   // Best-effort — the daemon may have already completed
                 }

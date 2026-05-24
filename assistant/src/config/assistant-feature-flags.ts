@@ -7,7 +7,7 @@
  * (in priority order):
  *   1. Override values from the gateway IPC socket
  *   2. defaults registry `defaultEnabled`         (for declared keys)
- *   3. `true`                                     (for undeclared keys)
+ *   3. `false`                                    (for undeclared keys)
  *
  * Key format:
  *   Canonical:  simple kebab-case string (e.g., "browser", "ces-tools")
@@ -172,8 +172,8 @@ const DEFAULT_INIT_RETRY_BACKOFFS_MS: readonly number[] = [
  * Retries the gateway IPC fetch on empty/failed results — the gateway
  * may not have bound its IPC socket yet when the daemon races ahead at
  * startup. After exhausting retries, the cache is left unset so
- * subsequent sync calls return an empty override map (registry defaults
- * only).
+ * subsequent sync calls return an empty override map (registry defaults for
+ * declared flags, fail-closed for undeclared flags).
  *
  * Pass `retryBackoffsMs: []` to disable retries (used by unit tests that
  * intentionally simulate an unreachable gateway and want immediate
@@ -229,12 +229,11 @@ export async function initFeatureFlagOverrides(options?: {
 
   // Exhausted retries — leave cache unset so loadOverrides() returns an
   // empty map on subsequent sync reads. Flag checks fall through to the
-  // registry default (`defaultEnabled`), which biases toward off for
-  // newer assistant-scope flags.
+  // registry default (`defaultEnabled`) or the fail-closed undeclared default.
   if (backoffs.length > 0) {
     log.warn(
       { attempts: backoffs.length + 1 },
-      "Feature flag overrides empty after all retries; falling back to registry defaults",
+      "Feature flag overrides empty after all retries; falling back to registry defaults and fail-closed undeclared flags",
     );
   }
 }
@@ -300,7 +299,7 @@ export function _setOverridesForTesting(
  *      values, which the gateway merges server-side: persisted > remote >
  *      registry)
  *   2. Registry `defaultEnabled` (for declared assistant-scope keys)
- *   3. `true` (for undeclared keys with no override)
+ *   3. `false` (for undeclared keys with no override)
  */
 export function isAssistantFeatureFlagEnabled(
   key: string,
@@ -317,6 +316,6 @@ export function isAssistantFeatureFlagEnabled(
   // 2. For declared keys, use the registry default.
   if (declared) return declared.defaultEnabled;
 
-  // 3. Undeclared keys with no override default to enabled.
-  return true;
+  // 3. Undeclared keys with no override fail closed.
+  return false;
 }

@@ -17,7 +17,7 @@ type SlackFooterConversation = Pick<
   Conversation,
   "channelBinding" | "originChannel"
 > &
-  Partial<Pick<Conversation, "conversationKey">>;
+  Partial<Pick<Conversation, "conversationId">>;
 type SlackMessageChannel = NonNullable<DisplayMessage["slackMessage"]>;
 
 export interface SlackChannelFooterProps {
@@ -208,7 +208,7 @@ export function SlackChannelFooter({
         friendlyChannelName,
       ) ?? channelDisplayText)
     : undefined;
-  const conversationId = conversation?.conversationKey;
+  const conversationId = conversation?.conversationId;
   const resolutionKey =
     assistantId && conversationId && channelId
       ? `${assistantId}:${conversationId}:${channelId}`

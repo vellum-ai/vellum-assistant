@@ -130,9 +130,9 @@ describe("isAssistantFeatureFlagEnabled with skillFlagKey", () => {
 // ---------------------------------------------------------------------------
 
 describe("isAssistantFeatureFlagEnabled", () => {
-  test("returns true for unknown flags (open by default)", () => {
+  test("returns false for unknown flags (closed by default)", () => {
     const config = makeConfig();
-    expect(isAssistantFeatureFlagEnabled("unknown", config)).toBe(true);
+    expect(isAssistantFeatureFlagEnabled("unknown", config)).toBe(false);
   });
 
   test("file-based override overrides registry default", () => {

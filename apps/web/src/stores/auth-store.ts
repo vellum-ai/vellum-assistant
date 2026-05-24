@@ -19,6 +19,7 @@ import {
   getSession,
   logout as allauthLogout,
 } from "@/lib/auth/allauth-client.js";
+import { syncOnboardingUser } from "@/domains/onboarding/prefs.js";
 import { clearOrganization } from "@/stores/organization-store.js";
 import { useEventBusStore } from "@/stores/event-bus-store.js";
 
@@ -84,6 +85,11 @@ function broadcastAuthChange(): void {
   broadcastChannel?.postMessage("auth-changed");
 }
 
+function syncUserScopedState(nextUserId: string | null): void {
+  syncOnboardingUser(nextUserId);
+  syncOrganizationState(nextUserId);
+}
+
 const useAuthStoreBase = create<AuthStore>()((set) => ({
   isLoggedIn: false,
   isLoading: true,
@@ -94,14 +100,14 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       const result = await getSession();
       if (result.ok && result.data.user) {
         const user = toAuthUser(result.data.user);
-        syncOrganizationState(user?.id ?? null);
+        syncUserScopedState(user?.id ?? null);
         set({ isLoggedIn: true, isLoading: false, user });
         return;
       }
     } catch (err) {
       console.error("auth.initSession failed", err);
     }
-    syncOrganizationState(null);
+    syncUserScopedState(null);
     set({ isLoggedIn: false, isLoading: false, user: null });
   },
 
@@ -110,14 +116,14 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       const result = await getSession();
       if (result.ok && result.data.user) {
         const user = toAuthUser(result.data.user);
-        syncOrganizationState(user?.id ?? null);
+        syncUserScopedState(user?.id ?? null);
         set({ isLoggedIn: true, user });
         return true;
       }
     } catch (err) {
       console.warn("auth.refreshSession failed", err);
     }
-    syncOrganizationState(null);
+    syncUserScopedState(null);
     set({ isLoggedIn: false, user: null });
     return false;
   },
@@ -126,7 +132,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
     try {
       await allauthLogout();
     } finally {
-      syncOrganizationState(null);
+      syncUserScopedState(null);
       set({ isLoggedIn: false, user: null });
       broadcastAuthChange();
     }

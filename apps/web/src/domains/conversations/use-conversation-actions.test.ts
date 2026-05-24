@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  findNextConversationKey,
+  findNextConversationId,
   resolveUnpinGroupId,
 } from "@/domains/conversations/use-conversation-actions.js";
 import type { Conversation } from "@/domains/chat/api/conversations.js";
 
 function makeConversation(overrides: Partial<Conversation> = {}): Conversation {
-  return { conversationKey: "conv-1", ...overrides };
+  return { conversationId: "conv-1", ...overrides };
 }
 
 // ---------------------------------------------------------------------------
@@ -16,7 +16,7 @@ function makeConversation(overrides: Partial<Conversation> = {}): Conversation {
 
 describe("resolveUnpinGroupId", () => {
   test("returns stored groupId from pre-pin cache when available", () => {
-    const conv = makeConversation({ conversationKey: "a" });
+    const conv = makeConversation({ conversationId: "a" });
     const cache = new Map<string, string | undefined>([["a", "custom-group"]]);
     expect(resolveUnpinGroupId(conv, cache)).toBe("custom-group");
   });
@@ -83,7 +83,7 @@ describe("resolveUnpinGroupId", () => {
   test("prefers cached groupId over source-based heuristic", () => {
     const conv = makeConversation({ source: "heartbeat" });
     const cache = new Map<string, string | undefined>([
-      [conv.conversationKey, "user-group"],
+      [conv.conversationId, "user-group"],
     ]);
     expect(resolveUnpinGroupId(conv, cache)).toBe("user-group");
   });
@@ -100,83 +100,83 @@ describe("resolveUnpinGroupId", () => {
   test("skips undefined cache entries and falls through to heuristics", () => {
     const conv = makeConversation({ conversationType: "scheduled" });
     const cache = new Map<string, string | undefined>([
-      [conv.conversationKey, undefined],
+      [conv.conversationId, undefined],
     ]);
     expect(resolveUnpinGroupId(conv, cache)).toBe("system:scheduled");
   });
 });
 
 // ---------------------------------------------------------------------------
-// findNextConversationKey
+// findNextConversationId
 // ---------------------------------------------------------------------------
 
-describe("findNextConversationKey", () => {
+describe("findNextConversationId", () => {
   test("returns the first non-archived foreground conversation", () => {
     const conversations: Conversation[] = [
-      makeConversation({ conversationKey: "archived", archivedAt: 1 }),
-      makeConversation({ conversationKey: "normal-1" }),
-      makeConversation({ conversationKey: "normal-2" }),
+      makeConversation({ conversationId: "archived", archivedAt: 1 }),
+      makeConversation({ conversationId: "normal-1" }),
+      makeConversation({ conversationId: "normal-2" }),
     ];
-    expect(findNextConversationKey(conversations, "archived")).toBe("normal-1");
+    expect(findNextConversationId(conversations, "archived")).toBe("normal-1");
   });
 
   test("skips background conversations (memory retrospective)", () => {
     const conversations: Conversation[] = [
       makeConversation({
-        conversationKey: "bg",
+        conversationId: "bg",
         conversationType: "background",
         groupId: "system:background",
       }),
-      makeConversation({ conversationKey: "normal" }),
+      makeConversation({ conversationId: "normal" }),
     ];
-    expect(findNextConversationKey(conversations, "archived")).toBe("normal");
+    expect(findNextConversationId(conversations, "archived")).toBe("normal");
   });
 
   test("skips scheduled conversations", () => {
     const conversations: Conversation[] = [
       makeConversation({
-        conversationKey: "scheduled",
+        conversationId: "scheduled",
         conversationType: "scheduled",
         groupId: "system:scheduled",
       }),
-      makeConversation({ conversationKey: "normal" }),
+      makeConversation({ conversationId: "normal" }),
     ];
-    expect(findNextConversationKey(conversations, "archived")).toBe("normal");
+    expect(findNextConversationId(conversations, "archived")).toBe("normal");
   });
 
   test("skips the archived conversation itself even if it matches other criteria", () => {
     const conversations: Conversation[] = [
-      makeConversation({ conversationKey: "target" }),
+      makeConversation({ conversationId: "target" }),
     ];
-    expect(findNextConversationKey(conversations, "target")).toBeNull();
+    expect(findNextConversationId(conversations, "target")).toBeNull();
   });
 
   test("returns null when only background conversations remain", () => {
     const conversations: Conversation[] = [
       makeConversation({
-        conversationKey: "bg-1",
+        conversationId: "bg-1",
         conversationType: "background",
         groupId: "system:background",
       }),
       makeConversation({
-        conversationKey: "bg-2",
+        conversationId: "bg-2",
         conversationType: "background",
         source: "heartbeat",
       }),
     ];
-    expect(findNextConversationKey(conversations, "archived")).toBeNull();
+    expect(findNextConversationId(conversations, "archived")).toBeNull();
   });
 
   test("returns null for empty conversation list", () => {
-    expect(findNextConversationKey([], "archived")).toBeNull();
+    expect(findNextConversationId([], "archived")).toBeNull();
   });
 
   test("prefers earlier foreground conversations over later ones", () => {
     const conversations: Conversation[] = [
-      makeConversation({ conversationKey: "first" }),
-      makeConversation({ conversationKey: "second" }),
-      makeConversation({ conversationKey: "third" }),
+      makeConversation({ conversationId: "first" }),
+      makeConversation({ conversationId: "second" }),
+      makeConversation({ conversationId: "third" }),
     ];
-    expect(findNextConversationKey(conversations, "none")).toBe("first");
+    expect(findNextConversationId(conversations, "none")).toBe("first");
   });
 });

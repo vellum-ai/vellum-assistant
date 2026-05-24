@@ -57,9 +57,9 @@ export async function getPendingInteractions(
  * conversation on mount / poll. The returned set contains every conversation
  * key that has at least one pending interaction; callers reconcile against
  * their own state. Conversation key equals conversation id in the web client
- * (see `parseConversation` / `readEventConversationKey`).
+ * (see `parseConversation` / `readEventConversationId`).
  */
-export async function listConversationKeysWithPendingInteractions(
+export async function listConversationIdsWithPendingInteractions(
   assistantId: string,
 ): Promise<Set<string>> {
   const { data, error, response } = await client.get<unknown, unknown>({
@@ -72,7 +72,7 @@ export async function listConversationKeysWithPendingInteractions(
   if (!response.ok) {
     if (response.status >= 500) {
       throw new Error(
-        `listConversationKeysWithPendingInteractions failed: ${response.status}`,
+        `listConversationIdsWithPendingInteractions failed: ${response.status}`,
       );
     }
     return new Set();

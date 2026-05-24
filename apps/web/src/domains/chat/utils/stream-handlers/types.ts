@@ -34,13 +34,12 @@ export interface StreamHandlerContext {
 
   // --- Stream context ---
   streamContextRef: MutableRefObject<StreamContext | null>;
-  activeConversationKeyRef: MutableRefObject<string | null>;
+  activeConversationIdRef: MutableRefObject<string | null>;
   assistantIdRef: MutableRefObject<string | null>;
 
   // --- Messages ---
   setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
   messagesRef: MutableRefObject<DisplayMessage[]>;
-  needsNewBubbleRef: MutableRefObject<boolean>;
 
   // --- Turn state ---
   turnActions: TurnActions;

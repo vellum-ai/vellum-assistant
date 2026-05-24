@@ -66,7 +66,7 @@ export interface UseEventStreamParams {
   /** Resolved assistant ID (null when not yet loaded). */
   assistantId: string | null;
   /** Currently active conversation key. */
-  activeConversationKey: string | null;
+  activeConversationId: string | null;
   /** Whether the active conversation has been persisted on the server. */
   conversationExistsOnServer: boolean;
 
@@ -117,7 +117,7 @@ export interface UseEventStreamParams {
 export function useEventStream({
   assistantStateKind,
   assistantId,
-  activeConversationKey,
+  activeConversationId,
   conversationExistsOnServer,
   streamRef,
   streamEpochRef,
@@ -186,10 +186,10 @@ export function useEventStream({
   // render-phase mutation would leave the ref pointing at a value
   // from an uncommitted render and the filter would reject events
   // for what is still the actually-committed conversation.
-  const activeConversationKeyLatestRef = useRef(activeConversationKey);
+  const activeConversationIdLatestRef = useRef(activeConversationId);
   useLayoutEffect(() => {
-    activeConversationKeyLatestRef.current = activeConversationKey;
-  }, [activeConversationKey]);
+    activeConversationIdLatestRef.current = activeConversationId;
+  }, [activeConversationId]);
 
   // --------------------------------------------------------------------------
   // Effect 1: Subscribe to the bus-owned SSE for the active conversation.
@@ -198,7 +198,7 @@ export function useEventStream({
     if (
       assistantStateKind !== "active" ||
       !assistantId ||
-      !activeConversationKey
+      !activeConversationId
     ) {
       return;
     }
@@ -208,11 +208,11 @@ export function useEventStream({
 
     const bus = useEventBusStore.getState();
     const capturedAssistantId = assistantId;
-    const capturedConversationKey = activeConversationKey;
+    const capturedConversationId = activeConversationId;
 
     streamContextRef.current = {
       assistantId: capturedAssistantId,
-      conversationId: capturedConversationKey,
+      conversationId: capturedConversationId,
     };
     // `use-send-message.ts` reads `streamRef.current` as a presence bit
     // to decide whether SSE will deliver the response. We write a
@@ -243,11 +243,11 @@ export function useEventStream({
       }
       if (
         eventConversationId === undefined ||
-        eventConversationId !== activeConversationKeyLatestRef.current
+        eventConversationId !== activeConversationIdLatestRef.current
       ) {
         recordChatDiagnostic("sse_event_wrong_conversation_filtered", {
           eventConversationId,
-          activeConversationKey: activeConversationKeyLatestRef.current,
+          activeConversationId: activeConversationIdLatestRef.current,
           eventType: event.type,
           reason: eventConversationId === undefined ? "missing" : "mismatch",
         });
@@ -264,7 +264,7 @@ export function useEventStream({
       }
       if (
         streamContextRef.current?.assistantId === capturedAssistantId &&
-        streamContextRef.current.conversationId === capturedConversationKey
+        streamContextRef.current.conversationId === capturedConversationId
       ) {
         streamContextRef.current = null;
       }
@@ -272,7 +272,7 @@ export function useEventStream({
   }, [
     assistantStateKind,
     assistantId,
-    activeConversationKey,
+    activeConversationId,
     conversationExistsOnServer,
     streamRef,
     streamEpochRef,
@@ -291,12 +291,12 @@ export function useEventStream({
     if (
       assistantStateKind !== "active" ||
       !assistantId ||
-      !activeConversationKey
+      !activeConversationId
     ) {
       return;
     }
     const capturedAssistantId = assistantId;
-    const capturedConversationKey = activeConversationKey;
+    const capturedConversationId = activeConversationId;
 
     const unsub = useEventBusStore
       .getState()
@@ -305,7 +305,7 @@ export function useEventStream({
         const epoch = ++streamEpochRef.current;
         recordChatDiagnostic("sse_stream_opened", {
           assistantId: capturedAssistantId,
-          conversationId: capturedConversationKey,
+          conversationId: capturedConversationId,
           epoch,
           cause,
         });
@@ -330,7 +330,7 @@ export function useEventStream({
           void (async () => {
             recordChatDiagnostic("sse_stream_reconnect", {
               assistantId: capturedAssistantId,
-              conversationId: capturedConversationKey,
+              conversationId: capturedConversationId,
               epoch,
               cause,
             });
@@ -351,7 +351,7 @@ export function useEventStream({
             if (epoch !== streamEpochRef.current) {
               recordChatDiagnostic("sse_post_reconnect_stale", {
                 assistantId: capturedAssistantId,
-                conversationId: capturedConversationKey,
+                conversationId: capturedConversationId,
                 epoch,
                 currentEpoch: streamEpochRef.current,
                 cause,
@@ -363,7 +363,7 @@ export function useEventStream({
             const latencyMs = Date.now() - startedAt;
             recordChatDiagnostic("sse_post_watchdog_reconcile_result", {
               assistantId: capturedAssistantId,
-              conversationId: capturedConversationKey,
+              conversationId: capturedConversationId,
               epoch,
               latencyMs,
               changed: reconcileResult.changed,
@@ -397,7 +397,7 @@ export function useEventStream({
                 messagesAdded: reconcileResult.messagesAdded,
                 changed: reconcileResult.changed,
                 assistantProgress: reconcileResult.assistantProgress,
-                conversationId: capturedConversationKey,
+                conversationId: capturedConversationId,
                 epoch,
               },
             });
@@ -412,7 +412,7 @@ export function useEventStream({
   }, [
     assistantStateKind,
     assistantId,
-    activeConversationKey,
+    activeConversationId,
     streamEpochRef,
     reconcileAfterNextStreamOpenRef,
     syncRouterRef,
@@ -431,12 +431,12 @@ export function useEventStream({
     if (
       assistantStateKind !== "active" ||
       !assistantId ||
-      !activeConversationKey
+      !activeConversationId
     ) {
       return;
     }
     const capturedAssistantId = assistantId;
-    const capturedConversationKey = activeConversationKey;
+    const capturedConversationId = activeConversationId;
 
     const unsub = useEventBusStore
       .getState()
@@ -444,7 +444,7 @@ export function useEventStream({
         const hadActiveTurn = isSending(useTurnStore.getState());
         recordChatDiagnostic("sse_stream_error", {
           assistantId: capturedAssistantId,
-          conversationId: capturedConversationKey,
+          conversationId: capturedConversationId,
           epoch: streamEpochRef.current,
           messageLength: reason.length,
         });
@@ -452,7 +452,7 @@ export function useEventStream({
         {
           const convId = streamContextRef.current?.conversationId;
           if (convId) {
-            useConversationStore.getState().removeProcessingKey(convId);
+            useConversationStore.getState().removeProcessingConversationId(convId);
           }
         }
         // Idle SSE drops should reopen the stream without interrupting the
@@ -476,7 +476,7 @@ export function useEventStream({
   }, [
     assistantStateKind,
     assistantId,
-    activeConversationKey,
+    activeConversationId,
     streamEpochRef,
     streamContextRef,
   ]);
@@ -488,7 +488,7 @@ export function useEventStream({
     if (
       assistantStateKind !== "active" ||
       !assistantId ||
-      !activeConversationKey
+      !activeConversationId
     ) {
       return;
     }
@@ -507,7 +507,7 @@ export function useEventStream({
       }
       wasSending = nowSending;
     });
-  }, [assistantStateKind, assistantId, activeConversationKey]);
+  }, [assistantStateKind, assistantId, activeConversationId]);
 
   // --------------------------------------------------------------------------
   // Effect 5: Schedule a post-resume reconcile.
@@ -521,7 +521,7 @@ export function useEventStream({
     if (
       assistantStateKind !== "active" ||
       !assistantId ||
-      !activeConversationKey
+      !activeConversationId
     ) {
       return;
     }
@@ -532,7 +532,7 @@ export function useEventStream({
   }, [
     assistantStateKind,
     assistantId,
-    activeConversationKey,
+    activeConversationId,
     reconcileAfterNextStreamOpenRef,
   ]);
 

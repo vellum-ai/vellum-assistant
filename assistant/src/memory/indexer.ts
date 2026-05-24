@@ -11,7 +11,11 @@ import { isAutoAnalysisConversation } from "./auto-analysis-guard.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
 import { getDb } from "./db-connection.js";
 import { selectedBackendSupportsMultimodal } from "./embedding-backend.js";
-import { enqueueMemoryJob, upsertDebouncedJob } from "./jobs-store.js";
+import {
+  enqueueMemoryJob,
+  isMemoryEnabled,
+  upsertDebouncedJob,
+} from "./jobs-store.js";
 import { isMemoryRetrospectiveConversation } from "./memory-retrospective-enqueue.js";
 import { maybeEnqueueRetrospective } from "./memory-retrospective-trigger-check.js";
 import {
@@ -139,20 +143,22 @@ export async function indexMessageNow(
 
       if (existing?.contentHash === hash) {
         skippedEmbedJobs++;
-      } else {
+      } else if (isMemoryEnabled()) {
         enqueueMemoryJob("embed_segment", { segmentId }, Date.now(), tx);
       }
     }
 
     // Enqueue embed_attachment jobs for image content blocks when the
     // embedding provider supports multimodal (Gemini only).
-    for (const block of mediaBlocks) {
-      enqueueMemoryJob(
-        "embed_attachment",
-        { messageId: input.messageId, blockIndex: block.index },
-        Date.now(),
-        tx,
-      );
+    if (isMemoryEnabled()) {
+      for (const block of mediaBlocks) {
+        enqueueMemoryJob(
+          "embed_attachment",
+          { messageId: input.messageId, blockIndex: block.index },
+          Date.now(),
+          tx,
+        );
+      }
     }
   });
 
@@ -221,14 +227,16 @@ export async function indexMessageNow(
         extractRunAfter = graphBatchFired
           ? Date.now()
           : Date.now() + idleTimeoutMs;
-        upsertDebouncedJob(
-          "graph_extract",
-          {
-            conversationId: input.conversationId,
-            scopeId: input.scopeId ?? "default",
-          },
-          extractRunAfter,
-        );
+        if (isMemoryEnabled()) {
+          upsertDebouncedJob(
+            "graph_extract",
+            {
+              conversationId: input.conversationId,
+              scopeId: input.scopeId ?? "default",
+            },
+            extractRunAfter,
+          );
+        }
       } else {
         extractRunAfter = Date.now() + idleTimeoutMs;
       }
@@ -309,7 +317,7 @@ export async function indexMessageNow(
     // jobs-worker.ts. Debounced on the same idle timeout — no threshold
     // trigger needed since summaries compress the whole conversation, not
     // incremental batches.
-    if (v2Config == null) {
+    if (v2Config == null && isMemoryEnabled()) {
       upsertDebouncedJob(
         "build_conversation_summary",
         { conversationId: input.conversationId },
@@ -372,10 +380,12 @@ export async function indexMessageNow(
 }
 
 export function enqueueBackfillJob(force = false): string {
+  if (!isMemoryEnabled()) return "";
   return enqueueMemoryJob("backfill", { force });
 }
 
 export function enqueueRebuildIndexJob(): string {
+  if (!isMemoryEnabled()) return "";
   return enqueueMemoryJob("rebuild_index", {});
 }
 

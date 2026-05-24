@@ -104,7 +104,7 @@ production requires both of the following to be true:
 
 1. All Blocking and Important PRs in the Phase 1.12 plan have landed on
    `main` and been live-verified (no regressions against a real Meet).
-2. The LaunchDarkly provisioning PR in `vellum-assistant-platform` has
+2. The the feature flag provider provisioning PR in `vellum-assistant-platform` has
    merged, creating the Terraform entry for `meet` so the platform can
    remote-sync the flag to managed assistants. This companion PR is
    tracked in `meta/feature-flags/PENDING_PLATFORM_PRS.md` — the entry

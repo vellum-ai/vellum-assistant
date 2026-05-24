@@ -373,7 +373,7 @@ export type PostMessageResult =
       ok: true;
       queued?: false;
       assistantId: string;
-      conversationKey: string;
+      conversationId: string;
       messageId: string;
       resolvedConversationId?: string;
     }
@@ -381,7 +381,7 @@ export type PostMessageResult =
       ok: true;
       queued: true;
       assistantId: string;
-      conversationKey: string;
+      conversationId: string;
       resolvedConversationId?: string;
       requestId?: string;
     }
@@ -600,7 +600,7 @@ export async function postChatMessage(
       ok: true,
       queued: true,
       assistantId,
-      conversationKey: conversationId,
+      conversationId,
       resolvedConversationId,
       requestId:
         typeof sendData.requestId === "string" ? sendData.requestId : undefined,
@@ -618,7 +618,7 @@ export async function postChatMessage(
   return {
     ok: true,
     assistantId,
-    conversationKey: conversationId,
+    conversationId,
     messageId: sendData.messageId,
     resolvedConversationId,
   };

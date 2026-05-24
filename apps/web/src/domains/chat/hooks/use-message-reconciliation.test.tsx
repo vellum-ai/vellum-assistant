@@ -129,7 +129,7 @@ interface HarnessProps {
   setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
   streamContextRef: RefObject<{ assistantId: string; conversationId: string } | null>;
   streamEpochRef: RefObject<number>;
-  activeConversationKeyRef: RefObject<string | null>;
+  activeConversationIdRef: RefObject<string | null>;
   initialPageOldestTsRef?: RefObject<number | null>;
   collect: (result: HookReturn) => void;
 }
@@ -143,7 +143,7 @@ function HookHarness(props: HarnessProps): null {
     setMessages: props.setMessages,
     streamContextRef: props.streamContextRef,
     streamEpochRef: props.streamEpochRef,
-    activeConversationKeyRef: props.activeConversationKeyRef,
+    activeConversationIdRef: props.activeConversationIdRef,
     initialPageOldestTsRef: props.initialPageOldestTsRef ?? makeRef(null),
   });
   props.collect(result);
@@ -170,7 +170,7 @@ function createHarness(overrides?: {
   streamContext?: { assistantId: string; conversationId: string } | null;
   streamEpoch?: number;
   streamEpochRef?: RefObject<number>;
-  activeConversationKey?: string | null;
+  activeConversationId?: string | null;
   turnState?: TurnState;
 }): HookReturn {
   const setMessages: Dispatch<SetStateAction<DisplayMessage[]>> = (updater) => {
@@ -190,7 +190,7 @@ function createHarness(overrides?: {
       setMessages,
       streamContextRef: makeRef(overrides?.streamContext ?? null),
       streamEpochRef: overrides?.streamEpochRef ?? makeRef(overrides?.streamEpoch ?? 0),
-      activeConversationKeyRef: makeRef(overrides?.activeConversationKey ?? "conv-1"),
+      activeConversationIdRef: makeRef(overrides?.activeConversationId ?? "conv-1"),
       collect: (result) => { captured = result; },
     }),
   );
@@ -305,7 +305,7 @@ describe("reconcileActiveConversation", () => {
     ];
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
-      activeConversationKey: "conv-1",
+      activeConversationId: "conv-1",
     });
     const result = await reconcileActiveConversation();
     expect(fetchCallCount).toBe(1);
@@ -323,10 +323,10 @@ describe("reconcileActiveConversation", () => {
       { id: "m1", role: "user", content: "Hello" },
       { id: "m2", role: "assistant", content: "Response" },
     ];
-    // streamContext says "conv-1" but activeConversationKey is now "conv-2"
+    // streamContext says "conv-1" but activeConversationId is now "conv-2"
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
-      activeConversationKey: "conv-2",
+      activeConversationId: "conv-2",
     });
     const result = await reconcileActiveConversation();
     expect(fetchCallCount).toBe(1);
@@ -353,7 +353,7 @@ describe("reconcileActiveConversation", () => {
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
-      activeConversationKey: "conv-1",
+      activeConversationId: "conv-1",
       turnState: stuckTurnState,
     });
     await reconcileActiveConversation();
@@ -378,7 +378,7 @@ describe("reconcileActiveConversation", () => {
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
-      activeConversationKey: "conv-1",
+      activeConversationId: "conv-1",
       turnState: noTurnIdState,
     });
     await reconcileActiveConversation();
@@ -402,7 +402,7 @@ describe("reconcileActiveConversation", () => {
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
-      activeConversationKey: "conv-1",
+      activeConversationId: "conv-1",
       turnState: idleTurnState,
     });
     await reconcileActiveConversation();
@@ -425,24 +425,37 @@ describe("reconcileActiveConversation", () => {
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
-      activeConversationKey: "conv-1",
+      activeConversationId: "conv-1",
       turnState: stuckTurnState,
     });
     await reconcileActiveConversation();
     expect(onPollReconciledSpy).not.toHaveBeenCalled();
   });
 
-  test("calls onPollReconciled when local message has stale isStreaming flag", async () => {
-    // Local assistant message has isStreaming: true (turn stuck in
-    // streaming after message_complete was lost during backgrounding).
-    // Server returns the same content WITHOUT isStreaming, so
-    // reconcileMessages detects a change → changed = true → dispatch.
+  test("calls onPollReconciled when local is streaming but server has longer assistant content", async () => {
+    // Real silent-stall fingerprint: SSE delivered partial text, then
+    // message_complete was lost (e.g. backgrounded tab). The server's
+    // persisted view has the full final content; local is still marked
+    // streaming with the partial text. Reconcile sees the content drift
+    // → changed = true → assistantProgress = true → rescue fires.
+    //
+    // Note: this test deliberately uses a CONTENT MISMATCH between local
+    // and server, not just a stale `isStreaming: true` flag. With the
+    // fix that preserves client-owned `isStreaming` across reconcile,
+    // matching-content + isStreaming alone is no longer a stuckness
+    // signal (it's indistinguishable from a healthy mid-stream sync
+    // reconcile). The rescue requires positive structural evidence.
     const msg = makeMessage({ id: "m1", role: "user", content: "Hello" });
-    const assistantMsg = makeMessage({ id: "m2", role: "assistant", content: "Response", isStreaming: true });
+    const assistantMsg = makeMessage({
+      id: "m2",
+      role: "assistant",
+      content: "Response in",
+      isStreaming: true,
+    });
     messages = [msg, assistantMsg];
     mockFetchResult = [
       { id: "m1", role: "user", content: "Hello" },
-      { id: "m2", role: "assistant", content: "Response" },
+      { id: "m2", role: "assistant", content: "Response in progress... and now done." },
     ];
     const stuckTurnState: TurnState = {
       phase: "streaming",
@@ -455,12 +468,50 @@ describe("reconcileActiveConversation", () => {
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
-      activeConversationKey: "conv-1",
+      activeConversationId: "conv-1",
       turnState: stuckTurnState,
     });
     await reconcileActiveConversation();
     expect(onPollReconciledSpy).toHaveBeenCalledTimes(1);
     expect(onPollReconciledSpy).toHaveBeenCalledWith("turn-42");
+  });
+
+  test("does NOT call onPollReconciled during a healthy mid-stream sync reconcile", async () => {
+    // Regression guard for the bubble-split fix (PR #31866 / codex P1):
+    // when a sync-tag reconcile lands during a healthy live stream, the
+    // local row is `isStreaming: true` and the server snapshot matches
+    // what local already has (server has caught up to the latest delta,
+    // no newer content yet). This must NOT fire the silent-stall rescue
+    // — doing so would force-idle the turn, clear isStreaming, and
+    // force-complete every running tool call, mid-stream.
+    const msg = makeMessage({ id: "m1", role: "user", content: "Hello" });
+    const assistantMsg = makeMessage({
+      id: "m2",
+      role: "assistant",
+      content: "Working on it...",
+      isStreaming: true,
+    });
+    messages = [msg, assistantMsg];
+    mockFetchResult = [
+      { id: "m1", role: "user", content: "Hello" },
+      { id: "m2", role: "assistant", content: "Working on it..." },
+    ];
+    const liveStreamingState: TurnState = {
+      phase: "streaming",
+      pendingQueuedCount: 0,
+      activeToolCallCount: 0,
+      activeTurnId: "turn-42",
+      lastTerminalReason: null,
+      statusText: null,
+      liveWebActivity: {},
+    };
+    const { reconcileActiveConversation } = createHarness({
+      streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
+      activeConversationId: "conv-1",
+      turnState: liveStreamingState,
+    });
+    await reconcileActiveConversation();
+    expect(onPollReconciledSpy).not.toHaveBeenCalled();
   });
 
   test("does NOT call onPollReconciled when messages match during thinking phase", async () => {
@@ -483,7 +534,7 @@ describe("reconcileActiveConversation", () => {
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
-      activeConversationKey: "conv-1",
+      activeConversationId: "conv-1",
       turnState: thinkingTurnState,
     });
     await reconcileActiveConversation();
@@ -510,7 +561,7 @@ describe("reconcileActiveConversation", () => {
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
-      activeConversationKey: "conv-1",
+      activeConversationId: "conv-1",
       turnState: thinkingTurnState,
     });
     const result = await reconcileActiveConversation();
@@ -544,7 +595,7 @@ describe("reconcileActiveConversation", () => {
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
-      activeConversationKey: "conv-1",
+      activeConversationId: "conv-1",
       turnState: thinkingTurnState,
     });
     const result = await reconcileActiveConversation();
@@ -579,7 +630,7 @@ describe("reconcileActiveConversation", () => {
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
       streamEpochRef: epochRef,
-      activeConversationKey: "conv-1",
+      activeConversationId: "conv-1",
       turnState: stuckTurnState,
     });
     const result = await reconcileActiveConversation();
@@ -611,7 +662,7 @@ describe("reconcileActiveConversation", () => {
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
-      activeConversationKey: "conv-1",
+      activeConversationId: "conv-1",
       turnState: {
         phase: "streaming",
         pendingQueuedCount: 0,
@@ -647,7 +698,7 @@ describe("reconcileActiveConversation", () => {
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
-      activeConversationKey: "conv-1",
+      activeConversationId: "conv-1",
       turnState: idleTurnState,
     });
     const result = await reconcileActiveConversation();
@@ -678,7 +729,7 @@ describe("reconcileActiveConversation", () => {
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
-      activeConversationKey: "conv-1",
+      activeConversationId: "conv-1",
       turnState: streamingTurnState,
     });
     await reconcileActiveConversation();
@@ -690,7 +741,7 @@ describe("reconcileActiveConversation", () => {
     mockFetchError = new Error("Network error");
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
-      activeConversationKey: "conv-1",
+      activeConversationId: "conv-1",
     });
     const result = await reconcileActiveConversation();
     expect(result).toEqual({
@@ -720,7 +771,7 @@ describe("reconcileActiveConversation", () => {
       };
       const { reconcileActiveConversation } = createHarness({
         streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
-        activeConversationKey: "conv-1",
+        activeConversationId: "conv-1",
         turnState,
       });
       await reconcileActiveConversation();
@@ -749,7 +800,7 @@ describe("reconcileActiveConversation — fetch failure", () => {
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
-      activeConversationKey: "conv-1",
+      activeConversationId: "conv-1",
       turnState,
     });
     const result = await reconcileActiveConversation();
@@ -797,7 +848,7 @@ describe("startReconciliationLoop", () => {
       const { startReconciliationLoop, cancelReconciliation } = createHarness({
         streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
         streamEpoch: 7,
-        activeConversationKey: "conv-1",
+        activeConversationId: "conv-1",
         turnState: {
           phase: "streaming",
           pendingQueuedCount: 0,
@@ -864,7 +915,7 @@ describe("startReconciliationLoop", () => {
       const { startReconciliationLoop, cancelReconciliation } = createHarness({
         streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
         streamEpoch: 1,
-        activeConversationKey: "conv-1",
+        activeConversationId: "conv-1",
         turnState: INITIAL_TURN_STATE,
       });
 
@@ -925,7 +976,7 @@ describe("reconcileActiveConversation — stale tool call cleanup", () => {
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
-      activeConversationKey: "conv-1",
+      activeConversationId: "conv-1",
       turnState: idleTurnState,
     });
     await reconcileActiveConversation();
@@ -962,7 +1013,7 @@ describe("reconcileActiveConversation — stale tool call cleanup", () => {
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
-      activeConversationKey: "conv-1",
+      activeConversationId: "conv-1",
       turnState: idleTurnState,
     });
     await reconcileActiveConversation();
@@ -999,7 +1050,7 @@ describe("reconcileActiveConversation — stale tool call cleanup", () => {
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
-      activeConversationKey: "conv-1",
+      activeConversationId: "conv-1",
       turnState: streamingTurnState,
     });
     await reconcileActiveConversation();

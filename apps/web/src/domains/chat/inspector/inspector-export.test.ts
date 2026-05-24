@@ -11,7 +11,6 @@ import {
 function makeContext(): LlmContextResponse {
   return {
     conversationId: "conv/with spaces",
-    conversationKey: "conversation-key",
     conversationKind: "chat",
     conversationTotalEstimatedCostUsd: 0.0123,
     memoryRecall: {
@@ -118,7 +117,6 @@ describe("inspector export", () => {
       JSON.parse(fileContents(files, "conversation/actual-user-messages.json")),
     ).toMatchObject({
       conversationId: "conv/with spaces",
-      conversationKey: "conversation-key",
       messageId: null,
       messages: [
         {
@@ -139,4 +137,5 @@ describe("inspector export", () => {
       messages: [{ role: "user", content: "provider envelope" }],
     });
   });
+
 });

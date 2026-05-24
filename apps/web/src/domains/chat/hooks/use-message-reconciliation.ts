@@ -21,7 +21,7 @@ interface UseMessageReconciliationArgs {
   setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
   streamContextRef: RefObject<{ assistantId: string; conversationId: string } | null>;
   streamEpochRef: RefObject<number>;
-  activeConversationKeyRef: RefObject<string | null>;
+  activeConversationIdRef: RefObject<string | null>;
   initialPageOldestTsRef: RefObject<number | null>;
 }
 
@@ -118,7 +118,7 @@ export function useMessageReconciliation({
   setMessages,
   streamContextRef,
   streamEpochRef,
-  activeConversationKeyRef,
+  activeConversationIdRef,
   initialPageOldestTsRef,
 }: UseMessageReconciliationArgs): UseMessageReconciliationReturn {
   const reconcileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -194,12 +194,29 @@ export function useMessageReconciliation({
       const { changed, assistantProgress, messagesAdded } =
         reconcileFromServerDetailed(serverMessages);
 
-      // Reconcile turn state: if messages changed and the turn is
-      // still stuck in a sending phase for the SAME turn we snapshotted,
-      // the terminal SSE event was likely lost during backgrounding.
-      // We gate on assistant-side progress, not just any changed history:
-      // the server assigning an id to the optimistic user message does not
-      // prove the assistant completed.
+      // Reconcile turn state: only fire the silent-stall rescue when ALL
+      // of these hold:
+      //   - `changed`: reconcile produced a structurally different array
+      //     (content drift, new messages, etc.). Without this gate the
+      //     rescue would fire on every sync-tag reconcile that lands
+      //     mid-stream, because `assistantProgress` returns true the
+      //     moment we have a local-streaming row matched to a server
+      //     row — that's the exact normal mid-stream state, not a
+      //     stuckness signal.
+      //   - `assistantProgress`: server-confirmed evidence that the
+      //     assistant turn produced output (matched row with newer
+      //     content, or an additional assistant message). Gates out
+      //     refetches that only e.g. assigned an id to an optimistic
+      //     user row.
+      //   - Same turn id we snapshotted at fetch time, and the store
+      //     still says we're sending.
+      //
+      // Trade-off: in the (rare) case where SSE missed `message_complete`
+      // but the server's persisted view exactly matches what local
+      // already rendered, this rescue cannot fire. The user would need
+      // to reload — but that scenario is also genuinely indistinguishable
+      // from "live mid-stream paused between deltas", so the safe call
+      // is to never auto-idle without positive structural evidence.
       const wasStuck =
         changed &&
         assistantProgress &&
@@ -404,7 +421,7 @@ export function useMessageReconciliation({
           ctx.assistantId,
           ctx.conversationId,
         );
-        if (activeConversationKeyRef.current !== ctx.conversationId) return empty;
+        if (activeConversationIdRef.current !== ctx.conversationId) return empty;
         // If the epoch changed during the fetch (e.g. page went hidden
         // and back), this reconciliation is stale — bail out.
         if (streamEpochRef.current !== snapshotEpoch) return empty;
@@ -429,7 +446,7 @@ export function useMessageReconciliation({
     [
     streamContextRef,
     streamEpochRef,
-    activeConversationKeyRef,
+    activeConversationIdRef,
     reconcileFetchedMessages,
   ]);
 

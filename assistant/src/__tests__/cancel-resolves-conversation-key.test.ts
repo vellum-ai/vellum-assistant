@@ -49,7 +49,7 @@ mock.module("../daemon/handlers/conversations.js", () => ({
     return true;
   },
   switchConversation: async () => null,
-  clearAllConversations: () => 0,
+  clearAllConversations: async () => 0,
   undoLastMessage: async () => null,
   regenerateResponse: async () => null,
 }));

@@ -214,7 +214,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-21T20:10:42-04:00"
+      "updatedAt": "2026-05-22T09:03:09-04:00"
     },
     {
       "id": "gmail",
@@ -426,7 +426,7 @@
           "feature-flag": "meet"
         }
       },
-      "updatedAt": "2026-05-01T11:27:13-04:00"
+      "updatedAt": "2026-05-21T18:58:49-04:00"
     },
     {
       "id": "meme-generator",
@@ -653,7 +653,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-22T14:59:54-06:00"
+      "updatedAt": "2026-05-22T15:04:56-06:00"
     },
     {
       "id": "start-the-day",

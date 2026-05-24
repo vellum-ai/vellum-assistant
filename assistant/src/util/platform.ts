@@ -158,8 +158,13 @@ export function getDbPath(): string {
   return join(getDataDir(), "db", "assistant.db");
 }
 
-export function getLogPath(): string {
-  return join(getDataDir(), "logs", "vellum.log");
+/**
+ * Returns the directory where logs live: `<dataDir>/logs/`. Files rotate
+ * daily (`assistant-YYYY-MM-DD.log`), so callers ask for the directory and
+ * let the logger own the filename.
+ */
+export function getLogsDir(): string {
+  return join(getDataDir(), "logs");
 }
 
 export function getHistoryPath(): string {

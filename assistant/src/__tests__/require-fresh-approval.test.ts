@@ -103,7 +103,7 @@ mock.module("../permissions/checker.js", () => ({
 mock.module("../memory/tool-usage-store.js", () => ({
   recordToolInvocation: () => {},
   getRecentInvocations: () => [],
-  rotateToolInvocations: () => 0,
+  rotateToolInvocations: async () => 0,
 }));
 
 mock.module("../tools/registry.js", () => ({

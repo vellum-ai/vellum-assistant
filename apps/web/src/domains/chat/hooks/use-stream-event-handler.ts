@@ -105,14 +105,13 @@ export interface UseStreamEventHandlerParams {
 
   // --- Stream context ---
   streamEpochRef: MutableRefObject<number>;
-  activeConversationKeyRef: MutableRefObject<string | null>;
+  activeConversationIdRef: MutableRefObject<string | null>;
   streamContextRef: MutableRefObject<StreamContext | null>;
   assistantIdRef: MutableRefObject<string | null>;
 
   // --- Messages ---
   setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
   messagesRef: MutableRefObject<DisplayMessage[]>;
-  needsNewBubbleRef: MutableRefObject<boolean>;
 
   // --- Error & stream lifecycle ---
   setError: Dispatch<SetStateAction<ChatError | null>>;
@@ -183,12 +182,11 @@ export function useStreamEventHandler(
     push,
     isNative,
     streamEpochRef,
-    activeConversationKeyRef,
+    activeConversationIdRef,
     streamContextRef,
     assistantIdRef,
     setMessages,
     messagesRef,
-    needsNewBubbleRef,
     setError,
     streamRef,
     cancelReconciliation,
@@ -227,8 +225,8 @@ export function useStreamEventHandler(
 
   /** Remove a conversation key from the processing set and snapshots map. */
   const clearProcessingKey = useCallback((convKey: string) => {
-    // `removeProcessingKey` clears the matching snapshot in the same set call.
-    useConversationStore.getState().removeProcessingKey(convKey);
+    // `removeProcessingConversationId` clears the matching snapshot in the same set call.
+    useConversationStore.getState().removeProcessingConversationId(convKey);
   }, []);
 
   // --- Main event handler ---
@@ -241,7 +239,7 @@ export function useStreamEventHandler(
         recordChatDiagnostic("sse_event_stale", {
           epoch,
           currentEpoch: streamEpochRef.current,
-          activeConversationKey: activeConversationKeyRef.current,
+          activeConversationId: activeConversationIdRef.current,
           ...eventSummary,
         });
         return;
@@ -259,7 +257,7 @@ export function useStreamEventHandler(
         if (!event.conversationId || !streamConversationId) {
           recordChatDiagnostic("sse_event_wrong_conversation", {
             epoch,
-            activeConversationKey: activeConversationKeyRef.current,
+            activeConversationId: activeConversationIdRef.current,
             streamContext: streamContextRef.current,
             reason: !event.conversationId ? "missing" : "no_stream_context",
             ...eventSummary,
@@ -269,7 +267,7 @@ export function useStreamEventHandler(
         if (event.conversationId !== streamConversationId) {
           recordChatDiagnostic("sse_event_wrong_conversation", {
             epoch,
-            activeConversationKey: activeConversationKeyRef.current,
+            activeConversationId: activeConversationIdRef.current,
             streamContext: streamContextRef.current,
             reason: "mismatch",
             ...eventSummary,
@@ -277,17 +275,22 @@ export function useStreamEventHandler(
           return;
         }
       }
-      if (
-        event.type !== "assistant_text_delta" ||
-        needsNewBubbleRef.current
-      ) {
+      // Suppress per-chunk text_delta noise — only log the first delta of a
+      // new bubble. "First delta" is derived from the message ref tail:
+      // if the tail isn't a streaming assistant, the next text_delta will
+      // open a fresh bubble. This replaces the previous `needsNewBubbleRef`
+      // latch with a tail-derivation read.
+      const tail = messagesRef.current[messagesRef.current.length - 1];
+      const tailIsStreaming =
+        !!tail && tail.role === "assistant" && !!tail.isStreaming;
+      if (event.type !== "assistant_text_delta" || !tailIsStreaming) {
         recordChatDiagnostic(
           event.type === "assistant_text_delta"
             ? "sse_assistant_text_delta_start"
             : "sse_event",
           {
             epoch,
-            activeConversationKey: activeConversationKeyRef.current,
+            activeConversationId: activeConversationIdRef.current,
             streamContext: streamContextRef.current,
             ...eventSummary,
           },
@@ -299,11 +302,10 @@ export function useStreamEventHandler(
         router: { push },
         isNative,
         streamContextRef,
-        activeConversationKeyRef,
+        activeConversationIdRef,
         assistantIdRef,
         setMessages,
         messagesRef,
-        needsNewBubbleRef,
         turnActions: useTurnStore.getState(),
         getTurnState: () => useTurnStore.getState(),
         clearProcessingKey,
@@ -491,12 +493,11 @@ export function useStreamEventHandler(
       dispatchSyncChanged,
       queryClient,
       streamEpochRef,
-      activeConversationKeyRef,
+      activeConversationIdRef,
       streamContextRef,
       assistantIdRef,
       setMessages,
       messagesRef,
-      needsNewBubbleRef,
       setError,
       streamRef,
       confirmationToolCallMapRef,

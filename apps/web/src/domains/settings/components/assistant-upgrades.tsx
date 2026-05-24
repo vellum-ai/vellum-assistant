@@ -186,7 +186,9 @@ export function AssistantUpgrades({
         });
         const isNoOp = result.detail?.includes("Already on the latest");
         if (isNoOp) {
-          toast.success(result.detail);
+          // Not a success — nothing actually happened. Surface a warning so the
+          // user understands why the modal closed without kicking off an update.
+          toast.warning(result.detail);
           return;
         }
         targetVersionRef.current =

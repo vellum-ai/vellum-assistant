@@ -17,7 +17,7 @@ import {
   getIsContainerized,
 } from "../config/env-registry.js";
 import { logSerializers } from "./log-redact.js";
-import { getLogPath } from "./platform.js";
+import { getLogsDir } from "./platform.js";
 import { createSentryLogStream } from "./sentry-log-stream.js";
 
 /** Common pino-pretty options that inline [module] into the message prefix. */
@@ -87,7 +87,7 @@ function resolveLogDir(config: LogFileConfig): string | undefined {
       if (getIsContainerized()) {
         // Config has a host-specific path that can't be created inside the
         // container (e.g. /Users/…). Fall back to the default log directory.
-        const fallback = join(getLogPath(), "..");
+        const fallback = getLogsDir();
         console.warn(
           `[logger] Configured logFile.dir "${config.dir}" cannot be created ` +
             `in container (${(err as Error).message}). Falling back to "${fallback}".`,
@@ -210,7 +210,8 @@ function getRootLogger(): pino.Logger {
     }
 
     try {
-      const logPath = getLogPath();
+      const logDir = getLogsDir();
+      const logPath = logFilePathForDate(logDir, new Date());
       // Use sync: true so the fd is opened immediately. This prevents
       // "sonic boom is not ready yet" errors when commander calls
       // process.exit(0) for --help/--version before the async fd is ready.
@@ -247,6 +248,10 @@ function getRootLogger(): pino.Logger {
           fileStream,
         );
       }
+
+      // Register state so ensureCurrentDate() rebuilds across UTC midnight.
+      activeLogFileConfig = { dir: logDir, retentionDays: 0 };
+      activeLogDate = formatDate(new Date());
     } catch {
       rootLogger = pino(
         {
@@ -274,16 +279,20 @@ export function truncateForLog(value: string, maxLen = 500): string {
 /**
  * Returns a lazy logger that only initializes pino when a log method is called.
  * This avoids "sonic boom is not ready yet" errors when the process exits
- * quickly (e.g. `assistant --help`).
+ * quickly (e.g. `assistant --help`). The child is rebuilt whenever the
+ * underlying root logger changes (e.g. day rollover, late initLogger()).
  */
 export function getLogger(name: string): pino.Logger {
+  let cachedRoot: pino.Logger | null = null;
   let child: pino.Logger | null = null;
   const handler: ProxyHandler<pino.Logger> = {
     get(_target, prop, receiver) {
-      if (!child) {
-        child = getRootLogger().child({ module: name });
+      const root = getRootLogger();
+      if (root !== cachedRoot) {
+        cachedRoot = root;
+        child = root.child({ module: name });
       }
-      const val = Reflect.get(child, prop, receiver);
+      const val = Reflect.get(child!, prop, receiver);
       if (typeof val === "function") {
         return val.bind(child);
       }

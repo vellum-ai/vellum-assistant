@@ -2,6 +2,7 @@ import { count, desc, lt } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getLogger } from "../util/logger.js";
+import { runAsyncSqlite } from "./db-async-query.js";
 import { getDb } from "./db-connection.js";
 import { toolInvocations } from "./schema.js";
 
@@ -47,25 +48,52 @@ export function getRecentInvocations(limit: number) {
 const log = getLogger("audit-log");
 
 /**
- * Delete tool invocation records older than the specified number of days.
- * Returns the number of deleted records. Does nothing if retentionDays is 0.
+ * Delete tool invocation records older than the specified number of
+ * days. Returns the number of deleted records. Does nothing if
+ * `retentionDays` is zero, negative, or non-finite.
+ *
+ * The DELETE runs through {@link runAsyncSqlite}: when the host has a
+ * `sqlite3` CLI it executes in a subprocess and the daemon's main
+ * event loop stays responsive. On hosts without the CLI the
+ * abstraction falls back to in-process blocking execution — the same
+ * behaviour the daemon had before this abstraction existed.
  */
-export function rotateToolInvocations(retentionDays: number): number {
-  if (retentionDays <= 0) return 0;
+export async function rotateToolInvocations(
+  retentionDays: number,
+): Promise<number> {
+  if (!Number.isFinite(retentionDays) || retentionDays <= 0) return 0;
 
-  const cutoff = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
+  // Math.floor guarantees a plain integer literal in the inlined SQL
+  // below; no decimal, no exponent, no surprise characters.
+  const cutoffMs = Math.floor(
+    Date.now() - retentionDays * 24 * 60 * 60 * 1000,
+  );
   const db = getDb();
 
-  // Count before delete (Drizzle's .run() returns void on bun-sqlite)
+  // Count before delete so we can return + log the affected row count
+  // (`runAsyncSqlite` does not surface SQLite's `changes()` value).
   const [countRow] = db
     .select({ value: count() })
     .from(toolInvocations)
-    .where(lt(toolInvocations.createdAt, cutoff))
+    .where(lt(toolInvocations.createdAt, cutoffMs))
     .all();
   const toDelete = countRow?.value ?? 0;
   if (toDelete === 0) return 0;
 
-  db.delete(toolInvocations).where(lt(toolInvocations.createdAt, cutoff)).run();
+  // `runAsyncSqlite` takes a raw SQL string — sqlite3 CLI subprocesses
+  // see SQL on stdin without a binding layer. `cutoffMs` is a plain
+  // integer (see Math.floor above), so inlining it here is safe.
+  const result = await runAsyncSqlite(
+    `DELETE FROM tool_invocations WHERE created_at < ${cutoffMs}`,
+  );
+  if (!result.ok) {
+    log.error(
+      { error: result.error, backend: result.backend, toDelete },
+      "tool_invocations purge failed",
+    );
+    return 0;
+  }
+
   log.info(
     `Rotated ${toDelete} audit log entries older than ${retentionDays} day(s)`,
   );

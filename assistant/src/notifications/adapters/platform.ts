@@ -5,7 +5,7 @@
  * POSTs a `notification_intent` payload to
  * `/v1/assistants/{id}/push/dispatch/`. The platform endpoint fans the
  * notification out to all registered device tokens for the bound user and
- * gates on the `ios-remote-push-enabled` LD flag server-side (returning 202
+ * gates on the `ios-remote-push-enabled` feature flag server-side (returning 202
  * with `{ skipped: "flag_off" }` when the flag is OFF — no action needed
  * from the daemon).
  *

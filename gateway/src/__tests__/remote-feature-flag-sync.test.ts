@@ -38,7 +38,7 @@ const { resetFeatureFlagDefaultsCache, _setRegistryCandidateOverrides } =
 
 // ---------------------------------------------------------------------------
 // Test-local registry with a GA flag (defaultEnabled: true) for the
-// "ignores remote false for GA flags" test. Written to an isolated temp path
+// "normalizes remote false for GA flags" test. Written to an isolated temp path
 // so we never touch the committed registry file.
 // ---------------------------------------------------------------------------
 const testRegistryPath = join(protectedDir, "feature-flag-registry.json");
@@ -459,7 +459,7 @@ describe("RemoteFeatureFlagSync", () => {
     );
   });
 
-  test("ignores remote false for GA flags (defaultEnabled: true in registry)", async () => {
+  test("normalizes remote false for GA flags (defaultEnabled: true in registry)", async () => {
     // The platform sends false for all flags it knows about (blanket-deny).
     // GA flags (defaultEnabled: true in the registry) should not be disabled
     // by remote overrides — only local persisted overrides can do that.
@@ -468,7 +468,8 @@ describe("RemoteFeatureFlagSync", () => {
     fetchMock = mock(async () =>
       Response.json({
         flags: {
-          // GA flag (defaultEnabled: true) — remote false should be dropped
+          // GA flag (defaultEnabled: true) — remote false should be normalized
+          // to true so the missing-key fallback does not disable it.
           "test-ga-flag": false,
           // Gated flag (defaultEnabled: false) — remote false is kept
           "email-channel": false,
@@ -488,8 +489,8 @@ describe("RemoteFeatureFlagSync", () => {
 
     clearRemoteFeatureFlagStoreCache();
     const cached = readRemoteFeatureFlags();
-    // test-ga-flag (GA, remote false) should be absent
-    expect(cached["test-ga-flag"]).toBeUndefined();
+    // test-ga-flag (GA, remote false) should be normalized to true
+    expect(cached["test-ga-flag"]).toBe(true);
     // email-channel (gated, remote false) should be present
     expect(cached["email-channel"]).toBe(false);
     // test-ga-flag-true (unknown but true) should be present

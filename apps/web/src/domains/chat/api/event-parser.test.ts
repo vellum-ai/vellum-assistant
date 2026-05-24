@@ -252,6 +252,53 @@ describe("parseAssistantEvent", () => {
     });
   });
 
+  test("parses sync_changed with originClientId", () => {
+    const event = parseAssistantEvent("sync_changed", {
+      tags: [SYNC_TAGS.assistantAvatar],
+      originClientId: "client-abc",
+    });
+    expect(event).toEqual({
+      type: "sync_changed",
+      tags: [SYNC_TAGS.assistantAvatar],
+      originClientId: "client-abc",
+    });
+  });
+
+  test("omits originClientId from sync_changed when absent", () => {
+    const event = parseAssistantEvent("sync_changed", {
+      tags: [SYNC_TAGS.assistantAvatar],
+    });
+    expect(event).toEqual({
+      type: "sync_changed",
+      tags: [SYNC_TAGS.assistantAvatar],
+    });
+    expect("originClientId" in event).toBe(false);
+  });
+
+  test("ignores blank or non-string originClientId on sync_changed", () => {
+    const blank = parseAssistantEvent("sync_changed", {
+      tags: [SYNC_TAGS.assistantAvatar],
+      originClientId: "   ",
+    });
+    expect("originClientId" in blank).toBe(false);
+
+    const nonString = parseAssistantEvent("sync_changed", {
+      tags: [SYNC_TAGS.assistantAvatar],
+      originClientId: 42,
+    });
+    expect("originClientId" in nonString).toBe(false);
+
+    const trimmed = parseAssistantEvent("sync_changed", {
+      tags: [SYNC_TAGS.assistantAvatar],
+      originClientId: "  client-xyz  ",
+    });
+    expect(trimmed).toEqual({
+      type: "sync_changed",
+      tags: [SYNC_TAGS.assistantAvatar],
+      originClientId: "client-xyz",
+    });
+  });
+
   test("parses assistant_activity_state idle", () => {
     const event = parseAssistantEvent("assistant_activity_state", {
       conversationId: "conv-1",

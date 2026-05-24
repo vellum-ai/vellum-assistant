@@ -39,12 +39,12 @@ import { ResponseTab } from "./components/tabs/response-tab.js";
 /**
  * `/assistant/inspect` page. Two scopes, both encoded in the URL:
  *
- * - **Conversation mode** — `?conversationKey=...` only. Shows every
+ * - **Conversation mode** — `?conversationId=...` only. Shows every
  *   LLM call recorded for the conversation. Header carries a "Filter
  *   to message" dropdown that switches into message mode for a
  *   specific message in the transcript.
  *
- * - **Message mode** — `?conversationKey=...&messageId=...`. Shows
+ * - **Message mode** — `?conversationId=...&messageId=...`. Shows
  *   only the calls produced by the turn containing that message.
  *   Header carries a "View all conversation calls" link that drops
  *   back into conversation mode.
@@ -60,7 +60,7 @@ export function InspectPage(): ReactNode {
   const user = useAuthStore.use.user();
   const authLoading = useAuthStore.use.isLoading();
   const [searchParams] = useSearchParams();
-  const conversationKey = searchParams.get("conversationKey");
+  const conversationId = searchParams.get("conversationId");
   const messageId = searchParams.get("messageId");
 
   if (authLoading) {
@@ -75,21 +75,21 @@ export function InspectPage(): ReactNode {
     );
   }
 
-  if (!conversationKey) {
-    return <MissingConversationKeyState />;
+  if (!conversationId) {
+    return <MissingConversationIdState />;
   }
 
   return (
-    <Inspector conversationKey={conversationKey} messageId={messageId} />
+    <Inspector conversationId={conversationId} messageId={messageId} />
   );
 }
 
 interface InspectorProps {
-  conversationKey: string;
+  conversationId: string;
   messageId: string | null;
 }
 
-function Inspector({ conversationKey, messageId }: InspectorProps): ReactNode {
+function Inspector({ conversationId, messageId }: InspectorProps): ReactNode {
   const { assistantId } = useActiveAssistantContext();
   const {
     data,
@@ -97,7 +97,7 @@ function Inspector({ conversationKey, messageId }: InspectorProps): ReactNode {
     isError,
     error,
     refetch,
-  } = useLlmContext(assistantId, conversationKey, messageId);
+  } = useLlmContext(assistantId, conversationId, messageId);
 
   const logs = useMemo(() => data?.logs ?? [], [data?.logs]);
   const [searchParams] = useSearchParams();
@@ -123,19 +123,19 @@ function Inspector({ conversationKey, messageId }: InspectorProps): ReactNode {
     () =>
       (logId: string): string => {
         const params = new URLSearchParams();
-        params.set("conversationKey", conversationKey);
+        params.set("conversationId", conversationId);
         if (messageId) params.set("messageId", messageId);
         params.set("callId", logId);
         return `${routes.inspect}?${params.toString()}`;
       },
-    [conversationKey, messageId],
+    [conversationId, messageId],
   );
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <Header
         assistantId={assistantId}
-        conversationKey={conversationKey}
+        conversationId={conversationId}
         messageId={messageId}
         context={data}
         callCount={data ? logs.length : null}
@@ -167,7 +167,7 @@ function Inspector({ conversationKey, messageId }: InspectorProps): ReactNode {
 
 interface HeaderProps {
   assistantId: string | undefined;
-  conversationKey: string;
+  conversationId: string;
   messageId: string | null;
   context: LlmContextResponse | undefined;
   callCount: number | null;
@@ -175,7 +175,7 @@ interface HeaderProps {
 
 function Header({
   assistantId,
-  conversationKey,
+  conversationId,
   messageId,
   context,
   callCount,
@@ -202,7 +202,7 @@ function Header({
       downloadBlob(
         blob,
         buildInspectorExportFilename(
-          context.conversationId ?? context.conversationKey ?? conversationKey,
+          context.conversationId ?? conversationId,
         ),
       );
     } catch (err) {
@@ -226,7 +226,7 @@ function Header({
           leftIcon={<ArrowLeft size={16} aria-hidden />}
         >
           <Link
-            to={routes.conversation(conversationKey)}
+            to={routes.conversation(conversationId)}
             aria-label="Back to conversation"
           >
             Back
@@ -240,7 +240,7 @@ function Header({
             LLM Context Inspector
           </h1>
           <ScopeSubtitle
-            conversationKey={conversationKey}
+            conversationId={conversationId}
             messageId={messageId}
           />
         </div>
@@ -278,7 +278,7 @@ function Header({
       </div>
       <ScopeControls
         assistantId={assistantId}
-        conversationKey={conversationKey}
+        conversationId={conversationId}
         messageId={messageId}
         isMessageScoped={isMessageScoped}
       />
@@ -287,15 +287,15 @@ function Header({
 }
 
 interface ScopeSubtitleProps {
-  conversationKey: string;
+  conversationId: string;
   messageId: string | null;
 }
 
 function ScopeSubtitle({
-  conversationKey,
+  conversationId,
   messageId,
 }: ScopeSubtitleProps): ReactNode {
-  void conversationKey;
+  void conversationId;
   if (messageId) {
     return (
       <p
@@ -324,21 +324,21 @@ function ScopeSubtitle({
 
 interface ScopeControlsProps {
   assistantId: string | undefined;
-  conversationKey: string;
+  conversationId: string;
   messageId: string | null;
   isMessageScoped: boolean;
 }
 
 function ScopeControls({
   assistantId,
-  conversationKey,
+  conversationId,
   messageId,
   isMessageScoped,
 }: ScopeControlsProps): ReactNode {
   const navigate = useNavigate();
   const { data: messages } = useConversationMessageList(
     assistantId,
-    conversationKey,
+    conversationId,
   );
   const options = useMemo(
     () => buildMessageScopeOptions(messages ?? []),
@@ -347,7 +347,7 @@ function ScopeControls({
 
   const navigateToScope = (nextMessageId: string | null) => {
     const params = new URLSearchParams();
-    params.set("conversationKey", conversationKey);
+    params.set("conversationId", conversationId);
     if (nextMessageId) params.set("messageId", nextMessageId);
     navigate(`${routes.inspect}?${params.toString()}`);
   };
@@ -558,7 +558,7 @@ function CenteredMessage({
   );
 }
 
-function MissingConversationKeyState(): ReactNode {
+function MissingConversationIdState(): ReactNode {
   return (
     <div className="flex h-full w-full flex-col items-center justify-center gap-2 p-8 text-center">
       <h2
@@ -572,7 +572,7 @@ function MissingConversationKeyState(): ReactNode {
         style={{ color: "var(--content-secondary)" }}
       >
         Open the inspector from a conversation&rsquo;s overflow menu — direct
-        navigation requires a <code>conversationKey</code>.
+        navigation requires a <code>conversationId</code>.
       </p>
     </div>
   );

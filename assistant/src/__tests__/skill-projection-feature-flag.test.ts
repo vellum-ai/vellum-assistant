@@ -50,7 +50,7 @@ mock.module("../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: (key: string, _config: unknown): boolean => {
     const explicit = _mockOverrides[key];
     if (typeof explicit === "boolean") return explicit;
-    return true; // undeclared flags default to enabled
+    return false; // undeclared flags default to disabled
   },
   clearFeatureFlagOverridesCache: () => {
     _mockOverrides = {};
@@ -422,7 +422,7 @@ describe("projectSkillTools feature flag enforcement", () => {
     ];
     const prevActive = new Map<string, string>();
 
-    // Declared skill is OFF, plain-skill is undeclared with no persisted override so remains ON.
+    // Declared skill is OFF; plain-skill has no featureFlag so remains ON.
     _setOverridesForTesting({ [DECLARED_FLAG_KEY]: false });
 
     const result = projectSkillTools(history, {

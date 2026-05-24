@@ -51,12 +51,12 @@ export class LlmContextRequestError extends Error {
 
 export function llmContextQueryOptions(
   assistantId: string | undefined,
-  conversationKey: string | undefined,
+  conversationId: string | undefined,
   messageId: string | null | undefined,
 ) {
   const normalizedMessageId = messageId || undefined;
   const enabled = Boolean(
-    assistantId && (normalizedMessageId || conversationKey),
+    assistantId && (normalizedMessageId || conversationId),
   );
   return queryOptions({
     queryKey: [
@@ -65,7 +65,7 @@ export function llmContextQueryOptions(
       "llm-context",
       normalizedMessageId
         ? { scope: "message", messageId: normalizedMessageId }
-        : { scope: "conversation", conversationKey },
+        : { scope: "conversation", conversationId },
     ] as const,
     queryFn: async ({ signal }): Promise<LlmContextResponse> => {
       if (!assistantId) {
@@ -78,12 +78,12 @@ export function llmContextQueryOptions(
           signal,
         );
       }
-      if (!conversationKey) {
-        throw new LlmContextRequestError(0, "Missing conversationKey");
+      if (!conversationId) {
+        throw new LlmContextRequestError(0, "Missing conversationId");
       }
       return await fetchConversationLlmContext(
         assistantId,
-        conversationKey,
+        conversationId,
         signal,
       );
     },
@@ -94,11 +94,11 @@ export function llmContextQueryOptions(
 
 export function useLlmContext(
   assistantId: string | undefined,
-  conversationKey: string | undefined,
+  conversationId: string | undefined,
   messageId?: string | null,
 ) {
   return useQuery(
-    llmContextQueryOptions(assistantId, conversationKey, messageId),
+    llmContextQueryOptions(assistantId, conversationId, messageId),
   );
 }
 
@@ -107,27 +107,27 @@ export function useLlmContext(
  * conversation mode. Returns the conversation's message list so the
  * UI can render a labelled scope selector.
  *
- * Cached by `(assistantId, conversationKey)` and short-stale (30s) —
+ * Cached by `(assistantId, conversationId)` and short-stale (30s) —
  * the dropdown is rendered alongside the inspector logs and a fresh
  * fetch on every keystroke would be wasteful.
  */
 export function useConversationMessageList(
   assistantId: string | undefined,
-  conversationKey: string | undefined,
+  conversationId: string | undefined,
 ) {
-  const enabled = Boolean(assistantId && conversationKey);
+  const enabled = Boolean(assistantId && conversationId);
   return useQuery({
     queryKey: [
       "assistants",
       assistantId,
       "conversations",
-      conversationKey,
+      conversationId,
       "messages",
       "for-inspector",
     ] as const,
     queryFn: async (): Promise<RuntimeMessage[]> => {
-      if (!assistantId || !conversationKey) return [];
-      return await fetchConversationMessages(assistantId, conversationKey);
+      if (!assistantId || !conversationId) return [];
+      return await fetchConversationMessages(assistantId, conversationId);
     },
     enabled,
     staleTime: 30_000,
@@ -141,13 +141,13 @@ export function useConversationMessageList(
  */
 export async function fetchConversationLlmContext(
   assistantId: string,
-  conversationKey: string,
+  conversationId: string,
   signal: AbortSignal | undefined,
 ): Promise<LlmContextResponse> {
   const { data, error, response } = await client.get<LlmContextResponse>({
     url: "/v1/assistants/{assistant_id}/conversations/llm-context/",
     path: { assistant_id: assistantId },
-    query: { conversationId: conversationKey },
+    query: { conversationId },
     signal,
     throwOnError: false,
   });
@@ -157,7 +157,7 @@ export async function fetchConversationLlmContext(
   if (response.status === 404) {
     return await fetchConversationLlmContextFromPerMessage(
       assistantId,
-      conversationKey,
+      conversationId,
       signal,
     );
   }
@@ -229,12 +229,12 @@ export async function fetchMessageLlmContextOrThrow(
  */
 async function fetchConversationLlmContextFromPerMessage(
   assistantId: string,
-  conversationKey: string,
+  conversationId: string,
   signal: AbortSignal | undefined,
 ): Promise<LlmContextResponse> {
   const messages = await fetchConversationMessages(
     assistantId,
-    conversationKey,
+    conversationId,
   );
 
   const messageIds: string[] = [];
@@ -248,8 +248,7 @@ async function fetchConversationLlmContextFromPerMessage(
 
   if (messageIds.length === 0) {
     return {
-      conversationKey,
-      conversationId: null,
+      conversationId,
       conversationKind: "user",
       conversationTotalEstimatedCostUsd: null,
       logs: [],
@@ -290,8 +289,7 @@ async function fetchConversationLlmContextFromPerMessage(
   allLogs.sort((a, b) => a.createdAt - b.createdAt);
 
   return {
-    conversationKey,
-    conversationId: null,
+    conversationId,
     conversationKind,
     conversationTotalEstimatedCostUsd,
     logs: allLogs,
