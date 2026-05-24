@@ -8,7 +8,7 @@ import {
   ASSISTANT_FLAG_DEFAULTS,
   flagKeyToStoreKey,
 } from "@/lib/feature-flags/feature-flag-catalog.js";
-import { useFlagQueryFreshness } from "@/lib/feature-flags/flag-query-freshness.js";
+import { useFlagQueryFreshness } from "@/lib/backwards-compat/flag-query-freshness.js";
 
 interface FeatureFlagEntry {
   key: string;
@@ -89,13 +89,6 @@ export function useAssistantFeatureFlagSync(assistantId: string | null) {
     }
   }, [assistantId]);
 
-  // Freshness options are version-gated by the active assistant's
-  // daemon version: assistants on 0.8.5+ rely on the SSE push +
-  // `sse.opened` reconnect invalidation (see `useAssistantSyncStream`),
-  // older assistants fall back to a 5s interval poll. The push path
-  // uses a moderate `staleTime` rather than `Infinity` so a remount
-  // (e.g. cross-assistant switch) refetches after a minute — push is
-  // assistant-scoped and won't fire for the inactive assistant.
   const freshness = useFlagQueryFreshness();
   const { data } = useQuery({
     queryKey: assistantFlagValuesQueryKey(assistantId),

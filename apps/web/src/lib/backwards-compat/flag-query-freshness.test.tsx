@@ -5,7 +5,7 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 import {
   supportsFlagPush,
   useFlagQueryFreshness,
-} from "@/lib/feature-flags/flag-query-freshness.js";
+} from "@/lib/backwards-compat/flag-query-freshness.js";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store.js";
 
 function wrapper({ children }: { children: ReactNode }) {
@@ -26,38 +26,16 @@ afterEach(() => {
 });
 
 describe("supportsFlagPush", () => {
-  test("returns false for null version", () => {
-    expect(supportsFlagPush(null)).toBe(false);
-  });
-
-  test("returns false for unparseable version", () => {
-    expect(supportsFlagPush("not-a-version")).toBe(false);
-    expect(supportsFlagPush("0.8")).toBe(false);
-  });
-
-  test("returns false for versions below 0.8.5", () => {
+  // Exhaustive truth-table for the underlying semver check lives in
+  // `utils.test.ts`. Here we sanity-check that this thin wrapper
+  // routes a sample version on each side of the 0.8.5 boundary.
+  test("0.8.4 → false, 0.8.5 → true", () => {
     expect(supportsFlagPush("0.8.4")).toBe(false);
-    expect(supportsFlagPush("0.8.0")).toBe(false);
-    expect(supportsFlagPush("0.7.99")).toBe(false);
-    expect(supportsFlagPush("0.0.1")).toBe(false);
-  });
-
-  test("returns true for 0.8.5 and later", () => {
     expect(supportsFlagPush("0.8.5")).toBe(true);
-    expect(supportsFlagPush("0.8.6")).toBe(true);
-    expect(supportsFlagPush("0.9.0")).toBe(true);
-    expect(supportsFlagPush("1.0.0")).toBe(true);
   });
 
-  test("ignores pre-release suffixes — 0.8.5-rc.1 counts as push-capable", () => {
-    expect(supportsFlagPush("0.8.5-rc.1")).toBe(true);
-    expect(supportsFlagPush("0.8.5-alpha")).toBe(true);
-    expect(supportsFlagPush("0.9.0-beta.3")).toBe(true);
-  });
-
-  test("strips leading 'v' prefix", () => {
-    expect(supportsFlagPush("v0.8.5")).toBe(true);
-    expect(supportsFlagPush("v0.8.4")).toBe(false);
+  test("null version returns false", () => {
+    expect(supportsFlagPush(null)).toBe(false);
   });
 });
 

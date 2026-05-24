@@ -15,7 +15,7 @@ import {
   type FlagScope,
   type SingleScope,
 } from "@/lib/feature-flags/feature-flag-catalog.js";
-import { useFlagQueryFreshness } from "@/lib/feature-flags/flag-query-freshness.js";
+import { useFlagQueryFreshness } from "@/lib/backwards-compat/flag-query-freshness.js";
 import {
   assistantFlagValuesQueryKey,
   fetchAssistantFlagValues,
@@ -39,13 +39,10 @@ export function FeatureFlagsPanel() {
   const { data: activeAssistant } = useQuery(assistantsActiveRetrieveOptions());
   const assistantId = activeAssistant?.id ?? null;
 
-  // Live-refresh observer: same query key as the root-level
-  // `useAssistantFeatureFlagSync`, so TanStack Query dedupes. For
-  // assistants on 0.8.5+ this resolves to `refetchInterval: false`
-  // and the daemon's SSE push keeps the cache fresh. For older
-  // assistants this drives the 5s poll the panel needs to stay live
-  // while toggling — without it, assistant flags would only refresh
-  // on window focus / remount on those versions.
+  // Same-key observer: TanStack dedups with `useAssistantFeatureFlagSync`'s
+  // root-level query. Kept so the panel stays live while toggling on
+  // older daemons; on push-capable daemons this resolves to a no-op
+  // (`refetchInterval: false`).
   const freshness = useFlagQueryFreshness();
   useQuery({
     queryKey: assistantFlagValuesQueryKey(assistantId),
