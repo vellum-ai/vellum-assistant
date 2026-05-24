@@ -23,6 +23,7 @@ import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { Input } from "@vellum/design-library/components/input";
 import { Notice } from "@vellum/design-library/components/notice";
 import { SegmentControl } from "@vellum/design-library/components/segment-control";
+import { DomainField } from "@/domains/settings/components/domain-field.js";
 import { SettingsCard } from "@/domains/settings/components/settings-card.js";
 import { Typography } from "@vellum/design-library/components/typography";
 
@@ -854,9 +855,10 @@ const EMAIL_BYO_PROVIDERS: readonly EmailByoProvider[] = [
 
 interface EmailServiceCardProps {
   assistantId: string | undefined;
+  assistantHandle: string | undefined;
 }
 
-function EmailServiceCard({ assistantId }: EmailServiceCardProps) {
+function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceCardProps) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const emailRootDomain = useEnvironmentStore.use.emailRootDomain();
@@ -871,8 +873,16 @@ function EmailServiceCard({ assistantId }: EmailServiceCardProps) {
       ) as EmailByoProvider["id"],
   );
   const [subdomainDraft, setSubdomainDraft] = useState("");
+  const [subdomainPrefilled, setSubdomainPrefilled] = useState(false);
+  const [subdomainError, setSubdomainError] = useState<string | null>(null);
   const [usernameDraft, setUsernameDraft] = useState("");
   const [savingMode, setSavingMode] = useState(false);
+
+  useEffect(() => {
+    if (subdomainPrefilled || !assistantHandle || subdomainDraft) return;
+    setSubdomainDraft(assistantHandle);
+    setSubdomainPrefilled(true);
+  }, [assistantHandle, subdomainPrefilled, subdomainDraft]);
 
   // -- Subscription gate (managed mode requires Pro) -------------------------
   // We separate "definitely not Pro" from "unknown" so a failed subscription
@@ -949,7 +959,7 @@ function EmailServiceCard({ assistantId }: EmailServiceCardProps) {
     if (!assistantId) return;
     const trimmed = subdomainDraft.trim().toLowerCase();
     if (!trimmed) {
-      toast.error("Enter a subdomain.");
+      setSubdomainError("Enter a subdomain.");
       return;
     }
     try {
@@ -958,14 +968,14 @@ function EmailServiceCard({ assistantId }: EmailServiceCardProps) {
         body: { subdomain: trimmed },
       });
       setSubdomainDraft("");
+      setSubdomainError(null);
       invalidateEmailQueries();
       toast.success(`Domain ${trimmed}.${emailRootDomain} registered.`);
     } catch (err) {
-      const message =
-        err instanceof Error && err.message
-          ? err.message
-          : "Failed to register domain.";
-      toast.error(message);
+      const rec = err as Record<string, unknown> | undefined;
+      const detail = rec && typeof rec.detail === "string" ? rec.detail : null;
+      const message = detail ?? (err instanceof Error && err.message ? err.message : "Failed to register domain.");
+      setSubdomainError(message);
     }
   }, [
     assistantId,
@@ -1117,22 +1127,23 @@ function EmailServiceCard({ assistantId }: EmailServiceCardProps) {
             </p>
           ) : !domain ? (
             <div className="space-y-3">
-              <label className="block text-body-small-default text-[var(--content-tertiary)]">
+              <Typography
+                variant="body-small-default"
+                as="label"
+                className="text-[var(--content-secondary)]"
+              >
                 Subdomain
-              </label>
-              <div className="flex items-center gap-2">
-                <Input
-                  value={subdomainDraft}
-                  onChange={(e) =>
-                    setSubdomainDraft(e.target.value.toLowerCase())
-                  }
-                  placeholder="myassistant"
-                  fullWidth
-                />
-                <span className="shrink-0 text-body-small-default text-[var(--content-tertiary)]">
-                  .{emailRootDomain}
-                </span>
-              </div>
+              </Typography>
+              <DomainField
+                subdomain={subdomainDraft}
+                onSubdomainChange={(v) => {
+                  setSubdomainDraft(v);
+                  if (subdomainError) setSubdomainError(null);
+                }}
+                domainSuffix={emailRootDomain}
+                subdomainPlaceholder="my-assistant"
+                error={subdomainError}
+              />
               <p className="text-body-small-default text-[var(--content-tertiary)]">
                 Each assistant gets its own subdomain. Lowercase letters,
                 numbers, and hyphens only.
@@ -1146,24 +1157,27 @@ function EmailServiceCard({ assistantId }: EmailServiceCardProps) {
             </div>
           ) : !address ? (
             <div className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="space-y-0.5">
+              <div className="space-y-0.5">
+                <div className="flex items-center justify-between gap-3">
                   <label className="block text-body-small-default text-[var(--content-tertiary)]">
                     Domain
                   </label>
-                  <span className="inline-flex items-center gap-1 rounded-full bg-[var(--system-positive-weak)] px-2.5 py-0.5 text-body-small-default text-[var(--system-positive-strong)]">
-                    <Check className="h-3 w-3" />
-                    {fullDomain}
-                  </span>
+                  <Button
+                    variant="dangerGhost"
+                    size="compact"
+                    onClick={handleDeleteDomain}
+                    disabled={deleteDomain.isPending}
+                  >
+                    Release
+                  </Button>
                 </div>
-                <Button
-                  variant="dangerGhost"
-                  size="compact"
-                  onClick={handleDeleteDomain}
-                  disabled={deleteDomain.isPending}
-                >
-                  Release
-                </Button>
+                <DomainField
+                  subdomain={domain.subdomain}
+                  onSubdomainChange={() => {}}
+                  domainSuffix={emailRootDomain}
+                  locked
+                  lockedMessage="This domain has been set and cannot be changed."
+                />
               </div>
 
               <div className="space-y-1">
@@ -1926,7 +1940,7 @@ export function AiPage() {
       </ServiceCard>
 
       {/* Email */}
-      <EmailServiceCard assistantId={assistantId} />
+      <EmailServiceCard assistantId={assistantId} assistantHandle={assistantList?.results?.[0]?.handle} />
 
       {/* Image Generation */}
       <ServiceCard
