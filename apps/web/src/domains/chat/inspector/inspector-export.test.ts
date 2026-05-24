@@ -11,7 +11,6 @@ import {
 function makeContext(): LlmContextResponse {
   return {
     conversationId: "conv/with spaces",
-    conversationKey: "conversation-key",
     conversationKind: "chat",
     conversationTotalEstimatedCostUsd: 0.0123,
     memoryRecall: {
@@ -139,25 +138,4 @@ describe("inspector export", () => {
     });
   });
 
-  test("falls back to conversationKey for the export id when conversationId is absent", () => {
-    // Covers the daemon-real wire shape (legacy) where only
-    // `conversationKey` is populated on `LlmContextResponse`. The
-    // export consolidates both into a single canonical `conversationId`
-    // field.
-    const ctx = makeContext();
-    ctx.conversationId = null;
-
-    const files = buildInspectorExportFiles(ctx, makePayloads(), {
-      exportedAt: "2026-05-15T13:00:00.000Z",
-    });
-
-    expect(JSON.parse(fileContents(files, "manifest.json"))).toMatchObject({
-      conversationId: "conversation-key",
-    });
-    expect(
-      JSON.parse(fileContents(files, "conversation/actual-user-messages.json")),
-    ).toMatchObject({
-      conversationId: "conversation-key",
-    });
-  });
 });

@@ -47,8 +47,7 @@ export function buildInspectorExportFiles(
       path: "manifest.json",
       contents: prettyJson({
         exportedAt,
-        conversationId:
-          context.conversationId ?? context.conversationKey ?? null,
+        conversationId: context.conversationId ?? null,
         messageId: context.messageId ?? null,
         conversationKind: context.conversationKind,
         conversationTotalEstimatedCostUsd:
@@ -60,8 +59,7 @@ export function buildInspectorExportFiles(
     {
       path: "conversation/actual-user-messages.json",
       contents: prettyJson({
-        conversationId:
-          context.conversationId ?? context.conversationKey ?? null,
+        conversationId: context.conversationId ?? null,
         messageId: context.messageId ?? null,
         description:
           "User-authored message sections extracted from the normalized request context. These are intentionally separate from provider request payloads.",

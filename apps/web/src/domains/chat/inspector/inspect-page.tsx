@@ -202,7 +202,7 @@ function Header({
       downloadBlob(
         blob,
         buildInspectorExportFilename(
-          context.conversationId ?? context.conversationKey ?? conversationId,
+          context.conversationId ?? conversationId,
         ),
       );
     } catch (err) {
