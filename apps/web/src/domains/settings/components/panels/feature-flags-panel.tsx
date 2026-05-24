@@ -9,10 +9,6 @@ import { assistantsActiveRetrieveOptions } from "@/generated/api/@tanstack/react
 import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
 import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
 import {
-  assistantFlagValuesQueryKey,
-  fetchAssistantFlagValues,
-} from "@/lib/feature-flags/use-assistant-feature-flag-sync.js";
-import {
   ALL_FLAGS,
   flagKeyToStoreKey,
   scopeIncludes,
@@ -37,19 +33,6 @@ interface FlagDisplayEntry {
 export function FeatureFlagsPanel() {
   const { data: activeAssistant } = useQuery(assistantsActiveRetrieveOptions());
   const assistantId = activeAssistant?.id ?? null;
-
-  // Live-refresh observer: same query key as the root-level
-  // `useAssistantFeatureFlagSync`, so TanStack Query dedupes — the
-  // root hook is the single write site, this just nudges it on a
-  // 5s cadence while the panel is mounted.
-  useQuery({
-    queryKey: assistantFlagValuesQueryKey(assistantId),
-    queryFn: () => fetchAssistantFlagValues(assistantId!),
-    enabled: assistantId !== null,
-    staleTime: 5_000,
-    refetchInterval: 5_000,
-    retry: 1,
-  });
 
   const [searchText, setSearchText] = useState("");
   const clientState = useClientFeatureFlagStore();

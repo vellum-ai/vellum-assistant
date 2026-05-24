@@ -51,8 +51,10 @@ export function useClientFeatureFlagSync(enabled: boolean) {
     queryKey: CLIENT_FLAG_QUERY_KEY,
     queryFn: fetchClientFlagValues,
     enabled,
-    staleTime: 5_000,
-    refetchInterval: 5_000,
+    // Freshness is driven by the daemon's `sync_changed` push (see
+    // `useAssistantSyncStream`'s `featureFlagsClient` tag) and by an
+    // `sse.opened` reconnect invalidation. No interval poll.
+    staleTime: Infinity,
     retry: 1,
   });
 

@@ -25,10 +25,6 @@ const VALID_KEYS = new Set(Object.keys(ASSISTANT_FLAG_DEFAULTS));
 
 export const ASSISTANT_FLAG_VALUES_QUERY_KEY = "assistant-feature-flag-values" as const;
 
-/**
- * Shared so the Developer panel can layer a `refetchInterval` observer
- * on the exact same query key and let TanStack Query dedupe the fetch.
- */
 export function assistantFlagValuesQueryKey(assistantId: string | null) {
   return [ASSISTANT_FLAG_VALUES_QUERY_KEY, assistantId] as const;
 }
@@ -92,7 +88,10 @@ export function useAssistantFeatureFlagSync(assistantId: string | null) {
     queryKey: assistantFlagValuesQueryKey(assistantId),
     queryFn: () => fetchAssistantFlagValues(assistantId!),
     enabled,
-    staleTime: 5_000,
+    // Freshness is driven by the daemon's `sync_changed` push (see
+    // `useAssistantSyncStream`'s `featureFlagsAssistant` tag) and by
+    // an `sse.opened` reconnect invalidation. No interval poll.
+    staleTime: Infinity,
     retry: 1,
   });
 

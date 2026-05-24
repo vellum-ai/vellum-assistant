@@ -111,9 +111,6 @@ export function useAssistantSyncStream(
             });
             break;
           case SYNC_TAGS.featureFlagsAssistant:
-            // Prefix invalidation: TanStack matches every cached
-            // `[ASSISTANT_FLAG_VALUES_QUERY_KEY, <assistantId>]`. The
-            // daemon emits a single global event for any flag change.
             void queryClient.invalidateQueries({
               queryKey: [ASSISTANT_FLAG_VALUES_QUERY_KEY],
             });
@@ -169,9 +166,27 @@ export function useAssistantSyncStream(
       .getState()
       .subscribe("sse.event", handleEvent);
 
+    // After a transport reconnect we may have missed `sync_changed`
+    // events during the gap. Re-fetch both flag query families so the
+    // caches re-converge with the daemon. `cause: "fresh"` is the
+    // initial connection — useQuery already fetches on mount, so the
+    // extra invalidation would be redundant.
+    const unsubscribeOpened = useEventBusStore
+      .getState()
+      .subscribe("sse.opened", ({ cause }) => {
+        if (cause === "fresh") return;
+        void queryClient.invalidateQueries({
+          queryKey: CLIENT_FLAG_QUERY_KEY,
+        });
+        void queryClient.invalidateQueries({
+          queryKey: [ASSISTANT_FLAG_VALUES_QUERY_KEY],
+        });
+      });
+
     return () => {
       if (debounceTimer) clearTimeout(debounceTimer);
       unsubscribe();
+      unsubscribeOpened();
     };
   }, [assistantId, isAssistantActive, queryClient]);
 }
