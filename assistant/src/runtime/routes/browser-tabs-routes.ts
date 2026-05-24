@@ -11,6 +11,7 @@ import { findConversation } from "../../daemon/conversation-store.js";
 import { getCdpClient } from "../../tools/browser/cdp-client/factory.js";
 import {
   clearPinnedTab,
+  clearPinnedTabByTabId,
   setPinnedTab,
 } from "../../tools/browser/pinned-tabs.js";
 import type { ToolContext } from "../../tools/types.js";
@@ -136,6 +137,13 @@ async function handleBrowserTabs({ body = {} }: RouteHandlerArgs) {
     const cdp = getCdpClient(context, cdpOptions);
     try {
       const result = await cdp.closeTab(tabId);
+      // Clear any pinned-tab slot still pointing at the closed tabId so
+      // subsequent browser tool calls don't route to a dead cdpSessionId
+      // and fail with session-not-found. Tabs that never debugger-attached
+      // (e.g. `tabs new` without `--url`) won't emit a detach invalidation
+      // event, so the pin would otherwise leak. Scope by targetClientId
+      // when provided to avoid wiping pins for unrelated clients.
+      clearPinnedTabByTabId(String(tabId), targetClientId);
       return { ok: true, ...result };
     } finally {
       cdp.dispose();
