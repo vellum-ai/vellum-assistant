@@ -62,14 +62,14 @@ export function classifyRefreshLatestOutcome(
 function refreshSurfacesForFetchedMessages({
   fetched,
   assistantId,
-  conversationKey,
+  conversationId,
   dismissedSurfaceIdsRef,
   setMessages,
   isStale,
 }: {
   fetched: DisplayMessage[];
   assistantId: string;
-  conversationKey: string;
+  conversationId: string;
   dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
   setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
   isStale: () => boolean;
@@ -81,7 +81,7 @@ function refreshSurfacesForFetchedMessages({
       void fetchSurfaceContent(
         assistantId,
         surface.surfaceId,
-        conversationKey,
+        conversationId,
       ).then((fresh) => {
         if (!fresh) return;
         if (isStale()) return;
@@ -144,17 +144,17 @@ export function useRefreshLatestMessages({
   const refreshTokenRef = useRef(0);
   return useCallback(async (): Promise<RefreshLatestOutcome> => {
     if (!assistantId) return { kind: "no-change" };
-    const conversationKey = activeConversationIdRef.current;
-    if (!conversationKey) return { kind: "no-change" };
+    const conversationId = activeConversationIdRef.current;
+    if (!conversationId) return { kind: "no-change" };
 
     const myToken = ++refreshTokenRef.current;
     const isStale = (): boolean =>
       refreshTokenRef.current !== myToken ||
-      activeConversationIdRef.current !== conversationKey;
+      activeConversationIdRef.current !== conversationId;
 
     let fetched;
     try {
-      fetched = await fetchLatestHistoryPage(assistantId, conversationKey);
+      fetched = await fetchLatestHistoryPage(assistantId, conversationId);
     } catch (error) {
       return { kind: "error", error };
     }
@@ -191,7 +191,7 @@ export function useRefreshLatestMessages({
     refreshSurfacesForFetchedMessages({
       fetched: filteredMessages,
       assistantId,
-      conversationKey,
+      conversationId,
       dismissedSurfaceIdsRef,
       setMessages,
       isStale,

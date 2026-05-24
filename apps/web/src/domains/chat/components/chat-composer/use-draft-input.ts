@@ -87,7 +87,7 @@ export interface UseDraftInputParams {
    * genuine conversation switch. Used to render a transient "Draft restored"
    * notice (LUM-1516).
    */
-  onDraftRestored?: (conversationKey: string) => void;
+  onDraftRestored?: (conversationId: string) => void;
 }
 
 export interface UseDraftInputReturn {

@@ -47,13 +47,13 @@ import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types.js"
 
 interface FetchLatestCall {
   assistantId: string;
-  conversationKey: string;
+  conversationId: string;
 }
 
 const fetchLatestCalls: FetchLatestCall[] = [];
 let fetchLatestImpl: (
   assistantId: string,
-  conversationKey: string,
+  conversationId: string,
 ) => Promise<PaginatedHistoryResult> = async () => ({
   messages: [],
   hasMore: false,
@@ -62,21 +62,21 @@ let fetchLatestImpl: (
 });
 
 mock.module("@/domains/chat/api/history", () => ({
-  fetchLatestHistoryPage: (assistantId: string, conversationKey: string) => {
-    fetchLatestCalls.push({ assistantId, conversationKey });
-    return fetchLatestImpl(assistantId, conversationKey);
+  fetchLatestHistoryPage: (assistantId: string, conversationId: string) => {
+    fetchLatestCalls.push({ assistantId, conversationId });
+    return fetchLatestImpl(assistantId, conversationId);
   },
 }));
 
 const fetchSurfaceCalls: Array<{
   assistantId: string;
   surfaceId: string;
-  conversationKey: string;
+  conversationId: string;
 }> = [];
 let fetchSurfaceImpl: (
   assistantId: string,
   surfaceId: string,
-  conversationKey: string,
+  conversationId: string,
 ) => Promise<{
   surfaceId: string;
   surfaceType: string;
@@ -88,10 +88,10 @@ mock.module("@/domains/chat/api/surfaces", () => ({
   fetchSurfaceContent: (
     assistantId: string,
     surfaceId: string,
-    conversationKey: string,
+    conversationId: string,
   ) => {
-    fetchSurfaceCalls.push({ assistantId, surfaceId, conversationKey });
-    return fetchSurfaceImpl(assistantId, surfaceId, conversationKey);
+    fetchSurfaceCalls.push({ assistantId, surfaceId, conversationId });
+    return fetchSurfaceImpl(assistantId, surfaceId, conversationId);
   },
 }));
 
@@ -131,13 +131,13 @@ interface HostState {
 
 function makeHost(
   initial: DisplayMessage[],
-  conversationKey: string | null,
+  conversationId: string | null,
   dismissed: Set<string> = new Set(),
 ): HostState {
   const host: HostState = {
     messages: initial,
     messagesRef: { current: initial },
-    activeConversationIdRef: { current: conversationKey },
+    activeConversationIdRef: { current: conversationId },
     dismissedSurfaceIdsRef: { current: dismissed },
     setMessagesCalls: [],
     setMessages: (update) => {
@@ -280,7 +280,7 @@ describe("useRefreshLatestMessages", () => {
 
     expect(outcome).toEqual({ kind: "new-messages", count: 2 });
     expect(fetchLatestCalls).toEqual([
-      { assistantId: "asst-1", conversationKey: "conv-1" },
+      { assistantId: "asst-1", conversationId: "conv-1" },
     ]);
     // CRITICAL: setMessages must be called with a merge, NEVER with [].
     // This is the load-bearing contract change for the menu Refresh bug.

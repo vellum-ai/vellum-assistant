@@ -64,8 +64,8 @@ export function usePullRefresh({
   }, []);
 
   const handlePullRefresh = useCallback(async (): Promise<RefreshOutcome> => {
-    const conversationKey = activeConversationId;
-    if (!conversationKey) {
+    const conversationId = activeConversationId;
+    if (!conversationId) {
       return { kind: "no-change" };
     }
 

@@ -136,8 +136,8 @@ export function useConversationSwitch({
 
     recordChatDiagnostic("conversation_switch_reset", {
       assistantId,
-      conversationKey: activeConversationId,
-      outgoingConversationKey: outgoingKey ?? null,
+      conversationId: activeConversationId,
+      outgoingConversationId: outgoingKey ?? null,
     });
 
     // Reset all per-conversation state so nothing leaks between threads.

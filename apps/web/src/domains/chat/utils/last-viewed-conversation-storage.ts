@@ -25,13 +25,13 @@ export function loadLastViewedConversationKey(
 
 export function saveLastViewedConversationKey(
   assistantId: string,
-  conversationKey: string,
+  conversationId: string,
 ): void {
   if (typeof window === "undefined") {
     return;
   }
   try {
-    window.localStorage.setItem(storageKey(assistantId), conversationKey);
+    window.localStorage.setItem(storageKey(assistantId), conversationId);
   } catch {
     // Storage can fail in private browsing / quota-exceeded cases. Silently
     // drop; the in-memory selection still works for the current session.
