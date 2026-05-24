@@ -14,6 +14,7 @@ import { message } from "./commands/message";
 import { ps } from "./commands/ps";
 import { recover } from "./commands/recover";
 import { restore } from "./commands/restore";
+import { roadmap } from "./commands/roadmap";
 import { retire } from "./commands/retire";
 import { rollback } from "./commands/rollback";
 import { setup } from "./commands/setup";
@@ -45,6 +46,7 @@ const commands = {
   recover,
   restore,
   retire,
+  roadmap,
   rollback,
   setup,
   sleep,
@@ -83,6 +85,7 @@ function printHelp(): void {
     "  restore  Restore data (and optionally version) from a .vbundle backup",
   );
   console.log("  retire   Delete an assistant instance");
+  console.log("  roadmap  Manage roadmap items");
   console.log("  rollback  Roll back an assistant to a previous version");
   console.log("  setup    Configure API keys interactively");
   console.log("  sleep    Stop the assistant process");
