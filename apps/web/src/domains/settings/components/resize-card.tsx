@@ -76,12 +76,11 @@ export function ResizeCard({
   // is not a reliable limit.
   const availableGib = onboardingQuery.data?.selected_storage_gib ?? null;
   // The base assistant record doesn't expose its current provisioned storage,
-  // so approximate it from the live filesystem capacity (MiB → GiB) reported
-  // by health. Used only to gate the "Increase Storage" CTA and modal copy.
-  const currentGib =
-    healthz?.disk?.totalMb != null
-      ? Math.round(healthz.disk.totalMb / 1024)
-      : null;
+  // and the filesystem total can over-report the host volume — gating on it
+  // would wrongly hide the upgrade path when a user still has purchased quota.
+  // Leave it unknown so the storage-grow path stays available; the resize
+  // endpoint validates the requested size against the purchased tier.
+  const currentGib: number | null = null;
 
   const [resizeModalOpen, setResizeModalOpen] = useState(false);
   const largestSize = allowedSizes.length > 0 ? allowedSizes[allowedSizes.length - 1] : null;
