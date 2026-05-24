@@ -14,7 +14,7 @@ const PREFIX = "vellum:edit-chat:";
 const TTL_MS = 4 * 60 * 60 * 1000;
 
 interface Entry {
-  conversationKey: string;
+  conversationId: string;
   lastUsedAt: number;
 }
 
@@ -37,7 +37,7 @@ function readEntry(key: string): Entry | null {
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as Entry;
-    if (typeof parsed.conversationKey !== "string" || typeof parsed.lastUsedAt !== "number") {
+    if (typeof parsed.conversationId !== "string" || typeof parsed.lastUsedAt !== "number") {
       return null;
     }
     return parsed;
@@ -56,7 +56,7 @@ function writeEntry(key: string, entry: Entry): void {
   }
 }
 
-export function getEditChatKey(
+export function getEditChatConversationId(
   assistantId: string,
   appId: string,
   now: number = Date.now(),
@@ -69,33 +69,33 @@ export function getEditChatKey(
     store?.removeItem(key);
     return null;
   }
-  return entry.conversationKey;
+  return entry.conversationId;
 }
 
-export function setEditChatKey(
+export function setEditChatConversationId(
   assistantId: string,
   appId: string,
-  conversationKey: string,
+  conversationId: string,
   now: number = Date.now(),
 ): void {
-  writeEntry(buildKey(assistantId, appId), { conversationKey, lastUsedAt: now });
+  writeEntry(buildKey(assistantId, appId), { conversationId, lastUsedAt: now });
 }
 
 /**
- * When a draft conversation key is resolved to a real server-assigned key
+ * When a draft conversation id is resolved to a real server-assigned id
  * (first message sent), update any stored edit-chat entries that referenced
  * the draft. Without this, the next Edit click would land on a conversation
- * key that no longer exists.
+ * id that no longer exists.
  */
-export function resolveEditChatDraftKey(oldKey: string, newKey: string): void {
+export function resolveEditChatDraftConversationId(oldConversationId: string, newConversationId: string): void {
   const store = storage();
   if (!store) return;
   for (let i = 0; i < store.length; i += 1) {
     const key = store.key(i);
     if (!key || !key.startsWith(PREFIX)) continue;
     const entry = readEntry(key);
-    if (!entry || entry.conversationKey !== oldKey) continue;
-    writeEntry(key, { ...entry, conversationKey: newKey });
+    if (!entry || entry.conversationId !== oldConversationId) continue;
+    writeEntry(key, { ...entry, conversationId: newConversationId });
   }
 }
 

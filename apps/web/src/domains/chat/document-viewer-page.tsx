@@ -13,7 +13,7 @@ import { Loader2 } from "lucide-react";
 import { Typography } from "@vellum/design-library";
 
 import { useAssistantContext } from "@/components/layout/assistant-context.js";
-import { getEditChatKey, setEditChatKey } from "@/domains/chat/utils/edit-chat-session.js";
+import { getEditChatConversationId, setEditChatConversationId } from "@/domains/chat/utils/edit-chat-session.js";
 import { useViewerStore } from "@/stores/viewer-store.js";
 import { routes } from "@/utils/routes.js";
 import {
@@ -111,12 +111,12 @@ export function DocumentViewerPage() {
     // Fall back to session-cached conversation id for repeated feedback.
     const conversationId =
       doc.conversationId
-      || getEditChatKey(assistantId, surfaceId)
+      || getEditChatConversationId(assistantId, surfaceId)
       || (typeof globalThis.crypto?.randomUUID === "function"
         ? globalThis.crypto.randomUUID()
         : `draft-${Date.now()}-${Math.random().toString(16).slice(2)}`);
 
-    setEditChatKey(assistantId, surfaceId, conversationId);
+    setEditChatConversationId(assistantId, surfaceId, conversationId);
 
     if (conversationId !== doc.conversationId) {
       try {
