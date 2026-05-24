@@ -54,28 +54,53 @@ function printFlagTable(flags: FeatureFlagEntry[]): void {
 function printHelp(): void {
   console.log("Usage: vellum flags [subcommand] [options]");
   console.log("");
+  console.log("Show and toggle feature flags for the active assistant.");
+  console.log("Reads from the gateway's merged flag state (persisted overrides > remote > defaults).");
+  console.log("");
   console.log("Subcommands:");
-  console.log("  (none)              List all feature flags");
+  console.log("  (none)              List all feature flags in a table");
   console.log("  get <key>           Show details for a single flag");
-  console.log("  set <key> <bool>    Set a flag to true or false");
+  console.log("  set <key> <bool>    Set a flag override to true or false");
   console.log("");
   console.log("Options:");
   console.log("  --help, -h          Show this help");
+  console.log("");
+  console.log("Examples:");
+  console.log("  $ vellum flags                                 # list all flags");
+  console.log("  $ vellum flags get query-complexity-routing     # inspect one flag");
+  console.log("  $ vellum flags set voice-mode true              # enable a flag");
 }
 
-async function createClient(): Promise<AssistantClient> {
+function createClient(): AssistantClient {
   try {
     return new AssistantClient();
   } catch {
     throw new Error(
-      "No running assistant found. Start one with 'vellum wake' first.",
+      "No assistant found. Hatch one with 'vellum hatch' first.",
     );
   }
 }
 
+function rethrowFetchError(err: unknown): never {
+  if (
+    err instanceof TypeError &&
+    (err.message.includes("fetch") || err.message.includes("connect"))
+  ) {
+    throw new Error(
+      "Could not reach the assistant gateway. Is it running? Try 'vellum wake'.",
+    );
+  }
+  throw err;
+}
+
 async function listFlags(): Promise<void> {
-  const client = await createClient();
-  const res = await client.get("/feature-flags");
+  const client = createClient();
+  let res: Response;
+  try {
+    res = await client.get("/feature-flags");
+  } catch (err) {
+    rethrowFetchError(err);
+  }
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new Error(`Failed to fetch flags: HTTP ${res.status} ${body}`.trim());
@@ -89,8 +114,13 @@ async function listFlags(): Promise<void> {
 }
 
 async function getFlag(key: string): Promise<void> {
-  const client = await createClient();
-  const res = await client.get("/feature-flags");
+  const client = createClient();
+  let res: Response;
+  try {
+    res = await client.get("/feature-flags");
+  } catch (err) {
+    rethrowFetchError(err);
+  }
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new Error(`Failed to fetch flags: HTTP ${res.status} ${body}`.trim());
@@ -107,8 +137,13 @@ async function getFlag(key: string): Promise<void> {
 }
 
 async function setFlag(key: string, value: boolean): Promise<void> {
-  const client = await createClient();
-  const res = await client.patch(`/feature-flags/${key}`, { enabled: value });
+  const client = createClient();
+  let res: Response;
+  try {
+    res = await client.patch(`/feature-flags/${key}`, { enabled: value });
+  } catch (err) {
+    rethrowFetchError(err);
+  }
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new Error(`Failed to set flag: HTTP ${res.status} ${body}`.trim());
