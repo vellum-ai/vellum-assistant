@@ -69,9 +69,11 @@ export function buildMachineSizeOptions(
   currentSize: MachineSizeEnum | null | undefined,
   currentSuffix: ReactNode,
 ): DropdownOption<MachineSizeEnum>[] {
+  const currentRank = currentSize ? machineSizeRank(currentSize) : -1;
   return sizes.map((size) => ({
     value: size,
     label: `${SIZE_LABEL[size]} — ${SIZE_DESCRIPTION[size]}`,
     suffix: size === currentSize ? currentSuffix : undefined,
+    disabled: machineSizeRank(size) < currentRank,
   }));
 }
