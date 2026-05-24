@@ -108,19 +108,19 @@ export function DocumentViewerPage() {
 
     // Prefer the document's original conversation — the document is already
     // linked there, so the injector will surface the comments automatically.
-    // Fall back to session-cached conversation key for repeated feedback.
-    const conversationKey =
+    // Fall back to session-cached conversation id for repeated feedback.
+    const conversationId =
       doc.conversationId
       || getEditChatKey(assistantId, surfaceId)
       || (typeof globalThis.crypto?.randomUUID === "function"
         ? globalThis.crypto.randomUUID()
         : `draft-${Date.now()}-${Math.random().toString(16).slice(2)}`);
 
-    setEditChatKey(assistantId, surfaceId, conversationKey);
+    setEditChatKey(assistantId, surfaceId, conversationId);
 
-    if (conversationKey !== doc.conversationId) {
+    if (conversationId !== doc.conversationId) {
       try {
-        await linkDocumentConversation(assistantId, surfaceId, conversationKey);
+        await linkDocumentConversation(assistantId, surfaceId, conversationId);
       } catch {
         // Best-effort — fails if the daemon doesn't have the route yet.
       }
@@ -129,13 +129,13 @@ export function DocumentViewerPage() {
     useViewerStore.getState().openDocument();
     useViewerStore.getState().setLoadedDocument({
       surfaceId: doc.surfaceId,
-      conversationId: conversationKey,
+      conversationId,
       documentName: doc.title,
       content: doc.content,
     });
 
     const prompt = `Please review and address my comments on "${doc.title}".`;
-    navigate(`${routes.conversation(conversationKey)}?prompt=${encodeURIComponent(prompt)}`);
+    navigate(`${routes.conversation(conversationId)}?prompt=${encodeURIComponent(prompt)}`);
   }, [doc, assistantId, surfaceId, navigate]);
 
   const handleExport = useCallback(async () => {

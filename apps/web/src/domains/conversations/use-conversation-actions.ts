@@ -21,7 +21,7 @@ import { type Conversation, archiveConversation, isBackgroundConversation, markC
  * on a normal foreground chat, never on a background job like "Memory
  * Retrospective".
  */
-export function findNextConversationKey(
+export function findNextConversationId(
   conversations: Conversation[],
   archivedKey: string,
 ): string | null {
@@ -97,7 +97,7 @@ export function useConversationActions({
         conversation.conversationId === activeConversationId;
       let nextKey: string | null = null;
       if (wasActive) {
-        nextKey = findNextConversationKey(conversations, conversation.conversationId);
+        nextKey = findNextConversationId(conversations, conversation.conversationId);
       }
 
       // Snapshot prior `archivedAt` so we can roll back on API failure.

@@ -30,7 +30,7 @@ mock.module("@/domains/chat/api/conversations.js", () => ({
 }));
 
 mock.module("@/domains/chat/api/interactions.js", () => ({
-  listConversationKeysWithPendingInteractions: async () => new Set<string>(),
+  listConversationIdsWithPendingInteractions: async () => new Set<string>(),
 }));
 
 const { useAttentionTracking } = await import(

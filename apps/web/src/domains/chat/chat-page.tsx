@@ -275,7 +275,7 @@ export function ChatPage() {
   const autoGreetRef = useRef(false);
   const initialPageOldestTsRef = useRef<number | null>(null);
   const conversationListInvalidatedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingInitialMessageRef = useRef<{ conversationKey: string; content: string } | null>(null);
+  const pendingInitialMessageRef = useRef<{ conversationId: string; content: string } | null>(null);
   const expandedToolCallIdsRef = useRef<Set<string>>(new Set());
   const contextWindowUsageByConversationRef = useRef<Map<string, ContextWindowUsage>>(new Map());
   const syncRouterRef = useRef<WebSyncRouter | null>(null);
@@ -1495,13 +1495,13 @@ export function ChatPage() {
       if (!openedAppState || !assistantId) return;
 
       const appId = openedAppState.appId;
-      const conversationKey = getEditChatKey(assistantId, appId) ?? crypto.randomUUID();
-      setEditChatKey(assistantId, appId, conversationKey);
-      useConversationStore.getState().setEditingConversationId(conversationKey);
+      const conversationId = getEditChatKey(assistantId, appId) ?? crypto.randomUUID();
+      setEditChatKey(assistantId, appId, conversationId);
+      useConversationStore.getState().setEditingConversationId(conversationId);
       useViewerStore.getState().enterAppEditing();
 
-      if (activeConversationId !== conversationKey) {
-        navigateToConversation(conversationKey);
+      if (activeConversationId !== conversationId) {
+        navigateToConversation(conversationId);
       }
     },
     handleShareApp: () => {

@@ -9,7 +9,7 @@ import {
   useConversationListQuery,
 } from "@/domains/conversations/conversation-queries.js";
 import { markConversationSeen } from "@/domains/chat/api/conversations.js";
-import { listConversationKeysWithPendingInteractions } from "@/domains/chat/api/interactions.js";
+import { listConversationIdsWithPendingInteractions } from "@/domains/chat/api/interactions.js";
 import { USER_FACING_INTERACTION_KINDS } from "@/domains/chat/api/event-types.js";
 import type { AssistantState } from "@/domains/chat/hooks/use-assistant-lifecycle.js";
 import { useBusSubscription } from "@/hooks/use-bus-subscription.js";
@@ -157,7 +157,7 @@ export function useAttentionTracking({
       if (!assistantId) return;
       let pendingKeys: Set<string>;
       try {
-        pendingKeys = await listConversationKeysWithPendingInteractions(assistantId);
+        pendingKeys = await listConversationIdsWithPendingInteractions(assistantId);
       } catch {
         // See `decideGraduationDispatches` — null signals "do nothing".
         return;
@@ -234,7 +234,7 @@ export function useAttentionTracking({
     void (async () => {
       let pendingKeys: Set<string>;
       try {
-        pendingKeys = await listConversationKeysWithPendingInteractions(assistantId);
+        pendingKeys = await listConversationIdsWithPendingInteractions(assistantId);
       } catch {
         return; // Best-effort — sse.event will catch subsequent transitions.
       }
@@ -274,7 +274,7 @@ export function useAttentionTracking({
     (async () => {
       let pendingKeys: Set<string>;
       try {
-        pendingKeys = await listConversationKeysWithPendingInteractions(assistantId);
+        pendingKeys = await listConversationIdsWithPendingInteractions(assistantId);
       } catch {
         return; // Best-effort — sidebar can still graduate via SSE events.
       }

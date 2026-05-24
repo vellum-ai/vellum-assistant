@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  findNextConversationKey,
+  findNextConversationId,
   resolveUnpinGroupId,
 } from "@/domains/conversations/use-conversation-actions.js";
 import type { Conversation } from "@/domains/chat/api/conversations.js";
@@ -107,17 +107,17 @@ describe("resolveUnpinGroupId", () => {
 });
 
 // ---------------------------------------------------------------------------
-// findNextConversationKey
+// findNextConversationId
 // ---------------------------------------------------------------------------
 
-describe("findNextConversationKey", () => {
+describe("findNextConversationId", () => {
   test("returns the first non-archived foreground conversation", () => {
     const conversations: Conversation[] = [
       makeConversation({ conversationId: "archived", archivedAt: 1 }),
       makeConversation({ conversationId: "normal-1" }),
       makeConversation({ conversationId: "normal-2" }),
     ];
-    expect(findNextConversationKey(conversations, "archived")).toBe("normal-1");
+    expect(findNextConversationId(conversations, "archived")).toBe("normal-1");
   });
 
   test("skips background conversations (memory retrospective)", () => {
@@ -129,7 +129,7 @@ describe("findNextConversationKey", () => {
       }),
       makeConversation({ conversationId: "normal" }),
     ];
-    expect(findNextConversationKey(conversations, "archived")).toBe("normal");
+    expect(findNextConversationId(conversations, "archived")).toBe("normal");
   });
 
   test("skips scheduled conversations", () => {
@@ -141,14 +141,14 @@ describe("findNextConversationKey", () => {
       }),
       makeConversation({ conversationId: "normal" }),
     ];
-    expect(findNextConversationKey(conversations, "archived")).toBe("normal");
+    expect(findNextConversationId(conversations, "archived")).toBe("normal");
   });
 
   test("skips the archived conversation itself even if it matches other criteria", () => {
     const conversations: Conversation[] = [
       makeConversation({ conversationId: "target" }),
     ];
-    expect(findNextConversationKey(conversations, "target")).toBeNull();
+    expect(findNextConversationId(conversations, "target")).toBeNull();
   });
 
   test("returns null when only background conversations remain", () => {
@@ -164,11 +164,11 @@ describe("findNextConversationKey", () => {
         source: "heartbeat",
       }),
     ];
-    expect(findNextConversationKey(conversations, "archived")).toBeNull();
+    expect(findNextConversationId(conversations, "archived")).toBeNull();
   });
 
   test("returns null for empty conversation list", () => {
-    expect(findNextConversationKey([], "archived")).toBeNull();
+    expect(findNextConversationId([], "archived")).toBeNull();
   });
 
   test("prefers earlier foreground conversations over later ones", () => {
@@ -177,6 +177,6 @@ describe("findNextConversationKey", () => {
       makeConversation({ conversationId: "second" }),
       makeConversation({ conversationId: "third" }),
     ];
-    expect(findNextConversationKey(conversations, "none")).toBe("first");
+    expect(findNextConversationId(conversations, "none")).toBe("first");
   });
 });

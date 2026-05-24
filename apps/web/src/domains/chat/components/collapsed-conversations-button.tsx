@@ -33,7 +33,7 @@ export interface CollapsedConversationsButtonProps {
   /** Custom conversation groups (visible when the conversationGroupsUI flag is on). */
   customGroups?: CustomGroup[];
   activeConversationId?: string;
-  onSelectConversation: (conversationKey: string) => void;
+  onSelectConversation: (conversationId: string) => void;
   /**
    * Optional: build the hover-revealed action menu for a given
    * conversation row. When omitted, rows render without a trailing
@@ -80,9 +80,9 @@ export function CollapsedConversationsButton({
   const hasAttention = attentionConversationIds && attentionConversationIds.size > 0;
 
   const closeMenu = () => setOpen(false);
-  const handleSelect = (conversationKey: string) => {
+  const handleSelect = (conversationId: string) => {
     closeMenu();
-    onSelectConversation(conversationKey);
+    onSelectConversation(conversationId);
   };
 
   return (
@@ -207,7 +207,7 @@ interface SimpleSectionProps {
   title: string;
   conversations: Conversation[];
   activeConversationId?: string;
-  onSelect: (conversationKey: string) => void;
+  onSelect: (conversationId: string) => void;
   renderActions?: (conversation: Conversation) => ReactNode;
   attentionConversationIds?: Set<string>;
 }
@@ -250,7 +250,7 @@ function SimpleSection({
 interface BackgroundSectionProps {
   conversations: Conversation[];
   activeConversationId?: string;
-  onSelect: (conversationKey: string) => void;
+  onSelect: (conversationId: string) => void;
   renderActions?: (conversation: Conversation) => ReactNode;
   attentionConversationIds?: Set<string>;
 }

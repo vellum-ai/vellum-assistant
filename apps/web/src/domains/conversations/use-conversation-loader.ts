@@ -92,7 +92,7 @@ interface UseConversationLoaderParams {
   lastSuggestionMsgIdRef: MutableRefObject<string | null>;
   autoGreetRef: MutableRefObject<boolean>;
   conversationListInvalidatedTimerRef: MutableRefObject<ReturnType<typeof setTimeout> | null>;
-  pendingInitialMessageRef: MutableRefObject<{ conversationKey: string; content: string } | null>;
+  pendingInitialMessageRef: MutableRefObject<{ conversationId: string; content: string } | null>;
 
   // State setters
   setAssistantId: Dispatch<SetStateAction<string | null>>;
@@ -498,7 +498,7 @@ export function useConversationLoader({
       useViewerStore.getState().setMainView("chat");
       const draftConversationId = createDraftConversationId();
       if (initialMessage) {
-        pendingInitialMessageRef.current = { conversationKey: draftConversationId, content: initialMessage };
+        pendingInitialMessageRef.current = { conversationId: draftConversationId, content: initialMessage };
       }
       useConversationStore.getState().setActiveConversationId(draftConversationId);
       void navigate(routes.conversation(draftConversationId));

@@ -59,7 +59,7 @@ const stubFromOtherTest = (name: string) => () => {
 };
 
 mock.module("@/domains/chat/api/interactions.js", () => ({
-  listConversationKeysWithPendingInteractions: (assistantId: string) =>
+  listConversationIdsWithPendingInteractions: (assistantId: string) =>
     bulkFetch.current(assistantId),
   // Other exports of the module — stubbed loudly so a stale leak surfaces.
   getPendingInteractions: stubFromOtherTest("getPendingInteractions"),
