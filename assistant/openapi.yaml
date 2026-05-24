@@ -4616,14 +4616,19 @@ paths:
                 properties:
                   id:
                     type: string
+                  conversationId:
+                    type: string
+                    description: Echo of the requested conversationId/conversationKey (canonical name).
                   conversationKey:
                     type: string
+                    description: Legacy echo of the requested conversationId/conversationKey. Carries the same value as conversationId.
                   conversationType:
                     type: string
                   created:
                     type: boolean
                 required:
                   - id
+                  - conversationId
                   - conversationKey
                   - conversationType
                   - created
@@ -4635,15 +4640,16 @@ paths:
             schema:
               type: object
               properties:
-                conversationKey:
+                conversationId:
+                  description: Idempotency key for the conversation (canonical name; preferred over conversationKey).
                   type: string
-                  description: Idempotency key for the conversation
+                conversationKey:
+                  description: Legacy synonym for conversationId. When both are sent, conversationId wins.
+                  type: string
                 conversationType:
                   description: Only standard conversations are created by this endpoint
                   type: string
                   const: standard
-              required:
-                - conversationKey
               additionalProperties: false
   /v1/conversations/{conversationId}/slack-channel/resolve:
     post:
@@ -7651,12 +7657,18 @@ paths:
         "200":
           description: Successful response
       parameters:
+        - name: conversationId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Scope to a single conversation (canonical name; preferred when sending fresh requests).
         - name: conversationKey
           in: query
           required: false
           schema:
             type: string
-          description: Scope to a single conversation
+          description: Scope to a single conversation (legacy synonym for conversationId).
   /v1/events/emit:
     post:
       operationId: events_emit_post
