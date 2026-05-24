@@ -531,7 +531,7 @@ function AssistantHandleSection({
           data-testid="assistant-handle-input"
         />
         <p className="text-body-small-default text-[var(--content-tertiary)]">
-          Your handle is locked because it's used as your email subdomain.
+          Your assistant's handle is locked because it's used as its email subdomain.
           To change it,{" "}
           <Link
             to={`${routes.settings.ai}?release=1#email`}
