@@ -1354,6 +1354,14 @@ export function AiPage() {
   const [overridesOpen, setOverridesOpen] = useState(false);
   const [manageProvidersOpen, setManageProvidersOpen] = useState(false);
 
+  useEffect(() => {
+    const hash = window.location.hash.slice(1);
+    if (!hash) return;
+    requestAnimationFrame(() => {
+      document.getElementById(hash)?.scrollIntoView({ block: "start" });
+    });
+  }, []);
+
   // -- Backend provisioning (matches desktop SettingsStore) --
   const queryClient = useQueryClient();
   const { data: assistantList } = useQuery(assistantsListOptions());
