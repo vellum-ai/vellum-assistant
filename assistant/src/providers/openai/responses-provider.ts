@@ -109,6 +109,7 @@ export class OpenAIResponsesProvider implements Provider {
   private streamTimeoutMs: number;
   private useNativeWebSearch: boolean;
   private codexSubscription: boolean;
+  private lastCodexErrorBody: string | undefined;
 
   constructor(
     apiKey: string,
@@ -128,6 +129,27 @@ export class OpenAIResponsesProvider implements Provider {
         ? "https://chatgpt.com/backend-api/codex"
         : options.baseURL,
       timeout: sdkTimeoutMs,
+      ...(this.codexSubscription
+        ? {
+            fetch: async (url: RequestInfo | URL, init?: RequestInit) => {
+              const res = await globalThis.fetch(url, init);
+              if (!res.ok) {
+                const body = await res.text();
+                this.lastCodexErrorBody = body;
+                log.warn(
+                  { status: res.status, body, url: String(url) },
+                  "Codex endpoint raw error response",
+                );
+                return new Response(body, {
+                  status: res.status,
+                  statusText: res.statusText,
+                  headers: res.headers,
+                });
+              }
+              return res;
+            },
+          }
+        : {}),
     });
     this.model = model;
     this.useNativeWebSearch = options.useNativeWebSearch ?? false;
@@ -451,12 +473,22 @@ export class OpenAIResponsesProvider implements Provider {
         if (retryAfterMs !== undefined)
           errorOptions.retryAfterMs = retryAfterMs;
         if (abortReason) errorOptions.abortReason = abortReason;
+        let errorDetail = error.message;
+        if (this.lastCodexErrorBody) {
+          try {
+            const parsed = JSON.parse(this.lastCodexErrorBody);
+            if (parsed.detail) errorDetail = parsed.detail;
+          } catch {
+            errorDetail = this.lastCodexErrorBody.slice(0, 200);
+          }
+          this.lastCodexErrorBody = undefined;
+        }
         const extras = [error.code, error.type, error.param]
           .filter(Boolean)
           .join(", ");
         const extraSuffix = extras ? ` [${extras}]` : "";
         throw new ProviderError(
-          `${this.providerLabel} API error (${error.status}): ${error.message}${extraSuffix}`,
+          `${this.providerLabel} API error (${error.status}): ${errorDetail}${extraSuffix}`,
           this.name,
           error.status,
           Object.keys(errorOptions).length > 0 ? errorOptions : undefined,
