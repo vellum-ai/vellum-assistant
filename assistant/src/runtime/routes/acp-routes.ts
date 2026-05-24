@@ -13,6 +13,7 @@ import type { AcpSessionState } from "../../acp/types.js";
 import { getDb } from "../../memory/db-connection.js";
 import { rawChanges } from "../../memory/raw-query.js";
 import { acpSessionHistory } from "../../memory/schema.js";
+import { credentialKey } from "../../security/credential-key.js";
 import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import { getLogger } from "../../util/logger.js";
@@ -84,9 +85,14 @@ async function spawnSession({ body }: RouteHandlerArgs) {
 
   // Inject required env vars for ACP agents that need them.
   // claude-agent-acp requires CLAUDE_CODE_OAUTH_TOKEN to authenticate.
+  // The secure-store key follows the standard `credential/{service}/{field}`
+  // pattern so `assistant credentials set --service acp --field claude_oauth_token <token>`
+  // is the canonical way to provision it.
   const agentConfig = { ...resolved.agent };
   if (agent === "claude") {
-    const claudeToken = await getSecureKeyAsync("acp/claude/oauth_token");
+    const claudeToken = await getSecureKeyAsync(
+      credentialKey("acp", "claude_oauth_token"),
+    );
     if (claudeToken) {
       agentConfig.env = {
         ...agentConfig.env,
@@ -95,7 +101,9 @@ async function spawnSession({ body }: RouteHandlerArgs) {
     } else {
       log.warn(
         { agent },
-        "CLAUDE_CODE_OAUTH_TOKEN not found in secure storage; claude-agent-acp may fail to authenticate",
+        "CLAUDE_CODE_OAUTH_TOKEN not found in secure storage; " +
+          "claude-agent-acp may fail to authenticate. " +
+          "Run: assistant credentials set --service acp --field claude_oauth_token <token>",
       );
     }
   }
