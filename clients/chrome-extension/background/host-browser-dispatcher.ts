@@ -89,11 +89,18 @@ export interface HostBrowserEventEnvelope {
  * (most common) or `targetId` (flat-session path). When the detach
  * carries neither the field is omitted — the runtime tolerates the
  * shape but the invalidation becomes advisory.
+ *
+ * `clientId` identifies which extension install reported the
+ * invalidation. Used by the runtime to scope pin-store eviction to
+ * the specific client that owned the tab, so that closing a tab on
+ * clientA does not clear clientB's pin to a tab with the same numeric
+ * ID on a different Chrome instance.
  */
 export interface HostBrowserSessionInvalidatedEnvelope {
   type: 'host_browser_session_invalidated';
   targetId?: string;
   reason?: string;
+  clientId?: string;
 }
 
 export interface HostBrowserDispatcherDeps {
@@ -139,6 +146,12 @@ export interface HostBrowserDispatcherDeps {
   forwardSessionInvalidated?: (
     event: HostBrowserSessionInvalidatedEnvelope,
   ) => void;
+  /**
+   * Optional: return this extension install's stable client ID. Used to
+   * scope pin-store entries so that closing a tab on one Chrome instance
+   * does not clear another instance's pin.
+   */
+  getClientId?: () => Promise<string>;
   /** Optional injected CdpProxy for tests. Defaults to a real proxy at runtime. */
   cdpProxy?: CdpProxy;
 }
@@ -365,9 +378,15 @@ export function createHostBrowserDispatcher(
             });
             return;
           }
+          const clientId = deps.getClientId
+            ? await deps.getClientId()
+            : undefined;
           await deps.postResult({
             requestId,
-            content: JSON.stringify({ tabId: String(newTarget.tabId) }),
+            content: JSON.stringify({
+              tabId: String(newTarget.tabId),
+              ...(clientId ? { clientId } : {}),
+            }),
             isError: false,
           });
         } catch (createErr) {
@@ -413,6 +432,116 @@ export function createHostBrowserDispatcher(
           content: JSON.stringify({ tabId: String(tab.id), url: tab.url, title: tab.title }),
           isError: false,
         });
+        return;
+      }
+
+      if (envelope.cdpMethod === 'Vellum.listTabs') {
+        try {
+          const allTabs = await chrome.tabs.query({});
+          if (abort.signal.aborted || cancelledRequestIds.has(requestId)) return;
+          const tabs = allTabs.map((t) => ({
+            tabId: t.id,
+            windowId: t.windowId,
+            url: t.url,
+            title: t.title,
+            active: t.active,
+            pinned: t.pinned,
+          }));
+          await deps.postResult({
+            requestId,
+            content: JSON.stringify({ tabs }),
+            isError: false,
+          });
+        } catch (err) {
+          if (abort.signal.aborted || cancelledRequestIds.has(requestId)) return;
+          const message = err instanceof Error ? err.message : String(err);
+          await deps.postResult({
+            requestId,
+            content: JSON.stringify({ code: -32000, message }),
+            isError: true,
+          });
+        }
+        return;
+      }
+
+      if (envelope.cdpMethod === 'Vellum.selectTab') {
+        const rawTabId = (envelope.cdpParams as { tabId?: unknown } | undefined)?.tabId;
+        const tabId =
+          typeof rawTabId === 'number'
+            ? rawTabId
+            : typeof rawTabId === 'string'
+              ? parseInt(rawTabId, 10)
+              : undefined;
+        if (tabId === undefined || isNaN(tabId)) {
+          if (abort.signal.aborted || cancelledRequestIds.has(requestId)) return;
+          await deps.postResult({
+            requestId,
+            content: JSON.stringify({ code: -32602, message: 'tabId is required and must be a number' }),
+            isError: true,
+          });
+          return;
+        }
+        try {
+          const updatedTab = await chrome.tabs.update(tabId, { active: true });
+          if (abort.signal.aborted || cancelledRequestIds.has(requestId)) return;
+          const clientId = deps.getClientId ? await deps.getClientId() : undefined;
+          await deps.postResult({
+            requestId,
+            content: JSON.stringify({
+              tabId: updatedTab?.id,
+              windowId: updatedTab?.windowId,
+              url: updatedTab?.url,
+              title: updatedTab?.title,
+              ...(clientId ? { clientId } : {}),
+            }),
+            isError: false,
+          });
+        } catch (err) {
+          if (abort.signal.aborted || cancelledRequestIds.has(requestId)) return;
+          const message = err instanceof Error ? err.message : String(err);
+          await deps.postResult({
+            requestId,
+            content: JSON.stringify({ code: -32000, message }),
+            isError: true,
+          });
+        }
+        return;
+      }
+
+      if (envelope.cdpMethod === 'Vellum.closeTab') {
+        const rawTabId = (envelope.cdpParams as { tabId?: unknown } | undefined)?.tabId;
+        const tabId =
+          typeof rawTabId === 'number'
+            ? rawTabId
+            : typeof rawTabId === 'string'
+              ? parseInt(rawTabId, 10)
+              : undefined;
+        if (tabId === undefined || isNaN(tabId)) {
+          if (abort.signal.aborted || cancelledRequestIds.has(requestId)) return;
+          await deps.postResult({
+            requestId,
+            content: JSON.stringify({ code: -32602, message: 'tabId is required and must be a number' }),
+            isError: true,
+          });
+          return;
+        }
+        try {
+          await chrome.tabs.remove(tabId);
+          if (abort.signal.aborted || cancelledRequestIds.has(requestId)) return;
+          await deps.postResult({
+            requestId,
+            content: JSON.stringify({ closed: true, tabId }),
+            isError: false,
+          });
+        } catch (err) {
+          if (abort.signal.aborted || cancelledRequestIds.has(requestId)) return;
+          const message = err instanceof Error ? err.message : String(err);
+          await deps.postResult({
+            requestId,
+            content: JSON.stringify({ code: -32000, message }),
+            isError: true,
+          });
+        }
         return;
       }
 

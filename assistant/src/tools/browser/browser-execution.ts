@@ -481,6 +481,15 @@ function wrapWithKindMemo(
     setCdpSessionId(cdpSessionId: string): void {
       inner.setCdpSessionId?.(cdpSessionId);
     },
+    listTabs() {
+      return inner.listTabs();
+    },
+    selectTab(tabId: number) {
+      return inner.selectTab(tabId);
+    },
+    closeTab(tabId: number) {
+      return inner.closeTab(tabId);
+    },
   };
 }
 
@@ -644,7 +653,7 @@ export async function executeBrowserNavigate(
   const newTab = input.new_tab === true;
   if (newTab && cdp.kind === "extension") {
     try {
-      const result = await cdp.send<{ tabId?: number | string }>(
+      const result = await cdp.send<{ tabId?: number | string; clientId?: string }>(
         "Vellum.createTab",
         {},
         context.signal,
@@ -655,6 +664,10 @@ export async function executeBrowserNavigate(
           : typeof result?.tabId === "string"
             ? result.tabId
             : undefined;
+      const clientId =
+        typeof result?.clientId === "string" && result.clientId.length > 0
+          ? result.clientId
+          : undefined;
       if (!tabId) {
         // Malformed createTab response (no tabId). We're nominally falling
         // back to active-tab routing — but the live `cdp` instance was
@@ -676,9 +689,9 @@ export async function executeBrowserNavigate(
         );
       } else {
         cdp.setCdpSessionId?.(tabId);
-        setPinnedTab(context.conversationId, tabId);
+        setPinnedTab(context.conversationId, tabId, clientId);
         log.debug(
-          { conversationId: context.conversationId, tabId },
+          { conversationId: context.conversationId, tabId, clientId },
           "Opened new tab via --new-tab; pinned subsequent ops to it",
         );
       }

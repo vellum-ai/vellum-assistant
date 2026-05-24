@@ -23,6 +23,7 @@ import type {
   CdpClient,
   CdpClientKind,
   ScopedCdpClient,
+  TabInfo,
 } from "./types.js";
 
 const log = getLogger("cdp-factory");
@@ -223,14 +224,12 @@ export function buildPinnedCandidateList(
             const client = createExtensionCdpClient(
               hostBrowserProxy,
               conversationId,
-              // Conversation pins are scoped to "default routing on
-              // this conversation". When `target_client_id` is an
-              // explicit override, the caller is taking over routing
-              // and the pin (which may point at a tab on a different
-              // host client) must not be applied — otherwise we'd
-              // send tabId from host A to host B and get
-              // cdp_session_not_found.
-              targetClientId ? undefined : getPinnedTab(conversationId),
+              // Pass clientId to scope the pin lookup to this specific
+              // extension install. When a targetClientId is provided
+              // the pin is fetched for that client; otherwise falls back
+              // to the __default__ slot which is set by older callers
+              // without clientId awareness.
+              getPinnedTab(conversationId, targetClientId),
               sourceActorPrincipalId,
               targetClientId,
             );
@@ -338,15 +337,13 @@ export function buildCandidateList(context: ToolContext, targetClientId?: string
         kind: "extension",
         reason: `target_client_id override: ${targetClientId}`,
         create() {
-          // Explicit target_client_id override → ignore the
-          // conversation's pinned tab. Pins are conversation-scoped
-          // (not host-client-scoped) and would route a tabId from
-          // a different host to this one, producing
-          // cdp_session_not_found.
+          // Explicit target_client_id override → look up the pin scoped
+          // to this specific client. This is safe because targetClientId
+          // and the pin were both recorded for the same extension install.
           const client = createExtensionCdpClient(
             hostBrowserProxy,
             conversationId,
-            undefined,
+            getPinnedTab(conversationId, targetClientId),
             sourceActorPrincipalId,
             targetClientId,
           );
@@ -371,9 +368,11 @@ export function buildCandidateList(context: ToolContext, targetClientId?: string
         const client = createExtensionCdpClient(
           hostBrowserProxy,
           conversationId,
-          // See comment above the pinned-mode call site for why pins
-          // are skipped under explicit target_client_id override.
-          targetClientId ? undefined : getPinnedTab(conversationId),
+          // targetClientId is always undefined here — this code path
+          // only runs when targetClientId is null (the early-return
+          // above handles the non-null case). Use the no-clientId
+          // lookup which returns the first pin for auto-routing.
+          getPinnedTab(conversationId),
           sourceActorPrincipalId,
           targetClientId,
         );
@@ -631,6 +630,84 @@ export function buildChainedClient(
         return;
       }
       pendingCdpSessionId = cdpSessionId;
+    },
+
+    async listTabs(): Promise<TabInfo[]> {
+      if (sticky && active?.client.listTabs) {
+        return active.client.listTabs();
+      }
+      if (sticky) {
+        throw new CdpError(
+          "transport_error",
+          "listTabs is not supported by the current backend (extension backend required)",
+        );
+      }
+      // Fresh client: route through the failover walk so the extension
+      // backend is selected automatically. The Vellum.listTabs pseudo-method
+      // is handled by the extension dispatcher before chrome.debugger.sendCommand.
+      const result = await scopedClient.send<{ tabs?: TabInfo[] }>("Vellum.listTabs", {});
+      if (!active?.client.listTabs) {
+        // Backend became sticky but isn't an extension client — not supported.
+        throw new CdpError(
+          "transport_error",
+          "listTabs is not supported by the current backend (extension backend required)",
+        );
+      }
+      return Array.isArray(result?.tabs) ? result.tabs : [];
+    },
+
+    async selectTab(tabId: number): Promise<{
+      tabId?: number;
+      windowId?: number;
+      url?: string;
+      title?: string;
+      clientId?: string;
+    }> {
+      if (sticky && active?.client.selectTab) {
+        return active.client.selectTab(tabId);
+      }
+      if (sticky) {
+        throw new CdpError(
+          "transport_error",
+          "selectTab is not supported by the current backend (extension backend required)",
+        );
+      }
+      const result = await scopedClient.send<{
+        tabId?: number;
+        windowId?: number;
+        url?: string;
+        title?: string;
+        clientId?: string;
+      }>("Vellum.selectTab", { tabId });
+      if (!active?.client.selectTab) {
+        throw new CdpError(
+          "transport_error",
+          "selectTab is not supported by the current backend (extension backend required)",
+        );
+      }
+      return result;
+    },
+
+    async closeTab(tabId: number): Promise<{ closed: boolean; tabId: number }> {
+      if (sticky && active?.client.closeTab) {
+        return active.client.closeTab(tabId);
+      }
+      if (sticky) {
+        throw new CdpError(
+          "transport_error",
+          "closeTab is not supported by the current backend (extension backend required)",
+        );
+      }
+      const result = await scopedClient.send<{ closed: boolean; tabId: number }>(
+        "Vellum.closeTab", { tabId }
+      );
+      if (!active?.client.closeTab) {
+        throw new CdpError(
+          "transport_error",
+          "closeTab is not supported by the current backend (extension backend required)",
+        );
+      }
+      return result;
     },
   };
 

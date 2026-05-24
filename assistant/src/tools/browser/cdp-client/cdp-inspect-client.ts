@@ -710,6 +710,18 @@ export class CdpInspectClient implements ScopedCdpClient {
     // no-op
   }
 
+  async listTabs(): Promise<never> {
+    throw new CdpError("transport_error", "listTabs is not supported by the cdp-inspect backend (extension backend required)");
+  }
+
+  async selectTab(_tabId: number): Promise<never> {
+    throw new CdpError("transport_error", "selectTab is not supported by the cdp-inspect backend (extension backend required)");
+  }
+
+  async closeTab(_tabId: number): Promise<never> {
+    throw new CdpError("transport_error", "closeTab is not supported by the cdp-inspect backend (extension backend required)");
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
