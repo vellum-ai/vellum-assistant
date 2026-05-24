@@ -937,6 +937,7 @@ describe("reconcileActiveConversation — stale tool call cleanup", () => {
       lastTerminalReason: null,
       statusText: null,
       liveWebActivity: {},
+      autoRoutedProfileLabel: null,
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
@@ -974,6 +975,7 @@ describe("reconcileActiveConversation — stale tool call cleanup", () => {
       lastTerminalReason: null,
       statusText: null,
       liveWebActivity: {},
+      autoRoutedProfileLabel: null,
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
@@ -1011,6 +1013,7 @@ describe("reconcileActiveConversation — stale tool call cleanup", () => {
       lastTerminalReason: null,
       statusText: null,
       liveWebActivity: {},
+      autoRoutedProfileLabel: null,
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
