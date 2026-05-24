@@ -17,13 +17,13 @@
 import { createReadStream } from "node:fs";
 import { hostname } from "node:os";
 import { PassThrough, Readable } from "node:stream";
-import { Database } from "bun:sqlite";
 
 import { z } from "zod";
 
 import { getPlatformAssistantId } from "../../config/env.js";
 import { invalidateConfigCache } from "../../config/loader.js";
 import { getAssistantName } from "../../daemon/identity-helpers.js";
+import { runAsyncSqlite } from "../../memory/db-async-query.js";
 import { getDb, resetDb } from "../../memory/db-connection.js";
 import { validateMigrationState } from "../../memory/migrations/validate-migration-state.js";
 import { credentialKey } from "../../security/credential-key.js";
@@ -39,7 +39,6 @@ import {
 } from "../../tools/credentials/metadata-store.js";
 import { getLogger } from "../../util/logger.js";
 import {
-  getDbPath,
   getWorkspaceDir,
   getWorkspaceHooksDir,
 } from "../../util/platform.js";
@@ -356,21 +355,20 @@ export async function handleMigrationExport(
       ...manifestInputs,
       secretsRedacted,
       credentials,
-      checkpoint: () => {
-        const dbPath = getDbPath();
-        try {
-          const db = new Database(dbPath);
-          try {
-            db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
-          } finally {
-            db.close();
-          }
-        } catch (err) {
+      checkpoint: async () => {
+        // Dispatch through `runAsyncSqlite` so the WAL checkpoint runs
+        // in a sqlite3 subprocess on hosts where it's available. A WAL
+        // truncate on a multi-GB WAL file can otherwise stall the
+        // daemon's event loop for the full duration of the flush.
+        const result = await runAsyncSqlite(
+          "PRAGMA wal_checkpoint(TRUNCATE)",
+        );
+        if (!result.ok) {
           // Best-effort: if the DB can't be checkpointed (e.g. not a valid
           // SQLite file, missing WAL, etc.) we still proceed with the export
           // using whatever is on disk.
           log.warn(
-            { err },
+            { error: result.error, backend: result.backend },
             "WAL checkpoint failed — exporting without checkpoint",
           );
         }
@@ -582,18 +580,17 @@ export async function handleMigrationExportToGcs({ body }: RouteHandlerArgs) {
           ...manifestInputs,
           secretsRedacted,
           credentials: collected.credentials,
-          checkpoint: () => {
-            const dbPath = getDbPath();
-            try {
-              const db = new Database(dbPath);
-              try {
-                db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
-              } finally {
-                db.close();
-              }
-            } catch (err) {
+          checkpoint: async () => {
+            // Dispatch through `runAsyncSqlite` so the WAL checkpoint runs
+            // in a sqlite3 subprocess on hosts where it's available. A
+            // WAL truncate on a multi-GB WAL file can otherwise stall the
+            // daemon's event loop for the full duration of the flush.
+            const result = await runAsyncSqlite(
+              "PRAGMA wal_checkpoint(TRUNCATE)",
+            );
+            if (!result.ok) {
               log.warn(
-                { err },
+                { error: result.error, backend: result.backend },
                 "WAL checkpoint failed — exporting without checkpoint",
               );
             }
