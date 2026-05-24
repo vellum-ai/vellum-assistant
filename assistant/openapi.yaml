@@ -4698,7 +4698,7 @@ paths:
                     description: Assistant-minted internal conversation id. The authoritative identifier for the conversation.
                   conversationKey:
                     type: string
-                    description: Echo of the optional external key supplied by the client (or the value the daemon minted when omitted).
+                    description: Echo of the optional external key supplied by the client.
                   conversationType:
                     type: string
                   created:

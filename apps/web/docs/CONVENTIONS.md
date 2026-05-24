@@ -246,17 +246,20 @@ conversations (Slack, email, Telegram) have keys like
 
 **Rules:**
 
-1. **API queries must send `conversationId` (the UUID), never
-   `conversationKey`.** The `conversation_keys` table is migration-
-   version-dependent — older assistants don't have it, and queries
-   that rely on it silently return empty results.
+1. **API queries from web must send `conversationId` (the UUID), never
+   `conversationKey`.** Assistant 0.8.5+ accepts `conversationId` on
+   `POST /v1/messages` and `GET /v1/events` and looks it up directly
+   against the `conversations` table. The version gate that picks
+   between `conversationId` (>= 0.8.5) and the legacy `conversationKey`
+   (< 0.8.5) lives in
+   [`lib/backwards-compat/conversation-id-wire-field.ts`](../src/lib/backwards-compat/conversation-id-wire-field.ts).
+   The legacy `conversationKey` path is supported indefinitely for
+   non-vellum channel adapters (Telegram, WhatsApp, etc.), but web
+   code never uses it.
 
    ```ts
    // Correct
    query: { conversationId }
-
-   // Wrong — breaks on older DB versions
-   query: { conversationKey }
    ```
 
 2. **URL route params carry UUIDs.** The route param is currently named
@@ -265,10 +268,10 @@ conversations (Slack, email, Telegram) have keys like
    in the URL.
 
 3. **When the codebase says `conversationKey`, read it as "the
-   identifier we route by" — which for web is always a UUID.** This
-   naming is a known source of confusion. New code should prefer
-   `conversationId` where possible; renaming existing fields is
-   tracked as incremental cleanup.
+   identifier we route by" — which for web is always a UUID.** The
+   `conversationKey` field is retained in the assistant's wire schema
+   for external channel adapters; web-originated traffic uses
+   `conversationId`.
 
 ### Top-level shared directories
 
