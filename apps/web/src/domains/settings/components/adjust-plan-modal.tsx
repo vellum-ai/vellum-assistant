@@ -659,6 +659,14 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                                   currentMachinePriceCents={currentMachinePrice}
                                   currentStoragePriceCents={currentStoragePrice}
                                 />
+                                {(changeMachineTierMutation.isError || changeStorageTierMutation.isError) && (
+                                  <Notice tone="error">
+                                    {extractMutationError(
+                                      changeMachineTierMutation.error ?? changeStorageTierMutation.error,
+                                      "Failed to update plan. Please try again.",
+                                    )}
+                                  </Notice>
+                                )}
                                 <Button
                                   variant="primary"
                                   className="w-full"
