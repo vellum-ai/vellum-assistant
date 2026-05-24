@@ -191,19 +191,19 @@ export function parseConversation(raw: unknown): Conversation | null {
   if (!raw || typeof raw !== "object") return null;
 
   const record = raw as Record<string, unknown>;
-  // Prefer `conversationId` (and `id` as a synonym) since that is the
-  // canonical entity field name. `conversationKey` is the legacy daemon
-  // wire-format spelling, kept as a last-resort fallback for backward
-  // compatibility until the daemon SSE contract is updated. See
-  // LUM-1890 for the investigation on whether we can drop it entirely.
+  // Read `conversationId` (the canonical entity field name) with `id` as a
+  // synonym. The sole production caller of `parseConversation` is
+  // `listConversations`, which consumes `GET /v1/conversations/` records
+  // built by the daemon's `serializeConversationSummary` — that serializer
+  // emits `id` only today, so the `conversationId` branch exists for
+  // forward compatibility once the daemon migrates to the canonical name
+  // (LUM-1890 Phase 1).
   const conversationId =
     typeof record.conversationId === "string"
       ? record.conversationId
       : typeof record.id === "string"
         ? record.id
-        : typeof record.conversationKey === "string"
-          ? record.conversationKey
-          : null;
+        : null;
 
   if (!conversationId) return null;
 
