@@ -2,6 +2,7 @@ import OpenAI from "openai";
 
 import { isAbortReason } from "../../util/abort-reasons.js";
 import { ProviderError } from "../../util/errors.js";
+import { getLogger } from "../../util/logger.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
 import { escapeXmlAttr } from "../../util/xml.js";
 import { createStreamTimeout } from "../stream-timeout.js";
@@ -15,6 +16,8 @@ import type {
 } from "../types.js";
 import { ContextOverflowError } from "../types.js";
 import { detectOpenAICompatibleContextOverflow } from "./chat-completions-provider.js";
+
+const log = getLogger("openai-responses");
 
 export interface OpenAIResponsesProviderOptions {
   baseURL?: string;
@@ -412,6 +415,21 @@ export class OpenAIResponsesProvider implements Provider {
           ? signal.reason
           : undefined;
       if (error instanceof OpenAI.APIError) {
+        // Temporary diagnostic: log the raw error shape for Codex 400 debugging
+        if (this.codexSubscription) {
+          log.warn(
+            {
+              status: error.status,
+              message: error.message,
+              code: error.code,
+              type: error.type,
+              param: error.param,
+              errorBody: error.error,
+              headers: Object.fromEntries(error.headers?.entries?.() ?? []),
+            },
+            "Codex subscription API error — raw details",
+          );
+        }
         const overflow = detectOpenAICompatibleContextOverflow(error);
         if (overflow) {
           throw new ContextOverflowError(
@@ -433,8 +451,12 @@ export class OpenAIResponsesProvider implements Provider {
         if (retryAfterMs !== undefined)
           errorOptions.retryAfterMs = retryAfterMs;
         if (abortReason) errorOptions.abortReason = abortReason;
+        const extras = [error.code, error.type, error.param]
+          .filter(Boolean)
+          .join(", ");
+        const extraSuffix = extras ? ` [${extras}]` : "";
         throw new ProviderError(
-          `${this.providerLabel} API error (${error.status}): ${error.message}`,
+          `${this.providerLabel} API error (${error.status}): ${error.message}${extraSuffix}`,
           this.name,
           error.status,
           Object.keys(errorOptions).length > 0 ? errorOptions : undefined,
