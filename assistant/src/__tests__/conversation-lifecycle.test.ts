@@ -149,7 +149,33 @@ describe("loadFromDb metadata injection rehydration", () => {
     nextMockMessageId = 1;
   });
 
-  test("memory-only rehydration still works (regression guard)", async () => {
+  test("memory rehydrates on the tail user row (regression guard)", async () => {
+    mockConversation = defaultConv();
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "Hi" }]),
+        metadata: JSON.stringify({ memoryInjectedBlock: "remember: alice" }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0].role).toBe("user");
+    expect(messages[0].content).toEqual([
+      {
+        type: "text",
+        text: "<memory>\nremember: alice\n</memory>",
+      },
+      { type: "text", text: "Hi" },
+    ]);
+  });
+
+  test("historical (non-tail) user row does not rehydrate memory", async () => {
     mockConversation = defaultConv();
     mockDbMessages = [
       {
@@ -163,27 +189,25 @@ describe("loadFromDb metadata injection rehydration", () => {
         role: "assistant",
         content: JSON.stringify([{ type: "text", text: "Hello" }]),
       },
-      // Ensure m1 is historical (not the tail) so memory rehydration triggers
-      // on a non-tail user row. Memory applies to all rows either way, but a
-      // trailing assistant message keeps things concrete.
+      {
+        id: "m3",
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "Second" }]),
+      },
     ];
 
     const conversation = makeConversation();
     await conversation.loadFromDb();
     const messages = conversation.getMessages();
 
-    expect(messages).toHaveLength(2);
-    expect(messages[0].role).toBe("user");
-    expect(messages[0].content).toEqual([
-      {
-        type: "text",
-        text: "<memory>\nremember: alice\n</memory>",
-      },
-      { type: "text", text: "Hi" },
-    ]);
+    expect(messages).toHaveLength(3);
+    // m1 is historical → memory must NOT rehydrate. The next turn re-injects
+    // fresh memory after stripping all rows, and the cache anchor sits on the
+    // 2nd-most-recent user message, so historical rows are deliberately clean.
+    expect(messages[0].content).toEqual([{ type: "text", text: "Hi" }]);
   });
 
-  test("historical user row rehydrates all three injection fields", async () => {
+  test("historical user row rehydrates non-memory blocks (turn_context, system_reminder) but not memory", async () => {
     mockConversation = defaultConv();
     mockDbMessages = [
       {
@@ -214,17 +238,13 @@ describe("loadFromDb metadata injection rehydration", () => {
     const messages = conversation.getMessages();
 
     expect(messages).toHaveLength(3);
-    // m1 is historical (not tail) — all three blocks should rehydrate in the
-    // documented shape: [<turn_context>, <memory>, <system_reminder>, ...original]
+    // m1 is historical (not tail) — the non-memory blocks rehydrate, but
+    // memory does not: [<turn_context>, <system_reminder>, ...original].
     expect(messages[0].role).toBe("user");
     expect(messages[0].content).toEqual([
       {
         type: "text",
         text: "<turn_context>\nctx payload\n</turn_context>",
-      },
-      {
-        type: "text",
-        text: "<memory>\nmem payload\n</memory>",
       },
       {
         type: "text",
@@ -264,9 +284,9 @@ describe("loadFromDb metadata injection rehydration", () => {
     const messages = conversation.getMessages();
 
     expect(messages).toHaveLength(3);
-    // Tail row: memory still rehydrates (existing behavior), but turn_context
-    // and system_reminder are skipped — the next turn's applyRuntimeInjections
-    // will supply fresh blocks for the tail.
+    // Tail row: memory rehydrates (so a mid-turn restart keeps it), but
+    // turn_context and system_reminder are skipped — the next turn's
+    // applyRuntimeInjections will supply fresh blocks for the tail.
     expect(messages[2].role).toBe("user");
     expect(messages[2].content).toEqual([
       {
@@ -308,11 +328,11 @@ describe("loadFromDb metadata injection rehydration", () => {
     expect(messages[2].content).toEqual([{ type: "text", text: "Second" }]);
   });
 
-  test("historical wrapped memoryInjectedBlock rehydrates singly-wrapped", async () => {
-    // Historical v2 rows persisted `injectedBlockText` already wrapped in
+  test("tail wrapped memoryInjectedBlock rehydrates singly-wrapped", async () => {
+    // v2 rows persisted `injectedBlockText` already wrapped in
     // `<memory>...</memory>`. After unifying v2's storage with v1's
     // unwrapped contract, the rehydrate path must defensively strip any
-    // pre-existing wrapper so old rows don't render double-wrapped.
+    // pre-existing wrapper so the tail row doesn't render double-wrapped.
     mockConversation = defaultConv();
     mockDbMessages = [
       {
@@ -323,18 +343,13 @@ describe("loadFromDb metadata injection rehydration", () => {
           memoryInjectedBlock: "<memory>\nremember: alice\n</memory>",
         }),
       },
-      {
-        id: "m2",
-        role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Hello" }]),
-      },
     ];
 
     const conversation = makeConversation();
     await conversation.loadFromDb();
     const messages = conversation.getMessages();
 
-    expect(messages).toHaveLength(2);
+    expect(messages).toHaveLength(1);
     const firstBlock = messages[0].content[0];
     expect(firstBlock).toEqual({
       type: "text",
@@ -369,7 +384,7 @@ describe("loadFromDb metadata injection rehydration", () => {
     expect(messages[0].content).toEqual([{ type: "text", text: "First" }]);
   });
 
-  test("historical user row rehydrates memoryV2StaticBlock between memory and system_reminder", async () => {
+  test("historical user row rehydrates memoryV2StaticBlock before system_reminder (no memory)", async () => {
     mockConversation = defaultConv();
     mockDbMessages = [
       {
@@ -402,8 +417,9 @@ describe("loadFromDb metadata injection rehydration", () => {
 
     expect(messages).toHaveLength(3);
     expect(messages[0].role).toBe("user");
+    // Historical row: memory is skipped; the v2 static block and reminder
+    // still rehydrate: [<info>, <system_reminder>, ...original].
     expect(messages[0].content).toEqual([
-      { type: "text", text: "<memory>\nmem payload\n</memory>" },
       {
         type: "text",
         text: "<info>\n## Essentials\n\nAlice prefers VS Code.\n</info>",
@@ -547,14 +563,16 @@ describe("loadFromDb metadata injection rehydration", () => {
     ]);
   });
 
-  test("rehydration order matches injection-time order for the full personal-memory set", async () => {
-    // Injection-time layout (per `applyRuntimeInjections` after-memory-
-    // prefix splicing in ascending injector order: pkb-context 30,
-    // pkb-reminder 35, memory-v2-static 38, now-md 40):
-    //   [<memory>dynamic</memory>, <info>v2static</info>, <NOW.md>,
-    //    <system_reminder>, <knowledge_base>, ...original]
+  test("historical rehydration order matches injection-time order for the non-memory personal-memory set", async () => {
+    // Injection-time layout for a historical row (per `applyRuntimeInjections`
+    // after-memory-prefix splicing in ascending injector order: pkb-context
+    // 30, pkb-reminder 35, memory-v2-static 38, now-md 40), with dynamic
+    // memory stripped from historical rows:
+    //   [<info>v2static</info>, <NOW.md>, <system_reminder>,
+    //    <knowledge_base>, ...original]
     // Rehydration must reproduce this exactly so Anthropic's prefix cache
-    // matches msg[0] across daemon restarts.
+    // matches msg[0] across daemon restarts. Dynamic memory is omitted on
+    // historical rows (rehydrated on the tail only).
     mockConversation = defaultConv();
     mockDbMessages = [
       {
@@ -589,7 +607,6 @@ describe("loadFromDb metadata injection rehydration", () => {
 
     expect(messages).toHaveLength(3);
     expect(messages[0].content).toEqual([
-      { type: "text", text: "<memory>\nmem payload\n</memory>" },
       {
         type: "text",
         text: "<info>\n## Essentials\n\nAlice prefers VS Code.\n</info>",
