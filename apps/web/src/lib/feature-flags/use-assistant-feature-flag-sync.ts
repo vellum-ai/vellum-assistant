@@ -3,7 +3,11 @@ import { useQuery } from "@tanstack/react-query";
 
 import { client } from "@/generated/api/client.gen.js";
 import { assertHasResponse } from "@/lib/api-errors.js";
-import { useAssistantFeatureFlagStore, setAssistantIdForFlags } from "@/lib/feature-flags/assistant-feature-flag-store.js";
+import {
+  setAssistantIdForFlags,
+  useAssistantFeatureFlagStore,
+  useCurrentFlagAssistantId,
+} from "@/lib/feature-flags/assistant-feature-flag-store.js";
 import {
   ASSISTANT_FLAG_DEFAULTS,
   ldKeyToStoreKey,
@@ -60,8 +64,22 @@ async function fetchAssistantFlagValues(
   return data as AssistantFlagValuesResponse;
 }
 
-export function useAssistantFeatureFlagSync(assistantId: string | null) {
-  const enabled = assistantId !== null;
+/**
+ * Lightweight, app-wide effect that:
+ *
+ *   1. Pushes the current assistantId into the assistant-feature-flag
+ *      store so {@link useAssistantFeatureFlagStore} `setFlag` overrides
+ *      can PATCH the correct assistant.
+ *   2. Resets the store to registry defaults whenever the active
+ *      assistant switches, so flag values from the previous assistant
+ *      don't leak across the boundary.
+ *
+ * Mount this on the app root. Polling the actual flag values is a
+ * separate concern and lives in {@link useAssistantFeatureFlagPolling}
+ * (currently mounted only on the Developer → Feature Flags panel to
+ * keep network noise off chat-bound SSE debugging).
+ */
+export function useAssistantFeatureFlagIdTracker(assistantId: string | null) {
   const prevAssistantId = useRef(assistantId);
 
   useEffect(() => {
@@ -74,6 +92,24 @@ export function useAssistantFeatureFlagSync(assistantId: string | null) {
     }
     setAssistantIdForFlags(assistantId);
   }, [assistantId]);
+}
+
+/**
+ * Polls `/v1/assistants/{id}/feature-flags` and pushes results into the
+ * assistant feature flag store. Mount this only when the Developer tab
+ * surfaces live flag values; the rest of the app reads the store
+ * populated from registry defaults + localStorage overrides without
+ * needing a live server signal.
+ *
+ * Reads the active assistantId from the same source the id-tracker
+ * writes to, so a caller doesn't need to thread it through outlet
+ * context. Pair with {@link useAssistantFeatureFlagIdTracker} on the
+ * app root so assistant switches still reset the store and overrides
+ * know which assistant they belong to.
+ */
+export function useAssistantFeatureFlagPolling() {
+  const assistantId = useCurrentFlagAssistantId();
+  const enabled = assistantId !== null;
 
   const { data } = useQuery({
     queryKey: ["assistant-feature-flag-values", assistantId] as const,

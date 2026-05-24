@@ -6,6 +6,7 @@ import { Toggle } from "@vellum/design-library/components/toggle";
 import { SettingsCard } from "@/domains/settings/components/settings-card.js";
 import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
 import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
+import { useAssistantFeatureFlagPolling } from "@/lib/feature-flags/use-assistant-feature-flag-sync.js";
 import {
   ALL_FLAGS,
   ldKeyToStoreKey,
@@ -29,6 +30,12 @@ interface FlagDisplayEntry {
 }
 
 export function FeatureFlagsPanel() {
+  // Mount the assistant flag poller only on this panel so the rest of
+  // the app doesn't churn through `/v1/assistants/:id/feature-flags`
+  // every 5s — readers across chat/contacts/settings rely on the store
+  // hydrated from registry defaults + localStorage overrides.
+  useAssistantFeatureFlagPolling();
+
   const [searchText, setSearchText] = useState("");
   const clientState = useClientFeatureFlagStore();
   const assistantState = useAssistantFeatureFlagStore();

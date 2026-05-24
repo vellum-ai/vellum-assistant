@@ -4,7 +4,19 @@ import { createSelectors } from "@/utils/create-selectors.js";
 import { client } from "@/generated/api/client.gen.js";
 import { ASSISTANT_FLAG_DEFAULTS, storeKeyToLdKey } from "@/lib/feature-flags/feature-flag-catalog.js";
 
-let currentAssistantId: string | null = null;
+/**
+ * Tiny dedicated store for "which assistant do flag overrides belong to".
+ *
+ * Lives outside `useAssistantFeatureFlagStore` so it can be subscribed
+ * to from `useAssistantFeatureFlagPolling` (currently only mounted on
+ * the Developer → Feature Flags panel) without forcing the polling
+ * hook to also rerender on every flag-value change. `setAssistantIdForFlags`
+ * is the one mutator and is called by `useAssistantFeatureFlagIdTracker`
+ * on `RootLayout`.
+ */
+const useFlagAssistantIdStore = create<{ id: string | null }>(() => ({
+  id: null,
+}));
 
 /**
  * Internal store fields that are NOT feature flag values. Surfaces that
@@ -54,9 +66,10 @@ const useAssistantFeatureFlagStoreBase = create<AssistantFeatureFlagStore>()(
         set({ [key]: value });
 
         const ldKey = storeKeyToLdKey(key);
-        if (currentAssistantId && ldKey) {
+        const assistantId = useFlagAssistantIdStore.getState().id;
+        if (assistantId && ldKey) {
           void client.patch({
-            url: `/v1/assistants/${currentAssistantId}/feature-flags/${ldKey}`,
+            url: `/v1/assistants/${assistantId}/feature-flags/${ldKey}`,
             body: { enabled: value },
             throwOnError: false,
           } as Parameters<typeof client.patch>[0]);
@@ -75,5 +88,15 @@ export const useAssistantFeatureFlagStore = createSelectors(
 );
 
 export function setAssistantIdForFlags(id: string | null) {
-  currentAssistantId = id;
+  if (useFlagAssistantIdStore.getState().id === id) return;
+  useFlagAssistantIdStore.setState({ id });
+}
+
+/**
+ * React hook that returns the assistant whose flag values the override
+ * panel writes to. Subscribed to a tiny dedicated zustand store so the
+ * polling hook stays decoupled from flag-value rerenders.
+ */
+export function useCurrentFlagAssistantId(): string | null {
+  return useFlagAssistantIdStore((s) => s.id);
 }

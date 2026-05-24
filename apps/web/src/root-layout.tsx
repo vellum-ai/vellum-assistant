@@ -11,7 +11,7 @@ import {
 import { useAuthStore } from "@/stores/auth-store.js";
 import { useEnvironmentStore } from "@/lib/environment/environment-store.js";
 import { useClientFeatureFlagSync } from "@/lib/feature-flags/use-client-feature-flag-sync.js";
-import { useAssistantFeatureFlagSync } from "@/lib/feature-flags/use-assistant-feature-flag-sync.js";
+import { useAssistantFeatureFlagIdTracker } from "@/lib/feature-flags/use-assistant-feature-flag-sync.js";
 
 /**
  * Threshold (in px) below which a `innerHeight − visualViewport.height` delta
@@ -77,7 +77,11 @@ export function RootLayout() {
     onRedirect: navigate,
   });
 
-  useAssistantFeatureFlagSync(lifecycle.assistantId);
+  // Only tracks active assistantId + resets the store on assistant
+  // switch. The actual `/v1/assistants/:id/feature-flags` polling lives
+  // on the Developer → Feature Flags panel so it doesn't add to the
+  // network noise on chat-bound SSE flows.
+  useAssistantFeatureFlagIdTracker(lifecycle.assistantId);
 
   useEventBusInit({
     assistantId: lifecycle.assistantId,
