@@ -4,6 +4,10 @@
  * Suites:
  *  - POST /v1/acp/spawn — the three failure paths produced by
  *    `resolveAcpAgent` (acp_disabled, unknown_agent, binary_not_found).
+ *  - POST /v1/acp/spawn (env injection) — CLAUDE_CODE_OAUTH_TOKEN is read
+ *    from the secure store under the canonical
+ *    `credential/acp/claude_oauth_token` key (built by `credentialKey()`)
+ *    and merged into `agentConfig.env` ONLY for the `claude` agent.
  *  - DELETE /v1/acp/sessions?status=completed — the bulk-clear route that
  *    wipes terminal-state rows (completed/failed/cancelled) from
  *    `acp_session_history` while leaving running/initializing rows intact.
@@ -42,9 +46,20 @@ afterAll(() => {
 });
 
 // Stub `getAcpSessionManager` so the DELETE /:id tests can drive the
-// in-memory-status check without spawning real ACP processes. Stored in
-// a mutable map so individual tests can plant arbitrary states.
+// in-memory-status check without spawning real ACP processes, and so the
+// env-injection spawn tests can capture the `agentConfig` arg without
+// launching a real subprocess. Stored in mutable state so individual tests
+// can plant arbitrary states / inspect capture.
 const inMemoryStates = new Map<string, AcpSessionState>();
+
+interface CapturedSpawn {
+  agent: string;
+  agentConfig: { env?: Record<string, string> };
+  task: string;
+  conversationId: string;
+}
+
+const capturedSpawns: CapturedSpawn[] = [];
 
 mock.module("../../acp/index.js", () => ({
   getAcpSessionManager: () => ({
@@ -56,7 +71,25 @@ mock.module("../../acp/index.js", () => ({
       if (!state) throw new Error(`ACP session "${id}" not found`);
       return state;
     },
+    spawn: async (
+      agent: string,
+      agentConfig: { env?: Record<string, string> },
+      task: string,
+      _cwd: string | undefined,
+      conversationId: string,
+    ) => {
+      capturedSpawns.push({ agent, agentConfig, task, conversationId });
+      return { acpSessionId: "acp-test", protocolSessionId: "proto-test" };
+    },
   }),
+}));
+
+// Stub secure-keys so env-injection tests can plant a known token (or
+// absence). Driven via `secureKeyStore` per test in beforeEach.
+const secureKeyStore = new Map<string, string>();
+
+mock.module("../../security/secure-keys.js", () => ({
+  getSecureKeyAsync: async (key: string) => secureKeyStore.get(key),
 }));
 
 import { eq } from "drizzle-orm";
@@ -79,6 +112,8 @@ function getSpawnHandler() {
 beforeEach(() => {
   config.setConfig({});
   which.setWhich((cmd) => `/usr/local/bin/${cmd}`);
+  capturedSpawns.length = 0;
+  secureKeyStore.clear();
 });
 
 // ---------------------------------------------------------------------------
@@ -147,6 +182,106 @@ describe("POST /v1/acp/spawn", () => {
 });
 
 // ---------------------------------------------------------------------------
+// POST /v1/acp/spawn — CLAUDE_CODE_OAUTH_TOKEN env injection
+//
+// claude-agent-acp authenticates via CLAUDE_CODE_OAUTH_TOKEN. The route
+// looks the token up in the secure store under the canonical
+// `credential/acp/claude_oauth_token` key (built by `credentialKey()`),
+// which matches what `assistant credentials set --service acp --field
+// claude_oauth_token <token>` writes. These tests pin that contract so a
+// future drift in the key path or scoping fails the suite loudly.
+// ---------------------------------------------------------------------------
+
+describe("POST /v1/acp/spawn — CLAUDE_CODE_OAUTH_TOKEN injection", () => {
+  test("injects CLAUDE_CODE_OAUTH_TOKEN from credential/acp/claude_oauth_token for the claude agent", async () => {
+    secureKeyStore.set(
+      "credential/acp/claude_oauth_token",
+      "test-token-abc123",
+    );
+
+    const handler = getSpawnHandler();
+    await handler({
+      body: {
+        agent: "claude",
+        task: "do a thing",
+        conversationId: "conv-1",
+      },
+    });
+
+    expect(capturedSpawns).toHaveLength(1);
+    expect(capturedSpawns[0]?.agent).toBe("claude");
+    expect(capturedSpawns[0]?.agentConfig.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe(
+      "test-token-abc123",
+    );
+  });
+
+  test("does NOT inject CLAUDE_CODE_OAUTH_TOKEN when the secure-store key is absent (spawn still proceeds)", async () => {
+    // secureKeyStore intentionally empty — simulates a fresh install
+    // where the user hasn't run `assistant credentials set` yet.
+
+    const handler = getSpawnHandler();
+    await handler({
+      body: {
+        agent: "claude",
+        task: "do a thing",
+        conversationId: "conv-1",
+      },
+    });
+
+    expect(capturedSpawns).toHaveLength(1);
+    expect(
+      capturedSpawns[0]?.agentConfig.env?.CLAUDE_CODE_OAUTH_TOKEN,
+    ).toBeUndefined();
+  });
+
+  test("does NOT inject CLAUDE_CODE_OAUTH_TOKEN for non-claude agents even when the key is set", async () => {
+    secureKeyStore.set(
+      "credential/acp/claude_oauth_token",
+      "test-token-abc123",
+    );
+
+    const handler = getSpawnHandler();
+    await handler({
+      body: {
+        agent: "codex",
+        task: "do a thing",
+        conversationId: "conv-1",
+      },
+    });
+
+    expect(capturedSpawns).toHaveLength(1);
+    expect(capturedSpawns[0]?.agent).toBe("codex");
+    expect(
+      capturedSpawns[0]?.agentConfig.env?.CLAUDE_CODE_OAUTH_TOKEN,
+    ).toBeUndefined();
+  });
+
+  test("does NOT call getSecureKeyAsync with the legacy non-`credential/` key path", async () => {
+    // Regression guard: the original implementation used the raw key
+    // "acp/claude/oauth_token". The fix routes through `credentialKey()`
+    // so the CLI (`assistant credentials set --service acp --field
+    // claude_oauth_token`) is the canonical provisioning path. Pin this
+    // by planting the token ONLY under the legacy key and asserting it
+    // does NOT leak into the spawn env.
+    secureKeyStore.set("acp/claude/oauth_token", "legacy-token-should-miss");
+
+    const handler = getSpawnHandler();
+    await handler({
+      body: {
+        agent: "claude",
+        task: "do a thing",
+        conversationId: "conv-1",
+      },
+    });
+
+    expect(capturedSpawns).toHaveLength(1);
+    expect(
+      capturedSpawns[0]?.agentConfig.env?.CLAUDE_CODE_OAUTH_TOKEN,
+    ).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // DELETE /v1/acp/sessions?status=completed — bulk-clear terminal rows
 // ---------------------------------------------------------------------------
 
@@ -205,7 +340,9 @@ describe("DELETE /v1/acp/sessions?status=completed", () => {
     seedHistoryRow("row-initializing", "initializing", 5000);
 
     const handler = getBulkDeleteHandler();
-    const result = (await handler({ queryParams: { status: "completed" } })) as {
+    const result = (await handler({
+      queryParams: { status: "completed" },
+    })) as {
       deleted: number;
     };
     expect(result.deleted).toBe(3);
@@ -221,7 +358,9 @@ describe("DELETE /v1/acp/sessions?status=completed", () => {
     seedHistoryRow("row-running", "running", 1000);
 
     const handler = getBulkDeleteHandler();
-    const result = (await handler({ queryParams: { status: "completed" } })) as {
+    const result = (await handler({
+      queryParams: { status: "completed" },
+    })) as {
       deleted: number;
     };
     expect(result.deleted).toBe(0);
@@ -244,7 +383,9 @@ describe("DELETE /v1/acp/sessions?status=completed", () => {
     seedHistoryRow("row-completed", "completed", 1000);
 
     const handler = getBulkDeleteHandler();
-    expect(() => handler({ queryParams: { status: "failed" } })).toThrow("status");
+    expect(() => handler({ queryParams: { status: "failed" } })).toThrow(
+      "status",
+    );
     expect(listRows()).toHaveLength(1);
   });
 });
@@ -297,7 +438,9 @@ describe("DELETE /v1/acp/sessions/:id", () => {
     insertHistoryRow({ id: "sess-completed", status: "completed" });
 
     const handler = getDeleteSessionHandler();
-    const result = (await handler({ pathParams: { id: "sess-completed" } })) as {
+    const result = (await handler({
+      pathParams: { id: "sess-completed" },
+    })) as {
       deleted: boolean;
     };
     expect(result.deleted).toBe(true);
