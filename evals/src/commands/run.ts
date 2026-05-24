@@ -10,6 +10,7 @@ import {
   abandonAllRunningRunsSync,
   scavengeAbandonedRuns,
 } from "../lib/metrics";
+import { cleanupOrphanedEvalContainers } from "../lib/orphan-cleanup";
 import { loadProfile } from "../lib/profile";
 import { loadTestDef } from "../lib/test-def";
 import { openInBrowser, startReportServer } from "./server";
@@ -111,6 +112,26 @@ export function registerRunCommand(program: Command): void {
         // flips genuinely dead runs (not in-flight ones from a parallel
         // `evals run` against the same .runs/ directory).
         await scavengeAbandonedRuns();
+
+        // Then sweep docker for orphaned eval containers — the ones that
+        // a crashed `vellum hatch` left in `Created` state still holding
+        // their port reservation. Without this the next run hits
+        // `bind for 0.0.0.0:20100 failed: port is already allocated`
+        // (the exact failure that motivated this cleanup pass).
+        const containerCleanup = await cleanupOrphanedEvalContainers();
+        if (containerCleanup.skipReason) {
+          // Docker not available locally — surface once so it's clear
+          // this guard rail was skipped, but don't fail the run.
+          process.stderr.write(
+            `Skipped orphan container cleanup: ${containerCleanup.skipReason}\n`,
+          );
+        } else if (containerCleanup.removed > 0) {
+          process.stderr.write(
+            `Cleaned up ${containerCleanup.removed} orphaned eval container(s) ` +
+              `(kept ${containerCleanup.kept}): ` +
+              `${containerCleanup.removedNames.join(", ")}\n`,
+          );
+        }
 
         const profiles = await Promise.all(
           splitCsv(opts.profiles).map((id) => loadProfile(id)),

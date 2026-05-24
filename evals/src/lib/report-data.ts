@@ -1,4 +1,5 @@
-import { readdir } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
 
 import {
   readAssistantEvents,
@@ -38,6 +39,20 @@ export interface ReportRunSummary {
   totalCostUsd?: number;
 }
 
+/**
+ * One per-subprocess log written by an adapter (Vellum hatch, Hermes setup, …).
+ *
+ * Carries the on-disk filename so the report UI can link to the raw file
+ * download, plus the full file contents so the same UI can inline-render
+ * the log in the same `[ts] [step] glyph msg` shape as the runner log.
+ * Vargas's feedback called out that scrolling to a separate file just to
+ * see why hatch failed was a regression vs. the previous in-page surface.
+ */
+export interface SubprocessLogFile {
+  name: string;
+  content: string;
+}
+
 /** Full execution detail — drilled-into view from session → test → profile. */
 export interface ReportRunDetail extends ReportRunSummary {
   metadata?: RunMetadata;
@@ -48,12 +63,15 @@ export interface ReportRunDetail extends ReportRunSummary {
   simulatorMessages: AgentMessage[];
   progressEvents: PersistedProgressEvent[];
   /**
-   * Filenames of per-subprocess stdout/stderr logs the adapters tee'd to
-   * the run directory (e.g. `subprocess-hatch.log`, `subprocess-setup-1.log`).
-   * Empty when no adapter call produced a log. Each name resolves to a
-   * fetchable URL at `/api/runs/<runId>/files/<name>`.
+   * Per-subprocess stdout/stderr logs the adapters tee'd to the run
+   * directory (e.g. `subprocess-hatch.log`, `subprocess-setup-1.log`).
+   * Each entry carries the filename plus the full file content so the
+   * UI can inline-render the log in the same shape as the runner log
+   * AND still expose a raw-download link at
+   * `/api/runs/<runId>/files/<name>` for piping into other tools.
+   * Empty when no adapter call produced a log.
    */
-  subprocessLogs: string[];
+  subprocessLogs: SubprocessLogFile[];
   /**
    * Filenames of any container-forensics artifacts written by the vellum
    * adapter on hatch failure: `docker-inspect.json` and/or `docker-logs.txt`.
@@ -215,12 +233,14 @@ const DOCKER_ARTIFACT_NAMES = new Set<string>([
 
 /**
  * List run-directory files that should be exposed as raw downloadable
- * artifacts on the run-detail page. Returns the names already classified
- * into subprocess logs vs docker snapshots so the UI can render them in
- * their own sections.
+ * artifacts on the run-detail page. Returns the subprocess logs with
+ * their full contents already loaded (so the UI can inline-render them)
+ * and docker snapshot filenames (which stay as raw downloads — they're
+ * structured JSON / multi-megabyte container stdout that don't make
+ * sense to inline).
  */
 async function listExtraArtifacts(runDir: string): Promise<{
-  subprocessLogs: string[];
+  subprocessLogs: SubprocessLogFile[];
   dockerArtifacts: string[];
 }> {
   let entries: string[];
@@ -229,7 +249,7 @@ async function listExtraArtifacts(runDir: string): Promise<{
   } catch {
     return { subprocessLogs: [], dockerArtifacts: [] };
   }
-  const subprocessLogs: string[] = [];
+  const subprocessNames: string[] = [];
   const dockerArtifacts: string[] = [];
   for (const name of entries.sort()) {
     if (STRUCTURED_RUN_FILES.has(name)) continue;
@@ -238,10 +258,20 @@ async function listExtraArtifacts(runDir: string): Promise<{
       continue;
     }
     if (/^subprocess-[a-z0-9\-]+\.log$/.test(name)) {
-      subprocessLogs.push(name);
+      subprocessNames.push(name);
       continue;
     }
   }
+  // Read every subprocess log's contents in parallel. Per-file errors
+  // collapse to empty strings so one unreadable log doesn't blank the
+  // whole page — the operator still sees the filename and can click
+  // through to the raw endpoint to diagnose.
+  const subprocessLogs = await Promise.all(
+    subprocessNames.map(async (name) => ({
+      name,
+      content: await readFile(join(runDir, name), "utf8").catch(() => ""),
+    })),
+  );
   return { subprocessLogs, dockerArtifacts };
 }
 
