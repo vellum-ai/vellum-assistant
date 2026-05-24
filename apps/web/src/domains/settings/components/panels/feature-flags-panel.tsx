@@ -8,7 +8,10 @@ import { SettingsCard } from "@/domains/settings/components/settings-card.js";
 import { assistantsActiveRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen.js";
 import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
 import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
-import { useAssistantFeatureFlagPolling } from "@/lib/feature-flags/use-assistant-feature-flag-sync.js";
+import {
+  assistantFlagValuesQueryKey,
+  fetchAssistantFlagValues,
+} from "@/lib/feature-flags/use-assistant-feature-flag-sync.js";
 import {
   ALL_FLAGS,
   ldKeyToStoreKey,
@@ -32,18 +35,21 @@ interface FlagDisplayEntry {
 }
 
 export function FeatureFlagsPanel() {
-  // Same TanStack Query the rest of /settings/* (lifecycle panel,
-  // billing, onboarding) uses for the active assistant. Cheap, cached
-  // app-wide, and avoids carrying a parallel "current assistant for
-  // flags" copy via the root outlet context.
   const { data: activeAssistant } = useQuery(assistantsActiveRetrieveOptions());
   const assistantId = activeAssistant?.id ?? null;
 
-  // Live-poll `/v1/assistants/:id/feature-flags` only while this panel
-  // is open. Same query key as the root-level
+  // Live-refresh observer: same query key as the root-level
   // `useAssistantFeatureFlagSync`, so TanStack Query dedupes — the
-  // root hook is what writes refetched values back into the store.
-  useAssistantFeatureFlagPolling(assistantId);
+  // root hook is the single write site, this just nudges it on a
+  // 5s cadence while the panel is mounted.
+  useQuery({
+    queryKey: assistantFlagValuesQueryKey(assistantId),
+    queryFn: () => fetchAssistantFlagValues(assistantId!),
+    enabled: assistantId !== null,
+    staleTime: 5_000,
+    refetchInterval: 5_000,
+    retry: 1,
+  });
 
   const [searchText, setSearchText] = useState("");
   const clientState = useClientFeatureFlagStore();

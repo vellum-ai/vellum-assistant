@@ -77,10 +77,6 @@ export function RootLayout() {
     onRedirect: navigate,
   });
 
-  // Fetches `/v1/assistants/:id/feature-flags` once per assistant and
-  // resets the store on assistant switch. No `refetchInterval` — live
-  // polling only happens while the Developer → Feature Flags panel is
-  // mounted (via `useAssistantFeatureFlagPolling`, same query key).
   useAssistantFeatureFlagSync(lifecycle.assistantId);
 
   useEventBusInit({
