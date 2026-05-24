@@ -10,15 +10,14 @@ describe("parseConversation — originChannel plumbing", () => {
     expect(parseConversation("string")).toBeNull();
   });
 
-  test("returns null when no conversationId/id/conversationKey is present", () => {
+  test("returns null when neither conversationId nor id is present", () => {
     expect(parseConversation({})).toBeNull();
   });
 
-  test("prefers conversationId over id and conversationKey", () => {
+  test("prefers conversationId over id", () => {
     const parsed = parseConversation({
       conversationId: "from-conversation-id",
       id: "from-id",
-      conversationKey: "from-conversation-key",
     });
     expect(parsed?.conversationId).toBe("from-conversation-id");
   });
@@ -26,18 +25,18 @@ describe("parseConversation — originChannel plumbing", () => {
   test("falls back to id when conversationId is absent", () => {
     const parsed = parseConversation({
       id: "from-id",
-      conversationKey: "from-conversation-key",
     });
     expect(parsed?.conversationId).toBe("from-id");
   });
 
-  test("falls back to conversationKey only when both conversationId and id are absent", () => {
-    // Daemon wire-format compatibility: SSE events may still carry the
-    // legacy `conversationKey` shape until the contract is updated.
+  test("ignores unrecognized identifier fields", () => {
+    // Defensive: a record carrying only an unknown identifier field (e.g.
+    // a hypothetical legacy `conversationKey`) should fail parsing rather
+    // than silently mapping it onto `conversationId`.
     const parsed = parseConversation({
-      conversationKey: "from-conversation-key",
+      conversationKey: "ignored",
     });
-    expect(parsed?.conversationId).toBe("from-conversation-key");
+    expect(parsed).toBeNull();
   });
 
   test("leaves originChannel undefined when neither field is present", () => {

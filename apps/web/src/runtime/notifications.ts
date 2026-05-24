@@ -173,26 +173,21 @@ function toNotificationId(seed: string): number {
 }
 
 /**
- * Resolve the conversation this notification should deep-link to. The daemon
- * emits either `conversationId` (the internal daemon ID) or `conversationKey`
- * (the legacy field the web sidebar used to index by) in `deepLinkMetadata`;
- * for this client both are the same value (the web app has no notion of a
- * separate conversationId — see the comment in `parseAssistantEvent` for
- * `conversation_title_updated`). Prefer `conversationId` so this stays
- * consistent with the parser priority order in `parseConversation`. The
- * `conversationKey` fallback remains until LUM-1890 confirms the daemon SSE
- * wire format no longer needs to emit it.
+ * Resolve the conversation this notification should deep-link to.
+ *
+ * Daemon-side notification emitters set `deepLinkMetadata.conversationId`
+ * explicitly in `broadcaster.ts` (the only production construction site
+ * for vellum-channel deep links). The web client receives notifications
+ * only on the vellum channel, so `conversationId` is always present in
+ * `deepLinkMetadata` for any notification that reaches this code path.
  */
 export function extractConversationId(
   metadata: Record<string, unknown> | undefined,
 ): string | undefined {
   if (!metadata) return undefined;
-  const { conversationId, conversationKey } = metadata;
+  const { conversationId } = metadata;
   if (typeof conversationId === "string" && conversationId.length > 0) {
     return conversationId;
-  }
-  if (typeof conversationKey === "string" && conversationKey.length > 0) {
-    return conversationKey;
   }
   return undefined;
 }
