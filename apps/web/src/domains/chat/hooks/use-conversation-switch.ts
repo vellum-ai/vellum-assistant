@@ -40,7 +40,6 @@ export interface UseConversationSwitchParams {
   // Refs owned by the parent that the reset clears or refreshes.
   draftConversationIdResolutionRef: MutableRefObject<boolean>;
   previousConversationIdRef: MutableRefObject<string | null>;
-  needsNewBubbleRef: MutableRefObject<boolean>;
   streamingMessageIdsRef: MutableRefObject<Set<string>>;
   pendingQueuedStableIdsRef: MutableRefObject<string[]>;
   requestIdToStableIdRef: MutableRefObject<Map<string, string>>;
@@ -87,7 +86,6 @@ export function useConversationSwitch({
   activeConversationId,
   draftConversationIdResolutionRef,
   previousConversationIdRef,
-  needsNewBubbleRef,
   streamingMessageIdsRef,
   pendingQueuedStableIdsRef,
   requestIdToStableIdRef,
@@ -143,7 +141,8 @@ export function useConversationSwitch({
     // Reset all per-conversation state so nothing leaks between threads.
     useTurnStore.getState().resetTurn();
     setIsLoadingHistory(true);
-    needsNewBubbleRef.current = true;
+    // `setMessages([])` makes the tail derivation return "create new bubble"
+    // for any subsequent stream event — no separate latch needed.
     setMessages([]);
     streamingMessageIdsRef.current.clear();
     pendingQueuedStableIdsRef.current = [];
@@ -187,7 +186,6 @@ export function useConversationSwitch({
     previousConversationIdRef,
     contextWindowUsageByConversationRef,
     dismissedSurfaceIdsRef,
-    needsNewBubbleRef,
     streamingMessageIdsRef,
     pendingQueuedStableIdsRef,
     requestIdToStableIdRef,

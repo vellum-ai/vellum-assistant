@@ -98,7 +98,6 @@ interface UseSendMessageParams {
     conversationId: string;
   } | null>;
   streamEpochRef: MutableRefObject<number>;
-  needsNewBubbleRef: MutableRefObject<boolean>;
   dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
   pendingOnboardingContextRef: MutableRefObject<PreChatOnboardingContext | null>;
   onboardingDraftConversationIdRef: MutableRefObject<string | null>;
@@ -138,7 +137,6 @@ export function useSendMessage({
   streamRef,
   streamContextRef,
   streamEpochRef,
-  needsNewBubbleRef,
   dismissedSurfaceIdsRef,
   pendingOnboardingContextRef,
   onboardingDraftConversationIdRef,
@@ -490,7 +488,6 @@ export function useSendMessage({
             setMessages((prev) =>
               clearQueueStatus(prev, userMessage.stableId),
             );
-            needsNewBubbleRef.current = true;
             const fallbackTurnId = newTurnId();
             useTurnStore.getState().requestSend(fallbackTurnId);
             useTurnStore.getState().acceptSend(fallbackTurnId);
@@ -541,7 +538,6 @@ export function useSendMessage({
       }
 
       cancelReconciliation();
-      needsNewBubbleRef.current = true;
 
       const isDraft = !currentConv;
       let resolvedId: string | undefined;
@@ -608,7 +604,6 @@ export function useSendMessage({
     streamEpochRef.current++;
     useTurnStore.getState().cancelGeneration();
     setMessages(stopStreamingAndClearConfirmations);
-    needsNewBubbleRef.current = true;
     useInteractionStore.getState().resetAll();
     useSubagentStore.getState().reset();
     confirmationToolCallMapRef.current.clear();

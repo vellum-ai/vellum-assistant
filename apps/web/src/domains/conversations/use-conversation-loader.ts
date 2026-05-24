@@ -83,7 +83,6 @@ interface UseConversationLoaderParams {
   activeConversationIdRef: MutableRefObject<string | null>;
   contextWindowUsageByConversationRef: MutableRefObject<Map<string, ContextWindowUsage>>;
   dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
-  needsNewBubbleRef: MutableRefObject<boolean>;
   streamingMessageIdsRef: MutableRefObject<Set<string>>;
   pendingQueuedStableIdsRef: MutableRefObject<string[]>;
   requestIdToStableIdRef: MutableRefObject<Map<string, string>>;
@@ -107,7 +106,6 @@ interface UseConversationLoaderParams {
 
   // Callbacks
   resetChatAttachments: () => void;
-  syncNeedsNewBubbleFromMessages: (nextMessages: DisplayMessage[]) => void;
 
   // Error classification
   shouldSuppressGenericChatErrorNotice: (prev: ChatError | null) => boolean;
@@ -153,7 +151,6 @@ export function useConversationLoader({
   activeConversationIdRef,
   contextWindowUsageByConversationRef,
   dismissedSurfaceIdsRef,
-  needsNewBubbleRef,
   streamingMessageIdsRef,
   pendingQueuedStableIdsRef,
   requestIdToStableIdRef,
@@ -173,7 +170,6 @@ export function useConversationLoader({
   setSuggestion,
   setCompactionCircuitOpenUntil,
   resetChatAttachments,
-  syncNeedsNewBubbleFromMessages,
   shouldSuppressGenericChatErrorNotice,
 }: UseConversationLoaderParams) {
   // -------------------------------------------------------------------------
@@ -456,7 +452,6 @@ export function useConversationLoader({
     previousConversationIdRef,
     contextWindowUsageByConversationRef,
     dismissedSurfaceIdsRef,
-    needsNewBubbleRef,
     streamingMessageIdsRef,
     pendingQueuedStableIdsRef,
     requestIdToStableIdRef,
@@ -473,7 +468,6 @@ export function useConversationLoader({
     setSuggestion,
     setCompactionCircuitOpenUntil,
     resetChatAttachments,
-    syncNeedsNewBubbleFromMessages,
     shouldSuppressGenericChatErrorNotice,
   });
 

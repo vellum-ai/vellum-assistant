@@ -17,7 +17,6 @@ describe("handleToolUseStart", () => {
     expect(ctx.cancelReconciliation).toHaveBeenCalled();
     expect(ctx.turnActions.onToolUseStart).toHaveBeenCalled();
     expect(ctx.toolCallIdCounterRef.current).toBe(1);
-    expect(ctx.needsNewBubbleRef.current).toBe(false);
     expect(ctx.setMessages).toHaveBeenCalled();
   });
 
@@ -35,13 +34,22 @@ describe("handleToolUseStart", () => {
     expect(ctx.toolCallIdCounterRef.current).toBe(0);
   });
 
-  it("creates new bubble when needsNewBubbleRef is true", () => {
-    const ctx = makeCtx({ needsNewBubbleRef: { current: true } });
+  it("creates a new bubble when the tail is not a streaming assistant", () => {
+    const ctx = makeCtx();
     handleToolUseStart(
-      { type: "tool_use_start", toolName: "web_search", input: {} },
+      { type: "tool_use_start", toolName: "web_search", input: {}, toolUseId: "tc-1" },
       ctx,
     );
-    expect(ctx.needsNewBubbleRef.current).toBe(false);
+    expect(ctx.setMessages).toHaveBeenCalled();
+    const updater = (ctx.setMessages as unknown as ReturnType<typeof Object>).mock.calls[0][0] as (
+      prev: never[],
+    ) => Array<{ role: string; isStreaming: boolean; toolCalls: Array<{ id: string }> }>;
+    const next = updater([]);
+    expect(next).toHaveLength(1);
+    expect(next[0]?.role).toBe("assistant");
+    expect(next[0]?.isStreaming).toBe(true);
+    expect(next[0]?.toolCalls).toHaveLength(1);
+    expect(next[0]?.toolCalls[0]?.id).toBe("tc-1");
   });
 });
 

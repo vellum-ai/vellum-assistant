@@ -257,7 +257,6 @@ export function ChatPage() {
   const streamEpochRef = useRef(0);
   const streamContextRef = useRef<{ assistantId: string; conversationId: string } | null>(null);
   const reconcileAfterNextStreamOpenRef = useRef(false);
-  const needsNewBubbleRef = useRef(true);
   const dismissedSurfaceIdsRef = useRef<Set<string>>(new Set());
   const pendingOnboardingContextRef = useRef<PreChatOnboardingContext | null>(null);
   const onboardingDraftConversationIdRef = useRef<string | null>(null);
@@ -381,11 +380,6 @@ export function ChatPage() {
   );
   const isChannelReadonly = isChannelConversation(activeConversation);
 
-  const syncNeedsNewBubbleFromMessages = useCallback((nextMessages: DisplayMessage[]) => {
-    const lastMsg = nextMessages[nextMessages.length - 1];
-    needsNewBubbleRef.current = !lastMsg || lastMsg.role !== "assistant" || !lastMsg.isStreaming;
-  }, []);
-
   // -------------------------------------------------------------------------
   // Conversation loader
   // -------------------------------------------------------------------------
@@ -414,7 +408,6 @@ export function ChatPage() {
     activeConversationIdRef,
     contextWindowUsageByConversationRef,
     dismissedSurfaceIdsRef,
-    needsNewBubbleRef,
     streamingMessageIdsRef,
     pendingQueuedStableIdsRef,
     requestIdToStableIdRef,
@@ -434,7 +427,6 @@ export function ChatPage() {
     setSuggestion,
     setCompactionCircuitOpenUntil,
     resetChatAttachments,
-    syncNeedsNewBubbleFromMessages,
     shouldSuppressGenericChatErrorNotice,
   });
 
@@ -567,7 +559,6 @@ export function ChatPage() {
     assistantIdRef,
     setMessages,
     messagesRef,
-    needsNewBubbleRef,
     setError,
     streamRef,
     cancelReconciliation,
@@ -610,7 +601,6 @@ export function ChatPage() {
     streamRef,
     streamContextRef,
     streamEpochRef,
-    needsNewBubbleRef,
     dismissedSurfaceIdsRef,
     pendingOnboardingContextRef,
     onboardingDraftConversationIdRef,

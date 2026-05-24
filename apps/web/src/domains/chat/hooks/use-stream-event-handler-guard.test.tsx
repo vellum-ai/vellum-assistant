@@ -55,7 +55,6 @@ function noopRefs() {
     } as MutableRefObject<{ assistantId: string; conversationId: string } | null>,
     assistantIdRef: { current: "asst-1" } as MutableRefObject<string | null>,
     messagesRef: { current: [] } as MutableRefObject<unknown[]>,
-    needsNewBubbleRef: { current: false } as MutableRefObject<boolean>,
     streamRef: { current: null } as MutableRefObject<unknown>,
     confirmationToolCallMapRef: { current: new Map() } as MutableRefObject<
       Map<string, string>

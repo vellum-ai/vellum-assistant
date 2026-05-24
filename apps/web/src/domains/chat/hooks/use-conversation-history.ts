@@ -72,7 +72,6 @@ interface UseConversationHistoryParams {
 
   contextWindowUsageByConversationRef: MutableRefObject<Map<string, ContextWindowUsage>>;
   dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
-  needsNewBubbleRef: MutableRefObject<boolean>;
   streamingMessageIdsRef: MutableRefObject<Set<string>>;
   pendingQueuedStableIdsRef: MutableRefObject<string[]>;
   requestIdToStableIdRef: MutableRefObject<Map<string, string>>;
@@ -93,7 +92,6 @@ interface UseConversationHistoryParams {
 
   // Callbacks
   resetChatAttachments: () => void;
-  syncNeedsNewBubbleFromMessages: (nextMessages: DisplayMessage[]) => void;
 
   // Error classification
   shouldSuppressGenericChatErrorNotice: (prev: ChatError | null) => boolean;
@@ -115,7 +113,6 @@ export function useConversationHistory({
   previousConversationIdRef,
   contextWindowUsageByConversationRef,
   dismissedSurfaceIdsRef,
-  needsNewBubbleRef,
   streamingMessageIdsRef,
   pendingQueuedStableIdsRef,
   requestIdToStableIdRef,
@@ -132,7 +129,6 @@ export function useConversationHistory({
   setSuggestion,
   setCompactionCircuitOpenUntil,
   resetChatAttachments,
-  syncNeedsNewBubbleFromMessages,
   shouldSuppressGenericChatErrorNotice,
 }: UseConversationHistoryParams): ConversationHistoryResult {
   // -------------------------------------------------------------------------
@@ -156,7 +152,6 @@ export function useConversationHistory({
     activeConversationId,
     draftConversationIdResolutionRef,
     previousConversationIdRef,
-    needsNewBubbleRef,
     streamingMessageIdsRef,
     pendingQueuedStableIdsRef,
     requestIdToStableIdRef,
@@ -224,7 +219,6 @@ export function useConversationHistory({
                   prev,
                   filteredMessages,
                 );
-          syncNeedsNewBubbleFromMessages(nextMessages);
           return nextMessages;
         });
         setTranscriptPagination({
@@ -369,7 +363,6 @@ export function useConversationHistory({
     activeConversationId,
     dismissedSurfaceIdsRef,
     autoGreetRef,
-    syncNeedsNewBubbleFromMessages,
     setMessages,
     setTranscriptPagination,
     setIsLoadingHistory,
