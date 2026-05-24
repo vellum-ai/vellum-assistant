@@ -13,10 +13,12 @@ export default defineConfig(({ mode }) => {
   // Reference: https://vite.dev/config/server-options#server-proxy
   const apiProxyTarget = env.API_PROXY_TARGET || "http://localhost:8000";
 
-  // Sentry source map upload is opt-in — only runs when SENTRY_AUTH_TOKEN
-  // is provided (CI/CD build pipeline). Local dev builds skip it.
+  // Only enable Sentry source map upload for deploy builds.
   // Reference: https://docs.sentry.io/platforms/javascript/guides/react/sourcemaps/uploading/vite/
-  const sentryUploadEnabled = !!env.SENTRY_AUTH_TOKEN;
+  const sentryUploadEnabled = env.SENTRY_UPLOAD_SOURCE_MAPS === "true";
+  if (sentryUploadEnabled && !env.SENTRY_AUTH_TOKEN) {
+    throw new Error("SENTRY_AUTH_TOKEN is required to upload Sentry source maps.");
+  }
 
   return {
     base: "/assistant/",

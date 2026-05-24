@@ -121,7 +121,6 @@ jobs:
         env:
           VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
           VITE_SENTRY_ENVIRONMENT: ${{ vars.VITE_SENTRY_ENVIRONMENT }}
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
         run: bun run build
 
   checks:
@@ -193,6 +192,8 @@ jobs:
       #                              job's `environment:`)
       #   - VITE_STRIPE_PUBLISHABLE_KEY  per-environment secret; publishable keys
       #                              are public, so embedding them is expected
+      #   - SENTRY_UPLOAD_SOURCE_MAPS  deploy-only opt-in for source-map upload
+      #                              and Sentry release side effects.
       #   - SENTRY_AUTH_TOKEN        repo-level secret; unprefixed, so Vite never
       #                              inlines it — it only authenticates the
       #                              build-time source-map upload and is not
@@ -205,6 +206,7 @@ jobs:
           VITE_SENTRY_ENVIRONMENT: ${{ vars.VITE_SENTRY_ENVIRONMENT }}
           VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
           VITE_APP_VERSION: ${{ github.sha }}
+          SENTRY_UPLOAD_SOURCE_MAPS: "true"
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
         run: bun run build
 
