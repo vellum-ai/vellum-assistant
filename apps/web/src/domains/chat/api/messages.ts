@@ -552,6 +552,11 @@ export async function postChatMessage(
         ? (errorBody.error as Record<string, unknown>)
         : {};
 
+    // The daemon's non-standard error envelopes use `errorBody.error` as a
+    // bare code string (e.g. "secret_blocked") and `errorBody.message` for
+    // the user-facing copy. Treat `errorBody.error` (string) only as a code
+    // candidate, never as the user-facing `detail` — otherwise the UI shows
+    // the raw code instead of the friendly explanation.
     return {
       ok: false,
       status: sendResponse.status,
@@ -561,17 +566,18 @@ export async function postChatMessage(
             ? errorBody.code
             : typeof nestedError.code === "string"
               ? nestedError.code
-              : undefined,
+              : typeof errorBody.error === "string"
+                ? errorBody.error
+                : undefined,
         detail:
           (typeof errorBody.detail === "string"
             ? errorBody.detail
             : undefined) ??
-          (typeof errorBody.error === "string" ? errorBody.error : undefined) ??
-          (typeof nestedError.message === "string"
-            ? nestedError.message
-            : undefined) ??
           (typeof errorBody.message === "string"
             ? errorBody.message
+            : undefined) ??
+          (typeof nestedError.message === "string"
+            ? nestedError.message
             : undefined) ??
           `HTTP ${sendResponse.status}`,
       },

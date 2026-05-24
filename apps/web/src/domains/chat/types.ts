@@ -25,6 +25,20 @@ export interface ChatError {
   message: string;
   code?: string;
   errorCategory?: string;
+  /**
+   * How the UI should surface this error.
+   * - "inline" (default): render as a Notice banner in the composer area.
+   * - "modal": render as a blocking dialog. Used when the POST failed before
+   *   any optimistic state was committed (e.g. secret_blocked from a fresh
+   *   draft conversation) so the user is interrupted and can act on it.
+   */
+  displayAs?: "inline" | "modal";
+  /**
+   * Original user-typed content to restore into the composer when the error
+   * is acknowledged. Set alongside `displayAs: "modal"` so the user doesn't
+   * lose their message after a failed send rollback.
+   */
+  restoreContent?: string;
 }
 
 export interface PendingSecretState {

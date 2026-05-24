@@ -268,3 +268,90 @@ describe("getChatHistory", () => {
     expect(result.messages[0]?.stableId.startsWith("server-")).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// postChatMessage — daemon error envelope handling
+// ---------------------------------------------------------------------------
+//
+// The daemon returns secret-ingress rejections as 422 with a non-standard
+// envelope: `{ accepted: false, error: "secret_blocked", message: "...",
+// detectedTypes: [...] }`. The `error` field is a bare code string, not a
+// user-facing detail. Regression-guard the extraction order so that:
+//   - `code` picks up "secret_blocked"
+//   - `detail` picks up the friendly `message`, never the bare code
+// Without this, the UI used to render "secret_blocked" as the user message.
+
+describe("postChatMessage — daemon error envelope handling", () => {
+  test("422 with bare-string error+message: code=string, detail=message", async () => {
+    nextPostResult = {
+      data: null,
+      error: {
+        accepted: false,
+        error: "secret_blocked",
+        message:
+          "Your message looks like it contains a secret. Please remove it before sending.",
+        detectedTypes: ["api_key"],
+      },
+      response: new Response(null, { status: 422 }),
+    };
+
+    const result = await postChatMessage("asst-1", "conv-key", "secret token");
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected failure result");
+    expect(result.status).toBe(422);
+    expect(result.error.code).toBe("secret_blocked");
+    expect(result.error.detail).toBe(
+      "Your message looks like it contains a secret. Please remove it before sending.",
+    );
+  });
+
+  test("standard detail-only envelope still surfaces detail", async () => {
+    nextPostResult = {
+      data: null,
+      error: { detail: "Rate limited. Try again shortly." },
+      response: new Response(null, { status: 429 }),
+    };
+
+    const result = await postChatMessage("asst-1", "conv-key", "hi");
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected failure result");
+    expect(result.status).toBe(429);
+    expect(result.error.detail).toBe("Rate limited. Try again shortly.");
+    expect(result.error.code).toBeUndefined();
+  });
+
+  test("nested error.code wins over bare error string for code", async () => {
+    nextPostResult = {
+      data: null,
+      error: {
+        // Both a nested error object AND a bare error string. Nested code
+        // takes priority — bare string is only a last-resort code fallback.
+        error: { code: "RATE_LIMITED", message: "Slow down." },
+      },
+      response: new Response(null, { status: 429 }),
+    };
+
+    const result = await postChatMessage("asst-1", "conv-key", "hi");
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected failure result");
+    expect(result.error.code).toBe("RATE_LIMITED");
+    expect(result.error.detail).toBe("Slow down.");
+  });
+
+  test("falls back to HTTP status when no detail-bearing field present", async () => {
+    nextPostResult = {
+      data: null,
+      error: {},
+      response: new Response(null, { status: 503 }),
+    };
+
+    const result = await postChatMessage("asst-1", "conv-key", "hi");
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected failure result");
+    expect(result.error.detail).toBe("HTTP 503");
+  });
+});
