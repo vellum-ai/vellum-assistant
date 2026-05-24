@@ -42,6 +42,7 @@ import {
   assistantsEmailAddressesStatusRetrieveOptions,
   assistantsEmailAddressesStatusRetrieveQueryKey,
   assistantsListOptions,
+  assistantsListQueryKey,
   organizationsBillingSubscriptionRetrieveOptions,
 } from "@/generated/api/@tanstack/react-query.gen.js";
 import { reportError } from "@/lib/errors/report.js";
@@ -970,6 +971,11 @@ function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceCardProp
         }),
       });
     }
+    // Domain registration can change the assistant's handle; invalidate the
+    // assistant list so the cached handle stays fresh.
+    void queryClient.invalidateQueries({
+      queryKey: assistantsListQueryKey(),
+    });
   }, [address?.id, assistantId, queryClient]);
 
   // -- Handlers --------------------------------------------------------------
