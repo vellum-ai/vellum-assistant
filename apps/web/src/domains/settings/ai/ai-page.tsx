@@ -19,6 +19,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { Button } from "@vellum/design-library/components/button";
+import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog";
 import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { Input } from "@vellum/design-library/components/input";
 import { Notice } from "@vellum/design-library/components/notice";
@@ -876,7 +877,10 @@ function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceCardProp
   const [subdomainPrefilled, setSubdomainPrefilled] = useState(false);
   const [subdomainError, setSubdomainError] = useState<string | null>(null);
   const [usernameDraft, setUsernameDraft] = useState("");
+  const [usernameError, setUsernameError] = useState<string | null>(null);
   const [savingMode, setSavingMode] = useState(false);
+  const [releaseConfirmOpen, setReleaseConfirmOpen] = useState(false);
+  const [removeAddressConfirmOpen, setRemoveAddressConfirmOpen] = useState(false);
 
   useEffect(() => {
     if (subdomainPrefilled || !assistantHandle || subdomainDraft) return;
@@ -989,7 +993,7 @@ function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceCardProp
     if (!assistantId) return;
     const trimmed = usernameDraft.trim().toLowerCase();
     if (!trimmed) {
-      toast.error("Enter an email username.");
+      setUsernameError("Enter an email username.");
       return;
     }
     try {
@@ -998,19 +1002,20 @@ function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceCardProp
         body: { username: trimmed },
       });
       setUsernameDraft("");
+      setUsernameError(null);
       invalidateEmailQueries();
       toast.success("Email address created.");
     } catch (err) {
-      const message =
-        err instanceof Error && err.message
-          ? err.message
-          : "Failed to register email address.";
-      toast.error(message);
+      const rec = err as Record<string, unknown> | undefined;
+      const detail = rec && typeof rec.detail === "string" ? rec.detail : null;
+      const message = detail ?? (err instanceof Error && err.message ? err.message : "Failed to create email address.");
+      setUsernameError(message);
     }
   }, [assistantId, invalidateEmailQueries, registerAddress, usernameDraft]);
 
   const handleDeleteAddress = useCallback(async () => {
     if (!assistantId || !address?.id) return;
+    setRemoveAddressConfirmOpen(false);
     try {
       await deleteAddress.mutateAsync({
         path: { assistant_id: assistantId, id: address.id },
@@ -1028,10 +1033,13 @@ function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceCardProp
       toast.error("Remove the email address first.");
       return;
     }
+    setReleaseConfirmOpen(false);
+    const releasedSubdomain = domain.subdomain;
     try {
       await deleteDomain.mutateAsync({
         path: { assistant_id: assistantId, id: domain.id },
       });
+      setSubdomainDraft(releasedSubdomain);
       invalidateEmailQueries();
       toast.success("Domain released.");
     } catch {
@@ -1042,6 +1050,7 @@ function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceCardProp
     assistantId,
     deleteDomain,
     domain?.id,
+    domain?.subdomain,
     invalidateEmailQueries,
   ]);
 
@@ -1127,13 +1136,9 @@ function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceCardProp
             </p>
           ) : !domain ? (
             <div className="space-y-3">
-              <Typography
-                variant="body-small-default"
-                as="label"
-                className="text-[var(--content-secondary)]"
-              >
+              <label className="block text-body-small-default text-[var(--content-quiet)]">
                 Subdomain
-              </Typography>
+              </label>
               <DomainField
                 subdomain={subdomainDraft}
                 onSubdomainChange={(v) => {
@@ -1156,46 +1161,57 @@ function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceCardProp
               </Button>
             </div>
           ) : !address ? (
-            <div className="space-y-3">
-              <div className="space-y-0.5">
-                <div className="flex items-center justify-between gap-3">
-                  <label className="block text-body-small-default text-[var(--content-tertiary)]">
-                    Domain
-                  </label>
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="block text-body-small-default text-[var(--content-quiet)]">
+                  Domain
+                </label>
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-[var(--system-positive-weak)] px-2.5 py-0.5 text-body-small-default text-[var(--system-positive-strong)]">
+                    <Check className="h-3 w-3" />
+                    {domain.subdomain}.{emailRootDomain}
+                  </span>
                   <Button
                     variant="dangerGhost"
                     size="compact"
-                    onClick={handleDeleteDomain}
+                    onClick={() => setReleaseConfirmOpen(true)}
                     disabled={deleteDomain.isPending}
                   >
                     Release
                   </Button>
                 </div>
-                <DomainField
-                  subdomain={domain.subdomain}
-                  onSubdomainChange={() => {}}
-                  domainSuffix={emailRootDomain}
-                  locked
-                  lockedMessage="This domain has been set and cannot be changed."
+                <ConfirmDialog
+                  open={releaseConfirmOpen}
+                  title="Release Domain"
+                  message={<>Are you sure you want to release <code className="rounded bg-[var(--surface-active)] px-1 py-0.5 font-mono text-[0.9em]">{domain.subdomain}.{emailRootDomain}</code>? The subdomain will become available for others to claim.</>}
+                  confirmLabel="Release"
+                  destructive
+                  onConfirm={handleDeleteDomain}
+                  onCancel={() => setReleaseConfirmOpen(false)}
                 />
               </div>
 
-              <div className="space-y-1">
-                <label className="block text-body-small-default text-[var(--content-tertiary)]">
-                  Email username
+              <div className="space-y-1.5">
+                <label className="block text-body-small-default text-[var(--content-quiet)]">
+                  Email address
                 </label>
                 <div className="flex items-center gap-2">
-                  <Input
-                    value={usernameDraft}
-                    onChange={(e) =>
-                      setUsernameDraft(e.target.value.toLowerCase())
-                    }
-                    placeholder="hi"
-                    fullWidth
-                  />
-                  <span className="shrink-0 text-body-small-default text-[var(--content-tertiary)]">
-                    @{fullDomain}
-                  </span>
+                  <div className={`flex h-9 min-w-0 flex-1 items-center rounded-md border bg-[var(--field-bg)] text-body-medium-lighter transition-[border-color] duration-150 ${usernameError ? "border-[var(--system-negative-strong)]" : "border-[var(--field-border)] focus-within:border-[var(--border-active)]"}`}>
+                    <input
+                      value={usernameDraft}
+                      onChange={(e) => {
+                        setUsernameDraft(e.target.value.toLowerCase());
+                        if (usernameError) setUsernameError(null);
+                      }}
+                      placeholder="hi"
+                      aria-label="Email username"
+                      aria-invalid={!!usernameError}
+                      className="h-full min-w-0 flex-1 bg-transparent pl-3 pr-1 text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] outline-none"
+                    />
+                    <span className="shrink-0 pr-3 font-mono text-[var(--content-secondary)]">
+                      @{fullDomain}
+                    </span>
+                  </div>
                   <Button
                     onClick={handleRegisterAddress}
                     disabled={
@@ -1205,28 +1221,42 @@ function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceCardProp
                     {registerAddress.isPending ? "Creating…" : "Create"}
                   </Button>
                 </div>
+                {usernameError && (
+                  <p className="text-body-small-default text-[var(--system-negative-strong)]">
+                    {usernameError}
+                  </p>
+                )}
               </div>
             </div>
           ) : (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="space-y-1">
-                  <label className="block text-body-small-default text-[var(--content-tertiary)]">
-                    Address
-                  </label>
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="block text-body-small-default text-[var(--content-quiet)]">
+                  Address
+                </label>
+                <div className="flex items-center gap-2">
                   <span className="inline-flex items-center gap-1 rounded-full bg-[var(--system-positive-weak)] px-2.5 py-0.5 text-body-small-default text-[var(--system-positive-strong)]">
                     <Check className="h-3 w-3" />
                     {address.address}
                   </span>
+                  <Button
+                    variant="dangerGhost"
+                    size="compact"
+                    onClick={() => setRemoveAddressConfirmOpen(true)}
+                    disabled={deleteAddress.isPending}
+                  >
+                    Remove
+                  </Button>
                 </div>
-                <Button
-                  variant="dangerGhost"
-                  size="compact"
-                  onClick={handleDeleteAddress}
-                  disabled={deleteAddress.isPending}
-                >
-                  Remove
-                </Button>
+                <ConfirmDialog
+                  open={removeAddressConfirmOpen}
+                  title="Remove Email Address"
+                  message={<>Are you sure you want to remove <code className="rounded bg-[var(--surface-active)] px-1 py-0.5 font-mono text-[0.9em]">{address.address}</code>? Your assistant will no longer be able to send or receive email at this address.</>}
+                  confirmLabel="Remove"
+                  destructive
+                  onConfirm={handleDeleteAddress}
+                  onCancel={() => setRemoveAddressConfirmOpen(false)}
+                />
               </div>
 
               {statusQuery.data?.usage && (
