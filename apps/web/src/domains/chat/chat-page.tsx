@@ -157,7 +157,7 @@ export function ChatPage() {
   const [suggestion, setSuggestion] = useState<string | null>(null);
   const [showAddCreditsModal, setShowAddCreditsModal] = useState(false);
 
-  const [restoredDraftConversationKey, setRestoredDraftConversationKey] = useState<string | null>(null);
+  const [restoredDraftConversationId, setRestoredDraftConversationId] = useState<string | null>(null);
   const [refreshEpoch, setRefreshEpoch] = useState(0);
   const [autoGreetPending, setAutoGreetPending] = useState(
     () => peekPendingPreChatContext()?.initialMessage != null,
@@ -329,7 +329,7 @@ export function ChatPage() {
     assistantId,
     activeConversationId,
     draftConversationIdResolutionRef,
-    onDraftRestored: setRestoredDraftConversationKey,
+    onDraftRestored: setRestoredDraftConversationId,
   });
 
   // -------------------------------------------------------------------------
@@ -1388,8 +1388,8 @@ export function ChatPage() {
     openedAppState: viewerState.openedAppState,
     openedDocumentState: viewerState.openedDocumentState,
     editingConversationId,
-    restoredDraftConversationKey,
-    setRestoredDraftConversationKey,
+    restoredDraftConversationId,
+    setRestoredDraftConversationId,
     saveDraft,
     clearDraft,
     avatar: {

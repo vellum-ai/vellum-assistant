@@ -76,12 +76,12 @@ function buildRecentsSection(conversations: Conversation[]): CommandPaletteSecti
  */
 export function buildServerResultSections(
   results: GlobalSearchResponse,
-  recentConversationKeys: Set<string>,
+  recentConversationIds: Set<string>,
 ): CommandPaletteSection[] {
   const sections: CommandPaletteSection[] = [];
 
   const serverConvItems = results.conversations
-    .filter((c) => !recentConversationKeys.has(c.id))
+    .filter((c) => !recentConversationIds.has(c.id))
     .map((c) => ({
       id: `search-conv-${c.id}`,
       icon: MessageSquare,
@@ -223,7 +223,7 @@ export function useCommandPaletteSections({
   }, [conversations, assistantName]);
 
   // Deduplicate server results against local recents.
-  const recentConversationKeys = useMemo(
+  const recentConversationIds = useMemo(
     () => new Set(conversations.slice(0, 5).map((c) => c.conversationId)),
     [conversations],
   );
@@ -290,10 +290,10 @@ export function useCommandPaletteSections({
   // Merge local filtered sections with server search results.
   const mergedSections = useMemo((): CommandPaletteSection[] => {
     const serverSections = commandPalette.searchResults
-      ? buildServerResultSections(commandPalette.searchResults, recentConversationKeys)
+      ? buildServerResultSections(commandPalette.searchResults, recentConversationIds)
       : [];
     return [...filteredLocalSections, ...serverSections];
-  }, [filteredLocalSections, commandPalette.searchResults, recentConversationKeys]);
+  }, [filteredLocalSections, commandPalette.searchResults, recentConversationIds]);
 
   // Keep the ref in sync so keyboard nav and onSelect always use the latest sections.
   mergedSectionsRef.current = mergedSections;

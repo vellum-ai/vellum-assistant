@@ -93,7 +93,7 @@ export function useAttentionTracking({
     (c) => c.conversationId === activeConversationId,
   );
 
-  const lastSeenOnOpenConversationKeyRef = useRef<string | null>(null);
+  const lastSeenOnOpenConversationIdRef = useRef<string | null>(null);
   const initialAttentionSweepDoneRef = useRef(false);
 
   // -------------------------------------------------------------------------
@@ -102,9 +102,9 @@ export function useAttentionTracking({
   useEffect(() => {
     if (assistantStateKind !== "active" || !assistantId || !activeConversationId) return;
     if (!activeConversation) return;
-    if (lastSeenOnOpenConversationKeyRef.current === activeConversationId) return;
+    if (lastSeenOnOpenConversationIdRef.current === activeConversationId) return;
 
-    lastSeenOnOpenConversationKeyRef.current = activeConversationId;
+    lastSeenOnOpenConversationIdRef.current = activeConversationId;
     if (!activeConversation.hasUnseenLatestAssistantMessage) return;
 
     let cancelled = false;
