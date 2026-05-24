@@ -70,8 +70,17 @@ export function ResizeCard({
     [allowedSizes, currentSize],
   );
 
+  // `selected_storage_gib` is the provisioned storage quota the org has
+  // purchased — the assistant's actual disk ceiling. The filesystem total
+  // reported by /v1/health can over-report the underlying host volume, so it
+  // is not a reliable limit.
   const availableGib = onboardingQuery.data?.selected_storage_gib ?? null;
-  const currentGib = assistant.provisioned_storage_gib ?? null;
+  // The base assistant record doesn't expose its current provisioned storage,
+  // and the filesystem total can over-report the host volume — gating on it
+  // would wrongly hide the upgrade path when a user still has purchased quota.
+  // Leave it unknown so the storage-grow path stays available; the resize
+  // endpoint validates the requested size against the purchased tier.
+  const currentGib: number | null = null;
 
   const [resizeModalOpen, setResizeModalOpen] = useState(false);
   const largestSize = allowedSizes.length > 0 ? allowedSizes[allowedSizes.length - 1] : null;
@@ -134,13 +143,18 @@ export function ResizeCard({
 
   const isLoading = resizeMutation.isPending;
 
-  const diskBar = healthz?.disk
-    ? {
-        value: healthz.disk.usedMb,
-        max: healthz.disk.totalMb,
-        caption: `${formatResourceMb(healthz.disk.usedMb)} of ${formatResourceMb(healthz.disk.totalMb)}`,
-      }
-    : null;
+  // Fall back to the filesystem total only when no quota is known (free plan).
+  const diskMaxMb =
+    availableGib != null ? availableGib * 1024 : healthz?.disk?.totalMb ?? null;
+
+  const diskBar =
+    healthz?.disk && diskMaxMb != null
+      ? {
+          value: healthz.disk.usedMb,
+          max: diskMaxMb,
+          caption: `${formatResourceMb(healthz.disk.usedMb)} of ${formatResourceMb(diskMaxMb)}`,
+        }
+      : null;
 
   const cpuBar = healthz?.cpu
     ? {
