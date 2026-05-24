@@ -1,6 +1,9 @@
 import { AlertCircle, Check, Loader2 } from "lucide-react";
+import { Link } from "react-router";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+import { useQuery } from "@tanstack/react-query";
 
 import { Button } from "@vellum/design-library/components/button";
 import { Input } from "@vellum/design-library/components/input";
@@ -23,7 +26,9 @@ import {
   updateAssistantHandle,
   type UpdateAssistantHandleResult,
 } from "@/domains/account/handle.js";
+import { assistantsDomainsListOptions } from "@/generated/api/@tanstack/react-query.gen.js";
 import type { Assistant } from "@/generated/api/types.gen.js";
+import { routes } from "@/utils/routes.js";
 
 // Debounce window before firing the availability check. Tight enough that
 // feedback feels live as the user types; loose enough that fast typers
@@ -472,10 +477,16 @@ function AssistantHandleSection({
   assistant,
   onSaved,
 }: AssistantHandleSectionProps) {
-  // Assistants may not have a handle yet (the column is nullable; auto-derivation
-  // only kicks in on rename when the assistant has a non-default name). Treat
-  // ``null`` as an empty string for the editor so the "pick one" flow works.
   const currentHandle = assistant.handle ?? "";
+
+  const domainsQuery = useQuery({
+    ...assistantsDomainsListOptions({
+      path: { assistant_id: assistant.id },
+    }),
+  });
+  const domain = domainsQuery.data?.results?.[0];
+  const lockedBySubdomain =
+    !!domain && domain.subdomain.toLowerCase() === currentHandle.toLowerCase();
 
   const idleHelperText =
     currentHandle.length === 0
@@ -499,6 +510,38 @@ function AssistantHandleSection({
     },
     [assistant.id],
   );
+
+  if (lockedBySubdomain) {
+    return (
+      <div className="flex flex-col gap-2">
+        <Input
+          label="Assistant handle"
+          value={currentHandle}
+          readOnly
+          disabled
+          leftIcon={
+            <span
+              className="select-none font-mono text-[var(--content-tertiary)]"
+              aria-hidden
+            >
+              @
+            </span>
+          }
+          fullWidth
+          data-testid="assistant-handle-input"
+        />
+        <p className="text-body-small-default text-[var(--content-tertiary)]">
+          Cannot change handle while a registered subdomain matches it.{" "}
+          <Link
+            to={`${routes.settings.ai}#email`}
+            className="text-[var(--content-link)] underline hover:text-[var(--content-link-hover)]"
+          >
+            View subdomain settings
+          </Link>
+        </p>
+      </div>
+    );
+  }
 
   return (
     <HandleEditor<Assistant>
