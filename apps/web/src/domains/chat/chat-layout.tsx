@@ -42,7 +42,7 @@ import { OfflineBanner } from "@/components/offline-banner.js";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu.js";
 import { PreferencesMenu } from "@/domains/chat/components/preferences-menu.js";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store.js";
-import { createDraftConversationKey } from "@/domains/chat/utils/conversation-selection.js";
+import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection.js";
 import { ChatLayoutHeader } from "./chat-layout-header.js";
 
 /**
@@ -258,7 +258,7 @@ export function ChatLayout() {
   const handleStartNewConversation = useCallback(() => {
     haptic.light();
     useViewerStore.getState().setMainView("chat");
-    const draftKey = createDraftConversationKey();
+    const draftKey = createDraftConversationId();
     useConversationStore.getState().setActiveConversationId(draftKey);
     void navigate(routes.conversation(draftKey));
   }, [navigate]);
@@ -459,7 +459,7 @@ export function ChatLayout() {
     ({ silent }: { silent?: boolean } = {}) => {
       if (!silent) haptic.light();
       useViewerStore.getState().setMainView("chat");
-      const draftKey = createDraftConversationKey();
+      const draftKey = createDraftConversationId();
       useConversationStore.getState().setActiveConversationId(draftKey);
       void navigate(routes.conversation(draftKey));
     },

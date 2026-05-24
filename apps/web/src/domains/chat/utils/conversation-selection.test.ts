@@ -1,23 +1,23 @@
 import { describe, expect, test } from "bun:test";
 
-import { resolveBootstrappedConversationKey } from "@/domains/chat/utils/conversation-selection.js";
+import { resolveBootstrappedConversationId } from "@/domains/chat/utils/conversation-selection.js";
 
 const conversations = [
   { conversationId: "old-visible" },
   { conversationId: "new-latest" },
 ];
 
-describe("resolveBootstrappedConversationKey", () => {
+describe("resolveBootstrappedConversationId", () => {
   test("uses the explicit URL conversation key first", () => {
     expect(
-      resolveBootstrappedConversationKey({
+      resolveBootstrappedConversationId({
         queryParamKey: "from-url",
-        onboardingDraftConversationKey: "onboarding-draft",
-        currentConversationKey: "current",
+        onboardingDraftConversationId: "onboarding-draft",
+        currentConversationId: "current",
         currentAssistantId: "asst-1",
         nextAssistantId: "asst-1",
-        storedConversationKey: "stored",
-        defaultConversationKey: "new-latest",
+        storedConversationId: "stored",
+        defaultConversationId: "new-latest",
         conversations,
       }),
     ).toBe("from-url");
@@ -25,14 +25,14 @@ describe("resolveBootstrappedConversationKey", () => {
 
   test("uses the onboarding draft before current, stored, or default keys", () => {
     expect(
-      resolveBootstrappedConversationKey({
+      resolveBootstrappedConversationId({
         queryParamKey: null,
-        onboardingDraftConversationKey: "onboarding-draft",
-        currentConversationKey: "current",
+        onboardingDraftConversationId: "onboarding-draft",
+        currentConversationId: "current",
         currentAssistantId: "asst-1",
         nextAssistantId: "asst-1",
-        storedConversationKey: "old-visible",
-        defaultConversationKey: "new-latest",
+        storedConversationId: "old-visible",
+        defaultConversationId: "new-latest",
         conversations,
       }),
     ).toBe("onboarding-draft");
@@ -40,13 +40,13 @@ describe("resolveBootstrappedConversationKey", () => {
 
   test("preserves the current same-assistant conversation during refresh", () => {
     expect(
-      resolveBootstrappedConversationKey({
+      resolveBootstrappedConversationId({
         queryParamKey: null,
-        currentConversationKey: "old-visible",
+        currentConversationId: "old-visible",
         currentAssistantId: "asst-1",
         nextAssistantId: "asst-1",
-        storedConversationKey: null,
-        defaultConversationKey: "new-latest",
+        storedConversationId: null,
+        defaultConversationId: "new-latest",
         conversations,
       }),
     ).toBe("old-visible");
@@ -54,13 +54,13 @@ describe("resolveBootstrappedConversationKey", () => {
 
   test("does not preserve a current key from a different assistant", () => {
     expect(
-      resolveBootstrappedConversationKey({
+      resolveBootstrappedConversationId({
         queryParamKey: null,
-        currentConversationKey: "other-assistant-chat",
+        currentConversationId: "other-assistant-chat",
         currentAssistantId: "asst-2",
         nextAssistantId: "asst-1",
-        storedConversationKey: null,
-        defaultConversationKey: "new-latest",
+        storedConversationId: null,
+        defaultConversationId: "new-latest",
         conversations,
       }),
     ).toBe("new-latest");
@@ -68,13 +68,13 @@ describe("resolveBootstrappedConversationKey", () => {
 
   test("resumes a stored conversation on cold load when it still exists", () => {
     expect(
-      resolveBootstrappedConversationKey({
+      resolveBootstrappedConversationId({
         queryParamKey: null,
-        currentConversationKey: null,
+        currentConversationId: null,
         currentAssistantId: null,
         nextAssistantId: "asst-1",
-        storedConversationKey: "old-visible",
-        defaultConversationKey: "new-latest",
+        storedConversationId: "old-visible",
+        defaultConversationId: "new-latest",
         conversations,
       }),
     ).toBe("old-visible");
@@ -82,13 +82,13 @@ describe("resolveBootstrappedConversationKey", () => {
 
   test("does not implicitly resume a stored background conversation", () => {
     expect(
-      resolveBootstrappedConversationKey({
+      resolveBootstrappedConversationId({
         queryParamKey: null,
-        currentConversationKey: null,
+        currentConversationId: null,
         currentAssistantId: null,
         nextAssistantId: "asst-1",
-        storedConversationKey: "heartbeat",
-        defaultConversationKey: "asst-1",
+        storedConversationId: "heartbeat",
+        defaultConversationId: "asst-1",
         conversations: [
           { conversationId: "heartbeat", conversationType: "background" },
         ],
@@ -98,13 +98,13 @@ describe("resolveBootstrappedConversationKey", () => {
 
   test("ignores a stored conversation that is no longer in the list", () => {
     expect(
-      resolveBootstrappedConversationKey({
+      resolveBootstrappedConversationId({
         queryParamKey: null,
-        currentConversationKey: null,
+        currentConversationId: null,
         currentAssistantId: null,
         nextAssistantId: "asst-1",
-        storedConversationKey: "missing",
-        defaultConversationKey: "new-latest",
+        storedConversationId: "missing",
+        defaultConversationId: "new-latest",
         conversations,
       }),
     ).toBe("new-latest");

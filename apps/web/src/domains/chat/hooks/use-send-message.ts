@@ -215,14 +215,14 @@ export function useSendMessage({
         return undefined;
       }
       const requestAssistantId = assistantId;
-      const requestConversationKey = activeConversationId;
-      const isCurrentSendScope = (resolvedConversationKey?: string | null) =>
+      const requestConversationId = activeConversationId;
+      const isCurrentSendScope = (resolvedConversationId?: string | null) =>
         isAsyncChatScopeCurrent({
           currentAssistantId: assistantIdRef.current,
-          currentConversationKey: activeConversationIdRef.current,
+          currentConversationId: activeConversationIdRef.current,
           requestAssistantId,
-          requestConversationKey,
-          resolvedConversationKey,
+          requestConversationId,
+          resolvedConversationId,
         });
 
       const onboardingContext =
@@ -232,7 +232,7 @@ export function useSendMessage({
       }
       const postResult = await postChatMessage(
         requestAssistantId,
-        requestConversationKey,
+        requestConversationId,
         content,
         attachmentIds,
         onboardingContext ?? undefined,
@@ -241,7 +241,7 @@ export function useSendMessage({
         if (!isCurrentSendScope()) {
           recordChatDiagnostic("send_error_ignored_inactive_conversation", {
             assistantId: requestAssistantId,
-            conversationId: requestConversationKey,
+            conversationId: requestConversationId,
             activeAssistantId: assistantIdRef.current,
             activeConversationId: activeConversationIdRef.current,
           });
@@ -266,14 +266,14 @@ export function useSendMessage({
         useTurnStore.getState().acceptSend(turnId);
       }
 
-      const effectiveConversationKey =
+      const effectiveConversationId =
         postResult.resolvedConversationId ?? postResult.conversationId;
 
-      if (!isCurrentSendScope(effectiveConversationKey)) {
+      if (!isCurrentSendScope(effectiveConversationId)) {
         recordChatDiagnostic("send_result_ignored_inactive_conversation", {
           assistantId: postResult.assistantId,
-          conversationId: requestConversationKey,
-          resolvedConversationKey: effectiveConversationKey,
+          conversationId: requestConversationId,
+          resolvedConversationId: effectiveConversationId,
           activeAssistantId: assistantIdRef.current,
           activeConversationId: activeConversationIdRef.current,
         });
@@ -284,23 +284,23 @@ export function useSendMessage({
       const hasMatchingActiveStream =
         !!streamRef.current &&
         existingStreamContext?.assistantId === postResult.assistantId &&
-        existingStreamContext.conversationId === effectiveConversationKey;
+        existingStreamContext.conversationId === effectiveConversationId;
 
       streamContextRef.current = {
         assistantId: postResult.assistantId,
-        conversationId: effectiveConversationKey,
+        conversationId: effectiveConversationId,
       };
 
       if (postResult.queued) return postResult.resolvedConversationId;
       if (hasMatchingActiveStream) return postResult.resolvedConversationId;
 
-      pollForResponse(postResult.assistantId, postResult.messageId, effectiveConversationKey)
+      pollForResponse(postResult.assistantId, postResult.messageId, effectiveConversationId)
         .then(async (reply) => {
-          if (!isCurrentSendScope(effectiveConversationKey)) {
+          if (!isCurrentSendScope(effectiveConversationId)) {
             recordChatDiagnostic("poll_response_ignored_inactive_conversation", {
               assistantId: postResult.assistantId,
-              conversationId: requestConversationKey,
-              resolvedConversationKey: effectiveConversationKey,
+              conversationId: requestConversationId,
+              resolvedConversationId: effectiveConversationId,
               activeAssistantId: assistantIdRef.current,
               activeConversationId: activeConversationIdRef.current,
             });
@@ -310,9 +310,9 @@ export function useSendMessage({
           try {
             const interactions = await getPendingInteractions(
               postResult.assistantId,
-              effectiveConversationKey,
+              effectiveConversationId,
             );
-            if (!isCurrentSendScope(effectiveConversationKey)) return;
+            if (!isCurrentSendScope(effectiveConversationId)) return;
             if (interactions.pendingSecret) {
               useInteractionStore.getState().showSecret(parsePendingSecretState(interactions.pendingSecret));
               if (!reply) return;
@@ -335,14 +335,14 @@ export function useSendMessage({
           try {
             serverMessages = await fetchConversationMessages(
               postResult.assistantId,
-              effectiveConversationKey,
+              effectiveConversationId,
             );
           } catch {
             // Reconciliation is best-effort
           }
-          if (!isCurrentSendScope(effectiveConversationKey)) return;
+          if (!isCurrentSendScope(effectiveConversationId)) return;
           setMessages((prev) => {
-            if (!isCurrentSendScope(effectiveConversationKey)) return prev;
+            if (!isCurrentSendScope(effectiveConversationId)) return prev;
             if (serverMessages.length > 0) {
               return reconcileMessages(prev, serverMessages);
             }
@@ -376,7 +376,7 @@ export function useSendMessage({
           if (restoredConfData) {
             const capturedConfData = restoredConfData;
             setMessages((prev) => {
-              if (!isCurrentSendScope(effectiveConversationKey)) return prev;
+              if (!isCurrentSendScope(effectiveConversationId)) return prev;
               const result = attachConfirmationToToolCall(prev, capturedConfData);
               if (result.attachedToolCallId) {
                 useInteractionStore.getState().setInlineConfirmationToolCallId(result.attachedToolCallId);
@@ -390,11 +390,11 @@ export function useSendMessage({
           startReconciliationLoop(epoch);
         })
         .catch(() => {
-          if (!isCurrentSendScope(effectiveConversationKey)) return;
+          if (!isCurrentSendScope(effectiveConversationId)) return;
           setError({ message: "Connection lost. Please try again." });
         })
         .finally(() => {
-          if (!isCurrentSendScope(effectiveConversationKey)) return;
+          if (!isCurrentSendScope(effectiveConversationId)) return;
           useTurnStore.getState().onPollReconciled(turnId);
         });
 

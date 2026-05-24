@@ -15,8 +15,8 @@ import {
 import { toast } from "@vellum/design-library";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import {
-  createDraftConversationKey,
-  resolveBootstrappedConversationKey,
+  createDraftConversationId,
+  resolveBootstrappedConversationId,
 } from "@/domains/chat/utils/conversation-selection.js";
 import {
   loadLastViewedConversationKey,
@@ -360,7 +360,7 @@ export function useConversationLoader({
   // When chat context arrives in the cache (from any source — this hook's
   // own subscription or a sibling subscriber that fetched first), resolve
   // the bootstrap conversation key and write it into the URL + client
-  // store. Idempotent: `resolveBootstrappedConversationKey` prefers the
+  // store. Idempotent: `resolveBootstrappedConversationId` prefers the
   // currently-active key when one is set, so a refetch with the same data
   // shape (de-duped by React Query's structural sharing) does not churn
   // the route.
@@ -391,19 +391,19 @@ export function useConversationLoader({
     }
     lastAppliedUrlKeyRef.current = explicitKey;
 
-    let onboardingDraftConversationKey: string | null = null;
+    let onboardingDraftConversationId: string | null = null;
     if (searchParams.get("onboarding") === "1") {
-      onboardingDraftConversationKeyRef.current ??= createDraftConversationKey();
-      onboardingDraftConversationKey = onboardingDraftConversationKeyRef.current;
+      onboardingDraftConversationKeyRef.current ??= createDraftConversationId();
+      onboardingDraftConversationId = onboardingDraftConversationKeyRef.current;
     }
-    const key = resolveBootstrappedConversationKey({
+    const key = resolveBootstrappedConversationId({
       queryParamKey: explicitKey,
-      onboardingDraftConversationKey,
-      currentConversationKey: activeConversationIdRef.current,
+      onboardingDraftConversationId,
+      currentConversationId: activeConversationIdRef.current,
       currentAssistantId: assistantIdRef.current,
       nextAssistantId: chatContext.assistantId,
-      storedConversationKey: loadLastViewedConversationKey(chatContext.assistantId),
-      defaultConversationKey: chatContext.conversationId,
+      storedConversationId: loadLastViewedConversationKey(chatContext.assistantId),
+      defaultConversationId: chatContext.conversationId,
       conversations: chatContext.conversations,
     });
 
@@ -496,7 +496,7 @@ export function useConversationLoader({
     ({ silent, initialMessage }: { silent?: boolean; initialMessage?: string } = {}) => {
       if (!silent) haptic.light();
       useViewerStore.getState().setMainView("chat");
-      const draftKey = createDraftConversationKey();
+      const draftKey = createDraftConversationId();
       if (initialMessage) {
         pendingInitialMessageRef.current = { conversationKey: draftKey, content: initialMessage };
       }

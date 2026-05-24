@@ -44,7 +44,7 @@ import type { TranscriptHandle } from "@/domains/chat/transcript/transcript.js";
 import type { TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
 import { type UIContext } from "@/domains/messaging/turn-selectors.js";
 import { peekPendingPreChatContext, type PreChatOnboardingContext } from "@/domains/onboarding/prechat.js";
-import { createDraftConversationKey } from "@/domains/chat/utils/conversation-selection.js";
+import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection.js";
 import type { WebSyncRouter } from "@/lib/sync/web-sync-router.js";
 import type { SyncChangedEvent } from "@/lib/sync/types.js";
 
@@ -474,7 +474,7 @@ export function ChatPage() {
     setDidOnboarding(true);
     setAutoGreetPending(true);
     const onboardingDraftKey =
-      onboardingDraftConversationKeyRef.current ?? createDraftConversationKey();
+      onboardingDraftConversationKeyRef.current ?? createDraftConversationId();
     onboardingDraftConversationKeyRef.current = onboardingDraftKey;
     setOnboardingConversationId(onboardingDraftKey);
     useConversationStore.getState().setActiveConversationId(onboardingDraftKey);

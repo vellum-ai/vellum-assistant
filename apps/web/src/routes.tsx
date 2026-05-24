@@ -62,7 +62,7 @@ import { TracePage } from "@/domains/logs/pages/trace-page.js";
 import { UsagePage } from "@/domains/logs/pages/usage-page.js";
 import { SystemEventsPage } from "@/domains/logs/pages/system-events-page.js";
 import { EmailsPage } from "@/domains/logs/pages/emails-page.js";
-import { createDraftConversationKey } from "@/domains/chat/utils/conversation-selection.js";
+import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection.js";
 import { useConversationStore } from "@/domains/conversations/conversation-store.js";
 import { useViewerStore } from "@/stores/viewer-store.js";
 import { routes } from "@/utils/routes.js";
@@ -101,7 +101,7 @@ function HomePageRoute() {
       }
       onSuggestionSelected={(prompt) => {
         useViewerStore.getState().setMainView("chat");
-        const draftKey = createDraftConversationKey();
+        const draftKey = createDraftConversationId();
         useConversationStore.getState().setActiveConversationId(draftKey);
         navigate(
           `${routes.conversation(draftKey)}?prompt=${encodeURIComponent(prompt)}`,
