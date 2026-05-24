@@ -4,7 +4,6 @@ import { useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { Button } from "@vellum/design-library/components/button";
-import { Checkbox } from "@vellum/design-library/components/checkbox";
 import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { Modal } from "@vellum/design-library/components/modal";
 import { Notice } from "@vellum/design-library/components/notice";
@@ -80,7 +79,6 @@ export function ResizeCard({
     null,
   );
   const displaySize = selectedSize ?? largestSize ?? currentSize;
-  const [expandStorage, setExpandStorage] = useState(false);
   const [upgradeModalOpen, setUpgradeModalOpen] = useState<"storage" | "machine" | null>(null);
 
   const resizeMutation = useMutation({
@@ -90,7 +88,6 @@ export function ResizeCard({
         id: "assistant-resize",
       });
       setSelectedSize(null);
-      setExpandStorage(false);
       setResizeModalOpen(false);
       void refetch();
     },
@@ -165,7 +162,7 @@ export function ResizeCard({
       <button
         type="button"
         disabled={isLoading}
-        onClick={() => { setExpandStorage(true); setResizeModalOpen(true); }}
+        onClick={() => setResizeModalOpen(true)}
         className="flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/15 px-3 py-1.5 text-body-small-default font-medium text-amber-400 transition-colors hover:bg-amber-500/25 disabled:opacity-50"
       >
         <Sparkles className="h-3.5 w-3.5" />
@@ -358,7 +355,6 @@ export function ResizeCard({
           if (!o) {
             setResizeModalOpen(false);
             setSelectedSize(null);
-            setExpandStorage(false);
           }
         }}
       >
@@ -385,18 +381,21 @@ export function ResizeCard({
                     options={machineSizeOptions}
                     value={displaySize}
                     onChange={setSelectedSize}
+                    disabled={!canUpsize}
                     aria-label="Compute machine size"
                     data-testid="resize-machine-size"
                   />
                 </div>
               )}
-              {canGrowStorage && (
-                <Checkbox
-                  checked={expandStorage}
-                  onCheckedChange={(v) => setExpandStorage(v === true)}
-                  label={`Expand storage to ${availableGib} GiB (currently ${currentGib} GiB)`}
-                />
-              )}
+              {canGrowStorage ? (
+                <Notice tone="info">
+                  Storage will also be expanded from {currentGib} GiB to {availableGib} GiB.
+                </Notice>
+              ) : availableGib != null && currentGib != null ? (
+                <Notice tone="neutral">
+                  Storage is already at your plan's maximum of {availableGib} GiB.
+                </Notice>
+              ) : null}
             </div>
           </Modal.Body>
           <Modal.Footer>
@@ -405,13 +404,12 @@ export function ResizeCard({
               onClick={() => {
                 setResizeModalOpen(false);
                 setSelectedSize(null);
-                setExpandStorage(false);
               }}
             >
               Cancel
             </Button>
             <Button
-              disabled={(effectiveSelectedSize == null && !expandStorage) || isLoading}
+              disabled={(effectiveSelectedSize == null && !canGrowStorage) || isLoading}
               leftIcon={
                 isLoading ? <Loader2 className="animate-spin" /> : undefined
               }
@@ -420,7 +418,7 @@ export function ResizeCard({
                 if (effectiveSelectedSize != null) {
                   body.machine_size = effectiveSelectedSize;
                 }
-                if (expandStorage && availableGib != null) {
+                if (canGrowStorage && availableGib != null) {
                   body.storage_gib = availableGib;
                 }
                 resizeMutation.mutate({
