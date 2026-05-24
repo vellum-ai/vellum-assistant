@@ -130,6 +130,7 @@ jobs:
         env:
           VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
           VITE_SENTRY_ENVIRONMENT: ${{ vars.VITE_SENTRY_ENVIRONMENT }}
+          VITE_APP_VERSION: ${{ github.sha }}
         run: bun run build
 
   # Aggregator — preserves the "Lint, Type Check & Build" status check name

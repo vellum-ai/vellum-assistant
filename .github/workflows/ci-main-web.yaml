@@ -163,6 +163,8 @@ jobs:
       #                              job's `environment:`)
       #   - VITE_STRIPE_PUBLISHABLE_KEY  per-environment secret; publishable keys
       #                              are public, so embedding them is expected
+      #   - VITE_APP_VERSION         commit SHA baked into the browser bundle
+      #                              for Sentry event release tagging.
       #   - SENTRY_UPLOAD_SOURCE_MAPS  deploy-only opt-in for source-map upload
       #                              and Sentry release side effects.
       #   - SENTRY_AUTH_TOKEN        repo-level secret; unprefixed, so Vite never
