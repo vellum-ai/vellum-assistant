@@ -240,7 +240,10 @@ export const router = createBrowserRouter(
                 { path: "library", element: <LibraryPage /> },
                 { path: "library/:appId", element: <LibraryDetailPage /> },
                 { path: "connect", element: <ConnectPage /> },
-                { path: "inspect", element: <InspectPage /> },
+                {
+                  path: "conversations/:conversationId/inspect",
+                  element: <InspectPage />,
+                },
                 {
                   path: "memory-router-playground",
                   element: <MemoryRouterPlaygroundPage />,

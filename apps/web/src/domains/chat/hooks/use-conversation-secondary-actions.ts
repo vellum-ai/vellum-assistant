@@ -143,16 +143,16 @@ export function useConversationSecondaryActions({
   );
 
   // Navigate to the per-conversation LLM context inspector (web port of
-  // macOS's `MessageInspectorView`). The page reads `?conversationId=`
-  // and `?messageId=`. We default messageId to the most recent assistant
-  // message, but only when the target conversation is the currently active
-  // one — messagesRef always holds the active transcript, so using it for
-  // a different conversation would produce a mismatched (conversationId,
-  // messageId) pair and show the wrong LLM context in the inspector.
+  // macOS's `MessageInspectorView`). The conversation lives in the path;
+  // `?messageId=` scopes to one turn. We default messageId to the most
+  // recent assistant message, but only when the target conversation is
+  // the currently active one — messagesRef always holds the active
+  // transcript, so using it for a different conversation would produce a
+  // mismatched (conversationId, messageId) pair and show the wrong LLM
+  // context in the inspector.
   const handleInspectConversation = useCallback(
     (conversation: Conversation) => {
       const params = new URLSearchParams();
-      params.set("conversationId", conversation.conversationId);
       const isActiveConversation =
         conversation.conversationId === activeConversation?.conversationId;
       if (isActiveConversation) {
@@ -165,7 +165,9 @@ export function useConversationSecondaryActions({
           params.set("messageId", messageId);
         }
       }
-      void navigate(`${routes.inspect}?${params.toString()}`);
+      const qs = params.toString();
+      const base = routes.inspect(conversation.conversationId);
+      void navigate(qs ? `${base}?${qs}` : base);
     },
     [navigate, activeConversation?.conversationId],
   );
@@ -174,9 +176,10 @@ export function useConversationSecondaryActions({
     (messageId: string) => {
       if (!activeConversationId) return;
       const params = new URLSearchParams();
-      params.set("conversationId", activeConversationId);
       params.set("messageId", messageId);
-      void navigate(`${routes.inspect}?${params.toString()}`);
+      void navigate(
+        `${routes.inspect(activeConversationId)}?${params.toString()}`,
+      );
     },
     [activeConversationId, navigate],
   );

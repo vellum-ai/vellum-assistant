@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { AlertCircle, ArrowLeft, Download, MessageSquare } from "lucide-react";
-import { Link, useNavigate, useSearchParams } from "react-router";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { useMemo, useState, type ReactNode } from "react";
 
 import { Button } from "@vellum/design-library";
@@ -37,30 +37,32 @@ import { RawTab } from "./components/tabs/raw-tab.js";
 import { ResponseTab } from "./components/tabs/response-tab.js";
 
 /**
- * `/assistant/inspect` page. Two scopes, both encoded in the URL:
+ * `/assistant/conversations/:conversationId/inspect` page. The conversation
+ * lives in the URL path; the page supports two scopes layered on top:
  *
- * - **Conversation mode** — `?conversationId=...` only. Shows every
- *   LLM call recorded for the conversation. Header carries a "Filter
- *   to message" dropdown that switches into message mode for a
- *   specific message in the transcript.
+ * - **Conversation mode** — path only. Shows every LLM call recorded for
+ *   the conversation. Header carries a "Filter to message" dropdown that
+ *   switches into message mode for a specific message in the transcript.
  *
- * - **Message mode** — `?conversationId=...&messageId=...`. Shows
- *   only the calls produced by the turn containing that message.
- *   Header carries a "View all conversation calls" link that drops
- *   back into conversation mode.
+ * - **Message mode** — `?messageId=...`. Shows only the calls produced by
+ *   the turn containing that message. Header carries a "View all
+ *   conversation calls" link that drops back into conversation mode.
  *
  * Web counterpart of macOS's `MessageInspectorView`
  * (`clients/macos/vellum-assistant/Features/Chat/MessageInspectorView.swift`).
- * The selected call is encoded as `?callId=...` in the URL so each
- * row in the rail is a real hyperlink — sharable, right-click-openable,
- * and back/forward navigable. Falls back to the most recent call when
- * `callId` is absent or no longer points to a known log.
+ * The selected call is encoded as `?callId=...` in the URL so each row in
+ * the rail is a real hyperlink — sharable, right-click-openable, and
+ * back/forward navigable. Falls back to the most recent call when `callId`
+ * is absent or no longer points to a known log.
  */
 export function InspectPage(): ReactNode {
   const user = useAuthStore.use.user();
   const authLoading = useAuthStore.use.isLoading();
+  // React Router's :conversationId segment is the source of truth; the
+  // route definition guarantees it's present, but useParams still types
+  // it as optional so we narrow defensively.
+  const { conversationId } = useParams<{ conversationId: string }>();
   const [searchParams] = useSearchParams();
-  const conversationId = searchParams.get("conversationId");
   const messageId = searchParams.get("messageId");
 
   if (authLoading) {
@@ -76,7 +78,9 @@ export function InspectPage(): ReactNode {
   }
 
   if (!conversationId) {
-    return <MissingConversationIdState />;
+    // Defensive only — React Router would render NotFound before reaching
+    // this branch, but we keep a graceful fallback rather than crashing.
+    return <CenteredMessage tone="muted">Loading…</CenteredMessage>;
   }
 
   return (
@@ -123,10 +127,9 @@ function Inspector({ conversationId, messageId }: InspectorProps): ReactNode {
     () =>
       (logId: string): string => {
         const params = new URLSearchParams();
-        params.set("conversationId", conversationId);
         if (messageId) params.set("messageId", messageId);
         params.set("callId", logId);
-        return `${routes.inspect}?${params.toString()}`;
+        return `${routes.inspect(conversationId)}?${params.toString()}`;
       },
     [conversationId, messageId],
   );
@@ -347,9 +350,10 @@ function ScopeControls({
 
   const navigateToScope = (nextMessageId: string | null) => {
     const params = new URLSearchParams();
-    params.set("conversationId", conversationId);
     if (nextMessageId) params.set("messageId", nextMessageId);
-    navigate(`${routes.inspect}?${params.toString()}`);
+    const qs = params.toString();
+    const base = routes.inspect(conversationId);
+    navigate(qs ? `${base}?${qs}` : base);
   };
 
   if (isMessageScoped) {
@@ -554,26 +558,6 @@ function CenteredMessage({
       style={{ color }}
     >
       {children}
-    </div>
-  );
-}
-
-function MissingConversationIdState(): ReactNode {
-  return (
-    <div className="flex h-full w-full flex-col items-center justify-center gap-2 p-8 text-center">
-      <h2
-        className="text-body-medium-default"
-        style={{ color: "var(--content-default)" }}
-      >
-        Missing inspector parameters
-      </h2>
-      <p
-        className="max-w-md text-label-default"
-        style={{ color: "var(--content-secondary)" }}
-      >
-        Open the inspector from a conversation&rsquo;s overflow menu — direct
-        navigation requires a <code>conversationId</code>.
-      </p>
     </div>
   );
 }

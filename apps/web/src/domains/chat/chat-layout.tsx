@@ -495,15 +495,13 @@ export function ChatLayout() {
   // (in `chat-page.tsx`) uses `useConversationSecondaryActions` so it can
   // enrich the URL with the latest assistant `messageId` from the active
   // transcript. The sidebar doesn't hold transcript state, so we navigate
-  // with just `conversationId` and let `InspectPage` resolve the latest
-  // assistant message via `ResolveLatestMessage`.
+  // with just the conversation path and let `InspectPage` resolve the
+  // latest assistant message via `ResolveLatestMessage`.
   const authUser = useAuthStore.use.user();
   const showLlmInspector = canUseLlmInspector(authUser);
   const handleInspectConversation = useCallback(
     (conversation: Conversation) => {
-      const params = new URLSearchParams();
-      params.set("conversationId", conversation.conversationId);
-      void navigate(`${routes.inspect}?${params.toString()}`);
+      void navigate(routes.inspect(conversation.conversationId));
     },
     [navigate],
   );

@@ -19,6 +19,10 @@ import type { ReactNode } from "react";
 // Mutable per-test stubs
 // ---------------------------------------------------------------------------
 
+// `conversationId` now lives in the URL path, so it's surfaced via
+// `useParams()` rather than `useSearchParams()`. `messageId` and `callId`
+// stay in the query string.
+let paramsStub: { conversationId?: string } = {};
 let searchParamsMap = new Map<string, string>();
 
 interface ContextStub {
@@ -89,6 +93,7 @@ const navigateCalls: string[] = [];
 // ---------------------------------------------------------------------------
 
 mock.module("react-router", () => ({
+  useParams: () => paramsStub,
   useSearchParams: () => [
     {
       get: (key: string) => searchParamsMap.get(key) ?? null,
@@ -157,6 +162,10 @@ function renderInspector(): string {
 // ---------------------------------------------------------------------------
 
 beforeEach(() => {
+  // Default to a valid path param so each test renders the gated/loaded
+  // page without re-stating the obvious. Tests override when the id
+  // matters for an assertion.
+  paramsStub = { conversationId: "conv-default" };
   searchParamsMap = new Map();
   assistantStub = { assistantId: "asst-1" };
   authUserStub = { email: "dev@vellum.ai", isStaff: false };
@@ -194,7 +203,7 @@ function makeLog(id: string, createdAt: number) {
 describe("InspectPage — gating", () => {
   test("blocks non-internal users before resolving inspector params", () => {
     authUserStub = { email: "person@example.com", isStaff: false };
-    searchParamsMap.set("conversationId", "conv-abc");
+    paramsStub = { conversationId: "conv-abc" };
 
     const html = renderInspector();
 
@@ -205,7 +214,7 @@ describe("InspectPage — gating", () => {
 
   test("allows staff users even without a vellum.ai email", () => {
     authUserStub = { email: "person@example.com", isStaff: true };
-    searchParamsMap.set("conversationId", "conv-abc");
+    paramsStub = { conversationId: "conv-abc" };
     contextStub = {
       data: {
         conversationId: "conv-int-1",
@@ -233,16 +242,13 @@ describe("InspectPage — gating", () => {
     expect(html).toContain("1 LLM call");
   });
 
-  test("renders the missing-conversationId state when no params are present", () => {
-    const html = renderInspector();
-    expect(html).toContain("Missing inspector parameters");
-    expect(html).toContain("requires a <code>conversationId</code>");
-  });
+  // (No "missing conversationId" branch — the dynamic segment is required
+  // by the route, so the page is unreachable without one.)
 });
 
 describe("InspectPage — data-loading branches", () => {
   test("shows loading copy while the inspector context is fetching", () => {
-    searchParamsMap.set("conversationId", "conv-1");
+    paramsStub = { conversationId: "conv-1" };
     contextStub = {
       data: undefined,
       isLoading: true,
@@ -255,7 +261,7 @@ describe("InspectPage — data-loading branches", () => {
   });
 
   test("renders the empty state when the conversation has no LLM calls", () => {
-    searchParamsMap.set("conversationId", "conv-empty");
+    paramsStub = { conversationId: "conv-empty" };
     contextStub = {
       data: {
         conversationId: "conv-int-empty",
@@ -276,7 +282,7 @@ describe("InspectPage — data-loading branches", () => {
   });
 
   test("renders the call-count chrome when calls are present", () => {
-    searchParamsMap.set("conversationId", "conv-1");
+    paramsStub = { conversationId: "conv-1" };
     contextStub = {
       data: {
         conversationId: "conv-int-1",
@@ -302,7 +308,7 @@ describe("InspectPage — data-loading branches", () => {
   });
 
   test("renders the error state when the context query errors out", () => {
-    searchParamsMap.set("conversationId", "conv-err");
+    paramsStub = { conversationId: "conv-err" };
     contextStub = {
       data: undefined,
       isLoading: false,
@@ -319,7 +325,7 @@ describe("InspectPage — data-loading branches", () => {
 
 describe("InspectPage — dual-mode chrome", () => {
   test("conversation mode renders the conversation-wide subtitle and the filter dropdown", () => {
-    searchParamsMap.set("conversationId", "conv-1");
+    paramsStub = { conversationId: "conv-1" };
     contextStub = {
       data: {
         conversationId: "conv-int-1",
@@ -369,7 +375,7 @@ describe("InspectPage — dual-mode chrome", () => {
   });
 
   test("message mode renders the scoped subtitle, short id, and the back-to-conversation button", () => {
-    searchParamsMap.set("conversationId", "conv-1");
+    paramsStub = { conversationId: "conv-1" };
     searchParamsMap.set("messageId", "msg-abcdef-1234567890");
     contextStub = {
       data: {
@@ -397,7 +403,7 @@ describe("InspectPage — dual-mode chrome", () => {
   });
 
   test("message mode empty state copy is message-specific", () => {
-    searchParamsMap.set("conversationId", "conv-1");
+    paramsStub = { conversationId: "conv-1" };
     searchParamsMap.set("messageId", "msg-x");
     contextStub = {
       data: {

@@ -33,7 +33,8 @@ import { useAuthStore } from "@/stores/auth-store.js";
  *
  * Gated by:
  *   1. The `memoryRouterPlayground` client feature flag (default off).
- *   2. The same staff gate that protects /assistant/inspect.
+ *   2. The same staff gate that protects the LLM context inspector
+ *      (/assistant/conversations/:conversationId/inspect).
  */
 export function MemoryRouterPlaygroundPage(): ReactNode {
   const user = useAuthStore.use.user();

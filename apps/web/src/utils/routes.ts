@@ -18,7 +18,13 @@ const LOCAL_ADMIN_ORIGIN = "http://localhost:3000";
 export const routes = {
   assistant: r("/assistant"),
   conversation: (key: string) => dyn(r("/assistant/conversations"), key),
-  inspect: r("/assistant/inspect"),
+  /**
+   * LLM-context inspector for a single conversation. The conversation id
+   * lives in the URL path so the link is sharable and the page can route
+   * directly to its data without leaning on captured search params.
+   */
+  inspect: (conversationId: string) =>
+    `${dyn(r("/assistant/conversations"), conversationId)}/inspect`,
   logs: {
     root: r("/assistant/logs"),
     trace: r("/assistant/logs/trace"),
