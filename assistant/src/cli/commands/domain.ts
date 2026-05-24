@@ -40,7 +40,7 @@ Examples:
   $ assistant domain register velly
   $ assistant domain register velly --email-username hello
   $ assistant domain register --json
-  $ assistant domain status`,
+  $ assistant domain status velly`,
       );
 
       domain
@@ -139,25 +139,30 @@ Examples:
         );
 
       domain
-        .command("status")
-        .description("Show this assistant's domain registration and health")
+        .command("status <subdomain>")
+        .description(
+          "Show registration and DNS verification status for a subdomain",
+        )
         .addHelpText(
           "after",
           `
-Shows the domain currently registered for this assistant, including
-live DNS verification status from the email provider.
+Arguments:
+  subdomain   The subdomain to check (e.g. "velly").
+
+Shows the domain's registration details and live DNS verification
+status from the email provider.
 
 Examples:
-  $ assistant domain status
+  $ assistant domain status velly
   Domain:       velly.${baseDomain}
   Verification: verified
                 DNS records have been verified. Your domain is ready to send and receive email.
   Created:      2026-04-15
 
-  $ assistant domain status --json
+  $ assistant domain status velly --json
   {"domain":{"subdomain":"velly","id":"..."},"verification":{"status":"verified","message":"..."}}`,
         )
-        .action(async (_opts: unknown, cmd: Command) => {
+        .action(async (subdomain: string, _opts: unknown, cmd: Command) => {
           const r = await cliIpcCall<{
             results: {
               id: string;
@@ -176,19 +181,22 @@ Examples:
 
           const data = r.result!;
           const domains = data.results ?? [];
+          const d = domains.find(
+            (entry) => entry.subdomain === subdomain,
+          );
 
-          if (domains.length === 0) {
+          if (!d) {
             if (shouldOutputJson(cmd)) {
-              writeOutput(cmd, { domain: null, verification: null });
+              writeOutput(cmd, { error: `Domain "${subdomain}" not found` });
+              process.exitCode = 1;
             } else {
-              log.info(
-                "No domain registered for this assistant. Run: assistant domain register [subdomain]",
+              log.error(
+                `Domain "${subdomain}" is not registered for this assistant.`,
               );
+              process.exitCode = 1;
             }
             return;
           }
-
-          const d = domains[0]!;
 
           // Fetch live verification status
           const v = await cliIpcCall<{
