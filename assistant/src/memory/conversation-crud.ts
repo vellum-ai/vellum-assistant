@@ -53,6 +53,7 @@ import { forkGraphMemoryState } from "./graph/graph-memory-state-store.js";
 import { indexMessageNow } from "./indexer.js";
 import { MEMORY_RETROSPECTIVE_SOURCES } from "./memory-retrospective-constants.js";
 import { forkRetrospectiveState } from "./memory-retrospective-state.js";
+import { findDisplayTurnEndIndex } from "./message-consolidation.js";
 import { rawExec, rawGet, rawRun } from "./raw-query.js";
 import {
   channelInboundEvents,
@@ -593,25 +594,18 @@ export function forkConversation(params: {
     );
   }
 
-  // If the boundary lands on an assistant row, advance past consecutive
-  // subsequent assistant rows. This mirrors the read-path merge logic
-  // (`mergeConsecutiveAssistantMessages`) so that "fork through message X"
-  // semantically means "fork through the entire assistant turn containing
-  // X" — robust to whichever DB row in a merged display turn the client
-  // addresses. Lets callers reference the turn by its display anchor id
-  // without needing to know about the merge cluster.
-  let copyBoundaryIndex = initialBoundaryIndex;
-  if (
-    copyBoundaryIndex >= 0 &&
-    sourceMessages[copyBoundaryIndex]?.role === "assistant"
-  ) {
-    while (
-      copyBoundaryIndex + 1 < sourceMessages.length &&
-      sourceMessages[copyBoundaryIndex + 1]?.role === "assistant"
-    ) {
-      copyBoundaryIndex += 1;
-    }
-  }
+  // Extend the boundary to cover the full display turn the client
+  // addressed. The read-path collapses each assistant turn across
+  // multiple DB rows — consecutive assistant rows AND tool-result-only
+  // user rows between them — so "fork through message X" semantically
+  // means "fork through the entire display turn containing X" no matter
+  // which DB row in the cluster the client supplied. Single source of
+  // truth is `findDisplayTurnEndIndex`, shared with the read path so
+  // both stay in sync.
+  const copyBoundaryIndex = findDisplayTurnEndIndex(
+    sourceMessages,
+    initialBoundaryIndex,
+  );
 
   const visibleWindowStartIndex = Math.max(
     0,

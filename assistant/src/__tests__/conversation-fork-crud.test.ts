@@ -264,6 +264,65 @@ describe("forkConversation", () => {
     expect(toolRow.id).not.toBe(anchor.id);
   });
 
+  test("advances fork boundary across tool-result-only user rows between assistant rows", async () => {
+    // Read-path collapse folds tool-result-only user rows into the
+    // surrounding assistant turn (`mergeToolResultsIntoAssistantMessages`
+    // suppresses them). The client only sees a single display turn anchored
+    // at the first assistant row, so forking through the anchor must include
+    // both halves of the assistant turn plus the suppressed user row in
+    // between — otherwise the fork loses tool_use ↔ tool_result pairing
+    // and produces an invalid LLM history.
+    const source = createConversation("Tool-result gap thread");
+    await addMessage(source.id, "user", "Find the latest sales numbers", undefined, {
+      skipIndexing: true,
+    });
+    const anchor = await addMessage(
+      source.id,
+      "assistant",
+      JSON.stringify([
+        { type: "text", text: "Looking up the data." },
+        { type: "tool_use", id: "tool_1", name: "lookup", input: {} },
+      ]),
+      undefined,
+      { skipIndexing: true },
+    );
+    const toolResultUserRow = await addMessage(
+      source.id,
+      "user",
+      JSON.stringify([
+        { type: "tool_result", tool_use_id: "tool_1", content: "data" },
+      ]),
+      undefined,
+      { skipIndexing: true },
+    );
+    const tailAssistantRow = await addMessage(
+      source.id,
+      "assistant",
+      "Here are the numbers.",
+      undefined,
+      { skipIndexing: true },
+    );
+    await addMessage(source.id, "user", "Thanks", undefined, {
+      skipIndexing: true,
+    });
+
+    const fork = forkConversation({
+      conversationId: source.id,
+      throughMessageId: anchor.id,
+    });
+
+    // All three DB rows of the assistant display turn — including the
+    // suppressed tool-result user row in the middle — land in the fork.
+    const forkedContent = getMessages(fork.id).map((m) => m.content);
+    expect(forkedContent).toHaveLength(4);
+    expect(forkedContent[0]).toBe("Find the latest sales numbers");
+    expect(forkedContent[1]).toContain("tool_use");
+    expect(forkedContent[2]).toContain("tool_result");
+    expect(forkedContent[3]).toBe("Here are the numbers.");
+    expect(fork.forkParentMessageId).toBe(tailAssistantRow.id);
+    expect(toolResultUserRow.id).not.toBe(anchor.id);
+  });
+
   test("preserves compacted context when forking from the visible window", async () => {
     const source = createConversation("Compacted thread");
     await addMessage(source.id, "user", "Message 1", undefined, {
