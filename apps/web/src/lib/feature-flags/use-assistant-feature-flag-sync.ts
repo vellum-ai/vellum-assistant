@@ -23,7 +23,7 @@ interface AssistantFlagValuesResponse {
 
 const VALID_KEYS = new Set(Object.keys(ASSISTANT_FLAG_DEFAULTS));
 
-const ASSISTANT_FLAG_VALUES_QUERY_KEY = "assistant-feature-flag-values" as const;
+export const ASSISTANT_FLAG_VALUES_QUERY_KEY = "assistant-feature-flag-values" as const;
 
 /**
  * Shared so the Developer panel can layer a `refetchInterval` observer

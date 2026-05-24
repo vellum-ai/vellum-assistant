@@ -15,7 +15,7 @@ interface ClientFlagValuesResponse {
 
 const VALID_KEYS = new Set(Object.keys(CLIENT_FLAG_DEFAULTS));
 
-const CLIENT_FLAG_QUERY_KEY = ["client-feature-flag-values"] as const;
+export const CLIENT_FLAG_QUERY_KEY = ["client-feature-flag-values"] as const;
 
 async function fetchClientFlagValues(): Promise<ClientFlagValuesResponse> {
   const { data, error, response } = await client.get<

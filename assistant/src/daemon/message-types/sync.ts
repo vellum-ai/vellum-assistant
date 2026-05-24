@@ -7,6 +7,19 @@ export const SYNC_TAGS = {
   assistantSounds: "assistant:self:sounds",
   assistantSchedules: "assistant:self:schedules",
   conversationsList: "conversations:list",
+  /**
+   * Client-scoped feature flag values changed (any of the entries
+   * returned by `GET /v1/feature-flags/client-flag-values/`). Web
+   * subscribers invalidate the cached query so the next read picks
+   * up fresh values without polling.
+   */
+  featureFlagsClient: "feature-flags:client",
+  /**
+   * Assistant-scoped feature flag values changed (any of the entries
+   * returned by `GET /v1/assistants/:id/feature-flags`). Web
+   * subscribers invalidate every assistant id under that query key.
+   */
+  featureFlagsAssistant: "feature-flags:assistant",
 } as const;
 
 export type KnownSyncInvalidationTag =

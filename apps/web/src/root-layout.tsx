@@ -12,6 +12,7 @@ import { useAuthStore } from "@/stores/auth-store.js";
 import { useEnvironmentStore } from "@/lib/environment/environment-store.js";
 import { useClientFeatureFlagSync } from "@/lib/feature-flags/use-client-feature-flag-sync.js";
 import { useAssistantFeatureFlagSync } from "@/lib/feature-flags/use-assistant-feature-flag-sync.js";
+import { useFeatureFlagSyncBridge } from "@/lib/feature-flags/use-feature-flag-sync-bridge.js";
 
 /**
  * Threshold (in px) below which a `innerHeight − visualViewport.height` delta
@@ -78,6 +79,7 @@ export function RootLayout() {
   });
 
   useAssistantFeatureFlagSync(lifecycle.assistantId);
+  useFeatureFlagSyncBridge();
 
   useEventBusInit({
     assistantId: lifecycle.assistantId,

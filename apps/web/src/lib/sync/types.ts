@@ -5,6 +5,18 @@ export const SYNC_TAGS = {
   assistantSounds: "assistant:self:sounds",
   assistantSchedules: "assistant:self:schedules",
   conversationsList: "conversations:list",
+  /**
+   * Client-scoped feature flag values changed. Invalidates the
+   * `["client-feature-flag-values"]` query so the root sync hook
+   * refetches and writes the new values into the client flag store.
+   */
+  featureFlagsClient: "feature-flags:client",
+  /**
+   * Assistant-scoped feature flag values changed. Invalidates the
+   * `["assistant-feature-flag-values", assistantId]` query family —
+   * TanStack prefix-matches so every cached assistant id refetches.
+   */
+  featureFlagsAssistant: "feature-flags:assistant",
 } as const;
 
 export type KnownSyncInvalidationTag =

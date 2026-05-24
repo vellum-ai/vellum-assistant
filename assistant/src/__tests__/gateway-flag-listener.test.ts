@@ -37,6 +37,19 @@ mock.module("../config/assistant-feature-flags.js", () => ({
 }));
 
 // ---------------------------------------------------------------------------
+// Track calls to publishSyncInvalidation so we can assert the listener
+// fans flag changes out onto the SSE hub.
+// ---------------------------------------------------------------------------
+let publishedTagSets: string[][] = [];
+
+mock.module("../runtime/sync/sync-publisher.js", () => ({
+  publishSyncInvalidation: async (tags: string[]) => {
+    publishedTagSets.push([...tags]);
+    return { type: "sync_changed", tags };
+  },
+}));
+
+// ---------------------------------------------------------------------------
 // Dynamic imports (after mock.module)
 // ---------------------------------------------------------------------------
 const { startGatewayFlagListener, stopGatewayFlagListener } = await import(
@@ -92,6 +105,7 @@ describe("gateway-flag-listener", () => {
   beforeEach(() => {
     mkdirSync(testRoot, { recursive: true });
     refreshCallCount = 0;
+    publishedTagSets = [];
     testServer = createTestServer();
   });
 
@@ -125,6 +139,28 @@ describe("gateway-flag-listener", () => {
     await new Promise((r) => setTimeout(r, 100));
 
     expect(refreshCallCount).toBe(2);
+  });
+
+  test("broadcasts feature-flags sync_changed when flags change", async () => {
+    await new Promise<void>((resolve) => {
+      testServer.server.listen(socketPath, resolve);
+    });
+
+    startGatewayFlagListener();
+    await testServer.waitForClient();
+    await new Promise((r) => setTimeout(r, 100));
+
+    // Connect refresh should not broadcast — only an actual change does.
+    expect(publishedTagSets.length).toBe(0);
+
+    testServer.emit("feature_flags_changed");
+    await new Promise((r) => setTimeout(r, 100));
+
+    expect(publishedTagSets.length).toBe(1);
+    expect(publishedTagSets[0]).toEqual([
+      "feature-flags:client",
+      "feature-flags:assistant",
+    ]);
   });
 
   test("ignores non-flag events", async () => {
