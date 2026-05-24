@@ -7412,6 +7412,15 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/domain/verification-status:
+    post:
+      operationId: domain_verificationstatus_post
+      summary: Get live DNS verification status for a domain
+      tags:
+        - domain
+      responses:
+        "200":
+          description: Successful response
   /v1/email/attachment-get:
     get:
       operationId: email_attachmentget_get
