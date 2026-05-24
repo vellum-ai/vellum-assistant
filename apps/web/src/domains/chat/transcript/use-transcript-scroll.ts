@@ -62,7 +62,7 @@ export const LOAD_OLDER_THRESHOLD_PX = 200;
 export interface UseTranscriptScrollArgs {
   transcriptRef: RefObject<TranscriptHandle | null>;
   items: TranscriptItem[];
-  conversationKey: string | null;
+  conversationId: string | null;
   hasMore: boolean;
   isLoadingOlder: boolean;
   onLoadOlder: () => void;
@@ -163,7 +163,7 @@ export type ItemsChangeAction =
 export interface ItemsChangeContext {
   items: readonly TranscriptItem[];
   previousItems: readonly TranscriptItem[];
-  conversationKey: string | null;
+  conversationId: string | null;
   savedAnchor: AnchorSnapshot | null;
 }
 
@@ -182,7 +182,7 @@ export function decideItemsChangeAction(
   ctx: ItemsChangeContext,
 ): ItemsChangeAction {
   // When there's no active conversation we have nothing to coordinate.
-  if (ctx.conversationKey === null) return { kind: "none" };
+  if (ctx.conversationId === null) return { kind: "none" };
 
   // Anchor-preserving prepend correction — the reader is scrolled up,
   // a page of older messages just landed, and we need to keep their
@@ -214,7 +214,7 @@ export function useTranscriptScroll(
   const {
     transcriptRef,
     items,
-    conversationKey,
+    conversationId,
     hasMore,
     isLoadingOlder,
     onLoadOlder,
@@ -229,7 +229,7 @@ export function useTranscriptScroll(
     items,
     hasMore,
     isLoadingOlder,
-    conversationKey,
+    conversationId,
     onLoadOlder,
     isPinnedToLatest,
     showScrollToLatest,
@@ -239,7 +239,7 @@ export function useTranscriptScroll(
       items,
       hasMore,
       isLoadingOlder,
-      conversationKey,
+      conversationId,
       onLoadOlder,
       isPinnedToLatest,
       showScrollToLatest,
@@ -248,7 +248,7 @@ export function useTranscriptScroll(
     items,
     hasMore,
     isLoadingOlder,
-    conversationKey,
+    conversationId,
     onLoadOlder,
     isPinnedToLatest,
     showScrollToLatest,
@@ -320,7 +320,7 @@ export function useTranscriptScroll(
     savedAnchorRef.current = null;
     previousItemsRef.current = [];
     engageAutoPin();
-  }, [conversationKey, engageAutoPin]);
+  }, [conversationId, engageAutoPin]);
 
   // -----------------------------------------------------------------------
   // Items change handler — runs in useLayoutEffect so the anchor correction
@@ -333,7 +333,7 @@ export function useTranscriptScroll(
     const action = decideItemsChangeAction({
       items,
       previousItems: prev,
-      conversationKey,
+      conversationId,
       savedAnchor: savedAnchorRef.current,
     });
 
@@ -384,7 +384,7 @@ export function useTranscriptScroll(
         {
           hasMore,
           isLoadingOlder,
-          hasConversation: conversationKey !== null,
+          hasConversation: conversationId !== null,
         },
       );
       if (classification.isPinned !== isPinnedToLatest) {
@@ -412,7 +412,7 @@ export function useTranscriptScroll(
     }
   }, [
     items,
-    conversationKey,
+    conversationId,
     transcriptRef,
     hasMore,
     isLoadingOlder,
@@ -544,7 +544,7 @@ export function useTranscriptScroll(
     const classification = classifyScrollPosition(metrics, {
       hasMore: latest.hasMore,
       isLoadingOlder: latest.isLoadingOlder,
-      hasConversation: latest.conversationKey !== null,
+      hasConversation: latest.conversationId !== null,
     });
 
     if (classification.isPinned !== latest.isPinnedToLatest) {

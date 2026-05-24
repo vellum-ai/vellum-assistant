@@ -252,11 +252,11 @@ describe("findAnchorIndex", () => {
 // ---------------------------------------------------------------------------
 
 describe("decideItemsChangeAction — no-conversation returns none", () => {
-  test("does not act when conversationKey is null", () => {
+  test("does not act when conversationId is null", () => {
     const action = decideItemsChangeAction({
       items: items(["m1"]),
       previousItems: [],
-      conversationKey: null,
+      conversationId: null,
       savedAnchor: null,
     });
     expect(action.kind).toBe("none");
@@ -274,7 +274,7 @@ describe("decideItemsChangeAction — streaming growth", () => {
     const action = decideItemsChangeAction({
       items: next,
       previousItems: prev,
-      conversationKey: "conv-1",
+      conversationId: "conv-1",
       savedAnchor: null,
     });
     expect(action.kind).toBe("none");
@@ -286,7 +286,7 @@ describe("decideItemsChangeAction — streaming growth", () => {
     const action = decideItemsChangeAction({
       items: next,
       previousItems: prev,
-      conversationKey: "conv-1",
+      conversationId: "conv-1",
       savedAnchor: null,
     });
     expect(action.kind).toBe("none");
@@ -297,7 +297,7 @@ describe("decideItemsChangeAction — streaming growth", () => {
     const action = decideItemsChangeAction({
       items: list,
       previousItems: list,
-      conversationKey: "conv-1",
+      conversationId: "conv-1",
       savedAnchor: null,
     });
     expect(action.kind).toBe("none");
@@ -311,7 +311,7 @@ describe("decideItemsChangeAction — anchor-preserving prepend", () => {
     const action = decideItemsChangeAction({
       items: afterPrepend,
       previousItems: before,
-      conversationKey: "conv-1",
+      conversationId: "conv-1",
       savedAnchor: { key: "m1", scrollTop: 42, scrollHeight: 1800 },
     });
     expect(action).toEqual({
@@ -328,7 +328,7 @@ describe("decideItemsChangeAction — anchor-preserving prepend", () => {
     const action = decideItemsChangeAction({
       items: afterPrepend,
       previousItems: before,
-      conversationKey: "conv-1",
+      conversationId: "conv-1",
       savedAnchor: { key: "m1", scrollTop: 123, scrollHeight: 1800 },
     });
     expect(action.kind).toBe("anchor-correct");
@@ -338,7 +338,7 @@ describe("decideItemsChangeAction — anchor-preserving prepend", () => {
     const action = decideItemsChangeAction({
       items: items(["n1", "n2"]),
       previousItems: items(["m1"]),
-      conversationKey: "conv-1",
+      conversationId: "conv-1",
       savedAnchor: {
         key: "m1-no-longer-present",
         scrollTop: 10,
@@ -427,7 +427,7 @@ describe("integration — handleScroll-style dispatch via pure helpers", () => {
     const action = decideItemsChangeAction({
       items: after,
       previousItems: before,
-      conversationKey: "conv-1",
+      conversationId: "conv-1",
       savedAnchor: saved,
     });
     expect(action).toEqual({
@@ -445,7 +445,7 @@ describe("integration — handleScroll-style dispatch via pure helpers", () => {
     const action = decideItemsChangeAction({
       items: grown,
       previousItems: prev,
-      conversationKey: "conv-1",
+      conversationId: "conv-1",
       savedAnchor: null,
     });
     // Decision helper no longer emits stick-to-latest under any pinned

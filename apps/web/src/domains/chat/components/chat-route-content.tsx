@@ -798,7 +798,7 @@ export function ChatRouteContent({
   const scrollCoordinator = useTranscriptScroll({
     transcriptRef: refs.transcriptRef,
     items: transcriptItems,
-    conversationKey: activeConversationId,
+    conversationId: activeConversationId,
     hasMore: transcriptPagination.hasMore,
     isLoadingOlder: transcriptPagination.isLoadingOlder,
     onLoadOlder: loadOlder,

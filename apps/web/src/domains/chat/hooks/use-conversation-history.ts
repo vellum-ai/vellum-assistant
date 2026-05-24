@@ -140,7 +140,7 @@ export function useConversationHistory({
   // -------------------------------------------------------------------------
   const pagination = useHistoryPagination({
     assistantId,
-    conversationKey: activeConversationId,
+    conversationId: activeConversationId,
     enabled: assistantStateKind === "active" && !!assistantId && !!activeConversationId,
   });
 
