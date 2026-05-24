@@ -116,9 +116,10 @@ function minTierPriceCents(tiers: (MachineTier | StorageTier)[]): number {
 export interface AdjustPlanModalProps {
   open: boolean;
   onClose: () => void;
+  onTierUpgraded?: () => void;
 }
 
-export function AdjustPlanModal({ open, onClose }: AdjustPlanModalProps) {
+export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanModalProps) {
   const queryClient = useQueryClient();
   const plansQuery = useQuery(organizationsBillingPlansRetrieveOptions());
   const subscriptionQuery = useQuery(
@@ -374,7 +375,12 @@ export function AdjustPlanModal({ open, onClose }: AdjustPlanModalProps) {
       {
         onSuccess: () => {
           invalidateBillingQueries();
-          toast.success("Machine tier updated.", { id: "pro-tier-change" });
+          if (!isMachineDowngrade && onTierUpgraded) {
+            onClose();
+            onTierUpgraded();
+          } else {
+            toast.success("Machine tier updated.", { id: "pro-tier-change" });
+          }
         },
         onError: (error) => {
           toast.error(
@@ -396,7 +402,12 @@ export function AdjustPlanModal({ open, onClose }: AdjustPlanModalProps) {
       {
         onSuccess: () => {
           invalidateBillingQueries();
-          toast.success("Storage tier updated.", { id: "pro-tier-change" });
+          if (onTierUpgraded) {
+            onClose();
+            onTierUpgraded();
+          } else {
+            toast.success("Storage tier updated.", { id: "pro-tier-change" });
+          }
         },
         onError: (error) => {
           toast.error(

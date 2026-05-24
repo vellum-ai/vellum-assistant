@@ -13,6 +13,7 @@ import { BillingUsagePanel } from "@/domains/settings/components/billing-usage/b
 import { GracePeriodBanner } from "@/domains/settings/components/grace-period-banner.js";
 import { PaymentMethodsCard } from "@/domains/settings/components/payment-methods-card.js";
 import { PlanCard } from "@/domains/settings/components/plan-card.js";
+import { PortalReturnResizeModal } from "@/domains/settings/components/portal-return-resize-modal.js";
 import { ReferralPanel } from "@/domains/settings/components/referral-panel.js";
 import { organizationsBillingSummaryRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen.js";
 import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
@@ -57,6 +58,8 @@ export function BillingPage() {
   const [planModalOpen, setPlanModalOpen] = useState(false);
   const openPlanModal = useCallback(() => setPlanModalOpen(true), []);
   const closePlanModal = useCallback(() => setPlanModalOpen(false), []);
+  const [resizeModalOpen, setResizeModalOpen] = useState(false);
+  const onTierUpgraded = useCallback(() => setResizeModalOpen(true), []);
 
   useEffect(() => {
     if (searchParams.has("adjust_plan")) {
@@ -88,7 +91,7 @@ export function BillingPage() {
       {proPlanAdjust && (
         <>
           <PlanCard onManage={openPlanModal} />
-          <AdjustPlanModal open={planModalOpen} onClose={closePlanModal} />
+          <AdjustPlanModal open={planModalOpen} onClose={closePlanModal} onTierUpgraded={onTierUpgraded} />
         </>
       )}
       <PaymentMethodsCard />
@@ -98,6 +101,10 @@ export function BillingPage() {
       <ReferralPanel />
       <BillingUsagePanel />
       <BillingOnboardingModal open={hasSessionId} onClose={closeOnboarding} />
+      <PortalReturnResizeModal
+        open={resizeModalOpen}
+        onClose={() => setResizeModalOpen(false)}
+      />
     </div>
   );
 }
