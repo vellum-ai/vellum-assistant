@@ -1,8 +1,10 @@
 /**
  * Bus-consumer that routes assistant-global SSE events into the React
  * Query caches that back avatar, identity, config, sounds, schedules,
- * and the conversation list. The underlying SSE connection is owned
- * by `useEventBusInit` at chat-layout scope.
+ * conversation list, and feature flag values. The underlying SSE
+ * connection is owned by `useEventBusInit` at root-layout scope; this
+ * hook is mounted on `RootLayout` so flag invalidations propagate on
+ * every authenticated route (settings, billing, plugins, etc.).
  *
  * Per-conversation events (text deltas, tool calls, interactions,
  * per-conversation message tags) are ignored here — those remain
@@ -16,6 +18,8 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import type { AssistantEvent } from "@/domains/chat/api/event-types.js";
 import { assistantIdentityQueryKey } from "@/hooks/use-assistant-identity-init.js";
+import { ASSISTANT_FLAG_VALUES_QUERY_KEY } from "@/lib/feature-flags/use-assistant-feature-flag-sync.js";
+import { CLIENT_FLAG_QUERY_KEY } from "@/lib/feature-flags/use-client-feature-flag-sync.js";
 import {
   assistantDaemonConfigQueryKey,
   assistantScheduleRunsQueryKey,
@@ -100,6 +104,19 @@ export function useAssistantSyncStream(
             break;
           case SYNC_TAGS.conversationsList:
             scheduleConversationListRefetch();
+            break;
+          case SYNC_TAGS.featureFlagsClient:
+            void queryClient.invalidateQueries({
+              queryKey: CLIENT_FLAG_QUERY_KEY,
+            });
+            break;
+          case SYNC_TAGS.featureFlagsAssistant:
+            // Prefix invalidation: TanStack matches every cached
+            // `[ASSISTANT_FLAG_VALUES_QUERY_KEY, <assistantId>]`. The
+            // daemon emits a single global event for any flag change.
+            void queryClient.invalidateQueries({
+              queryKey: [ASSISTANT_FLAG_VALUES_QUERY_KEY],
+            });
             break;
           default:
             // Per-conversation metadata tags still bump the sidebar

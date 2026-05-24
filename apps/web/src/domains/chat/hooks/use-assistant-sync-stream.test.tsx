@@ -5,6 +5,8 @@ import { cleanup, renderHook, waitFor } from "@testing-library/react";
 
 import type { AssistantEvent } from "@/domains/chat/api/event-types.js";
 import { assistantIdentityQueryKey } from "@/hooks/use-assistant-identity-init.js";
+import { ASSISTANT_FLAG_VALUES_QUERY_KEY } from "@/lib/feature-flags/use-assistant-feature-flag-sync.js";
+import { CLIENT_FLAG_QUERY_KEY } from "@/lib/feature-flags/use-client-feature-flag-sync.js";
 import {
   assistantDaemonConfigQueryKey,
   assistantSchedulesQueryKey,
@@ -240,6 +242,36 @@ describe("useAssistantSyncStream", () => {
         },
       );
       expect(homeCalls.length).toBe(2);
+    });
+  });
+
+  test("invalidates client feature flag query on feature-flags:client sync tag", async () => {
+    const queryClient = freshQueryClient();
+    const spy = mock(() => Promise.resolve());
+    queryClient.invalidateQueries = spy as never;
+    renderHook(() => useAssistantSyncStream("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    emit(syncEvent([SYNC_TAGS.featureFlagsClient]));
+    await waitFor(() => {
+      expect(spy).toHaveBeenCalledWith({
+        queryKey: CLIENT_FLAG_QUERY_KEY,
+      });
+    });
+  });
+
+  test("invalidates assistant feature flag query prefix on feature-flags:assistant sync tag", async () => {
+    const queryClient = freshQueryClient();
+    const spy = mock(() => Promise.resolve());
+    queryClient.invalidateQueries = spy as never;
+    renderHook(() => useAssistantSyncStream("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    emit(syncEvent([SYNC_TAGS.featureFlagsAssistant]));
+    await waitFor(() => {
+      expect(spy).toHaveBeenCalledWith({
+        queryKey: [ASSISTANT_FLAG_VALUES_QUERY_KEY],
+      });
     });
   });
 

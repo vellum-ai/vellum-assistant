@@ -13,7 +13,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { haptic } from "@/utils/haptics.js";
 import { routes } from "@/utils/routes.js";
 import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile.js";
-import { useAssistantSyncStream } from "@/domains/chat/hooks/use-assistant-sync-stream.js";
 import { useRootOutletContext } from "@/root-layout.js";
 import { useAssistantIdentityInit } from "@/hooks/use-assistant-identity-init.js";
 import { useAssistantAvatar } from "@/domains/avatar/use-assistant-avatar.js";
@@ -189,7 +188,6 @@ export function ChatLayout() {
   // avatar / identity / config / sounds / schedules / conversation
   // list query caches so the sidebar stays live on every chat-layout
   // child route.
-  useAssistantSyncStream(lifecycle.assistantId, isAssistantActive);
 
   // Home page unread indicator — drives the red dot on the Home button in
   // the layout header. Gated on the homePage feature flag so the hook
