@@ -113,9 +113,11 @@ export function registerRunCommand(program: Command): void {
         // `evals run` against the same .runs/ directory).
         await scavengeAbandonedRuns();
 
-        // Then sweep docker for orphaned eval containers — the ones that
-        // a crashed `vellum hatch` left in `Created` state still holding
-        // their port reservation. Without this the next run hits
+        // Then sweep docker for orphaned eval resources — the ones a
+        // crashed `vellum hatch` left in `Created` state still holding
+        // their port reservation, plus the network + volumes whose
+        // names `docker network create` / `docker volume create` would
+        // collide with on the next run. Without this the next run hits
         // `bind for 0.0.0.0:20100 failed: port is already allocated`
         // (the exact failure that motivated this cleanup pass).
         const containerCleanup = await cleanupOrphanedEvalContainers();
@@ -125,11 +127,14 @@ export function registerRunCommand(program: Command): void {
           process.stderr.write(
             `Skipped orphan container cleanup: ${containerCleanup.skipReason}\n`,
           );
-        } else if (containerCleanup.removed > 0) {
+        } else if (containerCleanup.removedRuns > 0) {
           process.stderr.write(
-            `Cleaned up ${containerCleanup.removed} orphaned eval container(s) ` +
-              `(kept ${containerCleanup.kept}): ` +
-              `${containerCleanup.removedNames.join(", ")}\n`,
+            `Cleaned up ${containerCleanup.removedRuns} orphaned eval run(s) ` +
+              `(kept ${containerCleanup.keptRuns}): ` +
+              `${containerCleanup.removedRunIds.join(", ")} ` +
+              `[containers=${containerCleanup.removedContainers}, ` +
+              `networks=${containerCleanup.removedNetworks}, ` +
+              `volumes=${containerCleanup.removedVolumes}]\n`,
           );
         }
 

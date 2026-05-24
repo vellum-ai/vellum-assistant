@@ -145,3 +145,24 @@ export async function applyDockerEgressJail(
 export function vellumDockerAssistantContainer(instanceName: string): string {
   return `${instanceName}-assistant`;
 }
+
+/**
+ * Sibling container names the Vellum StatefulSet provisions alongside
+ * the main assistant container. Kept in sync with
+ * `cli/src/lib/docker.ts:dockerResourceNames`.
+ *
+ * Exposed for the vellum adapter's hatch-failure forensics so we can
+ * snapshot every container the hatch could have left behind, not just
+ * the assistant. The gateway container is the one that fails to bind
+ * host port 20100 in the canonical "address already in use" failure
+ * mode — its docker inspect is the most actionable artifact.
+ */
+export function vellumDockerSiblingContainers(
+  instanceName: string,
+): readonly string[] {
+  return [
+    `${instanceName}-assistant`,
+    `${instanceName}-gateway`,
+    `${instanceName}-credential-executor`,
+  ];
+}
