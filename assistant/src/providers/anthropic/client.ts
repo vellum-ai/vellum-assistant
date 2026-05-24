@@ -1084,6 +1084,13 @@ export class AnthropicProvider implements Provider {
         ];
       }
 
+      // Tools come first in Anthropic's cache prefix (tools → system →
+      // messages), so when a system prompt is present its breakpoint already
+      // caches the whole [tools + system] prefix and a separate tool
+      // breakpoint is redundant. Only anchor the tools directly when there is
+      // no system prompt to cover them — dropping the redundant breakpoint
+      // frees a slot for the per-turn memory anchor below.
+      const includeToolBreakpoint = !systemPrompt;
       if (tools && tools.length > 0) {
         if (
           this.useNativeWebSearch &&
@@ -1094,7 +1101,7 @@ export class AnthropicProvider implements Provider {
             name: t.name,
             description: t.description,
             input_schema: t.input_schema as Anthropic.Tool["input_schema"],
-            ...(i === otherTools.length - 1
+            ...(includeToolBreakpoint && i === otherTools.length - 1
               ? { cache_control: cacheControl }
               : {}),
           }));
@@ -1109,7 +1116,9 @@ export class AnthropicProvider implements Provider {
             name: t.name,
             description: t.description,
             input_schema: t.input_schema as Anthropic.Tool["input_schema"],
-            ...(i === tools.length - 1 ? { cache_control: cacheControl } : {}),
+            ...(includeToolBreakpoint && i === tools.length - 1
+              ? { cache_control: cacheControl }
+              : {}),
           }));
         }
       }
@@ -1118,10 +1127,11 @@ export class AnthropicProvider implements Provider {
       // message carries a dynamic memory injection that is stripped from
       // history on subsequent turns (see stripAllMemoryInjections in
       // conversation-graph-memory.ts), so its content is NOT byte-stable
-      // across turns and we cannot anchor a cache there. Anchor instead on
-      // the 2nd-most-recent user message — historical user messages have
-      // memory stripped, so their content is stable and the cached prefix
-      // through that point survives across turns.
+      // across turns. The 1h cross-turn anchors below therefore avoid it and
+      // sit on the 2nd-/3rd-most-recent (already-stripped, stable) user
+      // messages. A separate 5m memory anchor caches the current message
+      // within the turn so the memory block is written once and read by every
+      // subsequent tool-loop call instead of re-created each iteration.
       const msgs = sentMessages;
       const findUserTextMsgIdx = (startIdx: number): number => {
         for (let i = startIdx; i >= 0; i--) {
@@ -1137,13 +1147,15 @@ export class AnthropicProvider implements Provider {
         }
         return -1;
       };
-      const applyCacheControlToLastBlock = (msgIdx: number): void => {
+      const applyCacheControlToLastBlock = (
+        msgIdx: number,
+        cc: typeof cacheControl | typeof tailCacheControl = cacheControl,
+      ): void => {
         const content = msgs[msgIdx].content;
         if (!Array.isArray(content) || content.length === 0) return;
         const lastBlock = content[content.length - 1];
         if (typeof lastBlock !== "string") {
-          (lastBlock as unknown as Record<string, unknown>).cache_control =
-            cacheControl;
+          (lastBlock as unknown as Record<string, unknown>).cache_control = cc;
         }
       };
 
@@ -1182,6 +1194,19 @@ export class AnthropicProvider implements Provider {
           applyCacheControlToLastBlock(prevTurnAnchorIdx);
       }
 
+      // Per-turn memory anchor: a short-lived 5m breakpoint on the current
+      // turn's memory-bearing user message, applied on EVERY call of the turn.
+      // The memory block is byte-stable within a turn, so this writes it once
+      // (first call) and lets every later tool-loop call READ it — Anthropic
+      // only reads cache at breakpoints present in the current request, so a
+      // stable anchor here (rather than the advancing tail, which moves to the
+      // newest message) is what keeps the memory cached across the loop.
+      // Skipped when `disableTurnStartCache` is set (e.g. the memory router,
+      // whose trailing block changes every call and must not be cached).
+      if (mostRecentUserMsgIdx >= 0 && !disableTurnStartCache) {
+        applyCacheControlToLastBlock(mostRecentUserMsgIdx, tailCacheControl);
+      }
+
       // Advancing tail: place a short-lived 5m cache breakpoint on the last
       // block of the last message during tool-use loops (when the
       // memory-bearing user message is NOT the very last message — meaning
@@ -1217,11 +1242,14 @@ export class AnthropicProvider implements Provider {
         }
       }
 
-      // Cache-breakpoint accounting: system(1) + tools(1) + turn-anchor(1) +
-      // (tail OR backstop)(1) = 4 — exactly Anthropic's per-request cap.
-      // Tail and backstop are mutually exclusive (backstop only fires when
-      // the memory-bearing user msg is the very last message, which
-      // suppresses the tail), so the total can't drift past 4.
+      // Cache-breakpoint accounting (max 4). With a system prompt present the
+      // tool breakpoint is dropped (the system breakpoint already caches the
+      // [tools + system] prefix), leaving system(1) + turn-anchor(1) +
+      // memory-anchor(1) + (backstop OR advancing-tail)(1). Backstop and tail
+      // stay mutually exclusive (backstop only on the turn's first request,
+      // which is exactly when the tail is suppressed because the memory-bearing
+      // msg is last), so the total never exceeds 4. Without a system prompt the
+      // tool breakpoint takes the system slot and the same count holds.
 
       // Strip orphaned UTF-16 surrogates so the Anthropic JSON parser never
       // sees invalid strings produced by upstream surrogate-splitting `.slice()` calls.
