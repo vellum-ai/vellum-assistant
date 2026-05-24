@@ -321,6 +321,9 @@ describe("image-studio skill script wrapper", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("Mock Gemini error: API failure");
+    expect(result.content).toContain(
+      "Do not change service configuration (mode, provider, or model) to try to fix it",
+    );
   });
 
   test("openai generation error uses OpenAI-specific mapping", async () => {
@@ -331,6 +334,34 @@ describe("image-studio skill script wrapper", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("Mock OpenAI error: openai failure");
+    expect(result.content).toContain(
+      "Do not change service configuration (mode, provider, or model) to try to fix it",
+    );
+  });
+
+  test("missing credentials error includes guidance not to change service config", async () => {
+    mockGeminiKey = undefined;
+
+    const result = await run({ prompt: "a cat" }, fakeContext);
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("No Gemini API key");
+    expect(result.content).toContain(
+      "Do not change service configuration (mode, provider, or model) to try to fix it",
+    );
+  });
+
+  test("managed mode credential error includes guidance not to change service config", async () => {
+    mockImageGenMode = "managed";
+    mockManagedBaseUrl = undefined;
+
+    const result = await run({ prompt: "a cat" }, fakeContext);
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Managed proxy is not available");
+    expect(result.content).toContain(
+      "Do not change service configuration (mode, provider, or model) to try to fix it",
+    );
   });
 
   test("reads source images from file paths on disk", async () => {
