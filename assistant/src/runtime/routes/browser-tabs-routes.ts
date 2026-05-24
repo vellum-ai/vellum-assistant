@@ -141,9 +141,22 @@ async function handleBrowserTabs({ body = {} }: RouteHandlerArgs) {
       // subsequent browser tool calls don't route to a dead cdpSessionId
       // and fail with session-not-found. Tabs that never debugger-attached
       // (e.g. `tabs new` without `--url`) won't emit a detach invalidation
-      // event, so the pin would otherwise leak. Scope by targetClientId
-      // when provided to avoid wiping pins for unrelated clients.
-      clearPinnedTabByTabId(String(tabId), targetClientId);
+      // event, so the pin would otherwise leak.
+      //
+      // Scope the clear to the actual responding client. Prefer the
+      // clientId from the closeTab response (resolved by the extension
+      // dispatcher), fall back to the caller-supplied targetClientId.
+      // Without a resolved clientId we skip the clear entirely — calling
+      // clearPinnedTabByTabId without a clientId would wipe matching pins
+      // across every client (Chrome tab IDs are per-instance, not
+      // globally unique), breaking the per-(conversationId, clientId)
+      // pin isolation added in #31361. The stale pin in the unscoped
+      // case will self-heal via the session-not-found cleanup on the
+      // next browser op against that pin.
+      const resolvedClientId = result.clientId ?? targetClientId;
+      if (resolvedClientId) {
+        clearPinnedTabByTabId(String(tabId), resolvedClientId);
+      }
       return { ok: true, ...result };
     } finally {
       cdp.dispose();

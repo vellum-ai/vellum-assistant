@@ -215,7 +215,11 @@ export class ExtensionCdpClient implements ScopedCdpClient {
   }
 
   /** Close a browser tab via `Vellum.closeTab`. */
-  async closeTab(tabId: number): Promise<{ closed: boolean; tabId: number }> {
+  async closeTab(tabId: number): Promise<{
+    closed: boolean;
+    tabId: number;
+    clientId?: string;
+  }> {
     return this.send("Vellum.closeTab", { tabId });
   }
 }

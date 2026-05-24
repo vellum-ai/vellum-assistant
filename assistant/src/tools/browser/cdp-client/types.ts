@@ -85,7 +85,11 @@ export interface CdpClient {
   /**
    * Close a browser tab by ID. Extension backend only. Optional.
    */
-  closeTab?(tabId: number): Promise<{ closed: boolean; tabId: number }>;
+  closeTab?(tabId: number): Promise<{
+    closed: boolean;
+    tabId: number;
+    clientId?: string;
+  }>;
 }
 
 /**

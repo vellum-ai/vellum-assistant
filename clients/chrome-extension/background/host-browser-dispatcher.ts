@@ -534,9 +534,18 @@ export function createHostBrowserDispatcher(
         try {
           await chrome.tabs.remove(tabId);
           if (abort.signal.aborted || cancelledRequestIds.has(requestId)) return;
+          const clientId = deps.getClientId ? await deps.getClientId() : undefined;
+          // Re-check after getClientId() — a cancel that arrived while it was
+          // in flight must not produce a ghost success envelope. Mirrors the
+          // selectTab/createTab cancel-guard pattern (Codex slice-1 P1).
+          if (abort.signal.aborted || cancelledRequestIds.has(requestId)) return;
           await deps.postResult({
             requestId,
-            content: JSON.stringify({ closed: true, tabId }),
+            content: JSON.stringify({
+              closed: true,
+              tabId,
+              ...(clientId ? { clientId } : {}),
+            }),
             isError: false,
           });
         } catch (err) {

@@ -688,7 +688,11 @@ export function buildChainedClient(
       return result;
     },
 
-    async closeTab(tabId: number): Promise<{ closed: boolean; tabId: number }> {
+    async closeTab(tabId: number): Promise<{
+      closed: boolean;
+      tabId: number;
+      clientId?: string;
+    }> {
       if (sticky && active?.client.closeTab) {
         return active.client.closeTab(tabId);
       }
@@ -698,9 +702,11 @@ export function buildChainedClient(
           "closeTab is not supported by the current backend (extension backend required)",
         );
       }
-      const result = await scopedClient.send<{ closed: boolean; tabId: number }>(
-        "Vellum.closeTab", { tabId }
-      );
+      const result = await scopedClient.send<{
+        closed: boolean;
+        tabId: number;
+        clientId?: string;
+      }>("Vellum.closeTab", { tabId });
       if (!active?.client.closeTab) {
         throw new CdpError(
           "transport_error",

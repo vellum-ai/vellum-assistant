@@ -2322,5 +2322,68 @@ describe('createHostBrowserDispatcher', () => {
       expect(payload.tabId).toBe(42);
       expect(payload.clientId).toBe('clientB');
     });
+
+    // Vellum.closeTab gained a getClientId() await on R4 (PR #31897) so the
+    // close response can carry the responding clientId — needed so the
+    // route can scope clearPinnedTabByTabId to the actual client and not
+    // wipe pins across every client sharing the same numeric tab id.
+    // Cover both the throw path (cancel mid-await must not emit a ghost
+    // success envelope) and the success path (clientId surfaces).
+    test('Vellum.closeTab — cancel during getClientId() does not post success envelope', async () => {
+      let getClientIdCalls = 0;
+      let releaseGetClientId: () => void = () => {};
+      const gate = new Promise<void>((r) => {
+        releaseGetClientId = r;
+      });
+
+      const { dispatcher, results } = makeDispatcherWithGetClientId(async () => {
+        getClientIdCalls++;
+        await gate;
+        return 'clientA';
+      });
+
+      const request: HostBrowserRequestEnvelope = {
+        type: 'host_browser_request',
+        requestId: 'closeTab-getid-cancel',
+        conversationId: 'conv-1',
+        cdpMethod: 'Vellum.closeTab',
+        cdpParams: { tabId: 42 },
+      };
+
+      const handlePromise = dispatcher.handle(request);
+      await waitFor(() => getClientIdCalls === 1);
+
+      dispatcher.cancel({
+        type: 'host_browser_cancel',
+        requestId: 'closeTab-getid-cancel',
+      });
+      releaseGetClientId();
+      await handlePromise;
+
+      expect(results.length).toBe(0);
+    });
+
+    test('Vellum.closeTab — no cancel: clientId surfaces in success envelope', async () => {
+      const { dispatcher, results } = makeDispatcherWithGetClientId(
+        async () => 'clientC',
+      );
+
+      const request: HostBrowserRequestEnvelope = {
+        type: 'host_browser_request',
+        requestId: 'closeTab-getid-success',
+        conversationId: 'conv-1',
+        cdpMethod: 'Vellum.closeTab',
+        cdpParams: { tabId: 77 },
+      };
+
+      await dispatcher.handle(request);
+
+      expect(results.length).toBe(1);
+      expect(results[0].isError).toBe(false);
+      const payload = JSON.parse(results[0].content);
+      expect(payload.closed).toBe(true);
+      expect(payload.tabId).toBe(77);
+      expect(payload.clientId).toBe('clientC');
+    });
   });
 });
