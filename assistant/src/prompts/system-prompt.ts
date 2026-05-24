@@ -24,7 +24,6 @@ import {
 import { stripCommentLines } from "../util/strip-comment-lines.js";
 import { cleanupBootstrapFiles } from "./bootstrap-cleanup.js";
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "./cache-boundary.js";
-import { normalizeOnboardingContext } from "./normalize-onboarding.js";
 import {
   resolveGuardianPersona,
   resolveUserSlug,
@@ -35,16 +34,6 @@ import { isTemplateContent } from "./template-detection.js";
 export { isTemplateContent };
 
 export { SYSTEM_PROMPT_CACHE_BOUNDARY };
-
-const BOOTSTRAP_VOICE_BLOCKS: Record<string, string> = {
-  grounded:
-    "## Voice\nCalm, direct, precise. No filler. Lead with the thing, explain if needed. Opinions stated plainly.",
-  warm: "## Voice\nFriendly and easy. Match their energy quickly. Warmth comes through in word choice, not in announcements. Warmth comes through in how you engage, not in hedging about yourself. Never say you're new, running on instinct, or still figuring yourself out.",
-  energetic:
-    "## Voice\nFast and generative. Lean into momentum. Enthusiasm is in the pace, not the exclamations.",
-  poetic:
-    "## Voice\nThoughtful and unhurried. Notice things. Word choice matters. Don't rush to close — sometimes the observation is the value.",
-};
 
 /**
  * Maps onboarding cohort identifiers to their cohort-specific bootstrap
@@ -287,9 +276,12 @@ export function maybeReseedBootstrapForCohort(cohort: string): void {
  *      order.  Includes `08-identity` (IDENTITY.md), `09-soul`
  *      (SOUL.md), `10-user-persona` (`users/{{userSlug}}.md` →
  *      `users/default.md`), `11-channel-persona`
- *      (`channels/{{channelSlug}}.md`), and `12-voice` (VOICE.md),
- *      all backed by workspace files.
- *   2. If BOOTSTRAP.md exists, the first-run ritual block.
+ *      (`channels/{{channelSlug}}.md`), `12-voice` (VOICE.md), and
+ *      `13-bootstrap` (BOOTSTRAP.md + first-run ritual wrapper +
+ *      optional onboarding-context block).  All backed by workspace
+ *      files.
+ *   2. Dynamic suffix — currently just the `# Connected Services`
+ *      block built from the live OAuth + managed-credential caches.
  */
 export interface BuildSystemPromptOptions {
   hasNoClient?: boolean;
@@ -316,11 +308,17 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
     maybeReseedBootstrapForCohort(options.onboardingContext.cohort);
   }
 
-  // Read BOOTSTRAP.md up front so `includeBootstrap` is on `ctx` for the
-  // `08-identity` section transform, which gates the unmodified IDENTITY.md
-  // template behind bootstrap presence.
-  const bootstrap = readPromptFile(getWorkspacePromptPath("BOOTSTRAP.md"));
-  const includeBootstrap = !!bootstrap && !options?.excludeBootstrap;
+  // Pre-compute `includeBootstrap` so it's on `ctx` for the
+  // `08-identity` and `13-bootstrap` section transforms (the former
+  // gates the unmodified IDENTITY.md template behind bootstrap
+  // presence; the latter uses it as its `enabled:` predicate).  Both
+  // sections re-read BOOTSTRAP.md from disk via their own
+  // `workspacePath` resolution — this read exists only to derive the
+  // boolean, which depends on the post-`stripCommentLines` content
+  // length (matches the section renderer's empty-body gate).
+  const includeBootstrap =
+    !!readPromptFile(getWorkspacePromptPath("BOOTSTRAP.md")) &&
+    !options?.excludeBootstrap;
 
   // Slugs used by the persona sections (`10-user-persona`,
   // `11-channel-persona`) and the BOOTSTRAP block.  `userSlug` is the
@@ -348,6 +346,11 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
     includeBootstrap,
     userSlug,
     channelSlug,
+    // BOOTSTRAP.md references `{{USER_PERSONA_FILE}}`; the renderer's
+    // variable pass resolves it from ctx at render time.  Stored as
+    // `<slug>.md` (not `users/<slug>.md`) because the file references
+    // it as `users/{{USER_PERSONA_FILE}}`.
+    USER_PERSONA_FILE: `${userSlug}.md`,
   };
 
   // Single array.  Everything pushed before `dynamicStart` lands in the
@@ -355,69 +358,15 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // The two halves are joined around `SYSTEM_PROMPT_CACHE_BOUNDARY` so the
   // Anthropic provider can key its prompt cache on the prefix.
   //
-  // IDENTITY.md / SOUL.md / user persona / channel persona / VOICE.md
-  // all render via workspace-backed bundled sections (`08-identity` /
-  // `09-soul` / `10-user-persona` / `11-channel-persona` / `12-voice`)
-  // inside `renderWorkspaceSections`, so they sit in the static prefix
-  // in that order.
+  // IDENTITY.md / SOUL.md / user persona / channel persona / VOICE.md /
+  // BOOTSTRAP.md all render via workspace-backed bundled sections
+  // (`08-identity` / `09-soul` / `10-user-persona` /
+  // `11-channel-persona` / `12-voice` / `13-bootstrap`) inside
+  // `renderWorkspaceSections`, so they sit in the static prefix in
+  // that order.
   const systemParts: string[] = [...renderWorkspaceSections(ctx)];
   const dynamicStart = systemParts.length;
 
-  if (includeBootstrap) {
-    const bootstrapWithSlug = bootstrap.replaceAll(
-      "{{USER_PERSONA_FILE}}",
-      `${userSlug}.md`,
-    );
-    let bootstrapContent = bootstrapWithSlug;
-    const voiceBlock = options?.onboardingContext?.tone
-      ? BOOTSTRAP_VOICE_BLOCKS[options.onboardingContext.tone]
-      : undefined;
-    if (voiceBlock) {
-      bootstrapContent = voiceBlock + "\n\n" + bootstrapContent;
-    }
-    systemParts.push(
-      "# First-Run Ritual\n\n" +
-        "BOOTSTRAP.md is present — this is your first conversation. Follow its instructions.\n\n" +
-        bootstrapContent,
-    );
-
-    if (options?.onboardingContext) {
-      const n = normalizeOnboardingContext(options.onboardingContext);
-      const lines: string[] = [
-        "## First-Run User Context",
-        "",
-        "The user completed setup before this conversation.",
-        "",
-        "Known context:",
-      ];
-      if (n.preferredName) lines.push(`- Name: ${n.preferredName}`);
-      if (n.commonWork.length)
-        lines.push(`- Common work: ${n.commonWork.join("; ")}`);
-      if (n.dailyTools.length)
-        lines.push(`- Daily tools: ${n.dailyTools.join(", ")}`);
-      if (n.assistantName)
-        lines.push(`- Chosen assistant name: ${n.assistantName}`);
-      if (n.tone) lines.push(`- Preferred initial voice: ${n.tone}`);
-      if (n.cohort) lines.push(`- Cohort: ${n.cohort}`);
-      if (n.websiteUrl) lines.push(`- Website URL: ${n.websiteUrl}`);
-      if (n.contentSourceUrl)
-        lines.push(`- Content source URL: ${n.contentSourceUrl}`);
-      if (n.googleConnected && n.googleServices?.length) {
-        lines.push(
-          `- Google connected: yes (${n.googleServices.join(", ")} access granted)`,
-        );
-      }
-      if (n.priorAssistants?.length)
-        lines.push(
-          `- Prior AI assistants used: ${n.priorAssistants.join(", ")}`,
-        );
-      lines.push(
-        "",
-        "Apply this context quietly. Do not recap it as a list unless the user asks.",
-      );
-      systemParts.push(lines.join("\n"));
-    }
-  }
   // Configuration section removed — workspace files are self-describing,
   // tool routing lives in tool descriptions.
   // External Communications Identity removed — guidance lives in messaging
