@@ -196,7 +196,7 @@ function Footer({
   return (
     <div
       data-slot="modal-footer"
-      className={cn("flex justify-end gap-2 px-4 pb-4", className)}
+      className={cn("flex justify-end gap-2 px-4 py-4", className)}
       {...props}
     >
       {children}
