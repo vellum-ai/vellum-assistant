@@ -23,6 +23,7 @@ import {
   classifyScrollPosition,
   decideItemsChangeAction,
   findAnchorIndex,
+  findLatestUserAnchorKey,
   PINNED_THRESHOLD_PX,
   SHOW_SCROLL_BUTTON_THRESHOLD_PX,
   type TranscriptHandle,
@@ -41,6 +42,20 @@ function makeMessage(stableId: string): TranscriptItem {
     message: {
       stableId,
       role: "assistant",
+      content: "",
+    },
+  };
+}
+
+/** Like `makeMessage` but with `role: "user"`, used by tests that exercise
+ *  the latest-user-anchor lookup. */
+function makeUserMessage(stableId: string): TranscriptItem {
+  return {
+    kind: "message",
+    key: stableId,
+    message: {
+      stableId,
+      role: "user",
       content: "",
     },
   };
@@ -244,6 +259,100 @@ describe("findAnchorIndex", () => {
     // Saved anchor was "m1" at index 0 before the prepend.
     expect(findAnchorIndex(before, "m1")).toBe(0);
     expect(findAnchorIndex(after, "m1")).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// findLatestUserAnchorKey
+//
+// Backs the items-effect's submit-detection branch. The hook compares
+// the latest call's key to the previous render's key — when they differ
+// (typically because the user just sent a new message), the hook
+// re-engages the auto-pin window so the new anchor lands at the top of
+// the viewport even if the upstream `scrollToLatest()` call fired
+// before the optimistic add landed.
+// ---------------------------------------------------------------------------
+
+describe("findLatestUserAnchorKey", () => {
+  test("returns null on an empty list", () => {
+    expect(findLatestUserAnchorKey([])).toBeNull();
+  });
+
+  test("returns null when no user-role messages are present", () => {
+    // assistant-only transcript (pre-first-user state)
+    const list = items(["a1", "a2", "a3"]);
+    expect(findLatestUserAnchorKey(list)).toBeNull();
+  });
+
+  test("returns the key of the only user message", () => {
+    const list: TranscriptItem[] = [
+      makeUserMessage("u1"),
+      makeMessage("a1"),
+      makeMessage("a2"),
+    ];
+    expect(findLatestUserAnchorKey(list)).toBe("u1");
+  });
+
+  test("returns the LATEST user message when multiple exist", () => {
+    // Walks backward, so the trailing user message wins.
+    const list: TranscriptItem[] = [
+      makeUserMessage("u1"),
+      makeMessage("a1"),
+      makeUserMessage("u2"),
+      makeMessage("a2"),
+      makeUserMessage("u3"),
+      makeMessage("a3"),
+    ];
+    expect(findLatestUserAnchorKey(list)).toBe("u3");
+  });
+
+  test("ignores trailing assistant items when finding the anchor", () => {
+    // Streaming response items extend past the anchor user message.
+    const list: TranscriptItem[] = [
+      makeMessage("a1"),
+      makeUserMessage("u1"),
+      makeMessage("a2"),
+      makeMessage("a3"),
+      makeMessage("a4"),
+    ];
+    expect(findLatestUserAnchorKey(list)).toBe("u1");
+  });
+
+  test("detects a new submit: key changes when a new user message lands", () => {
+    // Models the items-effect's diff: previous render's anchor vs.
+    // current render's anchor. A different return value means a new
+    // user message just joined the list — submit detected.
+    const before: TranscriptItem[] = [
+      makeUserMessage("u1"),
+      makeMessage("a1"),
+      makeMessage("a2"),
+    ];
+    const afterSubmit: TranscriptItem[] = [
+      ...before,
+      makeUserMessage("u2"),
+    ];
+
+    const prevAnchor = findLatestUserAnchorKey(before);
+    const newAnchor = findLatestUserAnchorKey(afterSubmit);
+    expect(prevAnchor).toBe("u1");
+    expect(newAnchor).toBe("u2");
+    expect(newAnchor !== prevAnchor).toBe(true);
+  });
+
+  test("does NOT detect a new submit during streaming growth", () => {
+    // Assistant items append while the user anchor is unchanged.
+    const before: TranscriptItem[] = [
+      makeUserMessage("u1"),
+      makeMessage("a1"),
+    ];
+    const midStream: TranscriptItem[] = [...before, makeMessage("a2")];
+
+    const prevAnchor = findLatestUserAnchorKey(before);
+    const newAnchor = findLatestUserAnchorKey(midStream);
+    expect(prevAnchor).toBe("u1");
+    expect(newAnchor).toBe("u1");
+    // The hook's "is new anchor" predicate requires a string change.
+    expect(newAnchor !== prevAnchor).toBe(false);
   });
 });
 

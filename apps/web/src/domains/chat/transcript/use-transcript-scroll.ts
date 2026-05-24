@@ -136,6 +136,24 @@ export function findAnchorIndex(
   return -1;
 }
 
+/** Walk the items list backward and return the key of the most recent
+ *  user-role message item — the `LatestTurnRow` "anchor". Returns `null`
+ *  when the transcript has no user message (e.g. assistant-only history,
+ *  pure trailers, or an empty list). Mirrors `partitionLatestTurn`'s
+ *  anchor lookup so the items-effect can detect a new submit without
+ *  doing the full partition itself. */
+export function findLatestUserAnchorKey(
+  items: readonly TranscriptItem[],
+): string | null {
+  for (let i = items.length - 1; i >= 0; i -= 1) {
+    const item = items[i];
+    if (item && item.kind === "message" && item.message.role === "user") {
+      return item.key;
+    }
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Items-change decision helper (pure, exported for unit tests).
 // ---------------------------------------------------------------------------
@@ -260,6 +278,13 @@ export function useTranscriptScroll(
   // ---------- Previous items ref (for change detection) -----------------
   const previousItemsRef = useRef<TranscriptItem[]>(items);
 
+  // ---------- Previous latest-user-anchor key (submit detection) --------
+  // Seeded from the initial items so the items-effect's first run on
+  // mount does not register a spurious "new anchor" event.
+  const previousAnchorKeyRef = useRef<string | null>(
+    findLatestUserAnchorKey(items),
+  );
+
   // ---------- Auto-pin window --------------------------------------------
   // While `shouldAutoPinRef` is true, every layout change of the scroll
   // content re-pins the viewport to the bottom. This is what makes the
@@ -319,6 +344,11 @@ export function useTranscriptScroll(
     });
     savedAnchorRef.current = null;
     previousItemsRef.current = [];
+    // Force the items-effect's submit-detection block to treat the next
+    // run as a "new anchor" event so a fresh conversation lands at the
+    // latest message even if it happens to share an anchor key with the
+    // outgoing one (e.g. seeded fixtures, restored drafts).
+    previousAnchorKeyRef.current = null;
     engageAutoPin();
   }, [conversationKey, engageAutoPin]);
 
@@ -353,15 +383,42 @@ export function useTranscriptScroll(
         break;
     }
 
-    // First-pass pin during the auto-pin window. The content
-    // ResizeObserver will catch any subsequent height changes (async
-    // min-height settle, late image loads) and re-pin until the
-    // window expires.
-    if (
+    // New-submit detection. When the latest user-message anchor changes
+    // (typically because the user just submitted a new message and the
+    // optimistic add landed in `messages`), the new `LatestTurnRow`
+    // expands to viewport min-height. We need to re-pin to the bottom so
+    // the new anchor sits at the top of the viewport.
+    //
+    // Why this is a separate code path from the existing `shouldAutoPinRef`
+    // block below: the upstream `scrollToLatest()` call in
+    // `handleSubmit` engages the auto-pin window BEFORE the optimistic
+    // user message is added. By the time the items-effect runs, layout
+    // can still be in flux (composer textarea resetting to one-line
+    // height changes scroll-container clientHeight; new LatestTurnRow's
+    // `viewportMinHeight` state may lag behind the underlying
+    // ResizeObserver tick). Re-engaging the auto-pin window from
+    // here — gated specifically on "anchor changed" — extends the
+    // content-ResizeObserver re-pin window so it covers the post-submit
+    // layout-settling phase, and the unconditional `scrollToLatest`
+    // below guarantees we hit the latest bottom even if the upstream
+    // window already lapsed.
+    const newAnchorKey = findLatestUserAnchorKey(items);
+    const prevAnchorKey = previousAnchorKeyRef.current;
+    previousAnchorKeyRef.current = newAnchorKey;
+    const isNewAnchor =
+      newAnchorKey !== null && newAnchorKey !== prevAnchorKey;
+    if (isNewAnchor) {
+      engageAutoPin();
+      transcriptRef.current?.scrollToLatest({ behavior: "auto" });
+    } else if (
       shouldAutoPinRef.current &&
       items.length > 0 &&
       transcriptRef.current
     ) {
+      // First-pass pin during the auto-pin window. The content
+      // ResizeObserver will catch any subsequent height changes (async
+      // min-height settle, late image loads) and re-pin until the
+      // window expires.
       transcriptRef.current.scrollToLatest({ behavior: "auto" });
     }
 
@@ -419,6 +476,7 @@ export function useTranscriptScroll(
     onLoadOlder,
     isPinnedToLatest,
     showScrollToLatest,
+    engageAutoPin,
   ]);
 
   // -----------------------------------------------------------------------
