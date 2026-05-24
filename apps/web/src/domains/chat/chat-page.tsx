@@ -186,10 +186,11 @@ export function ChatPage() {
   const shouldRenderChat =
     isAssistantActive ||
     (assistantState.kind === "self_hosted" && selfHostedChatEnabled);
-  const { conversations } = useConversationListQuery(
-    assistantId,
-    shouldRenderChat,
-  );
+  const {
+    conversations,
+    isError: conversationListIsError,
+    refetch: refetchConversationList,
+  } = useConversationListQuery(assistantId, shouldRenderChat);
   const { conversationGroups } = useConversationGroupsQuery(
     assistantId,
     shouldRenderChat && conversationGroupsUI,
@@ -1331,6 +1332,29 @@ export function ChatPage() {
 
   if (assistantState.kind === "self_hosted" && !selfHostedChatEnabled) {
     return <SelfHostedScreen />;
+  }
+
+  // Self-hosted runtime call failed — most commonly because we don't yet
+  // have an actor-token JWT for the user's gateway (the web pair flow is
+  // still being built; see `lib/self-hosted/actor-token.ts`). Land on a
+  // terminal error state with a retry button instead of leaving the
+  // sidebar + transcript stuck in the seeded `isLoadingHistory` skeleton.
+  if (
+    assistantState.kind === "self_hosted" &&
+    selfHostedChatEnabled &&
+    conversationListIsError
+  ) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
+        <p className="text-[var(--text-secondary)]">
+          Couldn&apos;t reach your self-hosted assistant. Make sure your
+          assistant is running, then try again.
+        </p>
+        <Button variant="primary" onClick={refetchConversationList}>
+          Try again
+        </Button>
+      </div>
+    );
   }
 
   if (assistantState.kind === "awaiting_version_selection") {

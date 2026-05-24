@@ -17,6 +17,10 @@ import {
   shouldRecoverFromHatchFailure,
 } from "@/assistant/lifecycle.js";
 import { resolveOnboardingRedirect } from "@/domains/onboarding/gate.js";
+import {
+  registerSelfHostedAssistant,
+  unregisterSelfHostedAssistant,
+} from "@/lib/self-hosted/registry.js";
 import { routes } from "@/utils/routes.js";
 
 const POLL_INTERVAL_MS = 3000;
@@ -225,6 +229,10 @@ export function useAssistantLifecycle({
         const mm = result.data.maintenance_mode;
         initializingRecoveryCountRef.current = 0;
         hatchingVersionRef.current = undefined;
+        // Defensively drop any stale self-hosted routing for this id:
+        // the server says the assistant is now managed-active, so
+        // runtime calls belong on the platform.
+        unregisterSelfHostedAssistant(result.data.id);
         // Set the assistant id here, before any pod-facing fetch runs.
         // The `init` effect below only fetches conversations once
         // `assistantState.kind === "active"`, and that fetch is what
@@ -241,6 +249,31 @@ export function useAssistantLifecycle({
             enabled: mm?.enabled,
           },
         });
+        return;
+      }
+
+      if (nextState.kind === "self_hosted" && result.ok) {
+        initializingRecoveryCountRef.current = 0;
+        hatchingVersionRef.current = undefined;
+        // Register the user's gateway so the request interceptor can
+        // rewrite runtime-proxied calls to it. Same ordering rationale
+        // as the active branch above — the registry has to be primed
+        // before `assistantId` flips, otherwise the first conversation
+        // list fetch races us and hits the platform.
+        //
+        // `ingress_url` is nullable in the serializer: an assistant can
+        // be flagged `is_local=true` before its gateway public hostname
+        // is known. In that brief window we still flip into self_hosted
+        // state but skip registry registration — runtime calls then go
+        // through the platform's proxy view and 404 cleanly, which the
+        // chat surface renders as an error rather than a hang.
+        if (result.data.ingress_url) {
+          registerSelfHostedAssistant(result.data.id, result.data.ingress_url);
+        } else {
+          unregisterSelfHostedAssistant(result.data.id);
+        }
+        setAssistantId(result.data.id);
+        setAssistantState({ kind: "self_hosted" });
         return;
       }
 
@@ -286,6 +319,7 @@ export function useAssistantLifecycle({
           } else if (nextState.kind === "active" && result.ok) {
             const mm = result.data.maintenance_mode;
             initializingRecoveryCountRef.current = 0;
+            unregisterSelfHostedAssistant(result.data.id);
             setAssistantId(result.data.id);
             setAssistantState({
               kind: "active",
@@ -294,6 +328,25 @@ export function useAssistantLifecycle({
                 enabled: mm?.enabled,
               },
             });
+          } else if (nextState.kind === "self_hosted" && result.ok) {
+            // Mirror the `self_hosted` branch in `checkAssistant`: an
+            // assistant can graduate from `initializing` straight into
+            // `is_local: true` once the daemon registers its gateway.
+            // Without this branch the recovery path leaves
+            // `assistantId` null and the chat surface keeps showing
+            // the initializing-timeout error after the assistant has
+            // actually come up.
+            initializingRecoveryCountRef.current = 0;
+            if (result.data.ingress_url) {
+              registerSelfHostedAssistant(
+                result.data.id,
+                result.data.ingress_url,
+              );
+            } else {
+              unregisterSelfHostedAssistant(result.data.id);
+            }
+            setAssistantId(result.data.id);
+            setAssistantState({ kind: "self_hosted" });
           } else {
             if (nextState.kind !== "active") {
               setAssistantState(nextState);

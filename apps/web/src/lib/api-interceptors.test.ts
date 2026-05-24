@@ -14,9 +14,13 @@
  * @jest-environment happy-dom
  */
 
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 
 import { requestInterceptor } from "@/lib/api-interceptors.js";
+import {
+  __resetSelfHostedRegistryForTests,
+  registerSelfHostedAssistant,
+} from "@/lib/self-hosted/registry.js";
 import { getClientId } from "@/lib/telemetry/client-identity.js";
 import { useOrganizationStore } from "@/stores/organization-store.js";
 
@@ -89,5 +93,132 @@ describe("api-interceptors / requestInterceptor", () => {
     expect(output).not.toBe(input);
     expect(input.headers.get("X-Vellum-Client-Id")).toBeNull();
     expect(output.headers.get("X-Vellum-Client-Id")).toBe(getClientId());
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Self-hosted rewriting
+// ---------------------------------------------------------------------------
+//
+// When the assistant resolves to `{ kind: "self_hosted" }`, the lifecycle
+// hook registers its `ingress_url` in `self-hosted/registry.ts`. From that
+// point on, runtime-proxied `/v1/assistants/{id}/...` calls have to leave
+// the platform's base URL behind and go directly to the user's gateway.
+//
+// These tests pin the four invariants that make that handoff safe:
+//   - URL origin gets swapped to the registered ingress.
+//   - Platform-only headers (Vellum-Organization-Id, X-CSRFToken) are
+//     stripped so the user's gateway never sees our session/CSRF state.
+//   - `Authorization` header is omitted while the actor-token stub
+//     returns `null` (the chat surface relies on the resulting 401 to
+//     land on its error UI).
+//   - Client/interface identity headers ride along so the gateway can
+//     still echo them back for self-echo suppression once SSE lands.
+//
+// Negative tests confirm we don't route to the gateway when (a) the
+// assistant id isn't registered, (b) the path is a platform-only
+// management action like `/activate/`, or (c) the path is the bare
+// retrieve route `/v1/assistants/{id}/`.
+
+const SELF_HOSTED_ID = "01h1234567890abcdefg";
+const INGRESS = "https://my-gateway.example";
+const RUNTIME_PROXIED_PATH = `/v1/assistants/${SELF_HOSTED_ID}/conversations/`;
+
+describe("api-interceptors / self-hosted rewriting", () => {
+  beforeAll(() => {
+    useOrganizationStore.setState({ currentOrganizationId: TEST_ORG_ID });
+    setCsrfCookie("test-csrf-token");
+  });
+
+  afterAll(() => {
+    clearCsrfCookie();
+  });
+
+  afterEach(() => {
+    __resetSelfHostedRegistryForTests();
+  });
+
+  test("rewrites the URL origin to the registered ingress", async () => {
+    registerSelfHostedAssistant(SELF_HOSTED_ID, INGRESS);
+    const input = new Request(`https://platform.test${RUNTIME_PROXIED_PATH}?limit=50`);
+    const output = await requestInterceptor(input);
+    const outUrl = new URL(output.url);
+    expect(outUrl.origin).toBe(INGRESS);
+    expect(outUrl.pathname).toBe(RUNTIME_PROXIED_PATH);
+    expect(outUrl.search).toBe("?limit=50");
+  });
+
+  test("strips platform-only headers from the rewritten request", async () => {
+    registerSelfHostedAssistant(SELF_HOSTED_ID, INGRESS);
+    const input = new Request(`https://platform.test${RUNTIME_PROXIED_PATH}`, {
+      method: "POST",
+    });
+    const output = await requestInterceptor(input);
+    expect(output.headers.get("Vellum-Organization-Id")).toBeNull();
+    expect(output.headers.get("X-CSRFToken")).toBeNull();
+  });
+
+  test("omits the Authorization header while the actor-token stub returns null", async () => {
+    registerSelfHostedAssistant(SELF_HOSTED_ID, INGRESS);
+    const input = new Request(`https://platform.test${RUNTIME_PROXIED_PATH}`);
+    const output = await requestInterceptor(input);
+    expect(output.headers.get("Authorization")).toBeNull();
+  });
+
+  test("preserves client + interface identity headers across the rewrite", async () => {
+    registerSelfHostedAssistant(SELF_HOSTED_ID, INGRESS);
+    const input = new Request(`https://platform.test${RUNTIME_PROXIED_PATH}`);
+    const output = await requestInterceptor(input);
+    expect(output.headers.get("X-Vellum-Client-Id")).toBe(getClientId());
+    expect(output.headers.get("X-Vellum-Interface-Id")).toBe("vellum");
+  });
+
+  test("omits cookie credentials on the rewritten request", async () => {
+    registerSelfHostedAssistant(SELF_HOSTED_ID, INGRESS);
+    const input = new Request(`https://platform.test${RUNTIME_PROXIED_PATH}`);
+    const output = await requestInterceptor(input);
+    expect(output.credentials).toBe("omit");
+  });
+
+  test("does NOT rewrite when the assistant id isn't registered", async () => {
+    const input = new Request(
+      `https://platform.test/v1/assistants/unregistered/conversations/`,
+    );
+    const output = await requestInterceptor(input);
+    expect(new URL(output.url).origin).toBe("https://platform.test");
+    expect(output.headers.get("Vellum-Organization-Id")).toBe(TEST_ORG_ID);
+  });
+
+  test("does NOT rewrite platform-only management routes for a registered assistant", async () => {
+    registerSelfHostedAssistant(SELF_HOSTED_ID, INGRESS);
+    for (const segment of [
+      "activate",
+      "resize",
+      "restart",
+      "retire",
+      "backups",
+    ]) {
+      const input = new Request(
+        `https://platform.test/v1/assistants/${SELF_HOSTED_ID}/${segment}/`,
+        { method: "POST" },
+      );
+      const output = await requestInterceptor(input);
+      expect(new URL(output.url).origin).toBe("https://platform.test");
+      // Platform path keeps stamping org + CSRF as before.
+      expect(output.headers.get("Vellum-Organization-Id")).toBe(TEST_ORG_ID);
+      expect(output.headers.get("X-CSRFToken")).toBe("test-csrf-token");
+    }
+  });
+
+  test("does NOT rewrite the bare retrieve route for a registered assistant", async () => {
+    // `/v1/assistants/{id}/` is the canonical retrieve — the assistant
+    // record lives on the platform regardless of where the runtime
+    // runs. Routing it to ingress would 404.
+    registerSelfHostedAssistant(SELF_HOSTED_ID, INGRESS);
+    const input = new Request(
+      `https://platform.test/v1/assistants/${SELF_HOSTED_ID}/`,
+    );
+    const output = await requestInterceptor(input);
+    expect(new URL(output.url).origin).toBe("https://platform.test");
   });
 });
