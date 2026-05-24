@@ -71,8 +71,6 @@ Index format. Each line of the index has the shape:
 
 \`id\` is a small integer used to refer to this page. \`edges\` are numeric IDs into the same list, pointing at related pages; you may follow them when one page strongly implies another.
 
-Re-picking. Pick every page that bears on this turn, including ones you picked on previous turns — each turn's selection is rendered fresh, so a page you leave out is no longer available to ${ASSISTANT_NAME_PLACEHOLDER}. Sustained-relevance pages must be re-picked every turn they stay relevant, not just when they first come up.
-
 Time. Bias toward pages that match the current state implied by \`<now>\` and the active conversational threads (what is happening today, what was just decided, who is being discussed). Stale pages with no bearing on the live conversation should be skipped even if their summaries look superficially relevant.
 
 Emit your selection by calling \`select_pages_to_inject\` with the chosen \`page_ids\`. Return an empty array to abstain.

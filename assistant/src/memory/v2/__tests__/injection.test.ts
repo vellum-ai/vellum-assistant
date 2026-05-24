@@ -1946,10 +1946,10 @@ describe("injectMemoryV2Block", () => {
       });
       expect(turn1.toInject).toEqual(["alice-vscode"]);
 
-      // Turn 2: router re-picks alice (the "re-anchor" prompt branch) AND
-      // adds bob. Both are rendered into the block — history is stripped every
-      // turn, so there is no prior attachment to collide with — and both are
-      // reported in `toInject`.
+      // Turn 2: router re-picks alice (still relevant) AND adds bob. Both are
+      // rendered into the block — history is stripped every turn, so there is
+      // no prior attachment to collide with — and both are reported in
+      // `toInject`.
       telemetryState.recordCalls.length = 0;
       routerState.nextResult = {
         selectedSlugs: ["alice-vscode", "bob-coffee"],
