@@ -13,6 +13,7 @@ import type { AcpSessionState } from "../../acp/types.js";
 import { getDb } from "../../memory/db-connection.js";
 import { rawChanges } from "../../memory/raw-query.js";
 import { acpSessionHistory } from "../../memory/schema.js";
+import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import { getLogger } from "../../util/logger.js";
 import {
@@ -81,6 +82,24 @@ async function spawnSession({ body }: RouteHandlerArgs) {
     }
   }
 
+  // Inject required env vars for ACP agents that need them.
+  // claude-agent-acp requires CLAUDE_CODE_OAUTH_TOKEN to authenticate.
+  const agentConfig = { ...resolved.agent };
+  if (agent === "claude") {
+    const claudeToken = await getSecureKeyAsync("acp/claude/oauth_token");
+    if (claudeToken) {
+      agentConfig.env = {
+        ...agentConfig.env,
+        CLAUDE_CODE_OAUTH_TOKEN: claudeToken,
+      };
+    } else {
+      log.warn(
+        { agent },
+        "CLAUDE_CODE_OAUTH_TOKEN not found in secure storage; claude-agent-acp may fail to authenticate",
+      );
+    }
+  }
+
   log.info(
     { agent, task: task.slice(0, 100), conversationId },
     "ACP spawn request received",
@@ -89,7 +108,7 @@ async function spawnSession({ body }: RouteHandlerArgs) {
   const manager = getAcpSessionManager();
   const { acpSessionId, protocolSessionId } = await manager.spawn(
     agent,
-    resolved.agent,
+    agentConfig,
     task,
     cwd,
     conversationId,
