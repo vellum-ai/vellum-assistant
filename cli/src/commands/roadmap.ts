@@ -104,7 +104,8 @@ async function roadmapCreate(args: string[]): Promise<void> {
   console.log(`Created roadmap item: ${item.title}`);
   console.log(`  slug:   ${item.slug}`);
   console.log(`  status: ${item.status}`);
-  console.log(`  url:    ${webUrl}/roadmap/${item.slug}`);
+  const url = `${webUrl}/roadmap/${item.slug}`;
+  console.log(`  url:    \x1b]8;;${url}\x1b\\${url}\x1b]8;;\x1b\\`);
 }
 
 export async function roadmap(): Promise<void> {
