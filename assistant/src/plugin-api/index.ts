@@ -25,6 +25,8 @@
  * - {@link UserPromptSubmitContext} — passed to `user-prompt-submit` hook,
  *   fired immediately before the agent loop receives a user's prompt
  * - {@link PluginLogger} — pino-compatible logger shape on the contexts
+ * - {@link ToolDefinition} — author-facing tool spec (default-export shape
+ *   for both plugin tool files and workspace tool files)
  * - {@link ToolContext} — passed to a plugin tool's `execute` method
  * - {@link ToolExecutionResult} — return shape of a plugin tool's `execute`
  *
@@ -41,6 +43,7 @@ export type {
   PluginLogger,
   PluginShutdownContext,
   ToolContext,
+  ToolDefinition,
   ToolExecutionResult,
   UserPromptSubmitContext,
 } from "./types.js";
