@@ -2,10 +2,7 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
 
-import {
-  supportsFlagPush,
-  useFlagQueryFreshness,
-} from "@/lib/backwards-compat/flag-query-freshness.js";
+import { useFlagQueryFreshness } from "@/lib/backwards-compat/flag-query-freshness.js";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store.js";
 
 function wrapper({ children }: { children: ReactNode }) {
@@ -25,20 +22,10 @@ afterEach(() => {
   useAssistantIdentityStore.getState().clearIdentity();
 });
 
-describe("supportsFlagPush", () => {
-  // Exhaustive truth-table for the underlying semver check lives in
-  // `utils.test.ts`. Here we sanity-check that this thin wrapper
-  // routes a sample version on each side of the 0.8.5 boundary.
-  test("0.8.4 → false, 0.8.5 → true", () => {
-    expect(supportsFlagPush("0.8.4")).toBe(false);
-    expect(supportsFlagPush("0.8.5")).toBe(true);
-  });
-
-  test("null version returns false", () => {
-    expect(supportsFlagPush(null)).toBe(false);
-  });
-});
-
+// Exhaustive truth-table for the underlying gate lives in
+// `utils.test.ts`. Here we verify the React-Query option shape on
+// each side of the 0.8.5 boundary + that the hook re-renders when
+// the active assistant's version changes.
 describe("useFlagQueryFreshness", () => {
   test("returns poll options when version is unknown", () => {
     setVersion(null);
