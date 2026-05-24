@@ -83,8 +83,6 @@ async function handleDomainRegister({ body = {} }: RouteHandlerArgs) {
     id: string;
     subdomain?: string;
     domain?: string;
-    status?: string;
-    verified?: boolean;
     created_at?: string;
     created?: string;
     email_error?: { detail: string; code: string };
@@ -130,8 +128,6 @@ async function handleDomainStatus(_args: RouteHandlerArgs) {
       id: string;
       subdomain?: string;
       domain?: string;
-      status?: string;
-      verified?: boolean;
       created_at?: string;
       created?: string;
     }[];
@@ -158,6 +154,39 @@ async function handleDomainStatus(_args: RouteHandlerArgs) {
   return data;
 }
 
+async function handleDomainVerificationStatus({
+  body = {},
+}: RouteHandlerArgs) {
+  const { domain_id } = body as { domain_id?: string };
+  if (!domain_id) {
+    throw new BadRequestError("domain_id is required");
+  }
+  const client = await requireClient();
+
+  const response = await client.fetch(
+    `/v1/assistants/${client.platformAssistantId}/domains/${domain_id}/verification-status/`,
+  );
+
+  if (!response.ok) {
+    const respBody = (await response.json().catch(() => ({}))) as Record<
+      string,
+      unknown
+    >;
+    const detail = respBody.detail ?? `HTTP ${response.status}`;
+    throw new RouteError(
+      String(detail),
+      "VERIFICATION_STATUS_FAILED",
+      response.status,
+    );
+  }
+
+  return (await response.json()) as {
+    domain: string;
+    status: string;
+    message: string;
+  };
+}
+
 // ── Route definitions ─────────────────────────────────────────────────
 
 export const ROUTES: RouteDefinition[] = [
@@ -175,6 +204,14 @@ export const ROUTES: RouteDefinition[] = [
     method: "GET",
     handler: handleDomainStatus,
     summary: "Show domain registration and health",
+    tags: ["domain"],
+  },
+  {
+    operationId: "domain_verification_status",
+    endpoint: "domain/verification-status",
+    method: "POST",
+    handler: handleDomainVerificationStatus,
+    summary: "Get live DNS verification status for a domain",
     tags: ["domain"],
   },
 ];
