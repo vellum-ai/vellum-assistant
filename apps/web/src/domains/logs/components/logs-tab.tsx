@@ -15,8 +15,8 @@ import {
   type Conversation,
 } from "@/domains/chat/api/conversations.js";
 import {
-  loadLastViewedConversationKey,
-  saveLastViewedConversationKey,
+  loadLastViewedConversationId,
+  saveLastViewedConversationId,
 } from "@/domains/chat/utils/last-viewed-conversation-storage.js";
 import {
   formatLatency,
@@ -68,7 +68,7 @@ export function LogsTab({ assistantId }: LogsTabProps) {
         return match.conversationId;
       }
     }
-    const lastViewed = loadLastViewedConversationKey(assistantId);
+    const lastViewed = loadLastViewedConversationId(assistantId);
     if (lastViewed) {
       const match = conversations.find(
         (c) => c.conversationId === lastViewed,
@@ -81,9 +81,9 @@ export function LogsTab({ assistantId }: LogsTabProps) {
   }, [assistantId, conversations, selectedConversationId]);
 
   const handleSelectConversation = useCallback(
-    (conversationKey: string) => {
-      setSelectedConversationId(conversationKey);
-      saveLastViewedConversationKey(assistantId, conversationKey);
+    (conversationId: string) => {
+      setSelectedConversationId(conversationId);
+      saveLastViewedConversationId(assistantId, conversationId);
     },
     [assistantId],
   );

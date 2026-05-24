@@ -19,8 +19,8 @@ import {
   resolveBootstrappedConversationId,
 } from "@/domains/chat/utils/conversation-selection.js";
 import {
-  loadLastViewedConversationKey,
-  saveLastViewedConversationKey,
+  loadLastViewedConversationId,
+  saveLastViewedConversationId,
 } from "@/domains/chat/utils/last-viewed-conversation-storage.js";
 import type { TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
@@ -402,7 +402,7 @@ export function useConversationLoader({
       currentConversationId: activeConversationIdRef.current,
       currentAssistantId: assistantIdRef.current,
       nextAssistantId: chatContext.assistantId,
-      storedConversationId: loadLastViewedConversationKey(chatContext.assistantId),
+      storedConversationId: loadLastViewedConversationId(chatContext.assistantId),
       defaultConversationId: chatContext.conversationId,
       conversations: chatContext.conversations,
     });
@@ -442,7 +442,7 @@ export function useConversationLoader({
   // -------------------------------------------------------------------------
   useEffect(() => {
     if (!assistantId || !activeConversationId) return;
-    saveLastViewedConversationKey(assistantId, activeConversationId);
+    saveLastViewedConversationId(assistantId, activeConversationId);
   }, [assistantId, activeConversationId]);
 
   // -------------------------------------------------------------------------
