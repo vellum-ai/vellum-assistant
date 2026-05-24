@@ -10,13 +10,12 @@
  *     suppression: the daemon echoes the client id back on the resulting
  *     `sync_changed` so the originator's SSE subscriber can be skipped.
  *
- * For runtime-proxied requests against an assistant registered as
- * self-hosted, {@link rewriteForSelfHostedIngress} takes over instead —
- * the URL's origin is swapped to the assistant's `ingress_url`, the
+ * When `getSelfHostedIngressUrl()` returns a URL AND the request hits a
+ * runtime-proxied per-assistant path, {@link rewriteForSelfHostedIngress}
+ * takes over instead — the URL's origin is swapped to the ingress, the
  * platform-only headers are stripped, cookie credentials are omitted,
  * and an `Authorization: Bearer` is attached when a token is available
- * (it isn't yet — the web pair flow is still being built; see
- * `self-hosted/actor-token.ts`).
+ * (it isn't yet — see {@link getSelfHostedActorToken} below).
  *
  * Import this module for its side effects in the app entrypoint
  * (`main.tsx`) so interceptors are installed before any API call fires.
@@ -26,23 +25,60 @@
 import { client as authClient } from "@/generated/auth/client.gen.js";
 import { client as platformClient } from "@/generated/api/client.gen.js";
 import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf.js";
-import { getSelfHostedActorToken } from "@/lib/self-hosted/actor-token.js";
-import { getSelfHostedRouting } from "@/lib/self-hosted/registry.js";
-import { classifyAssistantPath } from "@/lib/self-hosted/request-routing.js";
+import { getSelfHostedIngressUrl } from "@/lib/self-hosted/ingress.js";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity.js";
 import { getActiveOrganizationIdForRequests } from "@/stores/organization-store.js";
 
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 /**
- * Rewrites a request bound for `/v1/assistants/{id}/...` to the
- * registered self-hosted ingress, swapping platform session/CSRF auth
- * for `Authorization: Bearer <jwt>`.
+ * Narrow allowlist of `/v1/assistants/{id}/<segment>/...` first segments
+ * that the platform proxies to the assistant's pod (and that we therefore
+ * have to redirect to the user's gateway when self-hosted).
  *
- * Returns `null` when the path is not a runtime-proxied per-assistant
- * route or when no self-hosted routing is registered for the assistant —
- * callers should fall through to the default platform-dressing path in
- * that case.
+ * Kept intentionally narrow rather than mirroring Django's whole proxy
+ * routing table: the platform owns the source of truth
+ * (`config/api_router.py` registers `RuntimeProxyWildcardView` AFTER all
+ * the ViewSet actions + `assistant/urls.py` entries, so anything not
+ * already claimed there falls through to the wildcard), and copying that
+ * deny-list into the SPA risks regressing platform-owned routes like
+ * `maintenance-mode/`, `system-events/`, `terminal/`, `doctor/` when a
+ * new one is added on the backend.
+ *
+ * Today's only consumer is the chat-page bootstrap — `conversations/`
+ * has to land on the gateway so the chat surface can fail-and-render the
+ * error state. Add segments here as additional self-hosted flows light up.
+ */
+const RUNTIME_PROXIED_FIRST_SEGMENTS = new Set<string>(["conversations"]);
+
+const ASSISTANT_PATH_RE =
+  /^\/v1\/assistants\/[^/]+\/([^/?#]+)(?:\/.*)?$/;
+
+/**
+ * Resolve an actor-audience JWT for the user's self-hosted gateway.
+ *
+ * The macOS app obtains this via a `guardian/pair` handshake against the
+ * gateway (see `clients/shared/Network/GatewayHTTPClient.swift`); the web
+ * pair flow is not yet built. Until it is, this returns `null`, the
+ * rewritten request fires unauthenticated, the gateway responds 401, and
+ * the chat surface lands on its error state instead of an indefinite
+ * spinner. That's the deliberate landing state for the flag-consumer PR.
+ *
+ * TODO(LUM-XXXX): Replace with the real pairing-bound token retrieval
+ * once the web pair flow lands.
+ */
+async function getSelfHostedActorToken(): Promise<string | null> {
+  return null;
+}
+
+/**
+ * Rewrites a request bound for `/v1/assistants/{id}/{runtime-segment}/...`
+ * to the registered self-hosted ingress, swapping platform session/CSRF
+ * auth for `Authorization: Bearer <jwt>`.
+ *
+ * Returns `null` when no self-hosted ingress is currently set or when
+ * the path isn't an allowlisted runtime segment — callers should fall
+ * through to the default platform-dressing path in that case.
  *
  * Exported for direct unit testing — production code paths invoke this
  * via {@link requestInterceptor}.
@@ -50,13 +86,14 @@ const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 export async function rewriteForSelfHostedIngress(
   request: Request,
 ): Promise<Request | null> {
+  const ingressUrl = getSelfHostedIngressUrl();
+  if (!ingressUrl) return null;
+
   const url = new URL(request.url);
-  const { assistantId, isRuntimeProxied } = classifyAssistantPath(url.pathname);
-  if (!assistantId || !isRuntimeProxied) {
-    return null;
-  }
-  const routing = getSelfHostedRouting(assistantId);
-  if (!routing) {
+  const match = ASSISTANT_PATH_RE.exec(url.pathname);
+  if (!match) return null;
+  const firstSegment = match[1];
+  if (!firstSegment || !RUNTIME_PROXIED_FIRST_SEGMENTS.has(firstSegment)) {
     return null;
   }
 
@@ -64,8 +101,7 @@ export async function rewriteForSelfHostedIngress(
   // query are preserved verbatim — the gateway exposes the same
   // `/v1/assistants/{id}/...` routes the platform's RuntimeProxyView
   // would otherwise forward to.
-  const ingress = new URL(routing.ingressUrl);
-  const rewrittenUrl = new URL(ingress.toString());
+  const rewrittenUrl = new URL(ingressUrl);
   rewrittenUrl.pathname = url.pathname;
   rewrittenUrl.search = url.search;
 
@@ -76,7 +112,7 @@ export async function rewriteForSelfHostedIngress(
   headers.delete("X-CSRFToken");
   headers.delete("Vellum-Organization-Id");
 
-  const token = await getSelfHostedActorToken(assistantId);
+  const token = await getSelfHostedActorToken();
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
   } else {
@@ -122,9 +158,9 @@ export async function requestInterceptor(request: Request): Promise<Request> {
     newRequest.headers.set(name, value);
   }
 
-  // Self-hosted assistants own their own gateway — route there directly
-  // instead of stamping the platform's session/CSRF headers and hitting
-  // the runtime proxy view that filters us out anyway.
+  // Self-hosted assistant + runtime-proxied path → talk to the user's
+  // gateway directly instead of stamping the platform's session/CSRF
+  // headers and hitting the runtime proxy view that filters us out.
   const selfHosted = await rewriteForSelfHostedIngress(newRequest);
   if (selfHosted) {
     return selfHosted;

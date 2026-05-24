@@ -17,10 +17,7 @@ import {
   shouldRecoverFromHatchFailure,
 } from "@/assistant/lifecycle.js";
 import { resolveOnboardingRedirect } from "@/domains/onboarding/gate.js";
-import {
-  registerSelfHostedAssistant,
-  unregisterSelfHostedAssistant,
-} from "@/lib/self-hosted/registry.js";
+import { setSelfHostedIngressUrl } from "@/lib/self-hosted/ingress.js";
 import { routes } from "@/utils/routes.js";
 
 const POLL_INTERVAL_MS = 3000;
@@ -229,10 +226,10 @@ export function useAssistantLifecycle({
         const mm = result.data.maintenance_mode;
         initializingRecoveryCountRef.current = 0;
         hatchingVersionRef.current = undefined;
-        // Defensively drop any stale self-hosted routing for this id:
-        // the server says the assistant is now managed-active, so
-        // runtime calls belong on the platform.
-        unregisterSelfHostedAssistant(result.data.id);
+        // Drop any stale self-hosted ingress: the server says the
+        // assistant is now managed-active, so runtime calls belong on
+        // the platform.
+        setSelfHostedIngressUrl(null);
         // Set the assistant id here, before any pod-facing fetch runs.
         // The `init` effect below only fetches conversations once
         // `assistantState.kind === "active"`, and that fetch is what
@@ -255,23 +252,17 @@ export function useAssistantLifecycle({
       if (nextState.kind === "self_hosted" && result.ok) {
         initializingRecoveryCountRef.current = 0;
         hatchingVersionRef.current = undefined;
-        // Register the user's gateway so the request interceptor can
-        // rewrite runtime-proxied calls to it. Same ordering rationale
-        // as the active branch above — the registry has to be primed
-        // before `assistantId` flips, otherwise the first conversation
-        // list fetch races us and hits the platform.
+        // Record the user's gateway so the request interceptor can
+        // rewrite runtime-proxied calls to it. The ingress slot has to
+        // be primed before `assistantId` flips, otherwise the first
+        // conversation list fetch races us and hits the platform.
         //
-        // `ingress_url` is nullable in the serializer: an assistant can
-        // be flagged `is_local=true` before its gateway public hostname
-        // is known. In that brief window we still flip into self_hosted
-        // state but skip registry registration — runtime calls then go
-        // through the platform's proxy view and 404 cleanly, which the
-        // chat surface renders as an error rather than a hang.
-        if (result.data.ingress_url) {
-          registerSelfHostedAssistant(result.data.id, result.data.ingress_url);
-        } else {
-          unregisterSelfHostedAssistant(result.data.id);
-        }
+        // `ingress_url` is nullable in the serializer (an assistant
+        // can be `is_local=true` before its gateway hostname is known);
+        // in that case we leave the slot null and the platform's
+        // proxy view 404s cleanly — which still surfaces as the chat
+        // error state, just one HTTP hop sooner.
+        setSelfHostedIngressUrl(result.data.ingress_url);
         setAssistantId(result.data.id);
         setAssistantState({ kind: "self_hosted" });
         return;
@@ -319,7 +310,7 @@ export function useAssistantLifecycle({
           } else if (nextState.kind === "active" && result.ok) {
             const mm = result.data.maintenance_mode;
             initializingRecoveryCountRef.current = 0;
-            unregisterSelfHostedAssistant(result.data.id);
+            setSelfHostedIngressUrl(null);
             setAssistantId(result.data.id);
             setAssistantState({
               kind: "active",
@@ -337,14 +328,7 @@ export function useAssistantLifecycle({
             // the initializing-timeout error after the assistant has
             // actually come up.
             initializingRecoveryCountRef.current = 0;
-            if (result.data.ingress_url) {
-              registerSelfHostedAssistant(
-                result.data.id,
-                result.data.ingress_url,
-              );
-            } else {
-              unregisterSelfHostedAssistant(result.data.id);
-            }
+            setSelfHostedIngressUrl(result.data.ingress_url);
             setAssistantId(result.data.id);
             setAssistantState({ kind: "self_hosted" });
           } else {
