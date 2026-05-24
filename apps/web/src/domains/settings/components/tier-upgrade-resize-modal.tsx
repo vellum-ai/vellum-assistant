@@ -21,15 +21,15 @@ import {
   buildMachineSizeOptions,
 } from "@/lib/billing/machine-sizes.js";
 
-export interface PortalReturnResizeModalProps {
+export interface TierUpgradeResizeModalProps {
   open: boolean;
   onClose: () => void;
 }
 
-export function PortalReturnResizeModal({
+export function TierUpgradeResizeModal({
   open,
   onClose,
-}: PortalReturnResizeModalProps) {
+}: TierUpgradeResizeModalProps) {
   const assistantQuery = useQuery({
     ...assistantsActiveRetrieveOptions(),
     enabled: open,

@@ -13,7 +13,7 @@ import { BillingUsagePanel } from "@/domains/settings/components/billing-usage/b
 import { GracePeriodBanner } from "@/domains/settings/components/grace-period-banner.js";
 import { PaymentMethodsCard } from "@/domains/settings/components/payment-methods-card.js";
 import { PlanCard } from "@/domains/settings/components/plan-card.js";
-import { PortalReturnResizeModal } from "@/domains/settings/components/portal-return-resize-modal.js";
+import { TierUpgradeResizeModal } from "@/domains/settings/components/tier-upgrade-resize-modal.js";
 import { ReferralPanel } from "@/domains/settings/components/referral-panel.js";
 import { organizationsBillingSummaryRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen.js";
 import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
@@ -101,7 +101,7 @@ export function BillingPage() {
       <ReferralPanel />
       <BillingUsagePanel />
       <BillingOnboardingModal open={hasSessionId} onClose={closeOnboarding} />
-      <PortalReturnResizeModal
+      <TierUpgradeResizeModal
         open={resizeModalOpen}
         onClose={() => setResizeModalOpen(false)}
       />
