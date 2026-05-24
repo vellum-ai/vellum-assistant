@@ -120,7 +120,7 @@ export function ChatPage() {
   const isNative = useIsNativePlatform();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { conversationKey: urlConversationKey } = useParams<{ conversationKey?: string }>();
+  const { conversationId: urlConversationId } = useParams<{ conversationId?: string }>();
   const {
     assistantId,
     assistantState,
@@ -400,7 +400,7 @@ export function ChatPage() {
     assistantId,
     assistantStateKind: assistantState.kind,
     activeConversationId,
-    urlConversationKey: urlConversationKey ?? null,
+    urlConversationId: urlConversationId ?? null,
     searchParams,
     navigate,
     conversations,

@@ -61,8 +61,8 @@ interface UseConversationLoaderParams {
   assistantId: string | null;
   assistantStateKind: AssistantStateKind;
   activeConversationId: string | null;
-  /** Conversation key from the URL path param (e.g. `/assistant/conversations/:key`). */
-  urlConversationKey: string | null;
+  /** Conversation id from the URL path param (e.g. `/assistant/conversations/:conversationId`). */
+  urlConversationId: string | null;
   searchParams: SearchParamsLike;
   /** React Router navigate function for path-based routing. */
   navigate: NavigateFunction;
@@ -139,7 +139,7 @@ export function useConversationLoader({
   assistantId,
   assistantStateKind,
   activeConversationId,
-  urlConversationKey,
+  urlConversationId,
   searchParams,
   navigate,
   conversations,
@@ -370,13 +370,12 @@ export function useConversationLoader({
   // routing logic run as soon as data is available, even if the *most
   // recent* fetch failed (we still have last-known-good data to land on).
   // -------------------------------------------------------------------------
-  const lastAppliedUrlKeyRef = useRef<string | null>(null);
+  const lastAppliedUrlConversationIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (assistantStateKind !== "active") return;
     if (!chatContext) return;
 
-    const explicitConversationId =
-      urlConversationKey ?? searchParams.get("conversationKey");
+    const explicitConversationId = urlConversationId;
 
     // When only chatContext changed (e.g. from resolveDraftKey's
     // setQueryData) but the URL hasn't changed, the URL key is stale —
@@ -384,12 +383,12 @@ export function useConversationLoader({
     // activeConversationId and let the URL catch up.
     if (
       explicitConversationId != null &&
-      explicitConversationId === lastAppliedUrlKeyRef.current &&
+      explicitConversationId === lastAppliedUrlConversationIdRef.current &&
       assistantIdRef.current === chatContext.assistantId
     ) {
       return;
     }
-    lastAppliedUrlKeyRef.current = explicitConversationId;
+    lastAppliedUrlConversationIdRef.current = explicitConversationId;
 
     let onboardingDraftConversationId: string | null = null;
     if (searchParams.get("onboarding") === "1") {
@@ -416,7 +415,7 @@ export function useConversationLoader({
   }, [
     chatContext,
     assistantStateKind,
-    urlConversationKey,
+    urlConversationId,
     searchParams,
     navigate,
     setAssistantId,

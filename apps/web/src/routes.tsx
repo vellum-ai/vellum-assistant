@@ -1,8 +1,6 @@
 import {
   createBrowserRouter,
-  Navigate,
   useNavigate,
-  useSearchParams,
 } from "react-router";
 
 import { authMiddleware } from "@/lib/auth/auth-middleware.js";
@@ -66,28 +64,6 @@ import { createDraftConversationId } from "@/domains/chat/utils/conversation-sel
 import { useConversationStore } from "@/domains/conversations/conversation-store.js";
 import { useViewerStore } from "@/stores/viewer-store.js";
 import { routes } from "@/utils/routes.js";
-
-/**
- * Handles the `/assistant` index route. If a legacy `?conversationKey=` search
- * param is present, redirects to the canonical path-based conversation URL.
- * Otherwise renders `ChatPage` (new/default conversation).
- */
-function ConversationKeyRedirect() {
-  const [searchParams] = useSearchParams();
-  const conversationKey = searchParams.get("conversationKey");
-  if (conversationKey) {
-    const remaining = new URLSearchParams(searchParams);
-    remaining.delete("conversationKey");
-    const qs = remaining.toString();
-    return (
-      <Navigate
-        to={`${routes.conversation(conversationKey)}${qs ? `?${qs}` : ""}`}
-        replace
-      />
-    );
-  }
-  return <ChatPage />;
-}
 
 function HomePageRoute() {
   const navigate = useNavigate();
@@ -207,8 +183,8 @@ export const router = createBrowserRouter(
             // (loading screens, hatching, version-selection, errors) and
             // must render in every assistant state — they are NOT placed
             // under <ActiveAssistantGate>.
-            { index: true, element: <ConversationKeyRedirect /> },
-            { path: "conversations/:conversationKey", element: <ChatPage /> },
+            { index: true, element: <ChatPage /> },
+            { path: "conversations/:conversationId", element: <ChatPage /> },
             { path: "documents/:surfaceId", element: <DocumentViewerPage /> },
             // Everything below requires a resolved assistantId AND an
             // active daemon. The gate defers child rendering until the
