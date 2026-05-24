@@ -1,10 +1,13 @@
 /* eslint-disable no-restricted-syntax -- LUM-1768: file contains dark: pairs pending semantic-token migration */
 import {
+  AlertCircle,
   Check,
+  Clock,
   Crown,
   ExternalLink,
   Info,
   Loader2,
+  Trash2,
 } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router";
 import {
@@ -35,6 +38,7 @@ import {
   assistantsDomainsDestroyMutation,
   assistantsDomainsListOptions,
   assistantsDomainsListQueryKey,
+  assistantsDomainsVerificationStatusRetrieveOptions,
   assistantsEmailAddressesCreateMutation,
   assistantsEmailAddressesDestroyMutation,
   assistantsEmailAddressesListOptions,
@@ -857,6 +861,70 @@ const EMAIL_BYO_PROVIDERS: readonly EmailByoProvider[] = [
   },
 ];
 
+function DomainVerificationChip({
+  status,
+  message,
+  isLoading,
+}: {
+  status: string | undefined;
+  message: string | undefined;
+  isLoading: boolean;
+}) {
+  if (isLoading) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-stone-100 px-2.5 py-0.5 text-body-small-default text-stone-500 dark:bg-moss-800 dark:text-stone-400">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        Checking domain…
+      </span>
+    );
+  }
+
+  if (!status) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded-full bg-stone-100 px-2.5 py-0.5 text-body-small-default text-stone-500 dark:bg-moss-800 dark:text-stone-400"
+        title="Unable to retrieve domain verification status."
+      >
+        Unknown status
+      </span>
+    );
+  }
+
+  if (status === "verified") {
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded-full bg-[var(--system-positive-weak)] px-2.5 py-0.5 text-body-small-default text-[var(--system-positive-strong)]"
+        title="DNS records have been verified. Your domain is ready to send and receive email."
+      >
+        <Check className="h-3 w-3" />
+        Domain verified
+      </span>
+    );
+  }
+
+  if (status === "pending" || status === "not_started") {
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-0.5 text-body-small-default text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+        title="DNS records have been provisioned. Waiting for the email provider to verify them — this usually takes a few minutes."
+      >
+        <Clock className="h-3 w-3" />
+        Verifying domain…
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2.5 py-0.5 text-body-small-default text-red-700 dark:bg-red-900/30 dark:text-red-400"
+      title="Domain verification failed. DNS records may not have propagated correctly. You could try releasing and re-registering the domain."
+    >
+      <AlertCircle className="h-3 w-3" />
+      Verification failed
+    </span>
+  );
+}
+
 interface EmailServiceCardProps {
   assistantId: string | undefined;
   assistantHandle: string | undefined;
@@ -874,7 +942,7 @@ function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceCardProp
     () =>
       getLocalSetting(
         LS_EMAIL_BYO_PROVIDER,
-        "mailgun",
+        "resend",
       ) as EmailByoProvider["id"],
   );
   const [subdomainDraft, setSubdomainDraft] = useState("");
@@ -937,6 +1005,19 @@ function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceCardProp
     }),
     enabled: !!assistantId && !!address?.id && mode === "managed",
     refetchOnWindowFocus: false,
+  });
+
+  const verificationQuery = useQuery({
+    ...assistantsDomainsVerificationStatusRetrieveOptions({
+      path: { assistant_id: assistantId ?? "", id: domain?.id ?? "" },
+    }),
+    enabled: !!assistantId && !!domain?.id && mode === "managed",
+    refetchInterval: (query) => {
+      const st = query.state.data?.status;
+      if (st === "verified" || st === "failed") return false;
+      return 10_000;
+    },
+    refetchOnWindowFocus: true,
   });
 
   useEffect(() => {
@@ -1197,18 +1278,22 @@ function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceCardProp
                   Domain
                 </label>
                 <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center gap-1 rounded-full bg-[var(--system-positive-weak)] px-2.5 py-0.5 text-body-small-default text-[var(--system-positive-strong)]">
-                    <Check className="h-3 w-3" />
+                  <span className="font-mono text-body-small-default text-[var(--content-default)]">
                     {domain.subdomain}.{emailRootDomain}
                   </span>
+                  <DomainVerificationChip
+                    status={verificationQuery.data?.status}
+                    message={verificationQuery.data?.message}
+                    isLoading={verificationQuery.isLoading}
+                  />
                   <Button
                     variant="dangerGhost"
                     size="compact"
+                    iconOnly={<Trash2 />}
                     onClick={() => setReleaseConfirmOpen(true)}
                     disabled={deleteDomain.isPending}
-                  >
-                    Release
-                  </Button>
+                    aria-label="Release domain"
+                  />
                 </div>
                 <ConfirmDialog
                   open={releaseConfirmOpen}
@@ -1265,18 +1350,22 @@ function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceCardProp
                   Address
                 </label>
                 <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center gap-1 rounded-full bg-[var(--system-positive-weak)] px-2.5 py-0.5 text-body-small-default text-[var(--system-positive-strong)]">
-                    <Check className="h-3 w-3" />
+                  <span className="font-mono text-body-small-default text-[var(--content-default)]">
                     {address.address}
                   </span>
+                  <DomainVerificationChip
+                    status={verificationQuery.data?.status}
+                    message={verificationQuery.data?.message}
+                    isLoading={verificationQuery.isLoading}
+                  />
                   <Button
                     variant="dangerGhost"
                     size="compact"
+                    iconOnly={<Trash2 />}
                     onClick={() => setRemoveAddressConfirmOpen(true)}
                     disabled={deleteAddress.isPending}
-                  >
-                    Remove
-                  </Button>
+                    aria-label="Remove email address"
+                  />
                 </div>
                 <ConfirmDialog
                   open={removeAddressConfirmOpen}
