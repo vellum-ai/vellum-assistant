@@ -4,6 +4,8 @@
  * Exposes spawn, steer, cancel, close, sessions, and permission operations
  * over HTTP and IPC.
  */
+import { basename } from "node:path";
+
 import { desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
@@ -14,6 +16,8 @@ import { getDb } from "../../memory/db-connection.js";
 import { rawChanges } from "../../memory/raw-query.js";
 import { acpSessionHistory } from "../../memory/schema.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
+import { credentialKey } from "../../security/credential-key.js";
+import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
 import {
   BadRequestError,
@@ -81,6 +85,50 @@ async function spawnSession({ body }: RouteHandlerArgs) {
     }
   }
 
+  // Inject required env vars for ACP agents that need them, then preflight
+  // the resulting env before we hand it to the spawn — failing fast here is
+  // symmetric with the `binary_not_found` failure surface above, and
+  // strictly better than a `warn` + zombie subprocess 10 seconds later.
+  //
+  // Gating is keyed off the resolved agent COMMAND (basename), not the
+  // user-facing agent id, so a custom `acp.agents.my-claude = { command:
+  // "claude-agent-acp", ... }` alias still gets the env it needs.
+  //
+  // For claude-agent-acp the only required env var is CLAUDE_CODE_OAUTH_TOKEN.
+  // Two provisioning routes converge on it, with config.json winning over
+  // the vault so explicit user overrides (per-workspace, rotated, etc.) are
+  // never silently clobbered:
+  //   1. `acp.agents.<id>.env.CLAUDE_CODE_OAUTH_TOKEN` in config.json —
+  //      the user-supplied env override on the resolved agent config.
+  //   2. Secure store via CLI: `assistant credentials set --service acp \
+  //        --field claude_oauth_token <token>` — written to the canonical
+  //      `credential/{service}/{field}` key built by `credentialKey()`,
+  //      used as fallback when (1) is unset.
+  // After resolution, we assert the token is present (from either route)
+  // before spawning.
+  const agentConfig = { ...resolved.agent };
+  const commandBasename = basename(agentConfig.command);
+  if (commandBasename === "claude-agent-acp") {
+    if (!agentConfig.env?.CLAUDE_CODE_OAUTH_TOKEN) {
+      const claudeToken = await getSecureKeyAsync(
+        credentialKey("acp", "claude_oauth_token"),
+      );
+      if (claudeToken) {
+        agentConfig.env = {
+          ...agentConfig.env,
+          CLAUDE_CODE_OAUTH_TOKEN: claudeToken,
+        };
+      }
+    }
+    if (!agentConfig.env?.CLAUDE_CODE_OAUTH_TOKEN) {
+      throw new FailedDependencyError(
+        "claude-agent-acp requires CLAUDE_CODE_OAUTH_TOKEN. " +
+          "Run: assistant credentials set --service acp --field claude_oauth_token <token> " +
+          "(or set it under acp.agents.<id>.env in config.json).",
+      );
+    }
+  }
+
   log.info(
     { agent, task: task.slice(0, 100), conversationId },
     "ACP spawn request received",
@@ -89,7 +137,7 @@ async function spawnSession({ body }: RouteHandlerArgs) {
   const manager = getAcpSessionManager();
   const { acpSessionId, protocolSessionId } = await manager.spawn(
     agent,
-    resolved.agent,
+    agentConfig,
     task,
     cwd,
     conversationId,

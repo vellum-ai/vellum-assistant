@@ -4,6 +4,10 @@
  * Suites:
  *  - POST /v1/acp/spawn — the three failure paths produced by
  *    `resolveAcpAgent` (acp_disabled, unknown_agent, binary_not_found).
+ *  - POST /v1/acp/spawn (env injection) — CLAUDE_CODE_OAUTH_TOKEN is read
+ *    from the secure store under the canonical
+ *    `credential/acp/claude_oauth_token` key (built by `credentialKey()`)
+ *    and merged into `agentConfig.env` ONLY for the `claude` agent.
  *  - DELETE /v1/acp/sessions?status=completed — the bulk-clear route that
  *    wipes terminal-state rows (completed/failed/cancelled) from
  *    `acp_session_history` while leaving running/initializing rows intact.
@@ -42,9 +46,20 @@ afterAll(() => {
 });
 
 // Stub `getAcpSessionManager` so the DELETE /:id tests can drive the
-// in-memory-status check without spawning real ACP processes. Stored in
-// a mutable map so individual tests can plant arbitrary states.
+// in-memory-status check without spawning real ACP processes, and so the
+// env-injection spawn tests can capture the `agentConfig` arg without
+// launching a real subprocess. Stored in mutable state so individual tests
+// can plant arbitrary states / inspect capture.
 const inMemoryStates = new Map<string, AcpSessionState>();
+
+interface CapturedSpawn {
+  agent: string;
+  agentConfig: { env?: Record<string, string> };
+  task: string;
+  conversationId: string;
+}
+
+const capturedSpawns: CapturedSpawn[] = [];
 
 mock.module("../../acp/index.js", () => ({
   getAcpSessionManager: () => ({
@@ -56,7 +71,25 @@ mock.module("../../acp/index.js", () => ({
       if (!state) throw new Error(`ACP session "${id}" not found`);
       return state;
     },
+    spawn: async (
+      agent: string,
+      agentConfig: { env?: Record<string, string> },
+      task: string,
+      _cwd: string | undefined,
+      conversationId: string,
+    ) => {
+      capturedSpawns.push({ agent, agentConfig, task, conversationId });
+      return { acpSessionId: "acp-test", protocolSessionId: "proto-test" };
+    },
   }),
+}));
+
+// Stub secure-keys so env-injection tests can plant a known token (or
+// absence). Driven via `secureKeyStore` per test in beforeEach.
+const secureKeyStore = new Map<string, string>();
+
+mock.module("../../security/secure-keys.js", () => ({
+  getSecureKeyAsync: async (key: string) => secureKeyStore.get(key),
 }));
 
 import { eq } from "drizzle-orm";
@@ -79,6 +112,8 @@ function getSpawnHandler() {
 beforeEach(() => {
   config.setConfig({});
   which.setWhich((cmd) => `/usr/local/bin/${cmd}`);
+  capturedSpawns.length = 0;
+  secureKeyStore.clear();
 });
 
 // ---------------------------------------------------------------------------
@@ -147,6 +182,212 @@ describe("POST /v1/acp/spawn", () => {
 });
 
 // ---------------------------------------------------------------------------
+// POST /v1/acp/spawn — CLAUDE_CODE_OAUTH_TOKEN env injection + preflight
+//
+// claude-agent-acp authenticates via CLAUDE_CODE_OAUTH_TOKEN. The route
+// accepts the token from two provisioning routes:
+//   1. Secure store under the canonical `credential/acp/claude_oauth_token`
+//      key (built by `credentialKey()`), populated by
+//      `assistant credentials set --service acp --field claude_oauth_token`.
+//   2. `acp.agents.claude.env.CLAUDE_CODE_OAUTH_TOKEN` in the user's
+//      config.json, surfaced on `resolved.agent.env` by the resolver.
+// After merging the secure-store value into `agentConfig.env`, the route
+// preflights for the token and throws `FailedDependencyError` if it is
+// still absent. The "fail-fast" behavior is symmetric with the existing
+// `binary_not_found` preflight and avoids the zombie-subprocess footgun
+// where claude-agent-acp launches, crashes on auth, and leaves the
+// caller with no useful signal.
+//
+// These tests pin both the happy paths and the throw path so a future
+// drift in the key path, the env-override route, or the preflight check
+// fails the suite loudly.
+// ---------------------------------------------------------------------------
+
+describe("POST /v1/acp/spawn — CLAUDE_CODE_OAUTH_TOKEN injection", () => {
+  test("injects CLAUDE_CODE_OAUTH_TOKEN from credential/acp/claude_oauth_token for the claude agent", async () => {
+    secureKeyStore.set(
+      "credential/acp/claude_oauth_token",
+      "test-token-abc123",
+    );
+
+    const handler = getSpawnHandler();
+    await handler({
+      body: {
+        agent: "claude",
+        task: "do a thing",
+        conversationId: "conv-1",
+      },
+    });
+
+    expect(capturedSpawns).toHaveLength(1);
+    expect(capturedSpawns[0]?.agent).toBe("claude");
+    expect(capturedSpawns[0]?.agentConfig.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe(
+      "test-token-abc123",
+    );
+  });
+
+  test("accepts CLAUDE_CODE_OAUTH_TOKEN from acp.agents.claude.env (config.json override) without a secure-store entry", async () => {
+    // The user-supplied config.json env override is the first-priority
+    // provisioning route. resolveAcpAgent returns it on `resolved.agent.env`,
+    // which the route then preserves on `agentConfig.env`. The preflight
+    // should accept this path with no secure-store entry needed.
+    config.setConfig({
+      agents: {
+        claude: {
+          command: "claude-agent-acp",
+          args: [],
+          env: { CLAUDE_CODE_OAUTH_TOKEN: "config-token-xyz789" },
+        },
+      },
+    });
+
+    const handler = getSpawnHandler();
+    await handler({
+      body: {
+        agent: "claude",
+        task: "do a thing",
+        conversationId: "conv-1",
+      },
+    });
+
+    expect(capturedSpawns).toHaveLength(1);
+    expect(capturedSpawns[0]?.agentConfig.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe(
+      "config-token-xyz789",
+    );
+  });
+
+  test("config.json env override wins over a secure-store token (precedence pin)", async () => {
+    // Codex review feedback (PR #31901 / P2): when a user explicitly sets
+    // CLAUDE_CODE_OAUTH_TOKEN under `acp.agents.<id>.env` (per-workspace,
+    // rotated, scoped credential, etc.), the secure-store value must NOT
+    // silently overwrite it. Vault is fallback, not override.
+    secureKeyStore.set("credential/acp/claude_oauth_token", "vault-token-AAA");
+    config.setConfig({
+      agents: {
+        claude: {
+          command: "claude-agent-acp",
+          args: [],
+          env: { CLAUDE_CODE_OAUTH_TOKEN: "config-token-BBB" },
+        },
+      },
+    });
+
+    const handler = getSpawnHandler();
+    await handler({
+      body: {
+        agent: "claude",
+        task: "do a thing",
+        conversationId: "conv-1",
+      },
+    });
+
+    expect(capturedSpawns).toHaveLength(1);
+    expect(capturedSpawns[0]?.agentConfig.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe(
+      "config-token-BBB",
+    );
+  });
+
+  test("injects via command match for a user-defined agent id aliased to claude-agent-acp", async () => {
+    // Codex review feedback (PR #31901 / P2): gating is keyed off the
+    // resolved command (basename), not the agent id. A custom agent id
+    // pointing at claude-agent-acp still needs CLAUDE_CODE_OAUTH_TOKEN,
+    // so injection + preflight must fire regardless of the id string.
+    secureKeyStore.set("credential/acp/claude_oauth_token", "vault-token-zzz");
+    config.setConfig({
+      agents: {
+        "my-claude": {
+          command: "claude-agent-acp",
+          args: [],
+        },
+      },
+    });
+
+    const handler = getSpawnHandler();
+    await handler({
+      body: {
+        agent: "my-claude",
+        task: "do a thing",
+        conversationId: "conv-1",
+      },
+    });
+
+    expect(capturedSpawns).toHaveLength(1);
+    expect(capturedSpawns[0]?.agent).toBe("my-claude");
+    expect(capturedSpawns[0]?.agentConfig.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe(
+      "vault-token-zzz",
+    );
+  });
+
+  test("throws FailedDependencyError when no CLAUDE_CODE_OAUTH_TOKEN is available from any source", async () => {
+    // secureKeyStore intentionally empty AND no agentConfig.env override —
+    // simulates a fresh install where the user hasn't provisioned a token
+    // via either route. Fail-fast preflight surfaces this immediately
+    // instead of letting claude-agent-acp launch, crash on auth, and leave
+    // a zombie subprocess behind.
+
+    const handler = getSpawnHandler();
+    await expect(
+      handler({
+        body: {
+          agent: "claude",
+          task: "do a thing",
+          conversationId: "conv-1",
+        },
+      }),
+    ).rejects.toThrow(/CLAUDE_CODE_OAUTH_TOKEN/);
+    expect(capturedSpawns).toHaveLength(0);
+  });
+
+  test("does NOT inject CLAUDE_CODE_OAUTH_TOKEN for agents whose command is not claude-agent-acp", async () => {
+    // Token-injection AND preflight are scoped to claude-agent-acp by
+    // command basename. A codex-acp spawn with the secure-store key set
+    // must still launch without that env var — and must not be blocked
+    // by claude's preflight.
+    secureKeyStore.set(
+      "credential/acp/claude_oauth_token",
+      "test-token-abc123",
+    );
+
+    const handler = getSpawnHandler();
+    await handler({
+      body: {
+        agent: "codex",
+        task: "do a thing",
+        conversationId: "conv-1",
+      },
+    });
+
+    expect(capturedSpawns).toHaveLength(1);
+    expect(capturedSpawns[0]?.agent).toBe("codex");
+    expect(
+      capturedSpawns[0]?.agentConfig.env?.CLAUDE_CODE_OAUTH_TOKEN,
+    ).toBeUndefined();
+  });
+
+  test("does NOT pick up a token planted at the legacy non-`credential/` key path", async () => {
+    // Regression guard: the original implementation used the raw key
+    // "acp/claude/oauth_token". The fix routes through `credentialKey()`
+    // so the CLI (`assistant credentials set --service acp --field
+    // claude_oauth_token`) is the canonical provisioning path. Pin this
+    // by planting the token ONLY under the legacy key — the preflight
+    // should fail-fast because the canonical path is empty.
+    secureKeyStore.set("acp/claude/oauth_token", "legacy-token-should-miss");
+
+    const handler = getSpawnHandler();
+    await expect(
+      handler({
+        body: {
+          agent: "claude",
+          task: "do a thing",
+          conversationId: "conv-1",
+        },
+      }),
+    ).rejects.toThrow(/CLAUDE_CODE_OAUTH_TOKEN/);
+    expect(capturedSpawns).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // DELETE /v1/acp/sessions?status=completed — bulk-clear terminal rows
 // ---------------------------------------------------------------------------
 
@@ -205,7 +446,9 @@ describe("DELETE /v1/acp/sessions?status=completed", () => {
     seedHistoryRow("row-initializing", "initializing", 5000);
 
     const handler = getBulkDeleteHandler();
-    const result = (await handler({ queryParams: { status: "completed" } })) as {
+    const result = (await handler({
+      queryParams: { status: "completed" },
+    })) as {
       deleted: number;
     };
     expect(result.deleted).toBe(3);
@@ -221,7 +464,9 @@ describe("DELETE /v1/acp/sessions?status=completed", () => {
     seedHistoryRow("row-running", "running", 1000);
 
     const handler = getBulkDeleteHandler();
-    const result = (await handler({ queryParams: { status: "completed" } })) as {
+    const result = (await handler({
+      queryParams: { status: "completed" },
+    })) as {
       deleted: number;
     };
     expect(result.deleted).toBe(0);
@@ -244,7 +489,9 @@ describe("DELETE /v1/acp/sessions?status=completed", () => {
     seedHistoryRow("row-completed", "completed", 1000);
 
     const handler = getBulkDeleteHandler();
-    expect(() => handler({ queryParams: { status: "failed" } })).toThrow("status");
+    expect(() => handler({ queryParams: { status: "failed" } })).toThrow(
+      "status",
+    );
     expect(listRows()).toHaveLength(1);
   });
 });
@@ -297,7 +544,9 @@ describe("DELETE /v1/acp/sessions/:id", () => {
     insertHistoryRow({ id: "sess-completed", status: "completed" });
 
     const handler = getDeleteSessionHandler();
-    const result = (await handler({ pathParams: { id: "sess-completed" } })) as {
+    const result = (await handler({
+      pathParams: { id: "sess-completed" },
+    })) as {
       deleted: boolean;
     };
     expect(result.deleted).toBe(true);
