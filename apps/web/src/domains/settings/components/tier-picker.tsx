@@ -1,4 +1,5 @@
 import { Info } from "lucide-react";
+import { useMemo } from "react";
 
 import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { Typography } from "@vellum/design-library/components/typography";
@@ -40,6 +41,15 @@ function formatMonthly(totalCents: number): string {
     : `$${dollars.toFixed(2)}/mo`;
 }
 
+function formatDelta(deltaCents: number): string {
+  const prefix = deltaCents > 0 ? "+" : "−";
+  const absDollars = Math.abs(deltaCents) / 100;
+  const formatted = Number.isInteger(absDollars)
+    ? `$${absDollars}`
+    : `$${absDollars.toFixed(2)}`;
+  return `${prefix}${formatted}/mo`;
+}
+
 export interface TierPickerProps {
   machineTiers: MachineTier[];
   storageTiers: StorageTier[];
@@ -48,6 +58,8 @@ export interface TierPickerProps {
   selectedStorageTier: StorageTierEnum | null;
   onMachineTierChange: (tier: MachineTierEnum) => void;
   onStorageTierChange: (tier: StorageTierEnum) => void;
+  currentMachinePriceCents?: number | null;
+  currentStoragePriceCents?: number | null;
 }
 
 export function TierPicker({
@@ -58,6 +70,8 @@ export function TierPicker({
   selectedStorageTier,
   onMachineTierChange,
   onStorageTierChange,
+  currentMachinePriceCents,
+  currentStoragePriceCents,
 }: TierPickerProps) {
   const selectedMachine = machineTiers.find(
     (t) => t.tier === selectedMachineTier,
@@ -71,6 +85,51 @@ export function TierPicker({
         selectedMachine.price_cents +
         selectedStorage.price_cents
       : null;
+  const currentTotalCents =
+    currentMachinePriceCents != null && currentStoragePriceCents != null
+      ? basePriceCents + currentMachinePriceCents + currentStoragePriceCents
+      : null;
+  const totalDelta =
+    totalCents != null && currentTotalCents != null
+      ? totalCents - currentTotalCents
+      : null;
+
+  const machineOptions = useMemo(
+    () =>
+      machineTiers.map((t) => {
+        const label = MACHINE_TIER_LABEL[t.tier] ?? t.label;
+        const priceLabel =
+          currentMachinePriceCents != null
+            ? t.price_cents === currentMachinePriceCents
+              ? `(${formatMonthly(t.price_cents)}, current)`
+              : formatDelta(t.price_cents - currentMachinePriceCents)
+            : `+${formatMonthly(t.price_cents)}`;
+        return {
+          value: t.tier as MachineTierEnum,
+          label: `${label} ${priceLabel}`,
+          disabled: isTierDisabled(t),
+        };
+      }),
+    [machineTiers, currentMachinePriceCents],
+  );
+
+  const storageOptions = useMemo(
+    () =>
+      storageTiers.map((t) => {
+        const priceLabel =
+          currentStoragePriceCents != null
+            ? t.price_cents === currentStoragePriceCents
+              ? `(${formatMonthly(t.price_cents)}, current)`
+              : formatDelta(t.price_cents - currentStoragePriceCents)
+            : `+${formatMonthly(t.price_cents)}`;
+        return {
+          value: t.tier as StorageTierEnum,
+          label: `${t.storage_gib} GiB ${priceLabel}`,
+          disabled: isTierDisabled(t),
+        };
+      }),
+    [storageTiers, currentStoragePriceCents],
+  );
 
   return (
     <div className="flex flex-col gap-3">
@@ -92,13 +151,7 @@ export function TierPicker({
           placeholder="Select a machine tier"
           value={selectedMachineTier ?? ("" as MachineTierEnum)}
           onChange={onMachineTierChange}
-          options={machineTiers.map((t) => ({
-            value: t.tier as MachineTierEnum,
-            label: `${MACHINE_TIER_LABEL[t.tier] ?? t.label} +${formatMonthly(
-              t.price_cents,
-            )}`,
-            disabled: isTierDisabled(t),
-          }))}
+          options={machineOptions}
         />
       </div>
       <div className="flex flex-col gap-1.5">
@@ -119,11 +172,7 @@ export function TierPicker({
           placeholder="Select a storage tier"
           value={selectedStorageTier ?? ("" as StorageTierEnum)}
           onChange={onStorageTierChange}
-          options={storageTiers.map((t) => ({
-            value: t.tier as StorageTierEnum,
-            label: `${t.storage_gib} GiB +${formatMonthly(t.price_cents)}`,
-            disabled: isTierDisabled(t),
-          }))}
+          options={storageOptions}
         />
       </div>
       {totalCents !== null && (
@@ -135,8 +184,19 @@ export function TierPicker({
             className="text-[var(--content-default)]"
           >
             Total: {formatMonthly(totalCents)}
+            {totalDelta != null && totalDelta !== 0 && (
+              <span className="ml-1 text-[var(--content-tertiary)]">
+                ({formatDelta(totalDelta)})
+              </span>
+            )}
           </Typography>
-          <span title="Includes a $10/mo platform fee">
+          <span
+            title={
+              totalDelta != null && totalDelta !== 0
+                ? `Your Pro Plan subscription will change from ${formatMonthly(currentTotalCents!)} to ${formatMonthly(totalCents!)}. Includes a $10/month flat fee for Pro Features.`
+                : "Includes a $10/month flat fee for Pro Features."
+            }
+          >
             <Info className="h-3 w-3 text-[var(--content-tertiary)]" />
           </span>
         </div>

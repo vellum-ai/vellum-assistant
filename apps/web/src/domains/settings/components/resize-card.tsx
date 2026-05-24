@@ -80,6 +80,7 @@ export function ResizeCard({
   );
   const displaySize = selectedSize ?? largestSize ?? currentSize;
   const [upgradeModalOpen, setUpgradeModalOpen] = useState<"storage" | "machine" | null>(null);
+  const [resizeError, setResizeError] = useState<string | null>(null);
 
   const resizeMutation = useMutation({
     ...assistantsResizeMutation(),
@@ -87,17 +88,17 @@ export function ResizeCard({
       toast.success("Resize started. Changes will apply shortly.", {
         id: "assistant-resize",
       });
+      setResizeError(null);
       setSelectedSize(null);
       setResizeModalOpen(false);
       void refetch();
     },
     onError: (error) => {
-      toast.error(
+      setResizeError(
         extractResizeError(
           error,
           "Failed to resize assistant. Please try again.",
         ),
-        { id: "assistant-resize-error" },
       );
     },
   });
@@ -355,6 +356,7 @@ export function ResizeCard({
           if (!o) {
             setResizeModalOpen(false);
             setSelectedSize(null);
+            setResizeError(null);
           }
         }}
       >
@@ -400,6 +402,9 @@ export function ResizeCard({
                   Storage will not change.
                 </Notice>
               )}
+              {resizeError && (
+                <Notice tone="error">{resizeError}</Notice>
+              )}
             </div>
           </Modal.Body>
           <Modal.Footer className="items-center justify-between">
@@ -419,6 +424,7 @@ export function ResizeCard({
                 onClick={() => {
                   setResizeModalOpen(false);
                   setSelectedSize(null);
+                  setResizeError(null);
                 }}
               >
                 Cancel
@@ -429,6 +435,7 @@ export function ResizeCard({
                   isLoading ? <Loader2 className="animate-spin" /> : undefined
                 }
                 onClick={() => {
+                  setResizeError(null);
                   const body: { machine_size?: MachineSizeEnum; storage_gib?: number } = {};
                   if (effectiveSelectedSize != null) {
                     body.machine_size = effectiveSelectedSize;
@@ -442,7 +449,7 @@ export function ResizeCard({
                   });
                 }}
               >
-                Apply
+                {resizeError ? "Retry" : "Apply"}
               </Button>
             </div>
           </Modal.Footer>

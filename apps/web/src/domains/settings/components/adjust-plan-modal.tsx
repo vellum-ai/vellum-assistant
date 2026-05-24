@@ -354,10 +354,13 @@ export function AdjustPlanModal({ open, onClose }: AdjustPlanModalProps) {
 
   const priceForMachine = (tier: MachineTierEnum | null): number | null =>
     machineTiersForPicker.find((t) => t.tier === tier)?.price_cents ?? null;
+  const priceForStorage = (tier: StorageTierEnum | null): number | null =>
+    storageTiersForPicker.find((t) => t.tier === tier)?.price_cents ?? null;
   // A machine downgrade (cheaper than current) routes through the reconfirm
   // modal first; an upgrade fires immediately.
   const nextMachinePrice = priceForMachine(selectedMachineTier);
   const currentMachinePrice = priceForMachine(currentMachineTier);
+  const currentStoragePrice = priceForStorage(currentStorageTier);
   const isMachineDowngrade =
     machineChanged &&
     nextMachinePrice != null &&
@@ -545,6 +548,27 @@ export function AdjustPlanModal({ open, onClose }: AdjustPlanModalProps) {
                                   Forever
                                 </Typography>
                               </>
+                            ) : proTierChangeMode &&
+                              currentMachinePrice != null &&
+                              currentStoragePrice != null ? (
+                              <>
+                                <Typography as="p" variant="title-medium">
+                                  Currently $
+                                  {Math.round(
+                                    (plan.base_price_cents +
+                                      currentMachinePrice +
+                                      currentStoragePrice) /
+                                      100,
+                                  )}
+                                </Typography>
+                                <Typography
+                                  as="p"
+                                  variant="body-small-default"
+                                  className="text-[var(--content-tertiary)]"
+                                >
+                                  Billed monthly
+                                </Typography>
+                              </>
                             ) : (
                               <>
                                 <Typography as="p" variant="title-medium">
@@ -621,6 +645,8 @@ export function AdjustPlanModal({ open, onClose }: AdjustPlanModalProps) {
                                   selectedStorageTier={selectedStorageTier}
                                   onMachineTierChange={setSelectedMachineTier}
                                   onStorageTierChange={setSelectedStorageTier}
+                                  currentMachinePriceCents={currentMachinePrice}
+                                  currentStoragePriceCents={currentStoragePrice}
                                 />
                                 <Button
                                   variant="primary"
