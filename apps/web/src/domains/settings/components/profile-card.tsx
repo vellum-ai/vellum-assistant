@@ -184,7 +184,7 @@ function HandleEditor<T>({
   })();
 
   const helperOrIdle: string | null = (() => {
-    if (errorText) return null;
+    if (errorText) return helperText;
     if (isUnchanged) return idleHelperText ?? null;
     if (isChecking) return "Checking availability…";
     if (availability?.available) return "Available.";
@@ -285,21 +285,6 @@ function HandleEditor<T>({
   })();
 
   // ----------------------------------------------------------------
-  // Live preview — the moment of meaning. Shows what your handle
-  // renders as everywhere else (roadmap comments, mentions, etc.).
-  // When there's no current handle and nothing typed yet, fall back
-  // to a neutral placeholder so the preview line still anchors the
-  // empty state.
-  // ----------------------------------------------------------------
-  const previewHandle =
-    normalized.length > 0
-      ? normalized
-      : initialHandle.length > 0
-        ? initialHandle
-        : "—";
-  const previewIsDirty = !isUnchanged && normalized.length > 0;
-
-  // ----------------------------------------------------------------
   // Button label — empty save button is a dead pixel, so let it
   // narrate its own state instead.
   // ----------------------------------------------------------------
@@ -351,36 +336,11 @@ function HandleEditor<T>({
         }
         rightIcon={rightIcon}
         errorText={errorText ?? undefined}
-        helperText={helperOrIdle ?? helperText}
+        helperText={helperOrIdle ?? undefined}
         aria-invalid={Boolean(errorText)}
         fullWidth
         data-testid={`${fieldId}-input`}
       />
-
-      {/* Live preview — quiet supporting line, not a callout box. */}
-      <div
-        className="flex items-baseline gap-2 text-label-small-default text-[var(--content-tertiary)]"
-        aria-live="polite"
-      >
-        <span>Appears as</span>
-        <AnimatePresence mode="popLayout" initial={false}>
-          <motion.span
-            key={previewHandle}
-            initial={prefersReducedMotion ? false : { opacity: 0, y: 1 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={prefersReducedMotion ? undefined : { opacity: 0, y: -1 }}
-            transition={{ duration: 0.14, ease: "easeOut" }}
-            className={
-              "font-mono " +
-              (previewIsDirty
-                ? "text-[var(--content-primary)]"
-                : "text-[var(--content-secondary)]")
-            }
-          >
-            @{previewHandle}
-          </motion.span>
-        </AnimatePresence>
-      </div>
 
       <div className="flex justify-end">
         <Button
@@ -452,7 +412,7 @@ function UserHandleSection({ initial, onSaved }: UserHandleSectionProps) {
   return (
     <HandleEditor<UserMe>
       initialHandle={initial.username}
-      inputLabel="Handle"
+      inputLabel="User handle"
       helperText="Lowercase letters, digits, hyphens, and underscores. 3–30 characters."
       idleHelperText={idleHelperText}
       checkAvailable={checkAvailable}
