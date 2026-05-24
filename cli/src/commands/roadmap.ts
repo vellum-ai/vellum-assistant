@@ -58,6 +58,12 @@ function requireSlug(args: string[], command: string): string {
   return slug;
 }
 
+// eslint-disable-next-line no-control-regex
+const ANSI_RE = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]|\x1b(?:\[[0-9;]*[A-Za-z]|\].*?(?:\x07|\x1b\\))/g;
+function sanitize(text: string): string {
+  return text.replace(ANSI_RE, "");
+}
+
 function makeLink(url: string): string {
   return `\x1b]8;;${url}\x1b\\${url}\x1b]8;;\x1b\\`;
 }
@@ -163,10 +169,10 @@ async function roadmapList(args: string[]): Promise<void> {
   for (const item of data.items) {
     const upvoted = item.viewer_upvoted ? " (upvoted)" : "";
     const tags = item.tags.length > 0
-      ? ` [${item.tags.map((t) => t.slug).join(", ")}]`
+      ? ` [${item.tags.map((t) => sanitize(t.slug)).join(", ")}]`
       : "";
     console.log(
-      `  ${item.title}  ▲${item.upvote_count}${upvoted}  💬${item.comment_count}  ${item.status}${tags}`,
+      `  ${sanitize(item.title)}  ▲${item.upvote_count}${upvoted}  💬${item.comment_count}  ${item.status}${tags}`,
     );
     console.log(`    ${makeLink(`${webUrl}/roadmap/${item.slug}`)}`);
   }
@@ -204,27 +210,27 @@ async function roadmapGet(args: string[]): Promise<void> {
   const upvoted = item.viewer_upvoted ? " (upvoted)" : "";
   const tags =
     item.tags.length > 0
-      ? item.tags.map((t) => t.slug).join(", ")
+      ? item.tags.map((t) => sanitize(t.slug)).join(", ")
       : "none";
 
-  console.log(item.title);
+  console.log(sanitize(item.title));
   console.log(`  slug:     ${item.slug}`);
   console.log(`  status:   ${item.status}`);
   console.log(`  upvotes:  ${item.upvote_count}${upvoted}`);
   console.log(`  tags:     ${tags}`);
-  console.log(`  by:       ${item.creator_username}`);
+  console.log(`  by:       ${sanitize(item.creator_username)}`);
   console.log(`  created:  ${item.created}`);
   console.log(`  url:      ${makeLink(`${webUrl}/roadmap/${item.slug}`)}`);
   if (item.description) {
-    console.log(`\n${item.description}`);
+    console.log(`\n${sanitize(item.description)}`);
   }
 
   if (item.comments.length > 0) {
     console.log(`\nComments (${item.comments.length}):`);
     for (const c of item.comments) {
       const staff = c.author_is_staff ? " [staff]" : "";
-      console.log(`  ${c.author_username}${staff} (${c.created}):`);
-      console.log(`    ${c.body}`);
+      console.log(`  ${sanitize(c.author_username)}${staff} (${c.created}):`);
+      console.log(`    ${sanitize(c.body)}`);
     }
   }
 }
@@ -279,7 +285,7 @@ async function roadmapCreate(args: string[]): Promise<void> {
   };
 
   const webUrl = getWebUrl();
-  console.log(`Created roadmap item: ${item.title}`);
+  console.log(`Created roadmap item: ${sanitize(item.title)}`);
   console.log(`  slug:   ${item.slug}`);
   console.log(`  status: ${item.status}`);
   console.log(`  url:    ${makeLink(`${webUrl}/roadmap/${item.slug}`)}`);
@@ -343,7 +349,7 @@ async function roadmapUpdate(args: string[]): Promise<void> {
   };
 
   const webUrl = getWebUrl();
-  console.log(`Updated roadmap item: ${item.title}`);
+  console.log(`Updated roadmap item: ${sanitize(item.title)}`);
   console.log(`  slug:   ${item.slug}`);
   console.log(`  status: ${item.status}`);
   console.log(`  url:    ${makeLink(`${webUrl}/roadmap/${item.slug}`)}`);
