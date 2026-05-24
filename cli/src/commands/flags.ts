@@ -1,0 +1,162 @@
+import { AssistantClient } from "../lib/assistant-client.js";
+
+type FeatureFlagEntry = {
+  key: string;
+  label: string;
+  enabled: boolean;
+  defaultEnabled: boolean;
+  description: string;
+};
+
+type FlagsResponse = {
+  flags: FeatureFlagEntry[];
+};
+
+function pad(s: string, w: number): string {
+  return s + " ".repeat(Math.max(0, w - s.length));
+}
+
+function printFlagTable(flags: FeatureFlagEntry[]): void {
+  const headers = { key: "KEY", enabled: "ENABLED", default: "DEFAULT", label: "LABEL" };
+
+  const rows = flags
+    .slice()
+    .sort((a, b) => a.key.localeCompare(b.key))
+    .map((f) => ({
+      key: f.enabled !== f.defaultEnabled ? `* ${f.key}` : `  ${f.key}`,
+      enabled: String(f.enabled),
+      default: String(f.defaultEnabled),
+      label: f.label,
+    }));
+
+  const all = [headers, ...rows];
+  const colWidths = {
+    key: Math.max(...all.map((r) => r.key.length)),
+    enabled: Math.max(...all.map((r) => r.enabled.length)),
+    default: Math.max(...all.map((r) => r.default.length)),
+    label: Math.max(...all.map((r) => r.label.length)),
+  };
+
+  const formatRow = (r: typeof headers) =>
+    `${pad(r.key, colWidths.key)}  ${pad(r.enabled, colWidths.enabled)}  ${pad(r.default, colWidths.default)}  ${r.label}`;
+
+  console.log(formatRow(headers));
+  console.log(
+    `${"-".repeat(colWidths.key)}  ${"-".repeat(colWidths.enabled)}  ${"-".repeat(colWidths.default)}  ${"-".repeat(colWidths.label)}`,
+  );
+  for (const row of rows) {
+    console.log(formatRow(row));
+  }
+  console.log("");
+  console.log("* = overridden (differs from default)");
+}
+
+function printHelp(): void {
+  console.log("Usage: vellum flags [subcommand] [options]");
+  console.log("");
+  console.log("Subcommands:");
+  console.log("  (none)              List all feature flags");
+  console.log("  get <key>           Show details for a single flag");
+  console.log("  set <key> <bool>    Set a flag to true or false");
+  console.log("");
+  console.log("Options:");
+  console.log("  --help, -h          Show this help");
+}
+
+async function createClient(): Promise<AssistantClient> {
+  try {
+    return new AssistantClient();
+  } catch {
+    throw new Error(
+      "No running assistant found. Start one with 'vellum wake' first.",
+    );
+  }
+}
+
+async function listFlags(): Promise<void> {
+  const client = await createClient();
+  const res = await client.get("/feature-flags");
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`Failed to fetch flags: HTTP ${res.status} ${body}`.trim());
+  }
+  const data = (await res.json()) as FlagsResponse;
+  if (data.flags.length === 0) {
+    console.log("No feature flags found.");
+    return;
+  }
+  printFlagTable(data.flags);
+}
+
+async function getFlag(key: string): Promise<void> {
+  const client = await createClient();
+  const res = await client.get("/feature-flags");
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`Failed to fetch flags: HTTP ${res.status} ${body}`.trim());
+  }
+  const data = (await res.json()) as FlagsResponse;
+  const flag = data.flags.find((f) => f.key === key);
+  if (!flag) {
+    throw new Error(`Flag "${key}" not found.`);
+  }
+  console.log(`Key:            ${flag.key}`);
+  console.log(`Enabled:        ${flag.enabled}`);
+  console.log(`Default:        ${flag.defaultEnabled}`);
+  console.log(`Description:    ${flag.description || "(none)"}`);
+}
+
+async function setFlag(key: string, value: boolean): Promise<void> {
+  const client = await createClient();
+  const res = await client.patch(`/feature-flags/${key}`, { enabled: value });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`Failed to set flag: HTTP ${res.status} ${body}`.trim());
+  }
+  console.log(`Flag "${key}" set to ${value}`);
+}
+
+export async function flags(): Promise<void> {
+  const args = process.argv.slice(3);
+
+  if (args.includes("--help") || args.includes("-h")) {
+    printHelp();
+    return;
+  }
+
+  const subcommand = args[0];
+
+  if (!subcommand) {
+    await listFlags();
+    return;
+  }
+
+  if (subcommand === "get") {
+    const key = args[1];
+    if (!key) {
+      console.error("Usage: vellum flags get <key>");
+      process.exit(1);
+    }
+    await getFlag(key);
+    return;
+  }
+
+  if (subcommand === "set") {
+    const key = args[1];
+    const rawValue = args[2];
+    if (!key || rawValue === undefined) {
+      console.error("Usage: vellum flags set <key> <true|false>");
+      process.exit(1);
+    }
+    if (rawValue !== "true" && rawValue !== "false") {
+      console.error(`Invalid value "${rawValue}". Must be "true" or "false".`);
+      process.exit(1);
+    }
+    await setFlag(key, rawValue === "true");
+    return;
+  }
+
+  console.error(`Unknown subcommand: ${subcommand}`);
+  printHelp();
+  process.exit(1);
+}
