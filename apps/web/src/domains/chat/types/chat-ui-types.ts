@@ -10,6 +10,10 @@ export interface ChatError {
   message: string;
   code?: string;
   errorCategory?: string;
+  /** See `types.ts` ChatError for full semantics. */
+  displayAs?: "inline" | "modal";
+  /** See `types.ts` ChatError for full semantics. */
+  restoreContent?: string;
 }
 
 export interface PendingSecretState {

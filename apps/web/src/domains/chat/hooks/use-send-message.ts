@@ -77,6 +77,25 @@ export {
 } from "@/domains/chat/hooks/send-message-utils.js";
 
 // ---------------------------------------------------------------------------
+// Stream send result
+// ---------------------------------------------------------------------------
+
+/**
+ * Tagged result of `sendMessageViaStream`. Surfaced to the caller so it can
+ * differentiate clean success, in-flight scope changes (ignore), and POST
+ * failures (which require optimistic-state rollback).
+ *
+ * Previously the hook returned `string | undefined` and called `setError`
+ * directly, which made it impossible for the caller to roll back the
+ * optimistic user-message bubble or remove the just-prepended draft
+ * conversation from the sidebar.
+ */
+type SendStreamResult =
+  | { status: "ok"; resolvedConversationId?: string }
+  | { status: "ignored" }
+  | { status: "failed"; error: ChatError };
+
+// ---------------------------------------------------------------------------
 // Params
 // ---------------------------------------------------------------------------
 
@@ -206,11 +225,12 @@ export function useSendMessage({
   // sendMessageViaStream — low-level POST + polling fallback
   // -------------------------------------------------------------------------
   const sendMessageViaStream = useCallback(
-    async (content: string, epoch: number, turnId: string, attachmentIds: string[] = []): Promise<string | undefined> => {
+    async (content: string, epoch: number, turnId: string, attachmentIds: string[] = []): Promise<SendStreamResult> => {
       if (!activeConversationId || !assistantId) {
-        setError({ message: "No active conversation. Please try again." });
-        useTurnStore.getState().onStreamError();
-        return undefined;
+        return {
+          status: "failed",
+          error: { message: "No active conversation. Please try again." },
+        };
       }
       const requestAssistantId = assistantId;
       const requestConversationId = activeConversationId;
@@ -243,16 +263,21 @@ export function useSendMessage({
             activeAssistantId: assistantIdRef.current,
             activeConversationId: activeConversationIdRef.current,
           });
-          return undefined;
+          return { status: "ignored" };
         }
         const detail = resolvePostError(
           postResult.error.code,
           postResult.error.detail,
           "Something went wrong. Please try again.",
         );
-        setError({ message: detail, code: postResult.error.code ?? undefined });
         useTurnStore.getState().onStreamError();
-        return undefined;
+        return {
+          status: "failed",
+          error: {
+            message: detail,
+            ...(postResult.error.code ? { code: postResult.error.code } : {}),
+          },
+        };
       }
       // Success — drain the ref so subsequent messages omit the field.
       pendingOnboardingContextRef.current = null;
@@ -275,7 +300,12 @@ export function useSendMessage({
           activeAssistantId: assistantIdRef.current,
           activeConversationId: activeConversationIdRef.current,
         });
-        return postResult.resolvedConversationId;
+        return {
+          status: "ok",
+          ...(postResult.resolvedConversationId
+            ? { resolvedConversationId: postResult.resolvedConversationId }
+            : {}),
+        };
       }
 
       const existingStreamContext = streamContextRef.current;
@@ -289,8 +319,22 @@ export function useSendMessage({
         conversationId: effectiveConversationId,
       };
 
-      if (postResult.queued) return postResult.resolvedConversationId;
-      if (hasMatchingActiveStream) return postResult.resolvedConversationId;
+      if (postResult.queued) {
+        return {
+          status: "ok",
+          ...(postResult.resolvedConversationId
+            ? { resolvedConversationId: postResult.resolvedConversationId }
+            : {}),
+        };
+      }
+      if (hasMatchingActiveStream) {
+        return {
+          status: "ok",
+          ...(postResult.resolvedConversationId
+            ? { resolvedConversationId: postResult.resolvedConversationId }
+            : {}),
+        };
+      }
 
       pollForResponse(postResult.assistantId, postResult.messageId, effectiveConversationId)
         .then(async (reply) => {
@@ -396,7 +440,12 @@ export function useSendMessage({
           useTurnStore.getState().onPollReconciled(turnId);
         });
 
-      return postResult.resolvedConversationId;
+      return {
+        status: "ok",
+        ...(postResult.resolvedConversationId
+          ? { resolvedConversationId: postResult.resolvedConversationId }
+          : {}),
+      };
     },
     [activeConversationId, assistantId, startReconciliationLoop],
   );
@@ -543,12 +592,45 @@ export function useSendMessage({
       let resolvedId: string | undefined;
 
       try {
-        resolvedId = await sendMessageViaStream(
+        const result = await sendMessageViaStream(
           content,
           streamEpochRef.current,
           turnId,
           attachments.map((att) => att.id),
         );
+
+        if (result.status === "failed") {
+          // Roll back every piece of optimistic state we just set up: the
+          // bubble in the transcript, the processing flag on the conversation,
+          // the prepended draft conversation in the sidebar, and the cleared
+          // composer input. Then surface the error.
+          setMessages((prev) =>
+            prev.filter((m) => m.stableId !== userMessage.stableId),
+          );
+          useConversationStore
+            .getState()
+            .removeProcessingConversationId(activeConversationId);
+          if (isDraft) {
+            removeConversation(queryClient, assistantId, activeConversationId);
+            setError({
+              message: result.error.message,
+              ...(result.error.code ? { code: result.error.code } : {}),
+              displayAs: "modal",
+              restoreContent: content,
+            });
+          } else {
+            setInput(content);
+            setError(result.error);
+          }
+          return;
+        }
+
+        if (result.status === "ignored") {
+          // Scope changed mid-flight; the new scope owns UI state from here.
+          return;
+        }
+
+        resolvedId = result.resolvedConversationId;
 
         // Resolve draft key -> server-assigned conversation ID.
         if (resolvedId && resolvedId !== activeConversationId) {

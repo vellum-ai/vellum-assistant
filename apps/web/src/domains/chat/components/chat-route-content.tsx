@@ -25,6 +25,7 @@ import { ChatBody } from "@/domains/chat/components/chat-body.js";
 import { SlackChannelFooter } from "@/domains/chat/components/slack-channel-footer.js";
 import { ConversationStarterGrid } from "@/domains/chat/components/conversation-starter-grid.js";
 import { ComposerNotices } from "@/domains/chat/components/composer-notices.js";
+import { SendErrorModal } from "@/domains/chat/components/send-error-modal.js";
 import { ConfirmationPromptCard } from "@/domains/chat/components/confirmation-prompt-card.js";
 import { ContactPromptCard } from "@/domains/chat/components/contact-prompt-card.js";
 import { QuestionPromptCard } from "@/domains/chat/components/question-prompt-card.js";
@@ -660,6 +661,23 @@ export function ChatRouteContent({
         ) : undefined,
       }
     : null;
+
+  // Modal-mode errors (e.g. secret_blocked from a fresh new-conversation
+  // POST) interrupt with a dialog and restore the user's text back into the
+  // composer on dismiss so they can edit and resend without retyping.
+  const sendErrorModalNode =
+    error?.displayAs === "modal" ? (
+      <SendErrorModal
+        open
+        message={error.message}
+        onClose={() => {
+          if (typeof error.restoreContent === "string") {
+            setInput(error.restoreContent);
+          }
+          setError(null);
+        }}
+      />
+    ) : null;
 
   const canSendAttachments =
     attachmentsUploadingCount === 0 && attachmentUploadedIds.length > 0;
@@ -1412,29 +1430,32 @@ export function ChatRouteContent({
 
   if (mainView === "document" && !isMobile && openedDocumentState && assistantId) {
     return (
-      <ResizablePanel
-        storageKey="documentPanelWidth"
-        defaultLeftWidth={400}
-        minLeftWidth={300}
-        minRightWidth={400}
-        left={chatContent}
-        right={
-          <DocumentViewerContainer
-            documentName={openedDocumentState.documentName}
-            content={openedDocumentState.content}
-            onClose={handleCloseDocument}
-            assistantId={assistantId}
-            surfaceId={openedDocumentState.surfaceId}
-            conversationId={openedDocumentState.conversationId}
-            onSubmitFeedback={() => {
-              const prompt = `Please review and address my comments on "${openedDocumentState.documentName}".`;
-              navigate(
-                `${routes.conversation(openedDocumentState.conversationId)}?prompt=${encodeURIComponent(prompt)}`,
-              );
-            }}
-          />
-        }
-      />
+      <>
+        <ResizablePanel
+          storageKey="documentPanelWidth"
+          defaultLeftWidth={400}
+          minLeftWidth={300}
+          minRightWidth={400}
+          left={chatContent}
+          right={
+            <DocumentViewerContainer
+              documentName={openedDocumentState.documentName}
+              content={openedDocumentState.content}
+              onClose={handleCloseDocument}
+              assistantId={assistantId}
+              surfaceId={openedDocumentState.surfaceId}
+              conversationId={openedDocumentState.conversationId}
+              onSubmitFeedback={() => {
+                const prompt = `Please review and address my comments on "${openedDocumentState.documentName}".`;
+                navigate(
+                  `${routes.conversation(openedDocumentState.conversationId)}?prompt=${encodeURIComponent(prompt)}`,
+                );
+              }}
+            />
+          }
+        />
+        {sendErrorModalNode}
+      </>
     );
   }
 
@@ -1442,24 +1463,32 @@ export function ChatRouteContent({
     const activeEntry = subagentState.byId[activeSubagentId];
     if (activeEntry) {
       return (
-        <ResizablePanel
-          storageKey="subagentDetailPanelWidth"
-          defaultLeftWidth={400}
-          minLeftWidth={300}
-          minRightWidth={400}
-          left={chatContent}
-          right={
-            <SubagentDetailPanel
-              entry={activeEntry}
-              onClose={onCloseSubagentDetail}
-              onStop={onStopSubagent}
-              onRequestDetail={onRequestSubagentDetail}
-            />
-          }
-        />
+        <>
+          <ResizablePanel
+            storageKey="subagentDetailPanelWidth"
+            defaultLeftWidth={400}
+            minLeftWidth={300}
+            minRightWidth={400}
+            left={chatContent}
+            right={
+              <SubagentDetailPanel
+                entry={activeEntry}
+                onClose={onCloseSubagentDetail}
+                onStop={onStopSubagent}
+                onRequestDetail={onRequestSubagentDetail}
+              />
+            }
+          />
+          {sendErrorModalNode}
+        </>
       );
     }
   }
 
-  return chatContent;
+  return (
+    <>
+      {chatContent}
+      {sendErrorModalNode}
+    </>
+  );
 }
