@@ -285,8 +285,8 @@ export interface ChatRouteContentProps {
   editingConversationId: string | null;
 
   // Draft
-  restoredDraftConversationKey: string | null;
-  setRestoredDraftConversationKey: Dispatch<SetStateAction<string | null>>;
+  restoredDraftConversationId: string | null;
+  setRestoredDraftConversationId: Dispatch<SetStateAction<string | null>>;
   saveDraft: (key: string, text: string) => void;
   clearDraft: (key: string) => void;
 
@@ -403,8 +403,8 @@ export function ChatRouteContent({
   openedAppState,
   openedDocumentState,
   editingConversationId,
-  restoredDraftConversationKey,
-  setRestoredDraftConversationKey,
+  restoredDraftConversationId,
+  setRestoredDraftConversationId,
   saveDraft,
   clearDraft,
   avatar,
@@ -684,8 +684,8 @@ export function ChatRouteContent({
     (input.trim().length > 0 || attachmentUploadedIds.length > 0);
 
   const showRestoredDraftNotice =
-    restoredDraftConversationKey !== null &&
-    restoredDraftConversationKey === activeConversationId;
+    restoredDraftConversationId !== null &&
+    restoredDraftConversationId === activeConversationId;
 
   const isInMaintenanceWithNoMessages =
     !isLoadingHistory &&
@@ -836,19 +836,19 @@ export function ChatRouteContent({
   useEffect(() => {
     if (!showRestoredDraftNotice) return;
     const id = window.setTimeout(() => {
-      setRestoredDraftConversationKey(null);
+      setRestoredDraftConversationId(null);
     }, 5000);
     return () => window.clearTimeout(id);
-  }, [showRestoredDraftNotice, setRestoredDraftConversationKey]);
+  }, [showRestoredDraftNotice, setRestoredDraftConversationId]);
 
   useEffect(() => {
     if (
-      restoredDraftConversationKey !== null &&
-      restoredDraftConversationKey !== activeConversationId
+      restoredDraftConversationId !== null &&
+      restoredDraftConversationId !== activeConversationId
     ) {
-      setRestoredDraftConversationKey(null);
+      setRestoredDraftConversationId(null);
     }
-  }, [activeConversationId, restoredDraftConversationKey, setRestoredDraftConversationKey]);
+  }, [activeConversationId, restoredDraftConversationId, setRestoredDraftConversationId]);
 
   // -------------------------------------------------------------------------
   // Composer submit
@@ -1005,7 +1005,7 @@ export function ChatRouteContent({
         <div className="mb-2">
           <Notice
             tone="info"
-            onDismiss={() => setRestoredDraftConversationKey(null)}
+            onDismiss={() => setRestoredDraftConversationId(null)}
           >
             Draft restored from your previous session.
           </Notice>
