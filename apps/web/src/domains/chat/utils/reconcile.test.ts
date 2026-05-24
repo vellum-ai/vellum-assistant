@@ -505,8 +505,8 @@ describe("reconcileMessages", () => {
     // THEN the streaming assistant message is preserved AS-IS, including its
     // `isStreaming` flag. A reconcile that lands while the turn is still
     // streaming must not flip the live bubble to "completed" — that would
-    // cause downstream consumers (e.g. `syncNeedsNewBubbleFromMessages`) to
-    // spawn a fresh bubble on the next tool_use_start, splitting the turn.
+    // make the bubble-creation tail derivation in stream-message-updaters
+    // open a fresh bubble on the next tool_use_start, splitting the turn.
     expect(result).toHaveLength(2);
     expect(result[1]).toMatchObject({
       role: "assistant",
@@ -843,11 +843,11 @@ describe("reconcileMessages — mid-stream sync-tag bubble-split regression", ()
   //      was preserved, but the streaming flag was lost — producing the
   //      exact bug fingerprint: `isStreaming:false` + tool call
   //      `status:"running"` on the same row.
-  //   5. `syncNeedsNewBubbleFromMessages` then flipped
-  //      `needsNewBubbleRef = true` based on `lastMsg.isStreaming` alone,
-  //      so the next `tool_use_start` event spawned a fresh
-  //      `assistant-tool-*` bubble — splitting the turn and injecting the
-  //      timestamp footer between the two halves.
+  //   5. The bubble-creation tail derivation in stream-message-updaters
+  //      then saw `lastMsg.isStreaming === false` and (correctly, given
+  //      the corrupted state) opened a fresh `assistant-tool-*` bubble on
+  //      the next `tool_use_start` event — splitting the turn and
+  //      injecting the timestamp footer between the two halves.
   //
   // Contract this test pins down: `reconcileMessages` MUST preserve the
   // client-owned `isStreaming` flag. SSE `message_complete` and the

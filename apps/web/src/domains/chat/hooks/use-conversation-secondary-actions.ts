@@ -143,11 +143,11 @@ export function useConversationSecondaryActions({
   );
 
   // Navigate to the per-conversation LLM context inspector (web port of
-  // macOS's `MessageInspectorView`). The page reads `?conversationKey=`
+  // macOS's `MessageInspectorView`). The page reads `?conversationId=`
   // and `?messageId=`. We default messageId to the most recent assistant
   // message, but only when the target conversation is the currently active
   // one — messagesRef always holds the active transcript, so using it for
-  // a different conversation would produce a mismatched (conversationKey,
+  // a different conversation would produce a mismatched (conversationId,
   // messageId) pair and show the wrong LLM context in the inspector.
   const handleInspectConversation = useCallback(
     (conversation: Conversation) => {

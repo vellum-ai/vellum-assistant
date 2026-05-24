@@ -112,7 +112,6 @@ export interface UseStreamEventHandlerParams {
   // --- Messages ---
   setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
   messagesRef: MutableRefObject<DisplayMessage[]>;
-  needsNewBubbleRef: MutableRefObject<boolean>;
 
   // --- Error & stream lifecycle ---
   setError: Dispatch<SetStateAction<ChatError | null>>;
@@ -188,7 +187,6 @@ export function useStreamEventHandler(
     assistantIdRef,
     setMessages,
     messagesRef,
-    needsNewBubbleRef,
     setError,
     streamRef,
     cancelReconciliation,
@@ -277,10 +275,15 @@ export function useStreamEventHandler(
           return;
         }
       }
-      if (
-        event.type !== "assistant_text_delta" ||
-        needsNewBubbleRef.current
-      ) {
+      // Suppress per-chunk text_delta noise — only log the first delta of a
+      // new bubble. "First delta" is derived from the message ref tail:
+      // if the tail isn't a streaming assistant, the next text_delta will
+      // open a fresh bubble. This replaces the previous `needsNewBubbleRef`
+      // latch with a tail-derivation read.
+      const tail = messagesRef.current[messagesRef.current.length - 1];
+      const tailIsStreaming =
+        !!tail && tail.role === "assistant" && !!tail.isStreaming;
+      if (event.type !== "assistant_text_delta" || !tailIsStreaming) {
         recordChatDiagnostic(
           event.type === "assistant_text_delta"
             ? "sse_assistant_text_delta_start"
@@ -303,7 +306,6 @@ export function useStreamEventHandler(
         assistantIdRef,
         setMessages,
         messagesRef,
-        needsNewBubbleRef,
         turnActions: useTurnStore.getState(),
         getTurnState: () => useTurnStore.getState(),
         clearProcessingKey,
@@ -496,7 +498,6 @@ export function useStreamEventHandler(
       assistantIdRef,
       setMessages,
       messagesRef,
-      needsNewBubbleRef,
       setError,
       streamRef,
       confirmationToolCallMapRef,

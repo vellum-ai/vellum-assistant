@@ -20,7 +20,6 @@ export function makeCtx(
     assistantIdRef: { current: "ast-1" },
     setMessages: mock(() => {}),
     messagesRef: { current: [] },
-    needsNewBubbleRef: { current: false },
     turnActions: {
       requestSend: mock(() => {}),
       acceptSend: mock(() => {}),

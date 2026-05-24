@@ -4469,6 +4469,14 @@ components:
           oneOf:
           - $ref: '#/components/schemas/MachineSizeEnum'
           - $ref: '#/components/schemas/NullEnum'
+        provisioned_storage_gib:
+          type: integer
+          readOnly: true
+          nullable: true
+          description: GiB of workspace PVC last successfully provisioned for THIS
+            assistant via a resize/onboarding apply. Null until storage is first applied.
+            Used to derive onboarding pvc_ready and as the never-shrink floor; distinct
+            from BillingAccount billing markers.
         maintenance_mode:
           allOf:
           - $ref: '#/components/schemas/MaintenanceMode'
@@ -4494,6 +4502,7 @@ components:
       - machine_size
       - maintenance_mode
       - modified
+      - provisioned_storage_gib
       - release_channel
       - vembda_cluster_id
     AssistantDomain:

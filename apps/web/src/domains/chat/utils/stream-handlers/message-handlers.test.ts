@@ -21,14 +21,25 @@ describe("handleAssistantTextDelta", () => {
     expect(ctx.setMessages).toHaveBeenCalled();
   });
 
-  it("creates a new bubble when needsNewBubbleRef is true", () => {
-    const ctx = makeCtx({ needsNewBubbleRef: { current: true } });
+  it("creates a new bubble when the tail is not a streaming assistant", () => {
+    // Empty messages → tail derivation says "create new bubble".
+    const ctx = makeCtx();
     handleAssistantTextDelta(
       { type: "assistant_text_delta", text: "Hi" },
       ctx,
     );
-    expect(ctx.needsNewBubbleRef.current).toBe(false);
     expect(ctx.setMessages).toHaveBeenCalled();
+    // Apply the updater to an empty array to confirm a new bubble emerges.
+    const updater = (ctx.setMessages as unknown as ReturnType<typeof Object>).mock.calls[0][0] as (
+      prev: never[],
+    ) => unknown[];
+    const next = updater([]);
+    expect(next).toHaveLength(1);
+    expect(next[0]).toMatchObject({
+      role: "assistant",
+      isStreaming: true,
+      content: "Hi",
+    });
   });
 });
 
@@ -68,7 +79,6 @@ describe("handleAssistantActivityState", () => {
     );
     expect(ctx.lastActivityVersionRef.current.get("conv-1")).toBe(1);
     expect(ctx.setMessages).toHaveBeenCalled();
-    expect(ctx.needsNewBubbleRef.current).toBe(true);
     expect(ctx.turnActions.completeTurn).toHaveBeenCalled();
     expect(ctx.clearProcessingKey).toHaveBeenCalledWith("conv-1");
     expect(ctx.startReconciliationLoop).toHaveBeenCalledWith(1);
@@ -142,7 +152,6 @@ describe("handleMessageComplete", () => {
       ctx,
     );
     expect(ctx.setMessages).toHaveBeenCalled();
-    expect(ctx.needsNewBubbleRef.current).toBe(true);
     expect(ctx.turnActions.completeTurn).toHaveBeenCalled();
     expect(ctx.clearProcessingKey).toHaveBeenCalledWith("conv-1");
     expect(ctx.startReconciliationLoop).toHaveBeenCalledWith(1);
@@ -150,7 +159,7 @@ describe("handleMessageComplete", () => {
 });
 
 describe("handleGenerationHandoff", () => {
-  it("cancels reconciliation and sets needsNewBubble", () => {
+  it("cancels reconciliation and finalizes streaming tail", () => {
     const ctx = makeCtx();
     handleGenerationHandoff(
       { type: "generation_handoff", messageId: "msg-1" },
@@ -158,7 +167,7 @@ describe("handleGenerationHandoff", () => {
     );
     expect(ctx.cancelReconciliation).toHaveBeenCalled();
     expect(ctx.turnActions.handoffGeneration).toHaveBeenCalled();
-    expect(ctx.needsNewBubbleRef.current).toBe(true);
+    expect(ctx.setMessages).toHaveBeenCalled();
   });
 });
 
@@ -169,6 +178,5 @@ describe("handleGenerationCancelled", () => {
     expect(ctx.turnActions.cancelGeneration).toHaveBeenCalled();
     expect(ctx.clearProcessingKey).toHaveBeenCalledWith("conv-1");
     expect(ctx.setMessages).toHaveBeenCalled();
-    expect(ctx.needsNewBubbleRef.current).toBe(true);
   });
 });

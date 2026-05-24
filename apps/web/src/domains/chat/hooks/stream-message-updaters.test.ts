@@ -86,17 +86,35 @@ describe("appendTextDelta", () => {
     expect(last.content).toBe("Hello");
   });
 
-  it("returns prev unchanged if last message is not streaming assistant", () => {
-    const msg = makeAssistantMsg({ isStreaming: false });
-    const prev = [userMsg, msg];
-    const result = appendTextDelta(prev, "text");
-    expect(result).toBe(prev);
+  it("creates a new streaming bubble when last message is a finalized assistant", () => {
+    // Old behavior was a no-op; new behavior opens a fresh bubble so the
+    // text-delta isn't dropped on the floor. This is the bubble-creation
+    // path that used to be gated by `needsNewBubbleRef`.
+    const finalized = makeAssistantMsg({ isStreaming: false });
+    const result = appendTextDelta([userMsg, finalized], "text");
+
+    expect(result).toHaveLength(3);
+    expect(result[2]!.role).toBe("assistant");
+    expect(result[2]!.isStreaming).toBe(true);
+    expect(result[2]!.content).toBe("text");
   });
 
-  it("returns prev unchanged if last message is a user message", () => {
-    const prev = [userMsg];
-    const result = appendTextDelta(prev, "text");
-    expect(result).toBe(prev);
+  it("creates a new streaming bubble when last message is a user message", () => {
+    // Initial assistant turn (no prior assistant bubble at all) — first
+    // text delta must spawn the bubble rather than no-op.
+    const result = appendTextDelta([userMsg], "text");
+
+    expect(result).toHaveLength(2);
+    expect(result[1]!.role).toBe("assistant");
+    expect(result[1]!.isStreaming).toBe(true);
+    expect(result[1]!.content).toBe("text");
+  });
+
+  it("uses stableId when creating a new bubble", () => {
+    const result = appendTextDelta([userMsg], "text", "stable-xyz");
+
+    expect(result).toHaveLength(2);
+    expect(result[1]!.id).toBe("stable-xyz");
   });
 
   it("does not mutate the original array", () => {
@@ -199,9 +217,9 @@ describe("upsertToolCall", () => {
     status: "running" as const,
   };
 
-  it("appends tool call to existing streaming message", () => {
+  it("appends tool call to existing streaming assistant tail", () => {
     const msg = makeAssistantMsg({ toolCalls: undefined });
-    const result = upsertToolCall([userMsg, msg], toolCall, false);
+    const result = upsertToolCall([userMsg, msg], toolCall);
 
     expect(result).toHaveLength(2);
     expect(result[1]!.toolCalls).toHaveLength(1);
@@ -214,15 +232,17 @@ describe("upsertToolCall", () => {
       toolCalls: [{ id: "tc-1", toolName: "old_name", input: {}, status: "running" as const }],
     });
     const updatedTc = { id: "tc-1", toolName: "web_search", input: {} as Record<string, unknown>, status: "running" as const };
-    const result = upsertToolCall([msg], updatedTc, false);
+    const result = upsertToolCall([msg], updatedTc);
 
     expect(result[0]!.toolCalls).toHaveLength(1);
     expect(result[0]!.toolCalls![0]!.toolName).toBe("web_search");
   });
 
-  it("creates new bubble when shouldCreateNewBubble is true", () => {
-    const msg = makeAssistantMsg();
-    const result = upsertToolCall([userMsg, msg], toolCall, true);
+  it("creates a new bubble when the tail is a finalized assistant", () => {
+    // Finalized assistant tail (isStreaming: false) → derivation says
+    // "open a fresh bubble" rather than extend the previous turn.
+    const finalized = makeAssistantMsg({ isStreaming: false });
+    const result = upsertToolCall([userMsg, finalized], toolCall);
 
     expect(result).toHaveLength(3);
     expect(result[2]!.role).toBe("assistant");
@@ -230,8 +250,8 @@ describe("upsertToolCall", () => {
     expect(result[2]!.toolCalls).toHaveLength(1);
   });
 
-  it("creates new bubble when no streaming assistant message exists", () => {
-    const result = upsertToolCall([userMsg], toolCall, false);
+  it("creates a new bubble when no streaming assistant tail exists", () => {
+    const result = upsertToolCall([userMsg], toolCall);
 
     expect(result).toHaveLength(2);
     expect(result[1]!.role).toBe("assistant");
@@ -241,7 +261,7 @@ describe("upsertToolCall", () => {
   it("does not mutate existing messages", () => {
     const msg = makeAssistantMsg({ toolCalls: [] });
     const prev = [msg];
-    upsertToolCall(prev, toolCall, false);
+    upsertToolCall(prev, toolCall);
     expect(prev[0]!.toolCalls).toHaveLength(0);
   });
 });
@@ -411,15 +431,29 @@ describe("finalizeOnIdle", () => {
     expect(result).toBe(prev);
   });
 
-  it("returns prev unchanged when streaming messages have no running tool calls", () => {
+  it("flips isStreaming to false even when streaming messages have no running tool calls", () => {
+    // New behavior (replaces what `needsNewBubbleRef` used to carry): the
+    // tail must transition out of "streaming" state on idle regardless of
+    // tool-call presence, so the next chunk derives "open a new bubble".
     const msg = makeAssistantMsg({
       toolCalls: [
         { id: "tc-1", toolName: "web_search", input: {}, status: "completed" },
       ],
     });
-    const prev = [msg];
-    const result = finalizeOnIdle(prev);
-    expect(result).toBe(prev);
+    const result = finalizeOnIdle([msg]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]!.isStreaming).toBe(false);
+    // Already-completed tool calls remain untouched.
+    expect(result[0]!.toolCalls![0]!.status).toBe("completed");
+  });
+
+  it("flips isStreaming to false on a streaming assistant with no tool calls at all", () => {
+    const msg = makeAssistantMsg({ toolCalls: undefined });
+    const result = finalizeOnIdle([msg]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]!.isStreaming).toBe(false);
   });
 
   it("does not modify non-streaming assistant messages", () => {

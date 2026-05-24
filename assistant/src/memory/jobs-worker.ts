@@ -524,10 +524,10 @@ async function processJob(
       pruneOldConversationsJob(job, config);
       return;
     case "prune_old_llm_request_logs":
-      pruneOldLlmRequestLogsJob(job, config);
+      await pruneOldLlmRequestLogsJob(job, config);
       return;
     case "prune_old_trace_events":
-      pruneOldTraceEventsJob(job, config);
+      await pruneOldTraceEventsJob(job, config);
       return;
     case "build_conversation_summary":
       // Stale rows enqueued before v2 was enabled must not consume the

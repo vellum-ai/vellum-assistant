@@ -6,7 +6,7 @@ import { assertHasResponse } from "@/lib/api-errors.js";
 import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
 import {
   CLIENT_FLAG_DEFAULTS,
-  ldKeyToStoreKey,
+  flagKeyToStoreKey,
 } from "@/lib/feature-flags/feature-flag-catalog.js";
 
 interface ClientFlagValuesResponse {
@@ -37,8 +37,8 @@ function mapFlags(
   serverFlags: Record<string, boolean>,
 ): Record<string, boolean> {
   const mapped: Record<string, boolean> = {};
-  for (const [ldKey, value] of Object.entries(serverFlags)) {
-    const storeKey = ldKeyToStoreKey(ldKey);
+  for (const [flagKey, value] of Object.entries(serverFlags)) {
+    const storeKey = flagKeyToStoreKey(flagKey);
     if (VALID_KEYS.has(storeKey)) {
       mapped[storeKey] = value;
     }

@@ -49,7 +49,6 @@ export function handleMessageDequeued(
   if (dequeuedStableId) {
     ctx.setMessages((prev) => clearQueueStatus(prev, dequeuedStableId));
   }
-  ctx.needsNewBubbleRef.current = true;
 }
 
 export function handleMessageQueuedDeleted(

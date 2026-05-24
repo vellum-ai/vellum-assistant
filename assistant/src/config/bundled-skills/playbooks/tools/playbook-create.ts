@@ -3,7 +3,10 @@ import { sql } from "drizzle-orm";
 import { getDb } from "../../../../memory/db-connection.js";
 import { createNode, updateNode } from "../../../../memory/graph/store.js";
 import type { NewNode } from "../../../../memory/graph/types.js";
-import { enqueueMemoryJob } from "../../../../memory/jobs-store.js";
+import {
+  enqueueMemoryJob,
+  isMemoryEnabled,
+} from "../../../../memory/jobs-store.js";
 import { memoryGraphNodes } from "../../../../memory/schema.js";
 import type {
   Playbook,
@@ -116,7 +119,9 @@ export async function executePlaybookCreate(
       sourceConversations: [`playbook:${node.id}`],
     });
 
-    enqueueMemoryJob("embed_graph_node", { nodeId: node.id });
+    if (isMemoryEnabled()) {
+      enqueueMemoryJob("embed_graph_node", { nodeId: node.id });
+    }
 
     const autonomyLabel =
       autonomyLevel === "auto"

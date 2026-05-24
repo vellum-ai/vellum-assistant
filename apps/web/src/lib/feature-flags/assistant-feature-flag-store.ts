@@ -2,7 +2,7 @@ import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors.js";
 import { client } from "@/generated/api/client.gen.js";
-import { ASSISTANT_FLAG_DEFAULTS, storeKeyToLdKey } from "@/lib/feature-flags/feature-flag-catalog.js";
+import { ASSISTANT_FLAG_DEFAULTS, storeKeyToFlagKey } from "@/lib/feature-flags/feature-flag-catalog.js";
 
 /**
  * Internal store fields that are NOT feature flag values. Surfaces that
@@ -58,10 +58,10 @@ const useAssistantFeatureFlagStoreBase = create<AssistantFeatureFlagStore>()(
       setFlag: (key: string, value: boolean, assistantId: string | null) => {
         set({ [key]: value });
 
-        const ldKey = storeKeyToLdKey(key);
-        if (assistantId && ldKey) {
+        const flagKey = storeKeyToFlagKey(key);
+        if (assistantId && flagKey) {
           void client.patch({
-            url: `/v1/assistants/${assistantId}/feature-flags/${ldKey}`,
+            url: `/v1/assistants/${assistantId}/feature-flags/${flagKey}`,
             body: { enabled: value },
             throwOnError: false,
           } as Parameters<typeof client.patch>[0]);

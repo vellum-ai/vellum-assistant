@@ -40,7 +40,6 @@ export interface StreamHandlerContext {
   // --- Messages ---
   setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
   messagesRef: MutableRefObject<DisplayMessage[]>;
-  needsNewBubbleRef: MutableRefObject<boolean>;
 
   // --- Turn state ---
   turnActions: TurnActions;

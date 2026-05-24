@@ -110,7 +110,7 @@ function resolveUserFilename(
     // the DB, and in tests that build the system prompt without first
     // initializing a schema. Treat the same as "no guardian found"
     // so callers fall back to `users/default.md`. Mirrors the same
-    // try/catch pattern used by `buildIntegrationSection` around
+    // try/catch pattern used by `renderConnectedServices()` around
     // `listConnections()`.
     log.debug(
       { err: err instanceof Error ? err.message : String(err) },

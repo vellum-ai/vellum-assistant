@@ -1,8 +1,6 @@
 import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics.js";
-import { newStableId } from "@/domains/chat/utils/stable-id.js";
 import {
   appendTextDelta,
-  createStreamingBubble,
   finalizeMessageComplete,
   finalizeOnIdle,
   stopStreaming,
@@ -17,18 +15,17 @@ export function handleAssistantTextDelta(
 ): void {
   ctx.cancelReconciliation();
   ctx.turnActions.onTextDelta();
-  if (ctx.needsNewBubbleRef.current) {
-    ctx.needsNewBubbleRef.current = false;
-    const stableId = newStableId("assistant-stream");
-    ctx.currentAssistantStableIdRef.current = stableId;
-    ctx.setMessages((prev) =>
-      createStreamingBubble(prev, event.text, event.messageId, stableId),
-    );
-  } else {
-    ctx.setMessages((prev) =>
-      appendTextDelta(prev, event.text, event.messageId),
-    );
-  }
+  ctx.setMessages((prev) => {
+    const next = appendTextDelta(prev, event.text, event.messageId);
+    const tail = next[next.length - 1];
+    // Stamp the stable-id ref to the streaming tail (no-op for extends; new
+    // id for creates). Subagent handlers read this to attribute nested
+    // notifications to the right parent bubble.
+    if (tail?.role === "assistant" && tail.isStreaming) {
+      ctx.currentAssistantStableIdRef.current = tail.stableId;
+    }
+    return next;
+  });
 }
 
 export function handleAssistantActivityState(
@@ -75,7 +72,6 @@ export function handleAssistantActivityState(
   }
 
   ctx.setMessages(finalizeOnIdle);
-  ctx.needsNewBubbleRef.current = true;
   const turnPhaseBefore = ctx.getTurnState().phase;
   ctx.turnActions.completeTurn();
   if (convId) {
@@ -106,7 +102,6 @@ export function handleMessageComplete(
       attachments: completedAttachments,
     }),
   );
-  ctx.needsNewBubbleRef.current = true;
   const turnPhaseBefore = ctx.getTurnState().phase;
   ctx.turnActions.completeTurn();
   const convId = ctx.streamContextRef.current?.conversationId;
@@ -136,7 +131,6 @@ export function handleGenerationHandoff(
       rowMessageId: event.messageId,
     }),
   );
-  ctx.needsNewBubbleRef.current = true;
 }
 
 export function handleGenerationCancelled(
@@ -149,5 +143,4 @@ export function handleGenerationCancelled(
     ctx.clearProcessingKey(convId);
   }
   ctx.setMessages((prev) => stopStreaming(prev));
-  ctx.needsNewBubbleRef.current = true;
 }

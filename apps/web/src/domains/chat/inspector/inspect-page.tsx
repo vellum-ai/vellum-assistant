@@ -76,7 +76,7 @@ export function InspectPage(): ReactNode {
   }
 
   if (!conversationId) {
-    return <MissingConversationKeyState />;
+    return <MissingConversationIdState />;
   }
 
   return (
@@ -558,7 +558,7 @@ function CenteredMessage({
   );
 }
 
-function MissingConversationKeyState(): ReactNode {
+function MissingConversationIdState(): ReactNode {
   return (
     <div className="flex h-full w-full flex-col items-center justify-center gap-2 p-8 text-center">
       <h2

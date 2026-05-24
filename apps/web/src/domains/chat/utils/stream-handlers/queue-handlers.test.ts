@@ -48,7 +48,7 @@ describe("handleMessageQueued", () => {
 });
 
 describe("handleMessageDequeued", () => {
-  it("clears queue status and sets needsNewBubble", () => {
+  it("clears queue status when stableId mapping exists", () => {
     const ctx = makeCtx();
     ctx.requestIdToStableIdRef.current.set("req-1", "stable-1");
     handleMessageDequeued(
@@ -58,7 +58,6 @@ describe("handleMessageDequeued", () => {
     expect(ctx.turnActions.dequeueMessage).toHaveBeenCalled();
     expect(ctx.requestIdToStableIdRef.current.has("req-1")).toBe(false);
     expect(ctx.setMessages).toHaveBeenCalled();
-    expect(ctx.needsNewBubbleRef.current).toBe(true);
   });
 
   it("skips setMessages when no stableId mapping exists", () => {
@@ -69,7 +68,6 @@ describe("handleMessageDequeued", () => {
     );
     expect(ctx.turnActions.dequeueMessage).toHaveBeenCalled();
     expect(ctx.setMessages).not.toHaveBeenCalled();
-    expect(ctx.needsNewBubbleRef.current).toBe(true);
   });
 });
 

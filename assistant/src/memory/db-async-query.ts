@@ -180,12 +180,27 @@ async function runViaCli(
 async function runInProcessBlocking(sql: string): Promise<AsyncSqliteResult> {
   const startMs = Date.now();
   try {
-    getSqlite().exec(sql);
+    const sqlite = getSqlite();
+    sqlite.exec(sql);
+    // Synthesize `stdout` to match what the CLI backend would emit
+    // when the caller chained `SELECT changes();` at the end of their
+    // SQL. `bun:sqlite`'s `exec()` discards SELECT results, so without
+    // this synthesis, callers that read `stdout` to get the row count
+    // (the prune jobs in cleanup.ts, for one) would see `undefined`
+    // and treat the run as "no rows deleted" — silently dropping the
+    // re-enqueue gate on every fallback host. Captured atomically with
+    // exec (same synchronous slice — no other code can run between
+    // these two lines), so the count is accurate for the SQL we just
+    // ran. Harmless for callers that don't read stdout.
+    const changes = (
+      sqlite.query("SELECT changes() AS c").get() as { c: number }
+    ).c;
     return {
       ok: true,
       backend: "in-process-blocking",
       error: null,
       elapsedMs: Date.now() - startMs,
+      stdout: `${changes}\n`,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

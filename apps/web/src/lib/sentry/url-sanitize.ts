@@ -15,7 +15,7 @@
  */
 
 // Bare `key` is intentionally excluded — too broad (would shadow
-// `?conversationKey=…` and similar routing params) and the credential
+// any routing param whose name contains `key`) and the credential
 // variants below cover the auth surface.
 const SENSITIVE_PARAM_KEYS = new Set([
   "access_key",

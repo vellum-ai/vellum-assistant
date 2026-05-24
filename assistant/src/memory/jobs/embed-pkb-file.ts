@@ -1,6 +1,10 @@
 import type { AssistantConfig } from "../../config/types.js";
 import { asString } from "../job-utils.js";
-import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
+import {
+  enqueueMemoryJob,
+  isMemoryEnabled,
+  type MemoryJob,
+} from "../jobs-store.js";
 import { indexPkbFile } from "../pkb/pkb-index.js";
 
 /**
@@ -46,6 +50,7 @@ export async function embedPkbFileJob(
  * Enqueue an `embed_pkb_file` job (async, fire-and-forget).
  */
 export function enqueuePkbIndexJob(input: EmbedPkbFileJobInput): string {
+  if (!isMemoryEnabled()) return "";
   return enqueueMemoryJob("embed_pkb_file", {
     pkbRoot: input.pkbRoot,
     absPath: input.absPath,

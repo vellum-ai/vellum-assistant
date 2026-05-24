@@ -9,10 +9,8 @@ import {
 import { join } from "node:path";
 
 import { getIsContainerized } from "../config/env-registry.js";
-import { getCachedManagedConnections } from "../credential-execution/managed-catalog.js";
 import type { ChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
 import type { TrustContext } from "../daemon/trust-context.js";
-import { listConnections } from "../oauth/oauth-store.js";
 import type { OnboardingContext } from "../types/onboarding-context.js";
 import { resolveBundledDir } from "../util/bundled-asset.js";
 import { getLogger } from "../util/logger.js";
@@ -23,7 +21,6 @@ import {
 } from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";
 import { cleanupBootstrapFiles } from "./bootstrap-cleanup.js";
-import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "./cache-boundary.js";
 import {
   resolveGuardianPersona,
   resolveUserSlug,
@@ -32,8 +29,6 @@ import { renderWorkspaceSections } from "./sections.js";
 import { isTemplateContent } from "./template-detection.js";
 
 export { isTemplateContent };
-
-export { SYSTEM_PROMPT_CACHE_BOUNDARY };
 
 /**
  * Maps onboarding cohort identifiers to their cohort-specific bootstrap
@@ -268,14 +263,6 @@ export function maybeReseedBootstrapForCohort(cohort: string): void {
   }
 }
 
-/**
- * Build the system prompt from `BUNDLED_SYSTEM_SECTIONS` (with
- * workspace overrides per section), followed by the dynamic
- * `# Connected Services` suffix.  Per-section behaviour lives in
- * `system-sections.ts`; the renderer in `sections.ts` handles
- * frontmatter `enabled:` predicates, `{{variable}}` interpolation,
- * and file-backed bodies.
- */
 export interface BuildSystemPromptOptions {
   hasNoClient?: boolean;
   excludeBootstrap?: boolean;
@@ -286,12 +273,11 @@ export interface BuildSystemPromptOptions {
 }
 
 /**
- * Sentinel that separates the static instruction prefix (stable across turns)
- * from the dynamic workspace suffix (changes when workspace files are edited).
- *
- * The Anthropic provider splits on this marker to create two system-prompt
- * cache blocks so that static instructions stay cached even when workspace
- * files change between turns.
+ * Build the system prompt by rendering `BUNDLED_SYSTEM_SECTIONS` (with
+ * workspace overrides per section).  Per-section behaviour lives in
+ * `system-sections.ts`; the renderer in `sections.ts` handles
+ * frontmatter `enabled:` predicates, `{{variable}}` interpolation,
+ * file-backed bodies, and runtime-computed transforms.
  */
 export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // One-shot cohort swap: if the user has a cohort and BOOTSTRAP.md is still
@@ -328,65 +314,13 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
     channelSlug,
   };
 
-  // Everything pushed before `dynamicStart` lands in the static
-  // (cached) prefix; everything after lands in the dynamic suffix.
-  // The two halves are joined around `SYSTEM_PROMPT_CACHE_BOUNDARY`
-  // so the Anthropic provider can key its prompt cache on the prefix.
-  const systemParts: string[] = [...renderWorkspaceSections(ctx)];
-  const dynamicStart = systemParts.length;
-
-  // Configuration section removed — workspace files are self-describing,
-  // tool routing lives in tool descriptions.
-  // External Communications Identity removed — guidance lives in messaging
-  // and phone-calls skill SKILL.md files.
-  const integrationSection = buildIntegrationSection();
-  if (integrationSection) systemParts.push(integrationSection);
-
-  // Journal entries are extracted into graph nodes by the memory pipeline.
-  // Journal files remain writable on disk.
-
-  return (
-    systemParts.slice(0, dynamicStart).join("\n\n") +
-    SYSTEM_PROMPT_CACHE_BOUNDARY +
-    systemParts.slice(dynamicStart).join("\n\n")
-  );
-}
-
-function buildIntegrationSection(): string {
-  const entries: { provider: string; accountInfo?: string | null }[] = [];
-
-  // Local (BYO) connections from the SQLite store.
-  try {
-    const local = listConnections().filter((c) => c.status === "active");
-    entries.push(...local);
-  } catch {
-    // DB not available — skip local connections
-  }
-
-  // Platform-managed connections from the in-memory cache (populated at
-  // daemon startup and refreshed periodically).
-  const managed = getCachedManagedConnections();
-  for (const mc of managed) {
-    // Provider-level dedup is intentional: this section is a summary of
-    // connected services for the system prompt, not an exhaustive account
-    // list. Multiple accounts for the same provider (e.g. two Google
-    // accounts) collapse into a single line to keep the prompt compact.
-    if (!entries.some((e) => e.provider === mc.provider)) {
-      entries.push(mc);
-    }
-  }
-
-  if (entries.length === 0) return "";
-
-  const lines = ["# Connected Services", ""];
-  for (const conn of entries) {
-    const state = conn.accountInfo
-      ? `Connected (${conn.accountInfo})`
-      : "Connected";
-    lines.push(`- **${conn.provider}**: ${state}`);
-  }
-
-  return lines.join("\n");
+  // Every system-prompt block flows through the bundled section
+  // pipeline — including runtime-computed entries like
+  // `14-connected-services` whose body is derived from live OAuth
+  // caches.  The whole prompt is treated as a single cached block by
+  // the Anthropic provider; per-provider details live in each
+  // provider's client.
+  return renderWorkspaceSections(ctx).join("\n\n");
 }
 
 // Re-export from shared util so existing importers don't break.

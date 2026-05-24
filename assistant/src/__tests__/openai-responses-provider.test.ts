@@ -287,18 +287,6 @@ describe("OpenAIResponsesProvider", () => {
     }
   });
 
-  test("strips SYSTEM_PROMPT_CACHE_BOUNDARY from system prompt", async () => {
-    fakeStreamEvents = [textDeltaEvent("OK"), completedEvent(10, 2)];
-
-    await provider.sendMessage(
-      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      "Before\n<!-- SYSTEM_PROMPT_CACHE_BOUNDARY -->\nAfter",
-    );
-
-    expect(lastStreamParams!.instructions).toBe("Before\nAfter");
-  });
-
   // -----------------------------------------------------------------------
   // Tool definitions
   // -----------------------------------------------------------------------
