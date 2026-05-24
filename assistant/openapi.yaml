@@ -2793,6 +2793,85 @@ paths:
               required:
                 - operation
               additionalProperties: false
+  /v1/browser/tabs:
+    post:
+      operationId: browser_tabs_post
+      summary: Manage browser tabs
+      description: List, create, select, or close browser tabs via the Chrome extension backend.
+      tags:
+        - browser
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  tabs:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        tabId:
+                          type: number
+                        windowId:
+                          type: number
+                        url:
+                          type: string
+                        title:
+                          type: string
+                        active:
+                          type: boolean
+                        pinned:
+                          type: boolean
+                      required:
+                        - active
+                        - pinned
+                      additionalProperties: false
+                  tab: {}
+                  tabId:
+                    type: number
+                  clientId:
+                    type: string
+                  closed:
+                    type: boolean
+                required:
+                  - ok
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                command:
+                  type: string
+                  enum:
+                    - list
+                    - select
+                    - new
+                    - close
+                sessionId:
+                  default: default
+                  type: string
+                  minLength: 1
+                conversationId:
+                  type: string
+                  minLength: 1
+                tabId:
+                  type: number
+                url:
+                  type: string
+                targetClientId:
+                  type: string
+                  minLength: 1
+              required:
+                - command
+              additionalProperties: false
   /v1/btw:
     post:
       operationId: btw_post
@@ -9290,6 +9369,9 @@ paths:
                   type: string
                 reason:
                   description: Detach reason
+                  type: string
+                clientId:
+                  description: Extension client ID that reported the invalidation
                   type: string
               additionalProperties: false
   /v1/host-cu-result:

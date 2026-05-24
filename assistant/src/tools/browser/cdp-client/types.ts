@@ -10,6 +10,16 @@
 
 import type { BrowserBackend } from "../../../browser-session/types.js";
 
+/** Shape of a single Chrome tab as returned by Vellum.listTabs. */
+export interface TabInfo {
+  tabId?: number;
+  windowId?: number;
+  url?: string;
+  title?: string;
+  active: boolean;
+  pinned: boolean;
+}
+
 export interface CdpClient {
   /**
    * Send a CDP command and await the result. `method` must be a
@@ -53,6 +63,33 @@ export interface CdpClient {
    * Optional — callers should null-check before invoking.
    */
   setCdpSessionId?(cdpSessionId: string | undefined): void;
+
+  /**
+   * List all open browser tabs. Extension backend only — returns
+   * `{ tabId, windowId, url, title, active, pinned }[]`.
+   * Optional — callers must null-check before invoking.
+   */
+  listTabs?(): Promise<TabInfo[]>;
+
+  /**
+   * Select (activate) an existing tab. Extension backend only. Optional.
+   */
+  selectTab?(tabId: number): Promise<{
+    tabId?: number;
+    windowId?: number;
+    url?: string;
+    title?: string;
+    clientId?: string;
+  }>;
+
+  /**
+   * Close a browser tab by ID. Extension backend only. Optional.
+   */
+  closeTab?(tabId: number): Promise<{
+    closed: boolean;
+    tabId: number;
+    clientId?: string;
+  }>;
 }
 
 /**
@@ -133,6 +170,34 @@ export interface ScopedCdpClient extends CdpClient {
    * chaining.
    */
   setCdpSessionId(cdpSessionId: string | undefined): void;
+
+  /**
+   * List all open browser tabs. Throws with code "transport_error" if
+   * the current backend does not support tab listing.
+   */
+  listTabs(): Promise<TabInfo[]>;
+
+  /**
+   * Select (activate) an existing tab. Throws if backend doesn't support it.
+   */
+  selectTab(tabId: number): Promise<{
+    tabId?: number;
+    windowId?: number;
+    url?: string;
+    title?: string;
+    clientId?: string;
+  }>;
+
+  /**
+   * Close a browser tab by ID. Throws if backend doesn't support it.
+   * The optional `clientId` identifies which extension client actually
+   * closed the tab — used to scope pin cleanup in multi-client setups.
+   */
+  closeTab(tabId: number): Promise<{
+    closed: boolean;
+    tabId: number;
+    clientId?: string;
+  }>;
 }
 
 /**

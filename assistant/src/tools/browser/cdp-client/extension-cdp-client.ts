@@ -2,7 +2,7 @@ import type { HostBrowserProxy } from "../../../daemon/host-browser-proxy.js";
 import { getLogger } from "../../../util/logger.js";
 import type { CdpErrorCode } from "./errors.js";
 import { CdpError } from "./errors.js";
-import type { CdpClientKind, ScopedCdpClient } from "./types.js";
+import type { CdpClientKind, ScopedCdpClient, TabInfo } from "./types.js";
 
 const log = getLogger("extension-cdp-client");
 
@@ -195,6 +195,32 @@ export class ExtensionCdpClient implements ScopedCdpClient {
    */
   setCdpSessionId(cdpSessionId: string | undefined): void {
     this.cdpSessionId = cdpSessionId;
+  }
+
+  /** List all open browser tabs via `Vellum.listTabs`. */
+  async listTabs(): Promise<TabInfo[]> {
+    const result = await this.send<{ tabs: TabInfo[] }>("Vellum.listTabs", {});
+    return Array.isArray(result?.tabs) ? result.tabs : [];
+  }
+
+  /** Select (activate) an existing tab via `Vellum.selectTab`. */
+  async selectTab(tabId: number): Promise<{
+    tabId?: number;
+    windowId?: number;
+    url?: string;
+    title?: string;
+    clientId?: string;
+  }> {
+    return this.send("Vellum.selectTab", { tabId });
+  }
+
+  /** Close a browser tab via `Vellum.closeTab`. */
+  async closeTab(tabId: number): Promise<{
+    closed: boolean;
+    tabId: number;
+    clientId?: string;
+  }> {
+    return this.send("Vellum.closeTab", { tabId });
   }
 }
 

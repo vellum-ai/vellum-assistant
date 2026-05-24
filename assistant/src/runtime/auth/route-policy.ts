@@ -905,6 +905,12 @@ registerPolicy("browser/execute", {
   allowedPrincipalTypes: ["local"],
 });
 
+// Browser tabs operations (list/select/new/close): local-only (CLI / IPC callers)
+registerPolicy("browser/tabs", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
 // Background tools: local-only (CLI / IPC callers)
 registerPolicy("background-tools", {
   requiredScopes: ["settings.read"],

@@ -131,24 +131,42 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("subcommand registration", () => {
-  test("registers exactly 17 subcommands", () => {
+  test("registers one direct subcommand per BROWSER_OPERATIONS entry plus 'tabs' group", () => {
     const program = new Command();
     registerBrowserCommand(program);
     const browser = program.commands.find((c) => c.name() === "browser");
     expect(browser).toBeDefined();
-    const subcommands = browser!.commands;
-    expect(subcommands).toHaveLength(17);
+    // 17 operation commands + 1 'tabs' grouping subcommand
+    expect(browser!.commands).toHaveLength(BROWSER_OPERATIONS.length + 1);
   });
 
-  test("subcommand names match kebab-cased BROWSER_OPERATIONS", () => {
+  test("operation subcommand names match kebab-cased BROWSER_OPERATIONS", () => {
     const program = new Command();
     registerBrowserCommand(program);
     const browser = program.commands.find((c) => c.name() === "browser");
-    const subcommandNames = browser!.commands.map((c) => c.name()).sort();
+    // Filter out the 'tabs' grouping subcommand — it's not a BROWSER_OPERATIONS entry.
+    const subcommandNames = browser!.commands
+      .filter((c) => c.name() !== "tabs")
+      .map((c) => c.name())
+      .sort();
     const expectedNames = BROWSER_OPERATIONS.map((op) =>
       op.replace(/_/g, "-"),
     ).sort();
     expect(subcommandNames).toEqual(expectedNames);
+  });
+
+  test("registers 'tabs' subcommand group with list/select/new/close", () => {
+    const program = new Command();
+    registerBrowserCommand(program);
+    const browser = program.commands.find((c) => c.name() === "browser");
+    const tabs = browser!.commands.find((c) => c.name() === "tabs");
+    expect(tabs).toBeDefined();
+    expect(tabs!.commands.map((c) => c.name()).sort()).toEqual([
+      "close",
+      "list",
+      "new",
+      "select",
+    ]);
   });
 
   test("all 17 operations from BROWSER_OPERATIONS are covered", () => {

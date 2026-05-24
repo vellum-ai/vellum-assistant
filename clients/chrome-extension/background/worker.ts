@@ -613,7 +613,22 @@ const hostBrowserDispatcher: HostBrowserDispatcher =
     },
     postResult: dispatchHostBrowserResult,
     forwardCdpEvent: dispatchHostBrowserEvent,
-    forwardSessionInvalidated: dispatchHostBrowserSessionInvalidated,
+    forwardSessionInvalidated: (envelope) => {
+      // Enrich the invalidation envelope with the extension's clientId so
+      // the runtime can scope pin-store eviction to this specific install.
+      void (async () => {
+        let clientId: string | undefined;
+        try {
+          clientId = await getClientId();
+        } catch {
+          /* best effort */
+        }
+        dispatchHostBrowserSessionInvalidated(
+          clientId ? { ...envelope, clientId } : envelope,
+        );
+      })();
+    },
+    getClientId,
   });
 
 // ── Storage helpers ─────────────────────────────────────────────────
@@ -972,6 +987,31 @@ chrome.alarms.onAlarm.addListener((alarm) => {
       console.warn(`[vellum-relay] Keepalive reconnect failed: ${detail}`);
     });
   }
+});
+
+// Notify the runtime whenever a browser tab is closed so it can evict
+// any pinned-tab entry pointing at the closed tab. This fires for all
+// tab closes — user-initiated, extension-initiated, and crash-induced —
+// giving the runtime a chance to clear stale pins before the next CDP
+// command routes to a dead tab.
+chrome.tabs.onRemoved.addListener((tabId) => {
+  // Use the same forwardSessionInvalidated pattern as the debugger
+  // onDetach path: enrich with clientId and fire-and-forget.
+  void (async () => {
+    let clientId: string | undefined;
+    try {
+      clientId = await getClientId();
+    } catch {
+      /* best effort */
+    }
+    const envelope: HostBrowserSessionInvalidatedEnvelope = {
+      type: 'host_browser_session_invalidated',
+      targetId: String(tabId),
+      reason: 'tab_closed',
+      ...(clientId ? { clientId } : {}),
+    };
+    dispatchHostBrowserSessionInvalidated(envelope);
+  })();
 });
 
 // On install/update, only register the alarm if we already have an
