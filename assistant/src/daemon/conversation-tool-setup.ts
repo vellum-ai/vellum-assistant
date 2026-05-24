@@ -74,6 +74,11 @@ export function resolveTrustClass(
   return trustContext?.trustClass ?? "unknown";
 }
 
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import {
+  buildSwitchInferenceProfileToolDef,
+  SWITCH_INFERENCE_PROFILE_TOOL_NAME,
+} from "./switch-inference-profile-tool.js";
 import type { ToolSetupContext } from "./tool-setup-types.js";
 export type { ToolSetupContext } from "./tool-setup-types.js";
 
@@ -209,6 +214,33 @@ export function createToolExecutor(
       },
     };
 
+    // Intercept switch_inference_profile: daemon-internal tool that lets the
+    // model self-select a different inference profile mid-turn. No permission
+    // checks — this is a control-flow signal, not a user-visible tool.
+    if (executionName === SWITCH_INFERENCE_PROFILE_TOOL_NAME) {
+      const profile = typeof input.profile === "string" ? input.profile : "";
+      const config = getConfig();
+      const profileEntry = config.llm.profiles?.[profile];
+      if (!profileEntry) {
+        return {
+          content: `Profile "${profile}" not found. Available profiles: ${Object.keys(config.llm.profiles ?? {}).join(", ")}`,
+          isError: true,
+        };
+      }
+      if (profileEntry.status === "disabled") {
+        return {
+          content: `Profile "${profile}" is disabled.`,
+          isError: true,
+        };
+      }
+      ctx.toolRoutedProfile = profile;
+      const label = profileEntry.label ?? profile;
+      return {
+        content: `Switched to ${label} profile. Continue with your response.`,
+        isError: false,
+      };
+    }
+
     // Intercept skill_execute: extract the real tool name and input, then
     // route through the full executor pipeline so the underlying tool's
     // risk level, permission checks, hooks, and lifecycle events all fire
@@ -326,6 +358,14 @@ export interface SkillProjectionContext {
    * host tools into the LLM tool definitions.
    */
   readonly transportInterface?: InterfaceId;
+  /** Per-turn override profile, read by the switch_inference_profile tool injection. */
+  currentTurnOverrideProfile?: string;
+  /**
+   * True when the user has explicitly selected an inference profile for this
+   * conversation (via the composer profile picker). When set, tool-based
+   * auto-routing is suppressed — the user's explicit choice takes precedence.
+   */
+  hasExplicitProfileOverride?: boolean;
 }
 
 // ── Conditional tool sets ────────────────────────────────────────────
@@ -613,6 +653,28 @@ export function createResolveToolsCallback(
     }
 
     ctx.allowedToolNames = turnAllowed;
-    return injectActivityField(allBaseDefs, ACTIVITY_SKIP_SET);
+    const baseDefs = injectActivityField(allBaseDefs, ACTIVITY_SKIP_SET);
+
+    // Inject the switch_inference_profile tool when auto-routing is enabled
+    // and the model has multiple profiles to choose from.
+    const config = getConfig();
+    if (
+      isAssistantFeatureFlagEnabled("query-complexity-routing", config) &&
+      config.llm &&
+      !ctx.hasExplicitProfileOverride
+    ) {
+      const currentProfile =
+        ctx.currentTurnOverrideProfile ?? config.llm.activeProfile;
+      const toolDef = buildSwitchInferenceProfileToolDef(
+        config.llm.profiles ?? {},
+        currentProfile,
+      );
+      if (toolDef) {
+        turnAllowed.add(SWITCH_INFERENCE_PROFILE_TOOL_NAME);
+        return [...baseDefs, toolDef];
+      }
+    }
+
+    return baseDefs;
   };
 }

@@ -499,6 +499,20 @@ export function parseAssistantEvent(
     case "avatar_updated":
       return { type: "avatar_updated" };
 
+    case "turn_profile_auto_routed": {
+      const conversationId = typeof data.conversationId === "string" ? data.conversationId : "";
+      const profile = typeof data.profile === "string" ? data.profile : "";
+      const profileLabel = typeof data.profileLabel === "string" ? data.profileLabel : "";
+      if (!profileLabel) return { type: "unknown", rawType, data };
+      return {
+        type: "turn_profile_auto_routed",
+        conversationId,
+        profile,
+        profileLabel,
+        conversationKey: typeof data.conversationKey === "string" ? data.conversationKey : undefined,
+      };
+    }
+
     case "conversation_error":
       return {
         type: "conversation_error",

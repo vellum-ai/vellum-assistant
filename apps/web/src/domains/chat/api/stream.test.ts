@@ -214,6 +214,7 @@ describe("polling reconciliation with state machine", () => {
       lastTerminalReason: null,
       statusText: null,
       liveWebActivity: {},
+      autoRoutedProfileLabel: null,
     };
     const afterDelta = turnReducer(forcedIdle, { type: "ASSISTANT_TEXT_DELTA" });
     expect(afterDelta.phase).toBe("streaming");
@@ -243,6 +244,7 @@ describe("polling reconciliation with state machine", () => {
       lastTerminalReason: null,
       statusText: null,
       liveWebActivity: {},
+      autoRoutedProfileLabel: null,
     };
     const afterTool = turnReducer(forcedIdle, { type: "TOOL_USE_START" });
     expect(afterTool.phase).toBe("thinking");

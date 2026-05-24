@@ -26,7 +26,6 @@ import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import {
   contextWindowConfigFromEffective,
   type EffectiveContextWindow,
@@ -222,10 +221,6 @@ import {
   SYNC_TAGS,
 } from "./message-types/sync.js";
 import { parseActualTokensFromError } from "./parse-actual-tokens-from-error.js";
-import {
-  classifyQueryComplexity,
-  complexityTierToProfileKey,
-} from "./query-complexity-router.js";
 import type { TraceEmitter } from "./trace-emitter.js";
 import type { TrustContext } from "./trust-context.js";
 import { stripHistoricalWebSearchResults } from "./web-search-history.js";
@@ -539,6 +534,19 @@ export interface AgentLoopConversationContext {
    * is inherited by later tool executions and nested subagents.
    */
   currentTurnOverrideProfile?: string;
+  /**
+   * Set by the `switch_inference_profile` tool when the model self-selects a
+   * different profile mid-turn. Read by `readCurrentOverrideProfile` in the
+   * agent loop so the next LLM call uses the switched profile. Reset at
+   * turn start.
+   */
+  toolRoutedProfile?: string;
+  /**
+   * True when the user has explicitly selected an inference profile for this
+   * conversation (via the composer profile picker). When set, tool-based
+   * auto-routing is suppressed — the user's explicit choice takes precedence.
+   */
+  hasExplicitProfileOverride?: boolean;
   commandIntent?: { type: string; payload?: string; languageCode?: string };
   trustContext?: TrustContext;
   /** Task-run scope for the current turn. Cleared at turn end so queued/drained turns don't inherit it. */
@@ -709,52 +717,23 @@ export async function runAgentLoopImpl(
     options?.overrideProfile ??
     getConversationOverrideProfileFromRow(turnStartConversation);
 
+  ctx.hasExplicitProfileOverride = !!userExplicitOverride;
+
   const config = getConfig();
 
-  // Query complexity routing: when no explicit user override is set and the
-  // feature flag is enabled, classify the query and route to the appropriate
-  // profile for this turn. The override is ephemeral (not persisted).
-  let turnOverrideProfile = userExplicitOverride;
-  if (
-    !userExplicitOverride &&
-    turnCallSite === "mainAgent" &&
-    isAssistantFeatureFlagEnabled("query-complexity-routing", config)
-  ) {
-    const tier = await classifyQueryComplexity(content);
-    if (tier && tier !== "balanced") {
-      const routedProfile = complexityTierToProfileKey(tier);
-      if (config.llm.profiles?.[routedProfile]) {
-        turnOverrideProfile = routedProfile;
-      }
-    }
-  }
+  // Tool-based auto-routing: the switch_inference_profile tool lets the model
+  // self-select a different profile mid-turn. Reset the per-turn slot so a
+  // stale selection from a previous turn doesn't leak forward.
+  ctx.toolRoutedProfile = undefined;
 
-  // Notify clients when the auto-router selected a non-default profile.
-  if (turnOverrideProfile && turnOverrideProfile !== userExplicitOverride) {
-    const profileEntry = config.llm.profiles?.[turnOverrideProfile];
-    const label = profileEntry?.label ?? turnOverrideProfile;
-    broadcastMessage({
-      type: "turn_profile_auto_routed",
-      conversationId: ctx.conversationId,
-      profile: turnOverrideProfile,
-      profileLabel: label,
-    });
-  }
+  const turnOverrideProfile = userExplicitOverride;
 
-  // Only use the complexity-routed profile as a fallback — not the initial
-  // explicit override. If a mid-turn session expiry clears the conversation
-  // override, the old behavior (return undefined → revert to workspace
-  // defaults) must be preserved for non-routed turns.
-  const complexityRoutedProfile =
-    turnOverrideProfile !== userExplicitOverride
-      ? turnOverrideProfile
-      : undefined;
   const readCurrentOverrideProfile = (): string | undefined =>
     options?.overrideProfile ??
     getConversationOverrideProfileFromRow(
       getConversation(ctx.conversationId),
     ) ??
-    complexityRoutedProfile;
+    ctx.toolRoutedProfile;
 
   const effectiveContextWindow = resolveEffectiveContextWindow({
     llm: config.llm,
@@ -776,6 +755,7 @@ export async function runAgentLoopImpl(
   contextWindowManager.updateConfig?.(currentContextWindowConfig);
 
   let appliedOverrideProfile = turnOverrideProfile;
+  let emittedToolRoutedProfile: string | undefined;
   const refreshCurrentProfileState = (): string | undefined => {
     const currentOverrideProfile = readCurrentOverrideProfile();
     if (currentOverrideProfile !== appliedOverrideProfile) {
@@ -797,6 +777,24 @@ export async function runAgentLoopImpl(
         "Turn inference profile changed mid-loop",
       );
     }
+
+    // Emit turn_profile_auto_routed when the tool-based router selects a
+    // new profile. Deduplicated so the event fires at most once per profile.
+    if (
+      ctx.toolRoutedProfile &&
+      ctx.toolRoutedProfile !== emittedToolRoutedProfile
+    ) {
+      emittedToolRoutedProfile = ctx.toolRoutedProfile;
+      const profileEntry = config.llm.profiles?.[ctx.toolRoutedProfile];
+      const label = profileEntry?.label ?? ctx.toolRoutedProfile;
+      broadcastMessage({
+        type: "turn_profile_auto_routed",
+        conversationId: ctx.conversationId,
+        profile: ctx.toolRoutedProfile,
+        profileLabel: label,
+      });
+    }
+
     ctx.currentTurnOverrideProfile = currentOverrideProfile;
     return currentOverrideProfile;
   };

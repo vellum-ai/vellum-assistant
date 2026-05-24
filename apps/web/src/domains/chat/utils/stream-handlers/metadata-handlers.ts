@@ -7,7 +7,7 @@ import {
 } from "@/runtime/notifications.js";
 import { patchConversation } from "@/domains/conversations/conversation-queries.js";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types.js";
-import type { AvatarUpdatedEvent, CompactionCircuitClosedEvent, CompactionCircuitOpenEvent, ConversationListInvalidatedEvent, ConversationTitleUpdatedEvent, DiskPressureStatusChangedEvent, IdentityChangedEvent, NotificationIntentEvent, UsageUpdateEvent } from "@/domains/chat/api/event-types.js";
+import type { AvatarUpdatedEvent, CompactionCircuitClosedEvent, CompactionCircuitOpenEvent, ConversationListInvalidatedEvent, ConversationTitleUpdatedEvent, DiskPressureStatusChangedEvent, IdentityChangedEvent, NotificationIntentEvent, TurnProfileAutoRoutedEvent, UsageUpdateEvent } from "@/domains/chat/api/event-types.js";
 
 export function handleUsageUpdate(
   event: UsageUpdateEvent,
@@ -149,4 +149,11 @@ export function handleAvatarUpdated(
   ctx: StreamHandlerContext,
 ): void {
   ctx.invalidateAvatar();
+}
+
+export function handleTurnProfileAutoRouted(
+  event: TurnProfileAutoRoutedEvent,
+  ctx: StreamHandlerContext,
+): void {
+  ctx.turnActions.onProfileAutoRouted(event.profileLabel);
 }

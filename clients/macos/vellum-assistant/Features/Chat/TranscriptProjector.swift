@@ -34,6 +34,7 @@ enum TranscriptProjector {
     ///   - assistantActivityReason: Optional activity reason (e.g. "confirmation_resolved").
     ///   - activePendingRequestId: Active pending confirmation request ID.
     ///   - highlightedMessageId: Message ID currently highlighted in the UI.
+    ///   - autoRoutedProfileLabel: Label of the auto-routed inference profile, if any.
     static func project(
         messages: [ChatMessage],
         paginatedVisibleMessages: [ChatMessage],
@@ -46,7 +47,8 @@ enum TranscriptProjector {
         assistantActivityAnchor: String,
         assistantActivityReason: String?,
         activePendingRequestId: String?,
-        highlightedMessageId: UUID?
+        highlightedMessageId: UUID?,
+        autoRoutedProfileLabel: String? = nil
     ) -> TranscriptRenderModel {
         // Deduplicate visible messages (streaming can produce duplicate IDs).
         let visibleMessages: [ChatMessage] = {
@@ -209,6 +211,7 @@ enum TranscriptProjector {
             hasUserMessage: hasUserMessage,
             hasActiveToolCall: hasActiveToolCall,
             activePendingRequestId: activePendingRequestId,
+            autoRoutedProfileLabel: autoRoutedProfileLabel,
             isActiveTurn: isSending || isThinking || !["idle", ""].contains(assistantActivityPhase)
         )
     }
