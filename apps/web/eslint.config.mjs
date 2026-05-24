@@ -132,9 +132,15 @@ const headerLiteralRules = [
 // Paths that legitimately produce/consume the auth headers.
 // Exempt from `headerLiteralRules` but still subject to
 // `universalAuthRules` and `darkPairedColorScaleRules`.
+//
+// `api-interceptors.test.ts` lives inside the auth boundary by design — it
+// exercises the central interceptor and must assert on the exact header
+// names. Centralizing the test next to the implementation it tests does
+// not weaken the guardrail.
 const authBoundaryAllowedPaths = [
   "src/lib/auth/**",
   "src/lib/api-interceptors.ts",
+  "src/lib/api-interceptors.test.ts",
 ];
 
 const eslintConfig = defineConfig([
