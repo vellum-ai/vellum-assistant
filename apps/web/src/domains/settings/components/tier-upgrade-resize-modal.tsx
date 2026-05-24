@@ -1,13 +1,11 @@
-import { Loader2, Server } from "lucide-react";
-import { useMemo, useState } from "react";
+import { ArrowRight, Cpu, HardDrive, Loader2, Server } from "lucide-react";
+import { useState } from "react";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
 
 import { Button } from "@vellum/design-library/components/button";
-import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { Modal } from "@vellum/design-library/components/modal";
 import { Notice } from "@vellum/design-library/components/notice";
-import { Tag } from "@vellum/design-library/components/tag";
 import { toast } from "@vellum/design-library/components/toast";
 import { extractResizeError } from "@/domains/settings/components/resize-errors.js";
 import {
@@ -18,12 +16,52 @@ import {
 import type { MachineSizeEnum } from "@/generated/api/types.gen.js";
 import {
   allowedMachineSizesForTier,
-  buildMachineSizeOptions,
+  SIZE_DESCRIPTION,
+  SIZE_LABEL,
 } from "@/lib/billing/machine-sizes.js";
 
 export interface TierUpgradeResizeModalProps {
   open: boolean;
   onClose: () => void;
+}
+
+function ResourceCard({
+  icon: Icon,
+  label,
+  from,
+  to,
+}: {
+  icon: typeof Server;
+  label: string;
+  from: string;
+  to: string;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-lg bg-[var(--surface-base)] p-3">
+      <span
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
+        style={{
+          backgroundColor: "color-mix(in oklab, var(--system-positive-strong) 10%, transparent)",
+        }}
+      >
+        <Icon className="h-4 w-4 text-[var(--system-positive-strong)]" />
+      </span>
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="text-label-small-default text-[var(--content-tertiary)]">
+          {label}
+        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-label-medium-default text-[var(--content-tertiary)] line-through">
+            {from}
+          </span>
+          <ArrowRight className="h-3 w-3 shrink-0 text-[var(--content-tertiary)]" />
+          <span className="text-label-medium-default text-[var(--content-default)]">
+            {to}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export function TierUpgradeResizeModal({
@@ -47,28 +85,15 @@ export function TierUpgradeResizeModal({
   const availableGib = onboardingQuery.data?.selected_storage_gib ?? null;
   const allowedSizes = allowedMachineSizesForTier(maxTier);
 
-  const largestSize = allowedSizes.length > 0 ? allowedSizes[allowedSizes.length - 1] : null;
-  const [selectedSize, setSelectedSize] = useState<MachineSizeEnum | null>(null);
-  const displaySize = selectedSize ?? largestSize ?? currentSize;
-  const [resizeError, setResizeError] = useState<string | null>(null);
+  const targetSize: MachineSizeEnum =
+    allowedSizes.length > 0 ? allowedSizes[allowedSizes.length - 1] : currentSize;
 
-  const machineSizeOptions = useMemo(
-    () =>
-      buildMachineSizeOptions(
-        allowedSizes,
-        currentSize,
-        <Tag tone="positive">Current</Tag>,
-      ),
-    [allowedSizes, currentSize],
-  );
-
-  const effectiveSelectedSize =
-    allowedSizes.includes(displaySize) && displaySize !== currentSize
-      ? displaySize
-      : null;
-
+  const machineChanged = targetSize !== currentSize;
   const canGrowStorage =
     availableGib != null && (currentGib == null || currentGib < availableGib);
+  const hasChanges = machineChanged || canGrowStorage;
+
+  const [resizeError, setResizeError] = useState<string | null>(null);
 
   const resizeMutation = useMutation({
     ...assistantsResizeMutation(),
@@ -77,7 +102,6 @@ export function TierUpgradeResizeModal({
         id: "assistant-resize",
       });
       setResizeError(null);
-      setSelectedSize(null);
       onClose();
     },
     onError: (error) => {
@@ -98,7 +122,6 @@ export function TierUpgradeResizeModal({
       open={open}
       onOpenChange={(o) => {
         if (!o) {
-          setSelectedSize(null);
           setResizeError(null);
           onClose();
         }
@@ -108,7 +131,7 @@ export function TierUpgradeResizeModal({
         <Modal.Header>
           <Modal.Title icon={Server}>Plan Updated</Modal.Title>
           <Modal.Description>
-            Your plan has been updated with new resources. Apply them now to resize your assistant — it will briefly restart.
+            Your new resources are ready. Apply them now to resize your assistant — it will briefly restart.
           </Modal.Description>
         </Modal.Header>
         <Modal.Body>
@@ -116,44 +139,53 @@ export function TierUpgradeResizeModal({
             <div className="flex items-center justify-center py-6">
               <Loader2 className="h-5 w-5 animate-spin text-[var(--content-tertiary)]" />
             </div>
+          ) : !hasChanges ? (
+            <Notice tone="neutral">
+              Your assistant is already running at the maximum size for your plan.
+            </Notice>
           ) : (
-            <div className="flex flex-col gap-3">
-              {allowedSizes.length === 0 ? (
-                <Notice tone="warning">
-                  No machine tier configured. Contact support.
-                </Notice>
-              ) : (
-                <div className="flex flex-col gap-1.5">
-                  <span className="text-label-medium-default text-[var(--content-secondary)]">
-                    Machine Size
-                  </span>
-                  <Dropdown
-                    options={machineSizeOptions}
-                    value={displaySize}
-                    onChange={setSelectedSize}
-                    aria-label="Compute machine size"
-                    data-testid="portal-resize-machine-size"
+            <div className="flex flex-col gap-2">
+              {machineChanged && (
+                <>
+                  <ResourceCard
+                    icon={Cpu}
+                    label="Machine"
+                    from={SIZE_LABEL[currentSize]}
+                    to={SIZE_LABEL[targetSize]}
                   />
-                </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="flex flex-col gap-1 rounded-lg bg-[var(--surface-base)] px-3 py-2.5">
+                      <span className="text-label-small-default text-[var(--content-tertiary)]">
+                        CPU
+                      </span>
+                      <span className="text-label-medium-default text-[var(--content-default)]">
+                        {SIZE_DESCRIPTION[targetSize].split(",")[0].trim()}
+                      </span>
+                    </div>
+                    <div className="flex flex-col gap-1 rounded-lg bg-[var(--surface-base)] px-3 py-2.5">
+                      <span className="text-label-small-default text-[var(--content-tertiary)]">
+                        Memory
+                      </span>
+                      <span className="text-label-medium-default text-[var(--content-default)]">
+                        {SIZE_DESCRIPTION[targetSize].split(",")[1].trim()}
+                      </span>
+                    </div>
+                  </div>
+                </>
               )}
-              {canGrowStorage ? (
-                <Notice tone="info">
-                  {currentGib != null
-                    ? `Storage will be expanded from ${currentGib} GiB to ${availableGib} GiB.`
-                    : `Storage will be expanded to ${availableGib} GiB.`}
-                </Notice>
-              ) : currentGib != null ? (
-                <Notice tone="neutral">
-                  Storage is already at its provisioned size ({currentGib} GiB) and will not change.
-                </Notice>
-              ) : (
-                <Notice tone="neutral">
-                  Storage will not change.
-                </Notice>
+              {canGrowStorage && (
+                <ResourceCard
+                  icon={HardDrive}
+                  label="Storage"
+                  from={currentGib != null ? `${currentGib} GiB` : "—"}
+                  to={`${availableGib} GiB`}
+                />
               )}
-              {resizeError && (
-                <Notice tone="error">{resizeError}</Notice>
-              )}
+            </div>
+          )}
+          {resizeError && (
+            <div className="mt-3">
+              <Notice tone="error">{resizeError}</Notice>
             </div>
           )}
         </Modal.Body>
@@ -161,7 +193,6 @@ export function TierUpgradeResizeModal({
           <Button
             variant="ghost"
             onClick={() => {
-              setSelectedSize(null);
               setResizeError(null);
               onClose();
             }}
@@ -169,12 +200,7 @@ export function TierUpgradeResizeModal({
             Do Later
           </Button>
           <Button
-            disabled={
-              dataLoading ||
-              (effectiveSelectedSize == null && !canGrowStorage) ||
-              isLoading ||
-              !assistant?.id
-            }
+            disabled={dataLoading || !hasChanges || isLoading || !assistant?.id}
             leftIcon={
               isLoading ? <Loader2 className="animate-spin" /> : undefined
             }
@@ -182,8 +208,8 @@ export function TierUpgradeResizeModal({
               if (!assistant?.id) return;
               setResizeError(null);
               const body: { machine_size?: MachineSizeEnum; storage_gib?: number } = {};
-              if (effectiveSelectedSize != null) {
-                body.machine_size = effectiveSelectedSize;
+              if (machineChanged) {
+                body.machine_size = targetSize;
               }
               if (canGrowStorage && availableGib != null) {
                 body.storage_gib = availableGib;
@@ -194,7 +220,7 @@ export function TierUpgradeResizeModal({
               });
             }}
           >
-            {resizeError ? "Retry" : "Apply"}
+            {resizeError ? "Retry" : "Apply & Restart"}
           </Button>
         </Modal.Footer>
       </Modal.Content>
