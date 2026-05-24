@@ -75,9 +75,11 @@ export function ResizeCard({
   const currentGib = assistant.provisioned_storage_gib ?? null;
 
   const [resizeModalOpen, setResizeModalOpen] = useState(false);
+  const largestSize = allowedSizes.length > 0 ? allowedSizes[allowedSizes.length - 1] : null;
   const [selectedSize, setSelectedSize] = useState<MachineSizeEnum | null>(
     null,
   );
+  const displaySize = selectedSize ?? largestSize ?? currentSize;
   const [expandStorage, setExpandStorage] = useState(false);
   const [upgradeModalOpen, setUpgradeModalOpen] = useState<"storage" | "machine" | null>(null);
 
@@ -118,10 +120,10 @@ export function ResizeCard({
   }
 
   const effectiveSelectedSize =
-    isPro && selectedSize &&
-    allowedSizes.includes(selectedSize) &&
-    selectedSize !== currentSize
-      ? selectedSize
+    isPro &&
+    allowedSizes.includes(displaySize) &&
+    displaySize !== currentSize
+      ? displaySize
       : null;
 
   const canGrowStorage =
@@ -381,7 +383,7 @@ export function ResizeCard({
                   </span>
                   <Dropdown
                     options={machineSizeOptions}
-                    value={selectedSize ?? currentSize}
+                    value={displaySize}
                     onChange={setSelectedSize}
                     aria-label="Compute machine size"
                     data-testid="resize-machine-size"
