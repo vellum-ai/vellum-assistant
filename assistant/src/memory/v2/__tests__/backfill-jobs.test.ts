@@ -445,7 +445,6 @@ describe("memoryV2ActivationRecomputeJob", () => {
     await saveActivation(getDb(), "conv-with-state", {
       messageId: "msg-prior",
       state: { "alice-prefers-vscode": 0.9 },
-      everInjected: [{ slug: "alice-prefers-vscode", turn: 1 }],
       currentTurn: 2,
       updatedAt: 1,
     });
@@ -459,9 +458,6 @@ describe("memoryV2ActivationRecomputeJob", () => {
     const next = await hydrateActivation(getDb(), "conv-with-state");
     expect(next).not.toBeNull();
     expect(next?.messageId).toBe("msg-prior");
-    expect(next?.everInjected).toEqual([
-      { slug: "alice-prefers-vscode", turn: 1 },
-    ]);
     // updatedAt was bumped.
     expect(next?.updatedAt).toBeGreaterThan(1);
   });
@@ -483,7 +479,6 @@ describe("memoryV2ActivationRecomputeJob", () => {
     await saveActivation(getDb(), "conv-empty-msgs", {
       messageId: "msg-x",
       state: {},
-      everInjected: [],
       currentTurn: 0,
       updatedAt: 1,
     });

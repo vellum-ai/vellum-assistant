@@ -56,11 +56,11 @@ export interface MemoryV2ConceptRowRecord {
    *     A single-batch (no-tier carve-out) workspace produces `tier3:0`.
    *     The bucket index lets inspector queries attribute selections to
    *     specific hash-bucketed parallel calls.
-   *   - `carry_over`  — router-mode row representing a slug carried over
-   *     from `priorEverInjected` that the router did NOT re-pick on this
-   *     turn. The cached attachment from a prior turn is still present
-   *     on a prior user message; emitting one of the tier tags for these
-   *     rows would overcount router selections in inspector queries.
+   *   - `carry_over`  — legacy router-mode row for a slug carried over from
+   *     the prior-injected ledger that the router did NOT re-pick. No longer
+   *     emitted (the router renders its full selection each turn, and memory
+   *     no longer persists across turns); retained so the inspector can render
+   *     old activation log rows.
    *
    * All router-mode rows (`tier*`, `router`, `carry_over`) zero out the
    * activation values (`finalActivation`, `ownActivation`, etc.) because
