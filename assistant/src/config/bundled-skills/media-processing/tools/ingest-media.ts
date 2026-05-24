@@ -1,7 +1,10 @@
 import { access } from "node:fs/promises";
 import { basename, extname } from "node:path";
 
-import { enqueueMemoryJob } from "../../../../memory/jobs-store.js";
+import {
+  enqueueMemoryJob,
+  isMemoryEnabled,
+} from "../../../../memory/jobs-store.js";
 import {
   computeFileHashStreaming,
   createProcessingStage,
@@ -199,13 +202,15 @@ export async function run(
   updateMediaAssetStatus(asset.id, "processing");
 
   // Enqueue a processing job via the existing jobs framework
-  enqueueMemoryJob("media_processing", {
-    mediaAssetId: asset.id,
-    stage: "ingest",
-    filePath,
-    mimeType,
-    mediaType,
-  });
+  if (isMemoryEnabled()) {
+    enqueueMemoryJob("media_processing", {
+      mediaAssetId: asset.id,
+      stage: "ingest",
+      filePath,
+      mimeType,
+      mediaType,
+    });
+  }
 
   context.onOutput?.(`Registered media asset: ${asset.id}\n`);
 

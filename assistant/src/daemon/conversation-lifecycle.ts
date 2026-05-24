@@ -16,7 +16,7 @@ import {
   getMessages,
   type MessageRow,
 } from "../memory/conversation-crud.js";
-import { enqueueMemoryJob } from "../memory/jobs-store.js";
+import { enqueueMemoryJob, isMemoryEnabled } from "../memory/jobs-store.js";
 import { enqueueMemoryRetrospectiveIfEnabled } from "../memory/memory-retrospective-enqueue.js";
 import { shouldExposePersonalMemory } from "../memory/v2/static-context.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
@@ -453,7 +453,7 @@ export function disposeConversation(ctx: DisposeContext): void {
       } catch {
         // Best-effort — fall through to legacy v1 enqueue
       }
-      if (!v2Enabled) {
+      if (!v2Enabled && isMemoryEnabled()) {
         try {
           enqueueMemoryJob("graph_extract", {
             conversationId: ctx.conversationId,
