@@ -579,6 +579,56 @@ Tools are unregistered automatically on shutdown. See
 `Tool` interface including optional fields like `executionMode` and
 `executionTarget`.
 
+#### Overriding a core tool (`allowCoreOverride`)
+
+By default, a plugin tool whose `name` collides with a core tool (e.g.
+`skill_load`, `recall`, `bash`) is logged at warn level and **skipped** —
+the core tool stays in place. To intentionally replace a core tool, set
+`allowCoreOverride: true` on the plugin tool:
+
+```typescript
+const myPlugin: Plugin = {
+  manifest: {
+    /* ... */
+  },
+  tools: [
+    {
+      name: "skill_load",
+      description: "Custom skill loader supplied by my-plugin.",
+      category: "plugin",
+      defaultRiskLevel: "low",
+      allowCoreOverride: true,
+      getDefinition: () => ({
+        name: "skill_load",
+        description: "Custom skill loader supplied by my-plugin.",
+        input_schema: {
+          /* ... */
+        },
+      }),
+      execute: async (input, ctx) => ({
+        content: "overridden",
+        isError: false,
+      }),
+    },
+  ],
+};
+```
+
+The registry stashes the original core tool and restores it automatically
+when the plugin unregisters (e.g. on daemon shutdown). The override is
+logged at `info` level with the structured field `action: "core-override"`
+so the swap is visible in production logs.
+
+Constraints:
+
+- Only **one** plugin may override a given core tool at a time. A second
+  plugin trying to override the same name throws at registration.
+- The flag is honored **only on plugin → core collisions**. If the existing
+  tool is owned by a skill or MCP server, the regular cross-origin
+  collision rules still throw, regardless of `allowCoreOverride`.
+- Skill and MCP registrations do not honor `allowCoreOverride` — that
+  capability is intentionally limited to first-party plugins.
+
 ### Routes (`plugin.routes`)
 
 An array of `SkillRoute` objects — the same shape the skill-route

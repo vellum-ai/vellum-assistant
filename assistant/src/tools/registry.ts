@@ -76,6 +76,14 @@ const skillRefCount = new Map<string, number>();
 // separate and covers the case of two extensions choosing the same tool name.
 const pluginRefCount = new Map<string, number>();
 
+// Stash of original core tools that have been replaced by a plugin override.
+// Keyed by tool name. When a plugin with `allowCoreOverride: true` registers
+// a tool whose name matches a core tool, the original is moved here so it
+// can be restored on `unregisterPluginTools(<owner>)`. See
+// {@link Tool.allowCoreOverride} for the trust posture and {@link
+// registerPluginTools} for the registration-side handling.
+const coreToolOverrides = new Map<string, Tool>();
+
 function withProviderSafeToolName(tool: Tool): Tool {
   const safeName = toProviderSafeToolName(tool.name);
   if (safeName === tool.name) {
@@ -181,15 +189,25 @@ export function registerSkillTools(newTools: Tool[]): Tool[] {
  * `manifest.name` happens to match a skill id, the two do not share refcount
  * state or conflict-detection paths.
  *
- * Conflict handling mirrors {@link registerSkillTools}: collisions with core
- * tools log a warning and skip; collisions with tools owned by a different
- * plugin, skill, or MCP server throw; re-registering the same plugin's own
- * tool (hot reload) is allowed.
+ * Conflict handling:
+ * - **Core collisions, no override flag:** mirrors {@link registerSkillTools}
+ *   — log a warning and skip the colliding tool.
+ * - **Core collisions, `allowCoreOverride: true`:** the original core tool
+ *   is stashed in {@link coreToolOverrides} and the plugin tool takes its
+ *   place. {@link unregisterPluginTools} restores the original on teardown.
+ *   At most one override per core tool name is allowed — a second plugin
+ *   trying to override the same name throws.
+ * - **Plugin collisions:** re-registering the same plugin's own tool (hot
+ *   reload) is allowed; cross-plugin collisions throw.
+ * - **Skill/MCP collisions:** throw — plugin tools cannot replace tools
+ *   owned by skills or MCP servers, regardless of `allowCoreOverride`.
  *
  * The stamp is authoritative: any pre-existing `origin` / `ownerPluginId` /
  * `ownerSkillId` / `ownerMcpServerId` fields on the incoming tools are
  * overwritten so the bootstrap cannot be spoofed into claiming tools on
- * behalf of an unrelated extension.
+ * behalf of an unrelated extension. `allowCoreOverride` is NOT stamped over
+ * — it remains as the plugin author declared it so {@link
+ * unregisterPluginTools} can recognize override tools at teardown time.
  */
 export function registerPluginTools(
   pluginName: string,
@@ -218,11 +236,23 @@ export function registerPluginTools(
   });
 
   const accepted: Tool[] = [];
+  // Track which accepted tools are overriding a core tool — used below to
+  // stash the original core tool only after we've validated the entire
+  // batch (so a downstream throw doesn't leave the registry half-mutated).
+  const pendingCoreOverrides = new Map<string, Tool>();
   for (const tool of stamped) {
     const existing = tools.get(tool.name);
     if (existing) {
       const existingIsCore = existing.origin === "core" || !existing.origin;
       if (existingIsCore) {
+        if (tool.allowCoreOverride === true) {
+          // The original core tool will be stashed below (after the full
+          // batch validates) so it can be restored when the overriding
+          // plugin unregisters.
+          pendingCoreOverrides.set(tool.name, existing);
+          accepted.push(tool);
+          continue;
+        }
         log.warn(
           { toolName: tool.name, pluginName },
           `Plugin "${pluginName}" tried to register tool "${tool.name}" which conflicts with a core tool. Skipping.`,
@@ -231,11 +261,28 @@ export function registerPluginTools(
       }
       if (existing.origin === "plugin") {
         if (existing.ownerPluginId !== pluginName) {
+          // A different plugin owns this name. If our incoming tool sets
+          // allowCoreOverride: true and the existing one is itself an
+          // override of a core tool, refuse — only one active override per
+          // name. The clear path is for the first plugin to unregister
+          // (which restores the core tool) before the second registers.
+          if (
+            tool.allowCoreOverride === true &&
+            coreToolOverrides.has(tool.name)
+          ) {
+            throw new Error(
+              `Plugin "${pluginName}" tried to override core tool "${tool.name}" but plugin "${existing.ownerPluginId}" already overrides it. ` +
+                `Unregister "${existing.ownerPluginId}" first.`,
+            );
+          }
           throw new Error(
             `Plugin tool "${tool.name}" is already registered by plugin "${existing.ownerPluginId}"`,
           );
         }
         // Same plugin re-registering its own tool (hot reload) — allow.
+        // If this tool currently overrides a core tool, the stash entry
+        // stays untouched; the replacement tool keeps the same override
+        // role and the core tool will still be restored on unregister.
       } else {
         // Conflict with a skill or MCP-owned tool.
         throw new Error(
@@ -246,12 +293,29 @@ export function registerPluginTools(
     accepted.push(tool);
   }
 
+  // Commit any pending core-tool stashes now that the batch has validated.
+  for (const [name, original] of pendingCoreOverrides) {
+    coreToolOverrides.set(name, original);
+  }
+
   for (const tool of accepted) {
+    const isOverride = pendingCoreOverrides.has(tool.name);
     tools.set(tool.name, tool);
-    log.info(
-      { name: tool.name, ownerPluginId: tool.ownerPluginId },
-      "Plugin tool registered",
-    );
+    if (isOverride) {
+      log.info(
+        {
+          name: tool.name,
+          ownerPluginId: tool.ownerPluginId,
+          action: "core-override",
+        },
+        `Plugin tool "${tool.name}" registered as core override`,
+      );
+    } else {
+      log.info(
+        { name: tool.name, ownerPluginId: tool.ownerPluginId },
+        "Plugin tool registered",
+      );
+    }
   }
 
   if (accepted.length > 0) {
@@ -265,6 +329,12 @@ export function registerPluginTools(
  * Decrement the reference count for a plugin and remove its tools only when
  * no more references remain. Safe to call when the plugin never contributed
  * tools (no-op).
+ *
+ * When a plugin's tool is overriding a core tool (registered with
+ * `allowCoreOverride: true`), removal restores the original core tool from
+ * {@link coreToolOverrides} in the same slot. This makes core-override
+ * teardown reversible: after a plugin unloads, the core tool is back in the
+ * registry as if the plugin had never run.
  */
 export function unregisterPluginTools(pluginName: string): void {
   const current = pluginRefCount.get(pluginName) ?? 0;
@@ -280,8 +350,18 @@ export function unregisterPluginTools(pluginName: string): void {
   pluginRefCount.delete(pluginName);
   for (const [name, tool] of tools) {
     if (tool.origin === "plugin" && tool.ownerPluginId === pluginName) {
-      tools.delete(name);
-      log.info({ name, pluginName }, "Plugin tool unregistered");
+      const stashedCore = coreToolOverrides.get(name);
+      if (stashedCore) {
+        coreToolOverrides.delete(name);
+        tools.set(name, stashedCore);
+        log.info(
+          { name, pluginName, action: "core-restore" },
+          `Plugin tool "${name}" unregistered, original core tool restored`,
+        );
+      } else {
+        tools.delete(name);
+        log.info({ name, pluginName }, "Plugin tool unregistered");
+      }
     }
   }
 }
@@ -291,6 +371,20 @@ export function unregisterPluginTools(pluginName: string): void {
  */
 export function getPluginRefCount(pluginName: string): number {
   return pluginRefCount.get(pluginName) ?? 0;
+}
+
+/**
+ * If a plugin tool is currently overriding the core tool named `name`,
+ * return the stashed original core tool. Returns `undefined` when no
+ * override is active for that name.
+ *
+ * Exposed primarily for introspection (debugging, tests, "what's
+ * overriding what" diagnostics). Production code paths should not need to
+ * reach into the stash directly — registration and teardown handle the
+ * full lifecycle.
+ */
+export function getCoreToolOverride(name: string): Tool | undefined {
+  return coreToolOverrides.get(name);
 }
 
 /**
@@ -534,6 +628,10 @@ export function __resetRegistryForTesting(): void {
   tools.clear();
   skillRefCount.clear();
   pluginRefCount.clear();
+  // Drop any pending core-tool overrides so they don't leak into the next
+  // test. The snapshot restore below puts the original core tools back, so
+  // the override stash would be stale anyway.
+  coreToolOverrides.clear();
 
   if (coreToolsSnapshot) {
     for (const [name, tool] of coreToolsSnapshot) {
@@ -551,6 +649,7 @@ export function __clearRegistryForTesting(): void {
   tools.clear();
   skillRefCount.clear();
   pluginRefCount.clear();
+  coreToolOverrides.clear();
 }
 
 /**

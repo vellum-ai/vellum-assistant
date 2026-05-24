@@ -371,6 +371,25 @@ export interface Tool {
   /** Declared execution target from the skill manifest. Used by resolveExecutionTarget
    * to accurately label lifecycle events for skill-provided tools. */
   executionTarget?: ExecutionTarget;
+  /**
+   * When `true`, allow this tool to replace a core tool of the same name at
+   * registration time. The original core tool is stashed by the registry and
+   * automatically restored when the overriding tool is unregistered.
+   *
+   * Only honored by {@link registerPluginTools}. Plugin authors set this to
+   * `true` on a plugin tool whose `name` intentionally collides with a core
+   * tool name (e.g. replacing `skill_load` with a custom resolver). The
+   * registry logs the override at `info` level with a stable structured
+   * field so the swap is grep-able in production logs.
+   *
+   * When the colliding existing tool is NOT core (already a skill, plugin, or
+   * MCP tool), this flag is ignored and the regular collision rules apply.
+   *
+   * Skill and MCP registrations ignore this flag: skills are projection-
+   * scoped per-conversation and MCP servers are external/untrusted, so a
+   * registry-level override there does not match those trust postures.
+   */
+  allowCoreOverride?: boolean;
   getDefinition(): ToolDefinition;
   execute(
     input: Record<string, unknown>,

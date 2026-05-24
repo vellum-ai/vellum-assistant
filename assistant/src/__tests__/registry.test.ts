@@ -7,16 +7,24 @@ import {
   __resetRegistryForTesting,
   getAllToolDefinitions,
   getAllTools,
+  getCoreToolOverride,
   getSkillRefCount,
   getSkillToolNames,
   getTool,
   initializeTools,
+  registerPluginTools,
   registerSkillTools,
   registerTool,
+  unregisterPluginTools,
   unregisterSkillTools,
 } from "../tools/registry.js";
 import { eagerModuleToolNames, explicitTools } from "../tools/tool-manifest.js";
-import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
+import type {
+  LoadedPluginTool,
+  Tool,
+  ToolContext,
+  ToolExecutionResult,
+} from "../tools/types.js";
 
 // Clean up global registry after this file completes to prevent
 // contamination of subsequent test files in combined runs.
@@ -412,5 +420,186 @@ describe("skill tool reference counting", () => {
   test("unregister with no prior registration is a no-op", () => {
     unregisterSkillTools("nonexistent-skill");
     expect(getSkillRefCount("nonexistent-skill")).toBe(0);
+  });
+});
+
+// ── Core-tool override path ───────────────────────────────────────────
+// Plugins can opt into replacing a core tool by setting
+// `allowCoreOverride: true` on their tool. The registry stashes the
+// original core tool so it can be restored when the plugin unregisters.
+// These tests cover the happy path, refusal path, restoration, and
+// cross-plugin double-override behavior.
+
+function makePluginTool(
+  name: string,
+  extras: Partial<LoadedPluginTool> = {},
+): LoadedPluginTool {
+  return {
+    name,
+    description: `Fake plugin tool ${name}`,
+    defaultRiskLevel: RiskLevel.Low,
+    input_schema: { type: "object", properties: {}, required: [] },
+    async execute(
+      _input: Record<string, unknown>,
+      _context: ToolContext,
+    ): Promise<ToolExecutionResult> {
+      return { content: `ran ${name}`, isError: false };
+    },
+    ...extras,
+  };
+}
+
+describe("core-tool override via allowCoreOverride", () => {
+  beforeEach(async () => {
+    __resetRegistryForTesting();
+    await initializeTools();
+  });
+
+  test("plugin tool with allowCoreOverride: true replaces a core tool", () => {
+    // Sanity: the core tool exists with no `origin` stamp.
+    const before = getTool("host_file_read");
+    expect(before).toBeDefined();
+    expect(before?.origin).toBeUndefined();
+
+    const accepted = registerPluginTools("override-host-read", [
+      makePluginTool("host_file_read", {
+        description: "plugin replacement",
+        allowCoreOverride: true,
+      }),
+    ]);
+
+    expect(accepted).toHaveLength(1);
+    const replaced = getTool("host_file_read");
+    expect(replaced?.origin).toBe("plugin");
+    expect(replaced?.ownerPluginId).toBe("override-host-read");
+    expect(replaced?.description).toBe("plugin replacement");
+
+    // The original core tool is stashed and reachable for introspection.
+    const stashed = getCoreToolOverride("host_file_read");
+    expect(stashed).toBeDefined();
+    expect(stashed?.origin).toBeUndefined();
+  });
+
+  test("plugin tool without the flag still hits the skip-with-warn path", () => {
+    const accepted = registerPluginTools("polite-plugin", [
+      makePluginTool("host_file_read"),
+    ]);
+
+    // The colliding tool is silently skipped — the core tool is unchanged.
+    expect(accepted).toHaveLength(0);
+    const core = getTool("host_file_read");
+    expect(core?.origin).toBeUndefined();
+    // No stash entry should have been created.
+    expect(getCoreToolOverride("host_file_read")).toBeUndefined();
+  });
+
+  test("unregistering the override restores the original core tool", () => {
+    registerPluginTools("override-temp", [
+      makePluginTool("host_file_read", {
+        description: "plugin replacement",
+        allowCoreOverride: true,
+      }),
+    ]);
+    expect(getTool("host_file_read")?.origin).toBe("plugin");
+
+    unregisterPluginTools("override-temp");
+
+    const restored = getTool("host_file_read");
+    expect(restored).toBeDefined();
+    expect(restored?.origin).toBeUndefined();
+    // Stash is cleared after restoration.
+    expect(getCoreToolOverride("host_file_read")).toBeUndefined();
+  });
+
+  test("a second plugin cannot override an already-overridden core tool", () => {
+    registerPluginTools("first-overrider", [
+      makePluginTool("host_file_read", { allowCoreOverride: true }),
+    ]);
+
+    expect(() =>
+      registerPluginTools("second-overrider", [
+        makePluginTool("host_file_read", { allowCoreOverride: true }),
+      ]),
+    ).toThrow(/already overrides it/);
+
+    // First plugin's override remains in place; nothing was clobbered.
+    expect(getTool("host_file_read")?.ownerPluginId).toBe("first-overrider");
+  });
+
+  test("same plugin re-registering its override is a no-op hot reload", () => {
+    registerPluginTools("hot-reload-plugin", [
+      makePluginTool("host_file_read", {
+        description: "first version",
+        allowCoreOverride: true,
+      }),
+    ]);
+
+    registerPluginTools("hot-reload-plugin", [
+      makePluginTool("host_file_read", {
+        description: "second version",
+        allowCoreOverride: true,
+      }),
+    ]);
+
+    const current = getTool("host_file_read");
+    expect(current?.description).toBe("second version");
+    expect(current?.ownerPluginId).toBe("hot-reload-plugin");
+
+    // The core stash is still in place after hot reload — unregistering
+    // the plugin must still restore the original core tool.
+    expect(getCoreToolOverride("host_file_read")).toBeDefined();
+
+    unregisterPluginTools("hot-reload-plugin");
+    unregisterPluginTools("hot-reload-plugin");
+    expect(getTool("host_file_read")?.origin).toBeUndefined();
+  });
+
+  test("allowCoreOverride is ignored when the existing tool is not core", () => {
+    // Pre-seed a non-core tool — a skill — under the contested name.
+    registerSkillTools([makeSkillTool("sk_contested", "owner-skill")]);
+
+    // Now a plugin tries to register the same name with allowCoreOverride.
+    // The flag is plugin → core only; collisions with skills must still
+    // throw the existing cross-origin error.
+    expect(() =>
+      registerPluginTools("ignored-flag-plugin", [
+        makePluginTool("sk_contested", { allowCoreOverride: true }),
+      ]),
+    ).toThrow(/conflicts with a skill-origin tool/);
+
+    // The skill tool is unchanged.
+    const stillSkill = getTool("sk_contested");
+    expect(stillSkill?.origin).toBe("skill");
+    expect(stillSkill?.ownerSkillId).toBe("owner-skill");
+  });
+
+  test("getAllToolDefinitions returns the plugin override, not the core tool", () => {
+    registerPluginTools("def-override-plugin", [
+      makePluginTool("host_file_read", {
+        description: "PLUGIN-SUPPLIED DEFINITION",
+        allowCoreOverride: true,
+      }),
+    ]);
+
+    const defs = getAllToolDefinitions();
+    const def = defs.find((d) => d.name === "host_file_read");
+    expect(def).toBeDefined();
+    expect(def?.description).toBe("PLUGIN-SUPPLIED DEFINITION");
+
+    // And only ONE definition for that name should appear.
+    const matches = defs.filter((d) => d.name === "host_file_read");
+    expect(matches).toHaveLength(1);
+  });
+
+  test("__resetRegistryForTesting clears the override stash", () => {
+    registerPluginTools("reset-leak-plugin", [
+      makePluginTool("host_file_read", { allowCoreOverride: true }),
+    ]);
+    expect(getCoreToolOverride("host_file_read")).toBeDefined();
+
+    __resetRegistryForTesting();
+    expect(getCoreToolOverride("host_file_read")).toBeUndefined();
+    // And the original core tool should be back from the snapshot.
+    expect(getTool("host_file_read")?.origin).toBeUndefined();
   });
 });
