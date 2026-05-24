@@ -2985,6 +2985,20 @@ export async function runAgentLoopImpl(
         await emitTerminalExit?.("context_too_large");
         pendingCheckpointYield = null;
         onEvent(buildConversationErrorMessage(ctx.conversationId, classified));
+      } else if (yieldedForBudget && !abortController.signal.aborted) {
+        // The auto_compress_latest_turn rerun (action === "auto_compress_latest_turn"
+        // above) reset `contextTooLargeDetected` to false before its final
+        // `agentLoop.run`, so the context-too-large branch above won't fire
+        // even when that rerun yields at the mid-loop budget checkpoint with
+        // no further recovery layer to re-enter. Without an emit here, the
+        // turn terminates silently and `agent_loop_exit_reason` stays NULL on
+        // the final llm_request_logs row — making this exact "loop stopped
+        // mid-action" failure mode invisible in the inspector and dashboards.
+        //
+        // Pure observability: no state mutation, no error message, no flow
+        // change. The post-turn cleanup that the orchestrator falls into is
+        // unchanged.
+        await emitTerminalExit?.("budget_yield_unrecovered");
       }
     }
 
