@@ -522,6 +522,39 @@ paths:
           description: No response body
       x-vellum-api-clients:
       - platform
+  /v1/assistants/{assistant_id}/domains/{id}/verification-status/:
+    get:
+      operationId: assistants_domains_verification_status_retrieve
+      description: Return the current Resend verification status of the domain.
+      parameters:
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - assistants
+      security:
+      - VellumAPIKey: []
+      - SDKCompatibleAssistantKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DomainVerificationStatus'
+          description: ''
+      x-vellum-api-clients:
+      - platform
   /v1/assistants/{assistant_id}/email-addresses/:
     get:
       operationId: assistants_email_addresses_list
@@ -5401,6 +5434,33 @@ components:
         * `active` - Active
         * `completed` - Completed
         * `error` - Error
+    DomainVerificationStatus:
+      type: object
+      properties:
+        domain:
+          type: string
+        status:
+          $ref: '#/components/schemas/DomainVerificationStatusStatusEnum'
+        message:
+          type: string
+      required:
+      - domain
+      - message
+      - status
+    DomainVerificationStatusStatusEnum:
+      enum:
+      - verified
+      - pending
+      - not_started
+      - failed
+      - unknown
+      type: string
+      description: |-
+        * `verified` - verified
+        * `pending` - pending
+        * `not_started` - not_started
+        * `failed` - failed
+        * `unknown` - unknown
     EmailAddressStatus:
       type: object
       properties:
