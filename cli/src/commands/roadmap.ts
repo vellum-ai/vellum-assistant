@@ -73,13 +73,13 @@ async function roadmapCreate(args: string[]): Promise<void> {
   }
 
   const webUrl = getWebUrl();
-  const url = `${webUrl}/api/marketing/v1/roadmap`;
+  const apiUrl = `${webUrl}/api/marketing/v1/roadmap`;
 
   const body: Record<string, unknown> = { title };
   if (description) body.description = description;
   if (tags.length > 0) body.tags = tags;
 
-  const response = await fetch(url, {
+  const response = await fetch(apiUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
