@@ -177,6 +177,7 @@ export class OpenAIResponsesProvider implements Provider {
       const params: Record<string, unknown> = {
         model: modelOverride ?? this.model,
         input,
+        ...(this.codexSubscription ? { store: false } : {}),
       };
 
       if (systemPrompt) {
