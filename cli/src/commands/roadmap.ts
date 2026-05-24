@@ -59,7 +59,7 @@ function requireSlug(args: string[], command: string): string {
 }
 
 // eslint-disable-next-line no-control-regex
-const ANSI_RE = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]|\x1b(?:\[[0-9;]*[A-Za-z]|\].*?(?:\x07|\x1b\\))/g;
+const ANSI_RE = /[\x00-\x08\x0b-\x1f\x7f]|\x1b(?:\[[0-9;]*[A-Za-z]|\].*?(?:\x07|\x1b\\))/g;
 function sanitize(text: string): string {
   return text.replace(ANSI_RE, "");
 }
