@@ -498,6 +498,84 @@ describe("macOS browser backend fallback (no extension, no cdp-inspect)", () => 
   });
 });
 
+describe("LUM-1890 Phase 1 bilingual — POST /v1/messages accepts body.conversationId", () => {
+  // The handler accepts both `body.conversationKey` (legacy) and
+  // `body.conversationId` (canonical). When both are sent, `conversationId`
+  // wins. These tests are removable after Phase 4 deprecates `conversationKey`
+  // on the wire.
+
+  async function sendMessage(body: Record<string, unknown>): Promise<Response> {
+    return callHandler(
+      (args) =>
+        handleSendMessage(args, {
+          sendMessageDeps: {
+            getOrCreateConversation: async (conversationId: string) =>
+              getOrCreateFakeConversation(conversationId),
+            assistantEventHub: new AssistantEventHub(),
+            resolveAttachments: () => [],
+          },
+        }),
+      new Request("http://localhost/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-vellum-principal-type": authContext.principalType,
+        },
+        body: JSON.stringify(body),
+      }),
+      undefined,
+      202,
+    );
+  }
+
+  test("body.conversationId alone resolves and persists like body.conversationKey", async () => {
+    const conversationId = `phase1-id-only-${crypto.randomUUID()}`;
+    const response = await sendMessage({
+      conversationId,
+      content: "Bilingual surface 1 — conversationId only.",
+      sourceChannel: "vellum",
+      interface: "macos",
+    });
+
+    expect(response.status).toBe(202);
+    const body = (await response.json()) as {
+      accepted: boolean;
+      conversationId: string;
+    };
+    expect(body.accepted).toBe(true);
+
+    // The key store mapping must be created under the inbound value, so
+    // a subsequent send under either field name resolves to the same row.
+    const mapping = getOrCreateConversationMapping(conversationId);
+    expect(mapping.created).toBe(false);
+    expect(mapping.conversationId).toBe(body.conversationId);
+  });
+
+  test("body.conversationId wins over body.conversationKey when both are sent", async () => {
+    const idValue = `phase1-id-wins-${crypto.randomUUID()}`;
+    const keyValue = `phase1-key-loses-${crypto.randomUUID()}`;
+
+    const response = await sendMessage({
+      conversationId: idValue,
+      conversationKey: keyValue,
+      content: "Bilingual surface 1 — precedence check.",
+      sourceChannel: "vellum",
+      interface: "macos",
+    });
+
+    expect(response.status).toBe(202);
+    const body = (await response.json()) as { conversationId: string };
+
+    // The internal conversation id must trace back to `idValue`, NOT
+    // `keyValue`. Confirm via the key store: only `idValue` should have
+    // been materialised; `keyValue` should not exist.
+    const idMapping = getConversationByKey(idValue);
+    const keyMapping = getConversationByKey(keyValue);
+    expect(idMapping?.conversationId).toBe(body.conversationId);
+    expect(keyMapping).toBeNull();
+  });
+});
+
 describe("conversationKey send path disk-view regression", () => {
   test("first send on a fresh conversationKey creates disk-view dir and writes user+assistant records", async () => {
     const conversationKey = `fresh-conv-key-${crypto.randomUUID()}`;

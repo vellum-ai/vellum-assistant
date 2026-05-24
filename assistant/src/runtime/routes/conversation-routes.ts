@@ -1223,6 +1223,13 @@ export async function handleSendMessage(
 ): Promise<unknown> {
   const body = (rawBody ?? {}) as {
     conversationKey?: string;
+    // `conversationId` is the canonical client-facing name and is accepted
+    // as a synonym for `conversationKey` here. When both are present,
+    // `conversationId` wins. Both ultimately resolve to a value that
+    // `getOrCreateConversation` looks up in the `conversation_keys` table
+    // (either as an existing internal id or as an external key). See
+    // LUM-1890 Phase 1 for the bilingual rollout plan.
+    conversationId?: string;
     content?: string;
     attachmentIds?: string[];
     sourceChannel?: string;
@@ -1258,6 +1265,12 @@ export async function handleSendMessage(
     headers?.["x-vellum-client-id"]?.trim() || undefined;
 
   const { conversationKey, content, attachmentIds } = body;
+  // Bilingual acceptance: prefer the canonical `conversationId` when the
+  // client sends it; fall back to the legacy `conversationKey` field.
+  // Not destructured here because nested closures inside this handler
+  // already shadow the `conversationId` identifier with the resolved
+  // internal id (e.g. `const conversationId = mapping.conversationId`).
+  const inboundConversationKey = body.conversationId ?? conversationKey;
   const clientMessageId =
     typeof body.clientMessageId === "string" ? body.clientMessageId : undefined;
   const requestedInferenceProfile =
@@ -1325,11 +1338,12 @@ export async function handleSendMessage(
       ? (canonicalizeTimeZone(body.clientTimezone) ?? undefined)
       : undefined;
 
-  // When conversationKey is omitted, derive a stable default from
-  // sourceChannel + sourceInterface so that repeated calls from the same
-  // channel/interface pair share a single conversation thread.
+  // When both conversationId and conversationKey are omitted, derive a
+  // stable default from sourceChannel + sourceInterface so that repeated
+  // calls from the same channel/interface pair share a single conversation
+  // thread.
   const resolvedConversationKey =
-    conversationKey ?? `default:${sourceChannel}:${sourceInterface}`;
+    inboundConversationKey ?? `default:${sourceChannel}:${sourceInterface}`;
 
   // Reject non-string content values (numbers, objects, etc.)
   if (content != null && typeof content !== "string") {

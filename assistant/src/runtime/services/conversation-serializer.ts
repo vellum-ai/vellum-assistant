@@ -171,6 +171,13 @@ export function serializeConversationSummary(params: {
 
   return {
     id: conversation.id,
+    // LUM-1890 Phase 1: emit `conversationId` alongside `id` as a
+    // forward-compat field so the web's `parseConversation` (and any
+    // other client that prefers the canonical name) can read it directly
+    // without re-mapping. Both carry the same internal conversations.id
+    // value. Phase 2 will migrate web off `id`/`conversationKey` onto
+    // `conversationId`; Phase 4 eventually drops `id`.
+    conversationId: conversation.id,
     title: conversation.title ?? "Untitled",
     createdAt: conversation.createdAt,
     updatedAt: conversation.updatedAt,

@@ -220,9 +220,14 @@ const defaultSseShedReporter: SseShedReporter = (reason, inst) => {
  * Stream assistant events as Server-Sent Events.
  *
  * Query params:
- *   conversationKey -- optional; when provided, scopes the stream to one
- *                      conversation. When omitted, the stream delivers events
- *                      from ALL conversations for this assistant.
+ *   conversationId  -- optional; canonical client-facing name for the scope
+ *                      identifier. When provided, scopes the stream to one
+ *                      conversation.
+ *   conversationKey -- optional; legacy synonym for `conversationId`. When
+ *                      both are sent, `conversationId` wins. When both are
+ *                      omitted, the stream delivers events from ALL
+ *                      conversations for this assistant. See LUM-1890 Phase 1
+ *                      for the bilingual rollout.
  *
  * Headers (optional):
  *   X-Vellum-Client-Id    -- stable per-install UUID identifying this client.
@@ -248,10 +253,27 @@ export function handleSubscribeAssistantEvents(
 ): ReadableStream<Uint8Array> {
   const { queryParams, headers, abortSignal } = args;
 
-  const conversationKey = queryParams?.conversationKey;
-  if ("conversationKey" in (queryParams ?? {}) && !conversationKey?.trim()) {
+  // LUM-1890 Phase 1: accept the canonical `conversationId` query param
+  // as a synonym for the legacy `conversationKey`. When both are present,
+  // `conversationId` wins. Internally we keep the variable named
+  // `conversationKey` because downstream call sites (the SSE instrumentation
+  // record + the `getOrCreateConversation` lookup) treat this value as the
+  // external key in the `conversation_keys` table.
+  const rawConversationId = queryParams?.conversationId;
+  const rawConversationKey = queryParams?.conversationKey;
+  if (
+    "conversationId" in (queryParams ?? {}) &&
+    !rawConversationId?.trim()
+  ) {
+    throw new BadRequestError("conversationId must not be empty");
+  }
+  if (
+    "conversationKey" in (queryParams ?? {}) &&
+    !rawConversationKey?.trim()
+  ) {
     throw new BadRequestError("conversationKey must not be empty");
   }
+  const conversationKey = rawConversationId ?? rawConversationKey;
 
   // ── Client identity from headers ──────────────────────────────────────
   const rawClientId = headers?.["x-vellum-client-id"];
@@ -471,8 +493,14 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["events"],
     queryParams: [
       {
+        name: "conversationId",
+        description:
+          "Scope to a single conversation (canonical name; preferred when sending fresh requests).",
+      },
+      {
         name: "conversationKey",
-        description: "Scope to a single conversation",
+        description:
+          "Scope to a single conversation (legacy synonym for conversationId).",
       },
     ],
     responseHeaders: {

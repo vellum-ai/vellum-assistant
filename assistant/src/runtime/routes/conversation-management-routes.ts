@@ -85,9 +85,14 @@ function cancelScheduleIfLast(conversationId: string): void {
 // ---------------------------------------------------------------------------
 
 function handleCreateConversation({ body = {}, headers }: RouteHandlerArgs) {
-  const conversationKey =
-    (body.conversationKey as string | undefined) ?? crypto.randomUUID();
-  const result = getOrCreateConversation(conversationKey, {
+  // LUM-1890 Phase 1: bilingual acceptance for the idempotency key. Prefer
+  // the canonical `conversationId` when the client sends it; fall back to
+  // the legacy `conversationKey`. When neither is sent, mint a UUID.
+  const requestedConversationKey =
+    (body.conversationId as string | undefined) ??
+    (body.conversationKey as string | undefined) ??
+    crypto.randomUUID();
+  const result = getOrCreateConversation(requestedConversationKey, {
     conversationType: "standard",
   });
   if (result.created) {
@@ -101,14 +106,20 @@ function handleCreateConversation({ body = {}, headers }: RouteHandlerArgs) {
   log.info(
     {
       conversationId: result.conversationId,
-      conversationKey,
+      conversationKey: requestedConversationKey,
       created: result.created,
     },
     "Created conversation via POST",
   );
+  // The response emits both `conversationId` (new canonical name) and
+  // `conversationKey` (legacy echo). Both carry the same value — whatever
+  // the client supplied (or the UUID we minted). The web client will
+  // migrate to reading `conversationId` in LUM-1890 Phase 2; for now the
+  // additive field is forward-compat only.
   return {
     id: result.conversationId,
-    conversationKey,
+    conversationId: requestedConversationKey,
+    conversationKey: requestedConversationKey,
     conversationType: normalizeConversationType(result.conversationType),
     created: result.created,
   };
@@ -426,9 +437,18 @@ export const ROUTES: RouteDefinition[] = [
     description: "Create or get an existing conversation by key.",
     tags: ["conversations"],
     requestBody: z.object({
+      conversationId: z
+        .string()
+        .optional()
+        .describe(
+          "Idempotency key for the conversation (canonical name; preferred over conversationKey).",
+        ),
       conversationKey: z
         .string()
-        .describe("Idempotency key for the conversation"),
+        .optional()
+        .describe(
+          "Legacy synonym for conversationId. When both are sent, conversationId wins.",
+        ),
       conversationType: z
         .literal("standard")
         .optional()
@@ -436,7 +456,16 @@ export const ROUTES: RouteDefinition[] = [
     }),
     responseBody: z.object({
       id: z.string(),
-      conversationKey: z.string(),
+      conversationId: z
+        .string()
+        .describe(
+          "Echo of the requested conversationId/conversationKey (canonical name).",
+        ),
+      conversationKey: z
+        .string()
+        .describe(
+          "Legacy echo of the requested conversationId/conversationKey. Carries the same value as conversationId.",
+        ),
       conversationType: z.string(),
       created: z.boolean(),
     }),
