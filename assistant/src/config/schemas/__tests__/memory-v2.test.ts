@@ -23,7 +23,7 @@ describe("MemoryV2ConfigSchema", () => {
       bm25_k1: 1.2,
       bm25_b: 0.4,
       consolidation_interval_hours: 4,
-      consolidation_max_buffer_lines: null,
+      consolidation_max_buffer_lines: 100,
       max_page_chars: 5000,
       consolidation_prompt_path: null,
       rerank: {
@@ -40,6 +40,8 @@ describe("MemoryV2ConfigSchema", () => {
         batch_size: null,
         tier1_size: null,
         tier2_size: null,
+        historical_pairs: 1,
+        historical_pairs_max_chars: null,
       },
     });
   });

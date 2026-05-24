@@ -75,6 +75,12 @@ mock.module("@google/genai", () => ({
     };
   },
   ApiError: FakeApiError,
+  ThinkingLevel: {
+    MINIMAL: "MINIMAL",
+    LOW: "LOW",
+    MEDIUM: "MEDIUM",
+    HIGH: "HIGH",
+  },
 }));
 
 // Import after mocking
@@ -221,6 +227,78 @@ describe("GeminiProvider", () => {
 
     const config = lastStreamParams!.config as Record<string, unknown>;
     expect(config.systemInstruction).toBe("You are a helpful assistant.");
+  });
+
+  // -----------------------------------------------------------------------
+  // Thinking config
+  // -----------------------------------------------------------------------
+  test("omits thinkingConfig when no thinking config is supplied", async () => {
+    fakeChunks = [textChunk("OK"), finishChunk("STOP", 10, 2)];
+
+    await provider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "Hi" }] },
+    ]);
+
+    const config = lastStreamParams!.config as Record<string, unknown>;
+    expect(config.thinkingConfig).toBeUndefined();
+  });
+
+  test("maps wire { type: 'adaptive', level, streamThinking } to Gemini thinkingConfig", async () => {
+    fakeChunks = [textChunk("OK"), finishChunk("STOP", 10, 2)];
+
+    await provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      undefined,
+      undefined,
+      {
+        config: {
+          thinking: {
+            type: "adaptive",
+            level: "high",
+            streamThinking: false,
+          },
+        },
+      },
+    );
+
+    const config = lastStreamParams!.config as Record<string, unknown>;
+    expect(config.thinkingConfig).toEqual({
+      thinkingLevel: "HIGH",
+      includeThoughts: false,
+    });
+  });
+
+  test("maps wire { type: 'disabled' } to MINIMAL thinking level", async () => {
+    fakeChunks = [textChunk("OK"), finishChunk("STOP", 10, 2)];
+
+    await provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      undefined,
+      undefined,
+      { config: { thinking: { type: "disabled" } } },
+    );
+
+    const config = lastStreamParams!.config as Record<string, unknown>;
+    expect(config.thinkingConfig).toEqual({
+      thinkingLevel: "MINIMAL",
+      includeThoughts: false,
+    });
+  });
+
+  test("omits thinkingConfig when wire shape is adaptive with no extras", async () => {
+    fakeChunks = [textChunk("OK"), finishChunk("STOP", 10, 2)];
+
+    await provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      undefined,
+      undefined,
+      { config: { thinking: { type: "adaptive" } } },
+    );
+
+    const config = lastStreamParams!.config as Record<string, unknown>;
+    // No level/streamThinking → omit so Google's per-model default applies
+    // (Gemini 3.x defaults to "medium" with dynamic thinking).
+    expect(config.thinkingConfig).toBeUndefined();
   });
 
   // -----------------------------------------------------------------------

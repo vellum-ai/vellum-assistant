@@ -31,6 +31,7 @@ import { QuestionPromptCard } from "@/domains/chat/components/question-prompt-ca
 import { SecretPromptCard } from "@/domains/chat/components/secret-prompt-card.js";
 import { usePullRefresh } from "@/domains/chat/hooks/use-pull-refresh.js";
 import { useRefreshLatestMessages as _useRefreshLatestMessages } from "@/domains/chat/hooks/use-refresh-latest-messages.js";
+import { useConversationStarters } from "@/domains/chat/hooks/use-conversation-starters.js";
 import type { TranscriptHandle, TranscriptProps } from "@/domains/chat/transcript/transcript.js";
 import { useTranscriptScroll } from "@/domains/chat/transcript/use-transcript-scroll.js";
 import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat-utils.js";
@@ -58,14 +59,14 @@ import { OnboardingChoiceCard } from "@/domains/chat/components/onboarding-choic
 import { useOnboardingChoice } from "@/domains/chat/hooks/use-onboarding-choice.js";
 import { useIsNativePlatform } from "@/runtime/native-auth.js";
 
-import { Link } from "react-router";
-import type { ConversationStarter } from "@/domains/chat/utils/conversation-starters.js";
+import { Link, useNavigate } from "react-router";
 
 import { buildEditAppGreeting, buildEditAppStarters } from "@/domains/chat/utils/edit-app-empty-state.js";
 import { pickRandomPlaceholder } from "@/domains/chat/utils/empty-state-constants.js";
 import { useEmptyStateGreeting } from "@/domains/chat/hooks/use-empty-state-greeting.js";
 import { getChatBillingBannerDecision, shouldShowGenericChatErrorNotice } from "@/domains/chat/utils/error-classification.js";
 
+import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
 import { useDeployStore } from "@/domains/chat/deploy-store.js";
 import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
 import type { SubagentEntry, SubagentState } from "@/domains/subagents/subagent-store.js";
@@ -73,7 +74,13 @@ import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/utils/rec
 import { buildTranscriptItems } from "@/domains/chat/transcript/build-items.js";
 import type { TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
 import type { HistoryPaginationResult } from "@/domains/chat/transcript/use-history-pagination.js";
-import { getThinkingStatusText, isSendDisabled, shouldShowThinkingIndicator, type UIContext } from "@/domains/messaging/turn-selectors.js";
+import {
+  canStopGeneration,
+  getThinkingStatusText,
+  isSendDisabled,
+  shouldShowThinkingIndicator,
+  type UIContext,
+} from "@/domains/messaging/turn-selectors.js";
 import { isSurfaceInteractive } from "@/domains/chat/types/types.js";
 
 import type { MainView, OpenedAppState, OpenedDocumentState } from "@/stores/viewer-store.js";
@@ -85,7 +92,7 @@ import { haptic } from "@/utils/haptics.js";
 import { isChannelConversation as _isChannelConversation } from "@/domains/chat/utils/conversation-channel.js";
 import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure.js";
 import type { DiskPressureStatusEventPayload } from "@/assistant/use-disk-pressure-monitor.js";
-import { isSending, type TurnState, useTurnStore } from "@/domains/messaging/turn-store.js";
+import { type TurnState, useTurnStore } from "@/domains/messaging/turn-store.js";
 import type { QuestionResponseEntry, AllowlistOption, ScopeOption, DirectoryScopeOption, ConfirmationDecision } from "@/domains/chat/api/event-types.js";
 import type { CharacterComponents, CharacterTraits } from "@/domains/avatar/types.js";
 import { DiskPressureBanner, type DiskPressureBannerMode } from "@/domains/chat/components/disk-pressure-banner.js";
@@ -101,7 +108,7 @@ import type { ChatEventStream } from "@/domains/chat/api/stream.js";
 
 interface StreamContext {
   assistantId: string;
-  conversationKey: string;
+  conversationId: string;
 }
 
 /** Nudge state produced by useAppNudges. */
@@ -167,6 +174,7 @@ export interface SendMessageHandlers {
   queuedMessages: DisplayMessage[];
   handleCancelQueuedMessage: (stableId: string) => void;
   handleCancelAllQueued: () => void;
+  handleSteerMessage: (stableId: string) => void;
   handleEditQueueTail: () => void;
 }
 
@@ -207,7 +215,7 @@ export interface AvatarData {
 export interface ChatRouteRefs {
   inputRef: RefObject<HTMLTextAreaElement | null>;
   messagesRef: MutableRefObject<DisplayMessage[]>;
-  activeConversationKeyRef: MutableRefObject<string | null>;
+  activeConversationIdRef: MutableRefObject<string | null>;
   assistantIdRef: MutableRefObject<string | null>;
   streamContextRef: MutableRefObject<StreamContext | null>;
   expandedToolCallIdsRef: MutableRefObject<Set<string>>;
@@ -219,8 +227,13 @@ export interface ChatRouteRefs {
   requestIdToStableIdRef: MutableRefObject<Map<string, string>>;
   pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
   confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
-
   reconcileAfterNextStreamOpenRef: MutableRefObject<boolean>;
+  /**
+   * Imperative handle to the mounted `<Transcript />`. Owned by ChatPage
+   * so `useChatDebugApi` (installed there) can read scroll geometry
+   * directly via `transcriptRef.current.getScrollElement()`.
+   */
+  transcriptRef: RefObject<TranscriptHandle | null>;
 }
 
 // ---------------------------------------------------------------------------
@@ -261,27 +274,24 @@ export interface ChatRouteContentProps {
 
   // Conversation
   conversations: Conversation[];
-  activeConversationKey: string | null;
+  activeConversationId: string | null;
   activeConversation: Conversation | undefined;
-  processingKeys: ReadonlySet<string>;
+  processingConversationIds: ReadonlySet<string>;
 
   // Viewer
   mainView: MainView;
   openedAppState: OpenedAppState | null;
   openedDocumentState: OpenedDocumentState | null;
-  editingConversationKey: string | null;
+  editingConversationId: string | null;
 
   // Draft
-  restoredDraftConversationKey: string | null;
-  setRestoredDraftConversationKey: Dispatch<SetStateAction<string | null>>;
+  restoredDraftConversationId: string | null;
+  setRestoredDraftConversationId: Dispatch<SetStateAction<string | null>>;
   saveDraft: (key: string, text: string) => void;
   clearDraft: (key: string) => void;
 
   // Avatar
   avatar: AvatarData;
-
-  // Starters
-  conversationStarters: ConversationStarter[];
 
   // Context window
   contextWindowUsage: ContextWindowUsage | null;
@@ -362,7 +372,7 @@ export interface ChatRouteContentProps {
   // Onboarding (iOS post-hatch flow)
   onboardingTasksEmpty: boolean;
   didOnboarding: boolean;
-  onboardingConversationKey: string | null;
+  onboardingConversationId: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -372,7 +382,7 @@ export interface ChatRouteContentProps {
 export function ChatRouteContent({
   assistantId,
   assistantState,
-  assistantIdentity: _assistantIdentity,
+  assistantIdentity,
   chatPullToRefreshEnabled,
   deployToVercel,
   doctor: doctorEnabled,
@@ -386,19 +396,18 @@ export function ChatRouteContent({
   setError,
   isLoadingHistory,
   conversations: _conversations,
-  activeConversationKey,
+  activeConversationId,
   activeConversation,
-  processingKeys,
+  processingConversationIds,
   mainView,
   openedAppState,
   openedDocumentState,
-  editingConversationKey,
-  restoredDraftConversationKey,
-  setRestoredDraftConversationKey,
+  editingConversationId,
+  restoredDraftConversationId,
+  setRestoredDraftConversationId,
   saveDraft,
   clearDraft,
   avatar,
-  conversationStarters,
   contextWindowUsage,
   compactionCircuitOpenUntil,
   setCompactionCircuitOpenUntil,
@@ -439,8 +448,10 @@ export function ChatRouteContent({
   isChannelReadonly,
   onboardingTasksEmpty,
   didOnboarding,
-  onboardingConversationKey,
+  onboardingConversationId,
 }: ChatRouteContentProps) {
+  const navigate = useNavigate();
+
   // Destructure grouped props
   const { avatarComponents, avatarTraits, avatarImageUrl } = avatar;
   const {
@@ -470,6 +481,7 @@ export function ChatRouteContent({
     queuedMessages,
     handleCancelQueuedMessage,
     handleCancelAllQueued,
+    handleSteerMessage,
     handleEditQueueTail,
   } = send;
   const {
@@ -488,7 +500,7 @@ export function ChatRouteContent({
   const {
     inputRef,
     messagesRef,
-    activeConversationKeyRef: _activeConversationKeyRef,
+    activeConversationIdRef: _activeConversationIdRef,
     assistantIdRef: _assistantIdRef,
     streamContextRef,
     expandedToolCallIdsRef,
@@ -524,6 +536,12 @@ export function ChatRouteContent({
   const isDeploying = useDeployStore.use.isDeploying();
 
   // -------------------------------------------------------------------------
+  // Feature flags
+  // -------------------------------------------------------------------------
+
+  const queueSteering = useAssistantFeatureFlagStore.use.queueSteering();
+
+  // -------------------------------------------------------------------------
   // Interaction state (from Zustand store)
   // -------------------------------------------------------------------------
 
@@ -555,8 +573,8 @@ export function ChatRouteContent({
     didOnboarding,
     messages,
     onboardingTasksEmpty,
-    activeConversationKey,
-    onboardingConversationKey,
+    activeConversationId,
+    onboardingConversationId,
     sendMessage,
   });
 
@@ -576,15 +594,17 @@ export function ChatRouteContent({
   }, [messages]);
 
   const activeConversationIsProcessing =
-    activeConversationKey != null && processingKeys.has(activeConversationKey);
+    activeConversationId != null && processingConversationIds.has(activeConversationId);
 
   const activeConversationHasPendingAssistantResponse = useMemo(
     () => hasPendingAssistantResponse(messages),
     [messages],
   );
 
+  const hasStreamingAssistantMessage = messages.some((m) => m.isStreaming);
+
   const uiContext: UIContext = {
-    hasStreamingAssistantMessage: messages.some((m) => m.isStreaming),
+    hasStreamingAssistantMessage,
     hasPendingSecret: !!pendingSecret,
     hasPendingConfirmation: !!pendingConfirmation,
     hasPendingQuestion: !!pendingQuestion,
@@ -596,9 +616,8 @@ export function ChatRouteContent({
 
   const showThinking = shouldShowThinkingIndicator(turnState, uiContext);
   const isAssistantStreaming =
-    showThinking || messages.some((m) => m.isStreaming);
-  const canStopGenerating =
-    isSending(turnState) && turnState.phase !== "awaiting_user_input";
+    showThinking || hasStreamingAssistantMessage;
+  const canStopGenerating = canStopGeneration(turnState, uiContext);
 
   const diskPressureChatBlockReason = getDiskPressureChatBlockReason({
     monitorEnabled: diskPressure.diskPressureMonitorEnabled,
@@ -617,10 +636,17 @@ export function ChatRouteContent({
     isSendDisabled(turnState, uiContext) || typingDisabled;
 
   const isEmptyConversation =
-    !!activeConversationKey &&
+    !!activeConversationId &&
     !isLoadingHistory &&
     messages.length === 0 &&
     !(assistantState.kind === "active" && assistantState.maintenanceMode?.enabled);
+
+  // Conversation starters power the empty-state chips only. Gate the fetch
+  // by `isEmptyConversation` so non-empty chats stop polling the daemon for
+  // data that's never rendered.
+  const { starters: conversationStarters } = useConversationStarters(
+    isEmptyConversation ? assistantId : null,
+  );
 
   const genericChatError = shouldShowGenericChatErrorNotice(error) && error
     ? {
@@ -646,7 +672,7 @@ export function ChatRouteContent({
   // client-side helper only when the daemon hasn't surfaced the flag.
   const activeProfileModel = useActiveProfileModel(
     assistantId,
-    activeConversation?.conversationKey,
+    activeConversation?.conversationId,
   );
   const activeModelSupportsVision = activeProfileModel
     ? (activeProfileModel.supportsVision ??
@@ -658,8 +684,8 @@ export function ChatRouteContent({
     (input.trim().length > 0 || attachmentUploadedIds.length > 0);
 
   const showRestoredDraftNotice =
-    restoredDraftConversationKey !== null &&
-    restoredDraftConversationKey === activeConversationKey;
+    restoredDraftConversationId !== null &&
+    restoredDraftConversationId === activeConversationId;
 
   const isInMaintenanceWithNoMessages =
     !isLoadingHistory &&
@@ -671,7 +697,6 @@ export function ChatRouteContent({
   // Child-owned refs
   // -------------------------------------------------------------------------
 
-  const transcriptRef = useRef<TranscriptHandle>(null);
   const shouldFocusInputRef = useRef(false);
 
   // -------------------------------------------------------------------------
@@ -691,12 +716,12 @@ export function ChatRouteContent({
   // -------------------------------------------------------------------------
 
   const onRefreshEpoch = useCallback(() => {
-    if (activeConversationKey) {
+    if (activeConversationId) {
       const currentInput = inputRef.current?.value ?? "";
-      saveDraft(activeConversationKey, currentInput);
+      saveDraft(activeConversationId, currentInput);
     }
     setRefreshEpoch((prev) => prev + 1);
-  }, [activeConversationKey, inputRef, saveDraft, setRefreshEpoch]);
+  }, [activeConversationId, inputRef, saveDraft, setRefreshEpoch]);
 
   // -------------------------------------------------------------------------
   // Pull-to-refresh
@@ -709,7 +734,7 @@ export function ChatRouteContent({
     handleDismissRefreshFeedback,
     handleRetryRefreshFromPill,
   } = usePullRefresh({
-    activeConversationKey,
+    activeConversationId,
     messagesRef,
     invalidateHistory: historyPagination.invalidate,
     onRefreshEpoch,
@@ -724,7 +749,7 @@ export function ChatRouteContent({
   }, [historyPagination.fetchOlderPage]);
 
   // -------------------------------------------------------------------------
-  // Transcript items
+  // Transcript items (projection of chat state onto flat list)
   // -------------------------------------------------------------------------
 
   const thinkingLabel = getThinkingStatusText(turnState);
@@ -771,23 +796,23 @@ export function ChatRouteContent({
   // -------------------------------------------------------------------------
 
   const scrollCoordinator = useTranscriptScroll({
-    transcriptRef,
+    transcriptRef: refs.transcriptRef,
     items: transcriptItems,
-    conversationKey: activeConversationKey,
+    conversationId: activeConversationId,
     hasMore: transcriptPagination.hasMore,
     isLoadingOlder: transcriptPagination.isLoadingOlder,
     onLoadOlder: loadOlder,
   });
 
   useEffect(() => {
-    const el = transcriptRef.current?.getScrollElement();
+    const el = refs.transcriptRef.current?.getScrollElement();
     if (!el) return;
     const handler = (e: Event) => scrollCoordinator.handleScroll(e);
     el.addEventListener("scroll", handler, { passive: true });
     return () => {
       el.removeEventListener("scroll", handler);
     };
-  }, [scrollCoordinator, activeConversationKey, transcriptItems]);
+  }, [scrollCoordinator, activeConversationId, transcriptItems, refs.transcriptRef]);
 
   const handleScrollToLatest = useCallback(() => {
     scrollCoordinator.scrollToLatest({ behavior: "smooth" });
@@ -811,19 +836,19 @@ export function ChatRouteContent({
   useEffect(() => {
     if (!showRestoredDraftNotice) return;
     const id = window.setTimeout(() => {
-      setRestoredDraftConversationKey(null);
+      setRestoredDraftConversationId(null);
     }, 5000);
     return () => window.clearTimeout(id);
-  }, [showRestoredDraftNotice, setRestoredDraftConversationKey]);
+  }, [showRestoredDraftNotice, setRestoredDraftConversationId]);
 
   useEffect(() => {
     if (
-      restoredDraftConversationKey !== null &&
-      restoredDraftConversationKey !== activeConversationKey
+      restoredDraftConversationId !== null &&
+      restoredDraftConversationId !== activeConversationId
     ) {
-      setRestoredDraftConversationKey(null);
+      setRestoredDraftConversationId(null);
     }
-  }, [activeConversationKey, restoredDraftConversationKey, setRestoredDraftConversationKey]);
+  }, [activeConversationId, restoredDraftConversationId, setRestoredDraftConversationId]);
 
   // -------------------------------------------------------------------------
   // Composer submit
@@ -848,8 +873,8 @@ export function ChatRouteContent({
       }));
     setInput("");
     setSuggestion(null);
-    if (activeConversationKey) {
-      clearDraft(activeConversationKey);
+    if (activeConversationId) {
+      clearDraft(activeConversationId);
     }
     if (inputRef.current) {
       inputRef.current.style.height = "auto";
@@ -865,7 +890,7 @@ export function ChatRouteContent({
     // useViewportMinHeight) stays anchored at the latest message.
     scrollCoordinator.scrollToLatest({ behavior: "auto" });
     await sendMessage(trimmed, attachmentsToSend);
-  }, [input, sendDisabled, attachmentUploadedIds.length, attachmentsUploadingCount, activeConversationKey, chatAttachments, resetChatAttachments, sendMessage, setInput, setSuggestion, clearDraft, inputRef, scrollCoordinator]);
+  }, [input, sendDisabled, attachmentUploadedIds.length, attachmentsUploadingCount, activeConversationId, chatAttachments, resetChatAttachments, sendMessage, setInput, setSuggestion, clearDraft, inputRef, scrollCoordinator]);
 
   const handleSelectStarter = (starter: { prompt: string }) => {
     setInput(starter.prompt);
@@ -980,7 +1005,7 @@ export function ChatRouteContent({
         <div className="mb-2">
           <Notice
             tone="info"
-            onDismiss={() => setRestoredDraftConversationKey(null)}
+            onDismiss={() => setRestoredDraftConversationId(null)}
           >
             Draft restored from your previous session.
           </Notice>
@@ -1034,6 +1059,7 @@ export function ChatRouteContent({
 
   const chatTranscriptProps: TranscriptProps = {
     items: transcriptItems,
+    assistantDisplayName: assistantIdentity?.name?.trim() || undefined,
     expandedToolCallIds: expandedToolCallIdsRef.current,
     onOpenRuleEditor: handleOpenRuleEditorForToolCall,
     onOpenApp: handleOpenApp,
@@ -1118,6 +1144,11 @@ export function ChatRouteContent({
         : undefined,
     onPullRefresh: handlePullRefresh,
     pullRefreshEnabled: chatPullToRefreshEnabled && touchSupported,
+    scrollCoordinatorState: {
+      isPinnedToLatest: scrollCoordinator.isPinnedToLatest,
+      showScrollToLatest: scrollCoordinator.showScrollToLatest,
+      shouldLoadOlder: false, // Not exposed by scroll coordinator; safe default
+    },
     subagentEntries,
     onSubagentClick,
     onStopSubagent,
@@ -1174,7 +1205,7 @@ export function ChatRouteContent({
     thresholdPickerSlot: assistantId ? (
       <ComposerSettingsMenu
         assistantId={assistantId}
-        conversationId={activeConversation?.conversationKey}
+        conversationId={activeConversation?.conversationId}
       />
     ) : undefined,
     contextWindowIndicatorSlot: (
@@ -1199,7 +1230,7 @@ export function ChatRouteContent({
     messageCount: messages.length,
     showEmptyState: isEmptyConversation,
     emptyStateProps: chatEmptyStateProps,
-    transcriptRef,
+    transcriptRef: refs.transcriptRef,
     transcriptProps: chatTranscriptProps,
   };
 
@@ -1238,6 +1269,8 @@ export function ChatRouteContent({
       queuedMessages={queuedMessages}
       onCancelMessage={handleCancelQueuedMessage}
       onCancelAll={handleCancelAllQueued}
+      onSteer={handleSteerMessage}
+      showSteer={queueSteering}
       onEditTail={handleEditQueueTail}
     />
   );
@@ -1267,7 +1300,7 @@ export function ChatRouteContent({
   // Render
   // -------------------------------------------------------------------------
 
-  if (mainView === "app-editing" && openedAppState && editingConversationKey) {
+  if (mainView === "app-editing" && openedAppState && editingConversationId) {
     return (
       <ResizablePanel
         storageKey="appEditPanelWidth"
@@ -1393,6 +1426,12 @@ export function ChatRouteContent({
             assistantId={assistantId}
             surfaceId={openedDocumentState.surfaceId}
             conversationId={openedDocumentState.conversationId}
+            onSubmitFeedback={() => {
+              const prompt = `Please review and address my comments on "${openedDocumentState.documentName}".`;
+              navigate(
+                `${routes.conversation(openedDocumentState.conversationId)}?prompt=${encodeURIComponent(prompt)}`,
+              );
+            }}
           />
         }
       />

@@ -9,7 +9,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { getLogger } from "../util/logger.js";
 import { getDb } from "./db-connection.js";
-import { enqueueMemoryJob } from "./jobs-store.js";
+import { enqueueMemoryJob, isMemoryEnabled } from "./jobs-store.js";
 import { rawGet } from "./raw-query.js";
 import { memoryCheckpoints, memoryJobs } from "./schema.js";
 
@@ -20,6 +20,8 @@ const log = getLogger("conversation-starters-cadence");
  * generating a fresh batch of conversation starters.
  */
 export function maybeEnqueueConversationStartersJob(scopeId: string): void {
+  if (!isMemoryEnabled()) return;
+
   const db = getDb();
 
   // Count total active memory items

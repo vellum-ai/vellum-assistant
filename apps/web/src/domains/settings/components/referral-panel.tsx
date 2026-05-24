@@ -6,7 +6,6 @@ import { useQuery } from "@tanstack/react-query";
 import { Button } from "@vellum/design-library/components/button";
 import { Card } from "@vellum/design-library/components/card";
 import { Notice } from "@vellum/design-library/components/notice";
-import { SkillRow } from "@vellum/design-library/components/skill-row";
 import { toast } from "@vellum/design-library/components/toast";
 import { Typography } from "@vellum/design-library/components/typography";
 import { referralCodesMeRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen.js";
@@ -80,33 +79,27 @@ export function ReferralPanel() {
           <Notice tone="error">Failed to load referral information.</Notice>
         ) : (
           <div className="flex flex-wrap items-center gap-2">
-            <div className="min-w-[200px] flex-1">
-              <SkillRow
-                className="[&>div]:items-center"
-                icon={<Coins className="h-3.5 w-3.5" aria-hidden />}
-                title={
-                  <span className="flex items-baseline gap-1">
-                    <span>{stripDecimals(data.total_earned)}</span>
-                    <span className="text-body-small-default text-[var(--content-tertiary)]">
-                      Credits Earned
-                    </span>
-                  </span>
-                }
-              />
+            <div className="flex min-w-[200px] flex-1 items-center gap-1.5 rounded-lg bg-[var(--surface-base)] px-2 py-1.5">
+              <span aria-hidden className="flex h-6 w-6 shrink-0 items-center justify-center text-[var(--content-emphasised)]">
+                <Coins className="h-3.5 w-3.5" />
+              </span>
+              <span className="flex items-baseline gap-1 text-body-medium-default">
+                <span>{stripDecimals(data.total_earned)}</span>
+                <span className="text-body-small-default text-[var(--content-tertiary)]">
+                  Credits Earned
+                </span>
+              </span>
             </div>
-            <div className="min-w-[200px] flex-1">
-              <SkillRow
-                className="[&>div]:items-center"
-                icon={<Users className="h-3.5 w-3.5" aria-hidden />}
-                title={
-                  <span className="flex items-baseline gap-1">
-                    <span>{data.referred_count}</span>
-                    <span className="text-body-small-default text-[var(--content-tertiary)]">
-                      Friends Referred
-                    </span>
-                  </span>
-                }
-              />
+            <div className="flex min-w-[200px] flex-1 items-center gap-1.5 rounded-lg bg-[var(--surface-base)] px-2 py-1.5">
+              <span aria-hidden className="flex h-6 w-6 shrink-0 items-center justify-center text-[var(--content-emphasised)]">
+                <Users className="h-3.5 w-3.5" />
+              </span>
+              <span className="flex items-baseline gap-1 text-body-medium-default">
+                <span>{data.referred_count}</span>
+                <span className="text-body-small-default text-[var(--content-tertiary)]">
+                  Friends Referred
+                </span>
+              </span>
             </div>
             <Button
               variant="outlined"

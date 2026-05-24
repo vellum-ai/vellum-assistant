@@ -7,10 +7,10 @@ describe("isAsyncChatScopeCurrent", () => {
     expect(
       isAsyncChatScopeCurrent({
         currentAssistantId: "assistant-1",
-        currentConversationKey: "draft-1",
+        currentConversationId: "draft-1",
         requestAssistantId: "assistant-1",
-        requestConversationKey: "draft-1",
-        resolvedConversationKey: "server-1",
+        requestConversationId: "draft-1",
+        resolvedConversationId: "server-1",
       }),
     ).toBe(true);
   });
@@ -19,10 +19,10 @@ describe("isAsyncChatScopeCurrent", () => {
     expect(
       isAsyncChatScopeCurrent({
         currentAssistantId: "assistant-1",
-        currentConversationKey: "server-1",
+        currentConversationId: "server-1",
         requestAssistantId: "assistant-1",
-        requestConversationKey: "draft-1",
-        resolvedConversationKey: "server-1",
+        requestConversationId: "draft-1",
+        resolvedConversationId: "server-1",
       }),
     ).toBe(true);
   });
@@ -31,10 +31,10 @@ describe("isAsyncChatScopeCurrent", () => {
     expect(
       isAsyncChatScopeCurrent({
         currentAssistantId: "assistant-1",
-        currentConversationKey: "weather-chat",
+        currentConversationId: "weather-chat",
         requestAssistantId: "assistant-1",
-        requestConversationKey: "blog-chat",
-        resolvedConversationKey: "blog-chat",
+        requestConversationId: "blog-chat",
+        resolvedConversationId: "blog-chat",
       }),
     ).toBe(false);
   });
@@ -43,9 +43,9 @@ describe("isAsyncChatScopeCurrent", () => {
     expect(
       isAsyncChatScopeCurrent({
         currentAssistantId: "assistant-2",
-        currentConversationKey: "chat-1",
+        currentConversationId: "chat-1",
         requestAssistantId: "assistant-1",
-        requestConversationKey: "chat-1",
+        requestConversationId: "chat-1",
       }),
     ).toBe(false);
   });

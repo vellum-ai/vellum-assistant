@@ -89,6 +89,8 @@ export interface BackgroundProcessingParams {
   sourceLanguageCode?: string;
   /** Chat type from the gateway (e.g. "private", "group", "supergroup"). */
   chatType?: string;
+  /** IANA timezone reported by the active client for the current turn. */
+  clientTimezone?: string;
   /** Slack app_mention/direct bot mention signal from the gateway. */
   slackBotMentioned?: boolean;
   /**
@@ -125,6 +127,7 @@ export function processChannelMessageInBackground(
     commandIntent,
     sourceLanguageCode,
     chatType,
+    clientTimezone,
     slackBotMentioned,
     slackInbound,
   } = params;
@@ -248,6 +251,7 @@ export function processChannelMessageInBackground(
               hints: metadataHints.length > 0 ? metadataHints : undefined,
               uxBrief: metadataUxBrief,
               chatType,
+              ...(clientTimezone ? { clientTimezone } : {}),
             },
             assistantId,
             trustContext: trustCtx,
@@ -552,11 +556,7 @@ function createSlackThinkingStatusController(params: {
 
 const SLACK_THINKING_MAX_DURATION_MS = 120_000;
 const SLACK_GENERIC_LOADING_MESSAGES = ["Working on it..."] as const;
-const SLACK_THINKING_STATUSES = [
-  "is grinding",
-  "is working",
-  "is touching grass",
-] as const;
+const SLACK_THINKING_STATUSES = ["is on it", "is working hard"] as const;
 
 function getRandomSlackThinkingStatus(): string {
   return SLACK_THINKING_STATUSES[

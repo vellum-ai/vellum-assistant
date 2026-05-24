@@ -22,6 +22,7 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 async function handleOpenInferenceProfileSession({
   body = {},
+  headers,
 }: RouteHandlerArgs) {
   if (body.profile == null || typeof body.profile !== "string") {
     throw new BadRequestError("profile must be a non-empty string");
@@ -31,13 +32,18 @@ async function handleOpenInferenceProfileSession({
     profile: body.profile,
     ttlSeconds: body.ttlSeconds as number | null | undefined,
     sessionId: body.sessionId as string | undefined,
+    originClientId: headers?.["x-vellum-client-id"]?.trim() || undefined,
   });
 }
 
 async function handleCloseInferenceProfileSession({
   body = {},
+  headers,
 }: RouteHandlerArgs) {
-  return closeInferenceProfileSession(body.conversationId as string);
+  return closeInferenceProfileSession(
+    body.conversationId as string,
+    headers?.["x-vellum-client-id"]?.trim() || undefined,
+  );
 }
 
 function handleListInferenceProfileSessions({

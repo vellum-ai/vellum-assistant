@@ -40,6 +40,7 @@ export interface OpenRuleEditorContext {
  */
 export interface TranscriptMessageBodyProps {
   message: DisplayMessage;
+  assistantDisplayName?: string | null;
   /**
    * Persistent set of expanded tool-call ids. Passed straight through to
    * `ToolCallChip` so expansion state survives virtualization unmounts.
@@ -108,8 +109,14 @@ function latestMessageActivityTimestamp(
   return Math.max(message.timestamp, latestToolTimestamp);
 }
 
-function fallbackRoleLabel(role: DisplayMessage["role"]): string {
-  return role === "assistant" ? "Assistant" : "User";
+function fallbackRoleLabel(
+  role: DisplayMessage["role"],
+  assistantDisplayName?: string | null,
+): string {
+  if (role === "assistant") {
+    return firstPresentLabel(assistantDisplayName) ?? "Assistant";
+  }
+  return "User";
 }
 
 function firstPresentLabel(
@@ -122,7 +129,10 @@ function firstPresentLabel(
   return undefined;
 }
 
-function getSlackSenderLabel(message: DisplayMessage): string | null {
+function getSlackSenderLabel(
+  message: DisplayMessage,
+  assistantDisplayName?: string | null,
+): string | null {
   if (!message.slackMessage) return null;
   const sender = message.slackMessage.sender;
   return firstPresentLabel(
@@ -130,7 +140,7 @@ function getSlackSenderLabel(message: DisplayMessage): string | null {
     sender?.name,
     sender?.username,
     sender?.externalUserId,
-  ) ?? fallbackRoleLabel(message.role);
+  ) ?? fallbackRoleLabel(message.role, assistantDisplayName);
 }
 
 function isInteractiveClickTarget(target: Element | null): boolean {
@@ -139,8 +149,14 @@ function isInteractiveClickTarget(target: Element | null): boolean {
   );
 }
 
-function SlackMessageAttribution({ message }: { message: DisplayMessage }) {
-  const label = getSlackSenderLabel(message);
+function SlackMessageAttribution({
+  message,
+  assistantDisplayName,
+}: {
+  message: DisplayMessage;
+  assistantDisplayName?: string | null;
+}) {
+  const label = getSlackSenderLabel(message, assistantDisplayName);
   if (!label) return null;
 
   const url = getSlackLinkUrl(message.slackMessage?.messageLink);
@@ -177,6 +193,7 @@ function SlackMessageAttribution({ message }: { message: DisplayMessage }) {
 
 export function TranscriptMessageBody({
   message,
+  assistantDisplayName,
   expandedToolCallIds,
   expandedCardIds,
   onSurfaceAction,
@@ -412,7 +429,10 @@ export function TranscriptMessageBody({
               assistantId={assistantId}
             />
           )}
-          <SlackMessageAttribution message={message} />
+          <SlackMessageAttribution
+            message={message}
+            assistantDisplayName={assistantDisplayName}
+          />
           <div className="h-6 opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100 has-[:focus-visible]:opacity-100 group-data-[revealed=true]/msg:opacity-100">
             <MessageHoverActions
               content={message.content}
@@ -544,7 +564,10 @@ export function TranscriptMessageBody({
             </div>
           ));
         })()}
-        <SlackMessageAttribution message={message} />
+        <SlackMessageAttribution
+          message={message}
+          assistantDisplayName={assistantDisplayName}
+        />
         <div className="h-6 opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100 has-[:focus-visible]:opacity-100 group-data-[revealed=true]/msg:opacity-100">
           <MessageHoverActions
             content={message.content}

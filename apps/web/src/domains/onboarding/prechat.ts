@@ -48,6 +48,8 @@ export interface PreChatOnboardingContext {
   googleScopes?: string[];
   /** GTM cohort identifier, e.g. "content-automation". */
   cohort?: string;
+  /** Auto-send this message on first load instead of waiting for user input. */
+  initialMessage?: string;
 }
 
 /**
@@ -222,6 +224,9 @@ function isPreChatOnboardingContext(
   if (candidate.cohort !== undefined && typeof candidate.cohort !== "string") {
     return false;
   }
+  if (candidate.initialMessage !== undefined && typeof candidate.initialMessage !== "string") {
+    return false;
+  }
   return true;
 }
 
@@ -360,4 +365,36 @@ export function consumePendingAssistantName(): string | null {
   } catch {
     return null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Peek at pre-chat context (non-destructive)
+// ---------------------------------------------------------------------------
+
+/**
+ * Read the pending pre-chat onboarding context without removing it.
+ * Used by ChatPage to check for an `initialMessage` before the context
+ * is consumed during the first send.
+ */
+export function peekPendingPreChatContext(): PreChatOnboardingContext | null {
+  const storage = getSessionStorage();
+  if (storage === null) return null;
+
+  let raw: string | null;
+  try {
+    raw = storage.getItem(STORAGE_KEY);
+  } catch {
+    return null;
+  }
+  if (raw === null) return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+
+  if (!isPreChatOnboardingContext(parsed)) return null;
+  return parsed;
 }

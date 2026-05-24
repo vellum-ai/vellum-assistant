@@ -20,7 +20,30 @@ function normalizeTokenCount(value: number | null | undefined): number {
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (typeof value !== "object" || value == null) return null;
+  if (Array.isArray(value)) return null;
   return value as Record<string, unknown>;
+}
+
+/**
+ * Extract the provider's untouched `usage` block from a `rawResponse`
+ * payload for opaque end-to-end forwarding (the `raw_usage` column /
+ * telemetry field).
+ *
+ * Returns `null` when there is no usage object to surface. For streaming
+ * providers that pass `rawResponse` as an accumulated array of chunks,
+ * the final element's `usage` is preferred — Anthropic and OpenAI both
+ * stamp the complete tally on the terminal chunk, so taking the last
+ * element captures the post-completion state without re-aggregating.
+ */
+export function extractRawUsage(
+  rawResponse: unknown,
+): Record<string, unknown> | null {
+  if (rawResponse == null) return null;
+  const candidate = Array.isArray(rawResponse)
+    ? rawResponse[rawResponse.length - 1]
+    : rawResponse;
+  const record = asRecord(candidate);
+  return asRecord(record?.usage);
 }
 
 function extractAnthropicCacheCreationFromResponse(

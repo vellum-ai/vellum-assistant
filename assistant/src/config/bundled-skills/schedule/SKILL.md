@@ -6,6 +6,14 @@ metadata:
   emoji: "📅"
   vellum:
     display-name: "Schedule"
+    activation-hints:
+      - "User wants to set a reminder for a future time (e.g. 'remind me at 9am tomorrow', 'remind me to take meds at 8pm')"
+      - "User wants to schedule a recurring task or automation (e.g. 'every weekday at 9am', 'every Monday at noon')"
+      - "User wants to schedule a one-time future action the assistant should run autonomously (e.g. 'at 5pm check my email and summarize it')"
+      - "User wants to list, update, cancel, or inspect existing scheduled tasks or reminders"
+    avoid-when:
+      - "User wants to add something to their task list or queue — use task-list tools instead"
+      - "User wants to act immediately or run a quick command that completes within the conversation — schedule is only for deferred or recurring execution"
 ---
 
 Manage scheduled automations. Schedules can be **recurring** (cron or RRULE expression) or **one-shot** (a single `fire_at` timestamp). Schedules support three modes: **execute** (run a message through the assistant), **notify** (send a notification to the user), and **script** (run a shell command directly without LLM involvement).

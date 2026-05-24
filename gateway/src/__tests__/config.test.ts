@@ -1,4 +1,9 @@
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, test, expect } from "bun:test";
+
+import { testWorkspaceDir } from "./test-preload.js";
 import { loadConfig } from "../config.js";
 
 describe("config: hardcoded defaults", () => {
@@ -58,6 +63,50 @@ describe("config: hardcoded defaults", () => {
     } finally {
       if (saved !== undefined) process.env.RUNTIME_HTTP_PORT = saved;
       else delete process.env.RUNTIME_HTTP_PORT;
+    }
+  });
+
+  test("runtimeTimeoutMs is configurable via env var", () => {
+    const saved = process.env.RUNTIME_TIMEOUT_MS;
+    process.env.RUNTIME_TIMEOUT_MS = "300000";
+    try {
+      const config = loadConfig();
+      expect(config.runtimeTimeoutMs).toBe(300000);
+    } finally {
+      if (saved !== undefined) process.env.RUNTIME_TIMEOUT_MS = saved;
+      else delete process.env.RUNTIME_TIMEOUT_MS;
+    }
+  });
+
+  test("runtimeTimeoutMs rejects invalid env var", () => {
+    const saved = process.env.RUNTIME_TIMEOUT_MS;
+    process.env.RUNTIME_TIMEOUT_MS = "0";
+    try {
+      expect(() => loadConfig()).toThrow(
+        "RUNTIME_TIMEOUT_MS must be a positive integer",
+      );
+    } finally {
+      if (saved !== undefined) process.env.RUNTIME_TIMEOUT_MS = saved;
+      else delete process.env.RUNTIME_TIMEOUT_MS;
+    }
+  });
+
+  test("runtimeTimeoutMs rejects non-numeric workspace config values", () => {
+    const saved = process.env.RUNTIME_TIMEOUT_MS;
+    delete process.env.RUNTIME_TIMEOUT_MS;
+    writeFileSync(
+      join(testWorkspaceDir, "config.json"),
+      JSON.stringify({ gateway: { runtimeTimeoutMs: true } }),
+    );
+
+    try {
+      expect(() => loadConfig()).toThrow(
+        "gateway.runtimeTimeoutMs must be a positive integer",
+      );
+    } finally {
+      if (saved !== undefined) process.env.RUNTIME_TIMEOUT_MS = saved;
+      else delete process.env.RUNTIME_TIMEOUT_MS;
+      writeFileSync(join(testWorkspaceDir, "config.json"), "{}");
     }
   });
 

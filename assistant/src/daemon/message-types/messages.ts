@@ -426,17 +426,11 @@ export type InteractionResolutionState =
 export interface InteractionResolved {
   type: "interaction_resolved";
   requestId: string;
-  /**
-   * Conversation key for the interaction. The daemon's internal conversation
-   * id and the web client's conversation key coincide today (see
-   * `conversation-key-store.ts`); the field is named after the client-facing
-   * concept.
-   */
-  conversationKey: string;
+  /** Conversation id the interaction belongs to. */
+  conversationId: string;
   state: InteractionResolutionState;
   /** Kind of the resolved interaction (e.g. "confirmation", "secret", "host_bash"). */
   kind: string;
-  conversationId?: string;
 }
 
 /**

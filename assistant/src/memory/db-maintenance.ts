@@ -3,6 +3,7 @@ import { statSync } from "node:fs";
 import { getLogger } from "../util/logger.js";
 import { getDbPath } from "../util/platform.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
+import { runAsyncSqlite } from "./db-async-query.js";
 import { getSqlite } from "./db-connection.js";
 
 const log = getLogger("db-maintenance");
@@ -11,7 +12,7 @@ const DB_MAINTENANCE_CHECKPOINT_KEY = "db_maintenance:last_run";
 const DB_MAINTENANCE_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 interface DbStats {
-  pageSizeBytes: number;
+  pageSize: number;
   pageCount: number;
   freelistCount: number;
   fileSizeBytes: number | null;
@@ -19,7 +20,7 @@ interface DbStats {
 
 function getDbStats(): DbStats {
   const sqlite = getSqlite();
-  const pageSizeBytes = (
+  const pageSize = (
     sqlite.query("PRAGMA page_size").get() as { page_size: number }
   ).page_size;
   const pageCount = (
@@ -34,10 +35,10 @@ function getDbStats(): DbStats {
   } catch {
     /* non-fatal */
   }
-  return { pageSizeBytes, pageCount, freelistCount, fileSizeBytes };
+  return { pageSize, pageCount, freelistCount, fileSizeBytes };
 }
 
-function runDbMaintenance(): void {
+async function runDbMaintenance(): Promise<void> {
   const before = getDbStats();
   const freelistPct =
     before.pageCount > 0
@@ -54,22 +55,24 @@ function runDbMaintenance(): void {
     "Starting database maintenance",
   );
 
-  try {
-    getSqlite().exec("VACUUM");
-  } catch (err) {
-    log.warn({ err }, "VACUUM failed (non-fatal)");
-    try {
-      getSqlite().exec("PRAGMA optimize");
-    } catch (optErr) {
-      log.warn({ err: optErr }, "PRAGMA optimize failed (non-fatal)");
-    }
-    return;
+  // VACUUM is the long-running one — minutes on a multi-GB DB. PRAGMA
+  // optimize is fast but routed through the same async path for
+  // consistency and to keep both off the main thread when the CLI
+  // backend is available.
+  const vacuumResult = await runAsyncSqlite("VACUUM");
+  if (!vacuumResult.ok) {
+    log.warn(
+      { error: vacuumResult.error, backend: vacuumResult.backend },
+      "VACUUM failed (non-fatal)",
+    );
   }
 
-  try {
-    getSqlite().exec("PRAGMA optimize");
-  } catch (err) {
-    log.warn({ err }, "PRAGMA optimize failed (non-fatal)");
+  const optimizeResult = await runAsyncSqlite("PRAGMA optimize");
+  if (!optimizeResult.ok) {
+    log.warn(
+      { error: optimizeResult.error, backend: optimizeResult.backend },
+      "PRAGMA optimize failed (non-fatal)",
+    );
   }
 
   const after = getDbStats();
@@ -81,17 +84,23 @@ function runDbMaintenance(): void {
 
   log.info(
     {
+      backend: vacuumResult.backend,
+      vacuumOk: vacuumResult.ok,
+      optimizeOk: optimizeResult.ok,
+      vacuumElapsedMs: vacuumResult.elapsedMs,
+      optimizeElapsedMs: optimizeResult.elapsedMs,
       beforePageCount: before.pageCount,
       afterPageCount: after.pageCount,
       reclaimedPages,
-      reclaimedBytes,
+      beforeFileSizeBytes: before.fileSizeBytes,
       afterFileSizeBytes: after.fileSizeBytes,
+      reclaimedBytes,
     },
     "Database maintenance complete",
   );
 }
 
-export function maybeRunDbMaintenance(nowMs = Date.now()): void {
+export async function maybeRunDbMaintenance(nowMs = Date.now()): Promise<void> {
   const lastRun = parseInt(
     getMemoryCheckpoint(DB_MAINTENANCE_CHECKPOINT_KEY) ?? "0",
     10,
@@ -99,7 +108,7 @@ export function maybeRunDbMaintenance(nowMs = Date.now()): void {
   if (nowMs - lastRun < DB_MAINTENANCE_INTERVAL_MS) return;
 
   try {
-    runDbMaintenance();
+    await runDbMaintenance();
   } catch (err) {
     log.error({ err }, "Database maintenance failed unexpectedly");
   }

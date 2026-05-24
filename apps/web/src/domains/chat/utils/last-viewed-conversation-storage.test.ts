@@ -1,8 +1,8 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 
 import {
-  loadLastViewedConversationKey,
-  saveLastViewedConversationKey,
+  loadLastViewedConversationId,
+  saveLastViewedConversationId,
 } from "@/domains/chat/utils/last-viewed-conversation-storage.js";
 
 const ASSISTANT_ID = "asst_123";
@@ -70,43 +70,43 @@ afterEach(() => {
   memoryStorage.clear();
 });
 
-describe("loadLastViewedConversationKey", () => {
+describe("loadLastViewedConversationId", () => {
   test("returns null when no value is stored", () => {
-    expect(loadLastViewedConversationKey(ASSISTANT_ID)).toBeNull();
+    expect(loadLastViewedConversationId(ASSISTANT_ID)).toBeNull();
   });
 
   test("returns the stored conversation key when present", () => {
     memoryStorage.setItem(STORAGE_KEY, "conv_abc");
-    expect(loadLastViewedConversationKey(ASSISTANT_ID)).toBe("conv_abc");
+    expect(loadLastViewedConversationId(ASSISTANT_ID)).toBe("conv_abc");
   });
 
   test("returns null when the stored value is an empty string", () => {
     memoryStorage.setItem(STORAGE_KEY, "");
-    expect(loadLastViewedConversationKey(ASSISTANT_ID)).toBeNull();
+    expect(loadLastViewedConversationId(ASSISTANT_ID)).toBeNull();
   });
 
   test("scopes lookups by assistant id", () => {
     memoryStorage.setItem(STORAGE_KEY, "conv_abc");
-    expect(loadLastViewedConversationKey("other_assistant")).toBeNull();
+    expect(loadLastViewedConversationId("other_assistant")).toBeNull();
   });
 });
 
-describe("saveLastViewedConversationKey", () => {
+describe("saveLastViewedConversationId", () => {
   test("writes the conversation key under the assistant-scoped storage key", () => {
-    saveLastViewedConversationKey(ASSISTANT_ID, "conv_abc");
+    saveLastViewedConversationId(ASSISTANT_ID, "conv_abc");
     expect(memoryStorage.getItem(STORAGE_KEY)).toBe("conv_abc");
   });
 
   test("overwrites any previously stored value", () => {
-    saveLastViewedConversationKey(ASSISTANT_ID, "conv_abc");
-    saveLastViewedConversationKey(ASSISTANT_ID, "conv_def");
-    expect(loadLastViewedConversationKey(ASSISTANT_ID)).toBe("conv_def");
+    saveLastViewedConversationId(ASSISTANT_ID, "conv_abc");
+    saveLastViewedConversationId(ASSISTANT_ID, "conv_def");
+    expect(loadLastViewedConversationId(ASSISTANT_ID)).toBe("conv_def");
   });
 
   test("keeps values for different assistants isolated", () => {
-    saveLastViewedConversationKey(ASSISTANT_ID, "conv_abc");
-    saveLastViewedConversationKey("other_assistant", "conv_xyz");
-    expect(loadLastViewedConversationKey(ASSISTANT_ID)).toBe("conv_abc");
-    expect(loadLastViewedConversationKey("other_assistant")).toBe("conv_xyz");
+    saveLastViewedConversationId(ASSISTANT_ID, "conv_abc");
+    saveLastViewedConversationId("other_assistant", "conv_xyz");
+    expect(loadLastViewedConversationId(ASSISTANT_ID)).toBe("conv_abc");
+    expect(loadLastViewedConversationId("other_assistant")).toBe("conv_xyz");
   });
 });

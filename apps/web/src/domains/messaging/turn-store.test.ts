@@ -4,6 +4,7 @@ import {
   getThinkingStatusText,
   shouldShowThinkingIndicator,
   shouldShowAssistantBubble,
+  canStopGeneration,
   isSendDisabled,
   type UIContext,
 } from "@/domains/messaging/turn-selectors.js";
@@ -1290,6 +1291,46 @@ describe("isSendDisabled", () => {
 
   test("enabled when idle with no competing UI", () => {
     expect(isSendDisabled(INITIAL_TURN_STATE, defaultCtx)).toBe(false);
+  });
+});
+
+describe("canStopGeneration", () => {
+  test("visible for a web-originated active turn", () => {
+    const thinking = turnReducer(INITIAL_TURN_STATE, {
+      type: "USER_SEND_REQUESTED",
+    });
+    expect(canStopGeneration(thinking, defaultCtx)).toBe(true);
+  });
+
+  test("visible for an externally-originated streaming assistant message", () => {
+    expect(
+      canStopGeneration(INITIAL_TURN_STATE, {
+        ...defaultCtx,
+        hasStreamingAssistantMessage: true,
+      }),
+    ).toBe(true);
+  });
+
+  test("visible after switching back to a processing conversation", () => {
+    expect(
+      canStopGeneration(INITIAL_TURN_STATE, {
+        ...defaultCtx,
+        activeConversationIsProcessing: true,
+      }),
+    ).toBe(true);
+  });
+
+  test("hidden while waiting on a user-input surface", () => {
+    const awaiting = applyEvents(INITIAL_TURN_STATE, [
+      { type: "USER_SEND_REQUESTED" },
+      { type: "CONFIRMATION_REQUEST" },
+    ]);
+    expect(
+      canStopGeneration(awaiting, {
+        ...defaultCtx,
+        hasPendingConfirmation: true,
+      }),
+    ).toBe(false);
   });
 });
 

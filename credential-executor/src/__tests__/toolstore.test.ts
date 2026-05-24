@@ -4,6 +4,7 @@ import {
   rmSync,
   existsSync,
   readFileSync,
+  readdirSync,
   writeFileSync,
   symlinkSync,
 } from "node:fs";
@@ -395,7 +396,6 @@ describe("publishBundle — digest mismatch rejection", () => {
 
     // Also check that no staging directories were left behind
     if (existsSync(toolstoreDir)) {
-      const { readdirSync } = require("node:fs");
       const entries = readdirSync(toolstoreDir) as string[];
       const stagingDirs = entries.filter((e: string) =>
         e.startsWith(".staging-"),

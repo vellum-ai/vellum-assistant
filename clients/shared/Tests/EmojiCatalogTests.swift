@@ -76,4 +76,65 @@ final class EmojiCatalogTests: XCTestCase {
             XCTAssertTrue(allShortcodes.contains(code), "Common shortcode '\(code)' missing from catalog")
         }
     }
+
+    func testAliasNeverIncludesOwnShortcode() {
+        for entry in EmojiCatalog.all {
+            XCTAssertFalse(
+                entry.aliases.contains(entry.shortcode),
+                "Entry '\(entry.shortcode)' lists its own shortcode in aliases"
+            )
+        }
+    }
+
+    func testAliasesAreUniquePerEntry() {
+        for entry in EmojiCatalog.all where !entry.aliases.isEmpty {
+            XCTAssertEqual(
+                Set(entry.aliases).count, entry.aliases.count,
+                "Entry '\(entry.shortcode)' has duplicate aliases: \(entry.aliases)"
+            )
+        }
+    }
+
+    func testSearchSurfacesEmojiViaAlias() {
+        // 😤's shortcode is "triumph" but users type :huff / :frustrated / :steam.
+        let huff = EmojiCatalog.search(query: "huff", limit: 8)
+        XCTAssertTrue(
+            huff.contains(where: { $0.emoji == "\u{1F624}" }),
+            "Expected 😤 in results for :huff, got \(huff.map(\.shortcode))"
+        )
+        let frustrated = EmojiCatalog.search(query: "frustrated", limit: 8)
+        XCTAssertTrue(
+            frustrated.contains(where: { $0.emoji == "\u{1F624}" }),
+            "Expected 😤 in results for :frustrated, got \(frustrated.map(\.shortcode))"
+        )
+    }
+
+    func testShortcodeMatchOutranksAliasMatch() {
+        // :steam should rank steam_locomotive (shortcode prefix) above triumph (alias only).
+        let results = EmojiCatalog.search(query: "steam", limit: 20)
+        guard let locoIdx = results.firstIndex(where: { $0.shortcode == "steam_locomotive" }),
+              let triumphIdx = results.firstIndex(where: { $0.shortcode == "triumph" })
+        else {
+            XCTFail("Expected both steam_locomotive and triumph in :steam results")
+            return
+        }
+        XCTAssertLessThan(locoIdx, triumphIdx, "Shortcode prefix match should rank above alias match")
+    }
+
+    func testSearchDedupesByShortcode() {
+        let results = EmojiCatalog.search(query: "heart", limit: 50)
+        let shortcodes = results.map(\.shortcode)
+        XCTAssertEqual(Set(shortcodes).count, shortcodes.count, "Search returned duplicate shortcodes")
+    }
+
+    func testTriumphHasExpectedAliases() {
+        guard let triumph = EmojiCatalog.all.first(where: { $0.shortcode == "triumph" }) else {
+            XCTFail("Expected 'triumph' entry in catalog")
+            return
+        }
+        for expected in ["huff", "frustrated", "fed_up"] {
+            XCTAssertTrue(triumph.aliases.contains(expected),
+                          "Expected 'triumph' aliases to include '\(expected)', got \(triumph.aliases)")
+        }
+    }
 }

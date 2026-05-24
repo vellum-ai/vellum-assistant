@@ -1,0 +1,157 @@
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "bun:test";
+import { randomBytes } from "node:crypto";
+import { createConnection, type Socket } from "node:net";
+
+import {
+  getGatewayDb,
+  initGatewayDb,
+  resetGatewayDb,
+} from "../db/connection.js";
+import { SlackStore } from "../db/slack-store.js";
+import { slackActiveThreads } from "../db/schema.js";
+import { GatewayIpcServer } from "../ipc/server.js";
+import { slackThreadRoutes } from "../ipc/slack-thread-handlers.js";
+
+const CHANNEL_ID = "CFAKE00001";
+const OTHER_CHANNEL_ID = "COTHER0001";
+const THREAD_TS = "1700000000.000000";
+const OTHER_THREAD_TS = "1700000001.000000";
+
+beforeAll(async () => {
+  await initGatewayDb();
+});
+
+beforeEach(() => {
+  getGatewayDb().delete(slackActiveThreads).run();
+});
+
+afterAll(() => {
+  resetGatewayDb();
+});
+
+function connectClient(path: string): Promise<Socket> {
+  return new Promise((resolve, reject) => {
+    const client = createConnection(path, () => resolve(client));
+    client.on("error", reject);
+  });
+}
+
+function sendRequest(
+  client: Socket,
+  method: string,
+  params?: Record<string, unknown>,
+): Promise<{ id: string; result?: unknown; error?: string }> {
+  return new Promise((resolve, reject) => {
+    const id = randomBytes(4).toString("hex");
+    let buffer = "";
+
+    const onData = (chunk: Buffer) => {
+      buffer += chunk.toString();
+      const newlineIdx = buffer.indexOf("\n");
+      if (newlineIdx !== -1) {
+        const line = buffer.slice(0, newlineIdx).trim();
+        buffer = buffer.slice(newlineIdx + 1);
+        client.off("data", onData);
+        try {
+          resolve(JSON.parse(line));
+        } catch (err) {
+          reject(err);
+        }
+      }
+    };
+
+    client.on("data", onData);
+    client.write(JSON.stringify({ id, method, params }) + "\n");
+  });
+}
+
+function activeThreadRows(): Array<{ threadTs: string; channelId: string }> {
+  return new SlackStore(getGatewayDb()).listActiveThreadsWithChannel();
+}
+
+function trackThread(): void {
+  new SlackStore(getGatewayDb()).trackThread(THREAD_TS, CHANNEL_ID, 60_000);
+}
+
+describe("IPC Slack thread routes", () => {
+  let server: InstanceType<typeof GatewayIpcServer>;
+  let client: Socket;
+
+  afterEach(() => {
+    client?.destroy();
+    server?.stop();
+  });
+
+  async function startServerAndConnect(): Promise<void> {
+    server = new GatewayIpcServer([...slackThreadRoutes]);
+    server.start();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    client = await connectClient(server.getSocketPath());
+  }
+
+  test("detach_slack_active_thread removes a matching active thread", async () => {
+    trackThread();
+
+    await startServerAndConnect();
+    const res = await sendRequest(client, "detach_slack_active_thread", {
+      channelId: CHANNEL_ID,
+      threadTs: THREAD_TS,
+    });
+
+    expect(res.error).toBeUndefined();
+    expect(res.result).toEqual({
+      detached: true,
+      channelId: CHANNEL_ID,
+      threadTs: THREAD_TS,
+    });
+    expect(activeThreadRows()).toEqual([]);
+  });
+
+  test("detach_slack_active_thread is idempotent for an unknown thread", async () => {
+    trackThread();
+
+    await startServerAndConnect();
+    const res = await sendRequest(client, "detach_slack_active_thread", {
+      channelId: CHANNEL_ID,
+      threadTs: OTHER_THREAD_TS,
+    });
+
+    expect(res.error).toBeUndefined();
+    expect(res.result).toEqual({
+      detached: false,
+      channelId: CHANNEL_ID,
+      threadTs: OTHER_THREAD_TS,
+    });
+    expect(activeThreadRows()).toEqual([
+      { threadTs: THREAD_TS, channelId: CHANNEL_ID },
+    ]);
+  });
+
+  test("detach_slack_active_thread does not remove channel mismatches", async () => {
+    trackThread();
+
+    await startServerAndConnect();
+    const res = await sendRequest(client, "detach_slack_active_thread", {
+      channelId: OTHER_CHANNEL_ID,
+      threadTs: THREAD_TS,
+    });
+
+    expect(res.error).toBeUndefined();
+    expect(res.result).toEqual({
+      detached: false,
+      channelId: OTHER_CHANNEL_ID,
+      threadTs: THREAD_TS,
+    });
+    expect(activeThreadRows()).toEqual([
+      { threadTs: THREAD_TS, channelId: CHANNEL_ID },
+    ]);
+  });
+});

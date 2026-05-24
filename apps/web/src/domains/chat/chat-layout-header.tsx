@@ -4,7 +4,6 @@ import {
   ChevronRight,
   House,
   Menu as MenuIcon,
-  MessageSquarePlus,
   PanelLeft,
   Search,
 } from "lucide-react";
@@ -17,7 +16,6 @@ export interface ChatLayoutHeaderProps {
   toggleSidebar: () => void;
   topBarCenter?: ReactNode;
   topBarRightSlot?: ReactNode;
-  onStartNewConversation?: () => void;
   canGoBack?: boolean;
   canGoForward?: boolean;
   onGoBack?: () => void;
@@ -35,7 +33,6 @@ export function ChatLayoutHeader({
   toggleSidebar,
   topBarCenter,
   topBarRightSlot,
-  onStartNewConversation,
   canGoBack,
   canGoForward,
   onGoBack,
@@ -142,14 +139,6 @@ export function ChatLayoutHeader({
             aria-label="Search (Ctrl+K)"
             title="Search (Ctrl+K)"
             onClick={onSearchClick}
-          />
-        ) : null}
-        {onStartNewConversation ? (
-          <Button
-            variant="ghost"
-            iconOnly={<MessageSquarePlus />}
-            aria-label="New conversation"
-            onClick={onStartNewConversation}
           />
         ) : null}
         {topBarRightSlot}

@@ -21,7 +21,10 @@ import {
   parseExternalContentEnvelope,
   wrapUntrustedContent,
 } from "../../../security/untrusted-content.js";
-import type { SlackMessageMetadata } from "./message-metadata.js";
+import {
+  formatSlackTimezoneLabel,
+  type SlackMessageMetadata,
+} from "./message-metadata.js";
 
 export interface RenderableSlackMessage {
   role: "user" | "assistant";
@@ -78,7 +81,14 @@ export interface RenderedSlackTranscript {
 export interface RenderedSlackTranscriptMessage {
   readonly message: Message;
   readonly sourceChannelTs: string | null;
+  /** How the first rendered text line got its Slack attribution, if any. */
+  readonly tagLineProvenance: RenderedSlackTranscriptTagLineProvenance;
 }
+
+export type RenderedSlackTranscriptTagLineProvenance =
+  | "none"
+  | "slack-reaction"
+  | "slack-timezone-message";
 
 /**
  * Replayable Anthropic content-block types that we preserve verbatim from a
@@ -118,31 +128,6 @@ export function parentAlias(channelTs: string): string {
 }
 
 /**
- * Trailing signature of a reaction or reaction-overflow line, both of
- * which end with a `parentAlias` target and a closing bracket:
- * `[... reacted 👍 to M1a2b3c]`, `[... removed 👍 from M1a2b3c]`,
- * `[…and N more reactions to M1a2b3c]`. Regular message tag lines end
- * with the message body, not with `]`, so they never match.
- */
-const REACTION_TAG_LINE_SUFFIX = /M[0-9a-f]{6}\]$/;
-
-/**
- * Whether a rendered tag-line string was produced by the reaction or
- * reaction-overflow code paths (`renderReaction` / the overflow trailer).
- *
- * Reaction lines already embed the actor attribution inline
- * (`[11/14/23 14:28 @assistant reacted 👍 to M1a2b3c]`), so consumers
- * that flatten the rendered transcript and re-apply role labels should
- * skip these lines to avoid double-attribution.
- *
- * Co-located with `renderReaction` and `parentAlias` so the format
- * knowledge lives with the functions that own the line shape.
- */
-export function isReactionTagLine(text: string): boolean {
-  return REACTION_TAG_LINE_SUFFIX.test(text);
-}
-
-/**
  * Format a Slack ts (`"1700000000.000100"`) as `MM/DD/YY HH:MM` (UTC).
  *
  * Slack ts is `<unix-seconds>.<microseconds>`; we treat it as a unix epoch
@@ -166,6 +151,112 @@ function formatEpochMs(ms: number): string {
   const hh = String(d.getUTCHours()).padStart(2, "0");
   const mm = String(d.getUTCMinutes()).padStart(2, "0");
   return `${mo}/${da}/${yy} ${hh}:${mm}`;
+}
+
+const compactDateTimeFormatters = new Map<string, Intl.DateTimeFormat>();
+
+function getCompactDateTimeFormatter(timeZone: string): Intl.DateTimeFormat {
+  let formatter = compactDateTimeFormatters.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    });
+    compactDateTimeFormatters.set(timeZone, formatter);
+  }
+  return formatter;
+}
+
+function compactDateTimeParts(ms: number, timeZone: string) {
+  try {
+    const parts = getCompactDateTimeFormatter(timeZone).formatToParts(
+      new Date(ms),
+    );
+    const get = (type: Intl.DateTimeFormatPartTypes) =>
+      parts.find((part) => part.type === type)?.value;
+    const month = get("month")?.toLowerCase();
+    const day = get("day");
+    const year = get("year");
+    const hour = get("hour");
+    const minute = get("minute");
+    const dayPeriod = get("dayPeriod");
+    if (!month || !day || !year || !hour || !minute || !dayPeriod) {
+      return null;
+    }
+    return { month, day, year, hour, minute, dayPeriod };
+  } catch {
+    return null;
+  }
+}
+
+function formatCompactEpochMs(
+  ms: number,
+  timeZone: string,
+  timezoneLabel: string | undefined,
+): string {
+  if (!Number.isFinite(ms)) {
+    return `??? ?? ???? ??:?? ${
+      formatSlackTimezoneLabel(timeZone, {
+        persistedLabel: timezoneLabel,
+        nowMs: ms,
+      }) ?? timeZone
+    }`;
+  }
+  const parts = compactDateTimeParts(ms, timeZone);
+  if (!parts) return formatEpochMs(ms);
+  const label =
+    formatSlackTimezoneLabel(timeZone, {
+      persistedLabel: timezoneLabel,
+      nowMs: ms,
+    }) ?? timeZone;
+  return `${parts.month} ${parts.day} ${parts.year} ${parts.hour}:${parts.minute} ${parts.dayPeriod} ${label}`;
+}
+
+function formatCompactSlackTs(
+  channelTs: string,
+  timeZone: string,
+  timezoneLabel: string | undefined,
+): string {
+  const seconds = Number.parseFloat(channelTs);
+  if (!Number.isFinite(seconds)) {
+    return `??? ?? ???? ??:?? ${
+      formatSlackTimezoneLabel(timeZone, {
+        persistedLabel: timezoneLabel,
+        nowMs: Number.NaN,
+      }) ?? timeZone
+    }`;
+  }
+  return formatCompactEpochMs(seconds * 1000, timeZone, timezoneLabel);
+}
+
+function hasTimestampTimezone(
+  meta: SlackMessageMetadata | null,
+): meta is SlackMessageMetadata & { timestampTimezone: string } {
+  return (
+    typeof meta?.timestampTimezone === "string" &&
+    meta.timestampTimezone.trim().length > 0
+  );
+}
+
+function speakerLabel(
+  msg: RenderableSlackMessage,
+  meta: SlackMessageMetadata,
+): string {
+  const speaker =
+    msg.senderLabel ?? (msg.role === "assistant" ? "assistant" : "");
+  const suffix =
+    msg.role === "assistant"
+      ? null
+      : formatSlackTimezoneLabel(undefined, {
+          persistedLabel: meta.speakerTimezoneLabel,
+        });
+  if (!speaker) return "";
+  return suffix ? `${speaker} (${suffix})` : speaker;
 }
 
 function renderSlackFileMarkers(
@@ -255,17 +346,47 @@ function maxNullableSlackTs(a: string | null, b: string | null): string | null {
  * avoid — so we keep the content-only form.
  */
 function renderMessage(msg: RenderableSlackMessage): string {
-  if (msg.role === "assistant") {
+  const meta = msg.metadata;
+
+  if (msg.role === "assistant" && !hasTimestampTimezone(meta)) {
     if (msg.metadata?.deletedAt !== undefined) return "[deleted]";
     return appendSlackFileMarkers(msg.content, msg.metadata?.slackFiles);
   }
 
-  const meta = msg.metadata;
   const senderPart = msg.senderLabel ? ` ${msg.senderLabel}` : "";
   if (!meta) {
     // Legacy pre-upgrade row: flat render, no Slack metadata-derived fields.
     const time = formatEpochMs(msg.createdAt);
     return `[${time}${senderPart}]: ${renderModelBodyWithSlackFiles(msg, undefined)}`;
+  }
+
+  if (hasTimestampTimezone(meta)) {
+    const time = formatCompactSlackTs(
+      meta.channelTs,
+      meta.timestampTimezone,
+      meta.timestampTimezoneLabel,
+    );
+    const speaker = speakerLabel(msg, meta);
+    const speakerPart = speaker ? ` ${speaker}` : "";
+    if (meta.deletedAt !== undefined) {
+      const dtime = formatCompactEpochMs(
+        meta.deletedAt,
+        meta.timestampTimezone,
+        meta.timestampTimezoneLabel,
+      );
+      return `[${time}${speakerPart} - deleted ${dtime}]`;
+    }
+
+    let head = `[${time}${speakerPart}`;
+    if (meta.editedAt !== undefined) {
+      head += `, edited ${formatCompactEpochMs(
+        meta.editedAt,
+        meta.timestampTimezone,
+        meta.timestampTimezoneLabel,
+      )}`;
+    }
+    head += `] ${renderModelBodyWithSlackFiles(msg, meta.slackFiles)}`;
+    return head;
   }
 
   const time = formatSlackTs(meta.channelTs);
@@ -335,7 +456,13 @@ function renderModelBody(msg: RenderableSlackMessage, body: string): string {
 function renderReaction(msg: RenderableSlackMessage): string | null {
   const meta = msg.metadata;
   if (!meta || meta.eventKind !== "reaction" || !meta.reaction) return null;
-  const time = formatSlackTs(meta.channelTs);
+  const time = hasTimestampTimezone(meta)
+    ? formatCompactSlackTs(
+        meta.channelTs,
+        meta.timestampTimezone,
+        meta.timestampTimezoneLabel,
+      )
+    : formatSlackTs(meta.channelTs);
   const actor =
     msg.senderLabel ?? (msg.role === "assistant" ? "@assistant" : "@user");
   const verb = meta.reaction.op === "added" ? "reacted" : "removed";
@@ -509,6 +636,7 @@ export function renderSlackTranscriptWithProvenance(
       ],
     },
     sourceChannelTs: acc.sourceChannelTs,
+    tagLineProvenance: "slack-reaction",
   });
 
   const flushOverflowExcept = (
@@ -542,6 +670,7 @@ export function renderSlackTranscriptWithProvenance(
               content: [{ type: "text" as const, text: line }],
             },
             sourceChannelTs: meta.channelTs,
+            tagLineProvenance: "slack-reaction",
           });
         }
       } else {
@@ -567,12 +696,17 @@ export function renderSlackTranscriptWithProvenance(
     const tagLine = renderMessage(m);
     const blocks = buildMessageContentBlocks(m, tagLine);
     if (blocks.length === 0) continue;
+    const hasRenderedText = blocks.some((block) => block.type === "text");
     out.push({
       message: {
         role: m.role,
         content: blocks,
       },
       sourceChannelTs: meta?.channelTs ?? null,
+      tagLineProvenance:
+        hasRenderedText && hasTimestampTimezone(meta)
+          ? "slack-timezone-message"
+          : "none",
     });
   }
 
@@ -637,6 +771,7 @@ function filterOrphanToolPairs(
       out.push({
         message: { role: msg.role, content: kept },
         sourceChannelTs: entry.sourceChannelTs,
+        tagLineProvenance: entry.tagLineProvenance,
       });
     }
   }

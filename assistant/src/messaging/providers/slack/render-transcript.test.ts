@@ -12,7 +12,6 @@ import { describe, expect, test } from "bun:test";
 import type { Message } from "../../../providers/types.js";
 import {
   extractTagLineTexts,
-  isReactionTagLine,
   parentAlias,
   type RenderableSlackMessage,
   renderSlackTranscript,
@@ -112,6 +111,98 @@ function textMsg(role: "user" | "assistant", text: string): Message {
 describe("renderSlackTranscript — basics", () => {
   test("empty array yields empty array", () => {
     expect(renderSlackTranscript([])).toEqual([]);
+  });
+
+  test("renders timezone-aware rows with compact local timestamps and speaker suffixes", () => {
+    const out = renderSlackTranscript([
+      {
+        ...userMsg("1772681640.000001", "aaron", "hey there"),
+        metadata: {
+          source: "slack",
+          channelId: CHANNEL,
+          channelTs: "1772681640.000001",
+          eventKind: "message",
+          displayName: "aaron",
+          actorTimezone: "America/Denver",
+          actorTimezoneLabel: "MT",
+          timestampTimezone: "America/Denver",
+          timestampTimezoneLabel: "MT",
+        },
+      },
+      {
+        ...userMsg("1772681760.000002", "jordan", "whatsup"),
+        metadata: {
+          source: "slack",
+          channelId: CHANNEL,
+          channelTs: "1772681760.000002",
+          eventKind: "message",
+          displayName: "jordan",
+          actorTimezone: "America/New_York",
+          actorTimezoneLabel: "Eastern Time",
+          timestampTimezone: "America/Denver",
+          timestampTimezoneLabel: "MT",
+          speakerTimezoneLabel: "Eastern Time",
+        },
+      },
+      {
+        ...userMsg(
+          "1772681820.000003",
+          "aaron",
+          "nm, i wonder how my assistant is doing",
+        ),
+        metadata: {
+          source: "slack",
+          channelId: CHANNEL,
+          channelTs: "1772681820.000003",
+          eventKind: "message",
+          displayName: "aaron",
+          actorTimezone: "America/Denver",
+          actorTimezoneLabel: "MT",
+          timestampTimezone: "America/Denver",
+          timestampTimezoneLabel: "MT",
+        },
+      },
+      {
+        ...userMsg("1772681880.000004", null, "i'm good", {
+          role: "assistant",
+        }),
+        metadata: {
+          source: "slack",
+          channelId: CHANNEL,
+          channelTs: "1772681880.000004",
+          eventKind: "message",
+          timestampTimezone: "America/Denver",
+          timestampTimezoneLabel: "Mountain Time",
+          speakerTimezoneLabel: "ET",
+        },
+      },
+      {
+        ...userMsg("1772681940.000005", "jordan", "ayeeeee"),
+        metadata: {
+          source: "slack",
+          channelId: CHANNEL,
+          channelTs: "1772681940.000005",
+          eventKind: "message",
+          displayName: "jordan",
+          actorTimezone: "America/New_York",
+          actorTimezoneLabel: "ET",
+          timestampTimezone: "America/Denver",
+          timestampTimezoneLabel: "MT",
+          speakerTimezoneLabel: "ET",
+        },
+      },
+    ]);
+
+    expect(out).toEqual([
+      textMsg("user", "[mar 4 2026 8:34 PM MT aaron] hey there"),
+      textMsg("user", "[mar 4 2026 8:36 PM MT jordan (ET)] whatsup"),
+      textMsg(
+        "user",
+        "[mar 4 2026 8:37 PM MT aaron] nm, i wonder how my assistant is doing",
+      ),
+      textMsg("assistant", "[mar 4 2026 8:38 PM MT assistant] i'm good"),
+      textMsg("user", "[mar 4 2026 8:39 PM MT jordan (ET)] ayeeeee"),
+    ]);
   });
 
   test("renders top-level message with MM/DD/YY HH:MM tag", () => {
@@ -288,10 +379,9 @@ describe("renderSlackTranscript — basics", () => {
       TS_14_25,
       TS_14_28,
     ]);
-    expect(out.renderedMessages.map((entry) => entry.sourceChannelTs)).toEqual([
-      TS_14_25,
-      TS_14_28,
-    ]);
+    expect(
+      out.renderedMessages.map((entry) => entry.tagLineProvenance),
+    ).toEqual(["none", "none"]);
   });
 
   test("omits sender label for user-role message with null senderLabel (no displayName)", () => {
@@ -568,50 +658,6 @@ describe("parentAlias", () => {
   test("starts with M and is 7 chars long (M + 6 hex)", () => {
     const a = parentAlias("1700000000.000100");
     expect(a).toMatch(/^M[0-9a-f]{6}$/);
-  });
-});
-
-// ── isReactionTagLine ────────────────────────────────────────────────────────
-
-describe("isReactionTagLine", () => {
-  // Pinned to the exact shapes `renderReaction` and the overflow trailer
-  // produce. The helper is the public contract that lets consumers
-  // re-label the transcript without double-attributing reaction lines,
-  // so drift here silently breaks `buildActiveThreadBlockFromRenderable`.
-  const alias = parentAlias("1700000000.000100");
-
-  test("matches reaction-add line", () => {
-    expect(
-      isReactionTagLine(`[11/14/23 14:28 @bob reacted 👍 to ${alias}]`),
-    ).toBe(true);
-  });
-
-  test("matches reaction-remove line", () => {
-    expect(
-      isReactionTagLine(`[11/14/23 14:28 @bob removed 👍 from ${alias}]`),
-    ).toBe(true);
-  });
-
-  test("matches overflow trailer line", () => {
-    expect(isReactionTagLine(`[…and 2 more reactions to ${alias}]`)).toBe(true);
-  });
-
-  test("does not match a regular message tag line", () => {
-    expect(isReactionTagLine("[11/14/23 14:25 @alice]: hi")).toBe(false);
-  });
-
-  test("does not match content-only assistant output", () => {
-    expect(isReactionTagLine("on it. here's the answer")).toBe(false);
-  });
-
-  test("does not match the `[deleted]` sentinel", () => {
-    expect(isReactionTagLine("[deleted]")).toBe(false);
-  });
-
-  test("does not match a user-deleted marker", () => {
-    expect(
-      isReactionTagLine("[11/14/23 14:25 @alice — deleted 11/14/23 14:32]"),
-    ).toBe(false);
   });
 });
 

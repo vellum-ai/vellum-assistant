@@ -36,7 +36,15 @@ export function handleConfirmationResponse(msg: ConfirmationResponse): void {
         undefined,
         { source: "button" },
       );
-      pendingInteractions.resolve(msg.requestId);
+      // Idempotent cleanup: the prompter's `resolveConfirmation` already
+      // resolved the interaction with the correct approved/rejected state
+      // before we reach here, so the entry is typically gone. This call is
+      // a safety net for paths where the prompter no-ops; map decision to
+      // state to keep the emitted event accurate when it does fire.
+      pendingInteractions.resolve(
+        msg.requestId,
+        decision === "allow" ? "approved" : "rejected",
+      );
       return;
     }
   }
@@ -49,13 +57,13 @@ export function handleConfirmationResponse(msg: ConfirmationResponse): void {
 /**
  * Clear all conversations and DB conversations. Returns the number of conversations cleared.
  */
-export function clearAllConversations(): number {
+export async function clearAllConversations(): Promise<number> {
   const cleared = clearAllActiveConversations();
   // Also clear DB conversations. When a new local connection triggers
   // sendInitialConversation, it auto-creates a conversation if none exist.
   // Without this DB clear, that auto-created row survives, contradicting
   // the "clear all conversations" intent.
-  clearAll();
+  await clearAll();
   return cleared;
 }
 

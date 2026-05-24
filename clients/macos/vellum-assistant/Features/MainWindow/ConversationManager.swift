@@ -1579,10 +1579,14 @@ final class ConversationManager: ConversationRestorerDelegate {
         }
         guard let index = listStore.conversations.firstIndex(where: { $0.id == conversationId }) else { return }
         let isNewMessage = previousSnapshot?.messageId != currentSnapshot.messageId
-        if isNewMessage && !listStore.conversations[index].isBackgroundConversation {
-            listStore.updateLastInteracted(conversationId: conversationId)
-        }
+
+        // Snapshot-mutate-writeback: coalesce updateLastInteracted + attention
+        // mutations into a single conversations write to avoid 2× recompute.
         var conversation = listStore.conversations[index]
+        var needsPinChange = false
+        if isNewMessage && !conversation.isBackgroundConversation {
+            needsPinChange = listStore.applyLastInteracted(into: &conversation)
+        }
         if conversation.latestAssistantMessageAt == nil || isNewMessage {
             conversation.latestAssistantMessageAt = Date()
         }
@@ -1599,6 +1603,7 @@ final class ConversationManager: ConversationRestorerDelegate {
             conversation.hasUnseenLatestAssistantMessage = true
         }
         listStore.conversations[index] = conversation
+        if needsPinChange { listStore.sendPinChange(for: conversation) }
         if shouldEmitSeenSignal, let daemonId = conversation.conversationId {
             listStore.emitConversationSeenSignal(conversationId: daemonId)
         }

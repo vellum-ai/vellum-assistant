@@ -144,6 +144,18 @@ export interface SlackInboundMessageMetadata {
   displayName?: string;
   /** Canonical Slack external user id for the sender, when available. */
   actorExternalUserId?: string;
+  /** Raw Slack profile timezone for the sender, when supplied. */
+  actorTimezone?: string;
+  /** Compact Slack profile timezone label for the sender, when supplied. */
+  actorTimezoneLabel?: string;
+  /** Raw Slack profile timezone offset in seconds, when supplied. */
+  actorTimezoneOffsetSeconds?: number;
+  /** Timezone used to render this message's timestamp. */
+  timestampTimezone?: string;
+  /** Compact label for the rendered timestamp timezone. */
+  timestampTimezoneLabel?: string;
+  /** Compact timezone label appended to the rendered speaker name. */
+  speakerTimezoneLabel?: string;
 }
 
 /**

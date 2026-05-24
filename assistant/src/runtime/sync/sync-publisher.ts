@@ -10,8 +10,9 @@ const log = getLogger("sync-publisher");
 
 export async function publishSyncInvalidation(
   tags: SyncInvalidationTag[],
+  originClientId?: string,
 ): Promise<SyncChangedMessage> {
-  const message = buildSyncChangedMessage(tags);
+  const message = buildSyncChangedMessage(tags, originClientId);
   try {
     broadcastMessage(message);
   } catch (err) {

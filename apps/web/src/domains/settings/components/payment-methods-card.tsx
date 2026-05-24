@@ -6,7 +6,6 @@ import { Button } from "@vellum/design-library/components/button";
 import { Card } from "@vellum/design-library/components/card";
 import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog";
 import { Notice } from "@vellum/design-library/components/notice";
-import { SkillRow } from "@vellum/design-library/components/skill-row";
 import { toast } from "@vellum/design-library/components/toast";
 import { Typography } from "@vellum/design-library/components/typography";
 import {
@@ -157,29 +156,40 @@ export function PaymentMethodsCard() {
               Add Card
             </Button>
           ) : (
-            <SkillRow
-              icon={<CreditCard className="h-3.5 w-3.5" aria-hidden />}
-              title={brand}
-              subtitle={last4 ? `Ending in ${last4}` : undefined}
-              action={
-                <>
-                  <Button
-                    variant="ghost"
-                    onClick={() => setPmModalOpen(true)}
-                  >
-                    Change
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    onClick={() => setConfirmRemovePm(true)}
-                    disabled={confirmRemovePm || removePmMutation.isPending}
-                    leftIcon={<Trash2 className="h-3.5 w-3.5" />}
-                  >
-                    Remove
-                  </Button>
-                </>
-              }
-            />
+            <div className="flex items-center gap-3 rounded-lg bg-[var(--surface-base)] px-2 py-1.5">
+              <span
+                aria-hidden
+                className="flex h-6 w-6 shrink-0 items-center justify-center text-[var(--content-emphasised)]"
+              >
+                <CreditCard className="h-3.5 w-3.5" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <Typography variant="body-medium-default" as="span">
+                  {brand}
+                </Typography>
+                {last4 ? (
+                  <Typography variant="body-small-default" as="div" className="text-[var(--content-tertiary)]">
+                    Ending in {last4}
+                  </Typography>
+                ) : null}
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
+                <Button
+                  variant="ghost"
+                  onClick={() => setPmModalOpen(true)}
+                >
+                  Change
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => setConfirmRemovePm(true)}
+                  disabled={confirmRemovePm || removePmMutation.isPending}
+                  leftIcon={<Trash2 className="h-3.5 w-3.5" />}
+                >
+                  Remove
+                </Button>
+              </div>
+            </div>
           )}
         </div>
       </Card>

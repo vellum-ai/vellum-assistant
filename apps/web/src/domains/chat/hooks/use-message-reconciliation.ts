@@ -19,9 +19,9 @@ const RECONCILE_STABLE_COUNT = 2;
 
 interface UseMessageReconciliationArgs {
   setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
-  streamContextRef: RefObject<{ assistantId: string; conversationKey: string } | null>;
+  streamContextRef: RefObject<{ assistantId: string; conversationId: string } | null>;
   streamEpochRef: RefObject<number>;
-  activeConversationKeyRef: RefObject<string | null>;
+  activeConversationIdRef: RefObject<string | null>;
   initialPageOldestTsRef: RefObject<number | null>;
 }
 
@@ -118,7 +118,7 @@ export function useMessageReconciliation({
   setMessages,
   streamContextRef,
   streamEpochRef,
-  activeConversationKeyRef,
+  activeConversationIdRef,
   initialPageOldestTsRef,
 }: UseMessageReconciliationArgs): UseMessageReconciliationReturn {
   const reconcileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -194,12 +194,29 @@ export function useMessageReconciliation({
       const { changed, assistantProgress, messagesAdded } =
         reconcileFromServerDetailed(serverMessages);
 
-      // Reconcile turn state: if messages changed and the turn is
-      // still stuck in a sending phase for the SAME turn we snapshotted,
-      // the terminal SSE event was likely lost during backgrounding.
-      // We gate on assistant-side progress, not just any changed history:
-      // the server assigning an id to the optimistic user message does not
-      // prove the assistant completed.
+      // Reconcile turn state: only fire the silent-stall rescue when ALL
+      // of these hold:
+      //   - `changed`: reconcile produced a structurally different array
+      //     (content drift, new messages, etc.). Without this gate the
+      //     rescue would fire on every sync-tag reconcile that lands
+      //     mid-stream, because `assistantProgress` returns true the
+      //     moment we have a local-streaming row matched to a server
+      //     row — that's the exact normal mid-stream state, not a
+      //     stuckness signal.
+      //   - `assistantProgress`: server-confirmed evidence that the
+      //     assistant turn produced output (matched row with newer
+      //     content, or an additional assistant message). Gates out
+      //     refetches that only e.g. assigned an id to an optimistic
+      //     user row.
+      //   - Same turn id we snapshotted at fetch time, and the store
+      //     still says we're sending.
+      //
+      // Trade-off: in the (rare) case where SSE missed `message_complete`
+      // but the server's persisted view exactly matches what local
+      // already rendered, this rescue cannot fire. The user would need
+      // to reload — but that scenario is also genuinely indistinguishable
+      // from "live mid-stream paused between deltas", so the safe call
+      // is to never auto-idle without positive structural evidence.
       const wasStuck =
         changed &&
         assistantProgress &&
@@ -238,15 +255,40 @@ export function useMessageReconciliation({
         });
       }
 
-      // Clear stale isStreaming flags. After onPollReconciled the turn is
-      // idle. With Zustand, getState() reflects the update immediately.
+      // Clear stale isStreaming flags and force-complete stale running
+      // tool calls. After onPollReconciled the turn is idle. With Zustand,
+      // getState() reflects the update immediately.
       if (wasStuck || !isSending(useTurnStore.getState())) {
         setMessages((prev) => {
-          const hasStale = prev.some((m) => m.isStreaming);
-          if (!hasStale) return prev;
-          return prev.map((m) =>
-            m.isStreaming ? { ...m, isStreaming: false } : m,
+          const hasStaleStreaming = prev.some((m) => m.isStreaming);
+          const hasStaleToolCalls = prev.some((m) =>
+            m.toolCalls?.some((tc) => tc.status === "running"),
           );
+          if (!hasStaleStreaming && !hasStaleToolCalls) return prev;
+          return prev.map((m) => {
+            const needsClearStreaming = m.isStreaming;
+            const needsClearToolCalls = m.toolCalls?.some(
+              (tc) => tc.status === "running",
+            );
+            if (!needsClearStreaming && !needsClearToolCalls) return m;
+            return {
+              ...m,
+              ...(needsClearStreaming ? { isStreaming: false } : {}),
+              ...(needsClearToolCalls
+                ? {
+                    toolCalls: m.toolCalls!.map((tc) =>
+                      tc.status === "running"
+                        ? {
+                            ...tc,
+                            status: "completed" as const,
+                            completedAt: Date.now(),
+                          }
+                        : tc,
+                    ),
+                  }
+                : {}),
+            };
+          });
         });
       }
 
@@ -286,12 +328,12 @@ export function useMessageReconciliation({
         }
         const snapshotTurnId = useTurnStore.getState().activeTurnId;
 
-        fetchConversationMessages(ctx.assistantId, ctx.conversationKey)
+        fetchConversationMessages(ctx.assistantId, ctx.conversationId)
           .then((serverMessages) => {
             if (epoch !== streamEpochRef.current) return;
             recordChatDiagnostic("reconciliation_fetch", {
               assistantId: ctx.assistantId,
-              conversationKey: ctx.conversationKey,
+              conversationId: ctx.conversationId,
               epoch,
               stableCount,
               server: summarizeRuntimeMessages(serverMessages),
@@ -339,7 +381,7 @@ export function useMessageReconciliation({
             }
             recordChatDiagnostic("reconciliation_fetch_error", {
               assistantId: ctx.assistantId,
-              conversationKey: ctx.conversationKey,
+              conversationId: ctx.conversationId,
               epoch,
               stableCount,
             });
@@ -377,15 +419,15 @@ export function useMessageReconciliation({
       try {
         const serverMessages = await fetchConversationMessages(
           ctx.assistantId,
-          ctx.conversationKey,
+          ctx.conversationId,
         );
-        if (activeConversationKeyRef.current !== ctx.conversationKey) return empty;
+        if (activeConversationIdRef.current !== ctx.conversationId) return empty;
         // If the epoch changed during the fetch (e.g. page went hidden
         // and back), this reconciliation is stale — bail out.
         if (streamEpochRef.current !== snapshotEpoch) return empty;
         recordChatDiagnostic("reconciliation_active_fetch", {
           assistantId: ctx.assistantId,
-          conversationKey: ctx.conversationKey,
+          conversationId: ctx.conversationId,
           epoch: snapshotEpoch,
           server: summarizeRuntimeMessages(serverMessages),
         });
@@ -395,7 +437,7 @@ export function useMessageReconciliation({
         // The .finally() nonce bump reopens SSE to deliver terminal events.
         recordChatDiagnostic("reconciliation_active_fetch_error", {
           assistantId: ctx.assistantId,
-          conversationKey: ctx.conversationKey,
+          conversationId: ctx.conversationId,
           epoch: snapshotEpoch,
         });
         return empty;
@@ -404,7 +446,7 @@ export function useMessageReconciliation({
     [
     streamContextRef,
     streamEpochRef,
-    activeConversationKeyRef,
+    activeConversationIdRef,
     reconcileFetchedMessages,
   ]);
 

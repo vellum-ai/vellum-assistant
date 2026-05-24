@@ -24,8 +24,12 @@ mock.module("../util/logger.js", () => ({
 
 import {
   handleDetailedHealth,
+  handleReadyz,
   ROUTES,
 } from "../runtime/routes/identity-routes.js";
+import {
+  setCesClient,
+} from "../security/secure-keys.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import {
   getHatchedSidecarPath,
@@ -176,6 +180,59 @@ describe("identity routes — health endpoint", () => {
       expect(body.status).toBe("healthy");
       expect(body.timestamp).toBeDefined();
       expect(body.migrations).toBeDefined();
+    });
+
+    test("includes ces.connected=false when no CES client is registered", async () => {
+      const res = handleDetailedHealth();
+      const body = (await res.json()) as Record<string, unknown>;
+
+      expect(body.ces).toBeDefined();
+      expect((body.ces as Record<string, unknown>).connected).toBe(false);
+    });
+  });
+
+  describe("CES readiness", () => {
+    beforeEach(() => {
+      setCesClient(undefined);
+    });
+
+    test("readyz returns 200 and logs warning when CES is unavailable", () => {
+      const res = handleReadyz();
+      expect(res.status).toBe(200);
+    });
+
+    test("readyz returns 200 when CES is connected and ready", () => {
+      const mockClient = { isReady: () => true, close: () => {} } as unknown as import("../credential-execution/client.js").CesClient;
+      setCesClient(mockClient);
+      const res = handleReadyz();
+      expect(res.status).toBe(200);
+    });
+
+    test("readyz returns 200 when CES client exists but is not ready", () => {
+      const mockClient = { isReady: () => false, close: () => {} } as unknown as import("../credential-execution/client.js").CesClient;
+      setCesClient(mockClient);
+      const res = handleReadyz();
+      expect(res.status).toBe(200);
+    });
+
+    test("/v1/health reports ces.connected=true when CES is ready", async () => {
+      const mockClient = { isReady: () => true, close: () => {} } as unknown as import("../credential-execution/client.js").CesClient;
+      setCesClient(mockClient);
+      const res = handleDetailedHealth();
+      const body = (await res.json()) as Record<string, unknown>;
+
+      expect(body.ces).toBeDefined();
+      expect((body.ces as Record<string, unknown>).connected).toBe(true);
+    });
+
+    test("/v1/health reports ces.connected=false when CES is not ready", async () => {
+      const mockClient = { isReady: () => false, close: () => {} } as unknown as import("../credential-execution/client.js").CesClient;
+      setCesClient(mockClient);
+      const res = handleDetailedHealth();
+      const body = (await res.json()) as Record<string, unknown>;
+
+      expect(body.ces).toBeDefined();
+      expect((body.ces as Record<string, unknown>).connected).toBe(false);
     });
   });
 

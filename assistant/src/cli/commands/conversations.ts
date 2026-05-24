@@ -2,10 +2,15 @@ import { existsSync, readFileSync } from "node:fs";
 
 import type { Command } from "commander";
 
-import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
+import {
+  cliIpcCall,
+  exitCodeFromIpcResult,
+  exitFromIpcResult,
+} from "../../ipc/cli-client.js";
 import { registerCommand } from "../lib/register-command.js";
 import { timeAgo } from "../lib/time-ago.js";
 import { log } from "../logger.js";
+import { tryResolveConversationId } from "../utils/conversation-id.js";
 import { registerConversationsDeferCommand } from "./conversations-defer.js";
 import { registerConversationsImportCommand } from "./conversations-import.js";
 
@@ -13,6 +18,23 @@ type ConversationSeedMessage = {
   role: "user" | "assistant";
   content: string;
 };
+
+type SlackDetachCliResult = {
+  detached: boolean;
+  channelId: string;
+  threadTs: string;
+  source: "explicit" | "conversation_binding";
+  conversationId?: string;
+};
+
+function outputSlackDetachError(message: string, json?: boolean): void {
+  if (json) {
+    process.stdout.write(JSON.stringify({ ok: false, error: message }) + "\n");
+  } else {
+    log.error(`Error: ${message}`);
+  }
+  process.exitCode = 1;
+}
 
 function readSeedMessages(
   contentFile?: string,
@@ -314,6 +336,111 @@ Examples:
               log.info(`Exported to ${opts.output}`);
             } else {
               process.stdout.write(exported.output);
+            }
+          },
+        );
+
+      // -------------------------------------------------------------------
+      // slack
+      // -------------------------------------------------------------------
+
+      const slack = conversations
+        .command("slack")
+        .description("Manage Slack conversation bindings");
+
+      slack
+        .command("detach [conversationId]")
+        .alias("mute")
+        .description("Detach the assistant from a Slack thread")
+        .option("--channel <id>", "Slack channel ID")
+        .option("--thread <ts>", "Slack thread timestamp")
+        .option("--json", "Output result as JSON")
+        .addHelpText(
+          "after",
+          `
+Arguments:
+  conversationId   Optional conversation ID. Defaults to the current skill or
+                   tool conversation when available.
+
+Detaches the assistant from Socket Mode listening for the Slack thread bound
+to a conversation, or for explicit --channel and --thread identifiers.
+
+Examples:
+  $ assistant conversations slack detach
+  $ assistant conversations slack detach conv-123
+  $ assistant conversations slack mute --channel C123 --thread 1700000000.000100
+  $ assistant conversations slack detach --json`,
+        )
+        .action(
+          async (
+            conversationIdArg: string | undefined,
+            opts: { channel?: string; thread?: string; json?: boolean },
+          ) => {
+            const channelId = opts.channel?.trim();
+            const threadTs = opts.thread?.trim();
+            const hasExplicitSlackTarget =
+              opts.channel !== undefined || opts.thread !== undefined;
+            const body: Record<string, string> = {};
+
+            if (hasExplicitSlackTarget) {
+              if (!channelId || !threadTs) {
+                outputSlackDetachError(
+                  "Both --channel and --thread are required when using explicit Slack identifiers.",
+                  opts.json,
+                );
+                return;
+              }
+              body.channelId = channelId;
+              body.threadTs = threadTs;
+            } else {
+              const conversationId = tryResolveConversationId({
+                explicit: conversationIdArg,
+              });
+              if (!conversationId) {
+                outputSlackDetachError(
+                  "No conversation ID available. Pass a conversation ID, provide --channel and --thread, or run this command from a skill or bash tool context.",
+                  opts.json,
+                );
+                return;
+              }
+              body.conversationId = conversationId;
+            }
+
+            const result = await cliIpcCall<SlackDetachCliResult>(
+              "conversation_slack_detach_cli",
+              { body },
+            );
+
+            if (!result.ok) {
+              if (opts.json) {
+                process.stdout.write(
+                  JSON.stringify({
+                    ok: false,
+                    error: result.error ?? "Failed to detach Slack thread",
+                  }) + "\n",
+                );
+                process.exitCode = exitCodeFromIpcResult(result);
+                return;
+              }
+              return exitFromIpcResult(result);
+            }
+
+            const detach = result.result!;
+            if (opts.json) {
+              process.stdout.write(
+                JSON.stringify({ ok: true, result: detach }) + "\n",
+              );
+              return;
+            }
+
+            if (detach.detached) {
+              log.info(
+                `Detached Slack thread ${detach.threadTs} in channel ${detach.channelId} from assistant listening.`,
+              );
+            } else {
+              log.info(
+                `Slack thread ${detach.threadTs} in channel ${detach.channelId} was already detached from assistant listening.`,
+              );
             }
           },
         );

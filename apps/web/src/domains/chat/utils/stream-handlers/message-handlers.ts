@@ -36,28 +36,28 @@ export function handleAssistantActivityState(
   epoch: number,
   ctx: StreamHandlerContext,
 ): void {
-  const convKey =
-    event.conversationKey ?? ctx.streamContextRef.current?.conversationKey;
+  const convId =
+    event.conversationId ?? ctx.streamContextRef.current?.conversationId;
 
-  if (convKey) {
+  if (convId) {
     const lastSeen =
-      ctx.lastActivityVersionRef.current.get(convKey) ?? 0;
+      ctx.lastActivityVersionRef.current.get(convId) ?? 0;
     if (event.activityVersion <= lastSeen) {
       recordChatDiagnostic("sse_activity_state_version_skipped", {
-        convKey,
+        convId,
         phase: event.phase,
         eventVersion: event.activityVersion,
         lastSeenVersion: lastSeen,
       });
       return;
     }
-    ctx.lastActivityVersionRef.current.set(convKey, event.activityVersion);
+    ctx.lastActivityVersionRef.current.set(convId, event.activityVersion);
   }
 
   if (event.phase === "thinking") {
     ctx.turnActions.onActivityThinking(event.statusText);
     recordChatDiagnostic("sse_activity_state_thinking_handled", {
-      convKey,
+      convId,
       reason: event.reason,
       activityVersion: event.activityVersion,
     });
@@ -66,7 +66,7 @@ export function handleAssistantActivityState(
 
   if (event.phase !== "idle") {
     recordChatDiagnostic("sse_activity_state_non_idle", {
-      convKey,
+      convId,
       phase: event.phase,
       reason: event.reason,
       activityVersion: event.activityVersion,
@@ -78,11 +78,11 @@ export function handleAssistantActivityState(
   ctx.needsNewBubbleRef.current = true;
   const turnPhaseBefore = ctx.getTurnState().phase;
   ctx.turnActions.completeTurn();
-  if (convKey) {
-    ctx.clearProcessingKey(convKey);
+  if (convId) {
+    ctx.clearProcessingKey(convId);
   }
   recordChatDiagnostic("sse_activity_state_idle_handled", {
-    convKey,
+    convId,
     reason: event.reason,
     activityVersion: event.activityVersion,
     turnPhaseBefore,
@@ -109,12 +109,12 @@ export function handleMessageComplete(
   ctx.needsNewBubbleRef.current = true;
   const turnPhaseBefore = ctx.getTurnState().phase;
   ctx.turnActions.completeTurn();
-  const convKey = ctx.streamContextRef.current?.conversationKey;
-  if (convKey) {
-    ctx.clearProcessingKey(convKey);
+  const convId = ctx.streamContextRef.current?.conversationId;
+  if (convId) {
+    ctx.clearProcessingKey(convId);
   }
   recordChatDiagnostic("sse_message_complete_handled", {
-    convKey,
+    convId,
     turnPhaseBefore,
     displayMessageId,
     hasContent: !!event.content,
@@ -144,9 +144,9 @@ export function handleGenerationCancelled(
   ctx: StreamHandlerContext,
 ): void {
   ctx.turnActions.cancelGeneration();
-  const convKey = ctx.streamContextRef.current?.conversationKey;
-  if (convKey) {
-    ctx.clearProcessingKey(convKey);
+  const convId = ctx.streamContextRef.current?.conversationId;
+  if (convId) {
+    ctx.clearProcessingKey(convId);
   }
   ctx.setMessages((prev) => stopStreaming(prev));
   ctx.needsNewBubbleRef.current = true;

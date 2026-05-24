@@ -9,8 +9,8 @@ import {
 import { join } from "node:path";
 
 import { getIsContainerized } from "../config/env-registry.js";
-import { getCachedManagedConnections } from "../credential-execution/managed-catalog.js";
-import { listConnections } from "../oauth/oauth-store.js";
+import type { ChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
+import type { TrustContext } from "../daemon/trust-context.js";
 import type { OnboardingContext } from "../types/onboarding-context.js";
 import { resolveBundledDir } from "../util/bundled-asset.js";
 import { getLogger } from "../util/logger.js";
@@ -22,20 +22,16 @@ import {
 import { stripCommentLines } from "../util/strip-comment-lines.js";
 import { cleanupBootstrapFiles } from "./bootstrap-cleanup.js";
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "./cache-boundary.js";
-import { normalizeOnboardingContext } from "./normalize-onboarding.js";
+import {
+  resolveGuardianPersona,
+  resolveUserSlug,
+} from "./persona-resolver.js";
 import { renderWorkspaceSections } from "./sections.js";
+import { isTemplateContent } from "./template-detection.js";
+
+export { isTemplateContent };
 
 export { SYSTEM_PROMPT_CACHE_BOUNDARY };
-
-const BOOTSTRAP_VOICE_BLOCKS: Record<string, string> = {
-  grounded:
-    "## Voice\nCalm, direct, precise. No filler. Lead with the thing, explain if needed. Opinions stated plainly.",
-  warm: "## Voice\nFriendly and easy. Match their energy quickly. Warmth comes through in word choice, not in announcements. Warmth comes through in how you engage, not in hedging about yourself. Never say you're new, running on instinct, or still figuring yourself out.",
-  energetic:
-    "## Voice\nFast and generative. Lean into momentum. Enthusiasm is in the pace, not the exclamations.",
-  poetic:
-    "## Voice\nThoughtful and unhurried. Notice things. Word choice matters. Don't rush to close — sometimes the observation is the value.",
-};
 
 /**
  * Maps onboarding cohort identifiers to their cohort-specific bootstrap
@@ -49,7 +45,7 @@ const COHORT_BOOTSTRAP_TEMPLATES: Record<string, string> = {
 
 const log = getLogger("system-prompt");
 
-const PROMPT_FILES = ["SOUL.md", "IDENTITY.md"] as const;
+const PROMPT_FILES = ["IDENTITY.md", "SOUL.md"] as const;
 
 function hasPopulatedUsersDir(): boolean {
   try {
@@ -270,47 +266,24 @@ export function maybeReseedBootstrapForCohort(cohort: string): void {
   }
 }
 
-/**
- * Build the system prompt from ~/.vellum prompt files.
- *
- * Composition:
- *   1. Base prompt: IDENTITY.md + SOUL.md (guaranteed to exist after ensurePromptFiles)
- *   2. Append the resolved user persona from users/<slug>.md (via options.userPersona)
- *   3. If BOOTSTRAP.md exists, append first-run ritual instructions
- */
 export interface BuildSystemPromptOptions {
   hasNoClient?: boolean;
   excludeBootstrap?: boolean;
   excludeCustomPrefix?: boolean;
-  userPersona?: string | null;
-  channelPersona?: string | null;
-  userSlug?: string | null;
+  trustContext?: TrustContext;
+  channelCapabilities?: ChannelCapabilities;
   onboardingContext?: OnboardingContext;
 }
 
 /**
- * Sentinel that separates the static instruction prefix (stable across turns)
- * from the dynamic workspace suffix (changes when workspace files are edited).
- *
- * The Anthropic provider splits on this marker to create two system-prompt
- * cache blocks so that static instructions stay cached even when workspace
- * files change between turns.
+ * Build the system prompt by rendering `BUNDLED_SYSTEM_SECTIONS` (with
+ * workspace overrides per section) and appending the
+ * `SYSTEM_PROMPT_CACHE_BOUNDARY` marker.  Per-section behaviour lives
+ * in `system-sections.ts`; the renderer in `sections.ts` handles
+ * frontmatter `enabled:` predicates, `{{variable}}` interpolation,
+ * file-backed bodies, and runtime-computed transforms.
  */
 export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
-  // Section render context.  Workspace section frontmatter `enabled:`
-  // predicates and `{{key}}` / `{{#flag}}...{{/flag}}` body interpolation
-  // both resolve against this map, so anything the renderer needs to see
-  // (runtime gates, paths) must be lifted onto `ctx` rather than branched
-  // on at the call site.  Mustache section tags `{{#flag}}` / `{{^flag}}`
-  // coerce `ctx[flag]` to boolean via `Boolean(...)`, so options that are
-  // undefined (caller didn't pass them) behave identically to false — no
-  // explicit normalization needed; `...options` is enough.
-  const ctx = {
-    ...options,
-    isContainerized: getIsContainerized(),
-    workspaceDir: getWorkspaceDir(),
-  };
-
   // One-shot cohort swap: if the user has a cohort and BOOTSTRAP.md is still
   // the generic template, replace it with the cohort-specific variant before
   // the prompt reads the file.
@@ -318,198 +291,48 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
     maybeReseedBootstrapForCohort(options.onboardingContext.cohort);
   }
 
-  // Single array.  Everything pushed before `dynamicStart` lands in the
-  // static (cached) prefix; everything after lands in the dynamic suffix.
-  // The two halves are joined around `SYSTEM_PROMPT_CACHE_BOUNDARY` so the
-  // Anthropic provider can key its prompt cache on the prefix.
-  const systemParts: string[] = [...renderWorkspaceSections(ctx)];
-  const dynamicStart = systemParts.length;
+  // Slugs used by the persona sections (`10-user-persona`,
+  // `11-channel-persona`) and the BOOTSTRAP block.  `userSlug` is the
+  // raw slug derived from the caller's trust context (falling back to
+  // the guardian's contact, then to "default" when nothing resolves);
+  // `users/<slug>.md → users/default.md` fallback lives in the
+  // section's `workspacePath` array.  `channelSlug` is the channel
+  // identifier from `channelCapabilities`, defaulting to "vellum".
+  const userSlug = resolveUserSlug(options?.trustContext) ?? "default";
+  const channelSlug = options?.channelCapabilities?.channel ?? "vellum";
 
-  // SOUL.md is rendered by the `09-soul` workspace-backed section
-  // (see templates/system-sections.ts) — no inline read needed here.
-  const identityPath = getWorkspacePromptPath("IDENTITY.md");
-  const bootstrapPath = getWorkspacePromptPath("BOOTSTRAP.md");
+  // Section render context.  Workspace section frontmatter `enabled:`
+  // predicates, `{{key}}` / `{{#flag}}...{{/flag}}` body interpolation,
+  // and `{{key}}` paths inside `workspacePath` all resolve against this
+  // map, so anything the renderer needs to see (runtime gates, slugs,
+  // paths) must be lifted onto `ctx` rather than branched on at the
+  // call site.  Mustache section tags `{{#flag}}` / `{{^flag}}` coerce
+  // `ctx[flag]` to boolean via `Boolean(...)`, so options that are
+  // undefined (caller didn't pass them) behave identically to false —
+  // no explicit normalization needed; `...options` is enough.
+  const ctx = {
+    ...options,
+    isContainerized: getIsContainerized(),
+    workspaceDir: getWorkspaceDir(),
+    userSlug,
+    channelSlug,
+  };
 
-  const identity = readPromptFile(identityPath);
-  const bootstrap = readPromptFile(bootstrapPath);
-
-  const includeBootstrap = !!bootstrap && !options?.excludeBootstrap;
-
-  // Template prompt files contain placeholder fields and meta-instructions
-  // meant for the assistant to fill in during onboarding.  When included
-  // verbatim in the system prompt, the model can leak internal details and
-  // narrate its own setup process instead of following the BOOTSTRAP.md
-  // ritual.  Detect unmodified templates by comparing against the bundled
-  // source and skip them — SOUL.md provides sufficient personality defaults
-  // until onboarding completes.
-  const identityIsTemplate = isTemplateContent(identity, "IDENTITY.md");
-
-  if (identity && (!identityIsTemplate || includeBootstrap)) {
-    if (identityIsTemplate) {
-      // During bootstrap the model needs to see the template structure
-      // so it can produce a valid file_write with the right fields.
-      systemParts.push(identity);
-    } else {
-      // Strip placeholder lines (e.g. "- **Name:** _(not yet chosen)_") so
-      // the model doesn't treat unresolved fields as prompts to ask the user.
-      const cleanedIdentity = identity
-        .split("\n")
-        .filter((line) => !/_\(not yet (?:chosen|established)\)_/.test(line))
-        .join("\n");
-      if (cleanedIdentity.trim()) {
-        systemParts.push(cleanedIdentity);
-      }
-    }
-  }
-  if (options?.userPersona) systemParts.push(options.userPersona);
-  if (options?.channelPersona) systemParts.push(options.channelPersona);
-
-  // Surface accumulated voice markers when VOICE.md has content.
-  const voiceContent = readPromptFile(getWorkspacePromptPath("VOICE.md"));
-  if (voiceContent) {
-    systemParts.push("# Voice Profile\n\n" + voiceContent);
-  }
-
-  if (includeBootstrap) {
-    const userSlug = options?.userSlug ?? "default";
-    const bootstrapWithSlug = bootstrap.replaceAll(
-      "{{USER_PERSONA_FILE}}",
-      `${userSlug}.md`,
-    );
-    let bootstrapContent = bootstrapWithSlug;
-    const voiceBlock = options?.onboardingContext?.tone
-      ? BOOTSTRAP_VOICE_BLOCKS[options.onboardingContext.tone]
-      : undefined;
-    if (voiceBlock) {
-      bootstrapContent = voiceBlock + "\n\n" + bootstrapContent;
-    }
-    systemParts.push(
-      "# First-Run Ritual\n\n" +
-        "BOOTSTRAP.md is present — this is your first conversation. Follow its instructions.\n\n" +
-        bootstrapContent,
-    );
-
-    if (options?.onboardingContext) {
-      const n = normalizeOnboardingContext(options.onboardingContext);
-      const lines: string[] = [
-        "## First-Run User Context",
-        "",
-        "The user completed setup before this conversation.",
-        "",
-        "Known context:",
-      ];
-      if (n.preferredName) lines.push(`- Name: ${n.preferredName}`);
-      if (n.commonWork.length)
-        lines.push(`- Common work: ${n.commonWork.join("; ")}`);
-      if (n.dailyTools.length)
-        lines.push(`- Daily tools: ${n.dailyTools.join(", ")}`);
-      if (n.assistantName)
-        lines.push(`- Chosen assistant name: ${n.assistantName}`);
-      if (n.tone) lines.push(`- Preferred initial voice: ${n.tone}`);
-      if (n.cohort) lines.push(`- Cohort: ${n.cohort}`);
-      if (n.websiteUrl) lines.push(`- Website URL: ${n.websiteUrl}`);
-      if (n.contentSourceUrl)
-        lines.push(`- Content source URL: ${n.contentSourceUrl}`);
-      if (n.googleConnected && n.googleServices?.length) {
-        lines.push(
-          `- Google connected: yes (${n.googleServices.join(", ")} access granted)`,
-        );
-      }
-      if (n.priorAssistants?.length)
-        lines.push(
-          `- Prior AI assistants used: ${n.priorAssistants.join(", ")}`,
-        );
-      lines.push(
-        "",
-        "Apply this context quietly. Do not recap it as a list unless the user asks.",
-      );
-      systemParts.push(lines.join("\n"));
-    }
-  }
-  // Configuration section removed — workspace files are self-describing,
-  // tool routing lives in tool descriptions.
-  // External Communications Identity removed — guidance lives in messaging
-  // and phone-calls skill SKILL.md files.
-  const integrationSection = buildIntegrationSection();
-  if (integrationSection) systemParts.push(integrationSection);
-
-  // Journal entries are extracted into graph nodes by the memory pipeline.
-  // Journal files remain writable on disk.
-
+  // Every system-prompt block now flows through the bundled section
+  // pipeline — including runtime-computed entries like
+  // `14-connected-services` whose body is derived from live OAuth
+  // caches.  The trailing `SYSTEM_PROMPT_CACHE_BOUNDARY` marks the
+  // stable-instruction cache breakpoint for the Anthropic provider;
+  // with no dynamic content following, every provider treats the
+  // prompt as a single cached block (Anthropic filters the empty
+  // dynamic half before constructing system blocks).
   return (
-    systemParts.slice(0, dynamicStart).join("\n\n") +
-    SYSTEM_PROMPT_CACHE_BOUNDARY +
-    systemParts.slice(dynamicStart).join("\n\n")
+    renderWorkspaceSections(ctx).join("\n\n") + SYSTEM_PROMPT_CACHE_BOUNDARY
   );
-}
-
-function buildIntegrationSection(): string {
-  const entries: { provider: string; accountInfo?: string | null }[] = [];
-
-  // Local (BYO) connections from the SQLite store.
-  try {
-    const local = listConnections().filter((c) => c.status === "active");
-    entries.push(...local);
-  } catch {
-    // DB not available — skip local connections
-  }
-
-  // Platform-managed connections from the in-memory cache (populated at
-  // daemon startup and refreshed periodically).
-  const managed = getCachedManagedConnections();
-  for (const mc of managed) {
-    // Provider-level dedup is intentional: this section is a summary of
-    // connected services for the system prompt, not an exhaustive account
-    // list. Multiple accounts for the same provider (e.g. two Google
-    // accounts) collapse into a single line to keep the prompt compact.
-    if (!entries.some((e) => e.provider === mc.provider)) {
-      entries.push(mc);
-    }
-  }
-
-  if (entries.length === 0) return "";
-
-  const lines = ["# Connected Services", ""];
-  for (const conn of entries) {
-    const state = conn.accountInfo
-      ? `Connected (${conn.accountInfo})`
-      : "Connected";
-    lines.push(`- **${conn.provider}**: ${state}`);
-  }
-
-  return lines.join("\n");
 }
 
 // Re-export from shared util so existing importers don't break.
 export { stripCommentLines } from "../util/strip-comment-lines.js";
-
-/**
- * Returns true when the prompt file content is still the unmodified template
- * shipped with the daemon.  Compares the stripped workspace content against
- * the stripped bundled template source so the check stays accurate even if
- * templates are edited in future releases.
- */
-export function isTemplateContent(
-  content: string | null,
-  templateFileName: string,
-): boolean {
-  if (content == null) return false;
-  const templatesDir = resolveBundledDir(
-    import.meta.dirname ?? __dirname,
-    "templates",
-    "templates",
-  );
-  const templatePath = join(templatesDir, templateFileName);
-  if (!existsSync(templatePath)) return false;
-  try {
-    const templateContent = stripCommentLines(
-      readFileSync(templatePath, "utf-8"),
-    );
-    return content === templateContent;
-  } catch {
-    return false;
-  }
-}
 
 export function readPromptFile(path: string): string | null {
   if (!existsSync(path)) return null;
@@ -527,14 +350,17 @@ export function readPromptFile(path: string): string | null {
 
 /**
  * Reads the core identity/personality prompt files (SOUL.md, IDENTITY.md)
- * and concatenates whichever exist. Returns null if none are present.
+ * and concatenates whichever exist, plus the guardian's user persona when
+ * one is resolvable. Returns null if none are present.
  *
- * This is useful for injecting identity context into subsystems (e.g. memory
- * extraction) that run outside the main system prompt pipeline.
+ * Used by subsystems (memory extraction, conversation starters,
+ * notification decisions) that run outside the per-turn pipeline and want
+ * the assistant's "view of themselves and their guardian" without a trust
+ * context. The guardian persona fold is what callers used to do manually
+ * by passing `userPersona: resolveGuardianPersona()` — folding it in here
+ * removes the duplicated dance at every call site.
  */
-export function buildCoreIdentityContext(opts?: {
-  userPersona?: string | null;
-}): string | null {
+export function buildCoreIdentityContext(): string | null {
   const parts: string[] = [];
   for (const file of PROMPT_FILES) {
     const content = readPromptFile(getWorkspacePromptPath(file));
@@ -545,6 +371,7 @@ export function buildCoreIdentityContext(opts?: {
     if (file !== "SOUL.md" && isTemplateContent(content, file)) continue;
     parts.push(content);
   }
-  if (opts?.userPersona) parts.push(opts.userPersona);
+  const guardianPersona = resolveGuardianPersona();
+  if (guardianPersona) parts.push(guardianPersona);
   return parts.length > 0 ? parts.join("\n\n") : null;
 }

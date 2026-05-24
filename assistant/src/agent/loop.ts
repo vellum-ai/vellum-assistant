@@ -103,6 +103,14 @@ export type AgentLoopExitReason =
   | "checkpoint_handoff"
   /** Context-window recovery exhausted and the turn ended with an error. */
   | "context_too_large"
+  /**
+   * Auto-compress rerun (post-emergency-compaction, post-tier reducer)
+   * still yielded at the mid-loop budget checkpoint — the turn silently
+   * terminated with no further recovery layer to re-enter. Pure
+   * observability signal so the silent stall is attributable instead of
+   * leaving `agent_loop_exit_reason` NULL.
+   */
+  | "budget_yield_unrecovered"
   /** User cancellation landed after a non-terminal checkpoint yield. */
   | "aborted_after_checkpoint"
   /** Signal aborted while the catch handler was synthesizing an error turn. */

@@ -43,6 +43,10 @@ export function getRemoteFeatureFlagStorePath(): string {
   return join(getGatewaySecurityDir(), "feature-flags-remote.json");
 }
 
+export function hasRemoteFeatureFlagSnapshot(): boolean {
+  return existsSync(getRemoteFeatureFlagStorePath());
+}
+
 // ---------------------------------------------------------------------------
 // Disk I/O with caching
 // ---------------------------------------------------------------------------
@@ -96,7 +100,9 @@ export function readRemoteFeatureFlags(): Record<string, boolean> {
  * Persist remote feature flags to disk and update the in-memory cache.
  * Returns `true` when the new values differ from the previous cache.
  */
-export function writeRemoteFeatureFlags(values: Record<string, boolean>): boolean {
+export function writeRemoteFeatureFlags(
+  values: Record<string, boolean>,
+): boolean {
   const path = getRemoteFeatureFlagStorePath();
   const dir = dirname(path);
   if (!existsSync(dir)) {

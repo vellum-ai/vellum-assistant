@@ -27,8 +27,8 @@ mock.module("../config/env.js", () => ({
 
 mock.module("../daemon/handlers/conversations.js", () => ({
   cancelGeneration: () => true,
-  clearAllConversations: () => {
-    clearAll();
+  clearAllConversations: async () => {
+    await clearAll();
     return 0;
   },
   switchConversation: async () => null,
@@ -129,26 +129,28 @@ describe("DELETE /v1/conversations — route handler", () => {
     (r) => r.operationId === "clearAllConversations",
   )!;
 
-  test("missing X-Confirm-Destructive header throws BadRequestError", () => {
-    expect(() =>
-      clearRoute.handler({
-        pathParams: {},
-        body: {},
-        headers: {},
-  
-      }),
-    ).toThrow(BadRequestError);
+  test("missing X-Confirm-Destructive header throws BadRequestError", async () => {
+    await expect(
+      Promise.resolve().then(() =>
+        clearRoute.handler({
+          pathParams: {},
+          body: {},
+          headers: {},
+        }),
+      ),
+    ).rejects.toThrow(BadRequestError);
   });
 
-  test("wrong X-Confirm-Destructive header value throws BadRequestError", () => {
-    expect(() =>
-      clearRoute.handler({
-        pathParams: {},
-        body: {},
-        headers: { "x-confirm-destructive": "wrong-value" },
-  
-      }),
-    ).toThrow(BadRequestError);
+  test("wrong X-Confirm-Destructive header value throws BadRequestError", async () => {
+    await expect(
+      Promise.resolve().then(() =>
+        clearRoute.handler({
+          pathParams: {},
+          body: {},
+          headers: { "x-confirm-destructive": "wrong-value" },
+        }),
+      ),
+    ).rejects.toThrow(BadRequestError);
   });
 
   test("correct header clears data", async () => {
@@ -156,23 +158,21 @@ describe("DELETE /v1/conversations — route handler", () => {
     await addMessage(conv.id, "user", "hello from safety test");
     expect(getConversation(conv.id)).not.toBeNull();
 
-    const result = clearRoute.handler({
+    const result = await clearRoute.handler({
       pathParams: {},
       body: {},
       headers: { "x-confirm-destructive": "clear-all-conversations" },
-
     });
     expect(result).toBeUndefined();
 
     expect(getConversation(conv.id)).toBeNull();
   });
 
-  test("lifecycle_events contains conversations_clear_all after successful clear", () => {
-    clearRoute.handler({
+  test("lifecycle_events contains conversations_clear_all after successful clear", async () => {
+    await clearRoute.handler({
       pathParams: {},
       body: {},
       headers: { "x-confirm-destructive": "clear-all-conversations" },
-
     });
 
     const raw = (

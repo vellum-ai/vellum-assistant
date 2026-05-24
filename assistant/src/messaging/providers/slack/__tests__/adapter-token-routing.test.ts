@@ -49,7 +49,11 @@ mock.module("../../../../contacts/contacts-write.js", () => ({
   upsertContactChannel: () => {},
 }));
 
-import { slackProvider, withSlackBotToken } from "../adapter.js";
+import {
+  resolveSlackBotUserId,
+  slackProvider,
+  withSlackBotToken,
+} from "../adapter.js";
 
 // ── fetch capture ───────────────────────────────────────────────────────────
 
@@ -103,6 +107,16 @@ function fakeSlackResponse(url: string): Record<string, unknown> {
   }
   if (url.includes("/chat.postMessage")) {
     return { ok: true, ts: "1700000000.000100", channel: "C123" };
+  }
+  if (url.includes("/bots.info")) {
+    const botId = new URL(url).searchParams.get("bot");
+    return {
+      ok: true,
+      bot: {
+        id: botId,
+        user_id: botId === "B_ASSISTANT" ? "U_BOT" : "U_OTHER_BOT",
+      },
+    };
   }
   // Default envelope for any other method the adapter might call.
   return { ok: true };
@@ -318,5 +332,24 @@ describe("Slack adapter token routing", () => {
     expect(resolveOAuthConnectionMock).toHaveBeenCalledWith("slack", {
       account: "workspace-b",
     });
+  });
+
+  test("bot id resolver maps Slack bot ids through the bot token", async () => {
+    const resolved = await slackProvider.resolveConnection!();
+    expect(resolved).toBeUndefined();
+
+    const userId = await resolveSlackBotUserId(undefined, "B_ASSISTANT");
+    const repeatedUserId = await resolveSlackBotUserId(
+      undefined,
+      "B_ASSISTANT",
+    );
+
+    expect(userId).toBe("U_BOT");
+    expect(repeatedUserId).toBe("U_BOT");
+    const botsInfoCalls = captured.filter((c) => c.url.includes("/bots.info"));
+    expect(botsInfoCalls).toHaveLength(2);
+    for (const call of botsInfoCalls) {
+      expect(call.authorization).toBe(`Bearer ${BOT_TOKEN}`);
+    }
   });
 });

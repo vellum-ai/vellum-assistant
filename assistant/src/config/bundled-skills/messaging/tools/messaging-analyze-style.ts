@@ -2,7 +2,10 @@ import { and, eq, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../../../../memory/db-connection.js";
-import { enqueueMemoryJob } from "../../../../memory/jobs-store.js";
+import {
+  enqueueMemoryJob,
+  isMemoryEnabled,
+} from "../../../../memory/jobs-store.js";
 import { memoryGraphNodes } from "../../../../memory/schema.js";
 import { clampUnitInterval } from "../../../../memory/validation.js";
 import { extractStylePatterns } from "../../../../messaging/style-analyzer.js";
@@ -56,7 +59,9 @@ function upsertMemoryItem(opts: {
       })
       .where(eq(memoryGraphNodes.id, existing.id))
       .run();
-    enqueueMemoryJob("embed_graph_node", { nodeId: existing.id });
+    if (isMemoryEnabled()) {
+      enqueueMemoryJob("embed_graph_node", { nodeId: existing.id });
+    }
   } else {
     const id = uuid();
     db.insert(memoryGraphNodes)
@@ -82,7 +87,9 @@ function upsertMemoryItem(opts: {
         scopeId: opts.scopeId,
       })
       .run();
-    enqueueMemoryJob("embed_graph_node", { nodeId: id });
+    if (isMemoryEnabled()) {
+      enqueueMemoryJob("embed_graph_node", { nodeId: id });
+    }
   }
 }
 

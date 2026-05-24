@@ -432,6 +432,31 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     expect(lastBlock.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
   });
 
+  test("disableTurnStartCache suppresses the 1h breakpoint on the turn-starting user message", async () => {
+    // One-shot callers (e.g. the memory router) send a single user message
+    // per call with content that changes every time. Caching the turn-start
+    // block would create unused entries — `disableTurnStartCache: true`
+    // opts out.
+    await provider.sendMessage(
+      [userMsg("Pick relevant pages")],
+      undefined,
+      undefined,
+      {
+        config: { disableTurnStartCache: true },
+      },
+    );
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{
+        type: string;
+        cache_control?: { type: string; ttl?: string };
+      }>;
+    }>;
+    const lastBlock = sent[0].content[sent[0].content.length - 1];
+    expect(lastBlock.cache_control).toBeUndefined();
+  });
+
   test("previous-turn anchor is NOT applied during a tool-use loop", async () => {
     // When the request is mid tool-use (last msg is a tool_result), the
     // turn-start anchor already covers the long prefix, so we must not

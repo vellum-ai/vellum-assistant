@@ -26,8 +26,8 @@ interface BuildInspectorExportFilesOptions {
   exportedAt?: string;
 }
 
-export function buildInspectorExportFilename(messageId: string): string {
-  return `llm-inspector-${sanitizePathSegment(messageId)}.zip`;
+export function buildInspectorExportFilename(scopeId: string): string {
+  return `llm-inspector-${sanitizePathSegment(scopeId)}.zip`;
 }
 
 export function buildInspectorExportFiles(
@@ -47,7 +47,8 @@ export function buildInspectorExportFiles(
       path: "manifest.json",
       contents: prettyJson({
         exportedAt,
-        messageId: context.messageId,
+        conversationId: context.conversationId ?? null,
+        messageId: context.messageId ?? null,
         conversationKind: context.conversationKind,
         conversationTotalEstimatedCostUsd:
           context.conversationTotalEstimatedCostUsd ?? null,
@@ -58,7 +59,8 @@ export function buildInspectorExportFiles(
     {
       path: "conversation/actual-user-messages.json",
       contents: prettyJson({
-        messageId: context.messageId,
+        conversationId: context.conversationId ?? null,
+        messageId: context.messageId ?? null,
         description:
           "User-authored message sections extracted from the normalized request context. These are intentionally separate from provider request payloads.",
         messages: extractActualUserMessages(context.logs),

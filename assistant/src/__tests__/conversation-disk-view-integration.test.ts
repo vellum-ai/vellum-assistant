@@ -231,7 +231,7 @@ describe("clearAll → disk view", () => {
     resetConversationsDir();
   });
 
-  test("empties the conversations directory", () => {
+  test("empties the conversations directory", async () => {
     // Create two conversations
     createConversation("Conv A");
     createConversation("Conv B");
@@ -241,7 +241,7 @@ describe("clearAll → disk view", () => {
     expect(entries.length).toBe(2);
 
     // Clear all
-    clearAll();
+    await clearAll();
 
     // Conversations directory should exist but be empty
     expect(existsSync(conversationsDir)).toBe(true);

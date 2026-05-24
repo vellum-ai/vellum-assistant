@@ -32,6 +32,7 @@ import { Toggle } from "@vellum/design-library/components/toggle";
 import { feedbackCreateMutation } from "@/generated/api/@tanstack/react-query.gen.js";
 import type { ClassificationEnum } from "@/generated/api/types.gen.js";
 import { buildVellumMutatingHeaders } from "@/lib/auth/request-headers.js";
+import type { ChatDebugApi } from "@/domains/chat/utils/debug-api.js";
 import { buildChatDiagnosticsSnapshot } from "@/domains/chat/utils/diagnostics.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 
@@ -137,7 +138,7 @@ async function fetchPlatformLogs(
   assistantId: string,
   opts: {
     window: LogExportWindow;
-    activeConversationKey?: string | null;
+    activeConversationId?: string | null;
   },
 ): Promise<Uint8Array | null> {
   try {
@@ -155,8 +156,8 @@ async function fetchPlatformLogs(
     // non-empty string here — conversation keys take many shapes
     // (e.g. `slack-thread:C123:1700000000.000000`), so we deliberately do
     // NOT gate on UUID format.
-    if (opts.activeConversationKey) {
-      body.conversationId = opts.activeConversationKey;
+    if (opts.activeConversationId) {
+      body.conversationId = opts.activeConversationId;
     }
     const res = await fetch(`/v1/assistants/${assistantId}/logs/export/`, {
       method: "POST",
@@ -176,7 +177,7 @@ async function fetchPlatformLogs(
 async function buildClientLogsFile(
   timeRange: TimeRange,
   assistantId: string | null,
-  activeConversationKey: string | null,
+  activeConversationId: string | null,
   diagnosticsProvider?: FeedbackDiagnosticsProvider,
 ): Promise<File | null> {
   if (typeof CompressionStream === "undefined") {
@@ -203,7 +204,7 @@ async function buildClientLogsFile(
       end_time_ms: endTime,
     },
     assistant_id: assistantId,
-    active_conversation_key: activeConversationKey,
+    active_conversation_id: activeConversationId,
     user_agent: typeof navigator !== "undefined" ? navigator.userAgent : "",
     language: typeof navigator !== "undefined" ? navigator.language : "",
     platform: typeof navigator !== "undefined" ? navigator.platform : "",
@@ -232,10 +233,35 @@ async function buildClientLogsFile(
     buildTarEntry("web-chat-diagnostics.json", diagnosticsBytes),
   ];
 
+  // ATL-654 triage: capture the live debug API state for indicator-stuck reports.
+  // This is a separate file so support can diff it against the main diagnostics
+  // snapshot without cross-contamination.
+  try {
+    const debugApi =
+      typeof window !== "undefined"
+        ? (window as unknown as { _vellumDebug?: { chat?: ChatDebugApi } })
+            ._vellumDebug?.chat
+        : null;
+    if (debugApi) {
+      const triagePayload = {
+        tail: debugApi.tail?.() ?? null,
+        thinkingIndicator: debugApi.thinkingIndicator?.() ?? null,
+      };
+      const triageBytes = new TextEncoder().encode(
+        JSON.stringify(triagePayload, null, 2),
+      );
+      tarParts.push(buildTarEntry("web-chat-debug-api-triage.json", triageBytes));
+    }
+  } catch {
+    // Debug API is best-effort; if it's missing or throws, don't block the
+    // feedback submission. This can happen during SSR, in tests, or if the
+    // chat page hasn't mounted the API yet.
+  }
+
   if (assistantId) {
     const platformLogsData = await fetchPlatformLogs(assistantId, {
       window: { startTime, endTime },
-      activeConversationKey,
+      activeConversationId,
     });
     if (platformLogsData) {
       tarParts.push(buildTarEntry("platform-logs.tar.gz", platformLogsData));
@@ -267,7 +293,7 @@ export interface ShareFeedbackModalProps {
   onSubmitted?: () => void;
   assistantId?: string | null;
   assistantVersion?: string | null;
-  activeConversationKey?: string | null;
+  activeConversationId?: string | null;
   getDiagnosticsSnapshot?: FeedbackDiagnosticsProvider;
 }
 
@@ -278,7 +304,7 @@ export function ShareFeedbackModal({
   onSubmitted,
   assistantId,
   assistantVersion,
-  activeConversationKey,
+  activeConversationId,
   getDiagnosticsSnapshot,
 }: ShareFeedbackModalProps) {
   const authUser = useAuthStore.use.user();
@@ -427,7 +453,7 @@ export function ShareFeedbackModal({
           ? await buildClientLogsFile(
               logTimeRange,
               assistantId ?? null,
-              activeConversationKey ?? null,
+              activeConversationId ?? null,
               getDiagnosticsSnapshot,
             )
           : null;

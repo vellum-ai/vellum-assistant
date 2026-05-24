@@ -9,6 +9,7 @@ import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { getDb } from "../memory/db-connection.js";
 import { getLogger } from "../util/logger.js";
+import { isConnectionCompatibleWithModel } from "./connection-model-compat.js";
 import { tryResolveProviderForConnectionName } from "./connection-resolution.js";
 import { listConnections } from "./inference/connections.js";
 import { initializeProviders, listProviders } from "./registry.js";
@@ -126,7 +127,11 @@ export async function resolveConfiguredProvider(
         const candidates = listConnections(getDb(), {
           provider: inferenceProvider,
         });
-        const active = candidates.find((c) => c.status === "active");
+        const active = candidates.find(
+          (c) =>
+            c.status === "active" &&
+            isConnectionCompatibleWithModel(c, resolved.model),
+        );
         if (active) {
           connectionName = active.name;
         }
@@ -147,6 +152,7 @@ export async function resolveConfiguredProvider(
     connectionName,
     config,
     inferenceProvider,
+    resolved.model,
   );
   if (!connectionProvider) {
     // Soft credential failure — the connection resolved to no usable

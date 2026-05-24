@@ -9,7 +9,7 @@ export interface ContextWindowUsage {
 // long-lived per-conversation ChatViewModel; the web client is a short-lived
 // browser tab, so we mirror the semantics with localStorage instead.
 //
-// Shape on disk: { [conversationKey]: ContextWindowUsage }, keyed per assistant.
+// Shape on disk: { [conversationId]: ContextWindowUsage }, keyed per assistant.
 
 const STORAGE_KEY_PREFIX = "vellum:ctxwindow:";
 // Cap per-assistant entries to keep localStorage footprint bounded. Older
@@ -80,7 +80,7 @@ export function loadContextWindowUsageMap(assistantId: string): Map<string, Cont
 
 export function saveContextWindowUsage(
   assistantId: string,
-  conversationKey: string,
+  conversationId: string,
   usage: ContextWindowUsage,
 ): void {
   if (typeof window === "undefined") {
@@ -89,7 +89,7 @@ export function saveContextWindowUsage(
   try {
     const key = storageKey(assistantId);
     const existing = safeParse(window.localStorage.getItem(key));
-    existing[conversationKey] = usage;
+    existing[conversationId] = usage;
 
     const entries = Object.entries(existing);
     if (entries.length > MAX_ENTRIES_PER_ASSISTANT) {

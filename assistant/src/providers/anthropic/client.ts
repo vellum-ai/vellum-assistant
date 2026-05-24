@@ -819,6 +819,15 @@ export class AnthropicProvider implements Provider {
       ((config as Record<string, unknown> | undefined)?.cacheTtl as
         | "5m"
         | "1h") ?? "1h";
+    // Opt-out for callers (e.g. the memory router) that send a single
+    // user message per call with content that changes every time. The
+    // turn-start cache breakpoint below is only useful when the same
+    // prefix is re-sent on a subsequent call (typical for the main agent
+    // loop's tool-use iterations); one-shot callers pay cache_creation
+    // cost without a future hit.
+    const disableTurnStartCache =
+      (config as Record<string, unknown> | undefined)?.disableTurnStartCache ===
+      true;
     let sentMessages: Anthropic.MessageParam[] | undefined;
     const startedAt = Date.now();
     // Hoisted so the catch block can distinguish our inner stream timeout
@@ -980,14 +989,11 @@ export class AnthropicProvider implements Provider {
       // followed by user tool_result). Replaying stale thinking blocks from
       // earlier turns causes 400 errors when the signature is no longer
       // valid (e.g. after a provider/model/profile switch).
-      const activeToolUseStart =
-        findActiveToolUseContinuationStart(formatted);
+      const activeToolUseStart = findActiveToolUseContinuationStart(formatted);
       for (let i = 0; i < activeToolUseStart; i++) {
         const msg = formatted[i];
         if (msg.role !== "assistant" || !Array.isArray(msg.content)) continue;
-        const stripped = (
-          msg.content as Anthropic.ContentBlockParam[]
-        ).filter(
+        const stripped = (msg.content as Anthropic.ContentBlockParam[]).filter(
           (b) =>
             typeof b === "string" ||
             (b.type !== "thinking" && b.type !== "redacted_thinking"),
@@ -1009,6 +1015,7 @@ export class AnthropicProvider implements Provider {
         speed,
         output_config,
         cacheTtl: _cacheTtl,
+        disableTurnStartCache: _disableTurnStartCache,
         max_tokens: callerMaxTokens,
         usageAttributionHeaders,
         ...restConfig
@@ -1160,7 +1167,9 @@ export class AnthropicProvider implements Provider {
         }
       };
       const turnStartIdx = findUserTextMsgIdx(msgs.length - 1);
-      if (turnStartIdx >= 0) applyCacheControlToLastBlock(turnStartIdx);
+      if (turnStartIdx >= 0 && !disableTurnStartCache) {
+        applyCacheControlToLastBlock(turnStartIdx);
+      }
 
       // Previous-turn anchor: when this request is the first of a new turn
       // (turn-start is the very last message — no tool-use loop yet), also

@@ -37,7 +37,7 @@ export interface ChatState {
   /** Current transcript messages for the active conversation. */
   messages: DisplayMessage[];
   /** Key identifying the active conversation, or `null` when none is selected. */
-  activeConversationKey: string | null;
+  activeConversationId: string | null;
   /** Current assistant ID, or `null` before the assistant is resolved. */
   assistantId: string | null;
 }
@@ -57,7 +57,7 @@ const NOOP_SEND: ChatActions["sendMessage"] = async () => {};
 
 const useChatStoreBase = create<ChatStore>()(() => ({
   messages: [],
-  activeConversationKey: null,
+  activeConversationId: null,
   assistantId: null,
   sendMessage: NOOP_SEND,
 }));
@@ -70,7 +70,7 @@ export const useChatStore = createSelectors(useChatStoreBase);
 
 export interface ChatStoreSyncProps {
   messages: DisplayMessage[];
-  activeConversationKey: string | null;
+  activeConversationId: string | null;
   assistantId: string | null;
   sendMessage: (content: string, attachments?: DisplayAttachment[]) => Promise<void>;
 }
@@ -83,7 +83,7 @@ export interface ChatStoreSyncProps {
 export function useSyncChatStore(props: ChatStoreSyncProps): void {
   const {
     messages,
-    activeConversationKey,
+    activeConversationId,
     assistantId,
     sendMessage,
   } = props;
@@ -91,10 +91,10 @@ export function useSyncChatStore(props: ChatStoreSyncProps): void {
   useEffect(() => {
     useChatStore.setState({
       messages,
-      activeConversationKey,
+      activeConversationId,
       assistantId,
     });
-  }, [messages, activeConversationKey, assistantId]);
+  }, [messages, activeConversationId, assistantId]);
 
   useEffect(() => {
     useChatStore.setState({

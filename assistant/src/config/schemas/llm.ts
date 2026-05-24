@@ -152,10 +152,18 @@ const TemperatureSchema = z.number().min(0).max(2).nullable();
 // defaulted (`ThinkingSchema`) and fragment (`ThinkingFragmentSchema`) views.
 const ThinkingEnabledSchema = z.boolean();
 const ThinkingStreamThinkingSchema = z.boolean();
+// Gemini-style thinking depth knob. Maps to Gemini's `thinkingLevel`. Other
+// providers (Anthropic, OpenRouter) ignore this field — they use `effort`
+// instead to size reasoning. Optional with no default so the underlying
+// provider can pick its own default (Gemini 3.x defaults to "medium").
+export const THINKING_LEVELS = ["minimal", "low", "medium", "high"] as const;
+export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
+const ThinkingLevelSchema = z.enum(THINKING_LEVELS);
 
 const ThinkingSchema = z.object({
   enabled: ThinkingEnabledSchema.default(true),
   streamThinking: ThinkingStreamThinkingSchema.default(true),
+  level: ThinkingLevelSchema.optional(),
 });
 
 // Fragment view: every field optional, no defaults injected. Defining this
@@ -165,6 +173,7 @@ const ThinkingSchema = z.object({
 const ThinkingFragmentSchema = z.object({
   enabled: ThinkingEnabledSchema.optional(),
   streamThinking: ThinkingStreamThinkingSchema.optional(),
+  level: ThinkingLevelSchema.optional(),
 });
 
 // Leaf primitives for context-overflow recovery.

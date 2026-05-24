@@ -114,6 +114,7 @@ mock.module("../security/secret-allowlist.js", () => ({
 
 mock.module("../memory/conversation-crud.js", () => ({
   setConversationOriginChannelIfUnset: () => {},
+  setConversationHistoryStrippedAt: () => {},
   provenanceFromTrustContext: () => ({
     source: "user",
     trustContext: undefined,
@@ -141,7 +142,6 @@ mock.module("../memory/conversation-crud.js", () => ({
   setLastNotifiedInferenceProfile: () => {},
   getConversationOverrideProfileFromRow: () => undefined,
   updateMessageMetadata: () => {},
-  clearStrippedInjectionMetadataForConversation: () => {},
 }));
 
 mock.module("../memory/conversation-queries.js", () => ({

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { z } from "zod";
 
-import { resolveCallSiteConfig } from "../config/llm-resolver.js";
+import { resolveCallSiteConfig, resolveDefaultProfileKey } from "../config/llm-resolver.js";
 import { type LLMCallSite, LLMSchema } from "../config/schemas/llm.js";
 
 const fullDefault = {
@@ -788,5 +788,89 @@ describe("resolveCallSiteConfig", () => {
     expect(resolved.provider).toBe("fireworks");
     // The merge inherits the stale connection — the dispatch layer handles this.
     expect(resolved.provider_connection).toBe("anthropic-managed");
+  });
+});
+
+describe("resolveDefaultProfileKey", () => {
+  test("mainAgent returns activeProfile when set and enabled", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        balanced: { provider: "anthropic", model: "claude-sonnet-4-7" },
+        gemini: { provider: "gemini", model: "gemini-2.5-pro" },
+      },
+      activeProfile: "gemini",
+    });
+    expect(resolveDefaultProfileKey("mainAgent", llm)).toBe("gemini");
+  });
+
+  test("mainAgent falls back to catalog default when activeProfile is unset", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        balanced: { provider: "anthropic", model: "claude-sonnet-4-7" },
+      },
+    });
+    // mainAgent's CALL_SITE_DEFAULTS profile is `balanced`.
+    expect(resolveDefaultProfileKey("mainAgent", llm)).toBe("balanced");
+  });
+
+  test("mainAgent falls back to catalog default when activeProfile points to a missing profile", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        balanced: { provider: "anthropic", model: "claude-sonnet-4-7" },
+      },
+    });
+    // `LLMSchema.superRefine` rejects unknown `activeProfile` references at
+    // config-load time, so this branch is unreachable for a parsed config.
+    // Mutate after parse to exercise the resolver's defensive fall-through.
+    const mutated = { ...llm, activeProfile: "does-not-exist" };
+    expect(resolveDefaultProfileKey("mainAgent", mutated)).toBe("balanced");
+  });
+
+  test("mainAgent falls back to catalog default when activeProfile is disabled", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        balanced: { provider: "anthropic", model: "claude-sonnet-4-7" },
+        gemini: {
+          provider: "gemini",
+          model: "gemini-2.5-pro",
+          status: "disabled",
+        },
+      },
+      activeProfile: "gemini",
+    });
+    expect(resolveDefaultProfileKey("mainAgent", llm)).toBe("balanced");
+  });
+
+  test("non-mainAgent ignores activeProfile and returns catalog default", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        balanced: { provider: "anthropic", model: "claude-sonnet-4-7" },
+        "cost-optimized": { provider: "openai", model: "gpt-5-mini" },
+        gemini: { provider: "gemini", model: "gemini-2.5-pro" },
+      },
+      activeProfile: "gemini",
+    });
+    // filingAgent's CALL_SITE_DEFAULTS profile is `cost-optimized` — not gemini.
+    expect(resolveDefaultProfileKey("filingAgent", llm)).toBe("cost-optimized");
+  });
+
+  test("non-mainAgent falls back to custom-* when catalog profile is missing", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        "custom-cost-optimized": {
+          provider: "openai",
+          model: "gpt-5-mini",
+        },
+      },
+    });
+    expect(resolveDefaultProfileKey("filingAgent", llm)).toBe(
+      "custom-cost-optimized",
+    );
   });
 });

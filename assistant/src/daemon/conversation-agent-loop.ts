@@ -60,7 +60,6 @@ import { commitAppTurnChanges } from "../memory/app-git-service.js";
 import { getApp, listAppFiles, resolveAppDir } from "../memory/app-store.js";
 import { enqueueAutoAnalysisOnCompaction } from "../memory/auto-analysis-enqueue.js";
 import {
-  clearStrippedInjectionMetadataForConversation,
   getConversation,
   getConversationOriginChannel,
   getConversationOriginInterface,
@@ -68,6 +67,7 @@ import {
   getLastUserTimestampBefore,
   getMessageById,
   provenanceFromTrustContext,
+  setConversationHistoryStrippedAt,
   setLastNotifiedInferenceProfile,
   updateConversationContextWindow,
   updateConversationSlackContextWatermark,
@@ -1146,6 +1146,7 @@ export async function runAgentLoopImpl(
           {
             message: result.messages[0]!,
             sourceChannelTs: null,
+            tagLineProvenance: "none",
           },
           ...retainedRenderedMessages,
         ],
@@ -1644,7 +1645,7 @@ export async function runAgentLoopImpl(
     // V2 static memory block (essentials/threads/recent/buffer).
     // `currentMemoryV2Static` is the trust-gated content reused by every
     // re-injection path — it stays non-null on non-full-mode turns so
-    // that mid-turn reducer compaction (which strips the prior `<memory>`
+    // that mid-turn reducer compaction (which strips the prior `<info>`
     // block) can restore the freshest content. `memoryV2Static` is the
     // first-turn / post-compaction cadence-gated value for initial
     // injection only. `readMemoryV2StaticContent` self-gates on the v2
@@ -2306,14 +2307,7 @@ export async function runAgentLoopImpl(
       // so we compact the "raw" persistent messages.
       const rawHistory = stripInjectionsForCompaction(updatedHistory);
       ctx.messages = rawHistory;
-      try {
-        clearStrippedInjectionMetadataForConversation(ctx.conversationId);
-      } catch (err) {
-        rlog.warn(
-          { err },
-          "Failed to clear stripped-injection metadata after compaction strip (non-fatal)",
-        );
-      }
+      setConversationHistoryStrippedAt(ctx.conversationId, Date.now());
 
       ctx.emitActivityState(
         "thinking",
@@ -2597,14 +2591,7 @@ export async function runAgentLoopImpl(
 
       if (updatedHistory.length > preRunHistoryLength) {
         ctx.messages = stripInjectionsForCompaction(updatedHistory);
-        try {
-          clearStrippedInjectionMetadataForConversation(ctx.conversationId);
-        } catch (err) {
-          rlog.warn(
-            { err },
-            "Failed to clear stripped-injection metadata after compaction strip (non-fatal)",
-          );
-        }
+        setConversationHistoryStrippedAt(ctx.conversationId, Date.now());
         convergenceStripped = true;
         preRepairMessages = updatedHistory;
         preRunHistoryLength = updatedHistory.length;
@@ -2849,14 +2836,7 @@ export async function runAgentLoopImpl(
           // pre-rerun messages.
           if (updatedHistory.length > preRunHistoryLength) {
             ctx.messages = stripInjectionsForCompaction(updatedHistory);
-            try {
-              clearStrippedInjectionMetadataForConversation(ctx.conversationId);
-            } catch (err) {
-              rlog.warn(
-                { err },
-                "Failed to clear stripped-injection metadata after compaction strip (non-fatal)",
-              );
-            }
+            setConversationHistoryStrippedAt(ctx.conversationId, Date.now());
             convergenceStripped = true;
             preRepairMessages = updatedHistory;
             preRunHistoryLength = updatedHistory.length;
@@ -3005,6 +2985,20 @@ export async function runAgentLoopImpl(
         await emitTerminalExit?.("context_too_large");
         pendingCheckpointYield = null;
         onEvent(buildConversationErrorMessage(ctx.conversationId, classified));
+      } else if (yieldedForBudget && !abortController.signal.aborted) {
+        // The auto_compress_latest_turn rerun (action === "auto_compress_latest_turn"
+        // above) reset `contextTooLargeDetected` to false before its final
+        // `agentLoop.run`, so the context-too-large branch above won't fire
+        // even when that rerun yields at the mid-loop budget checkpoint with
+        // no further recovery layer to re-enter. Without an emit here, the
+        // turn terminates silently and `agent_loop_exit_reason` stays NULL on
+        // the final llm_request_logs row — making this exact "loop stopped
+        // mid-action" failure mode invisible in the inspector and dashboards.
+        //
+        // Pure observability: no state mutation, no error message, no flow
+        // change. The post-turn cleanup that the orchestrator falls into is
+        // unchanged.
+        await emitTerminalExit?.("budget_yield_unrecovered");
       }
     }
 
@@ -3644,6 +3638,7 @@ export async function applyCompactionResult(
     result.summaryText,
     ctx.contextCompactedMessageCount,
   );
+  setConversationHistoryStrippedAt(ctx.conversationId, compactedAt);
   if (options.slackContextCompactionWatermarkTs) {
     updateConversationSlackContextWatermark(
       ctx.conversationId,

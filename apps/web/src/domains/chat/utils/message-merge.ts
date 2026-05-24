@@ -214,11 +214,16 @@ export function mergeLatestHistoryMessage(
     content: preferredText.content,
   };
 
+  // `isStreaming` is a client-owned, live-only flag. Server snapshots
+  // (history pages, reconcile fetches) never carry it, so we must never
+  // let the merge clear it based on `incoming.isStreaming` being absent.
+  // The previous `else if (!incoming.isStreaming)` branch caused the
+  // live assistant bubble to flip to "completed" mid-turn when a sync
+  // tag fired a history merge during the stream — splitting the bubble
+  // on the next `tool_use_start`. Always preserve the current value.
+  merged.isStreaming = current.isStreaming;
   if (currentHasMoreText) {
-    merged.isStreaming = current.isStreaming;
     merged.textSegments = current.textSegments ?? incoming.textSegments;
-  } else if (!incoming.isStreaming) {
-    merged.isStreaming = false;
   }
 
   if (incoming.role === "user" && incoming.id) {

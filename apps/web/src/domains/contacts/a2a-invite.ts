@@ -3,14 +3,12 @@ import { routes } from "@/utils/routes.js";
 export interface A2AInviteParams {
   senderAssistantId: string;
   token: string;
-  senderGatewayUrl: string;
 }
 
 /**
  * Build a shareable A2A invite link that routes to the connect page.
- *
- * Unlike the platform version, the OSS invite link includes
- * `senderGatewayUrl` — there is no central Django broker to derive it.
+ * The link includes `senderAssistantId` and `token` so the recipient
+ * can redeem the invite via the platform broker.
  */
 export function buildA2AInviteLink(params: A2AInviteParams): string {
   const origin =
@@ -18,7 +16,6 @@ export function buildA2AInviteLink(params: A2AInviteParams): string {
   const search = new URLSearchParams({
     senderAssistantId: params.senderAssistantId,
     token: params.token,
-    senderGatewayUrl: params.senderGatewayUrl,
   });
   return `${origin}${routes.connect}?${search.toString()}`;
 }
@@ -30,11 +27,10 @@ export function buildA2AInviteLink(params: A2AInviteParams): string {
 export function parseA2AInviteParams(
   search: URLSearchParams,
 ): A2AInviteParams | null {
-  const senderAssistantId = search.get("senderAssistantId");
-  const token = search.get("token");
-  const senderGatewayUrl = search.get("senderGatewayUrl");
-  if (!senderAssistantId || !token || !senderGatewayUrl) {
+  const senderAssistantId = search.get("senderAssistantId")?.trim();
+  const token = search.get("token")?.trim();
+  if (!senderAssistantId || !token) {
     return null;
   }
-  return { senderAssistantId, token, senderGatewayUrl };
+  return { senderAssistantId, token };
 }

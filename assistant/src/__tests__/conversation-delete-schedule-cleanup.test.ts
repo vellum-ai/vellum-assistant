@@ -23,7 +23,7 @@ mock.module("../daemon/conversation-store.js", () => ({
 
 mock.module("../daemon/handlers/conversations.js", () => ({
   cancelGeneration: () => true,
-  clearAllConversations: () => 0,
+  clearAllConversations: async () => 0,
   switchConversation: async () => null,
   undoLastMessage: async () => null,
   regenerateResponse: async () => null,

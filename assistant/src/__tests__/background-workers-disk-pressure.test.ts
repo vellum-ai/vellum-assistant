@@ -108,7 +108,6 @@ mock.module("../memory/conversation-crud.js", () => ({
   addMessage: mock(() => ({ id: "msg-1" })),
   archiveConversation: mock(() => true),
   batchSetDisplayOrders: mock(() => {}),
-  clearStrippedInjectionMetadataForConversation: mock(() => {}),
   createConversation: (opts: { conversationType: string }) => {
     createdConversations.push(opts);
     return { id: "conv-1", ...opts };
@@ -116,7 +115,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   countConversationsByScheduleJobId: mock(() => 0),
   countMessagesAfter: mock(() => 0),
   deleteMessageById: mock(() => {}),
-  clearAll: mock(() => ({ conversations: 0, messages: 0 })),
+  clearAll: mock(async () => ({ conversations: 0, messages: 0 })),
   deleteConversation: mock(() => ({ memoryIds: [] })),
   deleteLastExchange: mock(() => 0),
   findAnalysisConversationFor: mock(() => null),
@@ -156,6 +155,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   updateConversationTitle: mock(() => {}),
   updateConversationUsage: mock(() => {}),
   setLastNotifiedInferenceProfile: mock(() => {}),
+  setConversationHistoryStrippedAt: mock(() => {}),
   wipeConversation: mock(() => ({ memoryIds: [] })),
 }));
 
@@ -181,6 +181,7 @@ mock.module("../memory/jobs-store.js", () => ({
   failStalledJobs: mockFailStalledJobs,
   getMemoryJobCounts: mock(() => ({})),
   hasActiveJobOfType: mock(() => false),
+  isMemoryEnabled: () => true,
   resetRunningJobsToPending: mock(() => 0),
   SLOW_LLM_JOB_TYPES: [],
   upsertAutoAnalysisJob: mock(() => "job-auto-analysis"),

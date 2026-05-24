@@ -11,10 +11,12 @@ import { getCpuLimit, getIsPlatform } from "../../config/env-registry.js";
 import { parseIdentityFields } from "../../daemon/handlers/identity.js";
 import { getProfilerRuntimeStatus } from "../../daemon/profiler-run-store.js";
 import { getMaxMigrationVersion } from "../../memory/migrations/registry.js";
+import { getCesClient } from "../../security/secure-keys.js";
 import {
   getDiskUsageInfo,
   parseK8sMemoryBytes,
 } from "../../util/disk-usage.js";
+import { getLogger } from "../../util/logger.js";
 import { getWorkspacePromptPath } from "../../util/platform.js";
 import { APP_VERSION } from "../../version.js";
 import { resolveHatchedAtReadOnly } from "../../workspace/hatched-date.js";
@@ -323,6 +325,8 @@ function getDetailedHealth() {
     // Profiler status is non-critical — omit on error
   }
 
+  const cesClient = getCesClient();
+
   return {
     status: "healthy",
     timestamp: new Date().toISOString(),
@@ -335,6 +339,9 @@ function getDetailedHealth() {
       lastWorkspaceMigrationId:
         getLastWorkspaceMigrationId(WORKSPACE_MIGRATIONS),
     },
+    ces: {
+      connected: cesClient?.isReady() ?? false,
+    },
     ...(profiler ? { profiler } : {}),
   };
 }
@@ -344,6 +351,15 @@ export function handleDetailedHealth(): Response {
 }
 
 export function handleReadyz(): Response {
+  const cesClient = getCesClient();
+  if (!cesClient?.isReady()) {
+    // TODO: Return 503 once we confirm via logs that this won't cause
+    // regressions in the K8s readinessProbe.
+    getLogger("health").warn(
+      { reason: cesClient ? "ces_not_ready" : "ces_unavailable" },
+      "CES not ready — pod would be unready if 503 were enabled",
+    );
+  }
   return Response.json({ status: "ok" });
 }
 
@@ -423,6 +439,10 @@ const profilerStatusSchema = z.object({
   lastCompletedRun: profilerLastCompletedRunSchema.nullable(),
 });
 
+const cesHealthSchema = z.object({
+  connected: z.boolean(),
+});
+
 const detailedHealthSchema = z.object({
   status: z.string(),
   timestamp: z.string(),
@@ -431,6 +451,7 @@ const detailedHealthSchema = z.object({
   memory: z.object({}).passthrough(),
   cpu: z.object({}).passthrough(),
   migrations: z.object({}).passthrough(),
+  ces: cesHealthSchema,
   profiler: profilerStatusSchema.optional(),
 });
 

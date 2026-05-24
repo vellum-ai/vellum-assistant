@@ -417,6 +417,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
 
   // LLM call site catalog
   { endpoint: "config/llm/call-sites:GET", scopes: ["settings.read"] },
+  { endpoint: "config/llm/profiles:GET", scopes: ["settings.read"] },
 
   // Conversation management
   { endpoint: "conversations:DELETE", scopes: ["chat.write"] },
@@ -440,6 +441,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Message content
   { endpoint: "messages/content", scopes: ["chat.read"] },
   { endpoint: "messages/llm-context", scopes: ["chat.read"] },
+  { endpoint: "conversations/llm-context", scopes: ["chat.read"] },
   { endpoint: "llm-request-logs/payload", scopes: ["chat.read"] },
   { endpoint: "messages/tts", scopes: ["chat.read"] },
   { endpoint: "tts/synthesize", scopes: ["chat.read"] },
@@ -458,6 +460,11 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "skills:DELETE", scopes: ["settings.write"] },
   { endpoint: "skills:PATCH", scopes: ["settings.write"] },
 
+  // Plugins (read-only for now — install / uninstall stay CLI-side)
+  { endpoint: "plugins:GET", scopes: ["settings.read"] },
+  { endpoint: "plugins/search:GET", scopes: ["settings.read"] },
+  { endpoint: "plugins:DELETE", scopes: ["settings.write"] },
+
   // Memory items
   { endpoint: "memory-items:GET", scopes: ["settings.read"] },
   { endpoint: "memory-items:POST", scopes: ["settings.write"] },
@@ -469,6 +476,13 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "memory/v2/list-concept-pages:POST", scopes: ["settings.read"] },
   { endpoint: "memory/v2/reembed-skills:POST", scopes: ["settings.write"] },
   { endpoint: "memory/v2/concept-frequency:POST", scopes: ["settings.read"] },
+  { endpoint: "memory/v2/ema-scores:POST", scopes: ["settings.read"] },
+  { endpoint: "memory/v2/simulate-router:POST", scopes: ["settings.read"] },
+  {
+    endpoint: "memory/v2/router-prompt-template:GET",
+    scopes: ["settings.read"],
+  },
+  { endpoint: "memory/v2/now-text:GET", scopes: ["settings.read"] },
 
   // Trust rule listing
   { endpoint: "trust-rules/manage:GET", scopes: ["settings.read"] },
@@ -660,6 +674,12 @@ registerPolicy("events/emit", {
 // Channel inbound: gateway-only
 registerPolicy("channels/inbound", {
   requiredScopes: ["ingress.write"],
+  allowedPrincipalTypes: ["svc_gateway"],
+});
+
+// Background wake control-plane calls from the platform.
+registerPolicy("background-wake", {
+  requiredScopes: ["internal.write"],
   allowedPrincipalTypes: ["svc_gateway"],
 });
 
@@ -988,6 +1008,10 @@ registerPolicy("conversations/cli/create", {
 });
 registerPolicy("conversations/cli/export", {
   requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+registerPolicy("conversations/cli/slack/detach", {
+  requiredScopes: ["settings.write"],
   allowedPrincipalTypes: ["local"],
 });
 // `conversations/cli/clear` wipes every conversation + message + vector

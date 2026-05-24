@@ -24,6 +24,7 @@ import type { ConfirmationDecision } from "@/domains/chat/api/event-types.js";
 export interface LatestTurnRowProps {
   anchorMessage: MessageItem;
   responseItems: TranscriptItem[];
+  assistantDisplayName?: string | null;
   /** Current scroll container height — drives `minHeight`. Provided by the
    *  parent `Transcript` via `useViewportMinHeight`. */
   viewportMinHeight: number;
@@ -82,6 +83,7 @@ export interface LatestTurnRowProps {
 export const LatestTurnRow = memo(function LatestTurnRow({
   anchorMessage,
   responseItems,
+  assistantDisplayName,
   viewportMinHeight,
   expandedToolCallIds,
   expandedCardIds,
@@ -118,6 +120,7 @@ export const LatestTurnRow = memo(function LatestTurnRow({
     >
       <TranscriptRow
         item={anchorMessage}
+        assistantDisplayName={assistantDisplayName}
         expandedToolCallIds={expandedToolCallIds}
         expandedCardIds={expandedCardIds}
         onSurfaceAction={onSurfaceAction}
@@ -145,6 +148,7 @@ export const LatestTurnRow = memo(function LatestTurnRow({
         <Fragment key={response.key}>
           <TranscriptRow
             item={response}
+            assistantDisplayName={assistantDisplayName}
             expandedToolCallIds={expandedToolCallIds}
             expandedCardIds={expandedCardIds}
             onSurfaceAction={onSurfaceAction}

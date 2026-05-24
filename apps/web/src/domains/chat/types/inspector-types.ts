@@ -1,15 +1,11 @@
 /**
- * Type definitions for the conversation LLM context inspector. Web port
- * of macOS's `LLMContextResponse` / `LLMRequestLogEntry` /
- * `LLMCallSummary` / `LLMContextSection` shapes from
- * `clients/macos/vellum-assistant/Features/Chat/MessageInspector*.swift`.
- *
- * These mirror what the daemon's `GET /v1/messages/:id/llm-context`
- * route returns (see `assistant/src/runtime/routes/conversation-query-routes.ts`
+ * Type definitions for the conversation LLM context inspector. These
+ * mirror what the daemon's `GET /v1/messages/:id/llm-context` route
+ * returns (see `assistant/src/runtime/routes/conversation-query-routes.ts`
  * + `assistant/src/runtime/routes/llm-context-normalization.ts`). The
- * route is reachable on web through the platform's
- * `RuntimeProxyWildcardView` at
- * `/v1/assistants/{assistantId}/messages/{messageId}/llm-context/`.
+ * route is reachable on web through the gateway's runtime-proxy
+ * wildcard at
+ * `/v1/assistants/{assistantId}/conversations/llm-context/`.
  */
 
 /**
@@ -170,7 +166,7 @@ export interface MemoryV2ActivationLog {
 
 /**
  * The full payload returned by
- * `GET /v1/messages/{messageId}/llm-context`. Hydrates the Overview /
+ * `GET /v1/conversations/llm-context`. Hydrates the Overview /
  * Memory / Prompt / Response tabs from a single fetch.
  *
  * `conversationTotalEstimatedCostUsd` is the running total of priced
@@ -180,7 +176,9 @@ export interface MemoryV2ActivationLog {
  * as "unavailable".
  */
 export interface LlmContextResponse {
-  messageId: string;
+  messageId?: string | null;
+  conversationKey?: string | null;
+  conversationId?: string | null;
   conversationKind: string;
   conversationTotalEstimatedCostUsd?: number | null;
   logs: LLMRequestLogEntry[];

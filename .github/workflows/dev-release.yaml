@@ -16,7 +16,96 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ── Skip-if-idle gate ───────────────────────────────────────────────────
+  # The schedule fires hourly regardless of repo activity. Rebuilding an
+  # unchanged HEAD wastes CI minutes and republishes byte-identical images, so
+  # cancel the run when nothing has landed since the last *successful* dev
+  # release. "Successful" is keyed off the register-release job conclusion —
+  # the same anchor notify-dev-release uses for its changelog — so a run that
+  # registered a real release but failed in a later job (e.g. build-macos)
+  # still counts as the last release. Manual workflow_dispatch runs always
+  # proceed: the operator explicitly asked for a build.
+  #
+  # All root jobs (compute-version + the three ci-* jobs) gate on this job's
+  # has_new_commits output so they never spin up runners on an idle run. The
+  # job also calls `gh run cancel` so the run shows as cancelled rather than a
+  # misleadingly-green wall of skipped jobs (and the notify jobs, which guard
+  # on !cancelled(), stay quiet for a no-op run).
+  check-for-new-commits:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: write
+    outputs:
+      has_new_commits: ${{ steps.check.outputs.has_new_commits }}
+    steps:
+      - name: Check for new commits since last successful dev release
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          HEAD_SHA: ${{ github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+
+          # Manual dispatches always run, regardless of commit activity.
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "Manual dispatch — proceeding regardless of commit activity."
+            echo "has_new_commits=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Walk recent completed runs newest-first and pick the first whose
+          # register-release job succeeded; that run's head SHA is the last
+          # released commit. (See notify-dev-release for why we key off the job
+          # conclusion rather than the overall run conclusion.)
+          PREV_SHA=""
+          while read -r rid rsha; do
+            [ -z "$rid" ] && continue
+            CONCL=$(gh api "repos/${REPO}/actions/runs/${rid}/jobs" \
+              --jq '[.jobs[] | select(.name == "register-release") | .conclusion] | .[0] // empty')
+            if [ "$CONCL" = "success" ]; then
+              PREV_SHA="$rsha"
+              break
+            fi
+          done < <(gh api \
+            "repos/${REPO}/actions/workflows/dev-release.yaml/runs?branch=main&status=completed&per_page=30&exclude_pull_requests=true" \
+            --jq ".workflow_runs[] | select(.id != ${RUN_ID}) | \"\(.id) \(.head_sha)\"")
+
+          echo "Last successful dev release SHA: ${PREV_SHA:-<none>}"
+          echo "Current SHA: ${HEAD_SHA}"
+
+          # No prior successful release found (e.g. first tracked run) — proceed.
+          if [ -z "$PREV_SHA" ]; then
+            echo "No previous successful dev release found — proceeding."
+            echo "has_new_commits=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "$PREV_SHA" = "$HEAD_SHA" ]; then
+            echo "No new commits since the last successful dev release (${PREV_SHA}) — cancelling run."
+            echo "has_new_commits=false" >> "$GITHUB_OUTPUT"
+            # Best-effort: a transient cancel-API failure must not fail this
+            # gate job (that would turn an idle no-op into a workflow failure).
+            # The has_new_commits=false output is the durable backstop — every
+            # root job is gated on it and will be skipped regardless.
+            gh run cancel "$RUN_ID" --repo "$REPO" \
+              || echo "::warning::Failed to cancel run ${RUN_ID}; root jobs are gated on has_new_commits=false and will be skipped anyway."
+            # Give a successful cancellation time to propagate so the gated root
+            # jobs never start.
+            sleep 15
+            exit 0
+          fi
+
+          echo "New commits detected since the last successful dev release — proceeding."
+          echo "has_new_commits=true" >> "$GITHUB_OUTPUT"
+
   compute-version:
+    needs: [check-for-new-commits]
+    if: ${{ needs.check-for-new-commits.outputs.has_new_commits == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 2
     outputs:
@@ -42,6 +131,8 @@ jobs:
   # ── CI Checks (gate image builds) ───────────────────────────────────────
 
   ci-assistant:
+    needs: [check-for-new-commits]
+    if: ${{ needs.check-for-new-commits.outputs.has_new_commits == 'true' }}
     runs-on: ubuntu-latest-8-cores
     timeout-minutes: 15
     steps:
@@ -81,6 +172,8 @@ jobs:
           TEST_WORKERS: '4'
 
   ci-gateway:
+    needs: [check-for-new-commits]
+    if: ${{ needs.check-for-new-commits.outputs.has_new_commits == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -110,6 +203,8 @@ jobs:
         working-directory: gateway
 
   ci-credential-executor:
+    needs: [check-for-new-commits]
+    if: ${{ needs.check-for-new-commits.outputs.has_new_commits == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -1080,11 +1175,23 @@ jobs:
             fi
           done
 
-  # ── Notify #dev-releases with the commit changelog ─────────────────────
-  # Posts a single summary message to Slack once the release is registered.
-  # The full ordered commit list (message + author) goes inside fenced code
-  # blocks, which Slack renders as a collapsible "Show more" element, so the
-  # channel stays tidy even when a release spans many commits.
+  # ── Notify #dev-releases (changelog on success, alert on failure) ──────
+  # Runs on every completed (non-cancelled) run. The dev release is considered
+  # successful when the register-release job succeeded — the same signal the
+  # changelog uses to anchor its diff — so a failure in a downstream job (e.g.
+  # build-macos) still posts the success changelog.
+  #
+  # On success: posts a single summary message. The top-level blocks carry the
+  # header, the "*N commits* since the last dev release" line, and the action
+  # buttons; the ordered commit list (message + author) lives in a Slack
+  # *attachment* below it. Per Slack's docs, attachment content may be
+  # "wrapped, truncated, or hidden behind a 'show more' style option" by
+  # clients — which is exactly the toggle behaviour we want here. The channel
+  # stays tidy even when a release spans many commits. The diff is taken
+  # since the last *successful* dev release (skipping any intervening failed
+  # runs), so no commits are dropped.
+  #
+  # On failure: posts a short alert without a changelog.
   #
   # Posts via a #dev-releases incoming webhook stored in the repo secret
   # SLACK_DEV_RELEASES_WEBHOOK_URL. The channel is baked into the webhook URL
@@ -1094,6 +1201,10 @@ jobs:
 
   notify-dev-release:
     needs: [compute-version, register-release, register-preview-release]
+    # Run on success and failure alike, but not when the run was cancelled
+    # (e.g. superseded by a newer hourly run via cancel-in-progress) — a
+    # cancelled run is not a real failure and should not alert the channel.
+    if: ${{ always() && !cancelled() }}
     runs-on: ubuntu-latest
     # A Slack outage must not fail the release run: that would both mar the run
     # conclusion (poisoning notify-releases' first-failure detection) and is
@@ -1114,6 +1225,10 @@ jobs:
           HEAD_SHA: ${{ github.sha }}
           RUN_ID: ${{ github.run_id }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          # Treat the dev release as successful iff register-release succeeded.
+          # This is the same anchor the changelog walk-back uses below, so a
+          # failure downstream of register-release still posts the changelog.
+          RELEASE_RESULT: ${{ needs.register-release.result }}
         run: |
           set -euo pipefail
 
@@ -1123,6 +1238,31 @@ jobs:
             exit 0
           fi
           echo "skip=false" >> "$GITHUB_OUTPUT"
+
+          # ── Failure path ──────────────────────────────────────────────────
+          # The release did not register (job failed, was skipped because an
+          # upstream image build failed, etc.). Post a short alert without a
+          # changelog and skip the commit diffing entirely.
+          if [ "${RELEASE_RESULT}" != "success" ]; then
+            echo "register-release result: ${RELEASE_RESULT} — building failure notification."
+            jq -n \
+              --arg run_url "$RUN_URL" \
+              --arg body "The dev release run failed — no new dev build was published. See the workflow run for details." \
+              '{
+                unfurl_links: false,
+                unfurl_media: false,
+                text: "Dev Release failed",
+                blocks: [
+                  { type: "header", text: { type: "plain_text", text: "🚨 Dev Release failed", emoji: true } },
+                  { type: "section", text: { type: "mrkdwn", text: $body } },
+                  { type: "actions", elements: [
+                    { type: "button", text: { type: "plain_text", text: "View workflow run" }, url: $run_url }
+                  ] }
+                ]
+              }' > "${RUNNER_TEMP}/dev-release-slack-payload.json"
+            echo "Built Slack failure payload."
+            exit 0
+          fi
 
           # Find the SHA of the last actually-released dev build to diff against.
           # We key off the register-release JOB conclusion, not the overall run
@@ -1183,6 +1323,9 @@ jobs:
           fi
 
           # ── Build the message blocks ──────────────────────────────────────
+          # Top-level blocks: header, "N commits since last dev release", buttons.
+          # Commit list lives in an attachment so Slack auto-collapses it behind
+          # a "show more" toggle (see Slack docs on attachments truncation).
           BLOCKS=$(jq -n \
             --arg version "$VERSION" \
             --arg header "$HEADER_TEXT" \
@@ -1197,8 +1340,11 @@ jobs:
               ] }
             ]')
 
-          append_section() {
-            BLOCKS=$(echo "$BLOCKS" | jq --arg t "$1" \
+          # Attachment blocks: the actual commit list, chunked into sections to
+          # respect Slack's 3000-char-per-section limit.
+          ATTACHMENT_BLOCKS='[]'
+          append_attachment_section() {
+            ATTACHMENT_BLOCKS=$(echo "$ATTACHMENT_BLOCKS" | jq --arg t "$1" \
               '. + [{ type: "section", text: { type: "mrkdwn", text: $t } }]')
           }
 
@@ -1209,7 +1355,7 @@ jobs:
               IDX=$((IDX + 1))
               ENTRY="${IDX}. ${line}"
               if [ -n "$CHUNK" ] && [ $(( ${#CHUNK} + ${#ENTRY} + 1 )) -gt 2800 ]; then
-                append_section "$CHUNK"
+                append_attachment_section "$CHUNK"
                 CHUNK="$ENTRY"
               elif [ -z "$CHUNK" ]; then
                 CHUNK="$ENTRY"
@@ -1217,10 +1363,10 @@ jobs:
                 CHUNK="${CHUNK}"$'\n'"${ENTRY}"
               fi
             done
-            [ -n "$CHUNK" ] && append_section "$CHUNK"
+            [ -n "$CHUNK" ] && append_attachment_section "$CHUNK"
 
             if [ "$TOTAL" -gt "$COUNT" ]; then
-              BLOCKS=$(echo "$BLOCKS" | jq \
+              ATTACHMENT_BLOCKS=$(echo "$ATTACHMENT_BLOCKS" | jq \
                 --arg t "_…and $((TOTAL - COUNT)) more commits not shown (GitHub compares are capped at 250 commits). See *View commit diff* above for the full list._" \
                 '. + [{ type: "context", elements: [{ type: "mrkdwn", text: $t }] }]')
             fi
@@ -1228,15 +1374,21 @@ jobs:
 
           # No `channel` field: incoming webhooks ignore it and post to the
           # channel baked into SLACK_DEV_RELEASES_WEBHOOK_URL (#dev-releases).
+          # Attach the commit list only when there's something to show — Slack
+          # renders empty attachments as a bare colored bar otherwise.
           jq -n \
             --arg version "$VERSION" \
             --argjson blocks "$BLOCKS" \
+            --argjson attachment_blocks "$ATTACHMENT_BLOCKS" \
             '{
               unfurl_links: false,
               unfurl_media: false,
               text: ("Dev Release " + $version),
               blocks: $blocks
-            }' > "${RUNNER_TEMP}/dev-release-slack-payload.json"
+            }
+            + (if ($attachment_blocks | length) > 0
+               then { attachments: [{ color: "#1f6feb", blocks: $attachment_blocks }] }
+               else {} end)' > "${RUNNER_TEMP}/dev-release-slack-payload.json"
 
           echo "Built Slack payload (${COUNT} commits listed)."
 

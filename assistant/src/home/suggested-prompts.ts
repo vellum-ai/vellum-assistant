@@ -16,9 +16,10 @@
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import { listProviders } from "../oauth/oauth-store.js";
-import { resolvePersonaContext } from "../prompts/persona-resolver.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import { getConfiguredProvider } from "../providers/provider-send-message.js";
+import { buildAssistantEvent } from "../runtime/assistant-event.js";
+import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { runBtwSidechain } from "../runtime/btw-sidechain.js";
 import { isOAuthProviderConnected } from "../schedule/integration-status.js";
 import { getLogger } from "../util/logger.js";
@@ -128,6 +129,20 @@ export async function getSuggestedPrompts(): Promise<SuggestedPrompt[]> {
 export function invalidateAssistantSuggestedPromptsCache(): void {
   cachedLLMPrompts = [];
   cachedLLMPromptsAt = 0;
+  assistantEventHub
+    .publish(
+      buildAssistantEvent({
+        type: "home_feed_updated",
+        updatedAt: new Date().toISOString(),
+        newItemCount: 0,
+      }),
+    )
+    .catch((err) => {
+      log.warn(
+        { err },
+        "Failed to publish home_feed_updated after prompt cache invalidation",
+      );
+    });
 }
 
 /**
@@ -218,17 +233,9 @@ async function generateAssistantPrompts(
     return [];
   }
 
-  const { userPersona, userSlug, channelPersona } = resolvePersonaContext(
-    undefined,
-    undefined,
-  );
-
   const systemPrompt = buildSystemPrompt({
     excludeBootstrap: true,
     excludeCustomPrefix: true,
-    userPersona,
-    channelPersona,
-    userSlug,
   });
 
   const existingLabels = deterministicPrompts.map((p) => p.label).join(", ");

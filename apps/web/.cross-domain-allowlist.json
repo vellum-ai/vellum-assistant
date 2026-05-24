@@ -110,6 +110,12 @@
   "src/domains/chat/transcript/transcript.tsx": [
     "subagents"
   ],
+  "src/domains/chat/utils/debug-api.test.ts": [
+    "messaging"
+  ],
+  "src/domains/chat/utils/debug-api.ts": [
+    "messaging"
+  ],
   "src/domains/chat/utils/stream-handlers/interaction-handlers.test.ts": [
     "interactions"
   ],
@@ -150,6 +156,9 @@
     "chat"
   ],
   "src/domains/conversations/use-attention-tracking.ts": [
+    "chat"
+  ],
+  "src/domains/conversations/use-conversation-actions-archive-optimistic.test.tsx": [
     "chat"
   ],
   "src/domains/conversations/use-conversation-actions.test.ts": [
@@ -242,6 +251,9 @@
   ],
   "src/domains/settings/components/panels/debug-controls-panel.tsx": [
     "onboarding"
+  ],
+  "src/domains/settings/components/profile-card.test.tsx": [
+    "account"
   ],
   "src/domains/settings/components/profile-card.tsx": [
     "account"

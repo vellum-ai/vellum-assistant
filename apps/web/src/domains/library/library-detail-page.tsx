@@ -5,7 +5,7 @@ import { useNavigate, useParams } from "react-router";
 import { toast } from "@vellum/design-library";
 
 import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate.js";
-import { openApp, shareApp } from "@/domains/chat/api/apps.js";
+import { openApp, primeAppHtmlCache, shareApp } from "@/domains/chat/api/apps.js";
 import { AppViewerContainer } from "@/domains/intelligence/components/apps/app-viewer-container.js";
 import { routes } from "@/utils/routes.js";
 
@@ -35,6 +35,7 @@ export function LibraryDetailPage() {
     openApp(assistantId, appId)
       .then((result) => {
         if (requestRef.current !== appId) return;
+        primeAppHtmlCache(assistantId, result.appId, result.html);
         setApp({
           appId: result.appId,
           dirName: result.dirName,

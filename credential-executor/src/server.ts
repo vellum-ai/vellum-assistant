@@ -94,6 +94,11 @@ export interface CesServerOptions {
   onApiKeyUpdate?: (assistantApiKey: string, assistantId?: string) => void;
 }
 
+export type ServeEndReason =
+  | "input_stream_ended"
+  | "signal_aborted"
+  | "signal_aborted_before_start";
+
 // ---------------------------------------------------------------------------
 // Server implementation
 // ---------------------------------------------------------------------------
@@ -134,17 +139,17 @@ export class CesRpcServer {
    * Start serving. Returns a promise that resolves when the input stream
    * ends or the abort signal fires.
    */
-  async serve(): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
+  async serve(): Promise<ServeEndReason> {
+    return new Promise<ServeEndReason>((resolve, reject) => {
       if (this.signal?.aborted) {
         this.close();
-        resolve();
+        resolve("signal_aborted_before_start");
         return;
       }
 
       const onAbort = () => {
         this.close();
-        resolve();
+        resolve("signal_aborted");
       };
 
       if (this.signal) {
@@ -162,7 +167,7 @@ export class CesRpcServer {
           this.signal.removeEventListener("abort", onAbort);
         }
         this.close();
-        resolve();
+        resolve("input_stream_ended");
       });
 
       this.input.on("error", (err) => {
@@ -190,7 +195,7 @@ export class CesRpcServer {
     if (this.closed) return;
     this.closed = true;
     this.input.destroy();
-    if (typeof (this.output as any).destroy === "function") {
+    if (typeof (this.output as { destroy?: () => void }).destroy === "function") {
       this.output.destroy();
     }
   }

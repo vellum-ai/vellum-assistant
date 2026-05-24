@@ -5,6 +5,7 @@ import {
   LogOut,
   MessageSquareText,
   Settings as SettingsIcon,
+  Shield,
   SlidersHorizontal,
 } from "lucide-react";
 import { useState } from "react";
@@ -19,20 +20,20 @@ import {
 
 import { useIsMobile } from "@/hooks/use-is-mobile.js";
 import { useAuthStore } from "@/stores/auth-store.js";
-import { routes } from "@/utils/routes.js";
+import { adminUrl, routes } from "@/utils/routes.js";
 import { ShareFeedbackModal } from "@/components/share-feedback-modal.js";
 import { ThemeToggle } from "@/components/theme-toggle.js";
 
 export interface PreferencesMenuProps {
   assistantId?: string | null;
   assistantVersion?: string | null;
-  activeConversationKey?: string | null;
+  activeConversationId?: string | null;
 }
 
 export function PreferencesMenu({
   assistantId,
   assistantVersion,
-  activeConversationKey,
+  activeConversationId,
 }: PreferencesMenuProps) {
   const isLoggedIn = useAuthStore.use.isLoggedIn();
   const isMobile = useIsMobile();
@@ -92,7 +93,7 @@ export function PreferencesMenu({
         onClose={() => setIsFeedbackOpen(false)}
         assistantId={assistantId}
         assistantVersion={assistantVersion}
-        activeConversationKey={activeConversationKey}
+        activeConversationId={activeConversationId}
       />
     </>
   );
@@ -109,6 +110,7 @@ function PreferencesMenuContent({
 }: PreferencesMenuContentProps) {
   const navigate = useNavigate();
   const logout = useAuthStore.use.logout();
+  const user = useAuthStore.use.user();
 
   return (
     <>
@@ -142,6 +144,17 @@ function PreferencesMenuContent({
           onShareFeedback();
         }}
       />
+
+      {user?.isStaff ? (
+        <PanelItem
+          icon={Shield}
+          label="Admin"
+          onSelect={() => {
+            onClose();
+            window.location.href = adminUrl();
+          }}
+        />
+      ) : null}
 
       <PanelItem
         icon={LogOut}

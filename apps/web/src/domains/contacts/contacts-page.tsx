@@ -339,7 +339,7 @@ function ContactsPageInner({
     createMutation.mutate();
   }, [createMutation]);
 
-  const handleAddAssistant = useCallback(() => {
+  const handleOpenInviteLink = useCallback(() => {
     setInviteDialogOpen(true);
   }, []);
 
@@ -367,10 +367,6 @@ function ContactsPageInner({
 
   const handleContactSetupChannel = useCallback(
     (type: string) => {
-      if (type === "a2a") {
-        setInviteDialogOpen(true);
-        return;
-      }
       if (!onStartSetupConversation) {
         return;
       }
@@ -449,8 +445,6 @@ function ContactsPageInner({
     selection,
     onAddContact: handleAddContact,
     addingContact: createMutation.isPending,
-    a2aEnabled: a2aChannel,
-    onAddAssistant: handleAddAssistant,
   };
 
   return (
@@ -482,6 +476,7 @@ function ContactsPageInner({
             onSaveTelegramToken={handleSaveTelegramToken}
             onSaveSlackConfig={handleSaveSlackConfig}
             onSaveTwilioCredentials={handleSaveTwilioCredentials}
+            onGenerateInviteLink={a2aChannel ? handleOpenInviteLink : undefined}
           />
         ) : selectedContact ? (
           selectedContact.role === "guardian" ? (
@@ -505,6 +500,7 @@ function ContactsPageInner({
               }
               onVerifyChannel={handleGuardianVerifyChannel}
               onRevokeChannel={handleRevokeChannel}
+              onGenerateInviteLink={a2aChannel ? handleOpenInviteLink : undefined}
             />
           ) : (
             <ContactDetailView

@@ -54,7 +54,6 @@ describe("pendingInteractions.resolve emits interaction_resolved", () => {
     expect(returned).toBeDefined();
     const evt = lastResolvedEvent();
     expect(evt.requestId).toBe("req-1");
-    expect(evt.conversationKey).toBe("conv-1");
     expect(evt.conversationId).toBe("conv-1");
     expect(evt.state).toBe("cancelled");
     expect(evt.kind).toBe("confirmation");

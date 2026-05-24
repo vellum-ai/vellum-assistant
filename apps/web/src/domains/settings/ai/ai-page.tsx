@@ -23,6 +23,7 @@ import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { Input } from "@vellum/design-library/components/input";
 import { Notice } from "@vellum/design-library/components/notice";
 import { SegmentControl } from "@vellum/design-library/components/segment-control";
+import { DomainField } from "@/domains/settings/components/domain-field.js";
 import { SettingsCard } from "@/domains/settings/components/settings-card.js";
 import { Typography } from "@vellum/design-library/components/typography";
 
@@ -63,6 +64,8 @@ import { CallSiteOverridesModal, type CallSiteOverrideDraft } from "@/domains/se
 import { ManageProfilesModal } from "@/domains/settings/ai/manage-profiles-modal.js";
 import { ManageProvidersModal } from "@/domains/settings/ai/manage-providers-modal.js";
 import { profilePickerLabel, visibleProfilesForPicker } from "@/domains/settings/ai/profile-pickers.js";
+import { readSecret } from "@/domains/settings/ai/provider-connections-client.js";
+import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder.js";
 
 // ---------------------------------------------------------------------------
 // Constants (mirrored from desktop SettingsStore)
@@ -469,11 +472,12 @@ function SaveButton({ onClick, disabled }: SaveButtonProps) {
 
 interface ResetButtonProps {
   onClick: () => void;
+  filled?: boolean;
 }
 
-function ResetButton({ onClick }: ResetButtonProps) {
+function ResetButton({ onClick, filled = false }: ResetButtonProps) {
   return (
-    <Button variant="dangerGhost" onClick={onClick}>
+    <Button variant={filled ? "danger" : "dangerGhost"} onClick={onClick}>
       Reset
     </Button>
   );
@@ -851,9 +855,10 @@ const EMAIL_BYO_PROVIDERS: readonly EmailByoProvider[] = [
 
 interface EmailServiceCardProps {
   assistantId: string | undefined;
+  assistantHandle: string | undefined;
 }
 
-function EmailServiceCard({ assistantId }: EmailServiceCardProps) {
+function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceCardProps) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const emailRootDomain = useEnvironmentStore.use.emailRootDomain();
@@ -868,8 +873,16 @@ function EmailServiceCard({ assistantId }: EmailServiceCardProps) {
       ) as EmailByoProvider["id"],
   );
   const [subdomainDraft, setSubdomainDraft] = useState("");
+  const [subdomainPrefilled, setSubdomainPrefilled] = useState(false);
+  const [subdomainError, setSubdomainError] = useState<string | null>(null);
   const [usernameDraft, setUsernameDraft] = useState("");
   const [savingMode, setSavingMode] = useState(false);
+
+  useEffect(() => {
+    if (subdomainPrefilled || !assistantHandle || subdomainDraft) return;
+    setSubdomainDraft(assistantHandle);
+    setSubdomainPrefilled(true);
+  }, [assistantHandle, subdomainPrefilled, subdomainDraft]);
 
   // -- Subscription gate (managed mode requires Pro) -------------------------
   // We separate "definitely not Pro" from "unknown" so a failed subscription
@@ -946,7 +959,7 @@ function EmailServiceCard({ assistantId }: EmailServiceCardProps) {
     if (!assistantId) return;
     const trimmed = subdomainDraft.trim().toLowerCase();
     if (!trimmed) {
-      toast.error("Enter a subdomain.");
+      setSubdomainError("Enter a subdomain.");
       return;
     }
     try {
@@ -955,14 +968,14 @@ function EmailServiceCard({ assistantId }: EmailServiceCardProps) {
         body: { subdomain: trimmed },
       });
       setSubdomainDraft("");
+      setSubdomainError(null);
       invalidateEmailQueries();
       toast.success(`Domain ${trimmed}.${emailRootDomain} registered.`);
     } catch (err) {
-      const message =
-        err instanceof Error && err.message
-          ? err.message
-          : "Failed to register domain.";
-      toast.error(message);
+      const rec = err as Record<string, unknown> | undefined;
+      const detail = rec && typeof rec.detail === "string" ? rec.detail : null;
+      const message = detail ?? (err instanceof Error && err.message ? err.message : "Failed to register domain.");
+      setSubdomainError(message);
     }
   }, [
     assistantId,
@@ -1114,22 +1127,23 @@ function EmailServiceCard({ assistantId }: EmailServiceCardProps) {
             </p>
           ) : !domain ? (
             <div className="space-y-3">
-              <label className="block text-body-small-default text-[var(--content-tertiary)]">
+              <Typography
+                variant="body-small-default"
+                as="label"
+                className="text-[var(--content-secondary)]"
+              >
                 Subdomain
-              </label>
-              <div className="flex items-center gap-2">
-                <Input
-                  value={subdomainDraft}
-                  onChange={(e) =>
-                    setSubdomainDraft(e.target.value.toLowerCase())
-                  }
-                  placeholder="myassistant"
-                  fullWidth
-                />
-                <span className="shrink-0 text-body-small-default text-[var(--content-tertiary)]">
-                  .{emailRootDomain}
-                </span>
-              </div>
+              </Typography>
+              <DomainField
+                subdomain={subdomainDraft}
+                onSubdomainChange={(v) => {
+                  setSubdomainDraft(v);
+                  if (subdomainError) setSubdomainError(null);
+                }}
+                domainSuffix={emailRootDomain}
+                subdomainPlaceholder="my-assistant"
+                error={subdomainError}
+              />
               <p className="text-body-small-default text-[var(--content-tertiary)]">
                 Each assistant gets its own subdomain. Lowercase letters,
                 numbers, and hyphens only.
@@ -1143,24 +1157,27 @@ function EmailServiceCard({ assistantId }: EmailServiceCardProps) {
             </div>
           ) : !address ? (
             <div className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="space-y-0.5">
+              <div className="space-y-0.5">
+                <div className="flex items-center justify-between gap-3">
                   <label className="block text-body-small-default text-[var(--content-tertiary)]">
                     Domain
                   </label>
-                  <span className="inline-flex items-center gap-1 rounded-full bg-[var(--system-positive-weak)] px-2.5 py-0.5 text-body-small-default text-[var(--system-positive-strong)]">
-                    <Check className="h-3 w-3" />
-                    {fullDomain}
-                  </span>
+                  <Button
+                    variant="dangerGhost"
+                    size="compact"
+                    onClick={handleDeleteDomain}
+                    disabled={deleteDomain.isPending}
+                  >
+                    Release
+                  </Button>
                 </div>
-                <Button
-                  variant="dangerGhost"
-                  size="compact"
-                  onClick={handleDeleteDomain}
-                  disabled={deleteDomain.isPending}
-                >
-                  Release
-                </Button>
+                <DomainField
+                  subdomain={domain.subdomain}
+                  onSubdomainChange={() => {}}
+                  domainSuffix={emailRootDomain}
+                  locked
+                  lockedMessage="This domain has been set and cannot be changed."
+                />
               </div>
 
               <div className="space-y-1">
@@ -1449,7 +1466,16 @@ export function AiPage() {
   const [webSearchProvider, setWebSearchProvider] = useState(() =>
     getLocalSetting(LS_WEB_SEARCH_PROVIDER, "inference-provider-native"),
   );
+  const [savedWebSearchMode, setSavedWebSearchMode] = useState(webSearchMode);
+  const [savedWebSearchProvider, setSavedWebSearchProvider] =
+    useState(webSearchProvider);
   const [webSearchApiKey, setWebSearchApiKey] = useState("");
+  const [webSearchHasStoredKey, setWebSearchHasStoredKey] = useState(false);
+  const [webSearchSecretReadRevision, setWebSearchSecretReadRevision] = useState(0);
+  const webSearchSecretScopeRef = useRef<{
+    assistantId: string | null;
+    provider: string | null;
+  }>({ assistantId: null, provider: null });
 
   // -- Image Generation state --
   const [imageGenMode, setImageGenMode] = useState<ServiceMode>(
@@ -1463,6 +1489,23 @@ export function AiPage() {
   // -- Derived --
   const webSearchNeedsApiKey =
     WEB_SEARCH_BYOK_PROVIDER_IDS.has(webSearchProvider);
+  const webSearchHasNewApiKey = webSearchApiKey.trim().length > 0;
+  const webSearchConfigChanged =
+    webSearchMode !== savedWebSearchMode ||
+    webSearchProvider !== savedWebSearchProvider;
+  const webSearchNeedsKeyBeforeSave =
+    webSearchMode === "your-own" &&
+    webSearchNeedsApiKey &&
+    !webSearchHasStoredKey &&
+    !webSearchHasNewApiKey;
+  const webSearchSaveDisabled =
+    webSearchSaving ||
+    webSearchNeedsKeyBeforeSave ||
+    (!webSearchConfigChanged && !webSearchHasNewApiKey);
+  const webSearchApiKeyPlaceholder = secretPlaceholder(
+    WEB_SEARCH_PROVIDER_KEY_PLACEHOLDERS[webSearchProvider] ?? "Enter your API key",
+    webSearchHasStoredKey,
+  );
   const orderedProfiles = useMemo(() => {
     const ordered = profileOrder
       .filter((name) => name in profiles)
@@ -1504,10 +1547,62 @@ export function AiPage() {
     }
     if (reconciled.profiles) setProfiles(reconciled.profiles);
     if (reconciled.profileOrder !== undefined) setProfileOrder(reconciled.profileOrder);
-    if (reconciled.webSearchMode) setWebSearchMode(reconciled.webSearchMode);
-    if (reconciled.webSearchProvider) setWebSearchProvider(reconciled.webSearchProvider);
+    if (reconciled.webSearchMode) {
+      setWebSearchMode(reconciled.webSearchMode);
+      setSavedWebSearchMode(reconciled.webSearchMode);
+    }
+    if (reconciled.webSearchProvider) {
+      setWebSearchProvider(reconciled.webSearchProvider);
+      setSavedWebSearchProvider(reconciled.webSearchProvider);
+    }
     if (reconciled.imageGenMode) setImageGenMode(reconciled.imageGenMode);
   }, [daemonConfig]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const previousSecretScope = webSearchSecretScopeRef.current;
+    const currentSecretScope = {
+      assistantId: assistantId ?? null,
+      provider: webSearchProvider,
+    };
+    const secretScopeChanged =
+      previousSecretScope.assistantId !== currentSecretScope.assistantId ||
+      previousSecretScope.provider !== currentSecretScope.provider;
+    webSearchSecretScopeRef.current = currentSecretScope;
+
+    void (async () => {
+      await Promise.resolve();
+      if (cancelled) return;
+
+      if (!assistantId || !webSearchNeedsApiKey) {
+        setWebSearchHasStoredKey(false);
+        return;
+      }
+
+      if (secretScopeChanged) {
+        setWebSearchHasStoredKey(false);
+      }
+
+      try {
+        const result = await readSecret(assistantId, "api_key", webSearchProvider);
+        if (cancelled) return;
+        setWebSearchHasStoredKey(result.found);
+      } catch (error) {
+        if (cancelled) return;
+        setWebSearchHasStoredKey(false);
+        reportError(error, { context: "settings-ai-web-search-read-secret" });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    assistantId,
+    webSearchNeedsApiKey,
+    webSearchProvider,
+    webSearchSecretReadRevision,
+  ]);
 
   // -- Handlers --
 
@@ -1613,10 +1708,14 @@ export function AiPage() {
       // Persist local settings only after remote save succeeds.
       setLocalSetting(LS_WEB_SEARCH_MODE, webSearchMode);
       setLocalSetting(LS_WEB_SEARCH_PROVIDER, webSearchProvider);
+      setSavedWebSearchMode(webSearchMode);
+      setSavedWebSearchProvider(webSearchProvider);
       if (hasUserKey) {
         if (storageKey) {
           setLocalSetting(storageKey, trimmed);
         }
+        setWebSearchHasStoredKey(true);
+        setWebSearchSecretReadRevision((revision) => revision + 1);
         setWebSearchApiKey("");
       }
       toast.success("Web search settings saved.");
@@ -1635,6 +1734,7 @@ export function AiPage() {
     if (storageKey) {
       removeLocalSetting(storageKey);
     }
+    setWebSearchHasStoredKey(false);
     setWebSearchApiKey("");
     setWebSearchProvider("inference-provider-native");
     setLocalSetting(LS_WEB_SEARCH_PROVIDER, "inference-provider-native");
@@ -1797,7 +1897,7 @@ export function AiPage() {
               Web search is included with managed inference.
             </p>
             <div className="flex items-center gap-2">
-              <SaveButton onClick={handleWebSearchSave} disabled={webSearchSaving} />
+              <SaveButton onClick={handleWebSearchSave} disabled={webSearchSaveDisabled} />
               {webSearchSaving && <Loader2 className="h-4 w-4 animate-spin text-[var(--content-disabled)]" />}
             </div>
           </div>
@@ -1823,16 +1923,16 @@ export function AiPage() {
                 type="password"
                 value={webSearchApiKey}
                 onChange={(e) => setWebSearchApiKey(e.target.value)}
-                placeholder={WEB_SEARCH_PROVIDER_KEY_PLACEHOLDERS[webSearchProvider] ?? "Enter your API key"}
+                placeholder={webSearchApiKeyPlaceholder}
                 fullWidth
               />
             )}
 
             <div className="flex items-center gap-2">
-              <SaveButton onClick={handleWebSearchSave} disabled={webSearchSaving} />
+              <SaveButton onClick={handleWebSearchSave} disabled={webSearchSaveDisabled} />
               {webSearchSaving && <Loader2 className="h-4 w-4 animate-spin text-[var(--content-disabled)]" />}
               {webSearchNeedsApiKey && (
-                <ResetButton onClick={handleWebSearchReset} />
+                <ResetButton onClick={handleWebSearchReset} filled />
               )}
             </div>
           </div>
@@ -1840,7 +1940,7 @@ export function AiPage() {
       </ServiceCard>
 
       {/* Email */}
-      <EmailServiceCard assistantId={assistantId} />
+      <EmailServiceCard assistantId={assistantId} assistantHandle={assistantList?.results?.[0]?.handle} />
 
       {/* Image Generation */}
       <ServiceCard

@@ -70,7 +70,7 @@ export function SettingsShell({
       className="flex h-full min-h-0 w-full flex-1 flex-col gap-4 p-4 sm:p-6 md:gap-0"
       style={{
         paddingTop:
-          "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))",
+          "calc(var(--safe-area-inset-top, env(safe-area-inset-top, 0px)) + 1rem)",
       }}
     >
       {/* Mobile header */}

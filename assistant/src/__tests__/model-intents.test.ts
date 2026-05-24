@@ -29,7 +29,7 @@ describe("model intents", () => {
       "gpt-5.4-nano",
     );
     expect(resolveModelIntent("gemini", "latency-optimized")).toBe(
-      "gemini-3.1-flash-lite-preview",
+      "gemini-3.1-flash-lite",
     );
     expect(resolveModelIntent("gemini", "quality-optimized")).toBe(
       "gemini-3.1-pro-preview",
@@ -44,9 +44,7 @@ describe("model intents", () => {
   });
 
   test("falls back to provider default for unknown providers", () => {
-    expect(getProviderDefaultModel("unknown-provider")).toBe(
-      "claude-opus-4-7",
-    );
+    expect(getProviderDefaultModel("unknown-provider")).toBe("claude-opus-4-7");
     expect(resolveModelIntent("unknown-provider", "quality-optimized")).toBe(
       "claude-opus-4-7",
     );

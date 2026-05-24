@@ -198,6 +198,10 @@ final class VellumCli: AssistantManagementClient {
     /// GCP instance deletion can take several minutes, so allow up to 5 min.
     private static let retireTimeout: TimeInterval = 300.0
 
+    nonisolated static func retireArguments(name: String) -> [String] {
+        ["retire", name, "--yes"]
+    }
+
     /// Retire an assistant via the CLI. Stops the daemon, deregisters the
     /// assistant entry. Does NOT delete ~/.vellum (macOS app manages its data).
     ///
@@ -219,13 +223,13 @@ final class VellumCli: AssistantManagementClient {
         }
 
         log.info("Running retire via CLI at \(binaryURL.path, privacy: .public) for '\(resolvedName, privacy: .public)'")
-        log.info("[audit] CLI invoke: retire args=\(resolvedName, privacy: .public)")
+        log.info("[audit] CLI invoke: retire args=\(resolvedName, privacy: .public) --yes automation-bypass=desktop-controlled-flow; user confirmation is handled by the app before user-triggered retire flows")
         let retireStartTime = ContinuousClock.now
 
         let (stderr, status) = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<(String, Int32), Error>) in
             let proc = Process()
             proc.executableURL = binaryURL
-            proc.arguments = ["retire", resolvedName]
+            proc.arguments = Self.retireArguments(name: resolvedName)
 
             let stdoutPipe = Pipe()
             let stderrPipe = Pipe()

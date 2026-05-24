@@ -1,3 +1,6 @@
+import type { ReactNode } from "react";
+
+import type { DropdownOption } from "@vellum/design-library/components/dropdown";
 import type { MachineSizeEnum } from "@/generated/api/types.gen.js";
 
 /**
@@ -10,6 +13,21 @@ export const TIER_TO_SIZES: Record<string, MachineSizeEnum[]> = {
   large: ["small", "medium", "large"],
   xl: ["small", "medium", "large", "extra_large"],
 };
+
+/**
+ * Allowed machine sizes for an org's tier, in ascending order. A null/undefined
+ * or unrecognized tier returns an empty list — callers must handle the empty
+ * case (e.g. a "no tier configured" warning) rather than silently defaulting to
+ * a tier the org may not actually have.
+ *
+ * Accepts a plain string because the generated `max_machine_tier` field is
+ * typed `string | null`; unknown values fall through to the empty list.
+ */
+export function allowedMachineSizesForTier(
+  tier: string | null | undefined,
+): MachineSizeEnum[] {
+  return tier ? (TIER_TO_SIZES[tier] ?? []) : [];
+}
 
 export const SIZE_LABEL: Record<MachineSizeEnum, string> = {
   small: "Small",
@@ -44,4 +62,16 @@ export const MACHINE_SIZE_ORDER: MachineSizeEnum[] = [
 /** Rank of a machine size in the small→large ordering. */
 export function machineSizeRank(size: MachineSizeEnum): number {
   return MACHINE_SIZE_ORDER.indexOf(size);
+}
+
+export function buildMachineSizeOptions(
+  sizes: MachineSizeEnum[],
+  currentSize: MachineSizeEnum | null | undefined,
+  currentSuffix: ReactNode,
+): DropdownOption<MachineSizeEnum>[] {
+  return sizes.map((size) => ({
+    value: size,
+    label: `${SIZE_LABEL[size]} — ${SIZE_DESCRIPTION[size]}`,
+    suffix: size === currentSize ? currentSuffix : undefined,
+  }));
 }

@@ -240,7 +240,11 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
       role: "assistant",
       content:
         "Stockholm plan: start with Gamla Stan, then spend the afternoon on Djurgarden.",
-      isStreaming: false,
+      // `isStreaming` is client-owned; the merge layer must pass it through
+      // unchanged from the live local row. SSE `message_complete` (or the
+      // watchdog idle-rescue on reconnect) is the sole authority that clears
+      // it.
+      isStreaming: true,
     });
     expect(result[1]!.textSegments).toEqual([
       {
@@ -251,7 +255,13 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
     ]);
   });
 
-  test("clears stale streaming state when latest history confirms the assistant row", () => {
+  test("does not clear streaming state when latest history has the longer assistant row", () => {
+    // Even when the latest-history page has a longer assistant body than the
+    // local streaming row, the merge MUST preserve `isStreaming`. The merge
+    // layer has no authority to declare the turn complete — that is the
+    // responsibility of the SSE `message_complete` handler (live path) and
+    // the watchdog idle-rescue in `reconcileFetchedMessages` (reconnect
+    // path).
     const streamingAssistant = makeLocal({
       stableId: "streaming-assistant",
       role: "assistant",
@@ -277,7 +287,7 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
     expect(result[0]).toMatchObject({
       stableId: "streaming-assistant",
       id: "a1",
-      isStreaming: false,
+      isStreaming: true,
       content:
         "Stockholm plan: start with Gamla Stan, then spend the afternoon on Djurgarden.",
     });
@@ -411,8 +421,10 @@ describe("reconcileMessages", () => {
       role: "assistant",
       content: "Complete response from server",
     });
-    // isStreaming stripped when server confirms content
-    expect(result[1]!.isStreaming).toBeUndefined();
+    // `isStreaming` is a client-owned flag — server snapshots never carry it
+    // and reconcileMessages must not clear it. The SSE `message_complete`
+    // handler and the watchdog idle-rescue clear it when appropriate.
+    expect(result[1]!.isStreaming).toBe(true);
   });
 
   test("multi-message turn: server has two assistant messages", () => {
@@ -490,13 +502,17 @@ describe("reconcileMessages", () => {
     ];
     const result = reconcileMessages(local, server);
 
-    // THEN the streaming assistant message is preserved with isStreaming cleared
+    // THEN the streaming assistant message is preserved AS-IS, including its
+    // `isStreaming` flag. A reconcile that lands while the turn is still
+    // streaming must not flip the live bubble to "completed" — that would
+    // cause downstream consumers (e.g. `syncNeedsNewBubbleFromMessages`) to
+    // spawn a fresh bubble on the next tool_use_start, splitting the turn.
     expect(result).toHaveLength(2);
     expect(result[1]).toMatchObject({
       role: "assistant",
       content: "partial stream...",
     });
-    expect(result[1]!.isStreaming).toBe(false);
+    expect(result[1]!.isStreaming).toBe(true);
   });
 
   test("reconciles a no-id streaming assistant prefix with the server response", () => {
@@ -542,7 +558,10 @@ describe("reconcileMessages", () => {
       content:
         "Stockholm plan: start with Gamla Stan, then spend the afternoon on Djurgarden.",
     });
-    expect(result[1]!.isStreaming).not.toBe(true);
+    // The live row was matched via the prefix-fallback path. `isStreaming`
+    // is client-owned and must survive the merge — SSE `message_complete`
+    // (or the watchdog idle-rescue) is the sole authority to clear it.
+    expect(result[1]!.isStreaming).toBe(true);
   });
 
   test("does not duplicate tool calls when unclaimed message is preserved", () => {
@@ -584,7 +603,12 @@ describe("reconcileMessages", () => {
     expect(result[1]).toMatchObject({ id: "m2", role: "assistant", content: "Hi" });
   });
 
-  test("strips isStreaming from reconciled messages", () => {
+  test("preserves client-owned isStreaming flag across id-matched reconcile", () => {
+    // `isStreaming` is a live-only client concept. Server snapshots never
+    // carry it, so reconcileMessages must pass it through unchanged. The
+    // SSE `message_complete` handler and the silent-stall watchdog
+    // (`reconcileFetchedMessages` idle-rescue) are the sole authorities
+    // that clear it.
     const local: DisplayMessage[] = [
       makeLocal({ id: "m1", role: "assistant", content: "streaming...", isStreaming: true }),
     ];
@@ -594,7 +618,7 @@ describe("reconcileMessages", () => {
     const result = reconcileMessages(local, server);
     expect(result).toHaveLength(1);
     expect(result[0]).toMatchObject({ id: "m1", role: "assistant", content: "Complete" });
-    expect(result[0]).not.toHaveProperty("isStreaming");
+    expect(result[0]!.isStreaming).toBe(true);
   });
 
   test("handles stream interruption with missing messages", () => {
@@ -799,6 +823,133 @@ describe("reconcileMessages", () => {
     ]);
     expect(assistant!.contentOrder).toEqual(localContentOrder);
     expect(assistant!.textSegments).toEqual(localTextSegments);
+  });
+});
+
+describe("reconcileMessages — mid-stream sync-tag bubble-split regression", () => {
+  // Regression for the bubble-split / "Today 2:42 PM" footer-injection bug
+  // (May 23, 2026). Repro path:
+  //   1. SSE stream is live; assistant turn is mid-flight with a running
+  //      tool call and `isStreaming: true` on the local row.
+  //   2. The daemon publishes the `conversation:<id>:messages` sync tag
+  //      right after persisting the user turn (BEFORE the agent loop
+  //      starts), and `web-sync-router.ts` dispatches
+  //      `reconcileActiveConversation` against the active tab.
+  //   3. `reconcileActiveConversation` fetches a server snapshot via
+  //      `/v1/conversations/:id/messages` and feeds it into
+  //      `reconcileFromServerDetailed` → `reconcileMessages`.
+  //   4. The pre-fix `reconcileMessages` rebuilt `msg` from scratch and
+  //      never copied `localMsg.isStreaming`. The local toolCalls array
+  //      was preserved, but the streaming flag was lost — producing the
+  //      exact bug fingerprint: `isStreaming:false` + tool call
+  //      `status:"running"` on the same row.
+  //   5. `syncNeedsNewBubbleFromMessages` then flipped
+  //      `needsNewBubbleRef = true` based on `lastMsg.isStreaming` alone,
+  //      so the next `tool_use_start` event spawned a fresh
+  //      `assistant-tool-*` bubble — splitting the turn and injecting the
+  //      timestamp footer between the two halves.
+  //
+  // Contract this test pins down: `reconcileMessages` MUST preserve the
+  // client-owned `isStreaming` flag. SSE `message_complete` and the
+  // watchdog idle-rescue (`reconcileFetchedMessages`) are the sole
+  // authorities allowed to clear it.
+  test("preserves isStreaming + running toolCalls when sync-tag reconcile fires mid-stream", () => {
+    const runningToolCalls: ChatMessageToolCall[] = [
+      {
+        id: "toolu_01ABC",
+        toolName: "bash",
+        status: "running",
+        input: { command: "echo streaming" },
+      },
+    ];
+    const liveAssistant = makeLocal({
+      stableId: "live-assistant",
+      id: "msg_streaming",
+      role: "assistant",
+      content: "Working on it...",
+      isStreaming: true,
+      toolCalls: runningToolCalls,
+      contentOrder: [
+        { type: "text", id: "0" },
+        { type: "tool", id: "toolu_01ABC" },
+      ],
+      textSegments: [{ type: "text", content: "Working on it..." }],
+      timestamp: 2000,
+    });
+    const local: DisplayMessage[] = [
+      makeLocal({ id: "u1", role: "user", content: "Run the script", timestamp: 1000 }),
+      liveAssistant,
+    ];
+
+    // Server snapshot taken between `message_start` and `tool_use_start`:
+    // the assistant row exists with the same id, content matches the
+    // first text delta, but the snapshot has no tool calls and (like
+    // every server snapshot) no `isStreaming` field.
+    const server: RuntimeMessage[] = [
+      { id: "u1", role: "user", content: "Run the script", timestamp: 1000 },
+      {
+        id: "msg_streaming",
+        role: "assistant",
+        content: "Working on it...",
+        timestamp: 2000,
+      },
+    ];
+
+    const result = reconcileMessages(local, server);
+
+    expect(result).toHaveLength(2);
+    const assistant = result[1]!;
+    // The live bubble must remain streaming — clearing this flag is what
+    // caused the next tool_use_start to spawn a fresh bubble.
+    expect(assistant.isStreaming).toBe(true);
+    // And the running tool call must survive (local toolCalls always
+    // preferred when present).
+    expect(assistant.toolCalls).toHaveLength(1);
+    expect(assistant.toolCalls?.[0]).toMatchObject({
+      id: "toolu_01ABC",
+      status: "running",
+    });
+    // StableId carries across so the React key doesn't churn.
+    expect(assistant.stableId).toBe("live-assistant");
+  });
+
+  test("preserves isStreaming for a no-id streaming assistant prefix matched via fallback", () => {
+    // Same regression, exercising the fallback-match path: the live
+    // assistant row had no server id yet (SSE delivered text deltas but
+    // not the `message_start` id), so reconcile matches via role + content
+    // prefix against the server snapshot.
+    const liveAssistant = makeLocal({
+      stableId: "live-no-id",
+      role: "assistant",
+      content: "Working",
+      isStreaming: true,
+      toolCalls: [
+        { id: "toolu_xyz", toolName: "bash", status: "running", input: {} },
+      ],
+      timestamp: 2000,
+    });
+    const local: DisplayMessage[] = [
+      makeLocal({ id: "u1", role: "user", content: "Run it", timestamp: 1000 }),
+      liveAssistant,
+    ];
+    const server: RuntimeMessage[] = [
+      { id: "u1", role: "user", content: "Run it", timestamp: 1000 },
+      {
+        id: "msg_assigned_later",
+        role: "assistant",
+        content: "Working on it now",
+        timestamp: 2000,
+      },
+    ];
+
+    const result = reconcileMessages(local, server);
+
+    expect(result).toHaveLength(2);
+    const assistant = result[1]!;
+    expect(assistant.isStreaming).toBe(true);
+    expect(assistant.id).toBe("msg_assigned_later");
+    expect(assistant.stableId).toBe("live-no-id");
+    expect(assistant.toolCalls?.[0]).toMatchObject({ status: "running" });
   });
 });
 
@@ -1220,7 +1371,10 @@ describe("reconcileMessages stableId preservation", () => {
     // Assistant row matched by role+content fallback, so stableId survived.
     expect(result[1]!.stableId).toBe("stable-assistant-1");
     expect(result[1]!.id).toBe("srv-m2");
-    expect(result[1]!.isStreaming).toBeUndefined();
+    // The live row was still streaming when the reconcile fired — preserve
+    // the client-owned `isStreaming` flag, the SSE message_complete handler
+    // (or the watchdog idle-rescue) will clear it when authoritative.
+    expect(result[1]!.isStreaming).toBe(true);
   });
 
   test("preserves stableId across id-matched reconciliation", () => {

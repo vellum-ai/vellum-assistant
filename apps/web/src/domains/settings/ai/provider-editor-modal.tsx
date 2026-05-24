@@ -18,11 +18,15 @@ import {
   type ProviderConnection,
   type UpdateConnectionInput,
   createConnection,
+  exchangeChatgptAuthCode,
+  listConnections,
   listCredentials,
   readSecret,
+  startChatgptSubscriptionAuth,
   updateConnection,
   writeSecret,
 } from "@/domains/settings/ai/provider-connections-client.js";
+import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder.js";
 import { toKebabCase } from "@/domains/settings/ai/slugify.js";
 import { providerSupportsPlatformAuth } from "@/assistant/llm-model-catalog.js";
 
@@ -74,6 +78,7 @@ export interface ProviderEditorContentProps {
   assistantId: string;
   existingNames: string[];
   openAICompatibleEndpointsEnabled?: boolean;
+  chatgptSubscriptionEnabled?: boolean;
   onSave: (connection: ProviderConnection) => void;
   onCancel: () => void;
 }
@@ -84,6 +89,7 @@ export function ProviderEditorContent({
   assistantId,
   existingNames,
   openAICompatibleEndpointsEnabled = false,
+  chatgptSubscriptionEnabled = false,
   onSave,
   onCancel,
 }: ProviderEditorContentProps) {
@@ -147,9 +153,7 @@ export function ProviderEditorContent({
   // New state for inline API key editing
   const [apiKeyValue, setApiKeyValue] = useState("");
   const [isAdvancedExpanded, setIsAdvancedExpanded] = useState(false);
-  const [maskedCredentialValue, setMaskedCredentialValue] = useState<
-    string | null
-  >(null);
+  const [hasStoredCredential, setHasStoredCredential] = useState(false);
   const [isLoadingCredential, setIsLoadingCredential] = useState(false);
   const [availableCredentials, setAvailableCredentials] = useState<
     CredentialEntry[]
@@ -158,23 +162,123 @@ export function ProviderEditorContent({
   const [newCredentialName, setNewCredentialName] = useState("");
   const [isSavingKey, setIsSavingKey] = useState(false);
 
-  const loadMaskedValue = useCallback(
+  // -- ChatGPT Subscription OAuth state -------------------------------------
+  type ChatgptOAuthState =
+    | "idle"
+    | "starting"
+    | "paste_url"
+    | "exchanging"
+    | "completed"
+    | "failed";
+  const [chatgptOAuthState, setChatgptOAuthState] =
+    useState<ChatgptOAuthState>("idle");
+  const [chatgptPastedUrl, setChatgptPastedUrl] = useState("");
+  const [chatgptOAuthError, setChatgptOAuthError] = useState<string | null>(
+    null,
+  );
+  const chatgptStateRef = useRef<string>("");
+
+  const chatgptFlagEnabled =
+    chatgptSubscriptionEnabled && provider === "openai" && effectiveMode === "create";
+
+  async function handleChatgptSignIn() {
+    setChatgptOAuthState("starting");
+    setChatgptOAuthError(null);
+    const popup = window.open("about:blank", "_blank");
+    try {
+      const { authorize_url, state } =
+        await startChatgptSubscriptionAuth(assistantId);
+      chatgptStateRef.current = state;
+      if (popup) {
+        popup.opener = null;
+        popup.location.href = authorize_url;
+      } else {
+        window.open(authorize_url, "_blank", "noopener");
+      }
+      setChatgptOAuthState("paste_url");
+    } catch {
+      popup?.close();
+      setChatgptOAuthState("failed");
+      setChatgptOAuthError("Failed to start ChatGPT sign-in. Please try again.");
+    }
+  }
+
+  async function handleChatgptUrlSubmit() {
+    setChatgptOAuthError(null);
+    const trimmed = chatgptPastedUrl.trim();
+    if (!trimmed) {
+      setChatgptOAuthError("Please paste the URL from the error page.");
+      return;
+    }
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(trimmed);
+    } catch {
+      setChatgptOAuthError("Invalid URL. Please paste the full URL from the address bar.");
+      return;
+    }
+    const code = parsedUrl.searchParams.get("code");
+    const state = parsedUrl.searchParams.get("state");
+    if (!code) {
+      setChatgptOAuthError("The URL is missing the authorization code. Make sure you copied the full URL.");
+      return;
+    }
+    if (!state) {
+      setChatgptOAuthError("The URL is missing the state parameter. Make sure you copied the full URL.");
+      return;
+    }
+    setChatgptOAuthState("exchanging");
+    try {
+      await exchangeChatgptAuthCode(assistantId, code, state);
+      setChatgptOAuthState("completed");
+      const conns = await listConnections(assistantId, "openai");
+      const chatgptConn = conns.find(
+        (c) =>
+          c.name === "chatgpt-subscription" || c.name === "openai-chatgpt",
+      );
+      if (chatgptConn) {
+        onSave(chatgptConn);
+      } else {
+        onSave({
+          name: "chatgpt-subscription",
+          provider: "openai",
+          auth: { type: "oauth_subscription", credential: "credential/openai/chatgpt-subscription" },
+          status: "active",
+          label: "ChatGPT Subscription",
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          baseUrl: null,
+          models: null,
+        });
+      }
+    } catch {
+      setChatgptOAuthState("failed");
+      setChatgptOAuthError("Failed to complete sign-in. Please try again.");
+    }
+  }
+
+  const loadCredentialPresence = useCallback(
     async (credRef: string) => {
       const parts = credRef.split("/");
       if (parts.length < 3 || parts[0] !== "credential") {
-        setMaskedCredentialValue(null);
+        setHasStoredCredential(false);
         return;
       }
       const service = parts[1];
       const field = parts.slice(2).join("/");
       setIsLoadingCredential(true);
-      const result = await readSecret(
-        assistantId,
-        "credential",
-        `${service}:${field}`,
-      );
-      setMaskedCredentialValue(result.masked);
-      setIsLoadingCredential(false);
+      try {
+        const result = await readSecret(
+          assistantId,
+          "credential",
+          `${service}:${field}`,
+        );
+        setHasStoredCredential(result.found);
+      } catch {
+        setHasStoredCredential(false);
+      } finally {
+        setIsLoadingCredential(false);
+      }
     },
     [assistantId],
   );
@@ -218,7 +322,7 @@ export function ProviderEditorContent({
 
     // Reset credential UI state
     setApiKeyValue("");
-    setMaskedCredentialValue(null);
+    setHasStoredCredential(false);
     setIsLoadingCredential(false);
     setAvailableCredentials([]);
     setIsCreatingNewCredential(false);
@@ -226,15 +330,21 @@ export function ProviderEditorContent({
     setIsSavingKey(false);
     setIsAdvancedExpanded(false);
 
+    // Reset ChatGPT OAuth state
+    setChatgptOAuthState("idle");
+    setChatgptPastedUrl("");
+    setChatgptOAuthError(null);
+    chatgptStateRef.current = "";
+
     // Load credential data for edit mode with api_key auth
     if (connection?.auth.type === "api_key") {
-      void loadMaskedValue(connection.auth.credential);
+      void loadCredentialPresence(connection.auth.credential);
       void loadAvailableCredentials();
     } else if (!connection) {
       // Create mode: pre-load available credentials for the Advanced section
       void loadAvailableCredentials();
     }
-  }, [connection, loadMaskedValue, loadAvailableCredentials]);
+  }, [connection, loadCredentialPresence, loadAvailableCredentials]);
 
   // Auto-derive key from label when not dirty and in create mode
   function handleLabelChange(newLabel: string) {
@@ -274,7 +384,7 @@ export function ProviderEditorContent({
       setCredential(`credential/${provider}/api_key`);
     }
     setApiKeyValue("");
-    setMaskedCredentialValue(null);
+    setHasStoredCredential(false);
     setBaseUrl("");
     setConnectionModels("");
     // New connection starts active by convention; user can toggle off
@@ -324,6 +434,7 @@ export function ProviderEditorContent({
             } else {
               await writeSecret(assistantId, "api_key", provider, trimmedKey);
             }
+            setHasStoredCredential(true);
           } catch {
             setError("Failed to save API key. Please try again.");
             return;
@@ -331,7 +442,7 @@ export function ProviderEditorContent({
             setIsSavingKey(false);
           }
         } else if (
-          maskedCredentialValue === null &&
+          !hasStoredCredential &&
           effectiveMode === "create"
         ) {
           setError("Enter an API key or select an existing credential.");
@@ -426,6 +537,10 @@ export function ProviderEditorContent({
     providerCredentials.length > 0 ||
     isCreatingNewCredential ||
     isEditingApiKeyConnection;
+  const apiKeyPlaceholder = secretPlaceholder(
+    "Enter your API key",
+    hasStoredCredential,
+  );
 
   return (
     <Modal.Content size="md">
@@ -515,7 +630,7 @@ export function ProviderEditorContent({
                   });
                   setCredential(`credential/${newProvider}/api_key`);
                 }
-                setMaskedCredentialValue(null);
+                setHasStoredCredential(false);
               }
             }}
             disabled={effectiveMode !== "create"}
@@ -602,7 +717,7 @@ export function ProviderEditorContent({
         {/* API Key + Advanced disclosure — only shown for api_key auth */}
         {authType === "api_key" && (
           <>
-            {/* Primary: masked API Key field */}
+            {/* Primary: saved-state API Key field */}
             <div className="space-y-1">
               <label className="block text-body-small-default text-[var(--content-tertiary)]">
                 API Key
@@ -625,19 +740,10 @@ export function ProviderEditorContent({
                     setApiKeyValue(e.target.value);
                     setError(null);
                   }}
-                  placeholder={maskedCredentialValue ?? "Enter your API key"}
+                  placeholder={apiKeyPlaceholder}
                   disabled={isAuthLocked}
                   fullWidth
                 />
-              )}
-              {maskedCredentialValue !== null && apiKeyValue === "" && (
-                <Typography
-                  variant="body-small-default"
-                  as="p"
-                  className="text-[var(--content-tertiary)]"
-                >
-                  A key is configured. Enter a new value to replace it.
-                </Typography>
               )}
             </div>
 
@@ -698,7 +804,7 @@ export function ProviderEditorContent({
                           value={credential}
                           onChange={(v) => {
                             setCredential(v);
-                            void loadMaskedValue(v);
+                            void loadCredentialPresence(v);
                           }}
                           disabled={isAuthLocked}
                           options={dropdownOptions}
@@ -731,7 +837,7 @@ export function ProviderEditorContent({
                             setCredential(ref);
                             setIsCreatingNewCredential(false);
                             setNewCredentialName("");
-                            void loadMaskedValue(ref);
+                            void loadCredentialPresence(ref);
                           }}
                         >
                           Use
@@ -772,6 +878,142 @@ export function ProviderEditorContent({
           onChange={(v) => setStatus(v ? "active" : "disabled")}
           label="Active"
         />
+
+        {/* ChatGPT Subscription OAuth — manual copy-paste flow */}
+        {chatgptFlagEnabled ? (
+          <div className="space-y-3 rounded-lg border border-[var(--border-default)] p-4">
+            <Typography
+              variant="body-medium-default"
+              as="p"
+              className="text-[var(--content-default)]"
+            >
+              ChatGPT Subscription
+            </Typography>
+            <Typography
+              variant="body-small-default"
+              as="p"
+              className="text-[var(--content-tertiary)]"
+            >
+              Connect your ChatGPT subscription to use OpenAI models without an
+              API key.
+            </Typography>
+
+            {chatgptOAuthState === "idle" ? (
+              <Button
+                variant="outlined"
+                size="compact"
+                onClick={() => void handleChatgptSignIn()}
+              >
+                Sign in with ChatGPT
+              </Button>
+            ) : null}
+
+            {chatgptOAuthState === "starting" ? (
+              <div className="flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin text-[var(--content-tertiary)]" />
+                <Typography
+                  variant="body-small-default"
+                  className="text-[var(--content-tertiary)]"
+                >
+                  Starting sign-in...
+                </Typography>
+              </div>
+            ) : null}
+
+            {chatgptOAuthState === "paste_url" ? (
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <Typography
+                    variant="body-small-default"
+                    as="p"
+                    className="text-[var(--content-secondary)]"
+                  >
+                    1. Sign in with ChatGPT in the popup
+                  </Typography>
+                  <Typography
+                    variant="body-small-default"
+                    as="p"
+                    className="text-[var(--content-secondary)]"
+                  >
+                    2. After sign-in, you&apos;ll see an error page
+                  </Typography>
+                  <Typography
+                    variant="body-small-default"
+                    as="p"
+                    className="text-[var(--content-secondary)]"
+                  >
+                    3. Copy the URL from the address bar and paste it below
+                  </Typography>
+                </div>
+                <Input
+                  value={chatgptPastedUrl}
+                  onChange={(e) => {
+                    setChatgptPastedUrl(e.target.value);
+                    setChatgptOAuthError(null);
+                  }}
+                  placeholder="Paste callback URL here..."
+                  fullWidth
+                />
+                <div className="flex justify-end">
+                  <Button
+                    variant="primary"
+                    size="compact"
+                    disabled={!chatgptPastedUrl.trim()}
+                    onClick={() => void handleChatgptUrlSubmit()}
+                  >
+                    Complete Sign In
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+
+            {chatgptOAuthState === "exchanging" ? (
+              <div className="flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin text-[var(--content-tertiary)]" />
+                <Typography
+                  variant="body-small-default"
+                  className="text-[var(--content-tertiary)]"
+                >
+                  Completing sign-in...
+                </Typography>
+              </div>
+            ) : null}
+
+            {chatgptOAuthState === "completed" ? (
+              <Typography
+                variant="body-small-default"
+                as="p"
+                className="text-[var(--system-positive-strong)]"
+              >
+                ChatGPT subscription connected successfully.
+              </Typography>
+            ) : null}
+
+            {chatgptOAuthError ? (
+              <Typography
+                variant="body-small-default"
+                as="p"
+                className="text-(--system-negative-strong)"
+              >
+                {chatgptOAuthError}
+              </Typography>
+            ) : null}
+
+            {chatgptOAuthState === "failed" ? (
+              <Button
+                variant="outlined"
+                size="compact"
+                onClick={() => {
+                  setChatgptOAuthState("idle");
+                  setChatgptPastedUrl("");
+                  setChatgptOAuthError(null);
+                }}
+              >
+                Try Again
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
 
         {error && (
           <Typography

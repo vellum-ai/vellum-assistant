@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 
 import {
   handleRequest,
@@ -10,7 +12,15 @@ import {
   ensureRunArtifacts,
   writeMetricResults,
   writeRunMetadata,
+  RUNS_DIR,
 } from "../../lib/metrics";
+
+// Counter ensures uniqueness even when two seedRuns land inside the same
+// millisecond. The 14-digit suffix matches the prod `isValidRunId` regex
+// (^eval-[a-z0-9\-]+-\d{14}$), so seeded runs flow through the same
+// validation gates as real ones — important for endpoints like the file
+// server and DELETE routes that enforce that pattern.
+let seedCounter = 0;
 
 async function seedRun(input: {
   sessionId: string;
@@ -18,7 +28,14 @@ async function seedRun(input: {
   testId: string;
   sessionLabel?: string;
 }): Promise<string> {
-  const runId = `test-server-${input.sessionId}-${input.profileId}-${input.testId}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  // Pad Date.now() (13 digits) to 14 by appending a 0-9 counter digit, then
+  // mix in a slug fragment from inputs. Result: eval-<slug>-<14 digits>.
+  const slug = `${input.profileId}-${input.testId}`
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  const timestamp = `${Date.now()}${seedCounter++ % 10}`.slice(-14);
+  const runId = `eval-${slug}-${timestamp}`;
   const artifacts = await ensureRunArtifacts(runId);
   await writeRunMetadata(runId, {
     runId,
@@ -149,6 +166,228 @@ describe("evals server routing", () => {
     await seedRun({ sessionId, profileId: "p1", testId: "t1" });
     const res = await handleRequest(req(`/sessions/${sessionId}/`));
     expect(res.status).toBe(200);
+  });
+
+  test("GET /api/runs/:runId/files/:name serves subprocess log files", async () => {
+    const sessionId = `session-route-file-${Date.now()}`;
+    const runId = await seedRun({ sessionId, profileId: "p1", testId: "t1" });
+
+    // Write a subprocess log file
+    const logContent = "Subprocess hatch started at 2026-05-22T13:00:00Z";
+    await writeFile(join(RUNS_DIR, runId, "subprocess-hatch.log"), logContent);
+
+    // Request the file
+    const res = await handleRequest(
+      req(`/api/runs/${encodeURIComponent(runId)}/files/subprocess-hatch.log`),
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/plain");
+    const text = await res.text();
+    expect(text).toBe(logContent);
+  });
+
+  test("GET /api/runs/:runId/files/:name rejects invalid filenames", async () => {
+    const sessionId = `session-route-file-invalid-${Date.now()}`;
+    const runId = await seedRun({ sessionId, profileId: "p1", testId: "t1" });
+
+    // Use percent-encoded dots so `new URL()` doesn't collapse the
+    // segments before our handler sees them. After `decodeURIComponent`
+    // the file name becomes `../../../../etc/passwd`, which the
+    // allowlist regex (subprocess-*.log + docker-*) must reject. The
+    // raw-dots form would normalize to `/etc/passwd` and never reach
+    // the endpoint — so it wouldn't exercise the security check.
+    const evilName = "%2E%2E%2F%2E%2E%2F%2E%2E%2F%2E%2E%2Fetc%2Fpasswd";
+    const res = await handleRequest(
+      req(`/api/runs/${encodeURIComponent(runId)}/files/${evilName}`),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toContain("Invalid file name");
+  });
+
+  test("GET /api/runs/:runId/files/:name serves docker forensics artifacts", async () => {
+    const sessionId = `session-route-file-docker-${Date.now()}`;
+    const runId = await seedRun({ sessionId, profileId: "p1", testId: "t1" });
+
+    // docker-inspect.json is on the allowlist — exercise the
+    // application/json content-type branch.
+    const inspectJson = '{"State":{"Status":"created","ExitCode":0}}';
+    await writeFile(join(RUNS_DIR, runId, "docker-inspect.json"), inspectJson);
+
+    const res = await handleRequest(
+      req(`/api/runs/${encodeURIComponent(runId)}/files/docker-inspect.json`),
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("application/json");
+    expect(await res.text()).toBe(inspectJson);
+  });
+
+  test("GET /api/runs/:runId/files/:name returns 404 for missing files", async () => {
+    const sessionId = `session-route-file-404-${Date.now()}`;
+    const runId = await seedRun({ sessionId, profileId: "p1", testId: "t1" });
+
+    const res = await handleRequest(
+      req(
+        `/api/runs/${encodeURIComponent(runId)}/files/subprocess-nonexistent.log`,
+      ),
+    );
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toContain("File not found");
+  });
+
+  test("DELETE /api/runs/:runId removes the run directory", async () => {
+    const sessionId = `session-del-one-${Date.now()}`;
+    const runId = await seedRun({ sessionId, profileId: "p1", testId: "t1" });
+
+    const res = await handleRequest(
+      new Request(
+        `http://localhost:3005/api/runs/${encodeURIComponent(runId)}`,
+        { method: "DELETE" },
+      ),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { deleted?: string };
+    expect(body.deleted).toBe(runId);
+
+    // Re-fetching the file endpoint after delete returns 404 — proving
+    // the directory really is gone.
+    const after = await handleRequest(
+      req(`/api/runs/${encodeURIComponent(runId)}/files/subprocess-x.log`),
+    );
+    expect(after.status).toBe(404);
+  });
+
+  test("DELETE /api/runs/:runId rejects malformed runIds with 400", async () => {
+    const res = await handleRequest(
+      new Request("http://localhost:3005/api/runs/not-an-eval-runid", {
+        method: "DELETE",
+      }),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test("DELETE /api/runs bulk-deletes non-running runs and skips running ones", async () => {
+    const sessionId = `session-del-bulk-${Date.now()}`;
+    const completed = await seedRun({
+      sessionId,
+      profileId: "p1",
+      testId: "t1",
+    });
+    const failed = await seedRun({
+      sessionId,
+      profileId: "p2",
+      testId: "t1",
+    });
+    // Flip one to status: "running" with a fresh heartbeat so the
+    // scavenger won't reap it before the delete endpoint sees it.
+    const stillRunning = await seedRun({
+      sessionId,
+      profileId: "p3",
+      testId: "t1",
+    });
+    const { writeRunMetadata, readRunMetadata } =
+      await import("../../lib/metrics");
+    const meta = await readRunMetadata(stillRunning);
+    await writeRunMetadata(stillRunning, {
+      ...meta!,
+      status: "running",
+      lastHeartbeatAt: new Date().toISOString(),
+    });
+
+    const res = await handleRequest(
+      new Request("http://localhost:3005/api/runs", { method: "DELETE" }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { deleted: number; skipped: number };
+    expect(body.deleted).toBeGreaterThanOrEqual(2);
+    expect(body.skipped).toBeGreaterThanOrEqual(1);
+
+    // Sanity: the still-running run is still on disk.
+    const survivor = await readRunMetadata(stillRunning);
+    expect(survivor?.status).toBe("running");
+    // And the completed + failed ones are gone (404 on file endpoint).
+    const gone = await handleRequest(
+      req(`/api/runs/${encodeURIComponent(completed)}/files/subprocess-x.log`),
+    );
+    expect(gone.status).toBe(404);
+    expect(failed).toBeTruthy(); // (failed too — same path)
+  });
+
+  // -- form-driven delete endpoints (no client JS) --------------------------
+
+  test("POST /api/runs/:runId/delete removes the run and 303-redirects to the session", async () => {
+    const sessionId = `session-form-del-${Date.now()}`;
+    const runId = await seedRun({
+      sessionId,
+      profileId: "p1",
+      testId: "t1",
+    });
+    const body = new URLSearchParams({ backToSession: sessionId });
+    const res = await handleRequest(
+      new Request(
+        `http://localhost:3005/api/runs/${encodeURIComponent(runId)}/delete`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          body,
+        },
+      ),
+    );
+    expect(res.status).toBe(303);
+    expect(res.headers.get("location")).toBe(
+      `/sessions/${encodeURIComponent(sessionId)}`,
+    );
+    // Verify the run directory is gone.
+    const gone = await handleRequest(
+      req(`/api/runs/${encodeURIComponent(runId)}/files/subprocess-x.log`),
+    );
+    expect(gone.status).toBe(404);
+  });
+
+  test("POST /api/runs/:runId/delete falls back to `/` when no backToSession is supplied", async () => {
+    const runId = await seedRun({
+      sessionId: `session-form-del-noback-${Date.now()}`,
+      profileId: "p1",
+      testId: "t1",
+    });
+    const res = await handleRequest(
+      new Request(
+        `http://localhost:3005/api/runs/${encodeURIComponent(runId)}/delete`,
+        { method: "POST" },
+      ),
+    );
+    expect(res.status).toBe(303);
+    expect(res.headers.get("location")).toBe("/");
+  });
+
+  test("POST /api/runs/:runId/delete renders an HTML error page (not JSON) for malformed runIds", async () => {
+    const res = await handleRequest(
+      new Request("http://localhost:3005/api/runs/not-an-eval-runid/delete", {
+        method: "POST",
+      }),
+    );
+    expect(res.status).toBe(400);
+    // Browsers post the form — they expect HTML back, not JSON. Confirm
+    // the content-type and that we link the user back somewhere useful.
+    expect(res.headers.get("content-type")).toContain("text/html");
+    const body = await res.text();
+    expect(body).toContain("Invalid runId format");
+    expect(body).toContain('href="/"');
+  });
+
+  test("POST /api/runs/delete-all bulk-deletes and 303-redirects to `/`", async () => {
+    const sessionId = `session-form-del-all-${Date.now()}`;
+    await seedRun({ sessionId, profileId: "p1", testId: "t1" });
+    await seedRun({ sessionId, profileId: "p2", testId: "t1" });
+
+    const res = await handleRequest(
+      new Request("http://localhost:3005/api/runs/delete-all", {
+        method: "POST",
+      }),
+    );
+    expect(res.status).toBe(303);
+    expect(res.headers.get("location")).toBe("/");
   });
 });
 

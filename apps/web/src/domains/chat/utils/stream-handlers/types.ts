@@ -15,7 +15,7 @@ export type { PendingQuestionState };
 
 export interface StreamContext {
   assistantId: string;
-  conversationKey: string;
+  conversationId: string;
 }
 
 /** Minimal push-based navigation adapter for stream event handlers. */
@@ -34,7 +34,7 @@ export interface StreamHandlerContext {
 
   // --- Stream context ---
   streamContextRef: MutableRefObject<StreamContext | null>;
-  activeConversationKeyRef: MutableRefObject<string | null>;
+  activeConversationIdRef: MutableRefObject<string | null>;
   assistantIdRef: MutableRefObject<string | null>;
 
   // --- Messages ---

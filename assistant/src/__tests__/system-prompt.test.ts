@@ -69,6 +69,26 @@ mock.module("../prompts/user-reference.js", () => ({
   resolveUserPronouns: () => null,
 }));
 
+// Stub persona-resolver so tests can dictate the slug `buildSystemPrompt`
+// sees without needing to write contact rows to the test DB. The user
+// and channel persona files themselves now flow through bundled sections
+// (`10-user-persona` / `11-channel-persona`) that read from disk, so
+// persona *content* is exercised by writing the file under TEST_DIR
+// rather than mocking it here. Tests mutate `mockPersona` in place;
+// the default (all-null) matches a fresh workspace with no contacts
+// and no `users/default.md`.
+const mockPersona: {
+  userSlug: string | null;
+  guardianPersona: string | null;
+} = { userSlug: null, guardianPersona: null };
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realPersonaResolver = require("../prompts/persona-resolver.js");
+mock.module("../prompts/persona-resolver.js", () => ({
+  ...realPersonaResolver,
+  resolveUserSlug: () => mockPersona.userSlug,
+  resolveGuardianPersona: () => mockPersona.guardianPersona,
+}));
+
 // Import after mock
 const {
   buildSystemPrompt,
@@ -78,16 +98,19 @@ const {
 } = await import("../prompts/system-prompt.js");
 
 /**
- * Extract IDENTITY.md / BOOTSTRAP.md content + the user persona from the
- * dynamic block of the system prompt, stripping configuration, skills
- * catalog, and connected services.
+ * Returns the prompt content that lives after the
+ * `SYSTEM_PROMPT_CACHE_BOUNDARY` marker, with any remaining vestigial
+ * headings stripped.  Every bundled section — including the
+ * runtime-computed `14-connected-services` block — renders into the
+ * static prefix before the boundary, so this slice is now always
+ * empty in the standard test path; tests use it to assert that no
+ * dynamic-suffix content has leaked in.
  *
- * SOUL.md no longer flows through this helper — it renders as the
- * `09-soul` workspace-backed section in the static (cached) prefix.
- * Tests that assert on SOUL.md content slice the static block directly.
+ * Sections in the static prefix (SOUL, IDENTITY, persona, BOOTSTRAP,
+ * Connected Services, …) are asserted against the full prompt string
+ * directly rather than through this helper.
  */
 function basePrompt(result: string): string {
-  // The workspace files are in the dynamic block after the cache boundary.
   const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
   let s =
     boundaryIdx >= 0
@@ -97,7 +120,6 @@ function basePrompt(result: string): string {
     "## Configuration",
     "## Skills Catalog",
     "## External Communications Identity",
-    "# Connected Services",
     "## Dynamic Skill Authoring Workflow",
   ]) {
     if (s.startsWith(heading)) {
@@ -113,6 +135,10 @@ function basePrompt(result: string): string {
 describe("buildSystemPrompt", () => {
   beforeEach(() => {
     mkdirSync(TEST_DIR, { recursive: true });
+    // Reset persona stub so each test starts from a fresh
+    // no-guardian baseline.
+    mockPersona.userSlug = null;
+    mockPersona.guardianPersona = null;
   });
 
   afterEach(() => {
@@ -122,8 +148,10 @@ describe("buildSystemPrompt", () => {
       "USER.md",
       "BOOTSTRAP.md",
       "UPDATES.md",
+      "VOICE.md",
       "skills",
       "users",
+      "channels",
     ]) {
       const p = join(TEST_DIR, name);
       if (existsSync(p)) rmSync(p, { recursive: true, force: true });
@@ -154,18 +182,30 @@ describe("buildSystemPrompt", () => {
       "# My Identity\n\nI am Vellum.",
     );
     const result = buildSystemPrompt();
-    expect(basePrompt(result)).toBe("# My Identity\n\nI am Vellum.");
+    // IDENTITY.md renders as the `08-identity` workspace-backed section
+    // in the static (cached) prefix before SYSTEM_PROMPT_CACHE_BOUNDARY.
+    const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
+    expect(boundaryIdx).toBeGreaterThan(-1);
+    expect(result.slice(0, boundaryIdx)).toContain(
+      "# My Identity\n\nI am Vellum.",
+    );
   });
 
   test("composes IDENTITY.md + SOUL.md when both exist", () => {
     writeFileSync(join(TEST_DIR, "IDENTITY.md"), "# Identity\n\nI am Vellum.");
     writeFileSync(join(TEST_DIR, "SOUL.md"), "# Soul\n\nBe thoughtful.");
     const result = buildSystemPrompt();
-    // SOUL renders as the workspace-backed section in the static prefix;
-    // IDENTITY renders in the dynamic suffix.
+    // Both render in the static (cached) prefix, IDENTITY before SOUL
+    // (sections `08-identity` and `09-soul`).
     const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
-    expect(result.slice(0, boundaryIdx)).toContain("# Soul\n\nBe thoughtful.");
-    expect(basePrompt(result)).toBe("# Identity\n\nI am Vellum.");
+    expect(boundaryIdx).toBeGreaterThan(-1);
+    const staticBlock = result.slice(0, boundaryIdx);
+    expect(staticBlock).toContain("# Identity\n\nI am Vellum.");
+    expect(staticBlock).toContain("# Soul\n\nBe thoughtful.");
+    const identityIdx = staticBlock.indexOf("# Identity\n\nI am Vellum.");
+    const soulIdx = staticBlock.indexOf("# Soul\n\nBe thoughtful.");
+    expect(identityIdx).toBeLessThan(soulIdx);
+    expect(basePrompt(result)).toBe("");
   });
 
   test("ignores empty SOUL.md", () => {
@@ -217,10 +257,9 @@ describe("buildSystemPrompt", () => {
     writeFileSync(join(TEST_DIR, "SOUL.md"), "Soul content");
 
     const result = buildSystemPrompt();
-    // After SOUL.md became the `09-soul` workspace-backed section, it
-    // renders in the static prefix while IDENTITY stays in the dynamic
-    // suffix — the two are no longer adjacent.  Verify both are present
-    // and the skills catalog is still suppressed.
+    // Both files render in the static prefix via `08-identity` /
+    // `09-soul`.  Verify both are present and the skills catalog is
+    // still suppressed.
     expect(result).toContain("Identity content");
     expect(result).toContain("Soul content");
     expect(result).not.toContain("## Available Skills");
@@ -262,11 +301,10 @@ describe("buildSystemPrompt", () => {
     writeFileSync(join(TEST_DIR, "IDENTITY.md"), "Identity");
     writeFileSync(join(TEST_DIR, "SOUL.md"), "Soul");
     const result = buildSystemPrompt();
-    // SOUL.md now renders in the static (cached) prefix via the 09-soul
-    // section, so it doesn't flow through basePrompt.  Assert that
-    // IDENTITY is the only dynamic content and that SOUL is still in the
-    // full prompt.
-    expect(basePrompt(result)).toBe("Identity");
+    // Both IDENTITY and SOUL render in the static (cached) prefix; the
+    // dynamic block sliced by basePrompt is empty here.
+    expect(basePrompt(result)).toBe("");
+    expect(result).toContain("Identity");
     expect(result).toContain("Soul");
   });
 
@@ -280,55 +318,124 @@ describe("buildSystemPrompt", () => {
     );
     const result = buildSystemPrompt();
     expect(result).not.toContain("stale user content");
-    expect(basePrompt(result)).toBe("Identity");
+    expect(result).toContain("Identity");
+    expect(basePrompt(result)).toBe("");
   });
 
-  test("uses options.userPersona instead of USER.md", () => {
+  test("includes resolved user persona in the static prefix", () => {
+    // User persona flows through the `10-user-persona` bundled section,
+    // which reads from `users/<userSlug>.md` (or `users/default.md` as
+    // a fallback).  Set the slug + write the file to exercise both.
+    mockPersona.userSlug = "alice";
+    mkdirSync(join(TEST_DIR, "users"), { recursive: true });
+    writeFileSync(
+      join(TEST_DIR, "users", "alice.md"),
+      "# User persona\n\nName: Alice",
+    );
     writeFileSync(join(TEST_DIR, "IDENTITY.md"), "Identity");
     writeFileSync(join(TEST_DIR, "SOUL.md"), "Soul");
-    const result = buildSystemPrompt({
-      userPersona: "# User persona\n\nName: Alice",
-    });
-    // SOUL.md renders in the static (cached) prefix via the 09-soul section
-    // and is no longer part of the dynamic block sliced by basePrompt.
-    expect(basePrompt(result)).toBe(
-      "Identity\n\n# User persona\n\nName: Alice",
-    );
+    const result = buildSystemPrompt();
+    // IDENTITY, SOUL, and the user persona all render in the static
+    // (cached) prefix as workspace-backed bundled sections; the dynamic
+    // block sliced by basePrompt is empty here.
+    expect(basePrompt(result)).toBe("");
+    expect(result).toContain("Identity");
     expect(result).toContain("Soul");
+    expect(result).toContain("# User persona");
+    expect(result).toContain("Name: Alice");
+  });
+
+  test("user persona falls back to users/default.md when the slug's file is missing", () => {
+    // The `10-user-persona` section's workspacePath is
+    // `["users/{{userSlug}}.md", "users/default.md"]` — when the
+    // primary file doesn't exist the renderer falls through to default.
+    mockPersona.userSlug = "alice";
+    mkdirSync(join(TEST_DIR, "users"), { recursive: true });
+    writeFileSync(
+      join(TEST_DIR, "users", "default.md"),
+      "# Default persona\n\nNo contact bound.",
+    );
+    const result = buildSystemPrompt();
+    expect(result).toContain("# Default persona");
+    expect(result).toContain("No contact bound.");
+  });
+
+  test("includes channel persona from channels/<channelSlug>.md", () => {
+    // Channel persona flows through the `11-channel-persona` section.
+    // Default channel is "vellum" when no channelCapabilities passed.
+    mkdirSync(join(TEST_DIR, "channels"), { recursive: true });
+    writeFileSync(
+      join(TEST_DIR, "channels", "vellum.md"),
+      "# Channel persona\n\nThis is the Vellum channel.",
+    );
+    const result = buildSystemPrompt();
+    expect(result).toContain("# Channel persona");
+    expect(result).toContain("This is the Vellum channel.");
+  });
+
+  test("includes VOICE.md as the 12-voice section with prepended heading", () => {
+    // VOICE.md flows through the `12-voice` bundled section.  The
+    // section transform prepends `# Voice Profile` so the file itself
+    // stays heading-free; the model writes voice markers as plain
+    // bullets / lines.
+    writeFileSync(
+      join(TEST_DIR, "VOICE.md"),
+      "- Prefers lowercase. Replies tightly. Skips greetings.",
+    );
+    const result = buildSystemPrompt();
+    // Renders in the static (cached) prefix — basePrompt (dynamic
+    // block) stays empty.
+    expect(basePrompt(result)).toBe("");
+    expect(result).toContain("# Voice Profile");
+    expect(result).toContain("Prefers lowercase");
+  });
+
+  test("omits the 12-voice section when VOICE.md is missing", () => {
+    const result = buildSystemPrompt();
+    expect(result).not.toContain("# Voice Profile");
+  });
+
+  test("omits the 12-voice section when VOICE.md is empty / whitespace-only", () => {
+    writeFileSync(join(TEST_DIR, "VOICE.md"), "   \n\n  \n");
+    const result = buildSystemPrompt();
+    expect(result).not.toContain("# Voice Profile");
   });
 
   describe("BOOTSTRAP.md user persona placeholder", () => {
-    test("substitutes {{USER_PERSONA_FILE}} with users/<slug>.md when userSlug is provided", () => {
+    test("substitutes {{userSlug}} with the resolved slug when a guardian slug is resolvable", () => {
+      // Simulate a guardian contact whose userFile resolves to alice.md.
+      mockPersona.userSlug = "alice";
       writeFileSync(
         join(TEST_DIR, "BOOTSTRAP.md"),
-        "# First run\n\nSave facts to users/{{USER_PERSONA_FILE}} immediately.",
+        "# First run\n\nSave facts to users/{{userSlug}}.md immediately.",
       );
-      const result = buildSystemPrompt({ userSlug: "alice" });
+      const result = buildSystemPrompt();
       expect(result).toContain("users/alice.md");
-      expect(result).not.toContain("{{USER_PERSONA_FILE}}");
+      expect(result).not.toContain("{{userSlug}}");
     });
 
-    test("falls back to users/default.md when userSlug is omitted", () => {
+    test("falls back to users/default.md when no slug is resolvable", () => {
       writeFileSync(
         join(TEST_DIR, "BOOTSTRAP.md"),
-        "# First run\n\nSave facts to users/{{USER_PERSONA_FILE}} immediately.",
+        "# First run\n\nSave facts to users/{{userSlug}}.md immediately.",
       );
       const result = buildSystemPrompt();
       expect(result).toContain("users/default.md");
-      expect(result).not.toContain("{{USER_PERSONA_FILE}}");
+      expect(result).not.toContain("{{userSlug}}");
     });
 
     test("substitutes the unmodified bundled BOOTSTRAP.md template", () => {
       // Copy the real bundled BOOTSTRAP.md into the test workspace so we
       // verify substitution against the actual template the daemon ships.
+      mockPersona.userSlug = "alice";
       const bundled = readFileSync(
         join(import.meta.dirname, "..", "prompts", "templates", "BOOTSTRAP.md"),
         "utf-8",
       );
       writeFileSync(join(TEST_DIR, "BOOTSTRAP.md"), bundled);
-      const result = buildSystemPrompt({ userSlug: "alice" });
+      const result = buildSystemPrompt();
       expect(result).toContain("users/alice.md");
-      expect(result).not.toContain("{{USER_PERSONA_FILE}}");
+      expect(result).not.toContain("{{userSlug}}");
     });
   });
 
@@ -480,7 +587,11 @@ describe("buildSystemPrompt", () => {
       "# Identity\n_ This is a comment\nI am Vellum.\n_ Another comment",
     );
     const result = buildSystemPrompt();
-    expect(basePrompt(result)).toBe("# Identity\nI am Vellum.");
+    // IDENTITY.md renders in the static prefix via the 08-identity section,
+    // so we assert against the full prompt rather than basePrompt.
+    expect(result).toContain("# Identity\nI am Vellum.");
+    expect(result).not.toContain("_ This is a comment");
+    expect(result).not.toContain("_ Another comment");
   });
 
   test("collapses whitespace around stripped comment lines", () => {
@@ -610,7 +721,15 @@ describe("buildSystemPrompt", () => {
       writeFileSync(join(TEST_DIR, "IDENTITY.md"), "I am Vellum.");
       const result = buildSystemPrompt();
       expect(result.startsWith("Custom prefix")).toBe(true);
-      expect(basePrompt(result)).toBe("I am Vellum.");
+      // IDENTITY.md renders via 08-identity in the static prefix after
+      // the 00-prefix slot.
+      const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
+      const staticBlock = result.slice(0, boundaryIdx);
+      const prefixIdx = staticBlock.indexOf("Custom prefix");
+      const identityIdx = staticBlock.indexOf("I am Vellum.");
+      expect(prefixIdx).toBeGreaterThan(-1);
+      expect(identityIdx).toBeGreaterThan(prefixIdx);
+      expect(basePrompt(result)).toBe("");
     });
 
     test("parallel tool calls section is sourced from workspace when present", () => {

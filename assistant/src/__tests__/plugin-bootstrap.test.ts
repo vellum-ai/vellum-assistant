@@ -421,8 +421,7 @@ describe("plugin bootstrap", () => {
   });
 
   test("requiresFlag absent: plugin activates unconditionally", async () => {
-    // Deliberately do not set any overrides — the resolver defaults
-    // undeclared keys to `true`, but more importantly a plugin with no
+    // Deliberately do not set any overrides — a plugin with no
     // `requiresFlag` key must not consult the resolver at all.
     let initFired = false;
     const plugin = buildPlugin("no-flag", {

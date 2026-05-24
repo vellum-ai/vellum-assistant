@@ -43,7 +43,7 @@ describe("handleAssistantActivityState", () => {
         phase: "thinking",
         anchor: "assistant_turn",
         reason: "thinking_delta",
-        conversationKey: "conv-1",
+        conversationId: "conv-1",
       },
       1,
       ctx,
@@ -61,7 +61,7 @@ describe("handleAssistantActivityState", () => {
         phase: "idle",
         anchor: "assistant_turn",
         reason: "message_complete",
-        conversationKey: "conv-1",
+        conversationId: "conv-1",
       },
       1,
       ctx,
@@ -83,7 +83,7 @@ describe("handleAssistantActivityState", () => {
         phase: "thinking",
         anchor: "assistant_turn",
         reason: "tool_result_received",
-        conversationKey: "conv-1",
+        conversationId: "conv-1",
       },
       1,
       ctx,
@@ -104,7 +104,7 @@ describe("handleAssistantActivityState", () => {
         anchor: "assistant_turn",
         reason: "tool_result_received",
         statusText: "Processing bash results",
-        conversationKey: "conv-1",
+        conversationId: "conv-1",
       },
       1,
       ctx,
@@ -126,7 +126,7 @@ describe("handleAssistantActivityState", () => {
       ctx,
     );
     expect(ctx.lastActivityVersionRef.current.get(
-      ctx.streamContextRef.current!.conversationKey,
+      ctx.streamContextRef.current!.conversationId,
     )).toBe(1);
     expect(ctx.turnActions.onActivityThinking).not.toHaveBeenCalled();
     expect(ctx.turnActions.completeTurn).not.toHaveBeenCalled();

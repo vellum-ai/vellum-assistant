@@ -58,7 +58,7 @@ export function handleUISurfaceDismiss(
   if (streamCtx) {
     saveDismissedSurfaceIds(
       streamCtx.assistantId,
-      streamCtx.conversationKey,
+      streamCtx.conversationId,
       ctx.dismissedSurfaceIdsRef.current,
     );
   }

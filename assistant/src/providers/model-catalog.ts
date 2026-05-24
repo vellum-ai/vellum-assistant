@@ -494,6 +494,21 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         },
       },
       {
+        id: "gemini-3.1-flash-lite",
+        displayName: "Gemini 3.1 Flash-Lite",
+        contextWindowTokens: 1048576,
+        maxOutputTokens: 65536,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 0.25,
+          outputPer1mTokens: 1.5,
+          cacheReadPer1mTokens: 0.025,
+        },
+      },
+      {
         id: "gemini-2.5-flash",
         displayName: "Gemini 2.5 Flash",
         contextWindowTokens: 1000000,

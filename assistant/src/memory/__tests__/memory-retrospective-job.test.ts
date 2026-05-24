@@ -315,6 +315,13 @@ describe("memoryRetrospectiveJob", () => {
     expect(bootstrapCalls[0]!.forkParentConversationId).toBe("src-conv-1");
   });
 
+  test("legacy path: wake opts include suppressWakeSurface so the full retrospective prompt isn't rendered as a 'Conversation Woke' card body to clients", async () => {
+    await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(wakeCalls).toHaveLength(1);
+    expect(wakeCalls[0]!.opts.suppressWakeSurface).toBe(true);
+  });
+
   test("no-new-messages early return: neither field changes, no wake, no bootstrap", async () => {
     newMessages = [];
     const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);

@@ -10,9 +10,15 @@ import * as Sentry from "@sentry/browser";
 
 import { client, SDK_BASE_OPTIONS } from "@/domains/chat/api/client.js";
 import { recordChatDiagnostic, resolvePlatformTag } from "@/domains/chat/utils/diagnostics.js";
-import { parseAssistantEvent, readEventConversationKey } from "@/domains/chat/api/event-parser.js";
+import { parseAssistantEvent, readEventConversationId } from "@/domains/chat/api/event-parser.js";
 import type { AssistantEvent } from "@/domains/chat/api/event-types.js";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity.js";
+import {
+  markClientEstablished,
+  pushSseEvent,
+  registerSseClient,
+  unregisterSseClient,
+} from "@/domains/chat/api/stream-debug.js";
 
 // ---------------------------------------------------------------------------
 // SSE stream transport
@@ -105,7 +111,7 @@ export interface ChatEventStreamOptions {
  */
 export function subscribeChatEvents(
   assistantId: string,
-  conversationKey: string | null | undefined,
+  conversationId: string | null | undefined,
   onEvent: (event: AssistantEvent) => void,
   onError: (err: Error) => void,
   options: ChatEventStreamOptions = {},
@@ -124,7 +130,7 @@ export function subscribeChatEvents(
   // active.
   let activeAbortController: AbortController | null = null;
   let watchdogTimer: ReturnType<typeof setTimeout> | null = null;
-  const requestedConversationKey = conversationKey ?? undefined;
+  const requestedConversationId = conversationId ?? undefined;
   // Cause of the most recent connect attempt teardown, consumed by the
   // next reconnect when it invokes onReconnect. `"watchdog"` is set
   // by armWatchdog before it aborts; left null otherwise so the
@@ -196,7 +202,7 @@ export function subscribeChatEvents(
       // tears state down before the next reconnect runs.
       recordChatDiagnostic("sse_watchdog_fired", {
         assistantId,
-        conversationKey: requestedConversationKey ?? null,
+        conversationId: requestedConversationId ?? null,
         attempt: reconnectCount,
         idleTimeoutMs,
         wasTurnSending,
@@ -248,7 +254,7 @@ export function subscribeChatEvents(
         },
         extra: {
           assistantId,
-          conversationKey: requestedConversationKey ?? null,
+          conversationId: requestedConversationId ?? null,
           attempt: reconnectCount,
           idleTimeoutMs,
           wasTurnSending,
@@ -288,6 +294,10 @@ export function subscribeChatEvents(
     if (cancelled) return;
     const abortController = new AbortController();
     activeAbortController = abortController;
+    const sseDebugClientId = registerSseClient(
+      abortController.signal,
+      requestedConversationId,
+    );
     // Reset per-attempt liveness counters so each watchdog fire
     // reports state for ITS attempt, not for the entire subscribe
     // lifetime. lastSseAtMs stays null until the first SSE chunk
@@ -302,8 +312,11 @@ export function subscribeChatEvents(
         ...SDK_BASE_OPTIONS,
         url: "/v1/assistants/{assistant_id}/events/",
         path: { assistant_id: assistantId },
-        ...(requestedConversationKey
-          ? { query: { conversationKey: requestedConversationKey } }
+        // SSE endpoint `GET /v1/assistants/{id}/events/` accepts only
+        // `conversationKey` as its query param (see events-routes.ts).
+        // Map the internal conversationId variable onto the wire field.
+        ...(requestedConversationId
+          ? { query: { conversationKey: requestedConversationId } }
           : {}),
         headers: {
           Accept: "text/event-stream, application/json",
@@ -339,6 +352,7 @@ export function subscribeChatEvents(
             keepalivesReceivedSinceConnect++;
           } else {
             dataFramesReceivedSinceConnect++;
+            markClientEstablished(sseDebugClientId);
           }
           lastSseAtMs = Date.now();
           armWatchdog(abortController);
@@ -417,13 +431,18 @@ export function subscribeChatEvents(
             eventData = data.message as Record<string, unknown>;
           }
 
-          const envelopeConversationKey = readEventConversationKey(data);
+          const envelopeConversationId = readEventConversationId(data);
           const eventType = typeof eventData.type === "string" ? eventData.type : "message";
           const parsed = parseAssistantEvent(eventType, eventData);
-          parsed.conversationKey =
-            parsed.conversationKey ??
-            envelopeConversationKey ??
-            requestedConversationKey;
+          // Coerce conversationId onto the parsed event from (in order): the
+          // event payload itself, the AssistantEvent envelope's
+          // `conversationId` field, and finally the requestedConversationId
+          // passed into this subscription.
+          parsed.conversationId =
+            parsed.conversationId ??
+            envelopeConversationId ??
+            requestedConversationId;
+          pushSseEvent(sseDebugClientId, parsed);
           try {
             onEvent(parsed);
           } catch {
@@ -462,6 +481,8 @@ export function subscribeChatEvents(
           err instanceof Error ? err : new Error("Stream connection failed"),
         );
       }
+    } finally {
+      unregisterSseClient(sseDebugClientId);
     }
   };
 

@@ -52,6 +52,9 @@ import { downNormalizeSlackExternalContent } from "./249-normalize-slack-externa
 import { downA2ATasks } from "./251-a2a-tasks.js";
 import { downExternalConversationBindingChatName } from "./254-external-conversation-binding-chat-name.js";
 import { downMemoryV2InjectionEvents } from "./256-memory-v2-injection-events.js";
+import { downConversationCleanedAt } from "./259-conversation-cleaned-at.js";
+import { downRenameCleanedAt } from "./260-rename-cleaned-at.js";
+import { downLlmUsageAddRawUsage } from "./261-llm-usage-add-raw-usage.js";
 
 export interface MigrationRegistryEntry {
   /** The checkpoint key written to memory_checkpoints on completion. */
@@ -444,6 +447,28 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     description:
       "Create memory_v2_injection_events table and backfill from activation logs for EMA-based tier 2 routing",
     down: downMemoryV2InjectionEvents,
+  },
+  {
+    key: "migration_conversation_cleaned_at_v1",
+    version: 52,
+    description:
+      "Add cleaned_at timestamp to conversations so /clean survives reload and forks inherit conditionally on fork point",
+    down: downConversationCleanedAt,
+  },
+  {
+    key: "migration_rename_cleaned_at_v1",
+    version: 53,
+    dependsOn: ["migration_conversation_cleaned_at_v1"],
+    description:
+      "Rename conversations.cleaned_at to history_stripped_at; the marker now records any injection-strip event (including compaction), not just /clean",
+    down: downRenameCleanedAt,
+  },
+  {
+    key: "migration_llm_usage_add_raw_usage_v1",
+    version: 54,
+    description:
+      "Add raw_usage TEXT column to llm_usage_events for storing the provider's untouched usage block as JSON (Anthropic TTL breakdown, OpenAI prompt/completion token details, etc.) so downstream consumers can extract provider-specific detail without per-field schema changes",
+    down: downLlmUsageAddRawUsage,
   },
 ];
 

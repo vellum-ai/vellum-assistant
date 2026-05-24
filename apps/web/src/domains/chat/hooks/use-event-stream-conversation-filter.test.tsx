@@ -11,10 +11,10 @@ import {
 
 import { useEventStream } from "@/domains/chat/hooks/use-event-stream.js";
 
-type StreamContext = { assistantId: string; conversationKey: string };
+type StreamContext = { assistantId: string; conversationId: string };
 
 function renderEventStream(
-  activeConversationKey: string,
+  activeConversationId: string,
   handleStreamEvent: (event: AssistantEvent, epoch: number) => void,
 ) {
   return renderHook(
@@ -30,7 +30,7 @@ function renderEventStream(
       useEventStream({
         assistantStateKind: "active",
         assistantId: "asst-1",
-        activeConversationKey: key,
+        activeConversationId: key,
         conversationExistsOnServer: true,
         streamRef,
         streamEpochRef,
@@ -54,14 +54,14 @@ function renderEventStream(
         conversationListInvalidatedTimerRef: timerRef,
       });
     },
-    { initialProps: { key: activeConversationKey } },
+    { initialProps: { key: activeConversationId } },
   );
 }
 
-function publishDelta(conversationKey: string): void {
+function publishDelta(conversationId: string): void {
   useEventBusStore.getState().publish("sse.event", {
     type: "assistant_text_delta",
-    conversationKey,
+    conversationId,
     delta: "hi",
   } as unknown as AssistantEvent);
 }
@@ -76,7 +76,7 @@ afterEach(() => {
 });
 
 describe("useEventStream — conversation-switch filtering", () => {
-  test("forwards events whose conversationKey matches the active key", () => {
+  test("forwards events whose conversationId matches the active key", () => {
     const handler = mock(() => {});
     renderEventStream("conv-A", handler);
     publishDelta("conv-A");
@@ -109,7 +109,7 @@ describe("useEventStream — conversation-switch filtering", () => {
     expect(handler).toHaveBeenCalledTimes(2);
   });
 
-  test("forwards assistant-broadcast events that omit conversationKey", () => {
+  test("forwards assistant-broadcast events that omit conversationId", () => {
     const handler = mock(() => {});
     renderEventStream("conv-A", handler);
     useEventBusStore.getState().publish("sse.event", {
@@ -117,5 +117,43 @@ describe("useEventStream — conversation-switch filtering", () => {
       tags: ["assistant:self:identity"],
     } as unknown as AssistantEvent);
     expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  test("rejects conversation-scoped events that omit conversationId (no implicit broadcast)", () => {
+    // Regression coverage: before the fix, conversation-scoped events
+    // arriving without a conversationId were treated as broadcast and
+    // forwarded to whichever conversation was active — causing
+    // cross-conversation jumbling. The new filter rejects them: a
+    // conversation-scoped event without an explicit key is treated as
+    // "unknown conversation", not "broadcast".
+    const handler = mock(() => {});
+    renderEventStream("conv-A", handler);
+    useEventBusStore.getState().publish("sse.event", {
+      type: "assistant_text_delta",
+      delta: "should be rejected",
+    } as unknown as AssistantEvent);
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  test("forwards conversation-scoped events whose conversationId matches the active conversation", () => {
+    const handler = mock(() => {});
+    renderEventStream("conv-A", handler);
+    useEventBusStore.getState().publish("sse.event", {
+      type: "message_complete",
+      conversationId: "conv-A",
+      messageId: "m1",
+    } as unknown as AssistantEvent);
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  test("a tool_call event for another conversation is dropped even when the active conversation has no current SSE epoch yet", () => {
+    const handler = mock(() => {});
+    renderEventStream("conv-A", handler);
+    useEventBusStore.getState().publish("sse.event", {
+      type: "tool_call",
+      conversationId: "conv-B",
+      toolName: "bash",
+    } as unknown as AssistantEvent);
+    expect(handler).not.toHaveBeenCalled();
   });
 });

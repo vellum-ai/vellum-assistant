@@ -116,7 +116,7 @@ mock.module("../../../providers/provider-send-message.js", () => ({
 // them. No mock needed for `daemon/identity-helpers.js`; it tolerates a
 // missing IDENTITY.md by returning null.
 
-const { runRouter } = await import("../router.js");
+const { runRouter, applyHistoricalCharBudget } = await import("../router.js");
 const { getPageIndex, invalidatePageIndex } = await import("../page-index.js");
 const { writePage } = await import("../page-store.js");
 
@@ -220,6 +220,7 @@ function makeConfig(overrides?: {
   batchSize?: number | null;
   tier1Size?: number | null;
   tier2Size?: number | null;
+  historicalPairsMaxChars?: number | null;
 }) {
   return {
     memory: {
@@ -231,6 +232,8 @@ function makeConfig(overrides?: {
           batch_size: overrides?.batchSize ?? null,
           tier1_size: overrides?.tier1Size ?? null,
           tier2_size: overrides?.tier2Size ?? null,
+          historical_pairs_max_chars:
+            overrides?.historicalPairsMaxChars ?? null,
         },
       },
     },
@@ -238,8 +241,12 @@ function makeConfig(overrides?: {
 }
 
 const COMMON_PARAMS = {
-  userMessage: "What's on my plate today?",
-  assistantMessage: "Let me check your plan.",
+  recentTurnPairs: [
+    {
+      assistantMessage: "Let me check your plan.",
+      userMessage: "What's on my plate today?",
+    },
+  ],
   nowText: "2026-05-10 14:00 PT",
   priorEverInjected: [] as { slug: string; turn: number }[],
 };
@@ -416,6 +423,78 @@ describe("runRouter — successful tool_use", () => {
     expect(blockB.text).toContain("[user]: What's on my plate today?");
     expect(blockB.text).toContain("[assistant]: Let me check your plan.");
     expect(blockB.cache_control).toBeUndefined();
+  });
+
+  test("runRouterBatch front-truncates the oldest <last_turn> message when the char budget is exceeded", async () => {
+    await writePage(workspaceDir, makePage("alpha", { summary: "A" }));
+    providerStub = makeProvider(toolUseResponse([1]));
+
+    const longAssistant = "A".repeat(2_000);
+    const longUser = "B".repeat(2_000);
+    const recentAssistant = "Short prior.";
+    const justArrived = "What's relevant?";
+
+    await runRouter({
+      workspaceDir,
+      recentTurnPairs: [
+        { assistantMessage: longAssistant, userMessage: longUser },
+        { assistantMessage: recentAssistant, userMessage: justArrived },
+      ],
+      nowText: "now",
+      priorEverInjected: [],
+      // Budget: just enough room for the most-recent pair plus the old user
+      // line in full, leaving a small slice for the very oldest assistant
+      // (which should be front-truncated with the `…` marker).
+      config: makeConfig({
+        historicalPairsMaxChars:
+          recentAssistant.length + justArrived.length + longUser.length + 50,
+      }),
+    });
+
+    const [call] = providerCalls;
+    const userMsg = call.messages[0];
+    const blockB = userMsg.content[1] as { text: string };
+
+    // The just-arrived user message and the prior assistant reply survive
+    // verbatim because they're newest in the walk.
+    expect(blockB.text).toContain(`[user]: ${justArrived}`);
+    expect(blockB.text).toContain(`[assistant]: ${recentAssistant}`);
+
+    // The older user message survives verbatim (next newest after the
+    // most-recent pair).
+    expect(blockB.text).toContain(`[user]: ${longUser}`);
+
+    // The oldest message in the walk (the older assistant) is
+    // front-truncated, so its rendered line starts with the `…` marker
+    // and ends with the suffix of the original text.
+    expect(blockB.text).toContain("[assistant]: …");
+    expect(blockB.text.endsWith(`A\n</last_turn>`)).toBe(false); // sanity
+    // The full untruncated long-assistant string must NOT appear.
+    expect(blockB.text.includes(longAssistant)).toBe(false);
+    // The TAIL of the long-assistant string SHOULD appear (kept from front-truncation).
+    expect(blockB.text).toContain(longAssistant.slice(-10));
+  });
+
+  test("null historical_pairs_max_chars renders pairs verbatim regardless of size", async () => {
+    await writePage(workspaceDir, makePage("alpha", { summary: "A" }));
+    providerStub = makeProvider(toolUseResponse([1]));
+
+    const huge = "X".repeat(5_000);
+    await runRouter({
+      workspaceDir,
+      recentTurnPairs: [
+        { assistantMessage: huge, userMessage: "just arrived" },
+      ],
+      nowText: "now",
+      priorEverInjected: [],
+      config: makeConfig(), // historical_pairs_max_chars: null
+    });
+
+    const [call] = providerCalls;
+    const blockB = call.messages[0].content[1] as { text: string };
+    expect(blockB.text).toContain(`[assistant]: ${huge}`);
+    expect(blockB.text).toContain("[user]: just arrived");
+    expect(blockB.text).not.toContain("…");
   });
 
   test("de-duplicates repeated IDs from the model while preserving order", async () => {
@@ -1015,5 +1094,94 @@ describe("runRouter — tier 2 (highest EMA)", () => {
       JSON.stringify(l.args).includes("tier2_size set but no database"),
     );
     expect(warned).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// applyHistoricalCharBudget — pure helper covering the cap semantics.
+// ---------------------------------------------------------------------------
+
+describe("applyHistoricalCharBudget", () => {
+  test("null budget is a no-op (returns a shallow copy)", () => {
+    const pairs = [
+      { assistantMessage: "older asst", userMessage: "older user" },
+      { assistantMessage: "newer asst", userMessage: "newer user" },
+    ];
+    const out = applyHistoricalCharBudget(pairs, null);
+    expect(out).toEqual(pairs);
+    // shallow copy — not the same array reference, so callers can mutate freely
+    expect(out).not.toBe(pairs);
+  });
+
+  test("budget that fits every message returns content unchanged", () => {
+    const pairs = [
+      { assistantMessage: "AA", userMessage: "UU" },
+      { assistantMessage: "BB", userMessage: "VV" },
+    ];
+    const total = "AA".length + "UU".length + "BB".length + "VV".length; // 8
+    const out = applyHistoricalCharBudget(pairs, total);
+    expect(out).toEqual(pairs);
+  });
+
+  test("front-truncates the oldest still-includable message when the cap is exceeded", () => {
+    // Newest user is 10 chars, newest assistant is 10, older user is 10,
+    // older assistant is 20. Budget 35 leaves remaining = 35 - 10 - 10 - 10 = 5
+    // for the older assistant; 5 - 1 marker char = 4 kept chars from the END.
+    const pairs = [
+      { assistantMessage: "ABCDEFGHIJKLMNOPQRST", userMessage: "old-user--" },
+      { assistantMessage: "abcdefghij", userMessage: "uvwxyzUVWX" },
+    ];
+    const out = applyHistoricalCharBudget(pairs, 35);
+    expect(out).toEqual([
+      { assistantMessage: "…QRST", userMessage: "old-user--" },
+      { assistantMessage: "abcdefghij", userMessage: "uvwxyzUVWX" },
+    ]);
+    // Sanity: total content chars equals the budget.
+    const totalChars = out.reduce(
+      (acc, p) => acc + p.assistantMessage.length + p.userMessage.length,
+      0,
+    );
+    expect(totalChars).toBe(35);
+  });
+
+  test("drops older pairs entirely when even their first message has no room", () => {
+    // Budget 20 fits the most-recent pair exactly (10 + 10 = 20) and leaves
+    // zero room for the older pair, which is dropped entirely.
+    const pairs = [
+      { assistantMessage: "OLD-ASST00", userMessage: "OLD-USER00" },
+      { assistantMessage: "NEW-ASST00", userMessage: "NEW-USER00" },
+    ];
+    const out = applyHistoricalCharBudget(pairs, 20);
+    expect(out).toEqual([
+      { assistantMessage: "NEW-ASST00", userMessage: "NEW-USER00" },
+    ]);
+  });
+
+  test("drops the older message of the current pair when the user line consumes the whole budget", () => {
+    // Budget 10 just barely covers the newest user (10 chars). The pair's
+    // own assistant message has no room and is dropped (left empty).
+    const pairs = [
+      { assistantMessage: "ASSISTANTX", userMessage: "USER-NEW10" },
+    ];
+    const out = applyHistoricalCharBudget(pairs, 10);
+    expect(out).toEqual([{ assistantMessage: "", userMessage: "USER-NEW10" }]);
+  });
+
+  test("non-positive budgets return an empty array (no message survives)", () => {
+    const pairs = [{ assistantMessage: "x", userMessage: "y" }];
+    expect(applyHistoricalCharBudget(pairs, 0)).toEqual(pairs);
+    // Negative budgets are degenerate but should not throw.
+    expect(applyHistoricalCharBudget(pairs, -5)).toEqual(pairs);
+  });
+
+  test("budget smaller than the truncation marker drops the would-truncate message", () => {
+    // Budget 11: covers full newest user (10 chars). Remaining 1 char is not
+    // enough room for the marker, so the next message (newest assistant)
+    // is dropped entirely rather than emitting a marker-only message.
+    const pairs = [
+      { assistantMessage: "ASSISTANTX", userMessage: "USER-NEW10" },
+    ];
+    const out = applyHistoricalCharBudget(pairs, 11);
+    expect(out).toEqual([{ assistantMessage: "", userMessage: "USER-NEW10" }]);
   });
 });

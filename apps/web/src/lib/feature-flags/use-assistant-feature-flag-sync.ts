@@ -66,7 +66,10 @@ export function useAssistantFeatureFlagSync(assistantId: string | null) {
 
   useEffect(() => {
     if (prevAssistantId.current !== assistantId) {
-      useAssistantFeatureFlagStore.getState().setFlags(ASSISTANT_FLAG_DEFAULTS);
+      // Reset to registry defaults AND clear hasHydrated — until the next
+      // /feature-flags response lands, callers must treat current values
+      // as provisional. See `hasHydrated` doc on the store.
+      useAssistantFeatureFlagStore.getState().resetForAssistantSwitch();
       prevAssistantId.current = assistantId;
     }
     setAssistantIdForFlags(assistantId);
@@ -83,7 +86,12 @@ export function useAssistantFeatureFlagSync(assistantId: string | null) {
 
   useEffect(() => {
     if (data?.flags) {
-      useAssistantFeatureFlagStore.getState().setFlags(mapFlags(data.flags));
+      const store = useAssistantFeatureFlagStore.getState();
+      store.setFlags(mapFlags(data.flags));
+      // Mark hydrated AFTER values are written so a consumer subscribing
+      // to both fields sees the real flag in the same render that
+      // hasHydrated flips to true.
+      store.markHydrated();
     }
   }, [data]);
 }

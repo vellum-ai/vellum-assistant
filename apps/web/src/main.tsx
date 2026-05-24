@@ -11,17 +11,25 @@ import "@/lib/sentry/sentry-init.js";
 import "@/lib/api-interceptors.js";
 import "./index.css";
 
-setupOrganizationStore();
-useAuthStore.getState().initSession();
-setupAuthListeners();
+import { initSafeAreaBridge } from "@/runtime/native-safe-area.js";
 
-const rootEl = document.getElementById("root");
-if (!rootEl) throw new Error("Root element #root not found");
+async function boot() {
+  await initSafeAreaBridge();
 
-createRoot(rootEl).render(
-  <StrictMode>
-    <AppProviders>
-      <RouterProvider router={router} />
-    </AppProviders>
-  </StrictMode>,
-);
+  setupOrganizationStore();
+  useAuthStore.getState().initSession();
+  setupAuthListeners();
+
+  const rootEl = document.getElementById("root");
+  if (!rootEl) throw new Error("Root element #root not found");
+
+  createRoot(rootEl).render(
+    <StrictMode>
+      <AppProviders>
+        <RouterProvider router={router} />
+      </AppProviders>
+    </StrictMode>,
+  );
+}
+
+boot();

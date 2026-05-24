@@ -2,15 +2,27 @@ import { NavLink, Outlet, useLocation, useOutletContext } from "react-router";
 
 import { cn } from "@vellum/design-library";
 
+import { PageShell } from "@/components/page-shell.js";
+import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
 import { routes } from "@/utils/routes.js";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store.js";
 
-const INTELLIGENCE_TABS = [
+interface IntelligenceTab {
+  readonly label: string;
+  readonly to: string;
+}
+
+const BASE_INTELLIGENCE_TABS: readonly IntelligenceTab[] = [
   { label: "Identity", to: routes.identity },
   { label: "Skills", to: routes.skills },
   { label: "Workspace", to: routes.workspace },
   { label: "Contacts", to: routes.contacts.root },
-] as const;
+];
+
+const PLUGINS_TAB: IntelligenceTab = {
+  label: "Plugins",
+  to: routes.plugins,
+};
 
 /**
  * Shared layout for the "About Assistant" pages (Identity, Skills,
@@ -27,11 +39,24 @@ const INTELLIGENCE_TABS = [
  */
 export function IntelligenceLayout() {
   const assistantName = useAssistantIdentityStore.use.name();
+  const hasHydrated = useAssistantFeatureFlagStore.use.hasHydrated();
+  const externalPlugins = useAssistantFeatureFlagStore.use.externalPlugins();
   const { pathname } = useLocation();
   const outletContext = useOutletContext();
 
+  // Insert the Plugins tab between Identity and Skills when the
+  // `external-plugins` flag is on. Gated on `hasHydrated` so we don't
+  // flash the tab in/out — until the first /feature-flags response
+  // lands, render the baseline tabs (Identity + Skills + Memories).
+  // The PluginsPage route itself also waits for hydration before
+  // deciding to redirect, so a deep-link to /assistant/plugins is safe.
+  const tabs: readonly IntelligenceTab[] =
+    hasHydrated && externalPlugins
+      ? [BASE_INTELLIGENCE_TABS[0], PLUGINS_TAB, ...BASE_INTELLIGENCE_TABS.slice(1)]
+      : BASE_INTELLIGENCE_TABS;
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] px-6 py-5">
+    <PageShell>
       <h1 className="mb-4 shrink-0 text-title-large text-[var(--content-default)]">
         About {assistantName || "Assistant"}
       </h1>
@@ -41,7 +66,7 @@ export function IntelligenceLayout() {
         style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}
         aria-label="About assistant sections"
       >
-        {INTELLIGENCE_TABS.map(({ label, to }) => {
+        {tabs.map(({ label, to }) => {
           const isActive =
             pathname === to || pathname.startsWith(to + "/");
           return (
@@ -68,6 +93,6 @@ export function IntelligenceLayout() {
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         <Outlet context={outletContext} />
       </div>
-    </div>
+    </PageShell>
   );
 }

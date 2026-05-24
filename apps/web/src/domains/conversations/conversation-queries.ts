@@ -67,7 +67,7 @@ const QUERY_STALE_TIME_MS = 30_000;
 /**
  * Subscribe to the bootstrapping chat context. Sidebar/list consumers
  * should prefer {@link useConversationListQuery}; only the loader needs
- * the full `{ assistantId, conversationKey, conversations }` payload.
+ * the full `{ assistantId, conversationId, conversations }` payload.
  */
 export function useChatContextQuery(
   assistantId: string | null,
@@ -163,7 +163,7 @@ export function findConversation(
   const ctx = queryClient.getQueryData<ChatContext | null>(
     chatContextQueryKey(assistantId),
   );
-  return ctx?.conversations.find((c) => c.conversationKey === key);
+  return ctx?.conversations.find((c) => c.conversationId === key);
 }
 
 /**
@@ -194,7 +194,7 @@ export function patchConversation(
   updateChatContextConversations(queryClient, assistantId, (conversations) => {
     let changed = false;
     const next = conversations.map((c) => {
-      if (c.conversationKey !== key) return c;
+      if (c.conversationId !== key) return c;
       changed = true;
       return { ...c, ...patch };
     });
@@ -217,7 +217,7 @@ export function markConversationSeenLocal(
   updateChatContextConversations(queryClient, assistantId, (conversations) => {
     let changed = false;
     const next = conversations.map((c) => {
-      if (c.conversationKey !== key) return c;
+      if (c.conversationId !== key) return c;
       changed = true;
       return {
         ...c,
@@ -249,7 +249,7 @@ export function removeConversation(
   key: string,
 ): void {
   updateChatContextConversations(queryClient, assistantId, (conversations) => {
-    const filtered = conversations.filter((c) => c.conversationKey !== key);
+    const filtered = conversations.filter((c) => c.conversationId !== key);
     return filtered.length === conversations.length ? conversations : filtered;
   });
 }
@@ -263,9 +263,9 @@ export function resolveDraftKey(
   updateChatContextConversations(queryClient, assistantId, (conversations) => {
     let changed = false;
     const next = conversations.map((c) => {
-      if (c.conversationKey !== oldKey) return c;
+      if (c.conversationId !== oldKey) return c;
       changed = true;
-      return { ...c, conversationKey: newKey, draft: false };
+      return { ...c, conversationId: newKey, draft: false };
     });
     return changed ? next : conversations;
   });

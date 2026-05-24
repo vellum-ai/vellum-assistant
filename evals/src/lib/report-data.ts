@@ -47,11 +47,26 @@ export interface ReportRunDetail extends ReportRunSummary {
   assistantEvents: AgentEvent[];
   simulatorMessages: AgentMessage[];
   progressEvents: PersistedProgressEvent[];
+  /**
+   * Filenames of per-subprocess stdout/stderr logs the adapters tee'd to
+   * the run directory (e.g. `subprocess-hatch.log`, `subprocess-setup-1.log`).
+   * Empty when no adapter call produced a log. Each name resolves to a
+   * fetchable URL at `/api/runs/<runId>/files/<name>`.
+   */
+  subprocessLogs: string[];
+  /**
+   * Filenames of any container-forensics artifacts written by the vellum
+   * adapter on hatch failure: `docker-inspect.json` and/or `docker-logs.txt`.
+   * Empty when the run never hit the catch path. Same URL contract as
+   * `subprocessLogs`.
+   */
+  dockerArtifacts: string[];
 }
 
 export type SessionStatus =
   | "completed"
   | "failed"
+  | "abandoned"
   | "partial"
   | "running"
   | "unknown";
@@ -177,6 +192,59 @@ export async function listReportRunIds(): Promise<string[]> {
   }
 }
 
+/**
+ * Set of bare filenames that may appear at the top of a run directory and
+ * should NOT be surfaced as `subprocessLogs` or `dockerArtifacts` (they're
+ * the structured artifacts loaded by their own readers above).
+ */
+const STRUCTURED_RUN_FILES = new Set<string>([
+  "run.json",
+  "metrics.json",
+  "transcript.json",
+  "assistant-events.json",
+  "simulator-messages.json",
+  "usage.json",
+  "progress.ndjson",
+]);
+
+/** Filenames the docker-forensics capture path writes on hatch failure. */
+const DOCKER_ARTIFACT_NAMES = new Set<string>([
+  "docker-inspect.json",
+  "docker-logs.txt",
+]);
+
+/**
+ * List run-directory files that should be exposed as raw downloadable
+ * artifacts on the run-detail page. Returns the names already classified
+ * into subprocess logs vs docker snapshots so the UI can render them in
+ * their own sections.
+ */
+async function listExtraArtifacts(runDir: string): Promise<{
+  subprocessLogs: string[];
+  dockerArtifacts: string[];
+}> {
+  let entries: string[];
+  try {
+    entries = await readdir(runDir);
+  } catch {
+    return { subprocessLogs: [], dockerArtifacts: [] };
+  }
+  const subprocessLogs: string[] = [];
+  const dockerArtifacts: string[] = [];
+  for (const name of entries.sort()) {
+    if (STRUCTURED_RUN_FILES.has(name)) continue;
+    if (DOCKER_ARTIFACT_NAMES.has(name)) {
+      dockerArtifacts.push(name);
+      continue;
+    }
+    if (/^subprocess-[a-z0-9\-]+\.log$/.test(name)) {
+      subprocessLogs.push(name);
+      continue;
+    }
+  }
+  return { subprocessLogs, dockerArtifacts };
+}
+
 export async function readReportRun(runId: string): Promise<ReportRunDetail> {
   const artifacts = runArtifacts(runId);
   const [
@@ -187,6 +255,7 @@ export async function readReportRun(runId: string): Promise<ReportRunDetail> {
     assistantEvents,
     simulatorMessages,
     progressEvents,
+    extras,
   ] = await Promise.all([
     readRunMetadata(runId),
     readMetricResults(runId),
@@ -195,6 +264,7 @@ export async function readReportRun(runId: string): Promise<ReportRunDetail> {
     readAssistantEvents(runId),
     readSimulatorMessages(runId),
     readProgressEvents(runId),
+    listExtraArtifacts(artifacts.runDir),
   ]);
 
   const summary = summarize({
@@ -223,6 +293,8 @@ export async function readReportRun(runId: string): Promise<ReportRunDetail> {
     assistantEvents,
     simulatorMessages,
     progressEvents,
+    subprocessLogs: extras.subprocessLogs,
+    dockerArtifacts: extras.dockerArtifacts,
   };
 }
 
@@ -258,8 +330,15 @@ function deriveSessionStatus(runs: ReportRunSummary[]): SessionStatus {
   if (states.has("running")) return "running";
   const hasFailed = states.has("failed");
   const hasCompleted = states.has("completed");
-  if (hasFailed && hasCompleted) return "partial";
+  const hasAbandoned = states.has("abandoned");
+  // Mixed terminal outcomes — surface as "partial" so the index makes it
+  // clear something didn't fully succeed. Abandoned counts as a non-success.
+  if ((hasFailed || hasAbandoned) && hasCompleted) return "partial";
   if (hasFailed) return "failed";
+  // All terminal runs are abandoned — surface that explicitly so it's
+  // distinguishable from clean failure and so the user knows to investigate
+  // stuck/killed processes rather than test bugs.
+  if (hasAbandoned) return "abandoned";
   if (hasCompleted) return "completed";
   return "unknown";
 }

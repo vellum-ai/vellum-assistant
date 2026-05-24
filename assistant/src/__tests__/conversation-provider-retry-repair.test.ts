@@ -179,6 +179,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   updateConversationUsage: () => {},
   updateConversationTitle: () => {},
   updateConversationContextWindow: () => {},
+  setConversationHistoryStrippedAt: () => {},
   getConversationOriginChannel: () => null,
   getConversationOriginInterface: () => null,
   provenanceFromTrustContext: () => ({}),

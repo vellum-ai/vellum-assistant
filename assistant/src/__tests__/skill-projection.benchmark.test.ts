@@ -23,7 +23,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 // Mock config loader and feature flags to avoid filesystem reads on CI.
-// getConfig returns a minimal config; all feature flags default to enabled.
+// The benchmark fixture treats every feature flag as enabled.
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({}),
   loadConfig: () => ({}),

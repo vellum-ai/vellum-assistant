@@ -24,6 +24,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import { getDb } from "../memory/db-connection.js";
+import { isConnectionCompatibleWithModel } from "./connection-model-compat.js";
 import {
   ConnectionResolutionError,
   tryResolveProviderForConnectionName,
@@ -73,10 +74,15 @@ export class CallSiteRoutingProvider implements Provider {
      * `expectedProvider` is the provider name the resolved profile
      * declared. The hook verifies the connection's provider matches
      * and throws on mismatch.
+     *
+     * `model` is the resolved call-site model, threaded through so the
+     * connection lookup can gate `oauth_subscription` (Codex) connections
+     * by model compatibility.
      */
     private readonly resolveByConnection: (
       connectionName: string,
       expectedProvider: string,
+      model: string | undefined,
     ) => Promise<Provider | null>,
   ) {
     this.tokenEstimationProvider = defaultProvider.tokenEstimationProvider;
@@ -155,7 +161,11 @@ export class CallSiteRoutingProvider implements Provider {
         const candidates = listConnections(getDb(), {
           provider: resolved.provider,
         });
-        const active = candidates.find((c) => c.status === "active");
+        const active = candidates.find(
+          (c) =>
+            c.status === "active" &&
+            isConnectionCompatibleWithModel(c, resolved.model),
+        );
         if (active) {
           connectionName = active.name;
         }
@@ -168,6 +178,7 @@ export class CallSiteRoutingProvider implements Provider {
       const connectionProvider = await this.resolveByConnection(
         connectionName,
         resolved.provider,
+        resolved.model,
       );
       if (connectionProvider) return connectionProvider;
       return this.defaultProvider;
@@ -200,11 +211,12 @@ export function wrapWithCallSiteRouting(
 ): Provider {
   return new CallSiteRoutingProvider(
     base,
-    (connectionName, expectedProvider) =>
+    (connectionName, expectedProvider, model) =>
       tryResolveProviderForConnectionName(
         connectionName,
         config,
         expectedProvider,
+        model,
       ),
   );
 }

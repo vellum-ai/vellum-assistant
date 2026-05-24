@@ -681,8 +681,13 @@ export interface BuildExportVBundleOptions {
    * flushed to the main .db file. Callers should pass a function that runs
    * PRAGMA wal_checkpoint(TRUNCATE) on the live database connection.
    * Called before the workspace walk so the DB file is up to date.
+   *
+   * May return a Promise — `streamExportVBundle` awaits the result so an
+   * async-dispatched checkpoint (e.g. via `runAsyncSqlite`) does not race
+   * with the file walk. The synchronous `buildExportVBundle` path does
+   * not await; pass a sync callback there.
    */
-  checkpoint?: () => void;
+  checkpoint?: () => void | Promise<void>;
   /** Optional credential entries to include in the archive under credentials/ prefix. */
   credentials?: Array<{ account: string; value: string }>;
 }
@@ -1120,9 +1125,11 @@ export async function streamExportVBundle(
     credentials,
   } = options;
 
-  // Flush WAL to the main database file before reading
+  // Flush WAL to the main database file before reading. Awaiting allows
+  // the callback to dispatch the checkpoint via `runAsyncSqlite` so the
+  // daemon event loop stays responsive while SQLite truncates the WAL.
   if (checkpoint) {
-    checkpoint();
+    await checkpoint();
   }
 
   const allFileMetadata: FileMetadata[] = [];

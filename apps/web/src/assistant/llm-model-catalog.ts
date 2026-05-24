@@ -162,6 +162,14 @@ export const MODELS_BY_PROVIDER = {
       supportsThinking: true,
     },
     {
+      id: "gemini-3.1-flash-lite",
+      displayName: "Gemini 3.1 Flash-Lite",
+      contextWindowTokens: 1_048_576,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 65_536,
+      supportsThinking: true,
+    },
+    {
       id: "gemini-2.5-flash",
       displayName: "Gemini 2.5 Flash",
       contextWindowTokens: 1_000_000,

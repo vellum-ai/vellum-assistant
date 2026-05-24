@@ -4,9 +4,9 @@
  * Covers:
  *   - Returns null when `memoryV2Static` is missing/empty.
  *   - Returns null when `mode === "minimal"`.
- *   - Wraps content in `<memory>...</memory>` and uses
+ *   - Wraps content in `<info>...</info>` and uses
  *     `after-memory-prefix` placement.
- *   - Escapes any `</memory>` substring inside the authored content so the
+ *   - Escapes any `</info>` substring inside the authored content so the
  *     wrapper cannot be broken out of.
  *
  * Hermetic: drives the injector's `produce()` directly with a synthesized
@@ -66,7 +66,7 @@ describe("memory-v2-static injector", () => {
     expect(await memoryV2StaticInjector.produce(ctx)).toBeNull();
   });
 
-  test("wraps content in <memory>...</memory> with after-memory-prefix placement", async () => {
+  test("wraps content in <info>...</info> with after-memory-prefix placement", async () => {
     const content =
       "## Essentials\n\nAlice prefers VS Code.\n\n## Threads\n\nOpen: ship PR.";
     const ctx = makeContext({
@@ -77,11 +77,11 @@ describe("memory-v2-static injector", () => {
     expect(block).not.toBeNull();
     expect(block!.id).toBe("memory-v2-static");
     expect(block!.placement).toBe("after-memory-prefix");
-    expect(block!.text).toBe(`<memory>\n${content}\n</memory>`);
+    expect(block!.text).toBe(`<info>\n${content}\n</info>`);
   });
 
-  test("escapes inner </memory> closing tags so the wrapper cannot be broken out of", async () => {
-    const content = "## Essentials\n\nText with </memory> embedded.";
+  test("escapes inner </info> closing tags so the wrapper cannot be broken out of", async () => {
+    const content = "## Essentials\n\nText with </info> embedded.";
     const ctx = makeContext({
       injectionInputs: { memoryV2Static: content },
     });
@@ -89,7 +89,7 @@ describe("memory-v2-static injector", () => {
     const block = await memoryV2StaticInjector.produce(ctx);
     expect(block).not.toBeNull();
     expect(block!.text).toBe(
-      "<memory>\n## Essentials\n\nText with &lt;/memory&gt; embedded.\n</memory>",
+      "<info>\n## Essentials\n\nText with &lt;/info&gt; embedded.\n</info>",
     );
   });
 });

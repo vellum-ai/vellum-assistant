@@ -425,7 +425,7 @@ describe("RetryProvider — callSite resolution", () => {
     expect(config.temperature).toBe(0.5);
   });
 
-  test("strips effort/speed/thinking for providers that don't support them", async () => {
+  test("strips effort/speed for providers that don't support them (e.g. fireworks)", async () => {
     setLlmConfig({
       default: {
         provider: "anthropic",
@@ -434,14 +434,14 @@ describe("RetryProvider — callSite resolution", () => {
         speed: "fast",
       },
       callSites: {
-        memoryRetrieval: { thinking: { enabled: true } },
+        memoryRetrieval: { thinking: { enabled: false } },
       },
     });
 
     let seen: SendMessageOptions | undefined;
-    // gemini does not support effort/speed/thinking — they must be stripped.
+    // fireworks does not support speed or thinking — they must be stripped.
     const wrapped = new RetryProvider(
-      makeProvider("gemini", (options) => {
+      makeProvider("fireworks", (options) => {
         seen = options;
       }),
     );
@@ -451,11 +451,91 @@ describe("RetryProvider — callSite resolution", () => {
     });
 
     const config = seen?.config as Record<string, unknown>;
-    expect(config.effort).toBeUndefined();
     expect(config.speed).toBeUndefined();
     expect(config.thinking).toBeUndefined();
     // Model still comes through.
     expect(config.model).toBe("claude-opus-4-7");
+  });
+
+  test("preserves thinking + level for Gemini provider", async () => {
+    setLlmConfig({
+      default: {
+        provider: "gemini",
+        model: "gemini-3.5-flash",
+        thinking: { enabled: true, streamThinking: true, level: "high" },
+      },
+      callSites: { mainAgent: {} },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("gemini", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+      config: { callSite: "mainAgent" },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.thinking).toEqual({
+      type: "adaptive",
+      level: "high",
+      streamThinking: true,
+    });
+  });
+
+  test("Gemini disabled thinking carries the wire `disabled` discriminator", async () => {
+    setLlmConfig({
+      default: {
+        provider: "gemini",
+        model: "gemini-3.5-flash",
+        thinking: { enabled: false, streamThinking: false },
+      },
+      callSites: { mainAgent: {} },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("gemini", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+      config: { callSite: "mainAgent" },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.thinking).toEqual({ type: "disabled" });
+  });
+
+  test("scrubs Gemini-only thinking extras (level, streamThinking) for Anthropic", async () => {
+    setLlmConfig({
+      default: {
+        provider: "anthropic",
+        model: "claude-opus-4-7",
+        thinking: { enabled: true, streamThinking: true, level: "high" },
+      },
+      callSites: { mainAgent: {} },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("anthropic", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+      config: { callSite: "mainAgent" },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    // Anthropic's SDK rejects unknown keys inside the `thinking` object with
+    // "Extra inputs are not permitted" — must be exactly `{ type }`.
+    expect(config.thinking).toEqual({ type: "adaptive" });
   });
 
   test("explicit per-call config.model wins over resolved callSite model", async () => {

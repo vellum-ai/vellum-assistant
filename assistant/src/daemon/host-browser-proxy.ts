@@ -185,7 +185,7 @@ export class HostBrowserProxy {
       let detachAbort: () => void = () => {};
 
       const timer = setTimeout(() => {
-        pendingInteractions.resolve(requestId);
+        pendingInteractions.resolve(requestId, "cancelled");
         log.warn(
           { requestId, cdpMethod: input.cdpMethod },
           "Host browser proxy request timed out",
@@ -200,7 +200,7 @@ export class HostBrowserProxy {
       if (signal) {
         const onAbort = () => {
           if (pendingInteractions.get(requestId)) {
-            pendingInteractions.resolve(requestId);
+            pendingInteractions.resolve(requestId, "cancelled");
             try {
               broadcastMessage({
                 type: "host_browser_cancel",
@@ -229,7 +229,7 @@ export class HostBrowserProxy {
 
       try {
         if (!preferredClient) {
-          pendingInteractions.resolve(requestId);
+          pendingInteractions.resolve(requestId, "cancelled");
           reject(
             new Error(
               "host_browser send failed: no active extension connection",
@@ -244,7 +244,7 @@ export class HostBrowserProxy {
           { targetClientId: preferredClient.clientId },
         );
       } catch (err) {
-        pendingInteractions.resolve(requestId);
+        pendingInteractions.resolve(requestId, "cancelled");
         log.warn(
           { requestId, cdpMethod: input.cdpMethod, err },
           "Host browser proxy send failed",
@@ -256,7 +256,7 @@ export class HostBrowserProxy {
 
   dispose(): void {
     for (const entry of pendingInteractions.getByKind("host_browser")) {
-      pendingInteractions.resolve(entry.requestId);
+      pendingInteractions.resolve(entry.requestId, "cancelled");
       try {
         broadcastMessage({
           type: "host_browser_cancel",

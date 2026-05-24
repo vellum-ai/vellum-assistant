@@ -4,19 +4,19 @@ import {
   assertHasResponse,
   extractErrorMessage,
 } from "@/lib/api-errors.js";
+import type { A2AInviteParams } from "@/domains/contacts/a2a-invite.js";
 import type {
-  AcceptA2AInviteResponse,
   ChannelInfo,
   ChannelReadinessSnapshot,
   ContactPayload,
   CreateA2AInviteResponse,
   CreateContactInput,
+  RedeemA2AInviteResponse,
   SlackChannelConfig,
   TelegramConfig,
   TwilioConfig,
   TwilioPhoneNumber,
 } from "@/domains/contacts/types.js";
-import type { A2AInviteParams } from "@/domains/contacts/a2a-invite.js";
 
 // These endpoints live on the per-assistant runtime daemon, proxied via
 // /v1/assistants/{assistant_id}/<path>/. They are not in the generated
@@ -489,7 +489,6 @@ interface DaemonCreateInviteResponse {
   inviteId?: string;
   token?: string;
   expiresAt?: number;
-  senderGatewayUrl?: string;
   success?: boolean;
 }
 
@@ -519,7 +518,7 @@ export async function createA2AInvite(
       extractErrorMessage(error, response, "Failed to create A2A invite"),
     );
   }
-  if (!data?.inviteId || !data.token || data.expiresAt === undefined || !data.senderGatewayUrl) {
+  if (!data?.inviteId || !data.token || data.expiresAt === undefined) {
     throw new ApiError(
       500,
       "Create invite succeeded but response is missing required fields",
@@ -530,47 +529,45 @@ export async function createA2AInvite(
     inviteId: data.inviteId,
     token: data.token,
     expiresAt: data.expiresAt,
-    senderGatewayUrl: data.senderGatewayUrl,
   };
 }
 
-interface DaemonAcceptInviteResponse {
+interface DjangoRedeemInviteResponse {
   success?: boolean;
-  contactId?: string;
-  alreadyConnected?: boolean;
+  already_connected?: boolean;
   error?: string;
-  errorCode?: string;
+  error_code?: string;
 }
 
-export async function acceptA2AInvite(
-  assistantId: string,
-  params: A2AInviteParams,
-): Promise<AcceptA2AInviteResponse> {
+export async function redeemA2AInvite(
+  receiverAssistantId: string,
+  input: A2AInviteParams,
+): Promise<RedeemA2AInviteResponse> {
   const { data, error, response } = await client.post<
-    DaemonAcceptInviteResponse,
+    DjangoRedeemInviteResponse,
     unknown
   >({
-    url: "/v1/assistants/{assistant_id}/integrations/a2a/invite/accept/",
-    path: { assistant_id: assistantId },
+    url: "/v1/assistants/{assistant_id}/a2a/invites/redeem/",
+    path: { assistant_id: receiverAssistantId },
     body: {
-      senderGatewayUrl: params.senderGatewayUrl,
-      senderAssistantId: params.senderAssistantId,
-      token: params.token,
+      sender_assistant_id: input.senderAssistantId,
+      token: input.token,
     },
     headers: { "Content-Type": "application/json" },
     throwOnError: false,
   });
-  assertHasResponse(response, error, "Failed to accept A2A invite");
+  assertHasResponse(response, error, "Failed to redeem A2A invite");
   if (!response.ok) {
     throw new ApiError(
       response.status,
-      extractErrorMessage(error, response, "Failed to accept A2A invite"),
+      extractErrorMessage(error, response, "Failed to redeem A2A invite"),
     );
   }
   return {
     success: data?.success ?? true,
-    contactId: data?.contactId,
-    alreadyConnected: data?.alreadyConnected,
+    alreadyConnected: data?.already_connected,
+    error: data?.error,
+    errorCode: data?.error_code,
   };
 }
 

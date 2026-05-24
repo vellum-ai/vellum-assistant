@@ -1,23 +1,23 @@
 export interface AsyncChatScope {
   currentAssistantId: string | null;
-  currentConversationKey: string | null;
+  currentConversationId: string | null;
   requestAssistantId: string;
-  requestConversationKey: string;
-  resolvedConversationKey?: string | null;
+  requestConversationId: string;
+  resolvedConversationId?: string | null;
 }
 
 export function isAsyncChatScopeCurrent({
   currentAssistantId,
-  currentConversationKey,
+  currentConversationId,
   requestAssistantId,
-  requestConversationKey,
-  resolvedConversationKey,
+  requestConversationId,
+  resolvedConversationId,
 }: AsyncChatScope): boolean {
-  if (currentAssistantId !== requestAssistantId || !currentConversationKey) {
+  if (currentAssistantId !== requestAssistantId || !currentConversationId) {
     return false;
   }
   return (
-    currentConversationKey === requestConversationKey ||
-    (!!resolvedConversationKey && currentConversationKey === resolvedConversationKey)
+    currentConversationId === requestConversationId ||
+    (!!resolvedConversationId && currentConversationId === resolvedConversationId)
   );
 }

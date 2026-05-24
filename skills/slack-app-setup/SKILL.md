@@ -17,11 +17,11 @@ You are helping your user connect a Slack bot to the Vellum Assistant via Socket
 
 ## Value Classification
 
-| Value         | Type       | Storage method            | Secret? |
-| ------------- | ---------- | ------------------------- | ------- |
-| App Token     | Credential | `credential_store` prompt | **Yes** |
-| Bot Token     | Credential | `credential_store` prompt | **Yes** |
-| User Token    | Credential | `credential_store` prompt | **Yes** |
+| Value      | Type       | Storage method            | Secret? |
+| ---------- | ---------- | ------------------------- | ------- |
+| App Token  | Credential | `credential_store` prompt | **Yes** |
+| Bot Token  | Credential | `credential_store` prompt | **Yes** |
+| User Token | Credential | `credential_store` prompt | **Yes** |
 
 - All credentials are collected via `credential_store` prompt — never accept them pasted in plaintext chat.
 
@@ -53,15 +53,20 @@ Note: `user_token` is optional. Missing `user_token` is **not** blocking — set
 
 ## Step 1: Create Slack App (One-Click)
 
-Ask the user what they'd like to name their Slack bot and optionally provide a short description. Then generate the manifest creation URL.
+Generate the manifest creation URL immediately. Do not ask the user to confirm the Slack bot name or description first.
+
+Infer the Slack app identity yourself before running the manifest generator:
+
+- Bot name: use your actual assigned name if you have it already; otherwise encourage the user to assign you a name first.
+- Description: use `Assistant for {guardianName}`, where `{guardianName}` is the guardian/user name from the current user context / `users/default.md`.
 
 **MANDATORY — you MUST run the script below to build the manifest URL.** Do NOT write your own manifest. Do NOT show YAML or JSON to the user. Do NOT tell the user to paste a manifest. The script contains the complete, correct manifest with all required scopes, event subscriptions, and socket mode settings. Running it produces a single pre-filled URL that creates the app with everything configured.
 
-Run this `bash` command, replacing `<user_name>` and `<user_description>` with the user's chosen values:
+Run this `bash` command, replacing `<inferred_bot_name>` and `<inferred_description>` with the values you inferred above:
 
 ```
 bash {
-  command: "bun skills/slack-app-setup/generate-manifest-url.ts '<user_name>' '<user_description>'"
+  command: "bun skills/slack-app-setup/generate-manifest-url.ts '<inferred_bot_name>' '<inferred_description>'"
   activity: "to generate the Slack app manifest link"
 }
 ```
@@ -84,17 +89,23 @@ Then collect it securely:
 
 - Call `credential_store` with `action: "prompt"`, `service: "slack_channel"`, `field: "app_token"`, `label: "App-Level Token"`, `placeholder: "xapp-..."`, `description: "Paste the App-Level Token you just generated"`
 
+Wait until you have successfully collected this from the user before proceeding.
+
 ### Step 2b: Install App to Workspace
 
 Tell the user: in the left sidebar of your Slack app settings, go to **Install App**, then click **Install to Workspace**. Slack will ask you to authorize — click **Allow**.
 
 After installing, the page will show the **Bot User OAuth Token** (starts with `xoxb-`) and optionally a **User OAuth Token** (starts with `xoxp-`).
 
+Wait until the user has successfully done this before proceeding.
+
 ### Step 2c: Bot Token
 
 Tell the user to copy the **Bot User OAuth Token** from the Install App page.
 
 - Call `credential_store` with `action: "prompt"`, `service: "slack_channel"`, `field: "bot_token"`, `label: "Bot User OAuth Token"`, `placeholder: "xoxb-..."`, `description: "From Install App page — the Bot User OAuth Token"`
+
+Wait until you have successfully collected this from the user before proceeding.
 
 ### Step 2d: User Token (Optional)
 

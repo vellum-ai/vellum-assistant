@@ -2,6 +2,7 @@ import { join } from "node:path";
 
 import { config as dotenvConfig } from "dotenv";
 
+import { registerBackgroundWakeRuntime } from "../background-wake/runtime-registry.js";
 import { setPointerMessageProcessor } from "../calls/call-pointer-messages.js";
 import { reconcileCallsOnStartup } from "../calls/call-recovery.js";
 import { setRelayBroadcast } from "../calls/relay-server.js";
@@ -35,6 +36,10 @@ import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { startHomeContentRefresh } from "../home/home-content-refresh.js";
 import { backfillRelationshipStateIfMissing } from "../home/relationship-state-writer.js";
 import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
+import {
+  startGatewayFlagListener,
+  stopGatewayFlagListener,
+} from "../ipc/gateway-flag-listener.js";
 import { getMcpServerManager } from "../mcp/manager.js";
 import {
   getAttachmentsByIds,
@@ -45,7 +50,7 @@ import { deleteMessageById, getMessages } from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { selectEmbeddingBackend } from "../memory/embedding-backend.js";
-import { enqueueMemoryJob } from "../memory/jobs-store.js";
+import { enqueueMemoryJob, isMemoryEnabled } from "../memory/jobs-store.js";
 import { startMemoryJobsWorker } from "../memory/jobs-worker.js";
 import { initQdrantClient, resolveQdrantUrl } from "../memory/qdrant-client.js";
 import { QdrantManager } from "../memory/qdrant-manager.js";
@@ -357,6 +362,8 @@ export async function runDaemon(): Promise<void> {
     void initFeatureFlagOverrides().catch((err) =>
       log.warn({ err }, "Background feature flag init failed"),
     );
+
+    startGatewayFlagListener();
 
     log.info("Daemon startup: initializing DB");
     ensurePromptFiles();
@@ -836,7 +843,7 @@ export async function runDaemon(): Promise<void> {
             // If a destructive migration occurred, enqueue a rebuild_index job
             // to re-embed all memory items from the SQLite cache.
             const { migrated } = await qdrantClient.ensureCollection();
-            if (migrated) {
+            if (migrated && isMemoryEnabled()) {
               enqueueMemoryJob("rebuild_index", {});
               log.info(
                 "Qdrant collection was migrated — enqueued rebuild_index job",
@@ -1270,11 +1277,11 @@ export async function runDaemon(): Promise<void> {
     })();
 
     if (config.auditLog.retentionDays > 0) {
-      try {
-        rotateToolInvocations(config.auditLog.retentionDays);
-      } catch (err) {
-        log.warn({ err }, "Audit log rotation failed");
-      }
+      void rotateToolInvocations(config.auditLog.retentionDays).catch(
+        (err) => {
+          log.warn({ err }, "Audit log rotation failed");
+        },
+      );
     }
 
     const workspaceHeartbeat = new WorkspaceHeartbeatService();
@@ -1291,6 +1298,7 @@ export async function runDaemon(): Promise<void> {
         }),
     });
     heartbeat.start();
+    registerBackgroundWakeRuntime({ scheduler, heartbeat });
     log.info(
       {
         enabled: heartbeatConfig.enabled,
@@ -1347,6 +1355,7 @@ export async function runDaemon(): Promise<void> {
       mcpManager,
       telemetryReporter,
       cleanupPidFile: () => {
+        stopGatewayFlagListener();
         stopDiskPressureGuardForLifecycle();
         cleanupPidFile();
       },

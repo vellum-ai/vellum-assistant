@@ -473,7 +473,6 @@ paths:
           multipart/form-data:
             schema:
               $ref: '#/components/schemas/CreateAssistantDomainRequest'
-        required: true
       security:
       - VellumAPIKey: []
       - SDKCompatibleAssistantKey: []
@@ -879,6 +878,80 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/{assistant_id}/managed-search-proxy/{provider}/:
+    post:
+      operationId: assistants_managed_search_proxy_create
+      description: Proxy a managed search-provider API request through Vellum. The
+        caller supplies the provider-shaped request path/query/body; Vellum validates
+        the route, checks billing eligibility, strips caller credentials, injects
+        managed provider credentials, and returns the upstream response envelope.
+      parameters:
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: provider
+        schema:
+          type: string
+        required: true
+      tags:
+      - assistants
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManagedSearchProxyRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ManagedSearchProxyRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ManagedSearchProxyRequestRequest'
+        required: true
+      security:
+      - AssistantAPIKey: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedSearchProxyResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedSearchProxyErrorResponse'
+          description: ''
+        '402':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedSearchProxyErrorResponse'
+          description: ''
+        '413':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedSearchProxyErrorResponse'
+          description: ''
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedSearchProxyErrorResponse'
+          description: ''
+        '502':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedSearchProxyErrorResponse'
           description: ''
       x-vellum-api-clients:
       - platform
@@ -1930,58 +2003,6 @@ paths:
                 $ref: '#/components/schemas/ConnectionStatus'
           description: ''
         '404':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DetailResponse'
-          description: ''
-      x-vellum-api-clients:
-      - platform
-  /v1/assistants/{id}/pro-upgrade-machine/:
-    post:
-      operationId: assistants_pro_upgrade_machine_create
-      description: |-
-        Upgrade an assistant's compute profile to the Pro level (``medium``).
-
-        Idempotent: if the assistant is already at or above ``medium``, returns
-        200 without calling vembda. Resizes the PVC to 20Gi first (if currently
-        smaller) and only then updates the machine size — failures abort the
-        flow without partial persistence.
-      parameters:
-      - in: header
-        name: Vellum-Organization-Id
-        schema:
-          type: string
-          format: uuid
-        description: Required if using Cookie-based or X-Session-Token authentication
-          methods.
-      - in: path
-        name: id
-        schema:
-          type: string
-          pattern: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
-        required: true
-      tags:
-      - assistants
-      security:
-      - VellumAPIKey: []
-      - cookieAuth: []
-      - XSessionTokenAuth: []
-      - AssistantAPIKey: []
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DetailResponse'
-          description: ''
-        '403':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DetailResponse'
-          description: ''
-        '502':
           content:
             application/json:
               schema:
@@ -3124,6 +3145,37 @@ paths:
           description: ''
       x-vellum-api-clients:
       - platform
+  /v1/feature-flags/client-flag-values/:
+    get:
+      operationId: feature_flags_client_flag_values_retrieve
+      description: |-
+        Return evaluated feature flag values for the session-authenticated user.
+
+        The web SPA calls this on startup to hydrate its client-side feature flag
+        store. Requires session auth and the ``Vellum-Organization-Id`` header.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - feature-flags
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientFeatureFlagsResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
   /v1/feedback/:
     post:
       operationId: feedback_create
@@ -3464,11 +3516,13 @@ paths:
     post:
       operationId: organizations_billing_subscription_change_machine_tier_create
       description: Switch the compute (machine) tier on the org's active Pro subscription.
-        Modifies the Stripe subscription item in place (Stripe applies prorated billing
-        on the next invoice) and converges every org assistant's pod to the new machine
-        size via vembda. Requires an active Pro subscription that has the multi-item
-        structure with machine_tier metadata; legacy single-price subscriptions get
-        HTTP 409 until they are migrated.
+        Modifies the Stripe subscription item in place. Upgrades invoice immediately
+        (always_invoice) and only raise the ceiling — pods are left untouched (grow
+        later via the per-assistant resize). Downgrades net onto the next invoice
+        (create_prorations, no refund) and cap any pods above the new ceiling via
+        vembda. Rejected with HTTP 409 while a cancellation is pending. Requires an
+        active Pro subscription with the multi-item structure and machine_tier metadata;
+        legacy single-price subscriptions get HTTP 409 until they are migrated.
       parameters:
       - in: header
         name: Vellum-Organization-Id
@@ -3501,6 +3555,52 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ComputeTierChangeResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/organizations/billing/subscription/change-storage-tier/:
+    post:
+      operationId: organizations_billing_subscription_change_storage_tier_create
+      description: Upgrade the storage tier on the org's active Pro subscription.
+        Modifies the Stripe subscription item in place and invoices immediately (always_invoice).
+        Storage is upgrade-only — equal-tier requests are a no-op and smaller-tier
+        requests are rejected with HTTP 400 before any Stripe call. PVCs are never
+        grown here; the per-assistant resize card applies the new ceiling. Rejected
+        with HTTP 409 while a cancellation is pending. Requires an active Pro subscription
+        with storage_tier metadata; legacy subscriptions get HTTP 409 until they are
+        migrated.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StorageTierChangeRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/StorageTierChangeRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/StorageTierChangeRequestRequest'
+        required: true
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StorageTierChangeResponse'
           description: ''
       x-vellum-api-clients:
       - platform
@@ -3609,78 +3709,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/OnboardingDomainResponse'
           description: ''
-      x-vellum-api-clients:
-      - platform
-  /v1/organizations/billing/subscription/onboarding/machine/:
-    post:
-      operationId: organizations_billing_subscription_onboarding_machine_create
-      description: Post-checkout Pro onboarding wizard endpoints.
-      parameters:
-      - in: header
-        name: Vellum-Organization-Id
-        schema:
-          type: string
-          format: uuid
-        description: Required if using Cookie-based or X-Session-Token authentication
-          methods.
-      tags:
-      - organizations
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/OnboardingMachineRequestRequest'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/OnboardingMachineRequestRequest'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/OnboardingMachineRequestRequest'
-        required: true
-      security:
-      - VellumAPIKey: []
-      - cookieAuth: []
-      - XSessionTokenAuth: []
-      responses:
-        '202':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/OnboardingMachineResponse'
-          description: ''
-      x-vellum-api-clients:
-      - platform
-  /v1/organizations/billing/subscription/onboarding/storage/:
-    post:
-      operationId: organizations_billing_subscription_onboarding_storage_create
-      description: Apply the active Pro storage tier to the org's primary assistant's
-        PVC on demand. Grow-only and idempotent at the vembda layer — re-clicks are
-        safe. Readiness (pvc_ready) derives from the assistant's provisioned_storage_gib
-        column, written by the resize.
-      parameters:
-      - in: header
-        name: Vellum-Organization-Id
-        schema:
-          type: string
-          format: uuid
-        description: Required if using Cookie-based or X-Session-Token authentication
-          methods.
-      tags:
-      - organizations
-      security:
-      - VellumAPIKey: []
-      - cookieAuth: []
-      - XSessionTokenAuth: []
-      responses:
-        '202':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/OnboardingStorageResponse'
-          description: ''
-        '409':
-          description: Missing or invalid storage tier on the account, or no assistant
-            to provision.
       x-vellum-api-clients:
       - platform
   /v1/organizations/billing/subscription/upgrade/:
@@ -3863,6 +3891,7 @@ paths:
           - llm_call_site
           - model
           - oauth_provider
+          - search_provider
           - usage_source
         description: 'Dimension to group by within each bucket (default: usage_source).'
       - in: query
@@ -3891,6 +3920,11 @@ paths:
           type: string
         description: Filter by OAuth provider (e.g. twitter, hubspot).
       - in: query
+        name: search_provider
+        schema:
+          type: string
+        description: Filter by search provider (e.g. brave).
+      - in: query
         name: to
         schema:
           type: string
@@ -3909,7 +3943,8 @@ paths:
           enum:
           - oauth_proxy
           - runtime_proxy
-        description: 'Filter by usage source: runtime_proxy or oauth_proxy.'
+          - search_proxy
+        description: 'Filter by usage source: runtime_proxy, oauth_proxy, or search_proxy.'
       tags:
       - organizations
       security:
@@ -3969,6 +4004,11 @@ paths:
           type: string
         description: Filter by OAuth provider (e.g. twitter, hubspot).
       - in: query
+        name: search_provider
+        schema:
+          type: string
+        description: Filter by search provider (e.g. brave).
+      - in: query
         name: to
         schema:
           type: string
@@ -3987,7 +4027,8 @@ paths:
           enum:
           - oauth_proxy
           - runtime_proxy
-        description: 'Filter by usage source: runtime_proxy or oauth_proxy.'
+          - search_proxy
+        description: 'Filter by usage source: runtime_proxy, oauth_proxy, or search_proxy.'
       tags:
       - organizations
       security:
@@ -4392,7 +4433,6 @@ components:
         handle:
           type: string
           readOnly: true
-          nullable: true
         description:
           type: string
           nullable: true
@@ -4429,6 +4469,14 @@ components:
           oneOf:
           - $ref: '#/components/schemas/MachineSizeEnum'
           - $ref: '#/components/schemas/NullEnum'
+        provisioned_storage_gib:
+          type: integer
+          readOnly: true
+          nullable: true
+          description: GiB of workspace PVC last successfully provisioned for THIS
+            assistant via a resize/onboarding apply. Null until storage is first applied.
+            Used to derive onboarding pvc_ready and as the never-shrink floor; distinct
+            from BillingAccount billing markers.
         maintenance_mode:
           allOf:
           - $ref: '#/components/schemas/MaintenanceMode'
@@ -4454,6 +4502,7 @@ components:
       - machine_size
       - maintenance_mode
       - modified
+      - provisioned_storage_gib
       - release_channel
       - vembda_cluster_id
     AssistantDomain:
@@ -4974,6 +5023,15 @@ components:
         * `ios` - iOS
         * `web` - Web
         * `cli` - CLI
+    ClientFeatureFlagsResponse:
+      type: object
+      properties:
+        flags:
+          type: object
+          additionalProperties:
+            type: boolean
+      required:
+      - flags
     CodeEnum:
       enum:
       - denied
@@ -5023,20 +5081,12 @@ components:
       type: object
       properties:
         status:
-          $ref: '#/components/schemas/ComputeTierChangeResponseStatusEnum'
+          $ref: '#/components/schemas/TierChangeStatusEnum'
         machine_tier:
           $ref: '#/components/schemas/MachineTierEnum'
       required:
       - machine_tier
       - status
-    ComputeTierChangeResponseStatusEnum:
-      enum:
-      - ok
-      - no_op
-      type: string
-      description: |-
-        * `ok` - ok
-        * `no_op` - no_op
     ConnectionStatus:
       type: object
       description: Serializer describing the live reachability of an assistant pod.
@@ -5103,10 +5153,15 @@ components:
         subdomain:
           type: string
           minLength: 1
-          description: Subdomain to register (e.g. 'velly').
+          description: Subdomain to register (e.g. 'velly'). Defaults to the assistant's
+            handle.
           maxLength: 63
-      required:
-      - subdomain
+        email_username:
+          type: string
+          minLength: 1
+          description: If provided, also create an email address <username>@<subdomain>.<root_domain>
+            after domain registration.
+          maxLength: 255
     CreateEmailAddressRequest:
       type: object
       properties:
@@ -5562,6 +5617,57 @@ components:
       required:
       - debug_pod_name
       - enabled
+    ManagedSearchProxyErrorResponse:
+      type: object
+      properties:
+        code:
+          type: string
+        detail:
+          type: string
+      required:
+      - code
+      - detail
+    ManagedSearchProxyRequestBodyRequest:
+      type: object
+      properties:
+        method:
+          type: string
+          minLength: 1
+        path:
+          type: string
+          minLength: 1
+        query:
+          type: object
+          additionalProperties: {}
+        headers:
+          type: object
+          additionalProperties: {}
+        body:
+          nullable: true
+      required:
+      - method
+      - path
+    ManagedSearchProxyRequestRequest:
+      type: object
+      properties:
+        request:
+          $ref: '#/components/schemas/ManagedSearchProxyRequestBodyRequest'
+      required:
+      - request
+    ManagedSearchProxyResponse:
+      type: object
+      properties:
+        status:
+          type: integer
+        headers:
+          type: object
+          additionalProperties: {}
+        body:
+          nullable: true
+      required:
+      - body
+      - headers
+      - status
     ModeEnum:
       enum:
       - restore_backup
@@ -5833,6 +5939,10 @@ components:
         skipped:
           type: boolean
           default: false
+        email_username:
+          type: string
+          minLength: 1
+          maxLength: 255
     OnboardingDomainResponse:
       type: object
       description: |-
@@ -5853,30 +5963,6 @@ components:
         modified:
           type: string
           format: date-time
-    OnboardingMachineRequestRequest:
-      type: object
-      properties:
-        machine_size:
-          type: string
-          minLength: 1
-      required:
-      - machine_size
-    OnboardingMachineResponse:
-      type: object
-      properties:
-        machine_size:
-          type: string
-        updated:
-          type: integer
-        skipped:
-          type: integer
-        failures:
-          type: integer
-      required:
-      - failures
-      - machine_size
-      - skipped
-      - updated
     OnboardingStateResponse:
       type: object
       properties:
@@ -5893,22 +5979,17 @@ components:
           type: boolean
         domain_setup_available:
           type: boolean
+        primary_assistant_id:
+          type: string
+          format: uuid
+          nullable: true
       required:
       - domain_setup_available
       - max_machine_tier
+      - primary_assistant_id
       - pvc_ready
       - selected_storage_gib
       - selected_storage_tier
-    OnboardingStorageResponse:
-      type: object
-      properties:
-        target_gib:
-          type: integer
-        failures:
-          type: integer
-      required:
-      - failures
-      - target_gib
     OrganizationRead:
       type: object
       properties:
@@ -6136,7 +6217,7 @@ components:
           nullable: true
         handle:
           type: string
-          nullable: true
+          minLength: 1
           maxLength: 150
     PatchedSleepPolicyRequest:
       type: object
@@ -6567,6 +6648,23 @@ components:
       - price_cents
       - storage_gib
       - tier
+    StorageTierChangeRequestRequest:
+      type: object
+      properties:
+        storage_tier:
+          $ref: '#/components/schemas/StorageTierEnum'
+      required:
+      - storage_tier
+    StorageTierChangeResponse:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/TierChangeStatusEnum'
+        storage_tier:
+          $ref: '#/components/schemas/StorageTierEnum'
+      required:
+      - status
+      - storage_tier
     StorageTierEnum:
       enum:
       - xs
@@ -6692,6 +6790,14 @@ components:
         * `wake` - Wake
         * `profiler` - Profiler
         * `other` - Other
+    TierChangeStatusEnum:
+      enum:
+      - ok
+      - no_op
+      type: string
+      description: |-
+        * `ok` - ok
+        * `no_op` - no_op
     TopUpCheckoutRequestRequest:
       type: object
       description: |-

@@ -3,7 +3,7 @@
  *
  * This hook handles two concerns:
  *
- * 1. **Conversation-switch resets** — when `activeConversationKey` changes,
+ * 1. **Conversation-switch resets** — when `activeConversationId` changes,
  *    reset all per-conversation state (turn, interactions, subagents,
  *    pending messages, dismissed surfaces, etc.) so nothing leaks between
  *    conversations.
@@ -64,11 +64,11 @@ import {
 interface UseConversationHistoryParams {
   assistantId: string | null;
   assistantStateKind: AssistantStateKind;
-  activeConversationKey: string | null;
+  activeConversationId: string | null;
 
   // Refs (owned by parent, read/written by this hook)
-  draftKeyResolutionRef: MutableRefObject<boolean>;
-  previousConversationKeyRef: MutableRefObject<string | null>;
+  draftConversationIdResolutionRef: MutableRefObject<boolean>;
+  previousConversationIdRef: MutableRefObject<string | null>;
 
   contextWindowUsageByConversationRef: MutableRefObject<Map<string, ContextWindowUsage>>;
   dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
@@ -110,9 +110,9 @@ export interface ConversationHistoryResult {
 export function useConversationHistory({
   assistantId,
   assistantStateKind,
-  activeConversationKey,
-  draftKeyResolutionRef,
-  previousConversationKeyRef,
+  activeConversationId,
+  draftConversationIdResolutionRef,
+  previousConversationIdRef,
   contextWindowUsageByConversationRef,
   dismissedSurfaceIdsRef,
   needsNewBubbleRef,
@@ -140,8 +140,8 @@ export function useConversationHistory({
   // -------------------------------------------------------------------------
   const pagination = useHistoryPagination({
     assistantId,
-    conversationKey: activeConversationKey,
-    enabled: assistantStateKind === "active" && !!assistantId && !!activeConversationKey,
+    conversationId: activeConversationId,
+    enabled: assistantStateKind === "active" && !!assistantId && !!activeConversationId,
   });
 
   // -------------------------------------------------------------------------
@@ -153,9 +153,9 @@ export function useConversationHistory({
   const { switchResetRef, lastAppliedDataRef } = useConversationSwitch({
     assistantId,
     assistantStateKind,
-    activeConversationKey,
-    draftKeyResolutionRef,
-    previousConversationKeyRef,
+    activeConversationId,
+    draftConversationIdResolutionRef,
+    previousConversationIdRef,
     needsNewBubbleRef,
     streamingMessageIdsRef,
     pendingQueuedStableIdsRef,
@@ -184,7 +184,7 @@ export function useConversationHistory({
     if (!pagination.isSuccess || pagination.dataUpdatedAt === lastAppliedDataRef.current) {
       return;
     }
-    if (!assistantId || !activeConversationKey) return;
+    if (!assistantId || !activeConversationId) return;
 
     lastAppliedDataRef.current = pagination.dataUpdatedAt;
     const isFreshSwitch = switchResetRef.current;
@@ -192,7 +192,7 @@ export function useConversationHistory({
 
     recordChatDiagnostic("history_tq_data_apply", {
       assistantId,
-      conversationKey: activeConversationKey,
+      conversationId: activeConversationId,
       isFreshSwitch,
       pageCount: pagination.latestPage ? 1 : 0,
       messageCount: pagination.messages.length,
@@ -206,7 +206,7 @@ export function useConversationHistory({
 
       recordChatDiagnostic("history_tq_set_messages", {
         assistantId,
-        conversationKey: activeConversationKey,
+        conversationId: activeConversationId,
         isFreshSwitch,
         dismissedSurfaceCount: dismissedSurfaceIdsRef.current.size,
         filteredMessages: summarizeDisplayMessages(filteredMessages),
@@ -240,7 +240,7 @@ export function useConversationHistory({
       for (const msg of filteredMessages) {
         if (!msg.surfaces) continue;
         for (const surface of msg.surfaces) {
-          fetchSurfaceContent(assistantId, surface.surfaceId, activeConversationKey).then(
+          fetchSurfaceContent(assistantId, surface.surfaceId, activeConversationId).then(
             (fresh) => {
               if (!fresh) return;
               setMessages((prev) => {
@@ -270,7 +270,7 @@ export function useConversationHistory({
     } else {
       recordChatDiagnostic("history_tq_empty", {
         assistantId,
-        conversationKey: activeConversationKey,
+        conversationId: activeConversationId,
       });
       setIsLoadingHistory(false);
     }
@@ -313,16 +313,16 @@ export function useConversationHistory({
     // Restore pending interactions (secrets, confirmations).
     // Capture the key before the await so we can detect stale responses
     // when the user switches conversations while the request is in flight.
-    const requestedKey = activeConversationKey;
+    const requestedConversationId = activeConversationId;
     void (async () => {
       try {
         const interactions = await getPendingInteractions(
           assistantId,
-          requestedKey,
+          requestedConversationId,
         );
         // Guard: if the active conversation changed during the fetch,
         // discard the result to avoid leaking state across conversations.
-        if (useConversationStore.getState().activeConversationKey !== requestedKey) {
+        if (useConversationStore.getState().activeConversationId !== requestedConversationId) {
           return;
         }
         const parsed_secret = interactions.pendingSecret
@@ -342,7 +342,7 @@ export function useConversationHistory({
         if (!interactions.pendingSecret && !interactions.pendingConfirmation) {
           useConversationStore
             .getState()
-            .removeAttentionKey(requestedKey);
+            .removeAttentionConversationId(requestedConversationId);
         }
       } catch {
         // Keep attention key on failure.
@@ -366,7 +366,7 @@ export function useConversationHistory({
     pagination.oldestLoadedTimestamp,
     pagination.isFetchingOlderPages,
     assistantId,
-    activeConversationKey,
+    activeConversationId,
     dismissedSurfaceIdsRef,
     autoGreetRef,
     syncNeedsNewBubbleFromMessages,

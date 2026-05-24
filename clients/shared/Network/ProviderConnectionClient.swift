@@ -30,6 +30,12 @@ public enum ProviderConnectionCreateResult: Sendable {
     case error
 }
 
+/// Result of starting a ChatGPT subscription OAuth flow.
+public struct ChatgptAuthStartResult: Sendable {
+    public let authorizeUrl: String
+    public let state: String
+}
+
 public protocol ProviderConnectionClientProtocol {
     func listProviderConnections(provider: String?) async -> [ProviderConnection]?
     func getProviderConnection(name: String) async -> ProviderConnection?
@@ -38,6 +44,10 @@ public protocol ProviderConnectionClientProtocol {
     /// `status`: nil = omit from body (no change). `label`: nil outer = omit; `.some(nil)` = send null (clear); `.some("v")` = set.
     func updateProviderConnection(name: String, auth: ProviderConnectionAuth, status: ConnectionStatus?, label: String??, baseUrl: String??, models: [ConnectionModel]??) async -> ProviderConnection?
     func deleteProviderConnection(name: String) async -> ProviderConnectionDeleteResult
+    /// Start a ChatGPT subscription OAuth flow. Returns the authorize URL and state token.
+    func startChatgptSubscriptionAuth() async -> ChatgptAuthStartResult?
+    /// Exchange an OAuth authorization code for tokens, completing the ChatGPT subscription sign-in.
+    func exchangeChatgptAuthCode(code: String, state: String) async -> Bool
 }
 
 public struct ProviderConnectionClient: ProviderConnectionClientProtocol {
@@ -236,6 +246,46 @@ public struct ProviderConnectionClient: ProviderConnectionClientProtocol {
         if tail.hasSuffix(".") { tail = String(tail.dropLast()) }
         let names = tail.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
         return names.isEmpty ? [] : names
+    }
+
+    public func startChatgptSubscriptionAuth() async -> ChatgptAuthStartResult? {
+        do {
+            let response = try await GatewayHTTPClient.post(
+                path: "inference/chatgpt-subscription/auth",
+                json: [:]
+            )
+            guard response.isSuccess else {
+                log.warning("POST /inference/chatgpt-subscription/auth failed: \(response.statusCode)")
+                return nil
+            }
+            guard let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+                  let authorizeUrl = json["authorize_url"] as? String,
+                  let state = json["state"] as? String else {
+                log.error("startChatgptSubscriptionAuth: unexpected response shape")
+                return nil
+            }
+            return ChatgptAuthStartResult(authorizeUrl: authorizeUrl, state: state)
+        } catch {
+            log.error("startChatgptSubscriptionAuth: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }
+
+    public func exchangeChatgptAuthCode(code: String, state: String) async -> Bool {
+        do {
+            let response = try await GatewayHTTPClient.post(
+                path: "inference/chatgpt-subscription/auth/exchange",
+                json: ["code": code, "state": state]
+            )
+            guard response.isSuccess else {
+                log.warning("POST /inference/chatgpt-subscription/auth/exchange failed: \(response.statusCode)")
+                return false
+            }
+            return true
+        } catch {
+            log.error("exchangeChatgptAuthCode: \(error.localizedDescription, privacy: .public)")
+            return false
+        }
     }
 }
 

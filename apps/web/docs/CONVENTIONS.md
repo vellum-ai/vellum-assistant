@@ -230,6 +230,46 @@ Examples of correct splits:
   confirmations) have their own state machine, independent from the
   turn lifecycle (idle → sending → receiving → complete).
 
+### Conversation identifiers: `conversationId` vs `conversationKey`
+
+The daemon uses two identifiers for conversations:
+
+| Identifier | Format | Source table | Example |
+|---|---|---|---|
+| `conversationId` | UUID | `conversations` (all DB versions) | `a1b2c3d4-e5f6-...` |
+| `conversationKey` | Arbitrary string | `conversation_keys` (migration 101+) | `default:slack:C0123` |
+
+For **web-originated** conversations, the key happens to equal the UUID —
+but that is an implementation coincidence, not a contract. Channel-bound
+conversations (Slack, email, Telegram) have keys like
+`default:slack:C0123` that differ from their UUID.
+
+**Rules:**
+
+1. **API queries must send `conversationId` (the UUID), never
+   `conversationKey`.** The `conversation_keys` table is migration-
+   version-dependent — older assistants don't have it, and queries
+   that rely on it silently return empty results.
+
+   ```ts
+   // Correct
+   query: { conversationId }
+
+   // Wrong — breaks on older DB versions
+   query: { conversationKey }
+   ```
+
+2. **URL route params carry UUIDs.** The route param is currently named
+   `:conversationKey` for historical reasons but the value must be a
+   UUID. Never put a channel-scoped key (e.g. `default:slack:C0123`)
+   in the URL.
+
+3. **When the codebase says `conversationKey`, read it as "the
+   identifier we route by" — which for web is always a UUID.** This
+   naming is a known source of confusion. New code should prefer
+   `conversationId` where possible; renaming existing fields is
+   tracked as incremental cleanup.
+
 ### Top-level shared directories
 
 Code used across multiple domains lives in top-level shared

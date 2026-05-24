@@ -86,7 +86,6 @@ mock.module("../daemon/disk-pressure-guard.js", () => ({
 }));
 
 mock.module("../memory/conversation-crud.js", () => ({
-  clearStrippedInjectionMetadataForConversation: () => {},
   getConversation: () => ({
     id: "conv-123",
     conversationType: "background",
@@ -98,6 +97,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   getConversationOriginInterface: () => null,
   getConversationOverrideProfileFromRow: () => null,
   provenanceFromTrustContext: () => ({}),
+  setConversationHistoryStrippedAt: () => {},
   updateConversationContextWindow: () => {},
   updateConversationSlackContextWatermark: () => {},
 }));

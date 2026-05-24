@@ -1,8 +1,8 @@
 /**
  * Pluggable read source for LLM request logs.
  *
- * The Inspector view at `GET /v1/messages/:id/llm-context` (and the
- * single-log payload route) historically read directly from the local
+ * The Inspector views at `GET /v1/messages/:id/llm-context` and
+ * `GET /v1/conversations/llm-context` (plus the single-log payload route) historically read directly from the local
  * SQLite `llm_request_logs` table via `llm-request-log-store.ts`. The
  * source-of-truth remains local, but the *read path* is now configurable
  * via `llmRequestLogs.readSource` in workspace config.
@@ -31,6 +31,13 @@ export interface LlmRequestLogSource {
    * INSERT-only against the source-of-truth).
    */
   getRequestLogsByMessageId(messageId: string): Promise<LogRow[]>;
+
+  /**
+   * Fetch every LLM request log associated with the given conversation.
+   * This is the conversation-wide inspector read path: linked, unlinked,
+   * and orphaned logs are all included because they share conversation_id.
+   */
+  getRequestLogsByConversationId(conversationId: string): Promise<LogRow[]>;
 }
 
 /**

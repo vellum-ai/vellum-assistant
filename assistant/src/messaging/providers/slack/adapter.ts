@@ -5,6 +5,8 @@
  * implements the MessagingProvider interface.
  */
 
+import { createHash } from "node:crypto";
+
 import {
   buildSlackUserLabelMap,
   renderSlackTextForModel,
@@ -35,10 +37,32 @@ import type {
   SlackConversation,
   SlackMessage,
   SlackSearchMatch,
+  SlackUser,
 } from "./types.js";
 
-// Cache user display names to avoid repeated API calls within a session
-const userNameCache = new Map<string, string>();
+interface NormalizedSlackUserInfo {
+  displayName: string;
+  timezone?: string;
+  timezoneLabel?: string;
+  timezoneOffsetSeconds?: number;
+}
+
+interface SlackUserInfoLookupResult {
+  info: NormalizedSlackUserInfo;
+  cacheable: boolean;
+}
+
+const PERMANENT_USER_INFO_SLACK_ERRORS = new Set([
+  "account_inactive",
+  "ekm_access_denied",
+  "missing_scope",
+  "not_allowed_token_type",
+  "user_not_found",
+  "user_not_visible",
+]);
+
+// Cache normalized Slack user facts to avoid repeated API calls within a session.
+const userInfoCache = new Map<string, Promise<SlackUserInfoLookupResult>>();
 
 /**
  * Cached auth resolved during resolveConnection(), split by direction.
@@ -58,6 +82,7 @@ const userNameCache = new Map<string, string>();
  */
 let _cachedSlackWriteAuth: OAuthConnection | string | null = null;
 let _cachedSlackReadAuth: OAuthConnection | string | null = null;
+const botUserIdByBotIdCache = new Map<string, string>();
 
 /**
  * Get the Slack auth value to pass to Slack client functions.
@@ -123,6 +148,32 @@ export async function withSlackBotToken<T>(
   return auth.withToken(fn);
 }
 
+export async function resolveSlackBotUserId(
+  account: string | undefined,
+  botId: string,
+): Promise<string | null> {
+  const trimmedBotId = botId.trim();
+  if (!trimmedBotId) return null;
+
+  const cacheKey = account ? `${account}:${trimmedBotId}` : null;
+  if (cacheKey && botUserIdByBotIdCache.has(cacheKey)) {
+    return botUserIdByBotIdCache.get(cacheKey) ?? null;
+  }
+
+  const resolvedUserId = await withSlackBotToken(account, async (token) => {
+    const resp = await slack.botsInfo(token, trimmedBotId);
+    const userId = resp.bot.user_id?.trim();
+    return userId && userId.length > 0 ? userId : null;
+  });
+  if (resolvedUserId) {
+    if (cacheKey) {
+      botUserIdByBotIdCache.set(cacheKey, resolvedUserId);
+    }
+    return resolvedUserId;
+  }
+  return null;
+}
+
 /**
  * Run a read-path Slack call, falling back to the bot token if the cached
  * user token is rejected with an auth error. On fallback, the read cache is
@@ -159,20 +210,46 @@ async function resolveUserName(
   auth: OAuthConnection | string,
   userId: string,
 ): Promise<string> {
-  if (!userId) return "unknown";
-  const cached = userNameCache.get(userId);
-  if (cached) return cached;
+  return (await resolveUserInfo(auth, userId)).displayName;
+}
 
-  // Check contacts DB for a persistent cache hit
+async function resolveUserInfo(
+  auth: OAuthConnection | string,
+  userId: string,
+): Promise<NormalizedSlackUserInfo> {
+  if (!userId) return { displayName: "unknown" };
+  const cacheKey = slackUserInfoCacheKey(auth, userId);
+  const cached = userInfoCache.get(cacheKey);
+  if (cached) return (await cached).info;
+
+  const resolved = resolveUserInfoUncached(auth, userId).then(
+    (result) => {
+      if (!result.cacheable) {
+        userInfoCache.delete(cacheKey);
+      }
+      return result;
+    },
+    (err) => {
+      userInfoCache.delete(cacheKey);
+      throw err;
+    },
+  );
+  userInfoCache.set(cacheKey, resolved);
+  return (await resolved).info;
+}
+
+async function resolveUserInfoUncached(
+  auth: OAuthConnection | string,
+  userId: string,
+): Promise<SlackUserInfoLookupResult> {
+  let contactDisplayName: string | undefined;
   try {
     const result = findContactChannel({
       channelType: "slack",
       externalUserId: userId,
     });
     if (result) {
-      const name = result.contact.displayName;
-      userNameCache.set(userId, name);
-      return name;
+      contactDisplayName = result.contact.displayName;
     }
   } catch {
     // Contact lookup failures are non-fatal — fall through to API
@@ -180,16 +257,84 @@ async function resolveUserName(
 
   try {
     const resp = await slack.userInfo(auth, userId);
-    const name =
-      resp.user.profile?.display_name ||
-      resp.user.profile?.real_name ||
-      resp.user.real_name ||
-      resp.user.name;
-    userNameCache.set(userId, name);
-    return name;
-  } catch {
-    return userId;
+    return {
+      info: normalizeSlackUserInfo(resp.user, contactDisplayName),
+      cacheable: true,
+    };
+  } catch (err) {
+    return {
+      info: { displayName: contactDisplayName ?? userId },
+      cacheable: isPermanentSlackUserInfoFailure(err),
+    };
   }
+}
+
+function isPermanentSlackUserInfoFailure(err: unknown): boolean {
+  return (
+    err instanceof SlackApiError &&
+    PERMANENT_USER_INFO_SLACK_ERRORS.has(err.slackError)
+  );
+}
+
+function slackUserInfoCacheKey(
+  auth: OAuthConnection | string,
+  userId: string,
+): string {
+  const authScope =
+    typeof auth === "string"
+      ? `token:${createHash("sha256").update(auth).digest("hex")}`
+      : `connection:${auth.id}:${auth.accountInfo ?? ""}`;
+  return `${authScope}:user:${userId}`;
+}
+
+function normalizeSlackUserInfo(
+  user: SlackUser,
+  contactDisplayName: string | undefined,
+): NormalizedSlackUserInfo {
+  const displayName =
+    contactDisplayName ||
+    user.profile?.display_name ||
+    user.profile?.real_name ||
+    user.real_name ||
+    user.name ||
+    user.id;
+  const timezone = trimNonEmpty(user.tz);
+  const timezoneLabel = trimNonEmpty(user.tz_label);
+  const timezoneOffsetSeconds =
+    typeof user.tz_offset === "number" && Number.isFinite(user.tz_offset)
+      ? user.tz_offset
+      : undefined;
+  return {
+    displayName,
+    ...(timezone ? { timezone } : {}),
+    ...(timezoneLabel ? { timezoneLabel } : {}),
+    ...(timezoneOffsetSeconds !== undefined ? { timezoneOffsetSeconds } : {}),
+  };
+}
+
+function trimNonEmpty(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+export function __resetSlackUserInfoCacheForTests(): void {
+  userInfoCache.clear();
+}
+
+function slackUserInfoMetadata(
+  userInfo: NormalizedSlackUserInfo | undefined,
+): Record<string, unknown> {
+  if (!userInfo) return {};
+  return {
+    ...(userInfo.timezone ? { actorTimezone: userInfo.timezone } : {}),
+    ...(userInfo.timezoneLabel
+      ? { actorTimezoneLabel: userInfo.timezoneLabel }
+      : {}),
+    ...(userInfo.timezoneOffsetSeconds !== undefined
+      ? { actorTimezoneOffsetSeconds: userInfo.timezoneOffsetSeconds }
+      : {}),
+  };
 }
 
 function mapConversationType(conv: SlackConversation): Conversation["type"] {
@@ -249,19 +394,25 @@ function mapSlackFiles(files: SlackMessage["files"]):
 function mapMessage(
   msg: SlackMessage,
   channelId: string,
-  senderName: string,
+  senderInfo: NormalizedSlackUserInfo,
   renderedText: string,
 ): Message {
   // Bot-authored when Slack sets `subtype: "bot_message"` or attributes the
-  // row to a `bot_id` with no user. Backfill callers rely on this flag to
-  // avoid rehydrating assistant/bot replies as user turns.
+  // row to a `bot_id` with no user. Backfill callers use this flag for
+  // bot-specific filtering while preserving real bot rows as channel replay.
   const isBot =
     msg.subtype === "bot_message" || (msg.bot_id != null && !msg.user);
   const slackFiles = mapSlackFiles(msg.files);
+  const slackBotId = msg.bot_id?.trim();
+  const userMetadata = slackUserInfoMetadata(msg.user ? senderInfo : undefined);
+  const hasUserMetadata = Object.keys(userMetadata).length > 0;
   return {
     id: msg.ts,
     conversationId: channelId,
-    sender: { id: msg.user ?? msg.bot_id ?? "unknown", name: senderName },
+    sender: {
+      id: msg.user ?? msg.bot_id ?? "unknown",
+      name: senderInfo.displayName,
+    },
     text: renderedText,
     timestamp: parseFloat(msg.ts) * 1000,
     threadId: msg.thread_ts,
@@ -269,11 +420,13 @@ function mapMessage(
     platform: "slack",
     reactions: msg.reactions?.map((r) => ({ name: r.name, count: r.count })),
     hasAttachments: (msg.files?.length ?? 0) > 0,
-    ...(isBot || slackFiles
+    ...(isBot || slackFiles || hasUserMetadata
       ? {
           metadata: {
             ...(isBot ? { isBot: true } : {}),
+            ...(slackBotId ? { slackBotId } : {}),
             ...(slackFiles ? { slackFiles } : {}),
+            ...userMetadata,
           },
         }
       : {}),
@@ -307,12 +460,12 @@ async function mapSlackMessages(
   );
   const messages: Message[] = [];
   for (const msg of slackMessages) {
-    const name = await resolveUserName(auth, msg.user ?? "");
+    const senderInfo = await resolveUserInfo(auth, msg.user ?? "");
     messages.push(
       mapMessage(
         msg,
         channelId,
-        name,
+        senderInfo,
         renderSlackTextForModel(msg.text, { userLabels }),
       ),
     );

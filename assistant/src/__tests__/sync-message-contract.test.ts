@@ -60,4 +60,63 @@ describe("sync message contract", () => {
       }),
     ).toThrow();
   });
+
+  test("buildSyncChangedMessage includes originClientId when provided", () => {
+    const message = buildSyncChangedMessage(
+      [SYNC_TAGS.assistantAvatar],
+      "client-abc",
+    );
+
+    expect(message).toEqual({
+      type: "sync_changed",
+      tags: [SYNC_TAGS.assistantAvatar],
+      originClientId: "client-abc",
+    });
+  });
+
+  test("buildSyncChangedMessage omits originClientId when undefined", () => {
+    const message = buildSyncChangedMessage([SYNC_TAGS.assistantAvatar]);
+
+    expect(message).toEqual({
+      type: "sync_changed",
+      tags: [SYNC_TAGS.assistantAvatar],
+    });
+    expect("originClientId" in message).toBe(false);
+  });
+
+  test("buildSyncChangedMessage trims and drops blank originClientId", () => {
+    const blank = buildSyncChangedMessage(
+      [SYNC_TAGS.assistantAvatar],
+      "   ",
+    );
+    expect("originClientId" in blank).toBe(false);
+
+    const trimmed = buildSyncChangedMessage(
+      [SYNC_TAGS.assistantAvatar],
+      "  client-xyz  ",
+    );
+    expect(trimmed).toEqual({
+      type: "sync_changed",
+      tags: [SYNC_TAGS.assistantAvatar],
+      originClientId: "client-xyz",
+    });
+  });
+
+  test("schema accepts a string originClientId and rejects non-string types", () => {
+    expect(() =>
+      SyncChangedMessageSchema.parse({
+        type: "sync_changed",
+        tags: [SYNC_TAGS.assistantAvatar],
+        originClientId: "client-abc",
+      }),
+    ).not.toThrow();
+
+    expect(() =>
+      SyncChangedMessageSchema.parse({
+        type: "sync_changed",
+        tags: [SYNC_TAGS.assistantAvatar],
+        originClientId: 42,
+      }),
+    ).toThrow();
+  });
 });

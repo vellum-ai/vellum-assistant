@@ -12,9 +12,9 @@ export function handleStreamError(
   ctx: StreamHandlerContext,
 ): void {
   ctx.turnActions.onStreamError();
-  const convKey = ctx.streamContextRef.current?.conversationKey;
-  if (convKey) {
-    ctx.clearProcessingKey(convKey);
+  const convId = ctx.streamContextRef.current?.conversationId;
+  if (convId) {
+    ctx.clearProcessingKey(convId);
   }
   ctx.setMessages((prev) => stopStreaming(prev));
   const detail =
@@ -37,9 +37,9 @@ export function handleConversationErrorEvent(
   const isBannerError = shouldSuppressGenericChatErrorNotice(event);
 
   ctx.turnActions.onStreamError();
-  const convKey = ctx.streamContextRef.current?.conversationKey;
-  if (convKey) {
-    ctx.clearProcessingKey(convKey);
+  const convId = ctx.streamContextRef.current?.conversationId;
+  if (convId) {
+    ctx.clearProcessingKey(convId);
   }
 
   ctx.setMessages(handleConversationError);

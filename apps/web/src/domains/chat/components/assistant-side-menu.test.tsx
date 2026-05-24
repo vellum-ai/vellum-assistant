@@ -27,14 +27,14 @@ import { SIDEBAR_CONVERSATION_LIMIT } from "@/domains/chat/use-sidebar-state.js"
 
 function makeConversation(overrides: Partial<Conversation>): Conversation {
   return {
-    conversationKey: overrides.conversationKey ?? "k",
+    conversationId: overrides.conversationId ?? "k",
     ...overrides,
   };
 }
 
 function renderMenu(props: {
   conversations: Conversation[];
-  activeConversationKey?: string;
+  activeConversationId?: string;
   variant?: "rail" | "overlay";
   includeFooterAction?: boolean;
 }): string {
@@ -45,7 +45,7 @@ function renderMenu(props: {
       collapsed: false,
       variant: props.variant ?? "rail",
       conversations: props.conversations,
-      activeConversationKey: props.activeConversationKey,
+      activeConversationId: props.activeConversationId,
       onSelectConversation: () => {},
       footerAction: includeFooterAction
         ? createElement("span", null, "Preferences")
@@ -57,19 +57,19 @@ function renderMenu(props: {
 describe("AssistantSideMenu · Conversations category rows", () => {
   test("renders a Conversations section header with all four category rows", () => {
     const conversations = [
-      makeConversation({ conversationKey: "p1", isPinned: true }),
+      makeConversation({ conversationId: "p1", isPinned: true }),
       makeConversation({
-        conversationKey: "s1",
+        conversationId: "s1",
         conversationType: "scheduled",
       }),
       makeConversation({
-        conversationKey: "b1",
+        conversationId: "b1",
         conversationType: "background",
         source: "heartbeat",
       }),
-      makeConversation({ conversationKey: "r1", title: "Recent thread" }),
+      makeConversation({ conversationId: "r1", title: "Recent thread" }),
       makeConversation({
-        conversationKey: "rf1",
+        conversationId: "rf1",
         conversationType: "background",
         source: "auto-analysis",
       }),
@@ -85,11 +85,11 @@ describe("AssistantSideMenu · Conversations category rows", () => {
     expect(html).not.toContain(">Slack<");
   });
 
-  test("renders Slack as a conditional peer section before Recents", () => {
+  test("renders Slack as a conditional peer section after Background", () => {
     const conversations = [
-      makeConversation({ conversationKey: "regular", title: "Regular thread" }),
+      makeConversation({ conversationId: "regular", title: "Regular thread" }),
       makeConversation({
-        conversationKey: "slack",
+        conversationId: "slack",
         title: "Slack thread",
         originChannel: "slack",
         groupId: "system:all",
@@ -99,27 +99,31 @@ describe("AssistantSideMenu · Conversations category rows", () => {
     const html = renderMenu({ conversations });
     expect(html).toContain(">Slack<");
 
+    const pinnedIndex = html.indexOf(">Pinned<");
+    const recentsIndex = html.indexOf(">Recents<");
+    const scheduledIndex = html.indexOf(">Scheduled<");
     const backgroundIndex = html.indexOf(">Background<");
     const slackIndex = html.indexOf(">Slack<");
-    const recentsIndex = html.indexOf(">Recents<");
-    expect(backgroundIndex).toBeGreaterThanOrEqual(0);
+    expect(pinnedIndex).toBeGreaterThanOrEqual(0);
+    expect(recentsIndex).toBeGreaterThan(pinnedIndex);
+    expect(scheduledIndex).toBeGreaterThan(recentsIndex);
+    expect(backgroundIndex).toBeGreaterThan(scheduledIndex);
     expect(slackIndex).toBeGreaterThan(backgroundIndex);
-    expect(recentsIndex).toBeGreaterThan(slackIndex);
   });
 
   test("renders a count badge only for non-empty category buckets", () => {
     const conversations = [
       makeConversation({
-        conversationKey: "b1",
+        conversationId: "b1",
         conversationType: "background",
         source: "heartbeat",
       }),
       makeConversation({
-        conversationKey: "b2",
+        conversationId: "b2",
         conversationType: "background",
         source: "heartbeat",
       }),
-      makeConversation({ conversationKey: "r1" }),
+      makeConversation({ conversationId: "r1" }),
     ];
 
     const html = renderMenu({ conversations });
@@ -135,7 +139,7 @@ describe("AssistantSideMenu · Show more affordance", () => {
       { length: ASSISTANT_SIDE_MENU_CONVERSATION_LIMIT },
       (_, index) =>
         makeConversation({
-          conversationKey: `k-${index}`,
+          conversationId: `k-${index}`,
           title: `Thread ${index}`,
         }),
     );
@@ -150,7 +154,7 @@ describe("AssistantSideMenu · Show more affordance", () => {
       { length: ASSISTANT_SIDE_MENU_CONVERSATION_LIMIT + 1 },
       (_, index) =>
         makeConversation({
-          conversationKey: `k-${index}`,
+          conversationId: `k-${index}`,
           title: `Thread ${index}`,
         }),
     );
@@ -182,18 +186,18 @@ describe("AssistantSideMenu · active thread accessibility", () => {
   test("active conversation row sets aria-current=page", () => {
     const conversations = [
       makeConversation({
-        conversationKey: "a",
+        conversationId: "a",
         title: "Alpha thread title",
       }),
       makeConversation({
-        conversationKey: "b",
+        conversationId: "b",
         title: "Beta thread title",
       }),
     ];
 
     const html = renderMenu({
       conversations,
-      activeConversationKey: "b",
+      activeConversationId: "b",
     });
 
     const sliceButtonAround = (title: string): string => {
@@ -216,7 +220,7 @@ describe("AssistantSideMenu · active thread accessibility", () => {
 describe("AssistantSideMenu · footer slot behavior", () => {
   test("renders the footer slot when `footerAction` is provided", () => {
     const conversations = [
-      makeConversation({ conversationKey: "a", title: "Alpha" }),
+      makeConversation({ conversationId: "a", title: "Alpha" }),
     ];
 
     const html = renderMenu({ conversations });
@@ -226,7 +230,7 @@ describe("AssistantSideMenu · footer slot behavior", () => {
 
   test("omits the footer entirely when `footerAction` is undefined", () => {
     const conversations = [
-      makeConversation({ conversationKey: "a", title: "Alpha" }),
+      makeConversation({ conversationId: "a", title: "Alpha" }),
     ];
 
     const html = renderMenu({ conversations, includeFooterAction: false });
@@ -238,7 +242,7 @@ describe("AssistantSideMenu · footer slot behavior", () => {
 describe("AssistantSideMenu · overlay close affordance", () => {
   test("renders an X close button on overlay variant only", () => {
     const conversations = [
-      makeConversation({ conversationKey: "a", title: "Alpha" }),
+      makeConversation({ conversationId: "a", title: "Alpha" }),
     ];
     const overlayHtml = renderMenu({ conversations, variant: "overlay" });
     const railHtml = renderMenu({ conversations, variant: "rail" });
@@ -247,13 +251,3 @@ describe("AssistantSideMenu · overlay close affordance", () => {
   });
 });
 
-describe("AssistantSideMenu · compose button mobile close wiring", () => {
-  test("compose button onClick calls onClose alongside onStartNewConversation", () => {
-    const src = readFileSync(
-      new URL("./assistant-side-menu.tsx", import.meta.url).pathname,
-      "utf8",
-    );
-
-    expect(src).toContain("onStartNewConversation(); onClose?.();");
-  });
-});

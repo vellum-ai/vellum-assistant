@@ -13,6 +13,17 @@ export interface SlackAuthTestResponse extends SlackApiResponse {
   user_id: string;
 }
 
+export interface SlackBotsInfoResponse extends SlackApiResponse {
+  bot: {
+    id: string;
+    user_id?: string;
+    app_id?: string;
+    name?: string;
+    deleted?: boolean;
+    updated?: number;
+  };
+}
+
 export interface SlackConversation {
   id: string;
   name?: string;
@@ -78,6 +89,9 @@ export interface SlackUser {
   id: string;
   name: string;
   real_name?: string;
+  tz?: string;
+  tz_label?: string;
+  tz_offset?: number;
   profile?: {
     display_name?: string;
     real_name?: string;

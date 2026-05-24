@@ -204,4 +204,114 @@ describe("assistant domain register", () => {
     await runDomainCommand("domain", "register", "velly");
     expect(process.exitCode).not.toBe(0);
   });
+
+  test("--email-username is included in IPC body", async () => {
+    mockIpcCallFn = mock(() =>
+      Promise.resolve({
+        ok: true,
+        result: {
+          id: "550e8400-e29b-41d4-a716-446655440000",
+          domain: "velly.vellum.me",
+          status: "active",
+          verified: true,
+        },
+      }),
+    );
+
+    await runDomainCommand(
+      "domain",
+      "register",
+      "velly",
+      "--email-username",
+      "hello",
+    );
+
+    expect(mockIpcCallFn).toHaveBeenCalledWith("domain_register", {
+      body: { subdomain: "velly", email_username: "hello" },
+    });
+    expect(process.exitCode).toBe(0);
+  });
+
+  test("email error in response is surfaced as warning", async () => {
+    mockIpcCallFn = mock(() =>
+      Promise.resolve({
+        ok: true,
+        result: {
+          id: "550e8400-e29b-41d4-a716-446655440000",
+          domain: "velly.vellum.me",
+          status: "active",
+          verified: true,
+          email_error: {
+            detail: "MX records not ready",
+            code: "email_setup_failed",
+          },
+        },
+      }),
+    );
+
+    await runDomainCommand(
+      "domain",
+      "register",
+      "velly",
+      "--email-username",
+      "hello",
+    );
+
+    expect(process.exitCode).toBe(0);
+  });
+
+  test("--json includes email_error in output", async () => {
+    mockIpcCallFn = mock(() =>
+      Promise.resolve({
+        ok: true,
+        result: {
+          id: "550e8400-e29b-41d4-a716-446655440000",
+          domain: "velly.vellum.me",
+          status: "active",
+          verified: true,
+          email_error: {
+            detail: "MX records not ready",
+            code: "email_setup_failed",
+          },
+        },
+      }),
+    );
+
+    const output = await runDomainCommand(
+      "domain",
+      "--json",
+      "register",
+      "velly",
+      "--email-username",
+      "hello",
+    );
+
+    const parsed = JSON.parse(output.trim());
+    expect(parsed.email_error).toEqual({
+      detail: "MX records not ready",
+      code: "email_setup_failed",
+    });
+    expect(process.exitCode).toBe(0);
+  });
+
+  test("without --email-username behavior is unchanged", async () => {
+    mockIpcCallFn = mock(() =>
+      Promise.resolve({
+        ok: true,
+        result: {
+          id: "550e8400-e29b-41d4-a716-446655440000",
+          domain: "velly.vellum.me",
+          status: "active",
+          verified: true,
+        },
+      }),
+    );
+
+    await runDomainCommand("domain", "register", "velly");
+
+    expect(mockIpcCallFn).toHaveBeenCalledWith("domain_register", {
+      body: { subdomain: "velly" },
+    });
+    expect(process.exitCode).toBe(0);
+  });
 });

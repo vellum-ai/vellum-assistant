@@ -24,7 +24,7 @@ export interface OpenAIResponsesProviderOptions {
   streamTimeoutMs?: number;
   useNativeWebSearch?: boolean;
   /** When true, target the Codex subscription endpoint and strip fields it
-   *  rejects (`max_output_tokens`, `metadata`). */
+   *  rejects (`max_output_tokens`, `reasoning`, `text`, `tools`). */
   codexSubscription?: boolean;
 }
 
@@ -116,14 +116,18 @@ export class OpenAIResponsesProvider implements Provider {
     this.name = options.providerName ?? "openai";
     this.providerLabel = options.providerLabel ?? "OpenAI";
     this.codexSubscription = options.codexSubscription ?? false;
+    this.streamTimeoutMs = options.streamTimeoutMs ?? 1_800_000;
+    // Keep the SDK deadline behind our provider stream timeout so
+    // createStreamTimeout owns the user-facing timeout error.
+    const sdkTimeoutMs = this.streamTimeoutMs + 60_000;
     this.client = new OpenAI({
       apiKey,
       baseURL: this.codexSubscription
         ? "https://chatgpt.com/backend-api/codex"
         : options.baseURL,
+      timeout: sdkTimeoutMs,
     });
     this.model = model;
-    this.streamTimeoutMs = options.streamTimeoutMs ?? 1_800_000;
     this.useNativeWebSearch = options.useNativeWebSearch ?? false;
   }
 
@@ -162,22 +166,24 @@ export class OpenAIResponsesProvider implements Provider {
         params.max_output_tokens = maxTokens;
       }
 
-      const reasoningEffort = effort
-        ? EFFORT_TO_REASONING_EFFORT[effort]
-        : undefined;
-      if (reasoningEffort) {
-        params.reasoning = { effort: reasoningEffort };
+      if (!this.codexSubscription) {
+        const reasoningEffort = effort
+          ? EFFORT_TO_REASONING_EFFORT[effort]
+          : undefined;
+        if (reasoningEffort) {
+          params.reasoning = { effort: reasoningEffort };
+        }
+
+        if (
+          verbosity &&
+          VALID_VERBOSITIES.has(verbosity) &&
+          modelSupportsVerbosity(modelOverride ?? this.model)
+        ) {
+          params.text = { verbosity };
+        }
       }
 
-      if (
-        verbosity &&
-        VALID_VERBOSITIES.has(verbosity) &&
-        modelSupportsVerbosity(modelOverride ?? this.model)
-      ) {
-        params.text = { verbosity };
-      }
-
-      if (tools && tools.length > 0) {
+      if (tools && tools.length > 0 && !this.codexSubscription) {
         if (
           this.useNativeWebSearch &&
           tools.some((t) => t.name === "web_search")

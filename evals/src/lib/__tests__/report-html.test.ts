@@ -144,6 +144,8 @@ const executionDetail: ReportRunDetail = {
       emittedAt: "2026-05-15T12:00:00.500Z",
     },
   ],
+  subprocessLogs: [],
+  dockerArtifacts: [],
 };
 
 describe("report html", () => {
@@ -298,5 +300,106 @@ describe("report html", () => {
     expect(html).not.toContain("Cost pricing");
     expect(html).not.toContain("Partial pricing");
     expect(html).not.toContain("Cost unavailable");
+  });
+
+  // -- no-silent-stuck UI surfaces -------------------------------------------
+
+  test("index page renders a Delete-all form only when there are sessions", () => {
+    // The form is the entire interactive contract now — POST to the
+    // server-side endpoint, server 303-redirects back to `/`. No client
+    // JS involved, so we just assert the form markup is there.
+    const populated = renderReportPage({
+      kind: "index",
+      sessions: [sessionSummary],
+    });
+    expect(populated).toContain('action="/api/runs/delete-all"');
+    expect(populated).toContain('method="post"');
+    expect(populated).toContain("Delete all non-running");
+
+    const empty = renderReportPage({ kind: "index", sessions: [] });
+    expect(empty).not.toContain('action="/api/runs/delete-all"');
+    expect(empty).not.toContain("Delete all non-running");
+  });
+
+  test("pages ship no client-side JS — every delete is a plain HTML form", () => {
+    // The old implementation injected an IIFE that did fetch+delete. The
+    // current implementation is hydration-free: <details> + <form method="post">
+    // with the server returning 303s. If a <script> tag ever sneaks back in,
+    // someone's reintroduced the hacky-html pattern.
+    const index = renderReportPage({
+      kind: "index",
+      sessions: [sessionSummary],
+    });
+    const execution = renderReportPage({
+      kind: "execution",
+      run: { ...executionDetail, status: "failed" },
+    });
+    for (const html of [index, execution]) {
+      expect(html).not.toMatch(/<script\b/i);
+      // And no React-synthetic onClick attribute leaked through (renderToStaticMarkup
+      // strips them today; this guards against a future switch to renderToString).
+      expect(html).not.toMatch(/\sonClick=/i);
+      expect(html).not.toMatch(/\sonSubmit=/i);
+    }
+  });
+
+  test("execution page surfaces docker forensics artifacts as links to the file endpoint", () => {
+    const html = renderReportPage({
+      kind: "execution",
+      run: {
+        ...executionDetail,
+        status: "failed",
+        dockerArtifacts: ["docker-inspect.json", "docker-logs.txt"],
+      },
+    });
+    expect(html).toContain("Docker snapshot");
+    expect(html).toContain("docker-inspect.json");
+    expect(html).toContain(
+      `/api/runs/${encodeURIComponent(executionDetail.runId)}/files/docker-inspect.json`,
+    );
+    expect(html).toContain(
+      `/api/runs/${encodeURIComponent(executionDetail.runId)}/files/docker-logs.txt`,
+    );
+  });
+
+  test("execution page surfaces subprocess logs as links to the file endpoint", () => {
+    const html = renderReportPage({
+      kind: "execution",
+      run: {
+        ...executionDetail,
+        status: "failed",
+        subprocessLogs: ["subprocess-hatch.log", "subprocess-setup-1.log"],
+      },
+    });
+    expect(html).toContain("Subprocess logs");
+    expect(html).toContain("subprocess-hatch.log");
+    expect(html).toContain("subprocess-setup-1.log");
+    expect(html).toContain(
+      `/api/runs/${encodeURIComponent(executionDetail.runId)}/files/subprocess-hatch.log`,
+    );
+  });
+
+  test("execution page omits Docker/Subprocess sections when there are no artifacts", () => {
+    const html = renderReportPage({ kind: "execution", run: executionDetail });
+    expect(html).not.toContain("Docker snapshot");
+    expect(html).not.toContain("Subprocess logs");
+  });
+
+  test("execution page exposes a Delete-run POST form with backToSession hidden field when the run failed", () => {
+    // Debug section only fires for non-completed runs or when there's an
+    // error/heartbeat to surface — gate it explicitly with `failed`.
+    const html = renderReportPage({
+      kind: "execution",
+      run: { ...executionDetail, status: "failed" },
+    });
+    expect(html).toContain(
+      `action="/api/runs/${encodeURIComponent(executionDetail.runId)}/delete"`,
+    );
+    expect(html).toContain('method="post"');
+    expect(html).toContain('name="backToSession"');
+    expect(html).toContain(`value="${executionDetail.sessionId}"`);
+    // Summary + confirm-button copy still ships.
+    expect(html).toContain("Delete run");
+    expect(html).toContain("Yes, delete this run");
   });
 });

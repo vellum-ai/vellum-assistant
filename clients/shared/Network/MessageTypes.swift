@@ -3091,6 +3091,10 @@ public enum ServerMessage: Decodable, Sendable {
     /// (HTTP 202 with messageId). Broadcast so the per-conversation ChatActionHandler
     /// can tag the optimistic row with the daemon-assigned ID.
     case userMessagePersisted(conversationId: String, content: String, messageId: String)
+    /// Synthetic client-side event: POST /v1/messages returned a requestId for a
+    /// queued message. Populates requestIdToMessageId from the HTTP response so
+    /// the steer button works even before the SSE message_queued event arrives.
+    case queuedMessageAcked(conversationId: String, requestId: String)
     case relationshipStateUpdated(updatedAt: String)
     case homeFeedUpdated(updatedAt: String, newItemCount: Int)
     case pong

@@ -1,8 +1,9 @@
 import type { AssistantConfig } from "../../config/types.js";
 import { getLogger } from "../../util/logger.js";
+import { runAsyncSqlite } from "../db-async-query.js";
 import { getDb } from "../db-connection.js";
 import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
-import { rawAll, rawChanges, rawRun } from "../raw-query.js";
+import { rawAll, rawRun } from "../raw-query.js";
 
 const log = getLogger("memory-jobs-worker");
 
@@ -13,11 +14,18 @@ const PRUNE_LOG_BATCH_LIMIT = 1000;
  * Delete LLM request/response logs older than the configured retention period.
  * Processes in batches to avoid long DB locks and excessive WAL growth.
  * Re-enqueues itself if more rows remain.
+ *
+ * The DELETE is dispatched through `runAsyncSqlite` so it runs in a
+ * sqlite3 subprocess (when available) and does not block the daemon's
+ * main event loop. The two bind parameters (`cutoffMs`, batch limit)
+ * are integers — they're inlined directly into the SQL after a
+ * `Math.floor` + `Number.isFinite` guard so there is no string
+ * interpolation surface.
  */
-export function pruneOldLlmRequestLogsJob(
+export async function pruneOldLlmRequestLogsJob(
   job: MemoryJob,
   config: AssistantConfig,
-): void {
+): Promise<void> {
   const rawRetention = job.payload.retentionMs;
   const retentionMs =
     rawRetention === null
@@ -31,14 +39,29 @@ export function pruneOldLlmRequestLogsJob(
   // null means "keep forever" — skip pruning entirely
   if (retentionMs === null || retentionMs === undefined) return;
 
-  const cutoffMs = Date.now() - retentionMs;
+  const cutoffMs = Math.floor(Date.now() - retentionMs);
+  if (!Number.isFinite(cutoffMs)) return;
 
-  rawRun(
-    `DELETE FROM llm_request_logs WHERE rowid IN (SELECT rowid FROM llm_request_logs WHERE created_at < ? LIMIT ?)`,
-    cutoffMs,
-    PRUNE_LOG_BATCH_LIMIT,
+  // Inline the cutoff and batch limit (both integers, both validated)
+  // and chain `SELECT changes()` so we can read the row count from the
+  // subprocess's stdout. The sqlite3 CLI prints `changes()` as a bare
+  // integer on its own line in default output mode; the in-process
+  // fallback backend in `db-async-query.ts` synthesizes the same shape
+  // by capturing `changes()` atomically after `exec()`. Both backends
+  // end up on the parser path below.
+  const result = await runAsyncSqlite(
+    `DELETE FROM llm_request_logs WHERE rowid IN (SELECT rowid FROM llm_request_logs WHERE created_at < ${cutoffMs} LIMIT ${PRUNE_LOG_BATCH_LIMIT});
+SELECT changes();`,
   );
-  const deleted = rawChanges();
+  if (!result.ok) {
+    log.warn(
+      { error: result.error, backend: result.backend },
+      "pruneOldLlmRequestLogsJob: DELETE failed",
+    );
+    return;
+  }
+
+  const deleted = parseDeletedCount(result.stdout);
 
   if (deleted >= PRUNE_LOG_BATCH_LIMIT) {
     enqueueMemoryJob("prune_old_llm_request_logs", { retentionMs });
@@ -58,11 +81,14 @@ export function pruneOldLlmRequestLogsJob(
  * Delete trace events older than the configured retention period.
  * Processes in batches to avoid long DB locks and excessive WAL growth.
  * Re-enqueues itself if more rows remain.
+ *
+ * Same async dispatch + integer inlining shape as
+ * {@link pruneOldLlmRequestLogsJob}.
  */
-export function pruneOldTraceEventsJob(
+export async function pruneOldTraceEventsJob(
   job: MemoryJob,
   config: AssistantConfig,
-): void {
+): Promise<void> {
   const rawRetention = job.payload.retentionDays;
   const retentionDays =
     typeof rawRetention === "number" &&
@@ -74,14 +100,22 @@ export function pruneOldTraceEventsJob(
   // 0 means disabled
   if (retentionDays === 0) return;
 
-  const cutoffMs = Date.now() - retentionDays * 86_400_000;
+  const cutoffMs = Math.floor(Date.now() - retentionDays * 86_400_000);
+  if (!Number.isFinite(cutoffMs)) return;
 
-  rawRun(
-    `DELETE FROM trace_events WHERE rowid IN (SELECT rowid FROM trace_events WHERE created_at < ? LIMIT ?)`,
-    cutoffMs,
-    PRUNE_LOG_BATCH_LIMIT,
+  const result = await runAsyncSqlite(
+    `DELETE FROM trace_events WHERE rowid IN (SELECT rowid FROM trace_events WHERE created_at < ${cutoffMs} LIMIT ${PRUNE_LOG_BATCH_LIMIT});
+SELECT changes();`,
   );
-  const deleted = rawChanges();
+  if (!result.ok) {
+    log.warn(
+      { error: result.error, backend: result.backend },
+      "pruneOldTraceEventsJob: DELETE failed",
+    );
+    return;
+  }
+
+  const deleted = parseDeletedCount(result.stdout);
 
   if (deleted >= PRUNE_LOG_BATCH_LIMIT) {
     enqueueMemoryJob("prune_old_trace_events", { retentionDays });
@@ -95,6 +129,30 @@ export function pruneOldTraceEventsJob(
     },
     "Pruned old trace events",
   );
+}
+
+/**
+ * Parse the `SELECT changes()` result emitted by the sqlite3 CLI after
+ * the prune DELETE. Returns 0 if stdout is missing or unparseable —
+ * callers treat that the same as "no rows deleted, do not re-enqueue".
+ *
+ * In the CLI's default output mode the value is a bare integer on its
+ * own line. We tolerate trailing whitespace/blank lines and pick the
+ * last numeric line so any incidental output (warnings, etc.) above it
+ * doesn't throw the parse off.
+ */
+export function _parseDeletedCount(stdout: string | undefined): number {
+  return parseDeletedCount(stdout);
+}
+
+function parseDeletedCount(stdout: string | undefined): number {
+  if (!stdout) return 0;
+  const lines = stdout.split(/\r?\n/).filter((s) => s.trim().length > 0);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const n = parseInt(lines[i].trim(), 10);
+    if (Number.isFinite(n) && n >= 0) return n;
+  }
+  return 0;
 }
 
 /**

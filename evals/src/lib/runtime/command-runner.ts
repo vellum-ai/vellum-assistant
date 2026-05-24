@@ -1,3 +1,4 @@
+import { writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 
 export interface CommandResult {
@@ -24,6 +25,13 @@ export interface RunOptions {
    * When omitted, the child gets no stdin (legacy behavior).
    */
   stdin?: string;
+  /**
+   * Optional file path to write combined stdout + stderr to disk as the
+   * subprocess runs. Both streams are buffered in memory as before, but
+   * also tee'd to this path for later inspection. Best-effort; failures
+   * are silently ignored and do not interrupt the run.
+   */
+  logPath?: string;
 }
 
 export interface CommandRunner {
@@ -74,9 +82,18 @@ export class NodeCommandRunner implements CommandRunner {
 
     const stdoutChunks: string[] = [];
     const stderrChunks: string[] = [];
+    const logChunks: string[] = [];
 
-    child.stdout?.on("data", (chunk) => stdoutChunks.push(chunk.toString()));
-    child.stderr?.on("data", (chunk) => stderrChunks.push(chunk.toString()));
+    child.stdout?.on("data", (chunk) => {
+      const str = chunk.toString();
+      stdoutChunks.push(str);
+      if (opts?.logPath) logChunks.push(`[STDOUT] ${str}`);
+    });
+    child.stderr?.on("data", (chunk) => {
+      const str = chunk.toString();
+      stderrChunks.push(str);
+      if (opts?.logPath) logChunks.push(`[STDERR] ${str}`);
+    });
 
     if (wantsStdin && child.stdin) {
       // end() flushes the buffered payload and closes stdin so the child
@@ -88,6 +105,11 @@ export class NodeCommandRunner implements CommandRunner {
       child.on("error", reject);
       child.on("close", (code, signal) => resolve(closeExitCode(code, signal)));
     });
+
+    // Write the combined log to disk if requested (best-effort).
+    if (opts?.logPath) {
+      void writeFile(opts.logPath, logChunks.join("")).catch(() => undefined);
+    }
 
     return {
       exitCode,

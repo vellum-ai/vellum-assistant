@@ -1,6 +1,7 @@
 import { and, asc, eq, inArray, lte, notInArray, or, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import { getConfig } from "../config/loader.js";
 import { getLogger } from "../util/logger.js";
 import { truncate } from "../util/truncate.js";
 import { getDb } from "./db-connection.js";
@@ -71,6 +72,15 @@ export const SLOW_LLM_JOB_TYPES: MemoryJobType[] = [
   "backfill",
   "graph_bootstrap",
 ];
+
+/** Returns `false` only when `config.memory.enabled` is explicitly `false`; defaults to `true` on missing config or load errors. */
+export function isMemoryEnabled(): boolean {
+  try {
+    return getConfig().memory?.enabled !== false;
+  } catch {
+    return true;
+  }
+}
 
 export interface MemoryJob<T = Record<string, unknown>> {
   id: string;

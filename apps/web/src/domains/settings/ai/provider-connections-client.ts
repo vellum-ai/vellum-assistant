@@ -23,6 +23,7 @@ export interface ConnectionModel {
 
 export type Auth =
   | { type: "api_key"; credential: string }
+  | { type: "oauth_subscription"; credential: string }
   | { type: "platform" }
   | { type: "none" };
 
@@ -234,6 +235,41 @@ export async function writeSecret(
     url: `/v1/assistants/{assistant_id}/secrets/`,
     path: { assistant_id: assistantId },
     body: { type, name, value },
+    headers: { "Content-Type": "application/json" },
+  });
+  if (!result.response?.ok) throwHttpError(result.response);
+}
+
+// ---------------------------------------------------------------------------
+// ChatGPT Subscription OAuth — manual copy-paste flow
+// ---------------------------------------------------------------------------
+
+export interface ChatgptAuthStartResult {
+  authorize_url: string;
+  state: string;
+}
+
+export async function startChatgptSubscriptionAuth(
+  assistantId: string,
+): Promise<ChatgptAuthStartResult> {
+  const result = await client.post({
+    url: `/v1/assistants/{assistant_id}/inference/chatgpt-subscription/auth`,
+    path: { assistant_id: assistantId },
+    headers: { "Content-Type": "application/json" },
+  });
+  if (!result.response?.ok) throwHttpError(result.response);
+  return result.data as ChatgptAuthStartResult;
+}
+
+export async function exchangeChatgptAuthCode(
+  assistantId: string,
+  code: string,
+  state: string,
+): Promise<void> {
+  const result = await client.post({
+    url: `/v1/assistants/{assistant_id}/inference/chatgpt-subscription/auth/exchange`,
+    path: { assistant_id: assistantId },
+    body: { code, state },
     headers: { "Content-Type": "application/json" },
   });
   if (!result.response?.ok) throwHttpError(result.response);

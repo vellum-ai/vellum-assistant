@@ -105,7 +105,7 @@ export interface UseStreamEventHandlerParams {
 
   // --- Stream context ---
   streamEpochRef: MutableRefObject<number>;
-  activeConversationKeyRef: MutableRefObject<string | null>;
+  activeConversationIdRef: MutableRefObject<string | null>;
   streamContextRef: MutableRefObject<StreamContext | null>;
   assistantIdRef: MutableRefObject<string | null>;
 
@@ -183,7 +183,7 @@ export function useStreamEventHandler(
     push,
     isNative,
     streamEpochRef,
-    activeConversationKeyRef,
+    activeConversationIdRef,
     streamContextRef,
     assistantIdRef,
     setMessages,
@@ -227,8 +227,8 @@ export function useStreamEventHandler(
 
   /** Remove a conversation key from the processing set and snapshots map. */
   const clearProcessingKey = useCallback((convKey: string) => {
-    // `removeProcessingKey` clears the matching snapshot in the same set call.
-    useConversationStore.getState().removeProcessingKey(convKey);
+    // `removeProcessingConversationId` clears the matching snapshot in the same set call.
+    useConversationStore.getState().removeProcessingConversationId(convKey);
   }, []);
 
   // --- Main event handler ---
@@ -241,26 +241,41 @@ export function useStreamEventHandler(
         recordChatDiagnostic("sse_event_stale", {
           epoch,
           currentEpoch: streamEpochRef.current,
-          activeConversationKey: activeConversationKeyRef.current,
+          activeConversationId: activeConversationIdRef.current,
           ...eventSummary,
         });
         return;
       }
-      const streamConversationKey =
-        streamContextRef.current?.conversationKey;
-      if (
-        event.conversationKey &&
-        streamConversationKey &&
-        isConversationScopedStreamEvent(event) &&
-        event.conversationKey !== streamConversationKey
-      ) {
-        recordChatDiagnostic("sse_event_wrong_conversation", {
-          epoch,
-          activeConversationKey: activeConversationKeyRef.current,
-          streamContext: streamContextRef.current,
-          ...eventSummary,
-        });
-        return;
+      const streamConversationId =
+        streamContextRef.current?.conversationId;
+      // Defense-in-depth: even though useEventStream's filter already
+      // rejects conversation-scoped events without an explicit matching
+      // conversationId, gate here too so any future caller of
+      // handleStreamEvent cannot route a conversation-scoped event with
+      // a missing or mismatched id into the active conversation.
+      // Global events (`sync_changed`, `home_feed_updated`, etc.) pass
+      // through unconditionally.
+      if (isConversationScopedStreamEvent(event)) {
+        if (!event.conversationId || !streamConversationId) {
+          recordChatDiagnostic("sse_event_wrong_conversation", {
+            epoch,
+            activeConversationId: activeConversationIdRef.current,
+            streamContext: streamContextRef.current,
+            reason: !event.conversationId ? "missing" : "no_stream_context",
+            ...eventSummary,
+          });
+          return;
+        }
+        if (event.conversationId !== streamConversationId) {
+          recordChatDiagnostic("sse_event_wrong_conversation", {
+            epoch,
+            activeConversationId: activeConversationIdRef.current,
+            streamContext: streamContextRef.current,
+            reason: "mismatch",
+            ...eventSummary,
+          });
+          return;
+        }
       }
       if (
         event.type !== "assistant_text_delta" ||
@@ -272,7 +287,7 @@ export function useStreamEventHandler(
             : "sse_event",
           {
             epoch,
-            activeConversationKey: activeConversationKeyRef.current,
+            activeConversationId: activeConversationIdRef.current,
             streamContext: streamContextRef.current,
             ...eventSummary,
           },
@@ -284,7 +299,7 @@ export function useStreamEventHandler(
         router: { push },
         isNative,
         streamContextRef,
-        activeConversationKeyRef,
+        activeConversationIdRef,
         assistantIdRef,
         setMessages,
         messagesRef,
@@ -476,7 +491,7 @@ export function useStreamEventHandler(
       dispatchSyncChanged,
       queryClient,
       streamEpochRef,
-      activeConversationKeyRef,
+      activeConversationIdRef,
       streamContextRef,
       assistantIdRef,
       setMessages,

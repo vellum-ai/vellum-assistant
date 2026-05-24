@@ -66,6 +66,7 @@ import {
   migrateContactsNotesColumn,
   migrateContactsRolePrincipal,
   migrateContactsUserFileColumn,
+  migrateConversationCleanedAt,
   migrateConversationForkLineage,
   migrateConversationHostAccess,
   migrateConversationInferenceProfileSession,
@@ -120,6 +121,7 @@ import {
   migrateLlmRequestLogMessageId,
   migrateLlmRequestLogProvider,
   migrateLlmRequestLogsCreatedAtIndex,
+  migrateLlmUsageAddRawUsage,
   migrateLlmUsageAttribution,
   migrateMemoryGraphImageRefs,
   migrateMemoryItemSupersession,
@@ -154,6 +156,7 @@ import {
   migrateProviderConnectionStatusLabel,
   migrateReminderRoutingIntent,
   migrateRemindersToSchedules,
+  migrateRenameCleanedAt,
   migrateRenameConversationTypeColumn,
   migrateRenameCreatedBySessionIdColumns,
   migrateRenameFollowupsThreadIdColumn,
@@ -450,6 +453,9 @@ export function initializeDb(): void {
     migrateConversationLastNotifiedProfile,
     migrateStripBaseUrlNonOpenaiCompatible,
     migrateOnboardingEventsPriorAssistants,
+    migrateConversationCleanedAt,
+    migrateRenameCleanedAt,
+    migrateLlmUsageAddRawUsage,
   ];
 
   // Run each migration step, catching and logging individual failures so one

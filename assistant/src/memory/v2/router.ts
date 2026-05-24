@@ -21,9 +21,11 @@
  *      since NOW.md only changes when the model rewrites it. We set the 1h
  *      TTL explicitly here to match the provider-side breakpoints; the
  *      default 5m would force unnecessary cache re-creation.
- * The Anthropic provider also auto-applies a 1h breakpoint on the last text
- * block of a turn-starting user message, so the trailing uncached block does
- * not need an explicit `cache_control`.
+ * The trailing user-message block holds `<last_turn>` content that changes
+ * every call (new user turn + new prior assistant reply), so we pass
+ * `disableTurnStartCache: true` to the provider to suppress its auto-applied
+ * 1h breakpoint there — caching it would create unused cache entries (pure
+ * cache_creation cost with no future hit).
  *
  * This module is pure orchestration — it does not mutate activation state,
  * write any files, or update the conversation. PR 10 wires it into
@@ -155,10 +157,31 @@ function emptyBatchResult(
   return { selectedSlugs: [], failureReason: reason };
 }
 
+/**
+ * One `(assistant, user)` turn pair rendered inside `<last_turn>`. The
+ * pair represents the assistant's reply followed by the user message
+ * that came after. The most recent pair's `userMessage` is the
+ * just-arrived turn that triggered the router; older pairs are walked
+ * back from conversation history. `assistantMessage` is the empty
+ * string for the oldest pair when there was no prior assistant reply
+ * (conversation start) — `runRouterBatch` skips the `[assistant]:`
+ * line entirely in that case.
+ */
+export interface RouterTurnPair {
+  assistantMessage: string;
+  userMessage: string;
+}
+
 interface RunRouterParams {
   workspaceDir: string;
-  userMessage: string;
-  assistantMessage: string;
+  /**
+   * Recent assistant/user turn pairs, oldest first. Must contain at
+   * least one entry. The last entry's `userMessage` is the just-arrived
+   * user turn the router is routing for; entries before it are walked
+   * back from conversation history. The number of pairs the production
+   * caller passes is controlled by `memory.v2.router.historical_pairs`.
+   */
+  recentTurnPairs: readonly RouterTurnPair[];
   /** Verbatim contents to inject into `<now>...</now>` on this turn. */
   nowText: string;
   /** Slugs already injected on prior turns (used to seed `<already_injected_ids>`). */
@@ -172,6 +195,28 @@ interface RunRouterParams {
    * only exercise tier 1 / tier 3 paths can omit it.
    */
   database?: DrizzleDb;
+  /**
+   * Per-call profile override forwarded to `getConfiguredProvider`. When
+   * set, the `memoryRouter` call site resolves against this profile name
+   * instead of the workspace active profile. The simulator route uses
+   * this to compare different profiles against the same query; live
+   * router callers leave it unset.
+   */
+  overrideProfile?: string;
+  /**
+   * Skip the post-union truncation to `max_page_ids`. Used by the
+   * simulator so the playground can show the full untruncated router
+   * output across all batches. Live callers (`injectViaRouter`) leave
+   * this unset so the bounded-injection contract holds.
+   */
+  disableUnionCap?: boolean;
+  /**
+   * Per-call inline router system-prompt override. Takes precedence
+   * over `memory.v2.router.router_prompt_path` and the bundled body.
+   * Used by the simulator playground for ad-hoc prompt comparisons.
+   * Live callers leave this unset.
+   */
+  routerPromptOverride?: string;
 }
 
 /**
@@ -207,7 +252,11 @@ export async function runRouter(
     return emptyResult("empty_index");
   }
 
-  const provider = await getConfiguredProvider("memoryRouter");
+  const provider = await getConfiguredProvider("memoryRouter", {
+    ...(params.overrideProfile !== undefined
+      ? { overrideProfile: params.overrideProfile }
+      : {}),
+  });
   if (!provider) {
     log.warn("memoryRouter provider unavailable; router skipped");
     return emptyResult("no_provider");
@@ -302,15 +351,18 @@ export async function runRouter(
   // exceed it (e.g. 10 batches × 10 selections each ≫ 25 cap). Apply a final
   // truncation so RouterResult honors the contract that injection.ts trusts.
   // Iteration order above is tier 1 → tier 2 → tier 3:0 → … so earlier-tier
-  // slugs win the truncation.
-  const maxPageIds = config.memory?.v2?.router?.max_page_ids ?? 25;
-  if (selectedSlugs.length > maxPageIds) {
-    log.warn(
-      { unionSize: selectedSlugs.length, max: maxPageIds },
-      "Router union across batches exceeded max_page_ids; truncating",
-    );
-    const dropped = selectedSlugs.splice(maxPageIds);
-    for (const slug of dropped) sourceBySlug.delete(slug);
+  // slugs win the truncation. The simulator passes `disableUnionCap` so the
+  // playground can show the full untruncated union for analysis.
+  if (!params.disableUnionCap) {
+    const maxPageIds = config.memory?.v2?.router?.max_page_ids ?? 25;
+    if (selectedSlugs.length > maxPageIds) {
+      log.warn(
+        { unionSize: selectedSlugs.length, max: maxPageIds },
+        "Router union across batches exceeded max_page_ids; truncating",
+      );
+      const dropped = selectedSlugs.splice(maxPageIds);
+      for (const slug of dropped) sourceBySlug.delete(slug);
+    }
   }
   return { selectedSlugs, sourceBySlug, failureReason: null };
 }
@@ -331,8 +383,7 @@ async function runRouterBatch(
 ): Promise<RouterBatchResult> {
   const {
     workspaceDir,
-    userMessage,
-    assistantMessage,
+    recentTurnPairs,
     nowText,
     priorEverInjected,
     config,
@@ -349,6 +400,7 @@ async function runRouterBatch(
       userName: resolveUserName(workspaceDir),
       pageIndexBlock: batchIndex.rendered,
     },
+    params.routerPromptOverride ?? null,
   );
 
   // Filter prior-injected to slugs present in THIS batch and map to
@@ -360,6 +412,29 @@ async function runRouterBatch(
     if (local) priorIds.push(local.id);
   }
 
+  // Trim the pairs down to the configured `<last_turn>` content budget,
+  // newest-message-first so the just-arrived user turn keeps full claim
+  // on the cap and the oldest still-includable message is front-truncated
+  // (rather than dropping the most recent message). `null` is a no-op.
+  const cappedPairs = applyHistoricalCharBudget(
+    recentTurnPairs,
+    config.memory?.v2?.router?.historical_pairs_max_chars ?? null,
+  );
+
+  // Render `<last_turn>` chronologically: each pair emits the prior
+  // assistant reply followed by the user message that came after.
+  // `assistantMessage` is the empty string on the oldest pair when there
+  // was no prior assistant reply (conversation start) — skip that line
+  // so we don't emit a dangling `[assistant]:`.
+  const lastTurnLines: string[] = [];
+  for (const pair of cappedPairs) {
+    if (pair.assistantMessage.trim().length > 0) {
+      lastTurnLines.push(`[assistant]: ${pair.assistantMessage}`);
+    }
+    lastTurnLines.push(`[user]: ${pair.userMessage}`);
+  }
+  const lastTurnBlock = `<last_turn>\n${lastTurnLines.join("\n")}\n</last_turn>`;
+
   const userMsg: Message = {
     role: "user",
     content: [
@@ -368,7 +443,7 @@ async function runRouterBatch(
         type: "text",
         text:
           `<already_injected_ids>\n${priorIds.join(", ")}\n</already_injected_ids>\n\n` +
-          `<last_turn>\n[user]: ${userMessage}\n[assistant]: ${assistantMessage}\n</last_turn>`,
+          lastTurnBlock,
       },
     ],
   };
@@ -386,6 +461,7 @@ async function runRouterBatch(
         config: {
           callSite: "memoryRouter" as const,
           tool_choice: { type: "tool" as const, name: ROUTER_TOOL_NAME },
+          disableTurnStartCache: true,
         },
         ...(signal ? { signal } : {}),
       },
@@ -451,6 +527,83 @@ async function runRouterBatch(
   }
 
   return { selectedSlugs, failureReason: null };
+}
+
+/** Truncation marker prepended to a front-truncated historical message. */
+const HISTORICAL_TRUNCATION_MARKER = "…";
+
+/**
+ * Apply the `<last_turn>` content character budget to a chronological
+ * pairs array. The just-arrived user message has first claim on the
+ * budget; older messages are added newest-first until exhausted. The
+ * oldest still-includable message is front-truncated with a leading
+ * `…` so it joins coherently with the next message in time. Older pairs
+ * whose content doesn't fit are dropped entirely.
+ *
+ * Counts message content only — framing characters (`[assistant]: `,
+ * `[user]: `, newlines) are not deducted from the budget. The cap is a
+ * conservative upper bound on the dialogue content surfaced to the
+ * router, not on the exact rendered block size.
+ *
+ * Exported for tests; production calls it via `runRouterBatch`.
+ */
+export function applyHistoricalCharBudget(
+  pairs: readonly RouterTurnPair[],
+  maxChars: number | null,
+): RouterTurnPair[] {
+  if (maxChars === null || maxChars <= 0) return [...pairs];
+
+  type WalkedMsg = {
+    role: "user" | "assistant";
+    text: string;
+    pairIdx: number;
+  };
+  // Walk every message newest-first. Within a single pair the user
+  // message came AFTER the assistant message chronologically, so the
+  // user line gets first claim on the budget.
+  const walked: WalkedMsg[] = [];
+  for (let i = pairs.length - 1; i >= 0; i--) {
+    walked.push({ role: "user", text: pairs[i].userMessage, pairIdx: i });
+    walked.push({
+      role: "assistant",
+      text: pairs[i].assistantMessage,
+      pairIdx: i,
+    });
+  }
+
+  let used = 0;
+  const included = new Map<number, { assistant: string; user: string }>();
+  for (const msg of walked) {
+    const remaining = maxChars - used;
+    if (remaining <= 0) break;
+    let textToInclude: string;
+    let stop = false;
+    if (msg.text.length <= remaining) {
+      textToInclude = msg.text;
+      used += msg.text.length;
+    } else {
+      // Front-truncate so the surviving suffix of an older message
+      // connects to the next message (in chronological order) without
+      // a syntactic seam. The marker counts toward the budget so the
+      // emitted text never exceeds `maxChars` cumulatively.
+      if (remaining <= HISTORICAL_TRUNCATION_MARKER.length) break;
+      const keepChars = remaining - HISTORICAL_TRUNCATION_MARKER.length;
+      textToInclude = HISTORICAL_TRUNCATION_MARKER + msg.text.slice(-keepChars);
+      used = maxChars;
+      stop = true;
+    }
+    const slot = included.get(msg.pairIdx) ?? { assistant: "", user: "" };
+    if (msg.role === "user") slot.user = textToInclude;
+    else slot.assistant = textToInclude;
+    included.set(msg.pairIdx, slot);
+    if (stop) break;
+  }
+
+  const sortedIdxs = [...included.keys()].sort((a, b) => a - b);
+  return sortedIdxs.map((idx) => {
+    const slot = included.get(idx)!;
+    return { assistantMessage: slot.assistant, userMessage: slot.user };
+  });
 }
 
 /**

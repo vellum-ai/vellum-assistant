@@ -4,7 +4,7 @@
  * Covers:
  *   - Missing persisted value falls back to code default
  *   - Protected feature-flags.json is the sole override mechanism
- *   - Undeclared keys default to enabled
+ *   - Undeclared keys default to disabled
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
@@ -80,10 +80,10 @@ describe("isAssistantFeatureFlagEnabled", () => {
     ).toBe(true);
   });
 
-  test("unknown flag defaults to true when no persisted override", () => {
+  test("unknown flag defaults to false when no persisted override", () => {
     const config = {} as any;
 
-    expect(isAssistantFeatureFlagEnabled("unknown-skill", config)).toBe(true);
+    expect(isAssistantFeatureFlagEnabled("unknown-skill", config)).toBe(false);
   });
 
   test("undeclared flag respects persisted override", () => {

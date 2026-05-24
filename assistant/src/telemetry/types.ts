@@ -38,6 +38,18 @@ export interface LlmUsageTelemetryEvent extends TelemetryEventBase {
   output_tokens: number;
   cache_creation_input_tokens: number | null;
   cache_read_input_tokens: number | null;
+  /**
+   * The provider's untouched `usage` block. Anthropic surfaces a TTL
+   * breakdown under `cache_creation.ephemeral_{5m,1h}_input_tokens`;
+   * OpenAI surfaces cached-read counts under
+   * `prompt_tokens_details.cached_tokens` (and reasoning tokens under
+   * `completion_tokens_details`). Both shapes are forwarded verbatim so
+   * downstream consumers (admin charts, dbt models) can extract any
+   * provider-specific detail without requiring a schema change here.
+   * Null when the provider did not return a usage payload, and for
+   * daemons that predate `260-llm-usage-add-raw-usage`.
+   */
+  raw_usage: Record<string, unknown> | null;
   actor: string;
   llm_call_site: LLMCallSite | null;
   inference_profile: string | null;

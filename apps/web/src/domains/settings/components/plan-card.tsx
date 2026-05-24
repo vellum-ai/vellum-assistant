@@ -1,11 +1,11 @@
-import { Crown, Loader2, Palmtree } from "lucide-react";
+import { Crown, Loader2, Palmtree, type LucideIcon } from "lucide-react";
 
 import { useQuery } from "@tanstack/react-query";
 
+import type { ButtonProps } from "@vellum/design-library/components/button";
 import { Button } from "@vellum/design-library/components/button";
 import { Card } from "@vellum/design-library/components/card";
 import { Notice } from "@vellum/design-library/components/notice";
-import { SkillRow } from "@vellum/design-library/components/skill-row";
 import { Typography } from "@vellum/design-library/components/typography";
 import { PlanFeatureList } from "./plan-feature-list.js";
 import {
@@ -17,18 +17,32 @@ import {
   getEffectiveCancelDate,
 } from "@/domains/settings/hooks/use-billing-portal-session.js";
 
-/**
- * PlanCard — top-of-billing-settings summary of the org's current plan.
- *
- * Renders a Card with a heading, a tinted SkillRow showing the current plan
- * (Pro / Base), and a renewal / cancellation caption underneath. Both the
- * Pro "Manage" and Base "Upgrade to Pro" buttons fan into the same
- * `onManage` callback — the parent owns modal open state.
- *
- * The cancel timestamp falls back to `current_period_end` when `cancel_at`
- * is null so the line still surfaces during the brief window between Stripe
- * scheduling cancellation and writing the explicit `cancel_at` field.
- */
+interface PlanDisplay {
+  icon: LucideIcon;
+  actionLabel: string;
+  actionVariant: ButtonProps["variant"];
+  actionTestId: string;
+  showsRenewal: boolean;
+}
+
+const PLAN_DISPLAY: Record<string, PlanDisplay> = {
+  pro: {
+    icon: Crown,
+    actionLabel: "Manage",
+    actionVariant: "outlined",
+    actionTestId: "plan-card-manage-button",
+    showsRenewal: true,
+  },
+  base: {
+    icon: Palmtree,
+    actionLabel: "Upgrade to Pro",
+    actionVariant: "primary",
+    actionTestId: "plan-card-upgrade-button",
+    showsRenewal: false,
+  },
+};
+
+const DEFAULT_DISPLAY: PlanDisplay = PLAN_DISPLAY.base;
 
 export interface PlanCardProps {
   onManage: () => void;
@@ -89,65 +103,64 @@ export function PlanCard({ onManage }: PlanCardProps) {
     return <Notice tone="error">Failed to load plan.</Notice>;
   }
 
-  const isPro = subscription.plan_id === "pro";
+  const display = PLAN_DISPLAY[currentPlan.id] ?? DEFAULT_DISPLAY;
+  const PlanIcon = display.icon;
+  const planName = currentPlan.name ?? currentPlan.id;
+
   const isCancelling =
-    isPro &&
+    display.showsRenewal &&
     (subscription.cancel_at_period_end === true ||
       Boolean(subscription.cancel_at));
   const isCanceled = subscription.status === "canceled";
   const cancelDate = getEffectiveCancelDate(subscription);
-  const subtitle = (
-    <PlanFeatureList features={currentPlan.included_features} variant="inline" />
-  );
+  const showRenewal = display.showsRenewal && !isCancelling && !isCanceled && subscription.current_period_end;
+  const showCancellation = display.showsRenewal && isCancelling && !isCanceled && cancelDate;
 
   return (
-    <Card padding="md">
+    <Card padding="lg">
       <div className="flex flex-col gap-4">
         <PlanHeading />
-        <SkillRow
-          icon={
-            isPro ? (
-              <Crown className="h-3.5 w-3.5" aria-hidden />
-            ) : (
-              <Palmtree className="h-3.5 w-3.5" aria-hidden />
-            )
-          }
-          title={
-            <span data-testid="plan-card-name">
-              {isPro ? "Pro Plan" : "Basic Plan"}
-            </span>
-          }
-          subtitle={subtitle}
-          action={
-            <Button
-              variant={isPro ? "outlined" : "primary"}
-              onClick={onManage}
-              data-testid={
-                isPro ? "plan-card-manage-button" : "plan-card-upgrade-button"
-              }
-            >
-              {isPro ? "Manage" : "Upgrade to Pro"}
-            </Button>
-          }
-        />
-        {isPro && !isCancelling && !isCanceled && subscription.current_period_end && (
+        <div className="flex items-center gap-3 rounded-lg bg-[var(--surface-base)] p-3">
+          <span
+            aria-hidden
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)]"
+          >
+            <PlanIcon className="h-4 w-4 text-[var(--content-default)]" />
+          </span>
+          <div className="min-w-0 flex-1 space-y-0.5">
+            <Typography variant="body-medium-default" as="div" data-testid="plan-card-name">
+              {planName}
+            </Typography>
+            <Typography variant="body-small-default" as="div" className="leading-snug text-[var(--content-tertiary)]">
+              <PlanFeatureList features={currentPlan.included_features} variant="inline" />
+            </Typography>
+          </div>
+          <Button
+            variant={display.actionVariant}
+            onClick={onManage}
+            data-testid={display.actionTestId}
+          >
+            {display.actionLabel}
+          </Button>
+        </div>
+        {showRenewal && (
           <Typography
             as="p"
             variant="body-small-default"
             className="text-[var(--content-tertiary)]"
             data-testid="plan-card-renews"
           >
-            Renews on {formatGraceDate(subscription.current_period_end)}.
+            Renews on {formatGraceDate(subscription.current_period_end!)}.
           </Typography>
         )}
-        {isPro && isCancelling && !isCanceled && cancelDate && (
+        {showCancellation && (
           <Typography
             as="p"
             variant="body-small-default"
             className="text-[var(--system-mid-strong)]"
             data-testid="plan-card-cancels"
           >
-            Your plan ends on {formatGraceDate(cancelDate)}.
+            Your plan ends on {formatGraceDate(cancelDate!)}.
           </Typography>
         )}
       </div>
