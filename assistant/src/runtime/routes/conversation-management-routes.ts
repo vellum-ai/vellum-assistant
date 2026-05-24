@@ -208,7 +208,9 @@ function handleRenameConversation({
   return { ok: true };
 }
 
-function handleClearAllConversations({ headers = {} }: RouteHandlerArgs) {
+async function handleClearAllConversations({
+  headers = {},
+}: RouteHandlerArgs) {
   const confirm = headers["x-confirm-destructive"];
   if (confirm !== "clear-all-conversations") {
     throw new BadRequestError(
@@ -216,7 +218,7 @@ function handleClearAllConversations({ headers = {} }: RouteHandlerArgs) {
         "To confirm, set header X-Confirm-Destructive: clear-all-conversations",
     );
   }
-  clearAllConversations();
+  await clearAllConversations();
   publishConversationListChanged("deleted");
   return undefined;
 }

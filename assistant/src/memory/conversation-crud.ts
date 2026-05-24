@@ -47,6 +47,7 @@ import {
 } from "./conversation-disk-view.js";
 import { ensureDisplayOrderMigration } from "./conversation-display-order-migration.js";
 import { ensureGroupMigration } from "./conversation-group-migration.js";
+import { runAsyncSqlite } from "./db-async-query.js";
 import { getDb, getSqliteFrom } from "./db-connection.js";
 import { forkGraphMemoryState } from "./graph/graph-memory-state-store.js";
 import { indexMessageNow } from "./indexer.js";
@@ -1706,12 +1707,34 @@ export function setLastNotifiedInferenceProfile(
  * Delete all conversations, messages, and related data (tool invocations,
  * memory segments, etc.) from the daemon database.
  * Returns { conversations, messages } counts.
+ *
+ * Each bulk DELETE is dispatched through {@link runAsyncSqlite}: when
+ * the host has a `sqlite3` CLI it executes in a subprocess and the
+ * daemon's main event loop stays responsive while large tables
+ * (`llm_request_logs`, `tool_invocations`, etc.) are wiped. On hosts
+ * without the CLI the abstraction falls back to in-process blocking
+ * execution — the same behaviour the daemon had before.
  */
-export function clearAll(): { conversations: number; messages: number } {
+export async function clearAll(): Promise<{
+  conversations: number;
+  messages: number;
+}> {
   const msgCount =
     rawGet<{ c: number }>("SELECT COUNT(*) AS c FROM messages")?.c ?? 0;
   const convCount =
     rawGet<{ c: number }>("SELECT COUNT(*) AS c FROM conversations")?.c ?? 0;
+
+  // Each DELETE goes through `runAsyncSqlite`. The original code threw
+  // on rawExec failure; mirror that here by throwing when the async
+  // result reports `ok: false`, so the route handler still returns 500.
+  const runOrThrow = async (sql: string): Promise<void> => {
+    const result = await runAsyncSqlite(sql);
+    if (!result.ok) {
+      throw new Error(
+        `clearAll: \`${sql}\` failed (${result.backend}): ${result.error ?? "unknown"}`,
+      );
+    }
+  };
 
   // Delete in dependency order. Cascades handle memory_segments and
   // tool_invocations, but we explicitly clear non-cascading memory
@@ -1722,22 +1745,21 @@ export function clearAll(): { conversations: number; messages: number } {
   // triggers so that the subsequent base-table DELETEs don't also fail
   // (SQLite triggers are atomic with the triggering statement, so a
   // corrupted FTS table would roll back every base-table DELETE).
-  rawExec("DELETE FROM memory_segments");
-  rawExec("DELETE FROM memory_summaries");
-  rawExec("DELETE FROM memory_embeddings");
-  rawExec("DELETE FROM memory_jobs");
-  rawExec("DELETE FROM memory_checkpoints");
-  rawExec("DELETE FROM llm_request_logs");
-  rawExec("DELETE FROM llm_usage_events");
-  rawExec("DELETE FROM message_attachments");
-  rawExec("DELETE FROM attachments");
-  rawExec("DELETE FROM tool_invocations");
+  await runOrThrow("DELETE FROM memory_segments");
+  await runOrThrow("DELETE FROM memory_summaries");
+  await runOrThrow("DELETE FROM memory_embeddings");
+  await runOrThrow("DELETE FROM memory_jobs");
+  await runOrThrow("DELETE FROM memory_checkpoints");
+  await runOrThrow("DELETE FROM llm_request_logs");
+  await runOrThrow("DELETE FROM llm_usage_events");
+  await runOrThrow("DELETE FROM message_attachments");
+  await runOrThrow("DELETE FROM attachments");
+  await runOrThrow("DELETE FROM tool_invocations");
   let messagesFtsCorrupted = false;
-  try {
-    rawExec("DELETE FROM messages_fts");
-  } catch (err) {
+  const ftsResult = await runAsyncSqlite("DELETE FROM messages_fts");
+  if (!ftsResult.ok) {
     log.warn(
-      { err },
+      { error: ftsResult.error, backend: ftsResult.backend },
       "clearAll: failed to clear messages_fts — dropping triggers so base-table cleanup can proceed",
     );
     rawExec("DROP TRIGGER IF EXISTS messages_fts_ai");
@@ -1745,8 +1767,8 @@ export function clearAll(): { conversations: number; messages: number } {
     rawExec("DROP TRIGGER IF EXISTS messages_fts_au");
     messagesFtsCorrupted = true;
   }
-  rawExec("DELETE FROM messages");
-  rawExec("DELETE FROM conversations");
+  await runOrThrow("DELETE FROM messages");
+  await runOrThrow("DELETE FROM conversations");
 
   // Record audit event — lifecycle_events is NOT deleted by clearAll(),
   // so this survives the wipe and provides a permanent trail.

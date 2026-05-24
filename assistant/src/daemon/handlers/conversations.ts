@@ -57,13 +57,13 @@ export function handleConfirmationResponse(msg: ConfirmationResponse): void {
 /**
  * Clear all conversations and DB conversations. Returns the number of conversations cleared.
  */
-export function clearAllConversations(): number {
+export async function clearAllConversations(): Promise<number> {
   const cleared = clearAllActiveConversations();
   // Also clear DB conversations. When a new local connection triggers
   // sendInitialConversation, it auto-creates a conversation if none exist.
   // Without this DB clear, that auto-created row survives, contradicting
   // the "clear all conversations" intent.
-  clearAll();
+  await clearAll();
   return cleared;
 }
 

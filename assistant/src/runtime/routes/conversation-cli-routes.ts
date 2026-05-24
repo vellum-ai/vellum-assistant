@@ -145,7 +145,7 @@ function handleExportCli({ body = {} }: RouteHandlerArgs) {
 
 async function handleClearCli(_args: RouteHandlerArgs) {
   // Tear down in-memory conversation state before DB clear.
-  const cleared = clearAllActive();
+  const cleared = await clearAllActive();
   log.info(
     { cleared },
     "CLI conversations clear: active conversations torn down",
