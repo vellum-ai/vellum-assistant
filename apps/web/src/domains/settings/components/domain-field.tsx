@@ -6,6 +6,7 @@ interface DomainFieldProps {
   domainSuffix: string;
   subdomainPlaceholder?: string;
   disabled?: boolean;
+  autoFocus?: boolean;
   prefix?: ReactNode;
   error?: string | null;
   locked?: boolean;
@@ -18,6 +19,7 @@ export function DomainField({
   domainSuffix,
   subdomainPlaceholder = "my-assistant",
   disabled,
+  autoFocus,
   prefix,
   error,
   locked,
@@ -36,6 +38,7 @@ export function DomainField({
           onChange={(e) => onSubdomainChange(e.target.value.toLowerCase().trim())}
           disabled={disabled || locked}
           readOnly={locked}
+          autoFocus={autoFocus}
           placeholder={subdomainPlaceholder}
           aria-label="Subdomain"
           aria-invalid={!!error}

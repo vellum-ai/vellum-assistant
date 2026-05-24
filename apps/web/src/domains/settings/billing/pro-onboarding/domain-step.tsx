@@ -131,6 +131,7 @@ export function DomainStep({ onBack, onExit }: { onBack: () => void; onExit: () 
           </Typography>
           <DomainField
             subdomain={subdomain}
+            autoFocus
             onSubdomainChange={(v) => {
               setSubdomain(v);
               if (errorMsg) setErrorMsg(null);
