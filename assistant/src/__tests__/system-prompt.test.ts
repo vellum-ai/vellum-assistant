@@ -98,17 +98,19 @@ const {
 } = await import("../prompts/system-prompt.js");
 
 /**
- * Extract BOOTSTRAP.md content + the user persona from the dynamic block
- * of the system prompt, stripping configuration, skills catalog, and
- * connected services.
+ * Returns the prompt content that lives after the
+ * `SYSTEM_PROMPT_CACHE_BOUNDARY` marker, with any remaining vestigial
+ * headings stripped.  Every bundled section — including the
+ * runtime-computed `14-connected-services` block — renders into the
+ * static prefix before the boundary, so this slice is now always
+ * empty in the standard test path; tests use it to assert that no
+ * dynamic-suffix content has leaked in.
  *
- * Neither SOUL.md nor IDENTITY.md flows through this helper — they
- * render as the `09-soul` and `08-identity` workspace-backed sections in
- * the static (cached) prefix.  Tests that assert on their content slice
- * the static block directly.
+ * Sections in the static prefix (SOUL, IDENTITY, persona, BOOTSTRAP,
+ * Connected Services, …) are asserted against the full prompt string
+ * directly rather than through this helper.
  */
 function basePrompt(result: string): string {
-  // The workspace files are in the dynamic block after the cache boundary.
   const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
   let s =
     boundaryIdx >= 0
@@ -118,7 +120,6 @@ function basePrompt(result: string): string {
     "## Configuration",
     "## Skills Catalog",
     "## External Communications Identity",
-    "# Connected Services",
     "## Dynamic Skill Authoring Workflow",
   ]) {
     if (s.startsWith(heading)) {
