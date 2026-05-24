@@ -78,7 +78,10 @@ function handleVoiceConfigUpdate({ body = {} }: RouteHandlerArgs) {
 // Avatar generation
 // ---------------------------------------------------------------------------
 
-async function handleGenerateAvatar({ body = {} }: RouteHandlerArgs) {
+async function handleGenerateAvatar({
+  body = {},
+  headers,
+}: RouteHandlerArgs) {
   const { description } = body as { description?: string };
   if (!description?.trim()) {
     throw new BadRequestError("Description is required.");
@@ -95,7 +98,7 @@ async function handleGenerateAvatar({ body = {} }: RouteHandlerArgs) {
 
     const avatarPath = getAvatarImagePath();
 
-    publishAvatarChanged();
+    publishAvatarChanged(headers?.["x-vellum-client-id"]?.trim() || undefined);
 
     return { ok: true, avatarPath };
   } catch (err) {

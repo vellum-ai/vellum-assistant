@@ -31,7 +31,7 @@ export const ROUTES: RouteDefinition[] = [
     description: "Update the display title of a conversation.",
     tags: ["conversations"],
     requestBody: RenameConversationBody,
-    handler: ({ body }) => {
+    handler: ({ body, headers }) => {
       const parsed = RenameConversationBody.safeParse(body);
       if (!parsed.success) {
         throw new BadRequestError("conversationId and title are required");
@@ -46,7 +46,11 @@ export const ROUTES: RouteDefinition[] = [
 
       updateConversationTitle(conversationId, title, 0);
 
-      publishConversationTitleChanged(conversationId, title);
+      publishConversationTitleChanged(
+        conversationId,
+        title,
+        headers?.["x-vellum-client-id"]?.trim() || undefined,
+      );
 
       return { ok: true };
     },

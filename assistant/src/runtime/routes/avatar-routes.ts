@@ -40,7 +40,7 @@ function handleGetCharacterComponents() {
   return getCharacterComponents();
 }
 
-function handleRenderFromTraits({ body }: RouteHandlerArgs) {
+function handleRenderFromTraits({ body, headers }: RouteHandlerArgs) {
   const traits = body as CharacterTraits | undefined;
 
   if (
@@ -69,11 +69,11 @@ function handleRenderFromTraits({ body }: RouteHandlerArgs) {
   }
 
   updateIdentityAvatarSection(null, log);
-  publishAvatarChanged();
+  publishAvatarChanged(headers?.["x-vellum-client-id"]?.trim() || undefined);
   return { ok: true };
 }
 
-async function handleGenerateAvatar({ body }: RouteHandlerArgs) {
+async function handleGenerateAvatar({ body, headers }: RouteHandlerArgs) {
   const description = (body as Record<string, unknown>)?.description as
     | string
     | undefined;
@@ -109,11 +109,11 @@ async function handleGenerateAvatar({ body }: RouteHandlerArgs) {
   }
 
   updateIdentityAvatarSection(null, log);
-  publishAvatarChanged();
+  publishAvatarChanged(headers?.["x-vellum-client-id"]?.trim() || undefined);
   return { ok: true, message: result.content };
 }
 
-function handleSetAvatar({ body }: RouteHandlerArgs) {
+function handleSetAvatar({ body, headers }: RouteHandlerArgs) {
   const imagePath = (body as Record<string, unknown>)?.imagePath as
     | string
     | undefined;
@@ -142,11 +142,11 @@ function handleSetAvatar({ body }: RouteHandlerArgs) {
   copyFileSync(normalized, avatarPath);
 
   updateIdentityAvatarSection(null, log);
-  publishAvatarChanged();
+  publishAvatarChanged(headers?.["x-vellum-client-id"]?.trim() || undefined);
   return { ok: true };
 }
 
-function handleRemoveAvatar(_args: RouteHandlerArgs) {
+function handleRemoveAvatar({ headers }: RouteHandlerArgs) {
   const avatarPath = getAvatarImagePath();
 
   if (!existsSync(avatarPath)) {
@@ -172,7 +172,7 @@ function handleRemoveAvatar(_args: RouteHandlerArgs) {
     "Default character avatar (no custom image set)",
     log,
   );
-  publishAvatarChanged();
+  publishAvatarChanged(headers?.["x-vellum-client-id"]?.trim() || undefined);
   return { ok: true, hadAvatar: true };
 }
 
@@ -286,8 +286,8 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "notify_avatar_updated",
     endpoint: "avatar/notify-updated",
     method: "POST",
-    handler: () => {
-      publishAvatarChanged();
+    handler: ({ headers }: RouteHandlerArgs) => {
+      publishAvatarChanged(headers?.["x-vellum-client-id"]?.trim() || undefined);
       return { ok: true };
     },
     summary: "Notify avatar updated",
