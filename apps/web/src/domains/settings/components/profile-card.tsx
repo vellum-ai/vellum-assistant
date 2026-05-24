@@ -338,18 +338,20 @@ function HandleEditor<T>({
         fullWidth
         data-testid={`${fieldId}-input`}
       />
-      <div className="flex justify-end">
-        <Button
-          variant="primary"
-          size="compact"
-          onClick={handleSave}
-          disabled={!isSaveable}
-          aria-live="polite"
-          data-testid={`${fieldId}-save`}
-        >
-          {saveLabel}
-        </Button>
-      </div>
+      {(!isUnchanged || saveStatus !== "idle") && (
+        <div className="flex justify-end">
+          <Button
+            variant="primary"
+            size="compact"
+            onClick={handleSave}
+            disabled={!isSaveable}
+            aria-live="polite"
+            data-testid={`${fieldId}-save`}
+          >
+            {saveLabel}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
