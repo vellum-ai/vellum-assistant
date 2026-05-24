@@ -17,6 +17,15 @@ function printUsage(): void {
   );
 }
 
+function consumeValue(args: string[], i: number, flag: string): string {
+  const next = args[i + 1];
+  if (next === undefined || next.startsWith("--")) {
+    console.error(`Error: ${flag} requires a value.`);
+    process.exit(1);
+  }
+  return next;
+}
+
 function parseCreateArgs(args: string[]): {
   title: string | undefined;
   description: string | undefined;
@@ -29,13 +38,16 @@ function parseCreateArgs(args: string[]): {
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
       case "--title":
-        title = args[++i];
+        title = consumeValue(args, i, "--title");
+        i++;
         break;
       case "--description":
-        description = args[++i];
+        description = consumeValue(args, i, "--description");
+        i++;
         break;
       case "--tag":
-        tags.push(args[++i]!);
+        tags.push(consumeValue(args, i, "--tag"));
+        i++;
         break;
     }
   }
