@@ -1,4 +1,5 @@
 import { AlertTriangle } from "lucide-react";
+import type { ReactNode } from "react";
 
 import { Button } from "./button.js";
 import { Modal } from "./modal.js";
@@ -18,7 +19,7 @@ import { Modal } from "./modal.js";
 interface ConfirmDialogProps {
   open: boolean;
   title: string;
-  message: string;
+  message: ReactNode;
   confirmLabel?: string;
   cancelLabel?: string;
   destructive?: boolean;
