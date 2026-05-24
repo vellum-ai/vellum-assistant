@@ -439,7 +439,7 @@ function classifyCore(
       }
       return {
         code: "PROVIDER_API",
-        userMessage: "The AI provider rejected the request.",
+        userMessage: `The AI provider rejected the request (HTTP ${error.statusCode}).`,
         retryable: true,
         errorCategory: "provider_api_error",
       };
