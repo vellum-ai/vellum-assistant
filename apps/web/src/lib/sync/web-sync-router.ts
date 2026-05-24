@@ -10,6 +10,7 @@ import {
   SYNC_TAGS,
   type SyncChangedEvent,
 } from "@/lib/sync/types.js";
+import { getClientId } from "@/lib/telemetry/client-identity.js";
 
 export interface ActiveConversationMessagesRefreshResult {
   changed: boolean;
@@ -30,7 +31,21 @@ export interface WebSyncRouterOptions {
   invalidateAssistantSchedules: () => void;
   scheduleConversationListRefetch: () => void;
   refreshActiveConversationMessages: () => Promise<ActiveConversationMessagesRefreshResult>;
+  /**
+   * Override for the page's own client id. Defaults to `getClientId()` from
+   * `@/lib/telemetry/client-identity`. Tests pass a stub so they can pin
+   * both the "origin id matches" and "origin id differs" branches without
+   * busting the module cache of the singleton.
+   */
+  getOwnClientId?: () => string;
 }
+
+const EMPTY_DISPATCH_RESULT: SyncDispatchResult = {
+  handledTags: [],
+  unknownTags: [],
+  invokedHandlers: 0,
+  errors: [],
+};
 
 export interface WebSyncReconnectResult {
   dispatch: SyncDispatchResult;
@@ -47,6 +62,7 @@ export function createWebSyncRouter(
   options: WebSyncRouterOptions,
 ): WebSyncRouter {
   const registry = createSyncTagRegistry();
+  const getOwnClientId = options.getOwnClientId ?? getClientId;
   const registrations: SyncHandlerRegistration[] = [
     registry.register(SYNC_TAGS.assistantAvatar, options.invalidateAvatar),
     registry.register(SYNC_TAGS.assistantIdentity, () =>
@@ -89,7 +105,24 @@ export function createWebSyncRouter(
   ];
 
   return {
-    dispatchSyncChanged: (event) => registry.dispatch(event),
+    dispatchSyncChanged: (event) => {
+      // Defensive self-echo drop. The daemon's hub already skips the
+      // originating SSE subscriber when it can match the origin client
+      // id to a live subscriber; this guard catches any sync_changed
+      // that still surfaces to our page with our own origin id (e.g.
+      // a reconnect that re-delivered a queued event) before it can
+      // fight the optimistic update the mutation's onSuccess applied.
+      // Empty string is never a real id — the daemon trims and only
+      // emits originClientId when truthy. We mirror the hub's length
+      // check so an accidental "" never collapses to a self-match.
+      if (
+        event.originClientId &&
+        event.originClientId === getOwnClientId()
+      ) {
+        return Promise.resolve(EMPTY_DISPATCH_RESULT);
+      }
+      return registry.dispatch(event);
+    },
     dispatchReconnect: async () => {
       const dispatch = await registry.dispatchReconnect();
       const activeConversationId = options.activeConversationIdRef.current;
