@@ -126,9 +126,14 @@ export function parseAssistantEvent(
       ) {
         return { type: "unknown", rawType, data };
       }
+      const rawOriginClientId =
+        typeof data.originClientId === "string"
+          ? data.originClientId.trim()
+          : "";
       return {
         type: "sync_changed",
         tags: tags as SyncInvalidationTag[],
+        ...(rawOriginClientId ? { originClientId: rawOriginClientId } : {}),
       };
     }
 

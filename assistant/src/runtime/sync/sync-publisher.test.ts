@@ -102,4 +102,53 @@ describe("sync publisher", () => {
       subscription.dispose();
     }
   });
+
+  test("forwards originClientId when provided", async () => {
+    const received: AssistantEvent[] = [];
+    const subscription = assistantEventHub.subscribe({
+      type: "process",
+      callback: (event) => {
+        received.push(event);
+      },
+    });
+
+    try {
+      const message = await publishSyncInvalidation(
+        [SYNC_TAGS.assistantAvatar],
+        "client-abc",
+      );
+
+      await waitFor(() => received.length === 1);
+
+      expect(message).toEqual({
+        type: "sync_changed",
+        tags: [SYNC_TAGS.assistantAvatar],
+        originClientId: "client-abc",
+      });
+      expect(received[0].message).toEqual(message);
+    } finally {
+      subscription.dispose();
+    }
+  });
+
+  test("omits originClientId when not provided", async () => {
+    const received: AssistantEvent[] = [];
+    const subscription = assistantEventHub.subscribe({
+      type: "process",
+      callback: (event) => {
+        received.push(event);
+      },
+    });
+
+    try {
+      const message = await publishSyncInvalidation([SYNC_TAGS.assistantAvatar]);
+
+      await waitFor(() => received.length === 1);
+
+      expect("originClientId" in message).toBe(false);
+      expect(received[0].message).toEqual(message);
+    } finally {
+      subscription.dispose();
+    }
+  });
 });
