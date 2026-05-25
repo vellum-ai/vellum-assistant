@@ -90,6 +90,17 @@ const startResponse: RadioAdvanceResponse = {
   },
 };
 
+const alternateStartResponse: RadioAdvanceResponse = {
+  segmentId: "segment-b",
+  displayCue: "song",
+  track: thirdTrack,
+  playbackPlan: {
+    reason: "start",
+    displayCue: "song",
+    track: thirdTrack,
+  },
+};
+
 const transitionResponse: RadioAdvanceResponse = {
   segmentId: "segment-2",
   displayCue: "transition",
@@ -358,6 +369,39 @@ describe("useRadioStore", () => {
     expect("segmentId" in request).toBe(false);
     expect("currentTrackId" in request).toBe(false);
     expect("recentTrackIds" in request).toBe(false);
+  });
+
+  it("clears the previous assistant track when an assistant switch needs setup", async () => {
+    const store = await loadStore();
+    await store.getState().start("assistant-a");
+    advanceRadioMock.mockImplementationOnce(async () => setupResponse);
+
+    await store.getState().start("assistant-b");
+
+    expect(store.getState().status).toBe("setup_needed");
+    expect(store.getState().assistantId).toBe("assistant-b");
+    expect(store.getState().currentTrack?.id).toBe("buffer-bloom");
+    expect(store.getState().nextTrack).toBeNull();
+    expect(store.getState().recentTrackIds).toEqual(["buffer-bloom"]);
+    expect(controllers[0]?.dispose).toHaveBeenCalled();
+  });
+
+  it("starts a different assistant with fresh recent-track history", async () => {
+    const store = await loadStore();
+    await store.getState().start("assistant-a");
+    advanceRadioMock.mockImplementationOnce(async () => alternateStartResponse);
+
+    await store.getState().start("assistant-b");
+
+    expect(store.getState().recentTrackIds).toEqual(["neon-postcard"]);
+    advanceRadioMock.mockClear();
+    advanceRadioMock.mockImplementationOnce(async () => transitionResponse);
+
+    await store.getState().skip("assistant-b");
+
+    const [, request] = advanceRadioMock.mock.calls[0]!;
+    expect(request.currentTrackId).toBe("neon-postcard");
+    expect(request.recentTrackIds).toEqual(["neon-postcard"]);
   });
 
   it("deduplicates automatic song-ended advances while one is already pending", async () => {

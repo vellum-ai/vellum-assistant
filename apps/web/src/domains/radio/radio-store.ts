@@ -254,13 +254,33 @@ async function advanceWithReason(
   if (token === null) return;
 
   const previousState = get();
-  const outgoingTrack = previousState.currentTrack;
+  const isAssistantSwitch =
+    previousState.assistantId !== null &&
+    previousState.assistantId !== assistantId;
+  const requestState = isAssistantSwitch ? INITIAL_STATE : previousState;
+  const outgoingTrack = isAssistantSwitch ? null : previousState.currentTrack;
   const loadingStatus =
     outgoingTrack && reason !== "start" ? "transitioning" : "loading";
+
+  if (isAssistantSwitch) {
+    resetRuntimeController();
+  }
 
   set({
     status: loadingStatus,
     assistantId,
+    ...(isAssistantSwitch
+      ? {
+          displayCue: null,
+          currentTrack: null,
+          nextTrack: null,
+          djText: null,
+          progressMs: 0,
+          remainingMs: 0,
+          segmentId: null,
+          recentTrackIds: [],
+        }
+      : {}),
     setup: null,
     errorMessage: null,
     ...(reason === "start" ? { progressMs: 0, remainingMs: 0 } : {}),
@@ -269,7 +289,7 @@ async function advanceWithReason(
   try {
     const response = await dependencies.advanceRadio(
       assistantId,
-      buildAdvanceRequest(previousState, reason, assistantId),
+      buildAdvanceRequest(requestState, reason, assistantId),
     );
     if (!isCurrentAdvance(token)) return;
     await applyAdvanceResponse({
