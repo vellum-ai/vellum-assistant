@@ -6,9 +6,9 @@
  * to auto-verify the owner's email channel. It creates a guardian email
  * channel binding directly in both the assistant and gateway databases.
  *
- * Auth is omitted (defaults to "none") because this route is only
- * reachable through vembda's trusted `gateway-query` proxy, consistent
- * with other webhook routes.
+ * Auth is `edge-guardian`: the route is reachable only via vembda's
+ * trusted `gateway-query` proxy, and edge-guardian validates the
+ * proxy-signed request before the handler runs.
  */
 
 import { z } from "zod";
