@@ -1,8 +1,8 @@
-import { readFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { RadioDjBreak, RadioTrack } from "../../../radio/types.js";
-import { NotFoundError } from "../errors.js";
+import { NotFoundError, RouteError } from "../errors.js";
 import { RouteResponse } from "../types.js";
 
 let plannerResult: {
@@ -15,6 +15,7 @@ let plannerCalls: Array<Record<string, unknown>>;
 let ttsResult: RadioDjBreak;
 let ttsError: Error | null;
 let ttsCalls: Array<{ text: string; signal?: AbortSignal }>;
+let failingReadFilePath: string | null;
 
 class MockRadioTtsSetupRequiredError extends Error {
   readonly settingsPath = "/assistant/settings/ai" as const;
@@ -47,6 +48,15 @@ mock.module("../../../radio/radio-tts.js", () => ({
   },
   isRadioTtsSetupRequiredError: (error: unknown) =>
     error instanceof MockRadioTtsSetupRequiredError,
+}));
+
+mock.module("node:fs/promises", () => ({
+  readFile: async (path: string) => {
+    if (path === failingReadFilePath) {
+      throw new Error(`ENOENT: no such file or directory, open '${path}'`);
+    }
+    return readFileSync(path);
+  },
 }));
 
 const { getRadioTrack } = await import("../../../radio/catalog.js");
@@ -95,6 +105,7 @@ describe("radio routes", () => {
     };
     ttsError = null;
     ttsCalls = [];
+    failingReadFilePath = null;
   });
 
   test("start returns an initialized song response with a playable track path", async () => {
@@ -296,7 +307,7 @@ describe("radio routes", () => {
 
     expect(response).toBeInstanceOf(RouteResponse);
     const routeResponse = response as RouteResponse;
-    const expectedBytes = await readFile(neonPostcard.assetPath);
+    const expectedBytes = readFileSync(neonPostcard.assetPath);
     expect(routeResponse.headers).toEqual({
       "Content-Type": "audio/wav",
       "Cache-Control": "public, max-age=31536000, immutable",
@@ -311,5 +322,25 @@ describe("radio routes", () => {
     await expect(
       route.handler({ pathParams: { trackId: "missing-track" } }),
     ).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  test("track route keeps local asset paths out of read-failure error details", async () => {
+    const route = getRoute("radio/tracks/:trackId", "GET");
+    failingReadFilePath = neonPostcard.assetPath;
+
+    try {
+      await route.handler({ pathParams: { trackId: neonPostcard.id } });
+      throw new Error("Expected route error");
+    } catch (error) {
+      expect(error).toBeInstanceOf(RouteError);
+      const routeError = error as RouteError;
+      expect(routeError.details).toEqual({
+        trackId: neonPostcard.id,
+        reason: "asset_read_failed",
+      });
+      expect(JSON.stringify(routeError.details)).not.toContain(
+        neonPostcard.assetPath,
+      );
+    }
   });
 });

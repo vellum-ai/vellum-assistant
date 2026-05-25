@@ -143,14 +143,14 @@ async function handleGetRadioTrack({
   let bytes: Buffer;
   try {
     bytes = await readFile(track.assetPath);
-  } catch (cause) {
+  } catch {
     throw new RouteError(
       "Radio track asset not available",
       "INTERNAL_ERROR",
       500,
       {
         trackId: track.id,
-        cause: cause instanceof Error ? cause.message : String(cause),
+        reason: "asset_read_failed",
       },
     );
   }
