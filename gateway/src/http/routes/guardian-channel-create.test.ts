@@ -2,8 +2,9 @@ import { describe, it, expect, mock, beforeEach } from "bun:test";
 
 // --- Mocks ----------------------------------------------------------------
 
-const assistantDbQueryMock = mock((_sql: string, _params?: unknown[]) =>
-  Promise.resolve([]),
+const assistantDbQueryMock = mock(
+  (_sql: string, _params?: unknown[]) =>
+    Promise.resolve([] as Record<string, unknown>[]),
 );
 
 const createGuardianBindingMock = mock((_params: unknown) =>
