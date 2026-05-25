@@ -171,7 +171,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "daemon/handlers/config-telegram.ts", // Telegram bot token management
       "daemon/handlers/config-vercel.ts", // Vercel API token management
       "runtime/routes/integrations/twilio.ts", // Twilio credential management (HTTP control-plane)
-      "runtime/routes/acp-routes.ts", // ACP spawn route injects CLAUDE_CODE_OAUTH_TOKEN into claude-agent-acp subprocess env
+      "acp/prepare-agent-env.ts", // shared helper injects CLAUDE_CODE_OAUTH_TOKEN into claude-agent-acp subprocess env (called by route + skill tool spawn paths)
       "security/token-manager.ts", // OAuth token refresh flow
       "tools/network/script-proxy/session-manager.ts", // proxy credential injection at runtime
       "calls/call-domain.ts", // caller identity resolution (user phone number lookup)
