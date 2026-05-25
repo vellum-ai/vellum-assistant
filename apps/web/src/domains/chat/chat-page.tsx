@@ -248,6 +248,11 @@ export function ChatPage() {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const messagesRef = useRef<DisplayMessage[]>(messages);
   messagesRef.current = messages;
+  // Populated by `chat-route-content.tsx` right after the render-boundary
+  // `useMemo(() => sanitizeDisplayMessages(messages))`. Owned here so
+  // `useChatDebugApi` (mounted in this component) can read the same array
+  // the UI is rendering without re-running the pipeline.
+  const sanitizedMessagesRef = useRef<DisplayMessage[]>([]);
   // Owned here so `useChatDebugApi` (also called from this component) can
   // read scroll geometry directly via `transcriptRef.current.getScrollElement()`.
   // Threaded down to ChatRouteContent through the `refs` prop and bound on
@@ -891,6 +896,7 @@ export function ChatPage() {
   // by which point initialization is complete.
   useChatDebugApi({
     messagesRef,
+    sanitizedMessagesRef,
     transcriptRef,
     streamContextRef,
     streamRef,
@@ -1559,6 +1565,7 @@ export function ChatPage() {
     refs: {
       inputRef,
       messagesRef,
+      sanitizedMessagesRef,
       activeConversationIdRef,
       assistantIdRef,
       streamContextRef,

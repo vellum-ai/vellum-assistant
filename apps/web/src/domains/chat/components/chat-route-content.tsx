@@ -218,6 +218,13 @@ export interface AvatarData {
 export interface ChatRouteRefs {
   inputRef: RefObject<HTMLTextAreaElement | null>;
   messagesRef: MutableRefObject<DisplayMessage[]>;
+  /**
+   * Mirror of the post-`sanitizeDisplayMessages` array, populated below right
+   * after the render-boundary `useMemo`. Read by `useChatDebugApi`'s `tail()`
+   * so DevTools sees exactly what the transcript renders without re-running
+   * the sanitize pipeline.
+   */
+  sanitizedMessagesRef: MutableRefObject<DisplayMessage[]>;
   activeConversationIdRef: MutableRefObject<string | null>;
   assistantIdRef: MutableRefObject<string | null>;
   streamContextRef: MutableRefObject<StreamContext | null>;
@@ -503,6 +510,7 @@ export function ChatRouteContent({
   const {
     inputRef,
     messagesRef,
+    sanitizedMessagesRef,
     activeConversationIdRef: _activeConversationIdRef,
     assistantIdRef: _assistantIdRef,
     streamContextRef,
@@ -780,15 +788,19 @@ export function ChatRouteContent({
   // transcript renders (timestamp sort, blank/phantom row filter, duplicate
   // trailing assistant drop). See `sanitize-display-messages.ts` for the
   // rationale and removal triggers for each sub-step.
-  const sortedMessages = useMemo(
+  const sanitizedMessages = useMemo(
     () => sanitizeDisplayMessages(messages),
     [messages],
   );
 
+  // Mirror into a ref so `useChatDebugApi`'s `tail()` can read what the
+  // UI is actually rendering without re-running the pipeline.
+  sanitizedMessagesRef.current = sanitizedMessages;
+
   const transcriptItems = useMemo(
     () =>
       buildTranscriptItems({
-        messages: sortedMessages,
+        messages: sanitizedMessages,
         pendingSecret: pendingSecret
           ? { requestId: pendingSecret.requestId }
           : null,
@@ -812,7 +824,7 @@ export function ChatRouteContent({
         showOnboardingChoice,
       }),
     [
-      sortedMessages,
+      sanitizedMessages,
       pendingSecret,
       pendingConfirmation,
       inlineConfirmationAttached,
@@ -1325,7 +1337,7 @@ export function ChatRouteContent({
     <SlackChannelFooter
       assistantId={assistantId ?? undefined}
       conversation={activeConversation}
-      messages={sortedMessages}
+      messages={sanitizedMessages}
     />
   );
 

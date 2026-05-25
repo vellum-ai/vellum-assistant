@@ -1,7 +1,7 @@
 // -----------------------------------------------------------------------------
 // sanitizeDisplayMessages — single home for "this shouldn't be necessary,
 // but is" frontend cleanup applied to DisplayMessage[] before the transcript
-// renders (and before `window._vellumDebug.chat.tail()` returns).
+// renders.
 //
 // Every sub-method below patches over an upstream issue. They are SHORT TERM
 // and should be removed as the assistant backend stabilises the corresponding
@@ -13,25 +13,15 @@
 import { sortedByTimestamp } from "@/domains/chat/utils/message-sorting.js";
 import type { DisplayMessage } from "@/domains/chat/types/types.js";
 
-/**
- * Apply every render-boundary hack to `messages` in a fixed order and return
- * a new array (never mutates the input).
- *
- * Pipeline:
- *   1. `sortByTimestamp`                       (Hack #1)
- *   2. `removeInvalidMessages`                 (Hack #2)
- *   3. `removeDuplicateTrailingAssistant`      (Hack #3)
- *
- * Each step is independent — removing any one when the corresponding upstream
- * bug is fixed is a one-line edit.
- */
 export function sanitizeDisplayMessages(
   messages: DisplayMessage[],
 ): DisplayMessage[] {
-  let result = sortByTimestamp(messages);
-  result = removeInvalidMessages(result);
-  result = removeDuplicateTrailingAssistant(result);
-  return result;
+  const pipeline = [
+    sortedByTimestamp,
+    removeInvalidMessages,
+    removeDuplicateTrailingAssistant,
+  ];
+  return pipeline.reduce((msgs, step) => step(msgs), messages);
 }
 
 // -----------------------------------------------------------------------------
@@ -53,9 +43,7 @@ export function sanitizeDisplayMessages(
 // SHORT TERM until: the assistant backend merges multi-row clusters
 // server-side so the client never sees the fragmented rows.
 // -----------------------------------------------------------------------------
-function sortByTimestamp(messages: DisplayMessage[]): DisplayMessage[] {
-  return sortedByTimestamp(messages);
-}
+// (Implementation: `sortedByTimestamp`, imported at the top.)
 
 // -----------------------------------------------------------------------------
 // Hack #2 — drop blank / phantom user rows
@@ -66,12 +54,12 @@ function sortByTimestamp(messages: DisplayMessage[]): DisplayMessage[] {
 //     user rows even when their parent `tool_use` lives on a previous page
 //     (to avoid permanent data loss). The daemon's renderer then drops the
 //     orphan `tool_result` block, leaving a blank user bubble on the wire.
-//   - The daemon synthesises tool calls with `toolName === "unknown"` when a
+//   - The assistant synthesises tool calls with `toolName === "unknown"` when a
 //     `tool_result` has no matching `tool_use`. Those arrive as empty user
 //     messages whose only payload is a list of "unknown" tools and would
-//     otherwise render as a confusing "Used unknown" chip (ATL-659).
+//     otherwise render as a confusing "Used unknown" chip.
 //
-// SHORT TERM until: the daemon stops emitting orphan `tool_result` rows and
+// SHORT TERM until: the assistant stops emitting orphan `tool_result` rows and
 // phantom unknown-tool placeholders at history boundaries.
 // -----------------------------------------------------------------------------
 function removeInvalidMessages(messages: DisplayMessage[]): DisplayMessage[] {
