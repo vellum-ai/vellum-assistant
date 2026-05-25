@@ -6,6 +6,7 @@ import { cancelBackgroundTools } from "../tools/background-tool-registry.js";
 import { getDiskUsageInfo } from "../util/disk-usage.js";
 import { getLogger } from "../util/logger.js";
 
+export const DISK_PRESSURE_WARNING_THRESHOLD_PERCENT = 80;
 export const DISK_PRESSURE_THRESHOLD_PERCENT = 95;
 export const DISK_PRESSURE_CHECK_INTERVAL_MS = 60_000;
 export const DISK_PRESSURE_OVERRIDE_CONFIRMATION = "I understand the risks";
@@ -15,7 +16,7 @@ export const DISK_PRESSURE_BLOCKED_CAPABILITIES = [
   "remote-ingress",
 ] as const;
 
-export type DiskPressureState = "disabled" | "ok" | "critical" | "unknown";
+export type DiskPressureState = "disabled" | "ok" | "warning" | "critical" | "unknown";
 
 export type DiskPressureBlockedCapability =
   (typeof DISK_PRESSURE_BLOCKED_CAPABILITIES)[number];
@@ -229,11 +230,22 @@ export function evaluateDiskPressureNow(): DiskPressureStatus {
     (usageInfo.usedMb / usageInfo.totalMb) * 100,
   );
   const isCritical = usagePercent >= DISK_PRESSURE_THRESHOLD_PERCENT;
+  const isWarning = !isCritical && usagePercent >= DISK_PRESSURE_WARNING_THRESHOLD_PERCENT;
   const lastCheckedAt = new Date().toISOString();
 
-  if (!isCritical) {
+  if (!isCritical && !isWarning) {
     return replaceStatus({
       ...OPEN_STATUS,
+      usagePercent,
+      path: usageInfo.path,
+      lastCheckedAt,
+    });
+  }
+
+  if (isWarning) {
+    return replaceStatus({
+      ...OPEN_STATUS,
+      state: "warning",
       usagePercent,
       path: usageInfo.path,
       lastCheckedAt,

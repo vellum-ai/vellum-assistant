@@ -6744,6 +6744,7 @@ paths:
                         enum:
                           - disabled
                           - ok
+                          - warning
                           - critical
                           - unknown
                       locked:
@@ -6829,6 +6830,7 @@ paths:
                         enum:
                           - disabled
                           - ok
+                          - warning
                           - critical
                           - unknown
                       locked:
@@ -6930,6 +6932,7 @@ paths:
                         enum:
                           - disabled
                           - ok
+                          - warning
                           - critical
                           - unknown
                       locked:

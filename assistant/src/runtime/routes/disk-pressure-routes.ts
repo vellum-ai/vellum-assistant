@@ -11,7 +11,7 @@ import type { RouteDefinition } from "./types.js";
 
 const DiskPressureStatusSchema = z.object({
   enabled: z.boolean(),
-  state: z.enum(["disabled", "ok", "critical", "unknown"]),
+  state: z.enum(["disabled", "ok", "warning", "critical", "unknown"]),
   locked: z.boolean(),
   acknowledged: z.boolean(),
   overrideActive: z.boolean(),
