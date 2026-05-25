@@ -72,16 +72,6 @@ export function conversationMetadataSyncTag(
   return `conversation:${conversationId}:metadata`;
 }
 
-/**
- * Predicate: is this tag a per-conversation metadata invalidation? Used by
- * the web sidebar refresh debouncer.
- */
-export function isConversationMetadataSyncTag(
-  tag: string,
-): tag is `conversation:${string}:metadata` {
-  return /^conversation:[^:]+:metadata$/.test(tag);
-}
-
 // ---------------------------------------------------------------------------
 // Wire schema
 // ---------------------------------------------------------------------------

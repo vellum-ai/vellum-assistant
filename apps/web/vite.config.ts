@@ -45,26 +45,9 @@ export default defineConfig(({ mode }) => {
       }),
     ],
     resolve: {
-      alias: [
-        { find: /^@\/(.*)$/, replacement: path.resolve(import.meta.dirname, "src") + "/$1" },
-        // `@vellumai/assistant-api` is source-as-package: the canonical source
-        // lives under `assistant/src/api/`, resolved via this alias rather
-        // than via a `file:../assistant/src/api` workspace dependency. See
-        // `assistant/src/api/README.md` for the rationale.
-        //
-        // Two entries because Vite's string-prefix alias would mangle subpath
-        // imports (`@vellumai/assistant-api/sse-events/sync` would become
-        // `<...>/index.ts/sse-events/sync`). The regex form preserves the
-        // subpath and re-attaches `.ts`.
-        {
-          find: /^@vellumai\/assistant-api$/,
-          replacement: path.resolve(import.meta.dirname, "../../assistant/src/api/index.ts"),
-        },
-        {
-          find: /^@vellumai\/assistant-api\/(.+)$/,
-          replacement: path.resolve(import.meta.dirname, "../../assistant/src/api") + "/$1.ts",
-        },
-      ],
+      alias: {
+        "@/": path.resolve(import.meta.dirname, "src") + "/",
+      },
       preserveSymlinks: true,
     },
     server: {

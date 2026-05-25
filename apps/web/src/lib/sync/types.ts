@@ -1,44 +1,44 @@
-/**
- * Web-side sync types.
- *
- * The wire-shared bits (tag namespace, event shape, build/parse helpers)
- * come from `@vellumai/assistant-api/sse-events/sync` — see
- * `assistant/src/api/README.md` for the source-as-package rationale.
- *
- * What stays local: parsing helpers that exist only on the client side
- * (`parseConversationSyncTag`, `ConversationSyncResource`,
- * `ParsedConversationSyncTag`, `isConversationMessagesSyncTag`). They
- * have no daemon-side consumer today.
- */
+export const SYNC_TAGS = {
+  assistantAvatar: "assistant:self:avatar",
+  assistantIdentity: "assistant:self:identity",
+  assistantConfig: "assistant:self:config",
+  assistantSounds: "assistant:self:sounds",
+  assistantSchedules: "assistant:self:schedules",
+  conversationsList: "conversations:list",
+  featureFlagsClient: "feature-flags:client",
+  featureFlagsAssistant: "feature-flags:assistant",
+} as const;
 
-import type { SyncChangedMessage } from "@vellumai/assistant-api/sse-events/sync";
+export type KnownSyncInvalidationTag =
+  (typeof SYNC_TAGS)[keyof typeof SYNC_TAGS];
 
-export {
-  SYNC_TAGS,
-  conversationMessagesSyncTag,
-  conversationMetadataSyncTag,
-  isConversationMetadataSyncTag,
-} from "@vellumai/assistant-api/sse-events/sync";
+export type ConversationSyncInvalidationTag =
+  | `conversation:${string}:metadata`
+  | `conversation:${string}:messages`;
 
-export type {
-  KnownSyncInvalidationTag,
-  ConversationSyncInvalidationTag,
-  SyncInvalidationTag,
-  SyncChangedMessage,
-} from "@vellumai/assistant-api/sse-events/sync";
+export type SyncInvalidationTag =
+  | KnownSyncInvalidationTag
+  | ConversationSyncInvalidationTag
+  | (string & {});
 
-/**
- * Web-side alias for the canonical `SyncChangedMessage` wire shape.
- *
- * Web code historically called this "event"; the daemon calls it "message"
- * (wire payload). Keeping the alias avoids renaming every web call site in
- * this PR. New code on either side should prefer `SyncChangedMessage`.
- */
-export type SyncChangedEvent = SyncChangedMessage;
-
-// ---------------------------------------------------------------------------
-// Web-only helpers (no daemon equivalent)
-// ---------------------------------------------------------------------------
+export interface SyncChangedEvent {
+  type: "sync_changed";
+  tags: SyncInvalidationTag[];
+  /**
+   * Opaque per-tab/client identifier of the HTTP request whose mutation
+   * caused this sync_changed emission, when known. Populated by the daemon
+   * route handler from the `x-vellum-client-id` request header.
+   *
+   * Consumers MAY use this to suppress self-echoes: if their own client id
+   * matches, the local UI has already applied the optimistic update via the
+   * mutation's onSuccess and re-applying via the sync stream just doubles
+   * work / fights the optimistic state.
+   *
+   * Absent for daemon-internal emissions (agent loop, FS watcher, schedules)
+   * and for routes that haven't been plumbed through yet.
+   */
+  originClientId?: string;
+}
 
 export type ConversationSyncResource = "metadata" | "messages";
 
@@ -49,6 +49,18 @@ export interface ParsedConversationSyncTag {
 
 const CONVERSATION_SYNC_TAG_RE =
   /^conversation:([^:]+):(metadata|messages)$/;
+
+export function conversationMetadataSyncTag(
+  conversationId: string,
+): ConversationSyncInvalidationTag {
+  return `conversation:${conversationId}:metadata`;
+}
+
+export function conversationMessagesSyncTag(
+  conversationId: string,
+): ConversationSyncInvalidationTag {
+  return `conversation:${conversationId}:messages`;
+}
 
 export function parseConversationSyncTag(
   tag: string,
@@ -61,6 +73,12 @@ export function parseConversationSyncTag(
     conversationId: match[1]!,
     resource: match[2] as ConversationSyncResource,
   };
+}
+
+export function isConversationMetadataSyncTag(
+  tag: string,
+): tag is `conversation:${string}:metadata` {
+  return parseConversationSyncTag(tag)?.resource === "metadata";
 }
 
 export function isConversationMessagesSyncTag(

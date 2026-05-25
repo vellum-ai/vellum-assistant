@@ -21,7 +21,6 @@ export {
   buildSyncChangedMessage,
   conversationMessagesSyncTag,
   conversationMetadataSyncTag,
-  isConversationMetadataSyncTag,
   SYNC_TAGS,
   SyncChangedMessageSchema,
   SyncInvalidationTagSchema,

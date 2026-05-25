@@ -16,25 +16,12 @@
     "isolatedModules": true,
     "types": ["bun"],
     "paths": {
-      "@/*": ["./src/*"],
-      "@vellumai/assistant-api": ["../../assistant/src/api/index.ts"],
-      "@vellumai/assistant-api/*": [
-        "../../assistant/src/api/*.ts",
-        "../../assistant/src/api/*/index.ts"
-      ],
-      // Source-as-package files included via `include` above live OUTSIDE
-      // this app's `node_modules` tree, so TS's node-style walk-up can't
-      // find runtime deps they rely on (notably `zod`). Pin them here so
-      // both the source-as-package files and apps/web's own code resolve
-      // to the same copy. Under NodeNext, the substitution must land on a
-      // concrete declaration file rather than the package directory.
-      "zod": ["./node_modules/zod/index.d.cts"]
+      "@/*": ["./src/*"]
     }
   },
   "include": [
     "src/**/*.ts",
-    "src/**/*.tsx",
-    "../../assistant/src/api/**/*.ts"
+    "src/**/*.tsx"
   ],
   "exclude": ["dist/**", "node_modules/**"]
 }
