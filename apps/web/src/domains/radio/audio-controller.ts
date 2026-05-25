@@ -27,6 +27,7 @@ export interface RadioAudioLike {
 export interface RadioAudioControllerOptions {
   createAudio?: (url: string) => RadioAudioLike;
   requestAnimationFrame?: (callback: FrameRequestCallback) => number;
+  cancelAnimationFrame?: (id: number) => void;
   prefetchWindowMs?: number;
   rampDurationMs?: number;
   duckVolume?: number;
@@ -56,9 +57,14 @@ function defaultRequestAnimationFrame(
   return requestAnimationFrame(callback);
 }
 
+function defaultCancelAnimationFrame(id: number): void {
+  cancelAnimationFrame(id);
+}
+
 export class RadioAudioController {
   private readonly createAudio: (url: string) => RadioAudioLike;
   private readonly requestFrame: (callback: FrameRequestCallback) => number;
+  private readonly cancelFrame: (id: number) => void;
   private readonly prefetchWindowMs: number;
   private readonly rampDurationMs: number;
   private readonly duckVolume: number;
@@ -68,14 +74,19 @@ export class RadioAudioController {
   private currentAudio: RadioAudioLike | null = null;
   private currentTrack: ResolvedRadioTrack | null = null;
   private djAudio: RadioAudioLike | null = null;
+  private outgoingAudio: RadioAudioLike | null = null;
   private hasFiredTrackEnding = false;
   private currentEndedListener: (() => void) | null = null;
   private currentTimeupdateListener: (() => void) | null = null;
+  private disposed = false;
+  private readonly pendingRampFrames = new Set<number>();
 
   constructor(options: RadioAudioControllerOptions = {}) {
     this.createAudio = options.createAudio ?? defaultCreateAudio;
     this.requestFrame =
       options.requestAnimationFrame ?? defaultRequestAnimationFrame;
+    this.cancelFrame =
+      options.cancelAnimationFrame ?? defaultCancelAnimationFrame;
     this.prefetchWindowMs =
       options.prefetchWindowMs ?? DEFAULT_PREFETCH_WINDOW_MS;
     this.rampDurationMs = options.rampDurationMs ?? DEFAULT_RAMP_DURATION_MS;
@@ -86,13 +97,19 @@ export class RadioAudioController {
   }
 
   async playInitial(track: ResolvedRadioTrack): Promise<void> {
+    this.disposed = false;
+    this.cancelPendingRamps();
     this.detachCurrentAudioListeners();
+    this.currentAudio?.pause();
     this.djAudio?.pause();
+    this.outgoingAudio?.pause();
 
     const audio = this.createAudio(track.audioUrl);
     audio.volume = 1;
     this.currentAudio = audio;
     this.currentTrack = track;
+    this.djAudio = null;
+    this.outgoingAudio = null;
     this.hasFiredTrackEnding = false;
     this.attachCurrentAudioListeners(audio);
     await audio.play();
@@ -117,10 +134,13 @@ export class RadioAudioController {
   }
 
   async applyTransition(params: RadioTransitionParams): Promise<void> {
+    this.disposed = false;
+    this.cancelPendingRamps();
     const outgoingAudio = this.currentAudio;
     const djAudio = this.createAudio(params.djBreak.audioUrl);
     const nextAudio = this.createAudio(params.nextTrack.audioUrl);
 
+    this.outgoingAudio = outgoingAudio;
     this.djAudio = djAudio;
     djAudio.volume = 1;
     nextAudio.volume = 0;
@@ -140,6 +160,19 @@ export class RadioAudioController {
     this.attachCurrentAudioListeners(nextAudio);
     await nextAudio.play();
     this.rampVolume(nextAudio, 1, this.rampDurationMs);
+  }
+
+  dispose(): void {
+    this.disposed = true;
+    this.cancelPendingRamps();
+    this.detachCurrentAudioListeners();
+    this.currentAudio?.pause();
+    this.djAudio?.pause();
+    this.outgoingAudio?.pause();
+    this.currentAudio = null;
+    this.currentTrack = null;
+    this.djAudio = null;
+    this.outgoingAudio = null;
   }
 
   private attachCurrentAudioListeners(audio: RadioAudioLike): void {
@@ -204,8 +237,19 @@ export class RadioAudioController {
 
     const startVolume = audio.volume;
     let startTime: number | null = null;
+    let currentFrameId: number | null = null;
+
+    const scheduleStep = (): void => {
+      currentFrameId = this.requestFrame(step);
+      this.pendingRampFrames.add(currentFrameId);
+    };
 
     const step: FrameRequestCallback = (timestamp) => {
+      if (currentFrameId !== null) {
+        this.pendingRampFrames.delete(currentFrameId);
+        currentFrameId = null;
+      }
+      if (this.disposed) return;
       if (startTime === null) startTime = timestamp;
       const elapsedMs = timestamp - startTime;
       const progress = Math.min(1, elapsedMs / durationMs);
@@ -217,9 +261,16 @@ export class RadioAudioController {
         return;
       }
 
-      this.requestFrame(step);
+      scheduleStep();
     };
 
-    this.requestFrame(step);
+    scheduleStep();
+  }
+
+  private cancelPendingRamps(): void {
+    for (const frameId of this.pendingRampFrames) {
+      this.cancelFrame(frameId);
+    }
+    this.pendingRampFrames.clear();
   }
 }

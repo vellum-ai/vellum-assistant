@@ -13,18 +13,17 @@ const advanceRadioMock = mock(
     startResponse,
 );
 
-mock.module("@/domains/radio/api.js", () => ({
-  RADIO_TTS_SETTINGS_PATH: "/assistant/settings/ai",
-  advanceRadio: advanceRadioMock,
-  runtimeAudioUrl: (assistantId: string, audioPath: string) =>
-    `/v1/assistants/${encodeURIComponent(assistantId)}/${audioPath}/`,
-}));
-
 class FakeController {
+  readonly callbacks: {
+    onProgress: (event: { positionMs: number; remainingMs: number }) => void;
+    onTrackEnding: () => void;
+    onTrackEnded: () => void;
+  };
   readonly playInitial = mock(async (_track: ResolvedRadioTrack) => {});
   readonly pause = mock(() => {});
   readonly resume = mock(async () => {});
   readonly skip = mock(() => {});
+  readonly dispose = mock(() => {});
   readonly applyTransition = mock(
     async (_params: {
       outgoingTrack?: ResolvedRadioTrack | null;
@@ -33,6 +32,10 @@ class FakeController {
       playbackPlan: ResolvedRadioPlaybackPlan;
     }) => {},
   );
+
+  constructor(callbacks: FakeController["callbacks"]) {
+    this.callbacks = callbacks;
+  }
 }
 
 const controllers: FakeController[] = [];
@@ -55,10 +58,24 @@ const nextTrack = {
   audioPath: "radio/tracks/buffer-bloom",
 };
 
+const thirdTrack = {
+  ...track,
+  id: "neon-postcard",
+  title: "Neon Postcard",
+  audioPath: "radio/tracks/neon-postcard",
+};
+
 const djBreak = {
   text: "A little shimmer before Buffer Bloom.",
   audioPath: "audio/dj-1",
   audioId: "dj-1",
+  contentType: "audio/mpeg",
+};
+
+const thirdDjBreak = {
+  text: "Neon Postcard is drifting into view.",
+  audioPath: "audio/dj-2",
+  audioId: "dj-2",
   contentType: "audio/mpeg",
 };
 
@@ -86,6 +103,19 @@ const transitionResponse: RadioAdvanceResponse = {
   djBreak,
 };
 
+const thirdTransitionResponse: RadioAdvanceResponse = {
+  segmentId: "segment-3",
+  displayCue: "transition",
+  track: thirdTrack,
+  playbackPlan: {
+    reason: "retry",
+    displayCue: "transition",
+    track: thirdTrack,
+    djBreak: thirdDjBreak,
+  },
+  djBreak: thirdDjBreak,
+};
+
 const setupResponse: RadioAdvanceResponse = {
   segmentId: "segment-2",
   displayCue: "setup_needed",
@@ -105,14 +135,27 @@ const setupResponse: RadioAdvanceResponse = {
 async function loadStore() {
   const module = await import("@/domains/radio/radio-store.js");
   module.setRadioStoreDependencies({
-    createController: () => {
-      const controller = new FakeController();
+    advanceRadio: advanceRadioMock,
+    runtimeAudioUrl: (assistantId, audioPath) =>
+      `/v1/assistants/${encodeURIComponent(assistantId)}/${audioPath}/`,
+    createController: (callbacks) => {
+      const controller = new FakeController(callbacks);
       controllers.push(controller);
       return controller;
     },
   });
   module.useRadioStore.getState().reset();
   return module.useRadioStore;
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
 }
 
 beforeEach(() => {
@@ -159,14 +202,19 @@ describe("useRadioStore", () => {
     expect(controllers).toHaveLength(0);
   });
 
-  it("skips through the controller with resolved DJ and next-track URLs", async () => {
+  it("keeps outgoing track during transition and promotes incoming track after the transition completes", async () => {
     const store = await loadStore();
     await store.getState().start("assistant-1");
     advanceRadioMock.mockImplementationOnce(async () => transitionResponse);
+    const transition = deferred<void>();
+    controllers[0]!.applyTransition.mockImplementationOnce(
+      async () => transition.promise,
+    );
 
-    await store.getState().skip("assistant-1");
+    const skipPromise = store.getState().skip("assistant-1");
+    await Promise.resolve();
 
-    const state = store.getState();
+    let state = store.getState();
     expect(advanceRadioMock).toHaveBeenLastCalledWith(
       "assistant-1",
       expect.objectContaining({
@@ -177,7 +225,8 @@ describe("useRadioStore", () => {
       }),
     );
     expect(state.status).toBe("transitioning");
-    expect(state.currentTrack?.id).toBe("buffer-bloom");
+    expect(state.currentTrack?.id).toBe("soft-launch");
+    expect(state.nextTrack?.id).toBe("buffer-bloom");
     expect(state.djText).toBe(djBreak.text);
     expect(controllers[0]?.applyTransition).toHaveBeenCalledWith({
       outgoingTrack: expect.objectContaining({ id: "soft-launch" }),
@@ -189,6 +238,14 @@ describe("useRadioStore", () => {
       }),
       playbackPlan: expect.objectContaining({ displayCue: "transition" }),
     });
+
+    transition.resolve();
+    await skipPromise;
+
+    state = store.getState();
+    expect(state.status).toBe("playing");
+    expect(state.currentTrack?.id).toBe("buffer-bloom");
+    expect(state.nextTrack).toBeNull();
   });
 
   it("hides and shows without resetting playback state", async () => {
@@ -222,5 +279,68 @@ describe("useRadioStore", () => {
       expect.objectContaining({ reason: "retry" }),
     );
     expect(store.getState().status).toBe("playing");
+  });
+
+  it("ignores an older advance response after a newer advance has started", async () => {
+    const store = await loadStore();
+    await store.getState().start("assistant-1");
+    const oldAdvance = deferred<RadioAdvanceResponse>();
+    const newAdvance = deferred<RadioAdvanceResponse>();
+    advanceRadioMock.mockImplementation(
+      async (_assistantId: string, request: RadioAdvanceRequest) => {
+        if (request.reason === "skip") return oldAdvance.promise;
+        if (request.reason === "retry") return newAdvance.promise;
+        return startResponse;
+      },
+    );
+
+    const skipPromise = store.getState().skip("assistant-1");
+    const retryPromise = store.getState().retry("assistant-1");
+
+    newAdvance.resolve(thirdTransitionResponse);
+    await retryPromise;
+    expect(store.getState().currentTrack?.id).toBe("neon-postcard");
+
+    oldAdvance.resolve(transitionResponse);
+    await skipPromise;
+
+    expect(store.getState().status).toBe("playing");
+    expect(store.getState().currentTrack?.id).toBe("neon-postcard");
+    expect(store.getState().segmentId).toBe("segment-3");
+  });
+
+  it("deduplicates automatic song-ended advances while one is already pending", async () => {
+    const store = await loadStore();
+    await store.getState().start("assistant-1");
+    const pendingAdvance = deferred<RadioAdvanceResponse>();
+    advanceRadioMock.mockImplementation(
+      async (_assistantId: string, request: RadioAdvanceRequest) => {
+        if (request.reason === "song_ended") return pendingAdvance.promise;
+        return startResponse;
+      },
+    );
+
+    controllers[0]!.callbacks.onTrackEnding();
+    controllers[0]!.callbacks.onTrackEnding();
+    await Promise.resolve();
+
+    const songEndedCalls = advanceRadioMock.mock.calls.filter(
+      ([, request]) => request.reason === "song_ended",
+    );
+    expect(songEndedCalls).toHaveLength(1);
+
+    pendingAdvance.resolve(transitionResponse);
+    await Promise.resolve();
+  });
+
+  it("disposes the controller when resetting playback state", async () => {
+    const store = await loadStore();
+    await store.getState().start("assistant-1");
+
+    store.getState().reset();
+
+    expect(controllers[0]?.dispose).toHaveBeenCalled();
+    expect(store.getState().status).toBe("idle");
+    expect(store.getState().currentTrack).toBeNull();
   });
 });

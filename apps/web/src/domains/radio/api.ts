@@ -57,13 +57,35 @@ export function runtimeAudioUrl(
   audioPath: string,
 ): string {
   const encodedAssistantId = encodeURIComponent(assistantId);
-  const encodedPath = audioPath
-    .split("/")
-    .filter((segment) => segment.length > 0)
-    .map(encodeURIComponent)
-    .join("/");
+  const pathSegments = normalizeRuntimeAudioPath(audioPath);
+  const encodedPath = pathSegments.map(encodeURIComponent).join("/");
 
-  return encodedPath
-    ? `/v1/assistants/${encodedAssistantId}/${encodedPath}/`
-    : `/v1/assistants/${encodedAssistantId}/`;
+  return `/v1/assistants/${encodedAssistantId}/${encodedPath}/`;
+}
+
+function normalizeRuntimeAudioPath(audioPath: string): string[] {
+  const segments = audioPath
+    .split("/")
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0);
+
+  if (segments.length === 0) {
+    throw new Error("Radio audio path is required.");
+  }
+
+  if (segments.some((segment) => segment === "." || segment === "..")) {
+    throw new Error("Radio audio path cannot include traversal segments.");
+  }
+
+  const isDemoTrackPath =
+    segments[0] === "radio" &&
+    segments[1] === "tracks" &&
+    segments.length >= 3;
+  const isDjAudioPath = segments[0] === "audio" && segments.length >= 2;
+
+  if (!isDemoTrackPath && !isDjAudioPath) {
+    throw new Error("Unsupported radio audio path.");
+  }
+
+  return segments;
 }
