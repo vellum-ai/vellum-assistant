@@ -182,11 +182,11 @@ export function __getActiveSessionCountForTesting(): number {
  * exercised end-to-end.
  */
 function buildProxyTool(manifest: ToolManifest): Tool {
-  const definition: ToolDefinition = {
+  const definition = {
     name: manifest.name,
     description: manifest.description,
     input_schema: manifest.input_schema as object,
-  };
+  } satisfies ToolDefinition & { name: string };
   // RiskLevel is a string enum whose values are "low" | "medium" | "high",
   // matching the schema above exactly — the cast is a no-op at runtime.
   return {

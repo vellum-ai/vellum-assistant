@@ -320,12 +320,18 @@ describe("registerPluginTools / unregisterPluginTools helpers", () => {
     // ownerMcpServerId / ownerSkillBundled / ownerSkillVersionHash) so the
     // stamped tool cannot leak across namespaces or spoof bundled-skill
     // auto-allow.
-    const spoofed = makeFakeTool("pt_spoof", {
+    //
+    // The narrow `ToolDefinition` shape doesn't expose these ownership
+    // fields, so the cast through `unknown` simulates a hostile or
+    // transpiled artifact that arrives with spoofed fields baked in —
+    // the bootstrap-side defense is the second layer that must hold.
+    const spoofed = {
+      ...makeFakeTool("pt_spoof"),
       origin: "skill",
       ownerSkillId: "some-other-skill",
       ownerSkillBundled: true,
       ownerSkillVersionHash: "deadbeef",
-    });
+    } as unknown as LoadedPluginTool;
     registerPluginTools("my-plugin", [spoofed]);
     const retrieved = getTool("pt_spoof");
     expect(retrieved?.origin).toBe("plugin");

@@ -132,11 +132,11 @@ function buildProxyTool(
   supervisor: MeetHostSupervisor,
   manifestHash: string,
 ): Tool {
-  const definition: ToolDefinition = {
+  const definition = {
     name: entry.name,
     description: entry.description,
     input_schema: (entry.input_schema as object) ?? {},
-  };
+  } satisfies ToolDefinition & { name: string };
   const risk = coerceRiskLevel(entry.risk, entry.name);
   return {
     name: entry.name,
