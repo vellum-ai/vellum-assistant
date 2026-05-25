@@ -29,6 +29,7 @@ import type {
 } from "@/domains/chat/api/event-types.js";
 import type { DisplayAttachment } from "@/domains/chat/types/types.js";
 import type { ToolActivityMetadata } from "@/assistant/web-activity-types.js";
+import { SyncChangedMessageSchema } from "@vellumai/assistant-api/sse-events/sync";
 import type { SyncInvalidationTag } from "@/lib/sync/types.js";
 
 export function readEventConversationId(
@@ -119,21 +120,26 @@ export function parseAssistantEvent(
       return { type: "generation_cancelled" };
 
     case "sync_changed": {
-      const tags = data.tags;
-      if (
-        !Array.isArray(tags) ||
-        !tags.every((tag): tag is string => typeof tag === "string")
-      ) {
-        return { type: "unknown", rawType, data };
-      }
-      const rawOriginClientId =
+      // Wire shape validated against the canonical schema in
+      // @vellumai/assistant-api. The `type` field is injected here because
+      // the parser receives it as `rawType` (the SSE event name) rather
+      // than inside `data`. Pure-whitespace `originClientId` collapses to
+      // absent before parse, matching daemon's `buildSyncChangedMessage`.
+      const trimmedOrigin =
         typeof data.originClientId === "string"
           ? data.originClientId.trim()
           : "";
-      return {
+      const result = SyncChangedMessageSchema.safeParse({
         type: "sync_changed",
-        tags: tags as SyncInvalidationTag[],
-        ...(rawOriginClientId ? { originClientId: rawOriginClientId } : {}),
+        tags: data.tags,
+        ...(trimmedOrigin ? { originClientId: trimmedOrigin } : {}),
+      });
+      if (!result.success) {
+        return { type: "unknown", rawType, data };
+      }
+      return {
+        ...result.data,
+        tags: result.data.tags as SyncInvalidationTag[],
       };
     }
 
