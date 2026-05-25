@@ -58,6 +58,7 @@ import {
 import { createWhatsAppWebhookHandler } from "./http/routes/whatsapp-webhook.js";
 
 import { createEmailWebhookHandler } from "./http/routes/email-webhook.js";
+import { createGuardianChannelHandler } from "./http/routes/guardian-channel-create.js";
 import { createInboundRegisterHandler } from "./http/routes/inbound-register.js";
 import { createMailgunWebhookHandler } from "./http/routes/mailgun-webhook.js";
 import { createResendWebhookHandler } from "./http/routes/resend-webhook.js";
@@ -417,6 +418,7 @@ async function main() {
     config,
     credentialCache,
   );
+  const handleGuardianChannelCreate = createGuardianChannelHandler();
   const handleOAuthCallback = createOAuthCallbackHandler(config);
   const channelVerificationSessionProxy =
     createChannelVerificationSessionProxyHandler(config);
@@ -560,6 +562,13 @@ async function main() {
       auth: "edge-scoped",
       scope: "internal.write",
       handler: (req) => handleInboundRegister(req),
+    },
+
+    // ── Guardian channel creation (platform auto-verify via trusted proxy) ──
+    {
+      path: "/v1/contacts/guardian/channel",
+      method: "POST",
+      handler: (req) => handleGuardianChannelCreate(req),
     },
 
     // ── Audio serving (unauthenticated — Twilio fetches these URLs directly) ──
