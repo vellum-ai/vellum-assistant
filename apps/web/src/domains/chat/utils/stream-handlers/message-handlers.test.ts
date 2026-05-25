@@ -56,14 +56,13 @@ describe("handleAssistantActivityState", () => {
         reason: "thinking_delta",
         conversationId: "conv-1",
       },
-      1,
       ctx,
     );
     expect(ctx.turnActions.onActivityThinking).not.toHaveBeenCalled();
     expect(ctx.turnActions.completeTurn).not.toHaveBeenCalled();
   });
 
-  it("updates version and handles idle phase", () => {
+  it("updates version and handles idle phase without starting reconcile", () => {
     const ctx = makeCtx();
     handleAssistantActivityState(
       {
@@ -74,14 +73,13 @@ describe("handleAssistantActivityState", () => {
         reason: "message_complete",
         conversationId: "conv-1",
       },
-      1,
       ctx,
     );
     expect(ctx.lastActivityVersionRef.current.get("conv-1")).toBe(1);
     expect(ctx.setMessages).toHaveBeenCalled();
     expect(ctx.turnActions.completeTurn).toHaveBeenCalled();
     expect(ctx.clearProcessingKey).toHaveBeenCalledWith("conv-1");
-    expect(ctx.startReconciliationLoop).toHaveBeenCalledWith(1);
+    expect(ctx.startReconciliationLoop).not.toHaveBeenCalled();
   });
 
   it("calls onActivityThinking for thinking phase", () => {
@@ -95,7 +93,6 @@ describe("handleAssistantActivityState", () => {
         reason: "tool_result_received",
         conversationId: "conv-1",
       },
-      1,
       ctx,
     );
     expect(ctx.lastActivityVersionRef.current.get("conv-1")).toBe(2);
@@ -116,7 +113,6 @@ describe("handleAssistantActivityState", () => {
         statusText: "Processing bash results",
         conversationId: "conv-1",
       },
-      1,
       ctx,
     );
     expect(ctx.turnActions.onActivityThinking).toHaveBeenCalledWith("Processing bash results");
@@ -132,7 +128,6 @@ describe("handleAssistantActivityState", () => {
         anchor: "assistant_turn",
         reason: "first_text_delta",
       },
-      1,
       ctx,
     );
     expect(ctx.lastActivityVersionRef.current.get(
@@ -144,17 +139,16 @@ describe("handleAssistantActivityState", () => {
 });
 
 describe("handleMessageComplete", () => {
-  it("finalizes message and starts reconciliation", () => {
+  it("finalizes message and completes turn without starting reconcile", () => {
     const ctx = makeCtx();
     handleMessageComplete(
       { type: "message_complete", messageId: "msg-1", content: "Done" },
-      1,
       ctx,
     );
     expect(ctx.setMessages).toHaveBeenCalled();
     expect(ctx.turnActions.completeTurn).toHaveBeenCalled();
     expect(ctx.clearProcessingKey).toHaveBeenCalledWith("conv-1");
-    expect(ctx.startReconciliationLoop).toHaveBeenCalledWith(1);
+    expect(ctx.startReconciliationLoop).not.toHaveBeenCalled();
   });
 });
 

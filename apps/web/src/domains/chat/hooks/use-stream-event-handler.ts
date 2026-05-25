@@ -347,10 +347,10 @@ export function useStreamEventHandler(
           handleAssistantTextDelta(event, ctx);
           break;
         case "assistant_activity_state":
-          handleAssistantActivityState(event, epoch, ctx);
+          handleAssistantActivityState(event, ctx);
           break;
         case "message_complete":
-          handleMessageComplete(event, epoch, ctx);
+          handleMessageComplete(event, ctx);
           break;
         case "generation_handoff":
           handleGenerationHandoff(event, ctx);
