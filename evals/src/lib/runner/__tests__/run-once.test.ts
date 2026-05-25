@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import type {
   AgentEvent,
@@ -16,6 +16,26 @@ import type { Profile } from "../../profile";
 import type { Simulator, SimulatorDecision } from "../../simulator/types";
 import type { TestDef } from "../../test-def";
 import { AgentEventCollector } from "../event-collector";
+
+// `createAgent` lives behind the species switch in `../create-agent`.
+// We mock it here so the hatch-failure regression below can hand
+// `runEvalOnce` a throwing `BaseAgent` stub without standing up a real
+// vellum/hermes container. `nextAgent` is set per-test in `describe`
+// blocks that need it; tests above this point don't touch it.
+let nextAgent: BaseAgent | null = null;
+mock.module("../create-agent", () => ({
+  createAgent: (input: AgentHatchInput): BaseAgent => {
+    if (!nextAgent) {
+      throw new Error(
+        `test forgot to set nextAgent before runEvalOnce reached createAgent (runId=${input.runId})`,
+      );
+    }
+    return nextAgent;
+  },
+}));
+
+// Import-under-test goes AFTER `mock.module` so `run-once.ts`'s
+// import-time reference to `createAgent` resolves to the stub above.
 import {
   assistantContent,
   collectAndPersistEvents,
@@ -376,6 +396,10 @@ describe("runEvalOnce — hatch failure metadata", () => {
     },
   };
 
+  afterEach(() => {
+    nextAgent = null;
+  });
+
   test("writes status:'failed' (not 'running') when agent.hatch() throws", async () => {
     const runId = `test-hatch-throw-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const harness = throwingHatchAgent({
@@ -383,13 +407,13 @@ describe("runEvalOnce — hatch failure metadata", () => {
       testId: "t-fake",
       runId,
     });
+    nextAgent = harness.agent;
 
     await expect(
       runEvalOnce({
         profile: fakeProfile("p-fake"),
         test: fakeTestDef("t-fake"),
         runId,
-        agentFactory: () => harness.agent,
         simulator: inertSimulator,
       }),
     ).rejects.toThrow("simulated post-hatch failure");

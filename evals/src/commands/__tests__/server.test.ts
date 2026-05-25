@@ -15,11 +15,9 @@ import {
   RUNS_DIR,
 } from "../../lib/metrics";
 
-// Counter ensures uniqueness even when two seedRuns land inside the same
-// millisecond. The 14-digit suffix matches the legacy `isValidRunId`
-// branch (^eval-[a-z0-9\-]+-\d{14}$). The current prod format
-// (17-digit ms timestamp + 4 hex chars from PR #31961) is covered by
-// the dedicated regression test below.
+// Counter ensures uniqueness even when two seedRuns land inside the
+// same millisecond — mirrors the random-hex suffix
+// `commands/run.ts#timestampSuffix` appends in production.
 let seedCounter = 0;
 
 async function seedRun(input: {
@@ -28,14 +26,15 @@ async function seedRun(input: {
   testId: string;
   sessionLabel?: string;
 }): Promise<string> {
-  // Pad Date.now() (13 digits) to 14 by appending a 0-9 counter digit, then
-  // mix in a slug fragment from inputs. Result: eval-<slug>-<14 digits>.
   const slug = `${input.profileId}-${input.testId}`
     .toLowerCase()
     .replace(/[^a-z0-9-]+/g, "-")
     .replace(/^-+|-+$/g, "");
-  const timestamp = `${Date.now()}${seedCounter++ % 10}`.slice(-14);
-  const runId = `eval-${slug}-${timestamp}`;
+  // Match the production shape exactly: 17-digit ms timestamp + 4 hex.
+  // Date.now() (13 digits) → pad to 17 with a counter-derived suffix.
+  const timestamp = `${Date.now()}${seedCounter++}000`.slice(-17);
+  const rand = `${seedCounter.toString(16).padStart(4, "0")}`.slice(-4);
+  const runId = `eval-${slug}-${timestamp}-${rand}`;
   const artifacts = await ensureRunArtifacts(runId);
   await writeRunMetadata(runId, {
     runId,
@@ -46,42 +45,6 @@ async function seedRun(input: {
     status: "completed",
     startedAt: "2026-05-18T18:00:00.000Z",
     completedAt: "2026-05-18T18:00:02.000Z",
-    artifactDir: artifacts.runDir,
-  });
-  await writeMetricResults(runId, [{ name: "acc", score: 0.5 }]);
-  return runId;
-}
-
-/**
- * Companion seeder for the current prod runId shape
- * (`eval-<slug>-<17-digit ts>-<4 hex>`) produced by
- * `commands/run.ts#timestampSuffix` since PR #31961. Lets the file
- * endpoint + delete routes flex the post-bump validation path without
- * blanket-loosening every other test seeder.
- */
-async function seedRunWithCurrentRunIdFormat(input: {
-  sessionId: string;
-  profileId: string;
-  testId: string;
-}): Promise<string> {
-  const slug = `${input.profileId}-${input.testId}`
-    .toLowerCase()
-    .replace(/[^a-z0-9-]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  // Date.now() (13 digits) → pad to 17 with a counter-derived suffix.
-  // Random hex stays lowercase to match the regex.
-  const timestamp = `${Date.now()}${seedCounter++}000`.slice(-17);
-  const rand = `${seedCounter.toString(16).padStart(4, "0")}`.slice(-4);
-  const runId = `eval-${slug}-${timestamp}-${rand}`;
-  const artifacts = await ensureRunArtifacts(runId);
-  await writeRunMetadata(runId, {
-    runId,
-    sessionId: input.sessionId,
-    profileId: input.profileId,
-    testId: input.testId,
-    status: "completed",
-    startedAt: "2026-05-25T00:24:55.255Z",
-    completedAt: "2026-05-25T00:25:30.265Z",
     artifactDir: artifacts.runDir,
   });
   await writeMetricResults(runId, [{ name: "acc", score: 0.5 }]);
@@ -239,50 +202,6 @@ describe("evals server routing", () => {
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toContain("Invalid file name");
-  });
-
-  test("GET /api/runs/:runId/files/:name serves docker forensics artifacts", async () => {
-    const sessionId = `session-route-file-docker-${Date.now()}`;
-    const runId = await seedRun({ sessionId, profileId: "p1", testId: "t1" });
-
-    // docker-inspect.json is on the allowlist — exercise the
-    // application/json content-type branch.
-    const inspectJson = '{"State":{"Status":"created","ExitCode":0}}';
-    await writeFile(join(RUNS_DIR, runId, "docker-inspect.json"), inspectJson);
-
-    const res = await handleRequest(
-      req(`/api/runs/${encodeURIComponent(runId)}/files/docker-inspect.json`),
-    );
-    expect(res.status).toBe(200);
-    expect(res.headers.get("content-type")).toContain("application/json");
-    expect(await res.text()).toBe(inspectJson);
-  });
-
-  test("GET /api/runs/:runId/files/:name accepts the ms+random runId shape PR #31961 introduced", async () => {
-    // Regression: pre-fix, the validator only matched
-    // ^eval-...-\d{14}$ so docker-logs/inspect fetches for the new
-    // runId shape `eval-...-<17 digits>-<4 hex>` returned
-    // `{ "error": "Invalid runId format: ..." }` and the report UI's
-    // "Docker snapshot" section showed broken download links.
-    const sessionId = `session-route-file-newshape-${Date.now()}`;
-    const runId = await seedRunWithCurrentRunIdFormat({
-      sessionId,
-      profileId: "vellum-bare",
-      testId: "timeline-recall",
-    });
-    expect(runId).toMatch(
-      /^eval-vellum-bare-timeline-recall-\d{17}-[a-f0-9]{4}$/,
-    );
-
-    const inspectJson =
-      '{"State":{"Status":"created","ExitCode":0,"Error":"bind for 0.0.0.0:20100 failed"}}';
-    await writeFile(join(RUNS_DIR, runId, "docker-inspect.json"), inspectJson);
-
-    const res = await handleRequest(
-      req(`/api/runs/${encodeURIComponent(runId)}/files/docker-inspect.json`),
-    );
-    expect(res.status).toBe(200);
-    expect(await res.text()).toBe(inspectJson);
   });
 
   test("GET /api/runs/:runId/files/:name serves per-sibling docker artifacts", async () => {

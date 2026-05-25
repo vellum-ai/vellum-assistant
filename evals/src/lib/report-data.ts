@@ -91,9 +91,7 @@ export interface ReportRunDetail extends ReportRunSummary {
    * Container-forensics artifacts the vellum adapter wrote on hatch
    * failure — `docker-inspect-<service>.json` (raw `docker inspect`
    * output) and `docker-logs-<service>.txt` (last 200 stdout/stderr
-   * lines), one pair per `vellumDockerSiblingContainers` entry, plus
-   * the legacy assistant-only `docker-inspect.json` / `docker-logs.txt`
-   * duplicates kept for back-compat with older runs on disk.
+   * lines), one pair per `vellumDockerSiblingContainers` entry.
    *
    * Each entry carries the filename + full file content so the UI can
    * inline-render the snapshot in the same way as `subprocessLogs`. The
@@ -249,22 +247,12 @@ const STRUCTURED_RUN_FILES = new Set<string>([
 
 /**
  * Filename patterns the docker-forensics capture path writes on hatch
- * failure. Two shapes:
- *
- *   - `docker-inspect.json` / `docker-logs.txt` — legacy assistant-only
- *     duplicates the vellum adapter still writes for back-compat with
- *     older runs (see `vellum.ts#captureContainerForensics`). Exact match.
- *   - `docker-inspect-<service>.json` / `docker-logs-<service>.txt` —
- *     per-sibling forensics, one pair per `vellumDockerSiblingContainers`
- *     entry. Pattern match so a new sibling doesn't silently disappear
- *     from the UI.
+ * failure — `docker-inspect-<service>.json` / `docker-logs-<service>.txt`,
+ * one pair per `vellumDockerSiblingContainers` entry. Pattern match so a
+ * new sibling doesn't silently disappear from the UI.
  */
-const LEGACY_DOCKER_ARTIFACT_NAMES = new Set<string>([
-  "docker-inspect.json",
-  "docker-logs.txt",
-]);
-const DOCKER_INSPECT_RE = /^docker-inspect(?:-[a-z0-9\-]+)?\.json$/;
-const DOCKER_LOGS_RE = /^docker-logs(?:-[a-z0-9\-]+)?\.txt$/;
+const DOCKER_INSPECT_RE = /^docker-inspect-[a-z0-9\-]+\.json$/;
+const DOCKER_LOGS_RE = /^docker-logs-[a-z0-9\-]+\.txt$/;
 
 /**
  * List run-directory files that should be surfaced inline on the
@@ -292,13 +280,6 @@ async function listExtraArtifacts(runDir: string): Promise<{
   const dockerNames: Array<{ name: string; kind: "json" | "text" }> = [];
   for (const name of entries.sort()) {
     if (STRUCTURED_RUN_FILES.has(name)) continue;
-    if (LEGACY_DOCKER_ARTIFACT_NAMES.has(name)) {
-      dockerNames.push({
-        name,
-        kind: name.endsWith(".json") ? "json" : "text",
-      });
-      continue;
-    }
     if (DOCKER_INSPECT_RE.test(name)) {
       dockerNames.push({ name, kind: "json" });
       continue;

@@ -37,15 +37,10 @@ function splitCsv(raw: string): string[] {
  * Run ID suffix used to disambiguate concurrent evals invocations.
  *
  * Format: `YYYYMMDDhhmmssSSS-XXXX` (17-digit ms-precision timestamp + 4
- * hex chars of randomness). The previous 14-digit second-precision
- * suffix meant two parallel `evals run` invocations against the same
- * profile/test in the same wall-clock second produced identical
- * instance names, which then collided on docker resource creation. The
- * ms timestamp shrinks that window 1000×; the 4-char random suffix
- * (~65k variants) reduces in-millisecond collisions to a vanishing
- * probability and is what lets us safely treat catch-path teardown as
- * "operate only on our own resources" downstream in the Vellum
- * adapter.
+ * hex chars of randomness). The ms precision + ~65k random variants
+ * give effectively-zero collisions across parallel `evals run`
+ * invocations, which is what lets the Vellum adapter's catch-path
+ * teardown safely operate only on its own docker resources.
  */
 function timestampSuffix(): string {
   const ms = new Date()

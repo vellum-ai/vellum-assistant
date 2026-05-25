@@ -144,13 +144,6 @@ export interface EvalRunInput {
   simulator?: Simulator;
   maxTurns?: number;
   progress?: EvalProgressReporter;
-  /**
-   * Test seam for swapping in a hand-crafted `BaseAgent` — primarily
-   * `__tests__/run-once.test.ts` for the "hatch throw doesn't leak the
-   * run as `running`" regression. Production calls leave this undefined
-   * and fall back to `createAgent(input.profile, …)`.
-   */
-  agentFactory?: (input: AgentHatchInput) => BaseAgent;
 }
 
 export interface EvalRunResult {
@@ -342,9 +335,7 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
     testId: input.test.id,
     runId: input.runId,
   };
-  const agent = input.agentFactory
-    ? input.agentFactory(agentInput)
-    : createAgent(agentInput);
+  const agent = createAgent(agentInput);
   const simulator =
     input.simulator ?? new UserSimulator({ maxTurns: input.maxTurns });
 
@@ -388,20 +379,6 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
     artifactDir: artifacts.runDir,
   });
 
-  // `agent.hatch()` MUST live inside the try block. Previously it sat
-  // between `writeRunMetadata({status: "running"})` and the try, so any
-  // post-hatch-subprocess throw (jail apply, setup-command failure
-  // inside `VellumAgent.hatch`) bypassed the catch + finally entirely:
-  //  - catch never wrote `status: "failed"` → run stayed `running`
-  //  - finally never `clearInterval(heartbeatInterval)`'d → ticker
-  //    kept refreshing `lastHeartbeatAt` on the dead run, hiding it
-  //    from the scavenger until the parent process eventually exited
-  //  - which is exactly the "Process exited without completing (last
-  //    heartbeat: …)" the scavenger then surfaces from the next
-  //    `evals run`/server startup. Vargas's 2026-05-25 timeline-recall
-  //    run hit this path — hatch subprocess returned 0 (so the report
-  //    UI showed "hatch ok") but a later step inside `VellumAgent.hatch`
-  //    threw, leaving the run in this orphaned state.
   try {
     progress({
       step: "hatch",

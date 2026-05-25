@@ -330,12 +330,6 @@ export class VellumAgent implements BaseAgent {
    *     `[STDERR]` prefixes since this isn't going through the logPath
    *     tee).
    *
-   * The legacy `docker-inspect.json` / `docker-logs.txt` filenames
-   * (assistant only) are kept as duplicates of the assistant artifacts
-   * so the report UI's existing entries-by-name lookup keeps working
-   * without a coordinated server bump. They can be removed once the
-   * report UI surfaces the per-service files explicitly.
-   *
    * All writes are best-effort — failures are swallowed so a missing
    * docker binary or already-gone container never masks the hatch
    * error.
@@ -355,15 +349,6 @@ export class VellumAgent implements BaseAgent {
           join(artifacts.runDir, `docker-inspect-${service}.json`),
           inspect.stdout,
         ).catch(() => undefined);
-        // Back-compat: assistant artifact also lands at the legacy
-        // filename the report UI listed for `dockerArtifacts` before
-        // this widening.
-        if (service === "assistant") {
-          await writeFile(
-            join(artifacts.runDir, "docker-inspect.json"),
-            inspect.stdout,
-          ).catch(() => undefined);
-        }
       }
       const logs = await this.runner
         .run("docker", ["logs", "--tail", "200", container])
@@ -377,12 +362,6 @@ export class VellumAgent implements BaseAgent {
             join(artifacts.runDir, `docker-logs-${service}.txt`),
             combined,
           ).catch(() => undefined);
-          if (service === "assistant") {
-            await writeFile(
-              join(artifacts.runDir, "docker-logs.txt"),
-              combined,
-            ).catch(() => undefined);
-          }
         }
       }
     }
