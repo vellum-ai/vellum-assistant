@@ -1,16 +1,17 @@
 import { useEffect, useState } from "react";
 
 /**
- * Format an absolute start time for display next to a duration. Shows
- * `11:08:24 AM` when the start happened today, or `May 19, 11:08:24 AM`
- * for other days. Uses the user's locale; seconds are included because
- * per-step durations are often sub-second.
+ * Format an absolute start time for tooltip / inline display next to a
+ * duration. Returns a tooltip-ready string like `Started 11:08:24 AM`
+ * (today) or `Started May 19, 11:08:24 AM` (other days). Uses the user's
+ * locale; seconds are included because per-step durations are often
+ * sub-second.
  *
- * Returns null when `epoch` is undefined so callers can omit the value
- * (or skip the `title` attr when used as a tooltip).
+ * Returns `undefined` when `epoch` is undefined so callers can pass the
+ * result straight into a `title` attribute (React drops undefined attrs).
  */
-export function formatStartTime(epoch: number | undefined): string | null {
-  if (epoch === undefined) return null;
+export function formatStartTime(epoch: number | undefined): string | undefined {
+  if (epoch === undefined) return undefined;
   const date = new Date(epoch);
   const now = new Date();
   const isToday =
@@ -22,12 +23,12 @@ export function formatStartTime(epoch: number | undefined): string | null {
     minute: "2-digit",
     second: "2-digit",
   });
-  if (isToday) return timeStr;
+  if (isToday) return `Started ${timeStr}`;
   const dayStr = date.toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
   });
-  return `${dayStr}, ${timeStr}`;
+  return `Started ${dayStr}, ${timeStr}`;
 }
 
 /**

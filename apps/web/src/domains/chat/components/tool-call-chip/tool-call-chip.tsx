@@ -262,8 +262,7 @@ export function ToolCallChip({
   const isError = toolCall.status === "error" || toolCall.isError;
   const hasPendingConfirmation = !!toolCall.pendingConfirmation;
   const duration = useElapsedTime(toolCall.startedAt, !isRunning, toolCall.completedAt);
-  const formattedStartTime = formatStartTime(toolCall.startedAt);
-  const startTimeTooltip = formattedStartTime ? `Started ${formattedStartTime}` : undefined;
+  const startTimeLabel = formatStartTime(toolCall.startedAt);
 
   const inputSummary = extractInputSummary(toolCall.toolName, toolCall.input);
   const activity = toolCall.input?.activity ?? toolCall.input?.reason;
@@ -335,7 +334,7 @@ export function ToolCallChip({
       {embedded && (
         <span className="ml-auto flex items-center gap-1.5 text-[var(--content-tertiary)]">
           {duration && (
-            <span className="text-label-small-default" title={startTimeTooltip}>
+            <span className="text-label-small-default" title={startTimeLabel}>
               {duration}
             </span>
           )}
@@ -369,13 +368,8 @@ export function ToolCallChip({
             <div className="text-[var(--content-secondary)]">
               {toolCall.toolName.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
             </div>
-            {formattedStartTime && (
-              <div className="mt-0.5">
-                <span className="text-label-medium-default text-[var(--content-default)]">
-                  started:
-                </span>{" "}
-                <span className="text-[var(--content-tertiary)]">{formattedStartTime}</span>
-              </div>
+            {startTimeLabel && (
+              <div className="mt-0.5 text-[var(--content-tertiary)]">{startTimeLabel}</div>
             )}
             {Object.entries(toolCall.input).map(([key, value]) => (
               <div key={key} className="mt-0.5">
@@ -505,7 +499,7 @@ export function ToolCallChip({
           {duration && (
             <span
               className="text-label-small-default text-[var(--content-tertiary)]"
-              title={startTimeTooltip}
+              title={startTimeLabel}
             >
               {duration}
             </span>
