@@ -1,0 +1,14 @@
+{
+  "name": "@vellumai/assistant-api",
+  "version": "0.0.0-source",
+  "description": "Public API surface for consumers of the assistant daemon (web client, gateway, evals, etc.). Source-of-truth lives here; consumers in the same repo resolve via tsconfig path mapping rather than via a published artifact.",
+  "type": "module",
+  "private": true,
+  "main": "./index.ts",
+  "types": "./index.ts",
+  "exports": {
+    ".": "./index.ts",
+    "./sse-events": "./sse-events/index.ts",
+    "./sse-events/sync": "./sse-events/sync.ts"
+  }
+}

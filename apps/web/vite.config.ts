@@ -47,6 +47,14 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: {
         "@/": path.resolve(import.meta.dirname, "src") + "/",
+        // `@vellumai/assistant-api` is source-as-package: the canonical source
+        // lives under `assistant/src/api/`, resolved via this alias rather
+        // than via a `file:../assistant/src/api` workspace dependency. See
+        // `assistant/src/api/README.md` for the rationale.
+        "@vellumai/assistant-api": path.resolve(
+          import.meta.dirname,
+          "../../assistant/src/api/index.ts",
+        ),
       },
       preserveSymlinks: true,
     },

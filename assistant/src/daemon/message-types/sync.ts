@@ -1,75 +1,33 @@
-import { z } from "zod";
+/**
+ * Sync invalidation message types — re-export shim.
+ *
+ * The canonical source lives in `@vellumai/assistant-api/sse-events/sync`.
+ * This file exists so existing daemon imports keep working without touching
+ * 20 call sites; new code should import from `@vellumai/assistant-api`
+ * directly.
+ *
+ * Daemon-internal naming convention (`_<Domain>ServerMessages`) is preserved
+ * here since `assistant/src/daemon/message-protocol.ts` composes the
+ * `ServerMessage` union from these aliases.
+ */
 
-export const SYNC_TAGS = {
-  assistantAvatar: "assistant:self:avatar",
-  assistantIdentity: "assistant:self:identity",
-  assistantConfig: "assistant:self:config",
-  assistantSounds: "assistant:self:sounds",
-  assistantSchedules: "assistant:self:schedules",
-  conversationsList: "conversations:list",
-  featureFlagsClient: "feature-flags:client",
-  featureFlagsAssistant: "feature-flags:assistant",
-} as const;
+export {
+  SYNC_TAGS,
+  SyncInvalidationTagSchema,
+  SyncChangedMessageSchema,
+  conversationMessagesSyncTag,
+  conversationMetadataSyncTag,
+  isConversationMetadataSyncTag,
+  buildSyncChangedMessage,
+} from "../../api/sse-events/sync.js";
 
-export type KnownSyncInvalidationTag =
-  (typeof SYNC_TAGS)[keyof typeof SYNC_TAGS];
+export type {
+  KnownSyncInvalidationTag,
+  ConversationSyncInvalidationTag,
+  SyncInvalidationTag,
+  SyncChangedMessage,
+} from "../../api/sse-events/sync.js";
 
-export type ConversationSyncInvalidationTag =
-  | `conversation:${string}:messages`
-  | `conversation:${string}:metadata`;
-
-export type SyncInvalidationTag =
-  | KnownSyncInvalidationTag
-  | ConversationSyncInvalidationTag
-  | (string & {});
-
-export interface SyncChangedMessage {
-  type: "sync_changed";
-  tags: SyncInvalidationTag[];
-  /**
-   * Optional identifier of the client that originated the change. When set,
-   * the server fan-out and clients themselves can suppress self-echoes so
-   * the originating tab/process doesn't reinvalidate its own cache off its
-   * own mutation. Daemon-internal emits (agent loop, FS watcher, cron) leave
-   * this unset so the event fans out to every subscriber as before.
-   */
-  originClientId?: string;
-}
-
-export const SyncInvalidationTagSchema = z.string().min(1);
-
-export const SyncChangedMessageSchema = z
-  .object({
-    type: z.literal("sync_changed"),
-    tags: z.array(SyncInvalidationTagSchema).min(1),
-    originClientId: z.string().min(1).optional(),
-  })
-  .strict();
-
-export function conversationMessagesSyncTag(
-  conversationId: string,
-): ConversationSyncInvalidationTag {
-  return `conversation:${conversationId}:messages`;
-}
-
-export function conversationMetadataSyncTag(
-  conversationId: string,
-): ConversationSyncInvalidationTag {
-  return `conversation:${conversationId}:metadata`;
-}
-
-export function buildSyncChangedMessage(
-  tags: SyncInvalidationTag[],
-  originClientId?: string,
-): SyncChangedMessage {
-  const dedupedTags = Array.from(new Set(tags));
-  const trimmedOrigin = originClientId?.trim();
-  const parsed = SyncChangedMessageSchema.parse({
-    type: "sync_changed",
-    tags: dedupedTags,
-    ...(trimmedOrigin ? { originClientId: trimmedOrigin } : {}),
-  });
-  return parsed as SyncChangedMessage;
-}
+import type { SyncChangedMessage } from "../../api/sse-events/sync.js";
 
 export type _SyncInvalidationServerMessages = SyncChangedMessage;

@@ -16,12 +16,18 @@
     "isolatedModules": true,
     "types": ["bun"],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@vellumai/assistant-api": ["../../assistant/src/api/index.ts"],
+      "@vellumai/assistant-api/*": [
+        "../../assistant/src/api/*.ts",
+        "../../assistant/src/api/*/index.ts"
+      ]
     }
   },
   "include": [
     "src/**/*.ts",
-    "src/**/*.tsx"
+    "src/**/*.tsx",
+    "../../assistant/src/api/**/*.ts"
   ],
   "exclude": ["dist/**", "node_modules/**"]
 }
