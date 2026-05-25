@@ -48,7 +48,6 @@ mock.module("../notifications/emit-signal.js", () => ({
       ],
     };
   },
-  registerBroadcastFn: () => {},
 }));
 
 // Mock task run rules

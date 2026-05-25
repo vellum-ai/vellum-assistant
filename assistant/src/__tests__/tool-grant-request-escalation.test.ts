@@ -53,7 +53,6 @@ mock.module("../notifications/emit-signal.js", () => ({
       deliveryResults: [],
     };
   },
-  registerBroadcastFn: () => {},
 }));
 
 // Mock channel guardian service — provide a guardian binding for 'self' + 'telegram'

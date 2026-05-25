@@ -166,7 +166,6 @@ mock.module("../notifications/emit-signal.js", () => ({
     reason: "mocked",
     deliveryResults: [],
   }),
-  registerBroadcastFn: () => {},
 }));
 
 mock.module("../calls/voice-session-bridge.js", () => {
