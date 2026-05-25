@@ -65,6 +65,7 @@ worktrees/
 .claude/phases/
 .plans/
 .private/
+.superpowers/
 temp.sh
 context.md
 CLAUDE.md
