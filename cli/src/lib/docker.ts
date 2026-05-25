@@ -12,7 +12,6 @@ import {
   setActiveAssistant,
 } from "./assistant-config";
 import type { AssistantEntry } from "./assistant-config";
-import { buildHatchConfigValues, writeInitialConfig } from "./config-utils";
 import { buildServiceRunArgs } from "./statefulset.js";
 import type { Species } from "./constants";
 import { getDefaultPorts } from "./environments/paths.js";
@@ -646,7 +645,6 @@ export async function startContainers(
     extraAssistantEnv?: Record<string, string>;
     gatewayPort: number;
     imageTags: Record<ServiceName, string>;
-    defaultWorkspaceConfigPath?: string;
     instanceName: string;
     res: ReturnType<typeof dockerResourceNames>;
   },
@@ -1166,10 +1164,11 @@ export async function hatchDocker(
       "chown 1001:1001 /workspace /run/assistant-ipc /run/gateway-ipc",
     ]);
 
-    // Write --config key=value pairs to a temp file that gets bind-mounted
-    // into the assistant container and read via VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH.
-    const hatchConfigValues = buildHatchConfigValues(configValues, provider);
-    const defaultWorkspaceConfigPath = writeInitialConfig(hatchConfigValues);
+    // BYOK setup (API key, custom profiles, active-profile selection) is
+    // driven post-boot by the CLI calling the Assistant's public APIs
+    // (`POST /v1/secrets`, etc.) via `configureHatchProviderApiKey` below.
+    // The Assistant container comes up clean — no overlay file, no
+    // client-side workspace-config injection.
 
     const cesServiceToken = randomBytes(32).toString("hex");
     const signingKey = randomBytes(32).toString("hex");
@@ -1193,7 +1192,6 @@ export async function hatchDocker(
         cesServiceToken,
         gatewayPort,
         imageTags,
-        defaultWorkspaceConfigPath,
         instanceName,
         res,
       },
