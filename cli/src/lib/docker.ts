@@ -35,6 +35,7 @@ import {
   formatProviderName,
   resolveHatchProvider,
 } from "./provider-secrets.js";
+import { findOpenPort } from "./port-allocator.js";
 import { exec, execOutput } from "./step-runner";
 import {
   closeLogFile,
@@ -981,7 +982,22 @@ export async function hatchDocker(
     await ensureDockerInstalled();
 
     const instanceName = generateInstanceName(species, name);
-    const gatewayPort = getDefaultPorts(getCurrentEnvironment()).gateway;
+    // Resolve the gateway's host port dynamically. The env-default
+    // (production 7830 / non-prod overrides) is just the *preferred*
+    // starting point — if it's taken by another local assistant, eval
+    // run, or unrelated process, we walk upward until we find a free
+    // port. This replaces the previous "first one in wins, everyone
+    // else gets a docker bind error" behavior and removes the need for
+    // an orphan-cleanup pre-flight in the evals harness.
+    const preferredGatewayPort = getDefaultPorts(
+      getCurrentEnvironment(),
+    ).gateway;
+    const gatewayPort = await findOpenPort(preferredGatewayPort);
+    if (gatewayPort !== preferredGatewayPort) {
+      log(
+        `Preferred gateway port ${preferredGatewayPort} is in use; allocated ${gatewayPort} for this instance.`,
+      );
+    }
 
     const imageTags: Record<ServiceName, string> = {
       assistant: "",

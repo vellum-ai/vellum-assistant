@@ -1,4 +1,6 @@
 /** `evals run` — Cartesian profile × test runner. */
+import { randomBytes } from "crypto";
+
 import type { Command } from "commander";
 
 import { runEvalOnce } from "../lib/runner/run-once";
@@ -10,7 +12,6 @@ import {
   abandonAllRunningRunsSync,
   scavengeAbandonedRuns,
 } from "../lib/metrics";
-import { cleanupOrphanedEvalContainers } from "../lib/orphan-cleanup";
 import { loadProfile } from "../lib/profile";
 import { loadTestDef } from "../lib/test-def";
 import { openInBrowser, startReportServer } from "./server";
@@ -32,11 +33,27 @@ function splitCsv(raw: string): string[] {
     .filter((s) => s.length > 0);
 }
 
+/**
+ * Run ID suffix used to disambiguate concurrent evals invocations.
+ *
+ * Format: `YYYYMMDDhhmmssSSS-XXXX` (17-digit ms-precision timestamp + 4
+ * hex chars of randomness). The previous 14-digit second-precision
+ * suffix meant two parallel `evals run` invocations against the same
+ * profile/test in the same wall-clock second produced identical
+ * instance names, which then collided on docker resource creation. The
+ * ms timestamp shrinks that window 1000×; the 4-char random suffix
+ * (~65k variants) reduces in-millisecond collisions to a vanishing
+ * probability and is what lets us safely treat catch-path teardown as
+ * "operate only on our own resources" downstream in the Vellum
+ * adapter.
+ */
 function timestampSuffix(): string {
-  return new Date()
+  const ms = new Date()
     .toISOString()
     .replace(/[^0-9]/g, "")
-    .slice(0, 14);
+    .slice(0, 17);
+  const rand = randomBytes(2).toString("hex");
+  return `${ms}-${rand}`;
 }
 
 function slugifyLabel(label: string): string {
@@ -113,30 +130,16 @@ export function registerRunCommand(program: Command): void {
         // `evals run` against the same .runs/ directory).
         await scavengeAbandonedRuns();
 
-        // Then sweep docker for orphaned eval resources — the ones a
-        // crashed `vellum hatch` left in `Created` state still holding
-        // their port reservation, plus the network + volumes whose
-        // names `docker network create` / `docker volume create` would
-        // collide with on the next run. Without this the next run hits
-        // `bind for 0.0.0.0:20100 failed: port is already allocated`
-        // (the exact failure that motivated this cleanup pass).
-        const containerCleanup = await cleanupOrphanedEvalContainers();
-        if (containerCleanup.skipReason) {
-          // Docker not available locally — surface once so it's clear
-          // this guard rail was skipped, but don't fail the run.
-          process.stderr.write(
-            `Skipped orphan container cleanup: ${containerCleanup.skipReason}\n`,
-          );
-        } else if (containerCleanup.removedRuns > 0) {
-          process.stderr.write(
-            `Cleaned up ${containerCleanup.removedRuns} orphaned eval run(s) ` +
-              `(kept ${containerCleanup.keptRuns}): ` +
-              `${containerCleanup.removedRunIds.join(", ")} ` +
-              `[containers=${containerCleanup.removedContainers}, ` +
-              `networks=${containerCleanup.removedNetworks}, ` +
-              `volumes=${containerCleanup.removedVolumes}]\n`,
-          );
-        }
+        // Note: we no longer pre-sweep docker resources from prior eval
+        // runs. The previous orphan-cleanup pass existed to free up the
+        // gateway's host port (e.g. 20100) when an earlier hatch crashed
+        // mid-flight. That's now obsolete because `hatchDocker` discovers
+        // an open port at hatch time via `findOpenPort()` (see
+        // `cli/src/lib/port-allocator.ts`), so a stuck previous container
+        // can no longer wedge the next hatch. Dead docker resources from
+        // crashed runs are now garbage to be reaped on demand (e.g. via
+        // `docker container prune` / `docker volume prune`) rather than
+        // a prerequisite for forward progress.
 
         const profiles = await Promise.all(
           splitCsv(opts.profiles).map((id) => loadProfile(id)),
