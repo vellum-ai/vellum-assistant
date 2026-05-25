@@ -996,9 +996,14 @@ export function ChatRouteContent({
         acknowledgeError={diskPressure.diskPressureAcknowledgeError?.message ?? null}
         onAcknowledge={() => void diskPressure.acknowledgeDiskPressure()}
         onReviewDiskUsage={handleReviewDiskUsage}
+        onDismissWarning={() => {/* TODO: localStorage dismiss */}}
+        onReviewWorkspaceData={() => void navigate(routes.workspace)}
+        // Only platform-hosted assistants (kind === "active") have a billing plan to upgrade.
+        // No dedicated hosting-topology store exists yet, so we read from the assistantState prop.
+        onUpgradeStorage={assistantState.kind === "active" ? () => void navigate(`${routes.settings.billing}?adjust_plan=1`) : null}
       />
     );
-  }, [diskPressure, handleReviewDiskUsage]);
+  }, [diskPressure, handleReviewDiskUsage, navigate]);
 
   // -------------------------------------------------------------------------
   // Billing composer banner

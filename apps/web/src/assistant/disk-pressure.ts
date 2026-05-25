@@ -2,6 +2,7 @@ import type { DiskPressureStatus } from "@/assistant/api.js";
 
 export type DiskPressureMonitorMode =
   | "inactive"
+  | "warning"
   | "acknowledgement-required"
   | "cleanup";
 
