@@ -1,9 +1,9 @@
 /**
  * Memory v3 — Tree node store.
  *
- * Owns the on-disk read/write contract for `memory/v3/tree/<id>.md`. Nodes may
- * live directly under `memory/v3/tree/` or nested in subdirectories (e.g.
- * `memory/v3/tree/people/colleagues.md`); the id encodes the relative path from
+ * Owns the on-disk read/write contract for `memory/tree/<id>.md`. Nodes may
+ * live directly under `memory/tree/` or nested in subdirectories (e.g.
+ * `memory/tree/people/colleagues.md`); the id encodes the relative path from
  * `tree/` minus the `.md` extension, using forward slashes as separators (so
  * `people/colleagues` is a valid id).
  *
@@ -102,7 +102,7 @@ export function slugify(input: string): string {
  * Validate a node id — possibly path-shaped — that is about to cross the
  * storage boundary. Throws on any malformed or unsafe value.
  *
- * The on-disk tree treats ids as relative paths under `memory/v3/tree/`. A
+ * The on-disk tree treats ids as relative paths under `memory/tree/`. A
  * malformed id (e.g. `..`, leading `/`, embedded null byte) could escape that
  * root via `path.join` if it slipped through, so we enforce shape here at every
  * read/write/delete entry point rather than relying on callers.
@@ -169,12 +169,12 @@ export function validateNodeId(id: string): void {
 // ---------------------------------------------------------------------------
 
 export function getTreeDir(workspaceDir: string): string {
-  return join(workspaceDir, "memory", "v3", "tree");
+  return join(workspaceDir, "memory", "tree");
 }
 
 /**
  * Resolve the absolute path for a node id. Ids may contain `/` to indicate
- * folder hierarchy under `memory/v3/tree/`; `path.join` handles those correctly
+ * folder hierarchy under `memory/tree/`; `path.join` handles those correctly
  * on POSIX, and `validateNodeId` (called at every public entry point) rejects
  * shapes that could escape the tree root.
  */

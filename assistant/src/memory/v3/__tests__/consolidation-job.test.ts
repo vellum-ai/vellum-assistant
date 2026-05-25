@@ -244,7 +244,7 @@ describe("memoryV3ConsolidateJob — non-empty shared buffer", () => {
     expect(prompt).not.toContain(CUTOFF_PLACEHOLDER);
     expect(prompt).toMatch(/\b[A-Z][a-z]{2} \d{1,2}, \d{1,2}:\d{2} (AM|PM)\b/);
     // v3-distinctive: the prompt routes into the v3 tree, not just flat pages.
-    expect(prompt).toContain("memory/v3/tree/");
+    expect(prompt).toContain("memory/tree/");
     // Standing-context files preserved exactly as v2 (shared).
     expect(prompt).toContain("memory/buffer.md");
     expect(prompt).toContain("memory/recent.md");
@@ -310,7 +310,7 @@ describe("CONSOLIDATION_PROMPT (v3)", () => {
   });
 
   test("adds the v3 tree-authoring routing the shared concept pages get indexed into", () => {
-    expect(CONSOLIDATION_PROMPT).toContain("memory/v3/tree/");
+    expect(CONSOLIDATION_PROMPT).toContain("memory/tree/");
     expect(CONSOLIDATION_PROMPT).toContain("children");
     // The DAG cycle / reachability discipline must be in the prompt.
     expect(CONSOLIDATION_PROMPT.toLowerCase()).toContain("cycle");

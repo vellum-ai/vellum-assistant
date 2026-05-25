@@ -50,7 +50,7 @@ export function registerMemoryV3Command(program: Command): void {
         "after",
         `
 The v3 memory subsystem layers a hand-authored DAG of tree nodes over the
-flat v2 concept pages. Each node lives under /workspace/memory/v3/tree/ and
+flat v2 concept pages. Each node lives under /workspace/memory/tree/ and
 its frontmatter 'children' list references sub-nodes (node:<id>) and leaf
 concept pages (page:<slug>). The structure is authored by the v2 → v3
 data-migration, so these subcommands are read-only inspection only — they
