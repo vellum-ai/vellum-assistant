@@ -11,6 +11,7 @@
 // -----------------------------------------------------------------------------
 
 import { sortedByTimestamp } from "@/domains/chat/utils/message-sorting.js";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types.js";
 import type { DisplayMessage } from "@/domains/chat/types/types.js";
 
 export function sanitizeDisplayMessages(
@@ -20,6 +21,7 @@ export function sanitizeDisplayMessages(
     sortByTimestamp,
     removeInvalidMessages,
     removeDuplicateTrailingAssistant,
+    repairDanglingToolCalls,
   ];
   return pipeline.reduce((msgs, step) => step(msgs), messages);
 }
@@ -175,4 +177,97 @@ function toolCallsMatch(a: DisplayMessage, b: DisplayMessage): boolean {
     if (aTc.result !== bTc.result) return false;
   }
   return true;
+}
+
+// -----------------------------------------------------------------------------
+// Hack #4 — repair dangling tool calls on older assistant messages
+// -----------------------------------------------------------------------------
+// Why it exists: occasionally a `tool_result` SSE event is lost between the
+// daemon and the client (network drop, reconnect race, server-side fanout
+// glitch). The tool call stays `status: "running"` forever in the client's
+// `DisplayMessage[]`, even though the assistant clearly continued — there
+// is a subsequent assistant message in the transcript, which is only
+// possible if the LLM provider received the tool result on the server side.
+//
+// The render layer shows these stuck calls as a permanent spinner on an
+// older message bubble, which is misleading: the tool DID complete, the
+// client just never saw the result.
+//
+// Predicate (must ALL hold for a tool call to be patched):
+//   - its parent message is `role: "assistant"`,
+//   - the parent message is NOT the last assistant in the transcript (the
+//     last assistant may still be streaming; its dangling tools could
+//     legitimately resolve via an in-flight `tool_result`),
+//   - `tool_call.status === "running"` (the UI's canonical "no result yet"
+//     signal — see `tool-call-chip.tsx`'s `isRunning`).
+// When all three hold, mutate the tool call to:
+//   - `status: "error"`,
+//   - `isError: true`,
+//   - `result: SYNTHETIC_DANGLING_RESULT` (explains the client-side data loss
+//     so a feedback report shows the root cause, not a vague tool failure).
+//
+// Pipeline placement: runs AFTER `removeDuplicateTrailingAssistant` so the
+// dedup filter's pairwise `result` equality check sees the original (still
+// undefined) values and can correctly identify the duplicate. If both
+// duplicate trailing assistants carry the same dangling tools, dedup drops
+// one and the remaining one becomes the last assistant — at which point this
+// step conservatively skips it.
+//
+// SHORT TERM until: the assistant backend reliably delivers `tool_result`
+// SSE events (or the reconcile pass closes the gap by treating dangling
+// tools as authoritative client-side state to repair against /v1/history).
+// -----------------------------------------------------------------------------
+const SYNTHETIC_DANGLING_RESULT =
+  "Tool call completed on the server, but the result never reached the client. Subsequent assistant activity confirms the tool returned — this is a client-side data loss, not a tool failure.";
+
+function repairDanglingToolCalls(
+  messages: DisplayMessage[],
+): DisplayMessage[] {
+  const lastAssistantIdx = findLastAssistantIndex(messages);
+  // No subsequent-assistant evidence anywhere → nothing to repair against.
+  if (lastAssistantIdx <= 0) return messages;
+
+  let result: DisplayMessage[] | null = null;
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i]!;
+    const isPatchable =
+      m.role === "assistant" &&
+      i < lastAssistantIdx &&
+      hasDanglingToolCall(m);
+    if (!isPatchable) {
+      if (result) result.push(m);
+      continue;
+    }
+    if (!result) result = messages.slice(0, i);
+    result.push(withRepairedToolCalls(m));
+  }
+  return result ?? messages;
+}
+
+function findLastAssistantIndex(messages: DisplayMessage[]): number {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]!.role === "assistant") return i;
+  }
+  return -1;
+}
+
+function hasDanglingToolCall(message: DisplayMessage): boolean {
+  return message.toolCalls?.some((tc) => tc.status === "running") ?? false;
+}
+
+function withRepairedToolCalls(message: DisplayMessage): DisplayMessage {
+  return {
+    ...message,
+    toolCalls: message.toolCalls!.map(repairIfDangling),
+  };
+}
+
+function repairIfDangling(tc: ChatMessageToolCall): ChatMessageToolCall {
+  if (tc.status !== "running") return tc;
+  return {
+    ...tc,
+    status: "error",
+    isError: true,
+    result: SYNTHETIC_DANGLING_RESULT,
+  };
 }
