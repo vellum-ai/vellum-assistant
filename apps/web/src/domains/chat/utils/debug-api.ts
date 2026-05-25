@@ -43,10 +43,11 @@ import type {
 import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics.js";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation.js";
+import { setTranscriptScrollControllerEnabled } from "@/domains/chat/transcript/transcript-scroll-flag.js";
 import {
   classifyScrollPosition,
   type TranscriptHandle,
-} from "@/domains/chat/transcript/use-transcript-scroll.js";
+} from "@/domains/chat/transcript/use-deprecated-transcript-scroll.js";
 import type { TranscriptItem } from "@/domains/chat/transcript/types.js";
 import {
   type TerminalReason,
@@ -313,6 +314,7 @@ export interface ChatDebugApi {
 const DEFAULT_CLIENT_MESSAGES_LIMIT = 20;
 const ROOT_NS = "_vellumDebug";
 const CHAT_NS = "chat";
+const FLAGS_NS = "flags";
 
 /**
  * Refs the API reads to surface client state and trigger actions. All are
@@ -690,10 +692,25 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
 const EVENTS_NS = "events";
 const API_NS = "api";
 
+/**
+ * Dev-only toggle surface. Each function is a single-purpose imperative
+ * flip — call from the console to flip a localStorage-persisted flag.
+ * Toggles that change React hook ordering (e.g. swapping which scroll
+ * coordinator runs) reload the page so the new value takes effect
+ * cleanly. See `transcript-scroll-flag.ts` for the storage layer.
+ */
+export interface VellumDebugFlagsApi {
+  /** Flip the parallel `useTranscriptScrollController` path on or off.
+   *  Persists to localStorage and reloads the page. Pass `true`/`false`
+   *  to force a specific value; omit to flip the current value. */
+  toggleTranscriptScrollController(value?: boolean): boolean;
+}
+
 interface VellumDebugRoot extends Record<string, unknown> {
   [EVENTS_NS]?: ChatDebugEventsApi;
   [CHAT_NS]?: ChatDebugApi;
   [API_NS]?: typeof assistantApi;
+  [FLAGS_NS]?: VellumDebugFlagsApi;
 }
 
 declare global {
@@ -713,6 +730,9 @@ declare global {
  *   - `api` — the full `@vellumai/assistant-api` namespace, so a developer
  *     can pull canonical SSE schemas (`RelationshipStateUpdatedSchema`, …)
  *     out of the shipped bundle from the console.
+ *   - `flags` — dev-toggleable feature flags (currently:
+ *     `toggleTranscriptScrollController`). Stable singleton; pure
+ *     module exports backed by localStorage.
  *
  * Consolidating these into one installer guarantees they're set at the
  * same time and torn down together, so DevTools never sees one namespace
@@ -723,13 +743,17 @@ declare global {
  * root object if it's empty afterwards. Safe to call on the server —
  * no-op when `window` is undefined.
  */
-export function installVellumDebugApi(chatApi: ChatDebugApi): () => void {
+export function installVellumDebugApi(
+  chatApi: ChatDebugApi,
+  flagsApi: VellumDebugFlagsApi,
+): () => void {
   if (typeof window === "undefined") return () => {};
   const win = window as Omit<Window, typeof ROOT_NS> & { [ROOT_NS]?: VellumDebugRoot };
   const existing: VellumDebugRoot = (win[ROOT_NS] ?? {}) as VellumDebugRoot;
   existing[EVENTS_NS] = eventsDebugApi;
   existing[CHAT_NS] = chatApi;
   existing[API_NS] = assistantApi;
+  existing[FLAGS_NS] = flagsApi;
   win[ROOT_NS] = existing;
   return () => {
     const current = win[ROOT_NS];
@@ -737,12 +761,14 @@ export function installVellumDebugApi(chatApi: ChatDebugApi): () => void {
     // Gate every deletion on the chat-API identity check. If a newer
     // mount has already replaced our chatApi (strict-mode double-mount,
     // hot reload, etc.), our teardown is stale — leave the world alone.
-    // `events` and `api` lifecycles are paired with `chat` because they
-    // are stable singletons; identity-checking them would always pass.
+    // `events`, `api`, and `flags` lifecycles are paired with `chat`
+    // because they are stable singletons (pure module exports);
+    // identity-checking them would always pass.
     if (current[CHAT_NS] === chatApi) {
       delete current[CHAT_NS];
       delete current[EVENTS_NS];
       delete current[API_NS];
+      delete current[FLAGS_NS];
     }
     // Only remove the root if we left it empty — other debug domains
     // may have attached siblings under the same namespace.
@@ -792,7 +818,10 @@ export function useChatDebugApi(refs: ChatDebugRefs): void {
       historyFetcher: refs.historyFetcher,
     };
     const api = createChatDebugApi(stableRefs);
-    const uninstall = installVellumDebugApi(api);
+    const flagsApi: VellumDebugFlagsApi = {
+      toggleTranscriptScrollController: setTranscriptScrollControllerEnabled,
+    };
+    const uninstall = installVellumDebugApi(api, flagsApi);
     return uninstall;
   }, []);
 }

@@ -34,7 +34,7 @@ import { usePullRefresh } from "@/domains/chat/hooks/use-pull-refresh.js";
 import { useRefreshLatestMessages as _useRefreshLatestMessages } from "@/domains/chat/hooks/use-refresh-latest-messages.js";
 import { useConversationStarters } from "@/domains/chat/hooks/use-conversation-starters.js";
 import type { TranscriptHandle, TranscriptProps } from "@/domains/chat/transcript/transcript.js";
-import { useTranscriptScroll } from "@/domains/chat/transcript/use-transcript-scroll.js";
+import { useDeprecatedTranscriptScroll } from "@/domains/chat/transcript/use-deprecated-transcript-scroll.js";
 import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat-utils.js";
 import type { ChatError } from "@/domains/chat/types.js";
 import type { AssistantState } from "@/domains/chat/hooks/use-assistant-lifecycle.js";
@@ -836,7 +836,7 @@ export function ChatRouteContent({
   // Scroll coordination
   // -------------------------------------------------------------------------
 
-  const scrollCoordinator = useTranscriptScroll({
+  const scrollCoordinator = useDeprecatedTranscriptScroll({
     transcriptRef: refs.transcriptRef,
     items: transcriptItems,
     conversationId: activeConversationId,
@@ -844,16 +844,6 @@ export function ChatRouteContent({
     isLoadingOlder: transcriptPagination.isLoadingOlder,
     onLoadOlder: loadOlder,
   });
-
-  useEffect(() => {
-    const el = refs.transcriptRef.current?.getScrollElement();
-    if (!el) return;
-    const handler = (e: Event) => scrollCoordinator.handleScroll(e);
-    el.addEventListener("scroll", handler, { passive: true });
-    return () => {
-      el.removeEventListener("scroll", handler);
-    };
-  }, [scrollCoordinator, activeConversationId, transcriptItems, refs.transcriptRef]);
 
   const handleScrollToLatest = useCallback(() => {
     scrollCoordinator.scrollToLatest({ behavior: "smooth" });
