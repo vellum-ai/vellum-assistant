@@ -338,6 +338,79 @@ describe("RadioAudioController", () => {
     expect(audio.paused).toBe(true);
   });
 
+  it("resolves an interrupted initial play rejection after pause", async () => {
+    const initialPlay = deferred<void>();
+    const controller = createController({
+      createAudio: (url) => {
+        const audio = new FakeAudio(url);
+        audio.playResult = initialPlay.promise;
+        createdAudio.push(audio);
+        return audio;
+      },
+    });
+
+    const playPromise = controller.playInitial(track);
+    await Promise.resolve();
+
+    const [audio] = createdAudio;
+    controller.pause();
+    initialPlay.reject(new DOMException("play() interrupted", "AbortError"));
+
+    await expect(playPromise).resolves.toBeUndefined();
+    expect(audio.paused).toBe(true);
+  });
+
+  it("rejects an active initial play failure", async () => {
+    const initialPlay = deferred<void>();
+    const controller = createController({
+      createAudio: (url) => {
+        const audio = new FakeAudio(url);
+        audio.playResult = initialPlay.promise;
+        createdAudio.push(audio);
+        return audio;
+      },
+    });
+
+    const playPromise = controller.playInitial(track);
+    await Promise.resolve();
+
+    initialPlay.reject(new Error("decoder failed"));
+
+    await expect(playPromise).rejects.toThrow("decoder failed");
+  });
+
+  it("resolves an interrupted DJ transition play rejection after pause", async () => {
+    const djPlay = deferred<void>();
+    const controller = createController({
+      createAudio: (url) => {
+        const audio = new FakeAudio(url);
+        if (url === djBreak.audioUrl) {
+          audio.playResult = djPlay.promise;
+        }
+        createdAudio.push(audio);
+        return audio;
+      },
+    });
+
+    await controller.playInitial(track);
+    const transitionPromise = controller.applyTransition({
+      outgoingTrack: track,
+      djBreak,
+      nextTrack,
+      playbackPlan,
+    });
+    await Promise.resolve();
+
+    const [, djAudio, incoming] = createdAudio;
+    controller.pause();
+    djPlay.reject(new DOMException("play() interrupted", "AbortError"));
+
+    await expect(transitionPromise).resolves.toBeUndefined();
+    expect(djAudio.paused).toBe(true);
+    expect(incoming.playCalls).toBe(0);
+    expect(incoming.paused).toBe(true);
+  });
+
   it("disposes audio, listeners, and pending volume ramps", async () => {
     const progress: Array<{ positionMs: number; remainingMs: number }> = [];
     const controller = createController({
