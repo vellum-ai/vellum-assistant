@@ -58,6 +58,16 @@ interface ClickHouseRow {
   response_payload: string;
   created_at: string;
   agent_loop_exit_reason: string;
+  /**
+   * Mirrors `llm_request_logs.call_site` from the SQLite source. Added
+   * to the CH `default.llm_request_logs` table via ALTER TABLE (matching
+   * the `agent_loop_exit_reason` precedent — see
+   * `memory/concepts/objects/clickhouse-mirror.md`).
+   *
+   * CH columns are `DEFAULT ''` rather than Nullable, so empty-string
+   * means "not set" — `toLogRow` maps that back to NULL on the JS side.
+   */
+  call_site: string;
 }
 
 /** Injectable fetch override for tests. Defaults to globalThis.fetch. */
@@ -125,7 +135,8 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
         request_payload,
         response_payload,
         toUnixTimestamp64Milli(created_at) AS created_at,
-        agent_loop_exit_reason
+        agent_loop_exit_reason,
+        call_site
       FROM ${this.tableRef()}
       WHERE assistant_id = {assistant_id:String}
         AND id = {log_id:String}
@@ -183,7 +194,8 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
         request_payload,
         response_payload,
         toUnixTimestamp64Milli(created_at) AS created_at,
-        agent_loop_exit_reason
+        agent_loop_exit_reason,
+        call_site
       FROM ${this.tableRef()}
       WHERE assistant_id = {assistant_id:String}
         AND conversation_id = {conversation_id:String}
@@ -223,7 +235,8 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
         request_payload,
         response_payload,
         toUnixTimestamp64Milli(created_at) AS created_at,
-        agent_loop_exit_reason
+        agent_loop_exit_reason,
+        call_site
       FROM ${this.tableRef()}
       WHERE assistant_id = {assistant_id:String}
         AND message_id IN (${placeholders.join(",")})
@@ -314,6 +327,7 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
       createdAt: Number(row.created_at),
       agentLoopExitReason:
         row.agent_loop_exit_reason === "" ? null : row.agent_loop_exit_reason,
+      callSite: row.call_site === "" ? null : row.call_site,
     };
   }
 

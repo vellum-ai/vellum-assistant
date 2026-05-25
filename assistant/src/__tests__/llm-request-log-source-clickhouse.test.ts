@@ -84,6 +84,7 @@ const SAMPLE_ROW = {
   // ClickHouse emits Int64 as a quoted string under JSONEachRow by default.
   created_at: "1778465138786",
   agent_loop_exit_reason: "no_tool_calls",
+  call_site: "mainAgent",
 };
 
 describe("ClickHouseLlmRequestLogSource", () => {
@@ -104,6 +105,7 @@ describe("ClickHouseLlmRequestLogSource", () => {
       responsePayload: '{"bar":2}',
       createdAt: 1778465138786,
       agentLoopExitReason: "no_tool_calls",
+      callSite: "mainAgent",
     });
   });
 

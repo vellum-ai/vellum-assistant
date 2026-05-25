@@ -1209,6 +1209,7 @@ function handleUsage(
         JSON.stringify(event.rawResponse),
         undefined,
         providerName,
+        "mainAgent",
       );
     } catch (err) {
       deps.rlog.warn({ err }, "Failed to persist LLM request log (non-fatal)");
@@ -1274,6 +1275,7 @@ function handleProviderError(
       JSON.stringify(buildProviderErrorResponsePayload(event.error)),
       undefined,
       event.actualProvider,
+      "mainAgent",
     );
   } catch (err) {
     deps.rlog.warn(

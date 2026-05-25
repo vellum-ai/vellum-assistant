@@ -27,6 +27,7 @@ import {
   getAttachmentMetadataForMessage,
 } from "../memory/attachments-store.js";
 import { getMessages } from "../memory/conversation-crud.js";
+import { recordRequestLog } from "../memory/llm-request-log-store.js";
 import type {
   ContentBlock,
   ImageContent,
@@ -49,6 +50,49 @@ const log = getLogger("compactor");
  * new token sequence.
  */
 const COMPACTION_CALL_SITE: LLMCallSite = "mainAgent";
+
+/**
+ * Tag stamped on `llm_request_logs.call_site` for compaction-driven rows.
+ *
+ * Distinct from `COMPACTION_CALL_SITE` (above) on purpose: that constant
+ * names the **provider config resolution** site (set to `mainAgent` so we
+ * inherit the agent's profile and keep the prefix cache warm). This
+ * constant names the **observability** site — what the row IS — so
+ * inspectors can filter "show me only compaction calls". They're
+ * semantically different even though both come from the same enum.
+ */
+const COMPACTION_LOG_CALL_SITE: LLMCallSite = "compactionAgent";
+
+/**
+ * Best-effort: persist a successful compaction LLM call into
+ * `llm_request_logs` with `call_site = "compactionAgent"`. The compactor
+ * opts out of automatic usage tracking (`usageTracking: "manual"`), so
+ * its calls otherwise never reach `recordRequestLog` via the agent-loop
+ * dispatcher. Failures are swallowed (warn-logged) so a DB hiccup never
+ * escalates compaction into a failure.
+ */
+function recordCompactionRequestLog(
+  conversationId: string,
+  response: ProviderResponse,
+  provider: Provider,
+): void {
+  if (!response.rawRequest || !response.rawResponse) return;
+  try {
+    recordRequestLog(
+      conversationId,
+      JSON.stringify(response.rawRequest),
+      JSON.stringify(response.rawResponse),
+      undefined,
+      response.actualProvider ?? provider.name,
+      COMPACTION_LOG_CALL_SITE,
+    );
+  } catch (err) {
+    log.warn(
+      { err, conversationId },
+      "Failed to persist compaction LLM request log (non-fatal)",
+    );
+  }
+}
 
 const RESULT_TAG_OPEN = "<compaction_result>";
 const RESULT_TAG_CLOSE = "</compaction_result>";
@@ -674,6 +718,10 @@ export async function runAssistantDrivenCompaction(
     };
   }
 
+  // Persist the compaction LLM call into `llm_request_logs` with
+  // `call_site = "compactionAgent"`. Non-fatal on DB error — see helper.
+  recordCompactionRequestLog(args.conversationId, response, args.provider);
+
   const rawText = extractTextFromResponse(response.content);
   const parsed = parseCompactionResult(rawText);
   if (!parsed) {
@@ -1042,6 +1090,10 @@ export async function runEmergencyCompaction(
       summaryFailed: true,
     };
   }
+
+  // Persist the emergency compaction LLM call into `llm_request_logs` with
+  // `call_site = "compactionAgent"`. Non-fatal on DB error — see helper.
+  recordCompactionRequestLog(args.conversationId, response, args.provider);
 
   const rawText = extractTextFromResponse(response.content);
   const parsed = parseCompactionResult(rawText);

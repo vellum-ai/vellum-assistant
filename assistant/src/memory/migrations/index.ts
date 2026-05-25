@@ -250,6 +250,7 @@ export {
   downMemoryV3AutoEdges,
   migrateMemoryV3AutoEdges,
 } from "./263-memory-v3-auto-edges.js";
+export { migrateLlmRequestLogCallSite } from "./264-llm-request-log-call-site.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

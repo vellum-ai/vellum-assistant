@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import type { LLMCallSite } from "../config/schemas/llm.js";
 import { AssistantError, ProviderError } from "../util/errors.js";
 import {
   getAssistantMessageIdsInTurn,
@@ -26,6 +27,12 @@ export type LogRow = {
    * `AgentLoopExitReason` in `agent/loop.ts`.
    */
   agentLoopExitReason: string | null;
+  /**
+   * Logical call site that produced this row — `mainAgent`,
+   * `compactionAgent`, etc. NULL on pre-migration-264 rows (no backfill).
+   * In practice values come from `LLMCallSite` (`config/schemas/llm.ts`).
+   */
+  callSite: string | null;
 };
 
 /**
@@ -73,6 +80,7 @@ export function recordRequestLog(
   responsePayload: string,
   messageId?: string,
   provider?: string,
+  callSite?: LLMCallSite,
 ): string {
   const db = getDb();
   const id = uuid();
@@ -88,6 +96,10 @@ export function recordRequestLog(
       // Stamped later via setAgentLoopExitReasonOnLatestLog, once the
       // agent loop body actually exits. Intermediate rows stay NULL.
       agentLoopExitReason: null,
+      // Logical call site (`mainAgent`, `compactionAgent`, …). NULL when
+      // a caller hasn't been updated yet — preserves backward compat
+      // while we plumb call sites through one site at a time.
+      callSite: callSite ?? null,
     })
     .run();
   return id;
@@ -182,6 +194,7 @@ function selectLogsByMessageIds(messageIds: string[]): LogRow[] {
       responsePayload: llmRequestLogs.responsePayload,
       createdAt: llmRequestLogs.createdAt,
       agentLoopExitReason: llmRequestLogs.agentLoopExitReason,
+      callSite: llmRequestLogs.callSite,
     })
     .from(llmRequestLogs)
     .where(inArray(llmRequestLogs.messageId, messageIds))
@@ -207,6 +220,7 @@ export function getRequestLogsByConversationId(conversationId: string): LogRow[]
       responsePayload: llmRequestLogs.responsePayload,
       createdAt: llmRequestLogs.createdAt,
       agentLoopExitReason: llmRequestLogs.agentLoopExitReason,
+      callSite: llmRequestLogs.callSite,
     })
     .from(llmRequestLogs)
     .where(eq(llmRequestLogs.conversationId, conversationId))
@@ -239,6 +253,7 @@ function selectOrphanedLogsInRange(
       responsePayload: llmRequestLogs.responsePayload,
       createdAt: llmRequestLogs.createdAt,
       agentLoopExitReason: llmRequestLogs.agentLoopExitReason,
+      callSite: llmRequestLogs.callSite,
     })
     .from(llmRequestLogs)
     .leftJoin(messages, eq(llmRequestLogs.messageId, messages.id))
@@ -280,6 +295,7 @@ function selectUnlinkedLogsInRange(
       responsePayload: llmRequestLogs.responsePayload,
       createdAt: llmRequestLogs.createdAt,
       agentLoopExitReason: llmRequestLogs.agentLoopExitReason,
+      callSite: llmRequestLogs.callSite,
     })
     .from(llmRequestLogs)
     .where(
@@ -307,6 +323,7 @@ export function getRequestLogById(logId: string): LogRow | null {
         responsePayload: llmRequestLogs.responsePayload,
         createdAt: llmRequestLogs.createdAt,
         agentLoopExitReason: llmRequestLogs.agentLoopExitReason,
+      callSite: llmRequestLogs.callSite,
       })
       .from(llmRequestLogs)
       .where(eq(llmRequestLogs.id, logId))
