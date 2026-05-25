@@ -7,6 +7,7 @@
 
 import {
   type Dispatch,
+  type ReactNode,
   type SetStateAction,
   lazy,
   useCallback,
@@ -148,7 +149,11 @@ import {
 // Component
 // ---------------------------------------------------------------------------
 
-export function ChatPage() {
+export interface ChatPageProps {
+  renderRadioSlot?: (assistantId: string) => ReactNode;
+}
+
+export function ChatPage({ renderRadioSlot }: ChatPageProps = {}) {
   const authLoading = useAuthStore.use.isLoading();
   const authUser = useAuthStore.use.user();
   const showLlmInspector = canUseLlmInspector(authUser);
@@ -1470,6 +1475,7 @@ export function ChatPage() {
     chatPullToRefreshEnabled,
     deployToVercel,
     doctor,
+    renderRadioSlot,
     isMobile,
     messages,
     setMessages,
