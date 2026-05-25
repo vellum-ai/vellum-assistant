@@ -51,6 +51,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   getMessageById: () => null,
   provenanceFromTrustContext: () => ({}),
   updateMessageContent: () => {},
+  updateMessageContentAndMetadata: () => {},
 }));
 
 mock.module("../memory/llm-request-log-store.js", () => ({
@@ -127,14 +128,22 @@ function makeMessageCompleteEvent(
 
 describe("message_complete display identity", () => {
   let state: EventHandlerState;
+  const ANCHOR_ID = "anchor-id-1";
 
   beforeEach(() => {
     addMessageCalls.length = 0;
-    state = createEventHandlerState();
+    // PR 2b: the anchor id is pre-allocated by the agent loop at turn start
+    // and threaded into the handler state. Pass a fixed id here so the
+    // assertions can refer to it by name.
+    state = createEventHandlerState(ANCHOR_ID);
     state.turnStartedAt = 1_700_000_000_000;
   });
 
-  test("tracks the merged display id separately from the final row id", async () => {
+  test("anchor id is the canonical display id from turn start through tool turn", async () => {
+    // First message_complete: assistant turn that emits a tool_use block.
+    // PR 2b routes the FIRST message_complete of the turn through the
+    // `update_content` persistence op (no addMessage call), finalizing
+    // the pre-allocated anchor row in place.
     await handleMessageComplete(
       state,
       makeDeps(),
@@ -148,15 +157,21 @@ describe("message_complete display identity", () => {
       ]),
     );
 
-    expect(state.firstAssistantMessageId).toBe("mock-msg-1");
-    expect(state.lastAssistantMessageId).toBe("mock-msg-1");
-    expect(getClientDisplayMessageId(state)).toBe("mock-msg-1");
+    expect(addMessageCalls.length).toBe(0);
+    expect(state.firstAssistantMessageId).toBe(ANCHOR_ID);
+    expect(state.lastAssistantMessageId).toBe(ANCHOR_ID);
+    expect(getClientDisplayMessageId(state)).toBe(ANCHOR_ID);
 
+    // Tool result lands.
     state.pendingToolResults.set("toolu_1", {
       content: "ok",
       isError: false,
     });
 
+    // Second message_complete: tool-result flush (user row) + new
+    // assistant row. Since the anchor is already finalized, the assistant
+    // persistence here falls through to the `add` branch and a new row
+    // id is minted.
     await handleMessageComplete(
       state,
       makeDeps(),
@@ -164,12 +179,16 @@ describe("message_complete display identity", () => {
     );
 
     expect(addMessageCalls.map((call) => call.role)).toEqual([
-      "assistant",
       "user",
       "assistant",
     ]);
-    expect(state.firstAssistantMessageId).toBe("mock-msg-1");
-    expect(state.lastAssistantMessageId).toBe("mock-msg-3");
-    expect(getClientDisplayMessageId(state)).toBe("mock-msg-1");
+    // firstAssistantMessageId was seeded with the anchor at state
+    // construction and is preserved across the turn.
+    expect(state.firstAssistantMessageId).toBe(ANCHOR_ID);
+    // Last assistant message id moves with the most recent `add` call.
+    expect(state.lastAssistantMessageId).toBe("mock-msg-2");
+    // The client-visible display id stays pinned to the anchor for the
+    // whole turn — that's the PR 2b contract.
+    expect(getClientDisplayMessageId(state)).toBe(ANCHOR_ID);
   });
 });

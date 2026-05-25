@@ -111,6 +111,8 @@ mock.module("../workspace/git-service.js", () => ({
 let persistedMessages: Array<{ role: string; content: string }> = [];
 
 mock.module("../memory/conversation-crud.js", () => ({
+  updateMessageContent: () => {},
+  updateMessageContentAndMetadata: () => {},
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},

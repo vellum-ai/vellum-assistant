@@ -177,6 +177,8 @@ let mockConversationRow: Record<string, unknown> = {
 };
 let mockMessageById: Record<string, unknown> | null = null;
 mock.module("../memory/conversation-crud.js", () => ({
+  updateMessageContent: () => {},
+  updateMessageContentAndMetadata: () => {},
   setConversationOriginChannelIfUnset: () => {},
   updateConversationUsage: () => {},
   updateMessageMetadata: updateMessageMetadataMock,
@@ -3045,14 +3047,21 @@ describe("session-agent-loop", () => {
       expect(recordCall[0]).toBe("test-conv");
       expect(recordCall[3]).toBeUndefined();
 
-      // The synthetic-message branch then piped the assigned message id
-      // (from the mocked `addMessage` -> `{ id: "mock-msg-id" }`) into the
-      // backfill primitive, scoped to this conversation.
+      // The synthetic-message branch then piped the assistant turn anchor
+      // id (pre-allocated at loop entry, emitted via `assistant_turn_start`)
+      // into the backfill primitive, scoped to this conversation. PR 2b
+      // moved the synthetic-message persistence onto `update_content` so
+      // the assistant id threaded to backfill is the canonical anchor id,
+      // not a freshly-minted `addMessage` row id.
       expect(backfillMessageIdOnLogsMock).toHaveBeenCalledTimes(1);
       const backfillCall = backfillMessageIdOnLogsMock.mock
         .calls[0] as unknown as [string, string];
       expect(backfillCall[0]).toBe("test-conv");
-      expect(backfillCall[1]).toBe("mock-msg-id");
+
+      const turnStart = events.find((e) => e.type === "assistant_turn_start");
+      expect(turnStart).toBeDefined();
+      const anchorId = (turnStart as { messageId: string }).messageId;
+      expect(backfillCall[1]).toBe(anchorId);
     });
   });
 

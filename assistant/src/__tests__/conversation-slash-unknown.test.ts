@@ -109,6 +109,8 @@ const addMessageCalls: Array<{
 }> = [];
 
 mock.module("../memory/conversation-crud.js", () => ({
+  updateMessageContent: () => {},
+  updateMessageContentAndMetadata: () => {},
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},

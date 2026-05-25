@@ -169,6 +169,7 @@ mock.module("../daemon/context-overflow-policy.js", () => ({
 }));
 
 mock.module("../memory/conversation-crud.js", () => ({
+  updateMessageContentAndMetadata: () => {},
   setConversationOriginChannelIfUnset: () => {},
   setConversationHistoryStrippedAt: () => {},
   updateConversationUsage: () => {},
