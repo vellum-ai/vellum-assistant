@@ -1971,6 +1971,8 @@ jobs:
           rm -rf daemon-bin/brain-graph
           mkdir -p daemon-bin/brain-graph
           cp "$ASSISTANT_SRC_DIR/src/runtime/routes/brain-graph/brain-graph.html" daemon-bin/brain-graph/
+          rm -rf daemon-bin/radio-assets
+          cp -R "$ASSISTANT_SRC_DIR/src/radio/assets" daemon-bin/radio-assets
 
           # Assistant CLI
           mkdir -p assistant-bin

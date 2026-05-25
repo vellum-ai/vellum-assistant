@@ -1,8 +1,13 @@
 import { join } from "node:path";
 
+import { resolveBundledDir } from "../util/bundled-asset.js";
 import type { RadioTrack } from "./types.js";
 
-const assetsDir = join(import.meta.dirname, "assets");
+const assetsDir = resolveBundledDir(
+  import.meta.dirname ?? __dirname,
+  "./assets",
+  "radio-assets",
+);
 
 const tracks = [
   {

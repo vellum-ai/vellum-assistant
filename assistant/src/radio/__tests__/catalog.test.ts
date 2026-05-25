@@ -38,6 +38,7 @@ describe("radio catalog", () => {
       expect(bytes.readUInt16LE(34)).toBe(16);
       expect(dataByteLength % blockAlign).toBe(0);
       expect(durationMs).toBe(18_000);
+      expect(track.durationMs).toBe(durationMs);
       expect(sha256).toBe(track.sha256);
     }
   });
