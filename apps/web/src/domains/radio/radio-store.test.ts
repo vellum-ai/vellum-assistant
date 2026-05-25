@@ -285,6 +285,18 @@ describe("useRadioStore", () => {
     expect(store.getState().isHidden).toBe(false);
   });
 
+  it("sets expanded state idempotently", async () => {
+    const store = await loadStore();
+
+    store.getState().setExpanded(true);
+    store.getState().setExpanded(true);
+    expect(store.getState().isExpanded).toBe(true);
+
+    store.getState().setExpanded(false);
+    store.getState().setExpanded(false);
+    expect(store.getState().isExpanded).toBe(false);
+  });
+
   it("enters an error state when advancing fails and retry starts again", async () => {
     const store = await loadStore();
     advanceRadioMock.mockImplementationOnce(async () => {
@@ -332,6 +344,20 @@ describe("useRadioStore", () => {
     expect(store.getState().status).toBe("playing");
     expect(store.getState().currentTrack?.id).toBe("neon-postcard");
     expect(store.getState().segmentId).toBe("segment-3");
+  });
+
+  it("does not reuse stale station state when starting a different assistant", async () => {
+    const store = await loadStore();
+    await store.getState().start("assistant-a");
+    advanceRadioMock.mockClear();
+
+    await store.getState().start("assistant-b");
+
+    const [, request] = advanceRadioMock.mock.calls[0]!;
+    expect(request.reason).toBe("start");
+    expect("segmentId" in request).toBe(false);
+    expect("currentTrackId" in request).toBe(false);
+    expect("recentTrackIds" in request).toBe(false);
   });
 
   it("deduplicates automatic song-ended advances while one is already pending", async () => {

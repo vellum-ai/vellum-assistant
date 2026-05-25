@@ -73,6 +73,7 @@ export interface RadioActions {
   skip: (assistantId: string) => Promise<void>;
   retry: (assistantId: string) => Promise<void>;
   toggleExpanded: () => void;
+  setExpanded: (isExpanded: boolean) => void;
   hide: () => void;
   show: () => void;
   reset: () => void;
@@ -170,13 +171,20 @@ function resolvePlaybackPlan(
 function buildAdvanceRequest(
   state: RadioState,
   reason: RadioAdvanceReason,
+  assistantId: string,
 ): RadioAdvanceRequest {
   const locale = getBrowserLocale();
+  const canReuseStationState =
+    !state.assistantId || state.assistantId === assistantId;
   return {
     reason,
-    ...(state.segmentId ? { segmentId: state.segmentId } : {}),
-    ...(state.currentTrack ? { currentTrackId: state.currentTrack.id } : {}),
-    ...(state.recentTrackIds.length > 0
+    ...(canReuseStationState && state.segmentId
+      ? { segmentId: state.segmentId }
+      : {}),
+    ...(canReuseStationState && state.currentTrack
+      ? { currentTrackId: state.currentTrack.id }
+      : {}),
+    ...(canReuseStationState && state.recentTrackIds.length > 0
       ? { recentTrackIds: state.recentTrackIds }
       : {}),
     ...(locale ? { locale } : {}),
@@ -261,7 +269,7 @@ async function advanceWithReason(
   try {
     const response = await dependencies.advanceRadio(
       assistantId,
-      buildAdvanceRequest(previousState, reason),
+      buildAdvanceRequest(previousState, reason, assistantId),
     );
     if (!isCurrentAdvance(token)) return;
     await applyAdvanceResponse({
@@ -414,6 +422,10 @@ const useRadioStoreBase = create<RadioStore>()((set, get) => ({
 
   toggleExpanded: () => {
     set({ isExpanded: !get().isExpanded });
+  },
+
+  setExpanded: (isExpanded) => {
+    set({ isExpanded });
   },
 
   hide: () => {

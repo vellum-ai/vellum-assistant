@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 
 import type { ResolvedRadioTrack } from "@/domains/radio/types.js";
@@ -10,6 +10,7 @@ let lastNavigatedTo: string | null = null;
 const passthrough = ({ children }: { children?: ReactNode }) =>
   createElement("div", null, children);
 let currentPopoverOpen = false;
+let lastPopoverOpenChange: ((open: boolean) => void) | null = null;
 
 mock.module("@vellum/design-library", () => ({
   Button: ({
@@ -39,11 +40,14 @@ mock.module("@vellum/design-library", () => ({
     Root: ({
       children,
       open,
+      onOpenChange,
     }: {
       children?: ReactNode;
       open?: boolean;
+      onOpenChange?: (open: boolean) => void;
     }) => {
       currentPopoverOpen = !!open;
+      lastPopoverOpenChange = onOpenChange ?? null;
       return createElement("div", null, children);
     },
     Trigger: passthrough,
@@ -90,6 +94,7 @@ afterEach(() => {
   useRadioStore.getState().reset();
   lastNavigatedTo = null;
   currentPopoverOpen = false;
+  lastPopoverOpenChange = null;
 });
 
 describe("RadioComposerPill", () => {
@@ -192,5 +197,49 @@ describe("RadioComposerPill", () => {
     fireEvent.click(screen.getByRole("button", { name: "Configure Text-to-Speech" }));
 
     expect(lastNavigatedTo).toBe("/assistant/settings/ai");
+  });
+
+  test("popover open changes are idempotent", () => {
+    useRadioStore.setState({
+      status: "playing",
+      displayCue: "song",
+      isExpanded: true,
+      currentTrack: track,
+    });
+
+    render(<RadioComposerPill assistantId="assistant-123" />);
+
+    act(() => {
+      lastPopoverOpenChange?.(false);
+      lastPopoverOpenChange?.(false);
+    });
+    expect(useRadioStore.getState().isExpanded).toBe(false);
+
+    act(() => {
+      lastPopoverOpenChange?.(true);
+      lastPopoverOpenChange?.(true);
+    });
+    expect(useRadioStore.getState().isExpanded).toBe(true);
+  });
+
+  test("shows idle controls instead of stale station state from another assistant", () => {
+    useRadioStore.setState({
+      assistantId: "assistant-a",
+      status: "playing",
+      displayCue: "song",
+      isExpanded: true,
+      currentTrack: track,
+      remainingMs: 65000,
+    });
+
+    render(<RadioComposerPill assistantId="assistant-b" />);
+
+    expect(screen.queryByText(track.title)).toBeNull();
+    expect(screen.getAllByText("Off").length).toBeGreaterThan(0);
+    expect(screen.getByText("Radio")).toBeTruthy();
+    expect(screen.getByLabelText("Play radio")).toBeTruthy();
+    expect(
+      screen.getByLabelText("Skip radio segment").getAttribute("disabled"),
+    ).not.toBeNull();
   });
 });
