@@ -75,7 +75,7 @@ import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/utils/rec
 
 import { buildTranscriptItems } from "@/domains/chat/transcript/build-items.js";
 import { sanitizeDisplayMessages } from "@/domains/chat/utils/sanitize-display-messages.js";
-import type { TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
+import type { TranscriptItem, TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
 import type { HistoryPaginationResult } from "@/domains/chat/transcript/use-history-pagination.js";
 import {
   canStopGeneration,
@@ -218,13 +218,8 @@ export interface AvatarData {
 export interface ChatRouteRefs {
   inputRef: RefObject<HTMLTextAreaElement | null>;
   messagesRef: MutableRefObject<DisplayMessage[]>;
-  /**
-   * Mirror of the post-`sanitizeDisplayMessages` array, populated below right
-   * after the render-boundary `useMemo`. Read by `useChatDebugApi`'s `tail()`
-   * so DevTools sees exactly what the transcript renders without re-running
-   * the sanitize pipeline.
-   */
   sanitizedMessagesRef: MutableRefObject<DisplayMessage[]>;
+  transcriptItemsRef: MutableRefObject<TranscriptItem[]>;
   activeConversationIdRef: MutableRefObject<string | null>;
   assistantIdRef: MutableRefObject<string | null>;
   streamContextRef: MutableRefObject<StreamContext | null>;
@@ -511,6 +506,7 @@ export function ChatRouteContent({
     inputRef,
     messagesRef,
     sanitizedMessagesRef,
+    transcriptItemsRef,
     activeConversationIdRef: _activeConversationIdRef,
     assistantIdRef: _assistantIdRef,
     streamContextRef,
@@ -793,8 +789,6 @@ export function ChatRouteContent({
     [messages],
   );
 
-  // Mirror into a ref so `useChatDebugApi`'s `tail()` can read what the
-  // UI is actually rendering without re-running the pipeline.
   sanitizedMessagesRef.current = sanitizedMessages;
 
   const transcriptItems = useMemo(
@@ -835,6 +829,8 @@ export function ChatRouteContent({
       showOnboardingChoice,
     ],
   );
+
+  transcriptItemsRef.current = transcriptItems;
 
   // -------------------------------------------------------------------------
   // Scroll coordination

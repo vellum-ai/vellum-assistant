@@ -17,7 +17,7 @@ export function sanitizeDisplayMessages(
   messages: DisplayMessage[],
 ): DisplayMessage[] {
   const pipeline = [
-    sortedByTimestamp,
+    sortByTimestamp,
     removeInvalidMessages,
     removeDuplicateTrailingAssistant,
   ];
@@ -43,7 +43,13 @@ export function sanitizeDisplayMessages(
 // SHORT TERM until: the assistant backend merges multi-row clusters
 // server-side so the client never sees the fragmented rows.
 // -----------------------------------------------------------------------------
-// (Implementation: `sortedByTimestamp`, imported at the top.)
+function sortByTimestamp(messages: DisplayMessage[]): DisplayMessage[] {
+  // Thin wrapper around `sortedByTimestamp` so this file owns all three
+  // pipeline steps locally. `sortedByTimestamp` is still consumed by
+  // `reconcile.ts`; when that cleanup lands and reconcile is deleted, the
+  // import can collapse without touching the pipeline shape.
+  return sortedByTimestamp(messages);
+}
 
 // -----------------------------------------------------------------------------
 // Hack #2 — drop blank / phantom user rows
@@ -107,7 +113,7 @@ function isInvalidMessage(message: DisplayMessage): boolean {
 // undefined and a `stableId` of the form "assistant-…". The existing dedupe
 // keys (`id` and `stableId`) both miss this case because both fields differ
 // between the rows. Without this filter the UI renders the final assistant
-// message twice (and `window._vellumDebug.chat.tail()` returns it twice).
+// message twice (and `window._vellumDebug.chat.getClientMessages()` returns it twice).
 //
 // Predicate (must ALL hold to filter):
 //   - the last two messages are both `role: "assistant"`,

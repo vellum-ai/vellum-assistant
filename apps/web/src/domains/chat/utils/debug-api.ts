@@ -2,11 +2,13 @@
  * Dev-facing chat debug API surfaced on `window._vellumDebug.chat`.
  *
  * Designed for in-the-moment inspection when a chat-streaming bug shows
- * up — open DevTools, call `window._vellumDebug.chat.tail()` to see the
- * transcript rows the chat page is rendering, `.forceReconcile()` to
- * imperatively run /v1/history reconcile, and `.serverMessages()` to
+ * up — open DevTools, call `window._vellumDebug.chat.getClientMessages()`
+ * to see the message rows the chat page is rendering,
+ * `.getTranscriptItems()` to see the full virtualized row list (messages
+ * plus trailers like thinking / pending interactions), `.forceReconcile()`
+ * to imperatively run /v1/history reconcile, and `.serverMessages()` to
  * fetch the raw `/v1/history` message list (so you can diff against
- * `tail()` by hand in the console when a turn looks stuck).
+ * `getClientMessages()` by hand in the console when a turn looks stuck).
  *
  * Attached unconditionally (no query-param gating) so the API is
  * available in dev, staging, and production builds. The implementation
@@ -44,6 +46,7 @@ import {
   classifyScrollPosition,
   type TranscriptHandle,
 } from "@/domains/chat/transcript/use-transcript-scroll.js";
+import type { TranscriptItem } from "@/domains/chat/transcript/types.js";
 import {
   type TerminalReason,
   type TurnPhase,
@@ -209,20 +212,38 @@ export interface ChatDebugApi {
   /**
    * Return up to `limit` chat messages currently held in memory, in the
    * exact shape the UI consumes (`DisplayMessage`). The last row is the
-   * current visual bottom of the chat.
+   * current visual bottom of the chat's message list.
    *
-   * No bespoke projection — this is the same array the transcript
-   * iterates, so what you see in DevTools is what the UI sees. Each
-   * message carries `content`, `textSegments`, `toolCalls`, `surfaces`,
-   * and `contentOrder` as-is; cross-reference `contentOrder` against the
-   * entity arrays to reconstruct render order (the same lookup the
-   * transcript performs in `transcript-message-body.tsx`).
+   * No bespoke projection — this is the same array
+   * {@link buildTranscriptItems} reads, so what you see in DevTools is
+   * what the UI sees. Each message carries `content`, `textSegments`,
+   * `toolCalls`, `surfaces`, and `contentOrder` as-is; cross-reference
+   * `contentOrder` against the entity arrays to reconstruct render order
+   * (the same lookup the transcript performs in
+   * `transcript-message-body.tsx`).
    *
-   * Non-message transcript items (thinking indicator, pending prompts)
-   * have their own debug methods — see {@link thinkingIndicator} and
-   * {@link listPendingInteractions}.
+   * For the full virtualized row list — including non-message rows like
+   * the thinking indicator, pending prompts, and the queued-marker —
+   * use {@link getTranscriptItems}.
    */
-  tail(limit?: number): DisplayMessage[];
+  getClientMessages(limit?: number): DisplayMessage[];
+  /**
+   * Return the full transcript-item array the virtualized list iterates
+   * — messages, the thinking indicator, pending-interaction rows, the
+   * queued-marker, error notices, the onboarding-choice row.
+   *
+   * `getClientMessages()` returns only the `DisplayMessage[]` slice;
+   * `getTranscriptItems()` returns the discriminated union of every
+   * row kind that maps 1:1 to a virtualized DOM row. Use this when
+   * triaging "why is the thinking indicator stuck below my message" or
+   * "the pending-secret card disappeared" — those questions live at the
+   * `TranscriptItem` layer, not the message layer.
+   *
+   * No bespoke projection — same reference the render path passes to
+   * `<Transcript />`. Populated by `chat-route-content.tsx` right after
+   * the `useMemo(() => buildTranscriptItems(...))`.
+   */
+  getTranscriptItems(): TranscriptItem[];
   /**
    * Live evaluation of the thinking-indicator predicate
    * ({@link shouldShowThinkingIndicator}) plus turn-state lifecycle info.
@@ -247,9 +268,9 @@ export interface ChatDebugApi {
   /**
    * [experimental] Fetch `/v1/history` for the active assistant +
    * conversation and return the raw server-side message list. Does
-   * not touch UI state — diff against `tail()` manually in the console
-   * when you need to declare drift. Throws if there's no active
-   * assistant/conversation context. Subject to change.
+   * not touch UI state — diff against `getClientMessages()` manually in
+   * the console when you need to declare drift. Throws if there's no
+   * active assistant/conversation context. Subject to change.
    */
   serverMessages(): Promise<RuntimeMessage[]>;
   /**
@@ -288,12 +309,12 @@ export interface ChatDebugApi {
 // Implementation
 // ---------------------------------------------------------------------------
 
-const DEFAULT_TAIL_LIMIT = 20;
+const DEFAULT_CLIENT_MESSAGES_LIMIT = 20;
 const ROOT_NS = "_vellumDebug";
 const CHAT_NS = "chat";
 
 /**
- * Refs the API reads to tail transcript items and trigger actions. All are
+ * Refs the API reads to surface client state and trigger actions. All are
  * `MutableRefObject` because the API holds them across the lifetime of
  * the chat page and reads them lazily on each call — capturing the
  * current value at install time would freeze the API to the initial render.
@@ -301,12 +322,16 @@ const CHAT_NS = "chat";
 export interface ChatDebugRefs {
   messagesRef: MutableRefObject<DisplayMessage[]>;
   /**
-   * Post-`sanitizeDisplayMessages` snapshot — exactly what the transcript
-   * renders. Populated by `chat-route-content.tsx` right after the render
-   * boundary `useMemo`. `tail()` reads from this so DevTools mirrors the
-   * UI without re-running the sanitize pipeline.
+   * Post-`sanitizeDisplayMessages` snapshot. Populated by
+   * `chat-route-content.tsx` and read by `getClientMessages()`.
    */
   sanitizedMessagesRef: MutableRefObject<DisplayMessage[]>;
+  /**
+   * Output of `buildTranscriptItems` — the virtualized row list.
+   * Populated by `chat-route-content.tsx` and read by
+   * `getTranscriptItems()`.
+   */
+  transcriptItemsRef: MutableRefObject<TranscriptItem[]>;
   /**
    * Ref to the mounted `<Transcript />` imperative handle. Used by
    * {@link ChatDebugApi.getScrollState} to read scroll geometry directly
@@ -381,16 +406,24 @@ export interface ChatDebugRefs {
  * factory so it can be unit-tested without a `window`.
  */
 export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
-  function tail(limit: number = DEFAULT_TAIL_LIMIT): DisplayMessage[] {
+  function getClientMessages(
+    limit: number = DEFAULT_CLIENT_MESSAGES_LIMIT,
+  ): DisplayMessage[] {
     const safeLimit =
       Number.isFinite(limit) && limit > 0
         ? Math.floor(limit)
-        : DEFAULT_TAIL_LIMIT;
+        : DEFAULT_CLIENT_MESSAGES_LIMIT;
     // Read straight from the post-sanitization snapshot the render path
-    // already wrote. `tail()` is now logic-free — same array the UI iterates.
+    // already wrote. Logic-free — same array `buildTranscriptItems` sees.
     const messages = refs.sanitizedMessagesRef.current ?? [];
     const startIndex = Math.max(0, messages.length - safeLimit);
     return messages.slice(startIndex);
+  }
+
+  function getTranscriptItems(): TranscriptItem[] {
+    // Read straight from the snapshot the render path already wrote.
+    // Same array `<Transcript />` iterates — no projection, no cloning.
+    return refs.transcriptItemsRef.current ?? [];
   }
 
   function thinkingIndicator(): ChatDebugThinkingIndicator {
@@ -620,13 +653,14 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
     const lines = [
       "window._vellumDebug.chat — surgical chat debug API",
       "",
-      "  .tail(n?)                  last N DisplayMessage[] the UI is rendering",
+      "  .getClientMessages(n?)     last N DisplayMessage[] the UI is rendering (post-sanitize)",
+      "  .getTranscriptItems()      full virtualized row list — messages + thinking + pending prompts + markers",
       "  .thinkingIndicator()       live evaluation of the `...` predicate + done signal",
       "                              .visible / .failingConditions tell you why dots are or aren't showing",
       "                              .done.terminal / .done.lastTerminalReason tell you if the turn is finished",
       "  .forceReconcile()          [experimental] imperatively run /v1/history reconcile",
       "  .serverMessages()          [experimental] fetch /v1/history and return server message list",
-      "                              (diff against tail() manually in the console)",
+      "                              (diff against getClientMessages() manually in the console)",
       "  .listPendingInteractions() frontend-tracked pending prompts (secret/confirmation/",
       "                              contact-request/question) and submission flags",
       "  .getScrollState()          scroll geometry + pagination — why can't I scroll up?",
@@ -637,7 +671,8 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
   }
 
   return {
-    tail,
+    getClientMessages,
+    getTranscriptItems,
     thinkingIndicator,
     forceReconcile,
     serverMessages,
@@ -732,6 +767,7 @@ export function useChatDebugApi(refs: ChatDebugRefs): void {
     const stableRefs: ChatDebugRefs = {
       messagesRef: refs.messagesRef,
       sanitizedMessagesRef: refs.sanitizedMessagesRef,
+      transcriptItemsRef: refs.transcriptItemsRef,
       transcriptRef: refs.transcriptRef,
       streamContextRef: refs.streamContextRef,
       streamRef: refs.streamRef,

@@ -7,6 +7,7 @@ import type { MutableRefObject } from "react";
 
 import type { ChatEventStream } from "@/domains/chat/api/stream.js";
 import type { TranscriptHandle } from "@/domains/chat/transcript/use-transcript-scroll.js";
+import type { TranscriptItem } from "@/domains/chat/transcript/types.js";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import type { RuntimeMessage } from "@/domains/chat/api/messages.js";
 import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation.js";
@@ -99,6 +100,7 @@ function makeRefs(
   return {
     messagesRef: { current: [] } as MutableRefObject<DisplayMessage[]>,
     sanitizedMessagesRef: { current: [] } as MutableRefObject<DisplayMessage[]>,
+    transcriptItemsRef: { current: [] } as MutableRefObject<TranscriptItem[]>,
     transcriptRef: { current: null as TranscriptHandle | null },
     streamContextRef: { current: null } as MutableRefObject<{
       assistantId: string;
@@ -122,13 +124,13 @@ function makeRefs(
 }
 
 // ---------------------------------------------------------------------------
-//  createChatDebugApi — tail
+//  createChatDebugApi — getClientMessages
 // ---------------------------------------------------------------------------
 
-describe("createChatDebugApi.tail", () => {
-  test("empty sanitizedMessagesRef → empty tail", () => {
+describe("createChatDebugApi.getClientMessages", () => {
+  test("empty sanitizedMessagesRef → empty result", () => {
     const api = createChatDebugApi(makeRefs());
-    const result = api.tail();
+    const result = api.getClientMessages();
     expect(result).toEqual([]);
   });
 
@@ -138,7 +140,7 @@ describe("createChatDebugApi.tail", () => {
       current: [message],
     } as MutableRefObject<DisplayMessage[]>;
     const api = createChatDebugApi(makeRefs({ sanitizedMessagesRef }));
-    const result = api.tail();
+    const result = api.getClientMessages();
     expect(result).toHaveLength(1);
     // Identity check — debug API must NOT project to a bespoke shape.
     expect(result[0]).toBe(message);
@@ -152,7 +154,7 @@ describe("createChatDebugApi.tail", () => {
       current: items,
     } as MutableRefObject<DisplayMessage[]>;
     const api = createChatDebugApi(makeRefs({ sanitizedMessagesRef }));
-    const result = api.tail(5);
+    const result = api.getClientMessages(5);
     expect(result).toHaveLength(5);
     expect(result[0]!.stableId).toBe("msg-25");
     expect(result[4]!.stableId).toBe("msg-29");
@@ -166,7 +168,7 @@ describe("createChatDebugApi.tail", () => {
       current: items,
     } as MutableRefObject<DisplayMessage[]>;
     const api = createChatDebugApi(makeRefs({ sanitizedMessagesRef }));
-    const result = api.tail();
+    const result = api.getClientMessages();
     expect(result).toHaveLength(20);
     expect(result[0]!.stableId).toBe("msg-10");
   });
@@ -179,7 +181,7 @@ describe("createChatDebugApi.tail", () => {
       current: items,
     } as MutableRefObject<DisplayMessage[]>;
     const api = createChatDebugApi(makeRefs({ sanitizedMessagesRef }));
-    const result = api.tail(20);
+    const result = api.getClientMessages(20);
     expect(result).toHaveLength(5);
     expect(result[0]!.stableId).toBe("msg-0");
   });
@@ -192,13 +194,13 @@ describe("createChatDebugApi.tail", () => {
       current: items,
     } as MutableRefObject<DisplayMessage[]>;
     const api = createChatDebugApi(makeRefs({ sanitizedMessagesRef }));
-    expect(api.tail(-1)).toHaveLength(20);
-    expect(api.tail(NaN)).toHaveLength(20);
-    expect(api.tail(Infinity)).toHaveLength(20);
+    expect(api.getClientMessages(-1)).toHaveLength(20);
+    expect(api.getClientMessages(NaN)).toHaveLength(20);
+    expect(api.getClientMessages(Infinity)).toHaveLength(20);
   });
 
   test("reads from sanitizedMessagesRef, NOT raw messagesRef", () => {
-    // tail() is logic-free — it surfaces whatever the render path
+    // getClientMessages() is logic-free — it surfaces whatever the render path
     // already wrote to `sanitizedMessagesRef`. Raw `messagesRef` is
     // intentionally ignored so DevTools always mirrors the UI.
     const rawOnly = fakeDisplayMessage({ stableId: "raw-only" });
@@ -211,9 +213,98 @@ describe("createChatDebugApi.tail", () => {
         } as MutableRefObject<DisplayMessage[]>,
       }),
     );
-    const result = api.tail();
+    const result = api.getClientMessages();
     expect(result).toHaveLength(1);
     expect(result[0]!.stableId).toBe("sanitized-only");
+  });
+});
+
+// ---------------------------------------------------------------------------
+//  createChatDebugApi — getTranscriptItems
+// ---------------------------------------------------------------------------
+
+describe("createChatDebugApi.getTranscriptItems", () => {
+  test("empty transcriptItemsRef → empty array", () => {
+    const api = createChatDebugApi(makeRefs());
+    expect(api.getTranscriptItems()).toEqual([]);
+  });
+
+  test("returns the same array reference the render path wrote", () => {
+    // getTranscriptItems() must be logic-free — same array <Transcript />
+    // iterates. Identity (===) lets DevTools cross-reference with React
+    // DevTools and confirm we're inspecting the live snapshot, not a copy.
+    const items: TranscriptItem[] = [
+      {
+        kind: "message",
+        key: "msg-a",
+        message: fakeDisplayMessage({ stableId: "msg-a" }),
+      },
+      { kind: "thinking", key: "thinking", label: "Processing" },
+      { kind: "queuedMarker", key: "queued", count: 2 },
+    ];
+    const api = createChatDebugApi(
+      makeRefs({
+        transcriptItemsRef: { current: items } as MutableRefObject<
+          TranscriptItem[]
+        >,
+      }),
+    );
+    expect(api.getTranscriptItems()).toBe(items);
+  });
+
+  test("surfaces the full discriminated union — not just message rows", () => {
+    // The whole point of getTranscriptItems(): inspect non-message rows
+    // (thinking, pending prompts, queued marker) which getClientMessages()
+    // doesn't carry.
+    const items: TranscriptItem[] = [
+      {
+        kind: "message",
+        key: "msg-a",
+        message: fakeDisplayMessage({ stableId: "msg-a" }),
+      },
+      { kind: "pendingSecret", key: "ps-1", requestId: "req-1" },
+      {
+        kind: "pendingConfirmation",
+        key: "pc-1",
+        requestId: "req-2",
+      },
+      { kind: "thinking", key: "thinking" },
+    ];
+    const api = createChatDebugApi(
+      makeRefs({
+        transcriptItemsRef: { current: items } as MutableRefObject<
+          TranscriptItem[]
+        >,
+      }),
+    );
+    const result = api.getTranscriptItems();
+    expect(result.map((i) => i.kind)).toEqual([
+      "message",
+      "pendingSecret",
+      "pendingConfirmation",
+      "thinking",
+    ]);
+  });
+
+  test("reads from transcriptItemsRef, NOT derived from sanitizedMessagesRef", () => {
+    // Contract pin: the API must not synthesize TranscriptItems from
+    // DisplayMessages — that would re-run buildTranscriptItems logic
+    // and drift from what the UI is actually rendering. The render path
+    // owns the projection; this method just exposes its output.
+    const msg = fakeDisplayMessage({ stableId: "from-sanitized" });
+    const api = createChatDebugApi(
+      makeRefs({
+        sanitizedMessagesRef: {
+          current: [msg],
+        } as MutableRefObject<DisplayMessage[]>,
+        // transcriptItemsRef intentionally empty — if the impl projected
+        // from sanitizedMessagesRef, we'd get a non-empty result.
+        transcriptItemsRef: { current: [] } as MutableRefObject<
+          TranscriptItem[]
+        >,
+      }),
+    );
+    expect(api.getTranscriptItems()).toEqual([]);
   });
 });
 
@@ -503,7 +594,8 @@ describe("createChatDebugApi.help", () => {
     console.log = originalLog;
 
     const text = consoleSpy.logged.join("\n");
-    expect(text).toContain(".tail(");
+    expect(text).toContain(".getClientMessages(");
+    expect(text).toContain(".getTranscriptItems(");
     expect(text).toContain(".thinkingIndicator()");
     expect(text).toContain(".forceReconcile()");
     expect(text).toContain(".serverMessages()");
