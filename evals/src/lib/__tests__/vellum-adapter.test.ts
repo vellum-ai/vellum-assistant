@@ -435,9 +435,7 @@ describe("VellumAgent", () => {
       (parts) => parts[0] === "vellum" && parts[1] === "retire",
     );
     expect(retireCalls).toHaveLength(1);
-    expect(retireCalls[0][2]).toBe(
-      "eval-vellum-bare-x-20260524160000123-abcd",
-    );
+    expect(retireCalls[0][2]).toBe("eval-vellum-bare-x-20260524160000123-abcd");
   });
 });
 

@@ -48,7 +48,10 @@ function splitCsv(raw: string): string[] {
  * adapter.
  */
 function timestampSuffix(): string {
-  const ms = new Date().toISOString().replace(/[^0-9]/g, "").slice(0, 17);
+  const ms = new Date()
+    .toISOString()
+    .replace(/[^0-9]/g, "")
+    .slice(0, 17);
   const rand = randomBytes(2).toString("hex");
   return `${ms}-${rand}`;
 }
