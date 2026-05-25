@@ -9,6 +9,7 @@ mock.module("../providers/registry.js", () => ({
 
 import type { ErrorContext } from "../daemon/conversation-error.js";
 import {
+  budgetYieldUnrecoveredClassification,
   buildConversationErrorMessage,
   classifyConversationError,
   isUserCancellation,
@@ -945,5 +946,35 @@ describe("buildConversationErrorMessage", () => {
 
     expect(msg.errorCategory).toBe("web_search_ordering");
     expect(msg.code).toBe("PROVIDER_WEB_SEARCH");
+  });
+});
+
+describe("budgetYieldUnrecoveredClassification", () => {
+  it("returns the BUDGET_YIELD_UNRECOVERED code and retryable=true", () => {
+    const classified = budgetYieldUnrecoveredClassification();
+    expect(classified.code).toBe("BUDGET_YIELD_UNRECOVERED");
+    expect(classified.retryable).toBe(true);
+    expect(classified.errorCategory).toBe("budget_yield_unrecovered");
+  });
+
+  it("returns a user-facing message that explains the situation", () => {
+    const classified = budgetYieldUnrecoveredClassification();
+    // The message must communicate (a) compaction was attempted, (b) send
+    // another message to continue. Avoid asserting exact wording so copy
+    // tweaks don't trip the test, but lock down the two semantic anchors
+    // a downstream client could test against.
+    expect(classified.userMessage).toContain("compact");
+    expect(classified.userMessage).toContain("Send another message");
+  });
+
+  it("survives the buildConversationErrorMessage envelope unchanged", () => {
+    const classified = budgetYieldUnrecoveredClassification();
+    const envelope = buildConversationErrorMessage("conv-1", classified);
+    expect(envelope.type).toBe("conversation_error");
+    expect(envelope.conversationId).toBe("conv-1");
+    expect(envelope.code).toBe("BUDGET_YIELD_UNRECOVERED");
+    expect(envelope.retryable).toBe(true);
+    expect(envelope.errorCategory).toBe("budget_yield_unrecovered");
+    expect(envelope.userMessage).toBe(classified.userMessage);
   });
 });

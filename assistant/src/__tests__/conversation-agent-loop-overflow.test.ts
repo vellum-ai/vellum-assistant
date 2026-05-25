@@ -187,7 +187,7 @@ mock.module("../memory/conversation-crud.js", () => ({
     trustContext: undefined,
   }),
   getConversationOriginInterface: () => null,
-  addMessage: () => ({ id: "mock-msg-id" }),
+  addMessage: (...args: unknown[]) => addMessageMock(...args),
   deleteMessageById: () => {},
   updateConversationContextWindow: () => {},
   updateConversationTitle: () => {},
@@ -305,6 +305,9 @@ mock.module("../daemon/history-repair.js", () => ({
 
 const recordUsageMock = mock((..._args: unknown[]) => {});
 const setAgentLoopExitReasonOnLatestLogMock = mock(() => {});
+const addMessageMock = mock(
+  (..._args: unknown[]) => ({ id: "mock-msg-id" }) as { id: string },
+);
 mock.module("../daemon/conversation-usage.js", () => ({
   recordUsage: recordUsageMock,
 }));
@@ -633,6 +636,7 @@ beforeEach(() => {
   mockApplyRuntimeInjections = (msgs) => msgs;
   recordUsageMock.mockClear();
   setAgentLoopExitReasonOnLatestLogMock.mockClear();
+  addMessageMock.mockClear();
   // Reset the plugin registry and re-register every default so the
   // orchestrator's pipelines (`overflowReduce`, `persistence`, …) dispatch to
   // the default middleware, which in turn hits the mocked collaborators
@@ -2233,5 +2237,196 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       (e) => e.type === "conversation_error",
     );
     expect(conversationError).toBeUndefined();
+  });
+
+  // ── Test 9 ────────────────────────────────────────────────────────
+  // When the `auto_compress_latest_turn` rerun (the last layer of the
+  // overflow-recovery ladder) still yields at the mid-loop checkpoint,
+  // the turn cannot proceed. Before PR 1 of the Compaction Visibility
+  // workstream this terminated silently — no `agent_loop_exit_reason`,
+  // no client notice, no durable transcript row. Now the loop must:
+  //   1. emit a `conversation_error` event with code
+  //      `BUDGET_YIELD_UNRECOVERED`,
+  //   2. persist a `role="assistant"` notice via the persistence
+  //      pipeline (so reloads keep the message),
+  //   3. stamp `budget_yield_unrecovered` onto the latest llm_request_logs
+  //      row.
+  test("budget_yield_unrecovered: classified error emitted, persisted, and stamped", async () => {
+    const events: ServerMessage[] = [];
+
+    // Every estimate after the very first preflight is above the mid-loop
+    // threshold (190_000 × 0.85 = 161_500). This makes every checkpoint
+    // yield, including the one inside the auto_compress rerun.
+    let estimateCallCount = 0;
+    mockEstimateTokens = () => {
+      estimateCallCount++;
+      if (estimateCallCount === 1) return 100_000;
+      return 170_000;
+    };
+
+    // Convergence reducer becomes exhausted on the second tier so the
+    // loop escalates from convergence to the action-resolution block.
+    let reducerCallCount = 0;
+    mockReducerStepFn = (msgs: Message[]) => {
+      reducerCallCount++;
+      const exhausted = reducerCallCount >= 2;
+      return {
+        messages: msgs,
+        tier: exhausted ? "tool_result_truncation" : "forced_compaction",
+        state: {
+          appliedTiers: exhausted
+            ? ["forced_compaction", "tool_result_truncation"]
+            : ["forced_compaction"],
+          injectionMode: "full" as const,
+          exhausted,
+        },
+        estimatedTokens: exhausted ? 60_000 : 80_000,
+      };
+    };
+
+    // The overflow policy directs us into auto_compress_latest_turn so the
+    // emergency compaction + final agentLoop.run path executes.
+    mockOverflowAction = "auto_compress_latest_turn";
+
+    let agentLoopCallCount = 0;
+    const agentLoopRun: AgentLoopRun = async (
+      messages,
+      onEvent,
+      _signal,
+      _requestId,
+      onCheckpoint,
+    ) => {
+      agentLoopCallCount++;
+
+      const withProgress: Message[] = [
+        ...messages,
+        {
+          role: "assistant" as const,
+          content: [
+            { type: "text", text: `tool call ${agentLoopCallCount}` },
+            {
+              type: "tool_use",
+              id: `tu-${agentLoopCallCount}`,
+              name: "bash",
+              input: { command: "ls" },
+            },
+          ] as ContentBlock[],
+        },
+        {
+          role: "user" as const,
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: `tu-${agentLoopCallCount}`,
+              content: "output",
+              is_error: false,
+            },
+          ] as ContentBlock[],
+        },
+      ];
+
+      onEvent({
+        type: "message_complete",
+        message: {
+          role: "assistant",
+          content: [
+            { type: "text", text: `tool call ${agentLoopCallCount}` },
+            {
+              type: "tool_use",
+              id: `tu-${agentLoopCallCount}`,
+              name: "bash",
+              input: { command: "ls" },
+            },
+          ],
+        },
+      });
+      onEvent({
+        type: "usage",
+        inputTokens: 100,
+        outputTokens: 50,
+        model: "test-model",
+        providerDurationMs: 100,
+      });
+
+      // Every checkpoint yields — including the final auto_compress rerun.
+      if (onCheckpoint) {
+        const decision = await onCheckpoint({
+          turnIndex: 0,
+          toolCount: 1,
+          hasToolUse: true,
+          history: withProgress,
+        });
+        if (decision === "yield") {
+          return withProgress;
+        }
+      }
+
+      return withProgress;
+    };
+
+    const ctx = makeCtx({
+      agentLoopRun,
+      contextWindowManager: {
+        shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
+        // The compaction pipeline (default terminal) routes through this
+        // for the emergency `auto_compress_latest_turn` path.
+        maybeCompact: async () => ({
+          compacted: true,
+          messages: [
+            {
+              role: "user" as const,
+              content: [{ type: "text", text: "compacted" }],
+            },
+          ] as Message[],
+          compactedPersistedMessages: 5,
+          summaryText: "Emergency summary",
+          previousEstimatedInputTokens: 170_000,
+          estimatedInputTokens: 90_000,
+          maxInputTokens: 200_000,
+          thresholdTokens: 160_000,
+          compactedMessages: 10,
+          summaryCalls: 1,
+          summaryInputTokens: 500,
+          summaryOutputTokens: 200,
+          summaryModel: "mock-model",
+        }),
+      } as unknown as AgentLoopConversationContext["contextWindowManager"],
+    });
+
+    await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+    // The classified error is emitted to the client.
+    const errorEvents = events.filter((e) => e.type === "conversation_error");
+    expect(errorEvents).toHaveLength(1);
+    const errorEvent = errorEvents[0];
+    if (errorEvent && "code" in errorEvent) {
+      expect(errorEvent.code).toBe("BUDGET_YIELD_UNRECOVERED");
+      expect(errorEvent.retryable).toBe(true);
+      expect(errorEvent.errorCategory).toBe("budget_yield_unrecovered");
+    } else {
+      throw new Error("conversation_error event missing `code` field");
+    }
+
+    // The exit reason is stamped onto the latest llm_request_logs row.
+    expect(setAgentLoopExitReasonOnLatestLogMock).toHaveBeenCalledWith(
+      "test-conv",
+      "budget_yield_unrecovered",
+    );
+
+    // A `role="assistant"` notice is persisted via the persistence pipeline.
+    // The default persistence terminal calls
+    // `addMessage(conversationId, role, content, metadata, addOptions)` —
+    // we look for the call whose role positional arg is "assistant" and
+    // whose content positional arg mentions compaction.
+    const assistantPersistCall = addMessageMock.mock.calls.find((call) => {
+      const role = call[1];
+      const content = call[2];
+      return (
+        role === "assistant" &&
+        typeof content === "string" &&
+        content.includes("compact")
+      );
+    });
+    expect(assistantPersistCall).toBeDefined();
   });
 });
