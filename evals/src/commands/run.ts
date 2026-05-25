@@ -3,7 +3,10 @@ import { randomBytes } from "crypto";
 
 import type { Command } from "commander";
 
-import { runEvalOnce } from "../lib/runner/run-once";
+import {
+  runEvalOnce,
+  wasErrorReportedToProgress,
+} from "../lib/runner/run-once";
 import {
   createConsoleReporter,
   createSummaryOnlyReporter,
@@ -180,14 +183,32 @@ export function registerRunCommand(program: Command): void {
               // No stdout dump: the runner has already emitted the
               // `result` progress event with per-metric scores in the
               // same timestamped/labeled format as every other step.
-            } catch {
+            } catch (err) {
               // Per-test isolation: a crash in one combination (e.g. the
               // user simulator returning unparseable content) shouldn't
-              // take down the rest of the suite. The run-once layer has
-              // already written status:"failed" + error to the run's
-              // metadata and emitted a red `status: "error"` progress
-              // event with diagnostic details, so we just flip the
-              // exit-code flag and move on.
+              // take down the rest of the suite.
+              //
+              // The run-once layer normally already writes status:"failed"
+              // + error to the run's metadata and emits a red
+              // `status:"error"` progress event with diagnostic details
+              // before re-throwing — at which point we just flip the
+              // exit-code flag and move on. `wasErrorReportedToProgress`
+              // is the explicit signal that path completed.
+              //
+              // Without the marker we'd be in the "throw bypassed
+              // run-once's inner catch" case (e.g. a future regression
+              // moves construction back outside the try, or runEvalOnce
+              // throws synchronously from its function header). Emit one
+              // line through the same reporter so the operator gets
+              // SOMETHING — silent exit with exit-code 1 was the actual
+              // diagnostic gap that motivated this guard.
+              if (!wasErrorReportedToProgress(err)) {
+                progress({
+                  step: "shutdown",
+                  status: "error",
+                  message: err instanceof Error ? err.message : String(err),
+                });
+              }
               anyFailed = true;
             }
           }

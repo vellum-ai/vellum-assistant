@@ -39,8 +39,11 @@ mock.module("../create-agent", () => ({
 import {
   assistantContent,
   collectAndPersistEvents,
+  markErrorAsReportedToProgress,
   runEvalOnce,
+  wasErrorReportedToProgress,
 } from "../run-once";
+import type { EvalProgressEvent } from "../progress";
 
 function event(message: AgentEvent["message"]): AgentEvent {
   return { message };
@@ -430,5 +433,123 @@ describe("runEvalOnce — hatch failure metadata", () => {
     // This is the second leg of the bug fix: without it, hatch failures
     // would leak any partial container state to the next run.
     expect(harness.shutdownCalls[0]).toBe(1);
+  });
+});
+
+/**
+ * Diagnostic-gap regression: pre-fix, `createAgent(...)` and
+ * `new UserSimulator(...)` were constructed BEFORE the try block in
+ * `runEvalOnce`. A throw from either (most common: ANTHROPIC_API_KEY
+ * unset → `new UserSimulator()` throws synchronously) propagated up
+ * to the CLI's per-test `catch {}` in `commands/run.ts`, which
+ * trusted that run-once had already emitted a structured progress
+ * event with the diagnostic detail. It hadn't — there was nothing
+ * inside that try yet — so the CLI exited 1 with literally no
+ * stdout/stderr explanation.
+ *
+ * Post-fix:
+ *   - Construction lives inside `runEvalOnce`'s try, so the catch
+ *     emits a `status:"error"` progress event with the throw's
+ *     message.
+ *   - The error gets marked via `markErrorAsReportedToProgress` so
+ *     the outer CLI catch can tell "structured event already on the
+ *     wire" from "throw bypassed everything; emit a fallback line".
+ *   - The finally guards `agent?.shutdown()` so a construction-time
+ *     throw doesn't NPE during cleanup.
+ */
+describe("runEvalOnce — construction failure diagnostic gap", () => {
+  const inertSimulator: Simulator = {
+    async decide(): Promise<SimulatorDecision> {
+      return {
+        action: "end",
+        reason: "unreachable in construction-throw test",
+      };
+    },
+  };
+
+  afterEach(() => {
+    nextAgent = null;
+  });
+
+  test("emits a status:'error' progress event when createAgent throws", async () => {
+    // `nextAgent` left null → the test seam in `mock.module` above
+    // throws "test forgot to set nextAgent ...". This simulates any
+    // construction-time throw (missing API key, profile species the
+    // adapter switch rejects, etc.) — the shape of the gap is what
+    // matters, not the exact message.
+    const runId = `test-ctor-throw-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const events: EvalProgressEvent[] = [];
+
+    let captured: unknown;
+    try {
+      await runEvalOnce({
+        profile: fakeProfile("p-fake"),
+        test: fakeTestDef("t-fake"),
+        runId,
+        simulator: inertSimulator,
+        progress: (event) => events.push(event),
+      });
+    } catch (err) {
+      captured = err;
+    }
+
+    // The throw still propagates so callers can flip exit codes.
+    expect(captured).toBeInstanceOf(Error);
+    expect((captured as Error).message).toContain(
+      "test forgot to set nextAgent",
+    );
+
+    // The diagnostic gap: a structured `status:"error"` event MUST
+    // reach the reporter. Pre-fix this list would be empty.
+    const errorEvents = events.filter((e) => e.status === "error");
+    expect(errorEvents.length).toBeGreaterThanOrEqual(1);
+    expect(errorEvents[0].message).toContain("test forgot to set nextAgent");
+
+    // And the error must be marked so the outer CLI catch stays quiet
+    // instead of double-emitting.
+    expect(wasErrorReportedToProgress(captured)).toBe(true);
+
+    // No metadata write happened — `ensureRunArtifacts` never ran, so
+    // there's no run directory to write into. The catch correctly
+    // skips the write rather than NPE'ing on `runDir`.
+    const metadata = await readRunMetadata(runId);
+    expect(metadata).toBeUndefined();
+  });
+});
+
+/**
+ * Unit tests for the WeakSet-backed marker mechanism itself. Kept
+ * separate from the integration test above so a future refactor of
+ * the marker storage (Symbol-on-error, dedicated subclass, etc.)
+ * doesn't have to retouch the runEvalOnce regression.
+ */
+describe("error-reported-to-progress marker", () => {
+  test("an unmarked error is reported as not-yet-emitted", () => {
+    expect(wasErrorReportedToProgress(new Error("fresh"))).toBe(false);
+  });
+
+  test("marking flips the read", () => {
+    const err = new Error("ergonomic");
+    expect(wasErrorReportedToProgress(err)).toBe(false);
+    markErrorAsReportedToProgress(err);
+    expect(wasErrorReportedToProgress(err)).toBe(true);
+  });
+
+  test("marking is tolerant of primitives and null", () => {
+    // WeakSet can't hold primitives; the helpers silently no-op. This
+    // matters because the catch in run-once.ts receives `unknown`, and
+    // a `throw "bare string"` from a third-party module shouldn't
+    // crash the catch trying to mark it.
+    expect(() => markErrorAsReportedToProgress("string")).not.toThrow();
+    expect(() => markErrorAsReportedToProgress(null)).not.toThrow();
+    expect(() => markErrorAsReportedToProgress(undefined)).not.toThrow();
+    expect(() => markErrorAsReportedToProgress(42)).not.toThrow();
+
+    // ... and reads return false (the "emit fallback" signal) for
+    // primitives, which is the correct conservative default.
+    expect(wasErrorReportedToProgress("string")).toBe(false);
+    expect(wasErrorReportedToProgress(null)).toBe(false);
+    expect(wasErrorReportedToProgress(undefined)).toBe(false);
+    expect(wasErrorReportedToProgress(42)).toBe(false);
   });
 });

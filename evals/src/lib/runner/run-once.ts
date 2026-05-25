@@ -130,6 +130,42 @@ function inferSubprocessStep(
 // `command-runner.ts` separately.
 export type { CommandResult };
 
+/**
+ * Tracks errors that `runEvalOnce` already surfaced through the
+ * progress reporter as a `status:"error"` event. The outer
+ * `commands/run.ts` CLI catch reads this set to decide whether to emit
+ * a stderr fallback line — silent CLI exits (e.g. a construction-time
+ * throw that bypassed the inner try) were the diagnostic gap this
+ * marker closes.
+ *
+ * WeakSet so a long-running `evals run --tests=t1,t2,...` over many
+ * profiles can't accumulate references to throwaway error objects.
+ */
+const REPORTED_TO_PROGRESS = new WeakSet<object>();
+
+/**
+ * Stamp `err` as having had a structured `EvalProgressEvent` of
+ * `status:"error"` already emitted for it. Tolerant of `unknown` —
+ * primitives are silently ignored because WeakSet can't hold them
+ * (and the harness only ever throws `Error` instances anyway).
+ */
+export function markErrorAsReportedToProgress(err: unknown): void {
+  if (err !== null && typeof err === "object") REPORTED_TO_PROGRESS.add(err);
+}
+
+/**
+ * Companion to `markErrorAsReportedToProgress`. `true` when
+ * `runEvalOnce` already surfaced this error through the progress
+ * reporter; the CLI then trusts that path and stays quiet. `false`
+ * for primitives, `null`, and any error that escaped before the
+ * inner catch could stamp it — that's the fallback signal.
+ */
+export function wasErrorReportedToProgress(err: unknown): boolean {
+  return (
+    err !== null && typeof err === "object" && REPORTED_TO_PROGRESS.has(err)
+  );
+}
+
 export const EVENT_QUIET_MS = 5_000;
 export const EVENT_MAX_MS = 30_000;
 
@@ -330,14 +366,22 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
     // process is alive. This is best-effort and never blocks the run.
     void updateHeartbeat(input.runId).catch(() => undefined);
   };
-  const agentInput: AgentHatchInput = {
-    profile: input.profile,
-    testId: input.test.id,
-    runId: input.runId,
-  };
-  const agent = createAgent(agentInput);
-  const simulator =
-    input.simulator ?? new UserSimulator({ maxTurns: input.maxTurns });
+  // Captured up front so it's available to every failed-metadata write
+  // below — including from the catch when something throws before the
+  // run actually starts (createAgent, new UserSimulator,
+  // ensureRunArtifacts).
+  const startedAt = new Date().toISOString();
+  const assistantEvents: AgentEvent[] = [];
+
+  // Resources assigned inside the try. The catch + finally guard each
+  // because the throw site (e.g. missing ANTHROPIC_API_KEY when
+  // constructing the UserSimulator) can fire before any of them are
+  // assigned. Before the diagnostic-gap fix these lived above the try and
+  // any construction-time throw would bypass the structured error path
+  // entirely — the run would exit 1 with no progress event, no metadata,
+  // and no run directory.
+  let agent: ReturnType<typeof createAgent> | undefined;
+  let runDir: string | undefined;
 
   // Per-run heartbeat ticker. Cleared in the `finally` so the timer never
   // outlives a return/throw — and so we never accumulate Node listeners
@@ -353,33 +397,48 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
   // cleanly; clearInterval() in the finally is still the primary stop.
   heartbeatInterval.unref();
 
-  progress({
-    step: "artifacts",
-    status: "start",
-    message: "Preparing run artifacts",
-    detail: input.runId,
-  });
-  const artifacts = await ensureRunArtifacts(input.runId);
-  progress({
-    step: "artifacts",
-    status: "done",
-    message: "Run artifacts ready",
-    detail: artifacts.runDir,
-  });
-  const assistantEvents: AgentEvent[] = [];
-  const startedAt = new Date().toISOString();
-  await writeRunMetadata(input.runId, {
-    runId: input.runId,
-    sessionId,
-    sessionLabel,
-    profileId: input.profile.id,
-    testId: input.test.id,
-    status: "running",
-    startedAt,
-    artifactDir: artifacts.runDir,
-  });
-
   try {
+    // Construction first — both can throw at this stage (e.g.
+    // ANTHROPIC_API_KEY missing for the simulator) and we want those
+    // failures to flow through the same structured error-reporting path
+    // as any later runtime throw. Simulator before agent so the
+    // missing-key check fires before we construct an agent we'd never
+    // use; both are pure object construction with no side effects, so
+    // the order is otherwise irrelevant.
+    const simulator =
+      input.simulator ?? new UserSimulator({ maxTurns: input.maxTurns });
+    const agentInput: AgentHatchInput = {
+      profile: input.profile,
+      testId: input.test.id,
+      runId: input.runId,
+    };
+    agent = createAgent(agentInput);
+
+    progress({
+      step: "artifacts",
+      status: "start",
+      message: "Preparing run artifacts",
+      detail: input.runId,
+    });
+    const artifacts = await ensureRunArtifacts(input.runId);
+    runDir = artifacts.runDir;
+    progress({
+      step: "artifacts",
+      status: "done",
+      message: "Run artifacts ready",
+      detail: artifacts.runDir,
+    });
+    await writeRunMetadata(input.runId, {
+      runId: input.runId,
+      sessionId,
+      sessionLabel,
+      profileId: input.profile.id,
+      testId: input.test.id,
+      status: "running",
+      startedAt,
+      artifactDir: artifacts.runDir,
+    });
+
     progress({
       step: "hatch",
       status: "start",
@@ -466,9 +525,15 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
         message: "Sending simulator message",
         turn: simulatorTurns + 1,
       });
+      // Shadow with a const so TS can carry the post-assign narrowing
+      // into the closure below — `agent` is `let`-typed at the outer
+      // scope (so catch + finally can guard `if (agent)` against
+      // pre-assignment throws), and TS won't propagate that narrowing
+      // across a function boundary on its own.
+      const sendingAgent = agent;
       await sendAndPersistSimulatorMessage({
         runId: input.runId,
-        agentSend: (message) => agent.send(message),
+        agentSend: (message) => sendingAgent.send(message),
         message: decision.message,
       });
       progress({
@@ -563,18 +628,28 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
       metrics,
     };
   } catch (err) {
-    await writeRunMetadata(input.runId, {
-      runId: input.runId,
-      sessionId,
-      sessionLabel,
-      profileId: input.profile.id,
-      testId: input.test.id,
-      status: "failed",
-      startedAt,
-      completedAt: new Date().toISOString(),
-      error: err instanceof Error ? err.message : String(err),
-      artifactDir: artifacts.runDir,
-    });
+    // Best-effort failed-metadata write. The artifact directory only
+    // exists if `ensureRunArtifacts` ran to completion — for the rare
+    // construction-time throw (missing ANTHROPIC_API_KEY,
+    // createAgent rejecting the profile species, etc.) we skip the
+    // metadata write and rely on the progress event below as the
+    // operator-visible signal. Best-effort even when the directory
+    // exists so a disk-write failure here can't shadow the original
+    // error.
+    if (runDir) {
+      await writeRunMetadata(input.runId, {
+        runId: input.runId,
+        sessionId,
+        sessionLabel,
+        profileId: input.profile.id,
+        testId: input.test.id,
+        status: "failed",
+        startedAt,
+        completedAt: new Date().toISOString(),
+        error: err instanceof Error ? err.message : String(err),
+        artifactDir: runDir,
+      }).catch(() => undefined);
+    }
     // Surface the failure through the progress reporter so operators see a
     // red `✗ <headline>` line under the step that was in flight, with the
     // structured details (stop_reason / parts / body for simulator parse
@@ -613,32 +688,47 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
         turn: currentTurn,
       });
     }
+    // Marker the outer `commands/run.ts` catch reads. With it set, the
+    // CLI trusts that an `error` progress event is already on stderr and
+    // stays quiet; without it, the CLI emits a fallback line so a future
+    // throw site that bypasses this catch can never silently exit.
+    markErrorAsReportedToProgress(err);
     throw err;
   } finally {
     clearInterval(heartbeatInterval);
-    progress({
-      step: "shutdown",
-      status: "start",
-      message: "Shutting down assistant",
-      detail: agent.id,
-    });
-    await agent.shutdown();
-    progress({
-      step: "shutdown",
-      status: "done",
-      message: "Assistant shut down",
-      detail: agent.id,
-    });
-    // Verify the run didn't somehow exit "running" by accident.
-    const finalMetadata = await readRunMetadata(input.runId);
-    if (finalMetadata?.status === "running") {
-      await writeRunMetadata(input.runId, {
-        ...finalMetadata,
-        status: "failed",
-        completedAt: new Date().toISOString(),
-        error:
-          "Run exited without final status — this should never happen; please file a bug.",
+    // Skip the shutdown lifecycle when construction threw before agent
+    // assignment — there's nothing to retire and emitting fake shutdown
+    // events would muddy the timeline.
+    if (agent) {
+      progress({
+        step: "shutdown",
+        status: "start",
+        message: "Shutting down assistant",
+        detail: agent.id,
       });
+      await agent.shutdown();
+      progress({
+        step: "shutdown",
+        status: "done",
+        message: "Assistant shut down",
+        detail: agent.id,
+      });
+    }
+    // Verify the run didn't somehow exit "running" by accident. Only
+    // makes sense once artifacts existed long enough for the initial
+    // "running" write to land — pre-artifact throws never wrote any
+    // metadata to begin with, so there's nothing to reconcile.
+    if (runDir) {
+      const finalMetadata = await readRunMetadata(input.runId);
+      if (finalMetadata?.status === "running") {
+        await writeRunMetadata(input.runId, {
+          ...finalMetadata,
+          status: "failed",
+          completedAt: new Date().toISOString(),
+          error:
+            "Run exited without final status — this should never happen; please file a bug.",
+        });
+      }
     }
   }
 }
