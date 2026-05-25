@@ -422,7 +422,7 @@ export function ChatRouteContent({
   setTranscriptPagination: _setTranscriptPagination,
   setShowAddCreditsModal,
   diskPressure,
-  handleReviewDiskUsage,
+  handleReviewDiskUsage: _handleReviewDiskUsage,
   nudges,
   attachments,
   voice,
