@@ -115,12 +115,8 @@ export function createInboundRegisterHandler(
 
     // ── Resolve provider validator ──────────────────────────────
 
-    const isPlatform =
-      process.env.IS_PLATFORM?.trim().toLowerCase() === "true" ||
-      process.env.IS_PLATFORM?.trim() === "1";
-
     const validator = providerValidators[providerType];
-    if (!validator || (selfAuthenticatedProviders.has(providerType) && !isPlatform)) {
+    if (!validator) {
       return Response.json(
         { error: `Unsupported provider type: ${providerType}` },
         { status: 400 },
