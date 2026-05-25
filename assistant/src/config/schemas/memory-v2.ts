@@ -491,6 +491,38 @@ export const MemoryV3ConfigSchema = z
       .describe(
         "Evaluation top-K cutoffs the v3 loop reports metrics at (e.g. recall@K).",
       ),
+    write: z
+      .object({
+        enabled: z
+          .boolean({ error: "memory.v3.write.enabled must be a boolean" })
+          .default(false)
+          .describe(
+            "Whether v3 consolidation owns the shared-buffer drain + tree build. Off by default — v2 consolidation stays the sole buffer-drainer. Does NOT introduce a separate buffer.",
+          ),
+        consolidateIntervalMs: z
+          .number({
+            error: "memory.v3.write.consolidateIntervalMs must be a number",
+          })
+          .int("memory.v3.write.consolidateIntervalMs must be an integer")
+          .default(3600000)
+          .describe(
+            "Interval, in milliseconds, between scheduled v3 consolidation runs once the v3 write path owns the drain. Default 1 hour.",
+          ),
+        coactivation: z
+          .boolean({ error: "memory.v3.write.coactivation must be a boolean" })
+          .default(false)
+          .describe(
+            "Whether v3 consolidation learns co-activation edges during the tree build. Off by default; consumed by a later PR.",
+          ),
+      })
+      .default({
+        enabled: false,
+        consolidateIntervalMs: 3600000,
+        coactivation: false,
+      })
+      .describe(
+        "Memory v3 write-path configuration. All default-off scaffolding — controls whether v3 consolidation owns the shared-buffer drain + tree build. Consumed by later PRs.",
+      ),
   })
   .default({
     enabled: false,
@@ -501,6 +533,11 @@ export const MemoryV3ConfigSchema = z
     denseQuota: { activeDomain: 30, offDomain: 8 },
     lanes: { hot: true, sparse: true, dense: true, tree: true, edges: true },
     ks: [5, 10, 25, 50],
+    write: {
+      enabled: false,
+      consolidateIntervalMs: 3600000,
+      coactivation: false,
+    },
   })
   .describe(
     "Memory v3 — multi-lane bounded-descent retrieval. Additive scaffolding, disabled by default.",

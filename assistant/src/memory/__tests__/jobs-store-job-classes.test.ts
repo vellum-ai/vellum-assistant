@@ -1,6 +1,24 @@
 import { describe, expect, test } from "bun:test";
 
-import { EMBED_JOB_TYPES, SLOW_LLM_JOB_TYPES } from "../jobs-store.js";
+import {
+  EMBED_JOB_TYPES,
+  type MemoryJobType,
+  SLOW_LLM_JOB_TYPES,
+} from "../jobs-store.js";
+
+describe("memory v3 job types", () => {
+  test("the v3 job-type literals are members of MemoryJobType", () => {
+    // Compile-time assignability is enforced by `tsc --noEmit`; the runtime
+    // assertion keeps the literals visible to the test runner. These types are
+    // inert scaffolding until their handlers land in later PRs.
+    const v3JobTypes: MemoryJobType[] = [
+      "memory_v3_consolidate",
+      "memory_v3_index_maintenance",
+      "memory_v3_edge_learning",
+    ];
+    expect(new Set(v3JobTypes).size).toBe(3);
+  });
+});
 
 describe("memory job classes", () => {
   test("EMBED_JOB_TYPES and SLOW_LLM_JOB_TYPES are disjoint", () => {

@@ -224,6 +224,11 @@ describe("MemoryV3ConfigSchema", () => {
       denseQuota: { activeDomain: 30, offDomain: 8 },
       lanes: { hot: true, sparse: true, dense: true, tree: true, edges: true },
       ks: [5, 10, 25, 50],
+      write: {
+        enabled: false,
+        consolidateIntervalMs: 3600000,
+        coactivation: false,
+      },
     });
   });
 
@@ -287,6 +292,30 @@ describe("MemoryV3ConfigSchema", () => {
   test("rejects non-number ks entries", () => {
     expect(() => MemoryV3ConfigSchema.parse({ ks: ["a"] })).toThrow();
   });
+
+  test("parses the write subtree to safe off defaults when omitted", () => {
+    const parsed = MemoryV3ConfigSchema.parse({});
+    expect(parsed.write).toEqual({
+      enabled: false,
+      consolidateIntervalMs: 3600000,
+      coactivation: false,
+    });
+  });
+
+  test("accepts a partial write override and defaults the rest", () => {
+    const parsed = MemoryV3ConfigSchema.parse({ write: { enabled: true } });
+    expect(parsed.write).toEqual({
+      enabled: true,
+      consolidateIntervalMs: 3600000,
+      coactivation: false,
+    });
+  });
+
+  test("rejects a non-integer write.consolidateIntervalMs", () => {
+    expect(() =>
+      MemoryV3ConfigSchema.parse({ write: { consolidateIntervalMs: 1.5 } }),
+    ).toThrow();
+  });
 });
 
 describe("MemoryConfigSchema integration with v3 block", () => {
@@ -298,6 +327,11 @@ describe("MemoryConfigSchema integration with v3 block", () => {
     expect(parsed.v3.passCap).toBe(3);
     expect(parsed.v3.lanes.dense).toBe(true);
     expect(parsed.v3.ks).toEqual([5, 10, 25, 50]);
+    expect(parsed.v3.write).toEqual({
+      enabled: false,
+      consolidateIntervalMs: 3600000,
+      coactivation: false,
+    });
   });
 
   test("leaves pre-existing configs (no v3 key) otherwise unchanged", () => {
