@@ -171,8 +171,12 @@ export async function handleInbound(
         eventId: response.eventId,
         duplicate: response.duplicate,
         hasReply: !!response.assistantMessage,
+        denied: response.denied ?? false,
+        deniedReason: response.denied ? (response.reason ?? "unknown") : undefined,
       },
-      "Inbound event forwarded to runtime",
+      response.denied
+        ? "Inbound event denied by runtime"
+        : "Inbound event forwarded to runtime",
     );
 
     // ── Contact channel interaction tracking (dual-write) ──
