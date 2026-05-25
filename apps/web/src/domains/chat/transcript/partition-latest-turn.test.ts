@@ -11,11 +11,13 @@ import type {
 } from "@/domains/chat/transcript/types.js";
 
 function makeMessage(
-  overrides: Omit<DisplayMessage, "stableId"> & { stableId?: string },
+  overrides: Omit<DisplayMessage, "stableId" | "id"> & { stableId?: string; id?: string },
 ): DisplayMessage {
-  const { stableId, ...rest } = overrides;
+  const { stableId, id, ...rest } = overrides;
+  const sid = stableId ?? newStableId("test");
   return {
-    stableId: stableId ?? newStableId("test"),
+    stableId: sid,
+    id: id ?? sid,
     ...rest,
   };
 }

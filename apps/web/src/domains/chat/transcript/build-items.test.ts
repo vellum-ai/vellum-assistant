@@ -10,11 +10,13 @@ import type {
 } from "@/domains/chat/transcript/types.js";
 
 function makeMessage(
-  overrides: Omit<DisplayMessage, "stableId"> & { stableId?: string },
+  overrides: Omit<DisplayMessage, "stableId" | "id"> & { stableId?: string; id?: string },
 ): DisplayMessage {
-  const { stableId, ...rest } = overrides;
+  const { stableId, id, ...rest } = overrides;
+  const sid = stableId ?? newStableId("test");
   return {
-    stableId: stableId ?? newStableId("test"),
+    stableId: sid,
+    id: id ?? sid,
     ...rest,
   };
 }
@@ -441,11 +443,15 @@ describe("buildTranscriptItems", () => {
     // A blank user row with queueStatus="queued" passes through the filter
     // so the projection layer can collapse it into a single QueuedMarker
     // entry — dropping would hide the user's pending intent.
+    // Post-2c.1 shape: optimistic queued user rows carry a client-generated
+    // `id` (mirrored from `stableId` here via the test helper default) and
+    // `isOptimistic: true`. The transcript projection treats them the same
+    // way the legacy `id === undefined` shape was treated.
     const queued = makeMessage({
-      id: undefined,
       role: "user",
       content: "Send when ready",
       stableId: "s-queued",
+      isOptimistic: true,
       queueStatus: "queued",
       queuePosition: 1,
     });

@@ -57,11 +57,17 @@ export function createStreamingBubble(
   messageId?: string,
   stableId?: string,
 ): DisplayMessage[] {
+  const sid = stableId ?? newStableId("assistant-stream");
   return [
     ...prev,
     {
-      stableId: stableId ?? newStableId("assistant-stream"),
-      id: messageId,
+      stableId: sid,
+      // After PR 2b.1 the daemon always emits `messageId` on
+      // `assistant_text_delta`; the optional parameter is kept for the
+      // legacy wire fallback. When absent, mirror `stableId` into `id`
+      // so the row identity is locked from creation — reconcile then
+      // matches by id without falling back to content/timestamp.
+      id: messageId ?? sid,
       role: "assistant",
       content: text,
       isStreaming: true,
@@ -117,7 +123,10 @@ export function appendTextDelta(
     {
       ...last,
       content: last.content + text,
-      id: last.id ?? messageId,
+      // First-id-wins lock from PR 2b.1 — keep the original anchor even if
+      // a later delta arrives with a different `messageId` (e.g. daemon
+      // advanced rows within the same agent turn). `last.id` is mandatory
+      // post-2c.1 so no `??` fallback is needed.
       textSegments: segments,
       contentOrder: order,
     },
@@ -181,11 +190,16 @@ export function finalizeMessageComplete(
 
   if (last?.role !== "assistant") {
     if (!event.content && !attachments) return prev;
+    const sid = newStableId("assistant-complete");
     return [
       ...prev,
       {
-        stableId: newStableId("assistant-complete"),
-        id: event.messageId,
+        stableId: sid,
+        // 2b.1: daemon always emits `messageId` on `message_complete`.
+        // Fall back to stableId only in the defensive path so the row
+        // type-checks; reconcile will not surface a content-fallback
+        // match for assistant rows anyway.
+        id: event.messageId ?? sid,
         role: "assistant" as const,
         content: event.content ?? "",
         timestamp: Date.now(),
@@ -294,8 +308,15 @@ export function attachSurface(
 
   const updated = [...prev];
   if (targetIdx === -1) {
+    const sid = newStableId("assistant-surface");
     updated.push({
-      stableId: newStableId("assistant-surface"),
+      stableId: sid,
+      // Surface-only assistant rows have no wire `messageId` of their
+      // own — `ui_surface_*` events identify by surfaceId, not message.
+      // Mirror stableId into id so reconcile by id stays unambiguous;
+      // the row gets its server id when a later message_complete or
+      // history fetch lands.
+      id: sid,
       role: "assistant" as const,
       content: "",
       isStreaming: true,
@@ -458,10 +479,16 @@ export function upsertToolCall(
     return updated;
   }
 
+  const sid = stableId ?? newStableId("assistant-tool");
   return [
     ...prev,
     {
-      stableId: stableId ?? newStableId("assistant-tool"),
+      stableId: sid,
+      // tool_use events identify by toolCall.id, not by message id. As
+      // with assistant-surface births, mirror stableId into id so the
+      // row identity is locked from creation; reconcile then matches
+      // strictly by id once the server publishes the row.
+      id: sid,
       role: "assistant" as const,
       content: "",
       isStreaming: true,
