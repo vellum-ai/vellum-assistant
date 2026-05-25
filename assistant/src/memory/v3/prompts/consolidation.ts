@@ -13,7 +13,7 @@
  * shared concept pages canonical (the agent still writes
  * `memory/concepts/<class>/<slug>.md` so the v2 router keeps working off them)
  * but ALSO threads each touched page into the v3 **tree**: an authored DAG of
- * `memory/v3/tree/<id>.md` nodes whose markdown body is the node's
+ * `memory/tree/<id>.md` nodes whose markdown body is the node's
  * self-description and whose `children` list points at pages (`page:<slug>`) and
  * sub-nodes (`node:<id>`). The tree is the navigable index over the flat page
  * store — consolidation is where it's authored and refreshed.
@@ -71,7 +71,7 @@ Cutoff timestamp for this run: \`${CUTOFF_PLACEHOLDER}\`. Anything in \`memory/b
 
 - Your identity files (already loaded into context)
 - All existing pages in \`memory/concepts/\` (your prior state — use \`list_files\` and \`read_file\` as needed)
-- All existing tree nodes in \`memory/v3/tree/\` (the index over those pages)
+- All existing tree nodes in \`memory/tree/\` (the index over those pages)
 - \`memory/buffer.md\` entries with timestamp < \`${CUTOFF_PLACEHOLDER}\`
 - \`memory/recent.md\` current contents (if it exists)
 - Existing pages' \`edges:\` frontmatter (the flat see-also graph — read each page to see what it points at)
@@ -79,7 +79,7 @@ Cutoff timestamp for this run: \`${CUTOFF_PLACEHOLDER}\`. Anything in \`memory/b
 # Outputs
 
 - New or updated \`memory/concepts/<class>/<slug>.md\` articles (the canonical, shared content)
-- New or updated \`memory/v3/tree/<id>.md\` nodes that index those articles (see "The tree")
+- New or updated \`memory/tree/<id>.md\` nodes that index those articles (see "The tree")
 - Updated \`memory/recent.md\` (≤2000 chars, latest first, prose)
 - Updated \`memory/essentials.md\` (≤10000 chars)
 - Updated \`memory/threads.md\` (≤10000 chars)
@@ -195,7 +195,7 @@ The pages MOST likely to bloat are the ones with the highest emotional charge �
 
 # The tree — the navigable index over your pages
 
-The v3 tree lives at \`memory/v3/tree/<id>.md\`. It is a **DAG overlay** over the flat \`memory/concepts/\` pages: pages stay canonical and untouched as content, and the tree is the browsable hierarchy that routes to them. Think of it as the wiki's category tree + table of contents, authored by hand.
+The v3 tree lives at \`memory/tree/<id>.md\`. It is a **DAG overlay** over the flat \`memory/concepts/\` pages: pages stay canonical and untouched as content, and the tree is the browsable hierarchy that routes to them. Think of it as the wiki's category tree + table of contents, authored by hand.
 
 ## Node shape
 
@@ -216,7 +216,7 @@ summary: one-line self-description of what this node organizes.
 A few sentences — the node's full self-description. What region of memory does this node organize? What lives under it? Write it so next-you, descending the tree, can decide in one read whether to go deeper here.
 \`\`\`
 
-- The node id is the relative path under \`memory/v3/tree/\` minus \`.md\` — e.g. \`people\`, \`people/colleagues\`, \`work/active-projects\`. The root node is \`_root\`.
+- The node id is the relative path under \`memory/tree/\` minus \`.md\` — e.g. \`people\`, \`people/colleagues\`, \`work/active-projects\`. The root node is \`_root\`.
 - \`children\` is the **ordered, canonical** list of outgoing references. Each entry is either \`page:<slug>\` (a leaf concept page) or \`node:<id>\` (a sub-node). This list IS the DAG edge — it's the portable replacement for filesystem symlinks. A page or node may be referenced by more than one parent (hence DAG, not tree).
 - \`summary\` (one line) + the body are how the parent's index is composed at read time — keep both crisp.
 - \`routing_hints\` (optional, one line) disambiguates between sibling branches.

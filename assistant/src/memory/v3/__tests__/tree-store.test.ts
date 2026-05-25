@@ -1,5 +1,5 @@
 /**
- * Tests for `assistant/src/memory/v3/tree-store.ts`.
+ * Tests for `assistant/src/memory/tree-store.ts`.
  *
  * Coverage matrix:
  *   - slugify: lowercase / kebab-case / ascii / 80-char cap / empty fallback.
@@ -14,7 +14,7 @@
  *     hidden dirs / non-.md / temp files, missing dir → [].
  *   - deleteNode: nested-id round-trip, idempotent on missing.
  *   - renderNodeContent: frontmatter + body shape.
- *   - No change to memory/concepts/ (v3 lives under memory/v3/tree/).
+ *   - No change to memory/concepts/ (v3 lives under memory/tree/).
  *
  * Tests use temp workspaces under `os.tmpdir()`; they never touch `~/.vellum/`.
  */

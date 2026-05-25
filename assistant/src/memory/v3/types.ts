@@ -17,7 +17,7 @@ import { z } from "zod";
 // ---------------------------------------------------------------------------
 
 /**
- * YAML frontmatter at the top of a v3 tree node (`memory/v3/tree/<id>.md`).
+ * YAML frontmatter at the top of a v3 tree node (`memory/tree/<id>.md`).
  *
  * The v3 tree is a DAG *overlay* over the existing flat `memory/concepts/`
  * pages. A node organizes a region of the graph: its markdown body is the
@@ -53,7 +53,7 @@ export type TreeNodeFrontmatter = z.infer<typeof TreeNodeFrontmatterSchema>;
 
 /**
  * A single tree node on disk. The id is the relative path from
- * `memory/v3/tree/` minus `.md`, using forward slashes — so `people` and
+ * `memory/tree/` minus `.md`, using forward slashes — so `people` and
  * `people/colleagues` are both valid ids. The id is the stable identity used
  * in `children` references (`node:<id>`) and is the portable node handle a
  * future data-migration authors by hand.

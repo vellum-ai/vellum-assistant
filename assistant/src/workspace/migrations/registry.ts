@@ -86,6 +86,7 @@ import { memoryV2Bm25BReembedDisabledV2PagesMigration } from "./085-memory-v2-bm
 import { revertStaleGeminiMisRewritesMigration } from "./086-revert-stale-gemini-mis-rewrites.js";
 import { memoryRouterBalancedProfileMigration } from "./087-memory-router-balanced-profile.js";
 import { deprecateBackgroundConversationOverrideMigration } from "./088-deprecate-background-conversation-override.js";
+import { moveMemoryTreeOutOfV3Migration } from "./089-move-memory-tree-out-of-v3.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -183,4 +184,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   revertStaleGeminiMisRewritesMigration,
   memoryRouterBalancedProfileMigration,
   deprecateBackgroundConversationOverrideMigration,
+  moveMemoryTreeOutOfV3Migration,
 ];
