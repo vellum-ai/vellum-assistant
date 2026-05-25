@@ -129,6 +129,7 @@ import {
   migrateMemoryRetrospectiveState,
   migrateMemoryV2ActivationLogs,
   migrateMemoryV2InjectionEvents,
+  migrateMemoryV3Coactivation,
   migrateMessageBookmarks,
   migrateMessagesConversationCreatedAtIndex,
   migrateMessagesFtsBackfill,
@@ -456,6 +457,7 @@ export function initializeDb(): void {
     migrateConversationCleanedAt,
     migrateRenameCleanedAt,
     migrateLlmUsageAddRawUsage,
+    migrateMemoryV3Coactivation,
   ];
 
   // Run each migration step, catching and logging individual failures so one

@@ -243,6 +243,10 @@ export {
   migrateLlmUsageAddRawUsage,
 } from "./261-llm-usage-add-raw-usage.js";
 export {
+  downMemoryV3Coactivation,
+  migrateMemoryV3Coactivation,
+} from "./262-memory-v3-coactivation.js";
+export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
   type MigrationValidationResult,
