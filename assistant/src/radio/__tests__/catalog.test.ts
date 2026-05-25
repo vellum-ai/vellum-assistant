@@ -15,11 +15,29 @@ describe("radio catalog", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  test("every asset exists and matches its checksum", async () => {
+  test("catalog contains the required demo tracks", () => {
+    const ids = RADIO_TRACKS.map((track) => track.id).sort();
+
+    expect(ids).toEqual(["buffer-bloom", "neon-postcard", "soft-launch"]);
+  });
+
+  test("every asset exists, matches its checksum, and uses the expected WAV format", async () => {
     for (const track of RADIO_TRACKS) {
       const bytes = await readFile(track.assetPath);
       const sha256 = createHash("sha256").update(bytes).digest("hex");
+      const dataByteLength = bytes.readUInt32LE(40);
+      const byteRate = bytes.readUInt32LE(28);
+      const blockAlign = bytes.readUInt16LE(32);
+      const durationMs = (dataByteLength / byteRate) * 1000;
 
+      expect(bytes.toString("ascii", 0, 4)).toBe("RIFF");
+      expect(bytes.toString("ascii", 8, 12)).toBe("WAVE");
+      expect(bytes.readUInt16LE(20)).toBe(1);
+      expect(bytes.readUInt16LE(22)).toBe(1);
+      expect(bytes.readUInt32LE(24)).toBe(22_050);
+      expect(bytes.readUInt16LE(34)).toBe(16);
+      expect(dataByteLength % blockAlign).toBe(0);
+      expect(durationMs).toBe(18_000);
       expect(sha256).toBe(track.sha256);
     }
   });
@@ -28,6 +46,13 @@ describe("radio catalog", () => {
     expect(
       RADIO_TRACKS.every((track) => track.license === "repo-generated"),
     ).toBe(true);
+  });
+
+  test("every audio path is assistant-runtime-relative", () => {
+    for (const track of RADIO_TRACKS) {
+      expect(track.audioPath.startsWith("radio/tracks/")).toBe(true);
+      expect(track.audioPath.startsWith("/")).toBe(false);
+    }
   });
 
   test("catalog helpers expose tracks by id", () => {
