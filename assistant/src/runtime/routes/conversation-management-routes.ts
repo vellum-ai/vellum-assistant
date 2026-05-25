@@ -106,13 +106,6 @@ function handleCreateConversation({ body = {}, headers }: RouteHandlerArgs) {
     },
     "Created conversation via POST",
   );
-  // `id` is the assistant-minted internal `conversations.id` — the
-  // authoritative identifier for this conversation. `conversationKey`
-  // echoes the optional external key supplied by the client (or the
-  // UUID we minted) and is the identifier non-vellum channel adapters
-  // (Telegram, WhatsApp, etc.) use to scope to a logical channel
-  // thread. Vellum-web clients can ignore `conversationKey` and use
-  // `id` directly.
   return {
     id: result.conversationId,
     conversationKey,
@@ -453,7 +446,7 @@ export const ROUTES: RouteDefinition[] = [
       conversationKey: z
         .string()
         .describe(
-          "Echo of the optional external key supplied by the client (or the value the daemon minted when omitted).",
+          "Echo of the optional external key supplied by the client.",
         ),
       conversationType: z.string(),
       created: z.boolean(),
