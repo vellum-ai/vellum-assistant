@@ -9724,6 +9724,7 @@ paths:
                             - fireworks
                             - openrouter
                             - openai-compatible
+                            - minimax
                         auth:
                           oneOf:
                             - type: object
@@ -9840,7 +9841,9 @@ paths:
           required: false
           schema:
             type: string
-          description: "Filter by provider. One of: anthropic, openai, gemini, ollama, fireworks, openrouter, openai-compatible"
+          description:
+            "Filter by provider. One of: anthropic, openai, gemini, ollama, fireworks, openrouter, openai-compatible,
+            minimax"
     post:
       operationId: inference_providerconnections_post
       summary: Create a provider connection
@@ -9868,6 +9871,7 @@ paths:
                       - fireworks
                       - openrouter
                       - openai-compatible
+                      - minimax
                   auth:
                     oneOf:
                       - type: object
@@ -9999,6 +10003,7 @@ paths:
                     - fireworks
                     - openrouter
                     - openai-compatible
+                    - minimax
                 auth:
                   oneOf:
                     - type: object
@@ -10150,6 +10155,7 @@ paths:
                       - fireworks
                       - openrouter
                       - openai-compatible
+                      - minimax
                   auth:
                     oneOf:
                       - type: object
@@ -10295,6 +10301,7 @@ paths:
                       - fireworks
                       - openrouter
                       - openai-compatible
+                      - minimax
                   auth:
                     oneOf:
                       - type: object
