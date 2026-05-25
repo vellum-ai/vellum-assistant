@@ -7,6 +7,7 @@ import {
   applyToolProgress,
   applyToolResult,
   createStreamingBubble,
+  finalizeMessageComplete,
   finalizeOnIdle,
   handleConversationError,
   stopStreaming,
@@ -123,6 +124,134 @@ describe("appendTextDelta", () => {
     appendTextDelta(prev, "b");
     expect(prev[0]!.content).toBe("a");
   });
+
+  it("locks bubble.id to the first id seen — later text_deltas don't overwrite", () => {
+    // Multi-LLM-call turn: call 1's first text_delta opens the bubble with
+    // id=A, call 2's text_delta arrives with id=B. The bubble's id must
+    // stay A (anchor preservation) — the daemon's server-side merge will
+    // collapse the rows to the first row's id, and the live view must
+    // match.
+    const start = createStreamingBubble([userMsg], "Hello", "row-A");
+    expect(start[1]!.id).toBe("row-A");
+    const result = appendTextDelta(start, " world", "row-B");
+    expect(result[1]!.id).toBe("row-A");
+    expect(result[1]!.content).toBe("Hello world");
+  });
+
+  it("backfills bubble.id when initial bubble had no id", () => {
+    const start = createStreamingBubble([userMsg], "Hello");
+    expect(start[1]!.id).toBeUndefined();
+    const result = appendTextDelta(start, " world", "row-A");
+    expect(result[1]!.id).toBe("row-A");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// finalizeMessageComplete
+// ---------------------------------------------------------------------------
+
+describe("finalizeMessageComplete", () => {
+  it("opens a new finalized assistant bubble when tail is a user message", () => {
+    const result = finalizeMessageComplete([userMsg], {
+      type: "message_complete",
+      conversationId: "c-1",
+      messageId: "row-A",
+      content: "done",
+    });
+
+    expect(result).toHaveLength(2);
+    expect(result[1]!.role).toBe("assistant");
+    expect(result[1]!.id).toBe("row-A");
+    expect(result[1]!.content).toBe("done");
+    expect(result[1]!.isStreaming).toBeUndefined();
+  });
+
+  it("opens a new bubble when prev is empty", () => {
+    const result = finalizeMessageComplete([], {
+      type: "message_complete",
+      conversationId: "c-1",
+      messageId: "row-A",
+      content: "first",
+    });
+    expect(result).toHaveLength(1);
+    expect(result[0]!.id).toBe("row-A");
+  });
+
+  it("returns prev unchanged when tail is user and event has no content/attachments", () => {
+    const prev = [userMsg];
+    const result = finalizeMessageComplete(prev, {
+      type: "message_complete",
+      conversationId: "c-1",
+      messageId: "row-A",
+    });
+    expect(result).toBe(prev);
+  });
+
+  it("finalizes a streaming assistant tail and keeps tail.id (anchor preservation)", () => {
+    const msg = makeAssistantMsg({ id: "bubble-anchor", content: "hello" });
+    const result = finalizeMessageComplete([userMsg, msg], {
+      type: "message_complete",
+      conversationId: "c-1",
+      messageId: "inner-row-id",
+      content: "hello world",
+    });
+
+    expect(result).toHaveLength(2);
+    expect(result[1]!.id).toBe("bubble-anchor");
+    expect(result[1]!.isStreaming).toBe(false);
+    expect(result[1]!.content).toBe("hello world");
+  });
+
+  it("finalizes running tool calls when finalizing", () => {
+    const toolCall: ChatMessageToolCall = {
+      id: "t-1",
+      toolName: "bash",
+      input: { command: "ls" },
+      status: "running",
+    };
+    const msg = makeAssistantMsg({ id: "bubble-A", toolCalls: [toolCall] });
+    const result = finalizeMessageComplete([msg], {
+      type: "message_complete",
+      conversationId: "c-1",
+      messageId: "row-B",
+    });
+    expect(result[0]!.toolCalls?.[0]!.status).toBe("completed");
+  });
+
+  it("appends to a finalized assistant tail without overwriting its id (multi-LLM-call turn)", () => {
+    // Second message_complete in the same agent turn — tail is the bubble
+    // from the previous call (isStreaming already false). Should keep id.
+    const tail = makeAssistantMsg({
+      id: "bubble-anchor",
+      content: "first call done",
+      isStreaming: false,
+    });
+    const result = finalizeMessageComplete([userMsg, tail], {
+      type: "message_complete",
+      conversationId: "c-1",
+      messageId: "row-B",
+      content: "second call done",
+    });
+
+    expect(result).toHaveLength(2);
+    expect(result[1]!.id).toBe("bubble-anchor");
+    expect(result[1]!.content).toBe("second call done");
+  });
+
+  it("ignores legacy displayMessageId on the wire", () => {
+    // Inbound from an older daemon: a `displayMessageId` field on
+    // message_complete must be silently ignored — the new contract is
+    // messageId-only on the wire, anchor preservation is client-side.
+    const tail = makeAssistantMsg({ id: "bubble-anchor" });
+    const legacyEvent = {
+      type: "message_complete" as const,
+      conversationId: "c-1",
+      messageId: "row-B",
+      displayMessageId: "row-A",
+    } as Parameters<typeof finalizeMessageComplete>[1];
+    const result = finalizeMessageComplete([tail], legacyEvent);
+    expect(result[0]!.id).toBe("bubble-anchor");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -146,10 +275,11 @@ describe("stopStreaming", () => {
     expect(result).toBe(prev);
   });
 
-  it("applies optional displayMessageId", () => {
-    const msg = makeAssistantMsg();
-    const result = stopStreaming([msg], { displayMessageId: "d-1" });
-    expect(result[0]!.id).toBe("d-1");
+  it("keeps tail.id — never stamps a different id onto the bubble", () => {
+    const msg = makeAssistantMsg({ id: "bubble-anchor" });
+    const result = stopStreaming([msg]);
+    expect(result[0]!.id).toBe("bubble-anchor");
+    expect(result[0]!.isStreaming).toBe(false);
   });
 });
 

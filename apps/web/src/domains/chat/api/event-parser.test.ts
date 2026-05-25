@@ -28,13 +28,25 @@ describe("parseAssistantEvent", () => {
   test("parses message_complete with content", () => {
     const event = parseAssistantEvent("message_complete", {
       messageId: "msg-1",
-      displayMessageId: "display-msg-1",
       content: "Full response",
     });
     expect(event).toEqual({
       type: "message_complete",
       messageId: "msg-1",
-      displayMessageId: "display-msg-1",
+      content: "Full response",
+      attachments: undefined,
+    });
+  });
+
+  test("ignores legacy displayMessageId on message_complete", () => {
+    const event = parseAssistantEvent("message_complete", {
+      messageId: "msg-1",
+      displayMessageId: "ignored",
+      content: "Full response",
+    });
+    expect(event).toEqual({
+      type: "message_complete",
+      messageId: "msg-1",
       content: "Full response",
       attachments: undefined,
     });
@@ -125,12 +137,22 @@ describe("parseAssistantEvent", () => {
   test("parses generation_handoff", () => {
     const event = parseAssistantEvent("generation_handoff", {
       messageId: "msg-1",
-      displayMessageId: "display-msg-1",
     });
     expect(event).toEqual({
       type: "generation_handoff",
       messageId: "msg-1",
-      displayMessageId: "display-msg-1",
+      attachments: undefined,
+    });
+  });
+
+  test("ignores legacy displayMessageId on generation_handoff", () => {
+    const event = parseAssistantEvent("generation_handoff", {
+      messageId: "msg-1",
+      displayMessageId: "ignored",
+    });
+    expect(event).toEqual({
+      type: "generation_handoff",
+      messageId: "msg-1",
       attachments: undefined,
     });
   });

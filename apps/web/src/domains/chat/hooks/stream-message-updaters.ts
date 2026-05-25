@@ -9,10 +9,11 @@
  * @see https://react.dev/reference/react/useState#updating-state-based-on-the-previous-state
  */
 
-import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/utils/reconcile.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import type { Surface } from "@/domains/chat/types/types.js";
 import { newStableId } from "@/domains/chat/utils/stable-id.js";
-import type { AllowlistOption, ChatMessageToolCall, DirectoryScopeOption, ScopeOption } from "@/domains/chat/api/event-types.js";
+import { toDisplayAttachments } from "@/domains/chat/api/event-parser.js";
+import type { AllowlistOption, ChatMessageToolCall, DirectoryScopeOption, MessageCompleteEvent, ScopeOption } from "@/domains/chat/api/event-types.js";
 import type { ToolActivityMetadata } from "@/assistant/web-activity-types.js";
 
 // ---------------------------------------------------------------------------
@@ -116,7 +117,7 @@ export function appendTextDelta(
     {
       ...last,
       content: last.content + text,
-      id: messageId ?? last.id,
+      id: last.id ?? messageId,
       textSegments: segments,
       contentOrder: order,
     },
@@ -157,70 +158,68 @@ export function finalizeOnIdle(prev: DisplayMessage[]): DisplayMessage[] {
 // message_complete
 // ---------------------------------------------------------------------------
 
-/** Finalize a streaming message with its completed content and attachments. */
+/**
+ * Apply a `message_complete` event to the message array.
+ *
+ * Decision is role-based on the tail:
+ *   - tail is user (or array empty) → push a new finalized assistant bubble
+ *     stamped with `event.messageId`. This covers the start-of-turn case
+ *     where no streaming bubble was opened (e.g. tool-only or aux turns).
+ *   - tail is assistant → finalize it: flip `isStreaming: false`, complete
+ *     any running tool calls, merge in `event.content` / `event.attachments`,
+ *     **keep `tail.id`**. Subsequent `message_complete` events from later
+ *     LLM calls in the same agent turn fold into the same bubble — the
+ *     mirror of the daemon's server-side merge which collapses to the first
+ *     row's id.
+ */
 export function finalizeMessageComplete(
   prev: DisplayMessage[],
-  opts: {
-    content?: string;
-    displayMessageId?: string;
-    attachments?: DisplayAttachment[];
-  },
+  event: MessageCompleteEvent,
 ): DisplayMessage[] {
-  const { content, displayMessageId, attachments } = opts;
   const last = prev[prev.length - 1];
+  const attachments = toDisplayAttachments(event.attachments);
 
-  if (last?.role === "assistant" && last.isStreaming) {
-    const finalized = finalizeRunningToolCalls(last.toolCalls);
-    return [
-      ...prev.slice(0, -1),
-      {
-        ...last,
-        isStreaming: false,
-        id: displayMessageId ?? last.id,
-        content: content || last.content,
-        ...(attachments ? { attachments } : {}),
-        ...(finalized ? { toolCalls: finalized } : {}),
-      },
-    ];
-  }
-
-  if (content || attachments) {
-    if (displayMessageId && prev.some((m) => m.id === displayMessageId)) {
-      return prev.map((m) =>
-        m.id === displayMessageId
-          ? {
-              ...m,
-              ...(content ? { content } : {}),
-              ...(attachments && !m.attachments ? { attachments } : {}),
-            }
-          : m,
-      );
-    }
+  if (last?.role !== "assistant") {
+    if (!event.content && !attachments) return prev;
     return [
       ...prev,
       {
         stableId: newStableId("assistant-complete"),
-        id: displayMessageId,
+        id: event.messageId,
         role: "assistant" as const,
-        content: content ?? "",
+        content: event.content ?? "",
         timestamp: Date.now(),
         ...(attachments ? { attachments } : {}),
       },
     ];
   }
 
-  return prev;
+  const finalized = finalizeRunningToolCalls(last.toolCalls);
+  return [
+    ...prev.slice(0, -1),
+    {
+      ...last,
+      isStreaming: false,
+      // Keep `last.id` — the anchor was locked by the first text_delta /
+      // tool_use of the turn. The daemon may advance its internal row id
+      // across multiple LLM calls, but each call's `event.messageId` is
+      // just a constituent of this display row.
+      content: event.content || last.content,
+      ...(attachments ? { attachments } : {}),
+      ...(finalized ? { toolCalls: finalized } : {}),
+    },
+  ];
 }
 
 // ---------------------------------------------------------------------------
 // generation_handoff / stream stop
 // ---------------------------------------------------------------------------
 
-/** Stop streaming on the last assistant message (handoff or cancellation). */
-export function stopStreaming(
-  prev: DisplayMessage[],
-  opts?: { displayMessageId?: string },
-): DisplayMessage[] {
+/**
+ * Stop streaming on the tail assistant bubble (handoff or cancellation).
+ * Keeps `tail.id` — same anchor preservation as `finalizeMessageComplete`.
+ */
+export function stopStreaming(prev: DisplayMessage[]): DisplayMessage[] {
   const last = prev[prev.length - 1];
   if (!last || last.role !== "assistant" || !last.isStreaming) return prev;
 
@@ -229,7 +228,6 @@ export function stopStreaming(
     {
       ...last,
       isStreaming: false,
-      ...(opts?.displayMessageId ? { id: opts.displayMessageId } : {}),
     },
   ];
 }

@@ -96,9 +96,6 @@ export function parseAssistantEvent(
         type: "message_complete",
         messageId:
           typeof data.messageId === "string" ? data.messageId : undefined,
-        ...(typeof data.displayMessageId === "string"
-          ? { displayMessageId: data.displayMessageId }
-          : {}),
         content:
           typeof data.content === "string" ? data.content : undefined,
         attachments: parseOutboundAttachments(data.attachments),
@@ -109,9 +106,6 @@ export function parseAssistantEvent(
         type: "generation_handoff",
         messageId:
           typeof data.messageId === "string" ? data.messageId : undefined,
-        ...(typeof data.displayMessageId === "string"
-          ? { displayMessageId: data.displayMessageId }
-          : {}),
         attachments: parseOutboundAttachments(data.attachments),
       };
 

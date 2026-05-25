@@ -112,7 +112,6 @@ export interface AssistantOutboundAttachment {
 export interface MessageCompleteEvent {
   type: "message_complete";
   messageId?: string;
-  displayMessageId?: string;
   content?: string;
   conversationId?: string;
   attachments?: AssistantOutboundAttachment[];
@@ -121,7 +120,6 @@ export interface MessageCompleteEvent {
 export interface GenerationHandoffEvent {
   type: "generation_handoff";
   messageId?: string;
-  displayMessageId?: string;
   conversationId?: string;
   attachments?: AssistantOutboundAttachment[];
 }

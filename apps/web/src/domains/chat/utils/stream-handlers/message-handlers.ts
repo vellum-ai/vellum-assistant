@@ -6,7 +6,6 @@ import {
   stopStreaming,
 } from "@/domains/chat/hooks/stream-message-updaters.js";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types.js";
-import { toDisplayAttachments } from "@/domains/chat/api/event-parser.js";
 import type { AssistantActivityStateEvent, AssistantTextDeltaEvent, GenerationCancelledEvent, GenerationHandoffEvent, MessageCompleteEvent } from "@/domains/chat/api/event-types.js";
 
 export function handleAssistantTextDelta(
@@ -91,15 +90,7 @@ export function handleMessageComplete(
   epoch: number,
   ctx: StreamHandlerContext,
 ): void {
-  const completedAttachments = toDisplayAttachments(event.attachments);
-  const displayMessageId = event.displayMessageId ?? event.messageId;
-  ctx.setMessages((prev) =>
-    finalizeMessageComplete(prev, {
-      content: event.content,
-      displayMessageId,
-      attachments: completedAttachments,
-    }),
-  );
+  ctx.setMessages((prev) => finalizeMessageComplete(prev, event));
   const turnPhaseBefore = ctx.getTurnState().phase;
   ctx.turnActions.completeTurn();
   const convId = ctx.streamContextRef.current?.conversationId;
@@ -109,21 +100,20 @@ export function handleMessageComplete(
   recordChatDiagnostic("sse_message_complete_handled", {
     convId,
     turnPhaseBefore,
-    displayMessageId,
+    messageId: event.messageId,
     hasContent: !!event.content,
-    hasAttachments: !!completedAttachments,
+    hasAttachments: !!event.attachments?.length,
   });
   ctx.startReconciliationLoop(epoch);
 }
 
 export function handleGenerationHandoff(
-  event: GenerationHandoffEvent,
+  _event: GenerationHandoffEvent,
   ctx: StreamHandlerContext,
 ): void {
   ctx.cancelReconciliation();
   ctx.turnActions.handoffGeneration();
-  const displayMessageId = event.displayMessageId ?? event.messageId;
-  ctx.setMessages((prev) => stopStreaming(prev, { displayMessageId }));
+  ctx.setMessages((prev) => stopStreaming(prev));
 }
 
 export function handleGenerationCancelled(

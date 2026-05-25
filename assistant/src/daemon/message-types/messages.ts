@@ -304,14 +304,12 @@ export interface MessageComplete {
   conversationId?: string;
   attachments?: UserMessageAttachment[];
   attachmentWarnings?: string[];
-  /** Database ID of the final persisted assistant row, if any. */
-  messageId?: string;
   /**
-   * Database ID used by clients for the rendered assistant bubble. Tool turns
-   * may persist multiple assistant rows; this matches the history row that
-   * survives query-time merging.
+   * Database ID of the completed assistant turn — the id that survives
+   * query-time merging when a turn persists multiple assistant rows. Matches
+   * the row the messages route returns.
    */
-  displayMessageId?: string;
+  messageId?: string;
   /**
    * Distinguishes a real main-turn completion from auxiliary events such as
    * call transcripts, call summaries, and watch notifier outputs. Clients
