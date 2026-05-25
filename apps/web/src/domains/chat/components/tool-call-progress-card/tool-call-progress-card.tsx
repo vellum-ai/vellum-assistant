@@ -18,7 +18,7 @@ import {
   progressiveLabels,
 } from "@/domains/chat/components/tool-call-chip/utils.js";
 import { WebSearchProgressCard } from "@/domains/chat/components/web-search/web-search-progress-card.js";
-import { useElapsedTime } from "@/domains/chat/hooks/use-elapsed-time.js";
+import { formatStartTime, useElapsedTime } from "@/domains/chat/hooks/use-elapsed-time.js";
 import { useWebSearchCardData } from "@/domains/chat/hooks/use-web-search-card-data.js";
 import type { AllowlistOption, ChatMessageToolCall, ConfirmationDecision, DirectoryScopeOption, ScopeOption } from "@/domains/chat/api/event-types.js";
 
@@ -516,7 +516,13 @@ function LegacyToolCallProgressCard({
         </span>
         <span className="ml-auto flex items-center gap-1.5 shrink-0">
           {elapsed && (
-            <span className="text-label-small-default text-[var(--content-tertiary)]">
+            <span
+              className="text-label-small-default text-[var(--content-tertiary)]"
+              title={(() => {
+                const formatted = formatStartTime(earliestStart);
+                return formatted ? `Started ${formatted}` : undefined;
+              })()}
+            >
               {elapsed}
             </span>
           )}
