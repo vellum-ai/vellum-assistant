@@ -21,6 +21,7 @@
 import { AnthropicProvider } from "../anthropic/client.js";
 import { FireworksProvider } from "../fireworks/client.js";
 import { GeminiProvider } from "../gemini/client.js";
+import { MinimaxProvider } from "../minimax/client.js";
 import { PROVIDER_CATALOG } from "../model-catalog.js";
 import { OllamaProvider } from "../ollama/client.js";
 import { OpenAIChatCompletionsProvider } from "../openai/chat-completions-provider.js";
@@ -111,6 +112,8 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
       streamTimeoutMs,
       ...(baseURL ? { baseURL } : {}),
     }),
+  minimax: ({ apiKey, model, streamTimeoutMs }) =>
+    new MinimaxProvider(apiKey, model, { streamTimeoutMs }),
 };
 
 /**
