@@ -5,7 +5,7 @@
     "scripts/**/*.ts",
     "src/daemon/main.ts!",
     "src/plugin-api/index.ts!",
-    "src/api/relationship-state-updated.ts!"
+    "src/api/index.ts!"
   ],
   "project": ["src/**/*.ts!", "src/**/*.tsx!", "scripts/**/*.ts"],
   "ignoreDependencies": [

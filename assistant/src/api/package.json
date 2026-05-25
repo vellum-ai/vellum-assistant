@@ -5,6 +5,6 @@
   "type": "module",
   "private": true,
   "exports": {
-    ".": "./relationship-state-updated.ts"
+    ".": "./index.ts"
   }
 }
