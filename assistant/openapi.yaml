@@ -11426,6 +11426,50 @@ paths:
               required:
                 - op
               additionalProperties: false
+  /v1/memory/v2/compare-retrievers:
+    post:
+      operationId: memory_v2_compareretrievers_post
+      summary: Compare retrievers against the router's logged selections (read-only)
+      description:
+        Runs one or more retrievers over a sample of historical turns (memory_v2_activation_logs, mode='router')
+        and scores their selected pages against the logged selections as ground truth, reconstructing each turn's inputs
+        from the messages table + current NOW. Read-only — writes nothing. Each scored turn re-runs the router (one LLM
+        call), so keep `limit` modest. Today the only retriever is the router itself, so this is the harness self-test.
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                limit:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                strategy:
+                  type: string
+                  enum:
+                    - recent
+                    - random
+                conversationIds:
+                  type: array
+                  items:
+                    type: string
+                    minLength: 1
+                ks:
+                  type: array
+                  items:
+                    type: integer
+                    exclusiveMinimum: 0
+                    maximum: 9007199254740991
+                includeNotInjected:
+                  type: boolean
+              additionalProperties: false
   /v1/memory/v2/concept-frequency:
     post:
       operationId: memory_v2_conceptfrequency_post
