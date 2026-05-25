@@ -2777,7 +2777,7 @@ describe("outbound voice verification", () => {
     }
   });
 
-  test("start_outbound rejects unsupported channels", async () => {
+  test("start_outbound succeeds for email channel", async () => {
     const { lastResponse } = createResponseReader();
     await handleChannelVerificationSession(
       {
@@ -2790,8 +2790,8 @@ describe("outbound voice verification", () => {
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
-    expect(resp!.success).toBe(false);
-    expect(resp!.error).toBe("unsupported_channel");
+    expect(resp!.success).toBe(true);
+    expect(resp!.channel).toBe("email");
   });
 
   test("create_session without destination falls through to inbound challenge", async () => {

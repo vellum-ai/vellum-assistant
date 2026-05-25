@@ -280,11 +280,13 @@ describe("startOutbound", () => {
     expect(voiceCallInitCalls.length).toBe(1);
   });
 
-  test("unsupported channel returns unsupported_channel", async () => {
-    // Cast to bypass type checking for test purposes
-    const result = await startOutbound({ channel: "email" as never });
-    expect(result.success).toBe(false);
-    expect(result.error).toBe("unsupported_channel");
+  test("email channel creates outbound session", async () => {
+    const result = await startOutbound({
+      channel: "email",
+      destination: "user@example.com",
+    });
+    expect(result.success).toBe(true);
+    expect(result.channel).toBe("email");
   });
 });
 
