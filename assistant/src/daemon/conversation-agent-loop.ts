@@ -169,6 +169,7 @@ import {
   resolveAssistantAttachments,
 } from "./conversation-attachments.js";
 import {
+  budgetYieldUnrecoveredClassification,
   buildConversationErrorMessage,
   classifyConversationError,
   isUserCancellation,
@@ -2988,14 +2989,55 @@ export async function runAgentLoopImpl(
         // above) reset `contextTooLargeDetected` to false before its final
         // `agentLoop.run`, so the context-too-large branch above won't fire
         // even when that rerun yields at the mid-loop budget checkpoint with
-        // no further recovery layer to re-enter. Without an emit here, the
-        // turn terminates silently and `agent_loop_exit_reason` stays NULL on
-        // the final llm_request_logs row — making this exact "loop stopped
-        // mid-action" failure mode invisible in the inspector and dashboards.
+        // no further recovery layer to re-enter. Without surfacing this here,
+        // the turn terminates silently — the inspector sees `agent_loop_exit_reason
+        // = NULL` and the user sees no message at all (just a "ghost" turn).
         //
-        // Pure observability: no state mutation, no error message, no flow
-        // change. The post-turn cleanup that the orchestrator falls into is
-        // unchanged.
+        // Unlike provider-error persistence at L3091 — which only fires when
+        // the loop produced NO assistant output — budget_yield_unrecovered
+        // typically yields AFTER one or more successful tool-use iterations,
+        // so `hasAssistantResponse` is true and that path would skip us. We
+        // persist a dedicated notice row inline instead, appended after the
+        // assistant's partial work, so the transcript reads as: tool-use →
+        // tool results → "I couldn't fit the next step…" notice.
+        const classified = budgetYieldUnrecoveredClassification();
+        onEvent(buildConversationErrorMessage(ctx.conversationId, classified));
+        const yieldNoticeMessage = createAssistantMessage(classified.userMessage);
+        const yieldNoticeMetadata = {
+          ...provenanceFromTrustContext(ctx.trustContext),
+          userMessageChannel: capturedTurnChannelContext.userMessageChannel,
+          assistantMessageChannel:
+            capturedTurnChannelContext.assistantMessageChannel,
+          userMessageInterface:
+            capturedTurnInterfaceContext.userMessageInterface,
+          assistantMessageInterface:
+            capturedTurnInterfaceContext.assistantMessageInterface,
+        };
+        try {
+          await runPipeline<PersistArgs, PersistResult>(
+            "persistence",
+            getMiddlewaresFor("persistence"),
+            defaultPersistenceTerminal,
+            {
+              op: "add",
+              conversationId: ctx.conversationId,
+              role: "assistant",
+              content: JSON.stringify(yieldNoticeMessage.content),
+              metadata: yieldNoticeMetadata,
+            },
+            buildPluginTurnContext(ctx, reqId),
+            DEFAULT_TIMEOUTS.persistence,
+          );
+        } catch (err) {
+          // Non-fatal — a DB hiccup must not escalate a budget-yield exit
+          // into a turn-level throw. The live SSE event was already emitted
+          // above, so the user still sees the notice this turn even if the
+          // durable row didn't land.
+          rlog.warn(
+            { err },
+            "Failed to persist budget_yield_unrecovered notice (non-fatal)",
+          );
+        }
         await emitTerminalExit?.("budget_yield_unrecovered");
       }
     }

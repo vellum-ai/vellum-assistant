@@ -767,6 +767,30 @@ function classifyByMessage(
 }
 
 /**
+ * Classify a `budget_yield_unrecovered` terminal exit.
+ *
+ * Emitted when the agent loop's `auto_compress_latest_turn` rerun
+ * (the last layer of the overflow-recovery ladder) still yields at
+ * the mid-loop preflight budget checkpoint. The turn cannot proceed,
+ * but it is not a provider rejection — every compaction the loop ran
+ * has already been applied to the conversation, so the user's next
+ * message starts from the compacted history and typically succeeds.
+ *
+ * The returned `userMessage` is persisted as a `role="assistant"` row
+ * by the same path that already persists `PROVIDER_BILLING` etc., so
+ * the notice is durable across reload (not just a transient banner).
+ */
+export function budgetYieldUnrecoveredClassification(): ClassifiedConversationError {
+  return {
+    code: "BUDGET_YIELD_UNRECOVERED",
+    userMessage:
+      "I tried to compact this conversation but couldn't fit the next step into the model's context window. Send another message to continue — the compaction I did run has been saved, so your next turn starts from a smaller history.",
+    retryable: true,
+    errorCategory: "budget_yield_unrecovered",
+  };
+}
+
+/**
  * Build a `conversation_error` server message from a classified error.
  */
 export function buildConversationErrorMessage(

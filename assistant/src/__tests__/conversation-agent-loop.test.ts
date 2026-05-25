@@ -2150,8 +2150,8 @@ describe("session-agent-loop", () => {
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
-      // The new observability emit: exit reason was stamped onto
-      // the latest llm_request_logs row.
+      // Observability emit: exit reason was stamped onto the latest
+      // llm_request_logs row.
       expect(setAgentLoopExitReasonOnLatestLogMock).toHaveBeenCalledWith(
         "test-conv",
         "budget_yield_unrecovered",
@@ -2166,14 +2166,25 @@ describe("session-agent-loop", () => {
         "context_too_large",
       );
 
-      // And no user-facing conversation_error: this path is silent
-      // by design (the turn ends, the post-turn cleanup persists
-      // whatever assistant content was produced). The whole point of
-      // this PR is to make that silence observable, not to change it.
+      // User-facing emit: the classified BUDGET_YIELD_UNRECOVERED
+      // error is sent to the client so the UI can render a notice
+      // instead of leaving the turn looking like a silent ghost. The
+      // assistant-side notice persistence is exercised in the overflow
+      // suite (`conversation-agent-loop-overflow.test.ts`); this test
+      // owns the observability + emit contract.
       const conversationError = events.find(
         (e) => e.type === "conversation_error",
       );
-      expect(conversationError).toBeUndefined();
+      expect(conversationError).toBeDefined();
+      if (conversationError && "code" in conversationError) {
+        expect(conversationError.code).toBe("BUDGET_YIELD_UNRECOVERED");
+        expect(conversationError.retryable).toBe(true);
+        expect(conversationError.errorCategory).toBe(
+          "budget_yield_unrecovered",
+        );
+      } else {
+        throw new Error("conversation_error missing `code` field");
+      }
     });
 
     test("recovery loop is bounded by maxAttempts", async () => {
