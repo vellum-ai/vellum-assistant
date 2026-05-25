@@ -70,6 +70,7 @@ export const SLOW_LLM_JOB_TYPES: MemoryJobType[] = [
   "generate_conversation_starters",
   "memory_v2_sweep",
   "memory_v2_consolidate",
+  "memory_v3_consolidate",
   "memory_v2_migrate",
   "memory_retrospective",
   "backfill",
