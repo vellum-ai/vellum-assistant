@@ -21,12 +21,12 @@ import { z } from "zod";
 
 import type { MeetHostSupervisor } from "../../daemon/meet-host-supervisor.js";
 import { registerShutdownHook } from "../../daemon/shutdown-registry.js";
-import type { ToolDefinition } from "../../providers/types.js";
 import { registerSkillRoute } from "../../runtime/skill-route-registry.js";
 import { registerSkillTools } from "../../tools/registry.js";
 import type {
   ExecutionTarget,
   Tool,
+  ToolDefinition,
 } from "../../tools/types.js";
 import { RiskLevel } from "../../tools/types.js";
 import { getLogger } from "../../util/logger.js";
@@ -182,11 +182,11 @@ export function __getActiveSessionCountForTesting(): number {
  * exercised end-to-end.
  */
 function buildProxyTool(manifest: ToolManifest): Tool {
-  const definition: ToolDefinition = {
+  const definition = {
     name: manifest.name,
     description: manifest.description,
     input_schema: manifest.input_schema as object,
-  };
+  } satisfies ToolDefinition & { name: string };
   // RiskLevel is a string enum whose values are "low" | "medium" | "high",
   // matching the schema above exactly — the cast is a no-op at runtime.
   return {
