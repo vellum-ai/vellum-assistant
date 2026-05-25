@@ -21,7 +21,7 @@ import {
 } from "@/stores/event-bus-store.js";
 
 const { useAssistantSyncStream } = await import(
-  "@/domains/chat/hooks/use-assistant-sync-stream.js"
+  "@/hooks/use-assistant-sync-stream.js"
 );
 
 function createWrapper(queryClient: QueryClient) {

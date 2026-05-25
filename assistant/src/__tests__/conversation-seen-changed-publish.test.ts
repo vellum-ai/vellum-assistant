@@ -41,25 +41,46 @@ const mockRecordConversationSeenSignal = mock(
 );
 
 // Default to "was unseen" so the publish branch fires. Individual tests
-// override this when they need the no-publish path.
-const mockGetAttentionState = mock(() => {
-  const state = {
-    conversationId: "conv-1",
-    latestAssistantMessageId: "msg-latest",
-    latestAssistantMessageAt: 1700000000000,
-    lastSeenAssistantMessageId: null,
-    lastSeenAssistantMessageAt: null,
-    lastSeenEventAt: null,
-    lastSeenConfidence: null,
-    lastSeenSignalType: null,
-    lastSeenSourceChannel: null,
-    lastSeenSource: null,
-    lastSeenEvidenceText: null,
-    createdAt: 0,
-    updatedAt: 0,
-  };
-  return new Map([["conv-1", state]]);
-});
+// override this when they need the no-publish path. We type the mock
+// explicitly so `.mockImplementationOnce` overrides can return rows
+// with non-null `lastSeen*` fields without TypeScript narrowing every
+// nullable field to `null` from the default implementation.
+type MockAttentionRow = {
+  conversationId: string;
+  latestAssistantMessageId: string | null;
+  latestAssistantMessageAt: number | null;
+  lastSeenAssistantMessageId: string | null;
+  lastSeenAssistantMessageAt: number | null;
+  lastSeenEventAt: number | null;
+  lastSeenConfidence: string | null;
+  lastSeenSignalType: string | null;
+  lastSeenSourceChannel: string | null;
+  lastSeenSource: string | null;
+  lastSeenEvidenceText: string | null;
+  createdAt: number;
+  updatedAt: number;
+};
+
+const mockGetAttentionState = mock(
+  (): Map<string, MockAttentionRow> => {
+    const state: MockAttentionRow = {
+      conversationId: "conv-1",
+      latestAssistantMessageId: "msg-latest",
+      latestAssistantMessageAt: 1700000000000,
+      lastSeenAssistantMessageId: null,
+      lastSeenAssistantMessageAt: null,
+      lastSeenEventAt: null,
+      lastSeenConfidence: null,
+      lastSeenSignalType: null,
+      lastSeenSourceChannel: null,
+      lastSeenSource: null,
+      lastSeenEvidenceText: null,
+      createdAt: 0,
+      updatedAt: 0,
+    };
+    return new Map([["conv-1", state]]);
+  },
+);
 
 mock.module("../memory/conversation-attention-store.js", () => ({
   getAttentionStateByConversationIds: mockGetAttentionState,

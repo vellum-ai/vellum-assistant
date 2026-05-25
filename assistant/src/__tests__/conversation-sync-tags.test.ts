@@ -162,7 +162,15 @@ describe("conversation sync tags", () => {
     });
   });
 
-  test("record seen emits list invalidation and metadata sync tags for the touched conversation", async () => {
+  test("record seen emits a per-conversation seen_changed event and no list-level sync_changed", async () => {
+    // Seen state is per-conversation attention metadata, not list-shaped.
+    // The old behavior emitted `conversation_list_invalidated` + a
+    // `sync_changed` carrying the `conversationsList` tag, which forced
+    // every subscribed web client to redrain the full paginated sidebar
+    // on every conversation switch that landed on an unseen conversation
+    // (~14 requests at ~300 conversations). The current behavior emits a
+    // single `conversation_seen_changed` event with the canonical
+    // post-mutation state so clients can patch one cached row.
     const conversation = createConversation("Attention");
     projectAssistantMessage({
       conversationId: conversation.id,
@@ -181,22 +189,32 @@ describe("conversation sync tags", () => {
           source: "test",
         },
       });
-    }, 2);
+    }, 1);
 
     expect(received.map((event) => event.message.type)).toEqual([
-      "conversation_list_invalidated",
-      "sync_changed",
+      "conversation_seen_changed",
     ]);
-    expect(received[1]!.message).toEqual({
-      type: "sync_changed",
-      tags: [
-        SYNC_TAGS.conversationsList,
-        conversationMetadataSyncTag(conversation.id),
-      ],
+    expect(received[0]!.message).toMatchObject({
+      type: "conversation_seen_changed",
+      conversationId: conversation.id,
+      hasUnseenLatestAssistantMessage: false,
+      latestAssistantMessageAt: 1_700_000_000_000,
     });
+    // Defense-in-depth: no list-level fan-out under any tag.
+    expect(
+      received.some((event) => event.message.type === "sync_changed"),
+    ).toBe(false);
+    expect(
+      received.some(
+        (event) => event.message.type === "conversation_list_invalidated",
+      ),
+    ).toBe(false);
   });
 
-  test("mark unread emits list invalidation and metadata sync tags for the touched conversation", async () => {
+  test("mark unread emits a per-conversation seen_changed event and no list-level sync_changed", async () => {
+    // Symmetric with `record seen`: mark-unread flips the per-conversation
+    // hasUnseen flag back to true. Same per-conversation typed event,
+    // same absence of list-level invalidation.
     const conversation = createConversation("Attention");
     projectAssistantMessage({
       conversationId: conversation.id,
@@ -218,18 +236,24 @@ describe("conversation sync tags", () => {
           conversationId: conversation.id,
         },
       });
-    }, 2);
+    }, 1);
 
     expect(received.map((event) => event.message.type)).toEqual([
-      "conversation_list_invalidated",
-      "sync_changed",
+      "conversation_seen_changed",
     ]);
-    expect(received[1]!.message).toEqual({
-      type: "sync_changed",
-      tags: [
-        SYNC_TAGS.conversationsList,
-        conversationMetadataSyncTag(conversation.id),
-      ],
+    expect(received[0]!.message).toMatchObject({
+      type: "conversation_seen_changed",
+      conversationId: conversation.id,
+      hasUnseenLatestAssistantMessage: true,
+      latestAssistantMessageAt: 1_700_000_000_000,
     });
+    expect(
+      received.some((event) => event.message.type === "sync_changed"),
+    ).toBe(false);
+    expect(
+      received.some(
+        (event) => event.message.type === "conversation_list_invalidated",
+      ),
+    ).toBe(false);
   });
 });
