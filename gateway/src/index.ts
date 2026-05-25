@@ -564,10 +564,11 @@ async function main() {
       handler: (req) => handleInboundRegister(req),
     },
 
-    // ── Guardian channel creation (platform auto-verify via trusted proxy) ──
+    // ── Guardian channel creation (platform auto-verify) ──
     {
       path: "/v1/contacts/guardian/channel",
       method: "POST",
+      auth: "edge-guardian",
       handler: (req) => handleGuardianChannelCreate(req),
     },
 
