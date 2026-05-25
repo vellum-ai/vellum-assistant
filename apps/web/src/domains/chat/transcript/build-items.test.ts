@@ -267,33 +267,13 @@ describe("buildTranscriptItems", () => {
   });
 
   // ---------------------------------------------------------------------------
-  // Phantom tool-only message filter (ATL-659)
+  // Phantom tool-only message filter (ATL-659) — pass-through behaviour only
   //
-  // The daemon synthesises tool calls with `toolName === "unknown"` when a
-  // tool_result block has no matching tool_use (orphan). They arrive as
-  // empty user messages whose only payload is a list of unknown tool calls
-  // and would otherwise render as a confusing "Completed 1 step / Used
-  // unknown" chip. Drop them at the projection step.
+  // The drop-the-phantom logic now lives in `sanitizeDisplayMessages` and is
+  // exercised by `sanitize-display-messages.test.ts`. The tests below
+  // confirm that `buildTranscriptItems` does NOT mistakenly drop legitimate
+  // mixed-tool messages — the positive half of the original spec.
   // ---------------------------------------------------------------------------
-
-  test("phantom tool-only messages (all toolName === 'unknown') are dropped", () => {
-    const phantom = makeMessage({
-      id: "m1",
-      role: "user",
-      content: "",
-      stableId: "s-phantom",
-      toolCalls: [
-        { id: "tc-1", toolName: "unknown", input: {}, status: "completed", result: "orphan" },
-      ],
-    });
-
-    const items = buildTranscriptItems({
-      ...emptyInput(),
-      messages: [phantom],
-    });
-
-    expect(items).toHaveLength(0);
-  });
 
   test("mixed messages with unknown tool calls alongside content are kept", () => {
     const mixed = makeMessage({
@@ -407,64 +387,14 @@ describe("buildTranscriptItems", () => {
   });
 
   // ---------------------------------------------------------------------------
-  // Blank user-row filter — pagination-boundary orphans
+  // Blank user-row filter — pass-through behaviour only
   //
-  // At a history-pagination boundary, the runtime keeps tool_result-only
-  // user rows even when their parent tool_use lives on a previous page
-  // (to avoid permanent data loss). `renderHistoryContent` then drops the
-  // orphan tool_result block, leaving the row on the wire with no content,
-  // no segments, no surfaces, no attachments, and no tool calls — a blank
-  // user bubble. The projection layer drops these so they don't render.
+  // The drop-blank-rows logic now lives in `sanitizeDisplayMessages` and is
+  // exercised by `sanitize-display-messages.test.ts`. The tests below
+  // confirm that `buildTranscriptItems` does NOT mistakenly drop legitimate
+  // user rows whose `content` is empty but which carry segments, surfaces,
+  // attachments, or are in a queued state — the positive half of the spec.
   // ---------------------------------------------------------------------------
-
-  test("truly blank user rows (no content, no segments, no surfaces, no attachments, no tool calls) are dropped", () => {
-    const blank = makeMessage({
-      id: "m1",
-      role: "user",
-      content: "",
-      stableId: "s-blank-server",
-    });
-
-    const items = buildTranscriptItems({
-      ...emptyInput(),
-      messages: [blank],
-    });
-
-    expect(items).toHaveLength(0);
-  });
-
-  test("blank user rows with whitespace-only content are dropped", () => {
-    const whitespace = makeMessage({
-      id: "m1",
-      role: "user",
-      content: "   \n\t  ",
-      stableId: "s-blank-ws",
-    });
-
-    const items = buildTranscriptItems({
-      ...emptyInput(),
-      messages: [whitespace],
-    });
-
-    expect(items).toHaveLength(0);
-  });
-
-  test("blank user rows with empty textSegments are dropped", () => {
-    const emptySegments = makeMessage({
-      id: "m1",
-      role: "user",
-      content: "",
-      stableId: "s-empty-segments",
-      textSegments: [{ type: "text", content: "" }],
-    });
-
-    const items = buildTranscriptItems({
-      ...emptyInput(),
-      messages: [emptySegments],
-    });
-
-    expect(items).toHaveLength(0);
-  });
 
   test("user rows with non-empty textSegments are kept (even if content is empty)", () => {
     // Some history paths populate textSegments instead of (or in addition to)

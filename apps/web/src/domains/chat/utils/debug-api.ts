@@ -39,6 +39,7 @@ import type {
 } from "@/domains/chat/types/chat-ui-types.js";
 import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics.js";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
+import { sanitizeDisplayMessages } from "@/domains/chat/utils/sanitize-display-messages.js";
 import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation.js";
 import {
   classifyScrollPosition,
@@ -379,7 +380,13 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
       Number.isFinite(limit) && limit > 0
         ? Math.floor(limit)
         : DEFAULT_TAIL_LIMIT;
-    const messages = refs.messagesRef.current ?? [];
+    // Sanitize so `tail()` returns the same array the UI ends up rendering
+    // (the chat-route render path also pipes `messages` through
+    // `sanitizeDisplayMessages`). Without this we'd surface trailing
+    // duplicates / blank rows that the UI is intentionally filtering out,
+    // which would be misleading when triaging "why does my chat look like X"
+    // reports.
+    const messages = sanitizeDisplayMessages(refs.messagesRef.current ?? []);
     const startIndex = Math.max(0, messages.length - safeLimit);
     return messages.slice(startIndex);
   }
