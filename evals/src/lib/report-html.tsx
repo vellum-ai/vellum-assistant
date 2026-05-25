@@ -10,6 +10,7 @@ import type {
   UsageSummary,
 } from "./metrics";
 import type {
+  DockerArtifactFile,
   ReportRunDetail,
   ReportSessionDetail,
   ReportSessionSummary,
@@ -838,6 +839,36 @@ function SubprocessLog({ log }: { log: SubprocessLogFile }) {
   );
 }
 
+/**
+ * Inline view of one docker-forensics artifact. JSON inspects are
+ * pretty-printed so a `State.Error` / `ExitCode` / port-binding diff
+ * lands on its own line; plain-text logs are rendered verbatim. Both
+ * variants live in the same `<pre>` so the section reads top-to-bottom
+ * like the subprocess log section right below it.
+ *
+ * Falls back to a one-line "(empty)" stub when the file existed but
+ * was zero-length (best-effort write path swallows errors, and
+ * `docker logs` on a never-started container returns empty stdout).
+ */
+function DockerArtifact({ artifact }: { artifact: DockerArtifactFile }) {
+  const content = artifact.content;
+  if (content.length === 0) {
+    return <div className="subprocess-log-empty">(empty)</div>;
+  }
+  let body = content;
+  if (artifact.kind === "json") {
+    try {
+      const parsed: unknown = JSON.parse(content);
+      body = JSON.stringify(parsed, null, 2);
+    } catch {
+      // Malformed JSON (e.g. truncated `docker inspect` mid-write) —
+      // render the raw bytes so the operator can still see what was
+      // captured instead of replacing the whole snapshot with an error.
+    }
+  }
+  return <pre className="log docker-artifact-body">{body}</pre>;
+}
+
 function RunnerLogs({ events }: { events: PersistedProgressEvent[] }) {
   if (events.length === 0) {
     return (
@@ -947,22 +978,30 @@ function ExecutionPage({ run }: { run: ReportRunDetail }) {
           <h2>Docker snapshot</h2>
           <p className="section-subtle">
             Container forensics captured at hatch failure, before{" "}
-            <code>vellum retire</code> removed the container.
+            <code>vellum retire</code> removed the container. Each block is the
+            full <code>docker inspect</code> /{" "}
+            <code>docker logs --tail 200</code> for a sibling container (
+            <code>assistant</code> / <code>gateway</code> /{" "}
+            <code>credential-executor</code>), inlined here so port collisions
+            and crash exits land in the same scroll as the subprocess logs
+            below.
           </p>
-          <ul className="artifact-list">
-            {run.dockerArtifacts.map((name) => (
-              <li key={name}>
+          {run.dockerArtifacts.map((artifact) => (
+            <div key={artifact.name} className="subprocess-log-block">
+              <div className="subprocess-log-head">
+                <strong>{artifact.name}</strong>
                 <a
-                  className="artifact-link"
-                  href={`/api/runs/${encodeURIComponent(run.runId)}/files/${encodeURIComponent(name)}`}
+                  className="raw-link"
+                  href={`/api/runs/${encodeURIComponent(run.runId)}/files/${encodeURIComponent(artifact.name)}`}
                   target="_blank"
                   rel="noopener"
                 >
-                  {name}
+                  raw
                 </a>
-              </li>
-            ))}
-          </ul>
+              </div>
+              <DockerArtifact artifact={artifact} />
+            </div>
+          ))}
         </section>
       )}
 

@@ -343,22 +343,52 @@ describe("report html", () => {
     }
   });
 
-  test("execution page surfaces docker forensics artifacts as links to the file endpoint", () => {
+  test("execution page inlines docker forensics in the same block shape as subprocess logs", () => {
+    // Vargas's request: the Docker snapshot section reads in the same
+    // scroll as the subprocess logs below it — no clicking through to
+    // a raw file just to see why hatch crashed. JSON inspects are
+    // pretty-printed; text logs render verbatim. A sibling `raw` link
+    // still points at the file endpoint for downloads / large logs.
+    const inspectContent = JSON.stringify({
+      State: { ExitCode: 137, OOMKilled: true },
+      HostConfig: { PortBindings: { "8000/tcp": [{ HostPort: "8000" }] } },
+    });
+    const logsContent =
+      "2026-05-25T00:25:30Z fatal: bind: address already in use\n";
     const html = renderReportPage({
       kind: "execution",
       run: {
         ...executionDetail,
         status: "failed",
-        dockerArtifacts: ["docker-inspect.json", "docker-logs.txt"],
+        dockerArtifacts: [
+          {
+            name: "docker-inspect-assistant.json",
+            content: inspectContent,
+            kind: "json",
+          },
+          {
+            name: "docker-logs-assistant.txt",
+            content: logsContent,
+            kind: "text",
+          },
+        ],
       },
     });
     expect(html).toContain("Docker snapshot");
-    expect(html).toContain("docker-inspect.json");
+    // Filename labels above each block.
+    expect(html).toContain("docker-inspect-assistant.json");
+    expect(html).toContain("docker-logs-assistant.txt");
+    // Inline content — pretty-printed JSON keys + the actual log line,
+    // not just the filename or a link.
+    expect(html).toContain("OOMKilled");
+    expect(html).toContain("ExitCode");
+    expect(html).toContain("bind: address already in use");
+    // Raw download links still emitted as a sibling per block.
     expect(html).toContain(
-      `/api/runs/${encodeURIComponent(executionDetail.runId)}/files/docker-inspect.json`,
+      `/api/runs/${encodeURIComponent(executionDetail.runId)}/files/docker-inspect-assistant.json`,
     );
     expect(html).toContain(
-      `/api/runs/${encodeURIComponent(executionDetail.runId)}/files/docker-logs.txt`,
+      `/api/runs/${encodeURIComponent(executionDetail.runId)}/files/docker-logs-assistant.txt`,
     );
   });
 

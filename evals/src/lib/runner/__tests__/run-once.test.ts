@@ -1,9 +1,26 @@
 import { describe, expect, test } from "bun:test";
 
-import type { AgentEvent } from "../../adapter";
-import { ensureRunArtifacts, readTranscript, readUsage } from "../../metrics";
+import type {
+  AgentEvent,
+  AgentHatchInput,
+  AgentMessage,
+  BaseAgent,
+} from "../../adapter";
+import {
+  ensureRunArtifacts,
+  readRunMetadata,
+  readTranscript,
+  readUsage,
+} from "../../metrics";
+import type { Profile } from "../../profile";
+import type { Simulator, SimulatorDecision } from "../../simulator/types";
+import type { TestDef } from "../../test-def";
 import { AgentEventCollector } from "../event-collector";
-import { assistantContent, collectAndPersistEvents } from "../run-once";
+import {
+  assistantContent,
+  collectAndPersistEvents,
+  runEvalOnce,
+} from "../run-once";
 
 function event(message: AgentEvent["message"]): AgentEvent {
   return { message };
@@ -271,5 +288,123 @@ describe("collectAndPersistEvents", () => {
     expect(result.eventCount).toBe(1);
     expect(result.transcriptTurnCount).toBe(0);
     expect(await readTranscript(runId)).toEqual([]);
+  });
+});
+
+/**
+ * Minimal `BaseAgent` stub that throws on `hatch()` and tracks whether
+ * `shutdown()` was invoked. Used by the regression test below to verify
+ * that the catch + finally blocks in `runEvalOnce` see the throw — pre-
+ * fix, `agent.hatch()` lived outside the try, so neither block ran.
+ */
+function throwingHatchAgent(input: AgentHatchInput): {
+  agent: BaseAgent;
+  shutdownCalls: number[];
+} {
+  const tracker = { count: 0 };
+  const agent: BaseAgent = {
+    id: input.runId ?? "throwing-agent",
+    conversationKey: `evals:test:${input.runId ?? "throwing-agent"}`,
+    async hatch(): Promise<void> {
+      throw new Error("simulated post-hatch failure (e.g. jail apply)");
+    },
+    async send(_message: AgentMessage): Promise<void> {
+      throw new Error("unreachable: hatch already threw");
+    },
+    async runSetupCommand(): Promise<void> {
+      throw new Error("unreachable: hatch already threw");
+    },
+    events(): AsyncIterable<AgentEvent> {
+      throw new Error("unreachable: hatch already threw");
+    },
+    async shutdown(): Promise<void> {
+      tracker.count += 1;
+    },
+  };
+  return {
+    agent,
+    get shutdownCalls() {
+      return [tracker.count];
+    },
+  };
+}
+
+function fakeProfile(id: string): Profile {
+  return {
+    id,
+    manifest: { species: "vellum" },
+    workspaceDir: `/tmp/${id}`,
+  };
+}
+
+function fakeTestDef(id: string): TestDef {
+  return {
+    id,
+    specPath: `/tmp/${id}/SPEC.md`,
+    setupPath: `/tmp/${id}/setup.ts`,
+    setupCommands: [],
+    metricsDir: `/tmp/${id}/metrics`,
+    metricPaths: [],
+  };
+}
+
+/**
+ * Regression: pre-fix, `await agent.hatch()` sat OUTSIDE the try/catch/
+ * finally in `runEvalOnce`, between `writeRunMetadata({status:"running"})`
+ * and the try block. Any throw from inside `agent.hatch()` (jail-apply
+ * failure, setup-command failure inside `VellumAgent.hatch`) bypassed:
+ *
+ *   - The catch that writes `status: "failed"` + the error message.
+ *   - The finally that clears the heartbeat interval AND runs the
+ *     `status === "running"` safety-net write.
+ *
+ * The on-disk run was therefore left `status: "running"` with a fresh
+ * heartbeat, and the scavenger in the *next* `evals run` invocation
+ * surfaced it as `Process exited without completing (last heartbeat: …)`
+ * — opaque to the operator. Vargas's 2026-05-25 timeline-recall report
+ * was exactly this shape.
+ */
+describe("runEvalOnce — hatch failure metadata", () => {
+  // Stand-in `Simulator` that satisfies the constructor inside
+  // `runEvalOnce` without reaching for `ANTHROPIC_API_KEY` (the real
+  // `UserSimulator` ctor requires it and would mask the bug under test
+  // with an unrelated throw). The decide() method is unreachable
+  // because hatch throws first.
+  const inertSimulator: Simulator = {
+    async decide(): Promise<SimulatorDecision> {
+      return { action: "end", reason: "unreachable in hatch-throw test" };
+    },
+  };
+
+  test("writes status:'failed' (not 'running') when agent.hatch() throws", async () => {
+    const runId = `test-hatch-throw-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const harness = throwingHatchAgent({
+      profile: fakeProfile("p-fake"),
+      testId: "t-fake",
+      runId,
+    });
+
+    await expect(
+      runEvalOnce({
+        profile: fakeProfile("p-fake"),
+        test: fakeTestDef("t-fake"),
+        runId,
+        agentFactory: () => harness.agent,
+        simulator: inertSimulator,
+      }),
+    ).rejects.toThrow("simulated post-hatch failure");
+
+    const metadata = await readRunMetadata(runId);
+    expect(metadata).toBeDefined();
+    // The exact-value assertion is the regression: pre-fix this would
+    // be `"running"` because the catch never ran.
+    expect(metadata?.status).toBe("failed");
+    expect(metadata?.completedAt).toBeDefined();
+    expect(metadata?.error ?? "").toContain("simulated post-hatch failure");
+
+    // Finally block ran → shutdown was called even on the throw path.
+    // This is the second leg of the bug fix: without it, hatch failures
+    // would leak any partial container state to the next run.
+    expect(harness.shutdownCalls[0]).toBe(1);
   });
 });
