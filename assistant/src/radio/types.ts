@@ -20,17 +20,40 @@ export interface RadioTrack {
 }
 
 export interface RadioAdvanceRequest {
+  segmentId?: string;
   currentTrackId?: string;
   recentTrackIds?: readonly string[];
   reason: RadioAdvanceReason;
+  locale?: string;
 }
 
 export interface RadioAdvanceResponse {
-  plan: RadioPlaybackPlan;
+  segmentId: string;
+  displayCue: RadioDisplayCue;
+  track: RadioTrack;
+  playbackPlan: RadioPlaybackPlan;
+  djBreak?: RadioDjBreak;
+  setup?: RadioSetup;
 }
 
 export interface RadioPlaybackPlan {
   track: RadioTrack;
   displayCue: RadioDisplayCue;
   reason: RadioAdvanceReason;
+  djBreak?: RadioDjBreak;
+}
+
+export interface RadioDjBreak {
+  text: string;
+  audioPath: string;
+  audioId: string;
+  contentType: string;
+}
+
+export type RadioSetupReason = "tts_not_configured" | "tts_unavailable";
+
+export interface RadioSetup {
+  reason: RadioSetupReason;
+  settingsPath: "/assistant/settings/ai";
+  message: string;
 }

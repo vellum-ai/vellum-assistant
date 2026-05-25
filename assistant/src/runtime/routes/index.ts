@@ -106,6 +106,7 @@ import { ROUTES as PROFILER_ROUTES } from "./profiler-routes.js";
 import { ROUTES as PS_ROUTES } from "./ps-routes.js";
 import { ROUTES as PUBLISH_ROUTES } from "./publish-routes.js";
 import { ROUTES as QUESTION_ROUTES } from "./question-routes.js";
+import { ROUTES as RADIO_ROUTES } from "./radio-routes.js";
 import { ROUTES as RECORDING_ROUTES } from "./recording-routes.js";
 import { ROUTES as RENAME_CONVERSATION_ROUTES } from "./rename-conversation-routes.js";
 import { ROUTES as SANITY_ROUTES } from "./sanity-routes.js";
@@ -232,6 +233,7 @@ export const ROUTES: RouteDefinition[] = [
   ...PS_ROUTES,
   ...PUBLISH_ROUTES,
   ...QUESTION_ROUTES,
+  ...RADIO_ROUTES,
   ...RECORDING_ROUTES,
   ...RENAME_CONVERSATION_ROUTES,
   ...SCHEDULE_ROUTES,
