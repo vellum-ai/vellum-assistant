@@ -145,7 +145,7 @@ describe("createSkillTool", () => {
       "v1:test",
     );
 
-    const def = tool.getDefinition();
+    const def = tool;
 
     expect(def.name).toBe("web_scrape");
     expect(def.description).toBe("Scrape a URL");

@@ -1,5 +1,4 @@
 import { RiskLevel } from "../../permissions/types.js";
-import type { ToolDefinition } from "../../providers/types.js";
 import { registerTool } from "../registry.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 
@@ -59,11 +58,7 @@ class RequestSystemPermissionTool implements Tool {
   category = "system";
   defaultRiskLevel = RiskLevel.High;
 
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
+  input_schema = {
         type: "object",
         properties: {
           permission_type: {
@@ -78,9 +73,7 @@ class RequestSystemPermissionTool implements Tool {
           },
         },
         required: ["permission_type", "activity"],
-      },
-    };
-  }
+      };
 
   async execute(
     input: Record<string, unknown>,

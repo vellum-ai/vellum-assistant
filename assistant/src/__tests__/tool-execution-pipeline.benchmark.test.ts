@@ -421,11 +421,7 @@ describe("Tool execution pipeline benchmark", () => {
         description: `Benchmark tool (${sleepMs}ms)`,
         category: "benchmark",
         defaultRiskLevel: RiskLevel.Low,
-        getDefinition: () => ({
-          name,
-          description: `Benchmark tool (${sleepMs}ms)`,
-          input_schema: { type: "object" as const, properties: {} },
-        }),
+        input_schema: { type: "object" as const, properties: {} },
         execute: async (): Promise<ToolExecutionResult> => {
           if (sleepMs > 0) {
             await new Promise((r) => setTimeout(r, sleepMs));

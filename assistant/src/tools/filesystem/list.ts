@@ -1,5 +1,4 @@
 import { RiskLevel } from "../../permissions/types.js";
-import type { ToolDefinition } from "../../providers/types.js";
 import { registerTool } from "../registry.js";
 import { FileSystemOps } from "../shared/filesystem/file-ops-service.js";
 import { sandboxPolicy } from "../shared/filesystem/path-policy.js";
@@ -12,11 +11,7 @@ class FileListTool implements Tool {
   category = "filesystem";
   defaultRiskLevel = RiskLevel.Low;
 
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
+  input_schema = {
         type: "object",
         properties: {
           path: {
@@ -34,9 +29,7 @@ class FileListTool implements Tool {
           },
         },
         required: ["path", "activity"],
-      },
-    };
-  }
+      };
 
   async execute(
     input: Record<string, unknown>,

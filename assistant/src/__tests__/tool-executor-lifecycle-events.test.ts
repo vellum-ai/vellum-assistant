@@ -95,7 +95,7 @@ mock.module("../tools/registry.js", () => ({
         origin: "skill" as const,
         ownerSkillId: "test-skill",
         executionTarget: "host" as const,
-        getDefinition: () => ({}),
+        input_schema: {},
         execute: async () => {
           if (toolThrow) throw toolThrow;
           return fakeToolResult;
@@ -111,7 +111,7 @@ mock.module("../tools/registry.js", () => ({
         origin: "skill" as const,
         ownerSkillId: "test-skill",
         executionTarget: "sandbox" as const,
-        getDefinition: () => ({}),
+        input_schema: {},
         execute: async () => {
           if (toolThrow) throw toolThrow;
           return fakeToolResult;
@@ -129,7 +129,7 @@ mock.module("../tools/registry.js", () => ({
         origin: "skill" as const,
         ownerSkillId: "test-skill",
         executionTarget: "sandbox" as const,
-        getDefinition: () => ({}),
+        input_schema: {},
         execute: async () => {
           if (toolThrow) throw toolThrow;
           return fakeToolResult;
@@ -141,7 +141,7 @@ mock.module("../tools/registry.js", () => ({
       description: "test tool",
       category: "test",
       defaultRiskLevel: "low",
-      getDefinition: () => ({}),
+      input_schema: {},
       execute: async () => {
         if (toolThrow) throw toolThrow;
         return fakeToolResult;

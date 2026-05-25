@@ -50,7 +50,7 @@ import { z } from "zod";
 
 import assistantPkg from "../../package.json" with { type: "json" };
 import type {
-  LoadedPluginTool,
+  LoadedTool,
   RiskLevel,
   ToolDefinition,
   ToolExecutionResult,
@@ -144,12 +144,12 @@ export const PLUGIN_TOOL_DEFAULTS = Object.freeze({
 /**
  * Fill the four normally-required {@link ToolDefinition} fields with
  * documented defaults when the author omitted them. Returns a
- * {@link LoadedPluginTool} that is safe to register.
+ * {@link LoadedTool} that is safe to register.
  */
 function applyPluginToolDefaults(
   tool: ToolDefinition,
   name: string,
-): LoadedPluginTool {
+): LoadedTool {
   const description =
     typeof tool.description === "string"
       ? tool.description

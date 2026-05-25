@@ -264,7 +264,7 @@ describe("host_bash — baseline: no sandbox isolation", () => {
 // These tests lock that boundary so any accidental addition is caught.
 
 describe("host_bash — regression: no proxied-mode additions", () => {
-  const definition = hostShellTool.getDefinition();
+  const definition = hostShellTool;
   const schemaProps = (definition.input_schema as Record<string, unknown>)
     .properties as Record<string, unknown>;
 

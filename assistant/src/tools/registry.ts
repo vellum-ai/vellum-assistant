@@ -10,7 +10,7 @@ import { hostFileWriteTool } from "./host-filesystem/write.js";
 import { hostShellTool } from "./host-terminal/host-shell.js";
 import { toProviderSafeToolName } from "./provider-tool-name.js";
 import { registerSystemTools } from "./system/register.js";
-import type { LoadedPluginTool, Tool } from "./types.js";
+import type { LoadedTool, Tool } from "./types.js";
 import { allUiSurfaceTools } from "./ui-surface/definitions.js";
 import { registerUiSurfaceTools } from "./ui-surface/registry.js";
 
@@ -85,12 +85,6 @@ function withProviderSafeToolName(tool: Tool): Tool {
   return {
     ...tool,
     name: safeName,
-    getDefinition(): ToolDefinition {
-      return {
-        ...tool.getDefinition(),
-        name: safeName,
-      };
-    },
   };
 }
 
@@ -193,12 +187,11 @@ export function registerSkillTools(newTools: Tool[]): Tool[] {
  */
 export function registerPluginTools(
   pluginName: string,
-  newTools: LoadedPluginTool[],
+  newTools: LoadedTool[],
 ): Tool[] {
   const stamped: Tool[] = newTools.map((pluginTool) => {
-    const { input_schema, ...rest } = pluginTool;
     const tool: Tool = {
-      ...rest,
+      ...pluginTool,
       category: "plugin",
       origin: "plugin" as const,
       ownerPluginId: pluginName,
@@ -206,13 +199,6 @@ export function registerPluginTools(
       ownerMcpServerId: undefined,
       ownerSkillBundled: undefined,
       ownerSkillVersionHash: undefined,
-      getDefinition(): ToolDefinition {
-        return {
-          name: pluginTool.name,
-          description: pluginTool.description,
-          input_schema,
-        };
-      },
     };
     return withProviderSafeToolName(tool);
   });
@@ -399,9 +385,7 @@ export function unregisterAllMcpTools(): void {
  * were registered after session creation (e.g. via `vellum mcp reload`).
  */
 export function getMcpToolDefinitions(): ToolDefinition[] {
-  return Array.from(tools.values())
-    .filter((t) => t.origin === "mcp")
-    .map((t) => t.getDefinition());
+  return Array.from(tools.values()).filter((t) => t.origin === "mcp");
 }
 
 /**
@@ -428,9 +412,9 @@ export function getAllToolDefinitions(): ToolDefinition[] {
   // the base tool list, which is shared across sessions via the global
   // registry.  Including them here causes "Tool names must be unique"
   // errors when the projection appends the same tools a second time.
-  return getAllTools()
-    .filter((t) => t.executionMode !== "proxy" && t.origin !== "skill")
-    .map((t) => t.getDefinition());
+  return getAllTools().filter(
+    (t) => t.executionMode !== "proxy" && t.origin !== "skill",
+  );
 }
 
 export async function initializeTools(): Promise<void> {

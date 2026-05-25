@@ -15,10 +15,7 @@ import type { InterfaceId } from "../channels/types.js";
 import type { CesClient } from "../credential-execution/client.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import type { SecretPromptResult } from "../permissions/secret-prompter.js";
-import type {
-  ContentBlock,
-  ToolDefinition as ProviderToolSchema,
-} from "../providers/types.js";
+import type { ContentBlock } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 
 export const DISK_PRESSURE_CLEANUP_TOOL_NAMES: ReadonlySet<string> = new Set([
@@ -319,11 +316,26 @@ export interface ToolContext {
   sourceActorPrincipalId?: string;
 }
 
-export interface Tool {
-  name: string;
-  description: string;
+/**
+ * Author-facing tool spec — re-exported from `@vellumai/plugin-api`.
+ * The loader fills documented defaults for omitted fields; see
+ * `applyPluginToolDefaults` in `external-plugin-loader.ts`.
+ */
+export interface ToolDefinition {
+  description?: string;
+  defaultRiskLevel?: RiskLevel;
+  input_schema?: object;
+  execute?: (
+    input: Record<string, unknown>,
+    context: ToolContext,
+  ) => Promise<ToolExecutionResult>;
+}
+
+/** Tool after the loader has derived its name and filled defaults. */
+export type LoadedTool = Required<ToolDefinition> & { name: string };
+
+export interface Tool extends LoadedTool {
   category: string;
-  defaultRiskLevel: RiskLevel;
   /** When set to 'proxy', the tool is forwarded to a connected client rather than executed locally. */
   executionMode?: "local" | "proxy";
   /** Whether this tool is a core built-in, provided by a skill, contributed by a plugin, or from an MCP server. */
@@ -341,27 +353,4 @@ export interface Tool {
   /** Declared execution target from the skill manifest. Used by resolveExecutionTarget
    * to accurately label lifecycle events for skill-provided tools. */
   executionTarget?: ExecutionTarget;
-  getDefinition(): ProviderToolSchema;
-  execute(
-    input: Record<string, unknown>,
-    context: ToolContext,
-  ): Promise<ToolExecutionResult>;
 }
-
-/**
- * Author-facing tool spec — re-exported from `@vellumai/plugin-api`.
- * The loader fills documented defaults for omitted fields; see
- * `applyPluginToolDefaults` in `external-plugin-loader.ts`.
- */
-export interface ToolDefinition {
-  description?: string;
-  defaultRiskLevel?: RiskLevel;
-  input_schema?: object;
-  execute?: (
-    input: Record<string, unknown>,
-    context: ToolContext,
-  ) => Promise<ToolExecutionResult>;
-}
-
-/** Plugin tool after the external loader has derived its name and filled defaults. */
-export type LoadedPluginTool = Required<ToolDefinition> & { name: string };

@@ -135,11 +135,7 @@ const mockSkillTool: Tool = {
   defaultRiskLevel: RiskLevel.Low,
   origin: "skill",
   ownerSkillId: "test-skill",
-  getDefinition: () => ({
-    name: "skill_test_tool",
-    description: "A test skill tool",
-    input_schema: { type: "object" as const, properties: {} },
-  }),
+  input_schema: { type: "object" as const, properties: {} },
   execute: async () => ({ content: "ok", isError: false }),
 };
 registerTool(mockSkillTool);
@@ -153,11 +149,7 @@ const mockBundledSkillTool: Tool = {
   origin: "skill",
   ownerSkillId: "gmail",
   ownerSkillBundled: true,
-  getDefinition: () => ({
-    name: "skill_bundled_test_tool",
-    description: "A test bundled skill tool",
-    input_schema: { type: "object" as const, properties: {} },
-  }),
+  input_schema: { type: "object" as const, properties: {} },
   execute: async () => ({ content: "ok", isError: false }),
 };
 registerTool(mockBundledSkillTool);
@@ -393,11 +385,7 @@ describe("Permission Checker", () => {
         defaultRiskLevel: RiskLevel.Medium,
         origin: "skill",
         ownerSkillId: "test-skill",
-        getDefinition: () => ({
-          name: "skill_medium_tool",
-          description: "A medium-risk skill tool",
-          input_schema: { type: "object" as const, properties: {} },
-        }),
+        input_schema: { type: "object" as const, properties: {} },
         execute: async () => ({ content: "ok", isError: false }),
       };
       registerTool(mediumSkillTool);

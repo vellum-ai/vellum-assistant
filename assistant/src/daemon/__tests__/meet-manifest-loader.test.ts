@@ -183,7 +183,7 @@ describe("loadMeetManifestProxies", () => {
     expect(t.ownerSkillId).toBe("meet-join");
     expect(t.ownerSkillBundled).toBe(true);
     expect(t.ownerSkillVersionHash).toBe(FIXTURE_MANIFEST.sourceHash);
-    expect(t.getDefinition().input_schema).toEqual(
+    expect(t.input_schema).toEqual(
       FIXTURE_MANIFEST.tools[0]!.input_schema,
     );
   });

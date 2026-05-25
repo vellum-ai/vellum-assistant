@@ -12,7 +12,7 @@ export const ACTIVITY_SKIP_SET = new Set<string>();
  * or has a non-object schema.
  *
  * CRITICAL: Never mutates the input definitions - always returns deep clones
- * for any modified definition, since `getDefinition()` returns shared refs.
+ * for any modified definition, since `Tool.input_schema` is a shared ref.
  */
 export function injectActivityField(
   definitions: ToolDefinition[],

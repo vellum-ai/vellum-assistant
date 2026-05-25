@@ -3,7 +3,6 @@ import { join, resolve, sep } from "node:path";
 import { enqueuePkbIndexJob } from "../../memory/jobs/embed-pkb-file.js";
 import { PKB_WORKSPACE_SCOPE } from "../../memory/pkb/types.js";
 import { RiskLevel } from "../../permissions/types.js";
-import type { ToolDefinition } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { registerTool } from "../registry.js";
@@ -37,11 +36,7 @@ class FileWriteTool implements Tool {
   category = "filesystem";
   defaultRiskLevel = RiskLevel.Low;
 
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
+  input_schema = {
         type: "object",
         properties: {
           path: {
@@ -60,9 +55,7 @@ class FileWriteTool implements Tool {
           },
         },
         required: ["path", "content", "activity"],
-      },
-    };
-  }
+      };
 
   async execute(
     input: Record<string, unknown>,
