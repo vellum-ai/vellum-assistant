@@ -72,6 +72,7 @@ import { useDeployStore } from "@/domains/chat/deploy-store.js";
 import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
 import type { SubagentEntry, SubagentState } from "@/domains/subagents/subagent-store.js";
 import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/utils/reconcile.js";
+import { sortedByTimestamp } from "@/domains/chat/utils/message-sorting.js";
 import { buildTranscriptItems } from "@/domains/chat/transcript/build-items.js";
 import type { TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
 import type { HistoryPaginationResult } from "@/domains/chat/transcript/use-history-pagination.js";
@@ -773,10 +774,25 @@ export function ChatRouteContent({
 
   const thinkingLabel = getThinkingStatusText(turnState);
 
+  // Defensive ascending-timestamp sort at the render boundary. The internal
+  // mutators (`setMessages` in stream handlers, `reconcile`, etc.) try to
+  // keep the array sorted, but a handful of paths can land rows out of
+  // order — multi-row server clusters with the same `daemonMessageId`, a
+  // late tool-result event for an earlier bubble, history pages stitched
+  // around an in-flight stream, etc. Sorting here guarantees the user
+  // always sees messages in chronological order, regardless of which write
+  // path landed last. The deeper fix (server-side cluster merging so the
+  // client never sees the fragmented rows) is tracked separately.
+  //
+  // `sortedByTimestamp` is stable: rows without a `timestamp` keep their
+  // original slot, and equal timestamps preserve insertion order, so
+  // streaming bubbles don't flicker.
+  const sortedMessages = useMemo(() => sortedByTimestamp(messages), [messages]);
+
   const transcriptItems = useMemo(
     () =>
       buildTranscriptItems({
-        messages,
+        messages: sortedMessages,
         pendingSecret: pendingSecret
           ? { requestId: pendingSecret.requestId }
           : null,
@@ -800,7 +816,7 @@ export function ChatRouteContent({
         showOnboardingChoice,
       }),
     [
-      messages,
+      sortedMessages,
       pendingSecret,
       pendingConfirmation,
       inlineConfirmationAttached,
@@ -1313,7 +1329,7 @@ export function ChatRouteContent({
     <SlackChannelFooter
       assistantId={assistantId ?? undefined}
       conversation={activeConversation}
-      messages={messages}
+      messages={sortedMessages}
     />
   );
 
