@@ -16,7 +16,9 @@
     "isolatedModules": true,
     "types": ["bun"],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@vellumai/assistant-api": ["../../assistant/src/api/index.ts"],
+      "zod": ["./node_modules/zod/index.d.cts"]
     }
   },
   "include": [

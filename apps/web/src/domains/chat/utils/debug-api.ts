@@ -691,6 +691,7 @@ const EVENTS_NS = "events";
 interface VellumDebugRoot extends Record<string, unknown> {
   [EVENTS_NS]?: ChatDebugEventsApi;
   [CHAT_NS]?: ChatDebugApi;
+  api?: typeof import("@vellumai/assistant-api");
 }
 
 declare global {

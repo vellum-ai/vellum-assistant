@@ -6,10 +6,13 @@
  * consumed by event-parser.ts and the stream handler domain modules.
  */
 
+import type { RelationshipStateUpdated } from "@vellumai/assistant-api";
 import type { DiskPressureStatus } from "@/assistant/types.js";
 import type { Surface } from "@/domains/chat/types/types.js";
 import type { ToolActivityMetadata } from "@/assistant/web-activity-types.js";
 import type { SyncChangedEvent } from "@/lib/sync/types.js";
+
+export type { RelationshipStateUpdated };
 
 /** Data needed to render an inline permission prompt inside a ToolCallChip. */
 export interface PendingToolConfirmation {
@@ -452,12 +455,6 @@ export interface HomeFeedUpdatedEvent {
   conversationId?: string;
 }
 
-export interface RelationshipStateUpdatedEvent {
-  type: "relationship_state_updated";
-  updatedAt: string;
-  conversationId?: string;
-}
-
 // ---------------------------------------------------------------------------
 // Subagent event types
 // ---------------------------------------------------------------------------
@@ -788,7 +785,7 @@ export type AssistantEvent =
   | MessageRequestCompleteEvent
   | AssistantSyncChangedEvent
   | HomeFeedUpdatedEvent
-  | RelationshipStateUpdatedEvent
+  | RelationshipStateUpdated
   | SubagentSpawnedEvent
   | SubagentStatusChangedEvent
   | SubagentEventWrapperEvent

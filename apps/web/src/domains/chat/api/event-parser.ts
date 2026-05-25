@@ -27,6 +27,7 @@ import type {
   SubagentStatus,
   UISurfaceShowEvent,
 } from "@/domains/chat/api/event-types.js";
+import { RelationshipStateUpdatedSchema } from "@vellumai/assistant-api";
 import type { DisplayAttachment } from "@/domains/chat/types/types.js";
 import type { ToolActivityMetadata } from "@/assistant/web-activity-types.js";
 import type { SyncInvalidationTag } from "@/lib/sync/types.js";
@@ -48,9 +49,8 @@ function withParsedConversationId<T extends AssistantEvent>(
   data: Record<string, unknown>,
 ): T {
   const conversationId = readEventConversationId(data);
-  if (!conversationId || event.conversationId) {
-    return event;
-  }
+  if (!conversationId) return event;
+  if ("conversationId" in event && event.conversationId) return event;
   return { ...event, conversationId } as T;
 }
 
@@ -576,11 +576,14 @@ export function parseAssistantEvent(
         newItemCount: typeof data.newItemCount === "number" ? data.newItemCount : 0,
       };
 
-    case "relationship_state_updated":
-      return {
-        type: "relationship_state_updated",
-        updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : "",
-      };
+    case "relationship_state_updated": {
+      const result = RelationshipStateUpdatedSchema.safeParse({
+        type: rawType,
+        updatedAt: data.updatedAt,
+      });
+      if (!result.success) return { type: "unknown", rawType, data };
+      return result.data;
+    }
 
     case "subagent_spawned": {
       const subagentId = typeof data.subagentId === "string" ? data.subagentId : "";

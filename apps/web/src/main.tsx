@@ -9,6 +9,7 @@ import { router } from "./routes.js";
 
 import "@/lib/sentry/sentry-init.js";
 import "@/lib/api-interceptors.js";
+import "@/lib/debug/assistant-api.js";
 import "./index.css";
 
 import { initSafeAreaBridge } from "@/runtime/native-safe-area.js";
