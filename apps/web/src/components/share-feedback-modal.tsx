@@ -27,7 +27,9 @@ import {
 import { createPortal } from "react-dom";
 
 import { Button } from "@vellum/design-library/components/button";
+import { Dropdown, type DropdownOption } from "@vellum/design-library/components/dropdown";
 import { Input, Textarea } from "@vellum/design-library/components/input";
+import { Notice } from "@vellum/design-library/components/notice";
 import { Toggle } from "@vellum/design-library/components/toggle";
 import { feedbackCreateMutation } from "@/generated/api/@tanstack/react-query.gen.js";
 import type { ClassificationEnum } from "@/generated/api/types.gen.js";
@@ -58,6 +60,11 @@ const TIME_RANGES: { value: TimeRange; label: string; cutoffMs: number | null }[
   { value: "past_24_hours", label: "Past 24 hours", cutoffMs: 24 * 60 * 60 * 1000 },
   { value: "all_time", label: "All time", cutoffMs: null },
 ];
+
+const TIME_RANGE_OPTIONS: DropdownOption<TimeRange>[] = TIME_RANGES.map((r) => ({
+  value: r.value,
+  label: r.label,
+}));
 
 const ALLOWED_MIME_TYPES = new Set([
   "image/png",
@@ -520,7 +527,10 @@ export function ShareFeedbackModal({
           maxHeight: "calc(100vh - 2rem)",
         }}
       >
-        <div className="mb-4 flex items-center justify-between">
+        <div
+          className="flex items-center justify-between border-b pb-4"
+          style={{ borderColor: "var(--border-subtle)" }}
+        >
           <h2 id={titleId} className="!m-0 text-title-small text-[var(--content-default)]">
             Share Feedback
           </h2>
@@ -534,7 +544,7 @@ export function ShareFeedbackModal({
           />
         </div>
 
-        <div className={`flex flex-col gap-4 overflow-y-auto ${isSubmitting ? "pointer-events-none opacity-60" : ""}`}>
+        <div className={`flex flex-col gap-3.5 overflow-y-auto pt-4 ${isSubmitting ? "pointer-events-none opacity-60" : ""}`}>
           {shouldShowEmail && (
             <Input
               id={`${titleId}-email`}
@@ -553,9 +563,9 @@ export function ShareFeedbackModal({
             <span className="text-body-small-default text-[var(--content-secondary)]">
               Category
             </span>
-            <div className="flex flex-col gap-1.5">
+            <div className="flex gap-2">
               {REASON_OPTIONS.map((option) => (
-                <ReasonCard
+                <ReasonChip
                   key={option.value}
                   option={option}
                   isSelected={selectedReason === option.value}
@@ -565,51 +575,85 @@ export function ShareFeedbackModal({
             </div>
           </div>
 
+          <hr className="border-[var(--border-subtle)]" />
+
+          {selectedReason === "bug_report" && (
+            <Notice tone="info">
+              Tip: Get faster support by posting in our{" "}
+              <a
+                href="https://vellum.ai/community"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline text-[var(--content-default)]"
+              >
+                Discord community
+              </a>
+            </Notice>
+          )}
+
+          {selectedReason === "feature_request" && (
+            <Notice tone="info">
+              Tip: Vote on features on our{" "}
+              <a
+                href="https://vellum.ai/roadmap"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline text-[var(--content-default)]"
+              >
+                public roadmap
+              </a>
+            </Notice>
+          )}
+
           <Textarea
             id={`${titleId}-message`}
             ref={messageRef}
-            label="What happened?"
+            label={
+              selectedReason === "bug_report"
+                ? "What went wrong?"
+                : selectedReason === "feature_request"
+                  ? "Describe your idea"
+                  : "What's on your mind?"
+            }
             rows={3}
-            placeholder="Describe what happened..."
+            placeholder={
+              selectedReason === "bug_report"
+                ? "What did you expect to happen, and what happened instead?"
+                : selectedReason === "feature_request"
+                  ? "What problem would this solve for you?"
+                  : "Share your thoughts..."
+            }
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             fullWidth
           />
 
           {selectedReason !== "feature_request" && (
-            <div className="flex flex-wrap items-center gap-3">
-              <Toggle
-                checked={includeLogs}
-                onChange={handleToggleLogs}
-                aria-label="Include browser diagnostics"
-              />
-              <span className="text-body-medium-lighter text-[var(--content-default)]">
-                Include diagnostics
-              </span>
-              {includeLogs && (
-                <select
-                  value={logTimeRange}
-                  onChange={(e) => setLogTimeRange(e.target.value as TimeRange)}
-                  className="rounded-lg border px-2 py-1 text-body-medium-lighter outline-none"
-                  style={{
-                    borderColor: "var(--border-base)",
-                    backgroundColor: "var(--surface-base)",
-                    color: "var(--content-default)",
-                  }}
+            <div className="flex items-center justify-between">
+              <label className="flex cursor-pointer items-center gap-2.5">
+                <Toggle
+                  checked={includeLogs}
+                  onChange={handleToggleLogs}
+                  aria-label="Include browser diagnostics"
+                />
+                <span className="text-body-medium-lighter leading-6 text-[var(--content-default)]">
+                  Include diagnostics
+                </span>
+                <span
+                  title="Diagnostics include browser context, assistant logs, and timestamps — never passwords or credentials."
+                  className="inline-flex items-center justify-center text-[var(--content-tertiary)]"
                 >
-                  {TIME_RANGES.map((r) => (
-                    <option key={r.value} value={r.value}>
-                      {r.label}
-                    </option>
-                  ))}
-                </select>
+                  <Info className="h-3.5 w-3.5" />
+                </span>
+              </label>
+              {includeLogs && (
+                <Dropdown
+                  options={TIME_RANGE_OPTIONS}
+                  value={logTimeRange}
+                  onChange={setLogTimeRange}
+                  aria-label="Diagnostics time range"
+                />
               )}
-              <span
-                title="Diagnostics include browser context, assistant logs, and timestamps — never passwords or credentials."
-                className="inline-flex h-4 w-4 items-center justify-center text-[var(--content-secondary)]"
-              >
-                <Info className="h-3.5 w-3.5" />
-              </span>
             </div>
           )}
 
@@ -667,7 +711,10 @@ export function ShareFeedbackModal({
           )}
         </div>
 
-        <div className="mt-5 flex items-center justify-end gap-2">
+        <div
+          className="mt-4 flex items-center justify-end gap-2 border-t pt-4"
+          style={{ borderColor: "var(--border-subtle)" }}
+        >
           {isSubmitting ? (
             <span className="inline-flex items-center gap-2 text-body-medium-lighter text-[var(--content-secondary)]">
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -675,7 +722,7 @@ export function ShareFeedbackModal({
             </span>
           ) : (
             <>
-              <Button variant="outlined" onClick={onClose}>
+              <Button variant="ghost" onClick={onClose}>
                 Cancel
               </Button>
               <Button
@@ -695,7 +742,7 @@ export function ShareFeedbackModal({
   );
 }
 
-function ReasonCard({
+function ReasonChip({
   option,
   isSelected,
   onSelect,
@@ -710,36 +757,23 @@ function ReasonCard({
       type="button"
       onClick={onSelect}
       aria-pressed={isSelected}
-      className="flex w-full items-center gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-colors"
+      className="flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-left transition-colors"
       style={{
         borderColor: isSelected ? "var(--primary-base)" : "var(--border-base)",
-        borderWidth: isSelected ? 1.5 : 1,
         backgroundColor: isSelected
-          ? "color-mix(in oklab, var(--primary-base) 8%, transparent)"
-          : "var(--surface-base)",
+          ? "color-mix(in oklab, var(--primary-base) 10%, transparent)"
+          : "transparent",
       }}
     >
       <Icon
-        className="h-4 w-4 shrink-0"
+        className="h-3.5 w-3.5 shrink-0"
         style={{ color: isSelected ? "var(--primary-base)" : "var(--content-secondary)" }}
       />
-      <span className="flex-1 text-body-medium-lighter text-[var(--content-default)]">
-        {option.label}
-      </span>
       <span
-        aria-hidden
-        className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border"
-        style={{
-          borderColor: isSelected ? "var(--primary-base)" : "var(--border-base)",
-          borderWidth: 1.5,
-        }}
+        className="text-body-small-default"
+        style={{ color: isSelected ? "var(--primary-base)" : "var(--content-default)" }}
       >
-        {isSelected && (
-          <span
-            className="h-2 w-2 rounded-full"
-            style={{ backgroundColor: "var(--primary-base)" }}
-          />
-        )}
+        {option.label}
       </span>
     </button>
   );
