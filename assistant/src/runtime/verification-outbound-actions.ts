@@ -641,7 +641,7 @@ function startOutboundEmail(
     expectedChatId: normalizedEmail,
     identityBindingStatus: "bound",
     destinationAddress: normalizedEmail,
-    verificationPurpose: rebind ? "guardian" : "trusted_contact",
+    verificationPurpose: "guardian",
   });
 
   return {
