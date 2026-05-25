@@ -63,7 +63,7 @@ describe("ToolDefinition (public author-facing tool spec) ", () => {
     expect(high.defaultRiskLevel).toBe(RiskLevel.High);
   });
 
-  test("execute receives the narrow public ToolContext", async () => {
+  test("execute receives the public ToolContext", async () => {
     // Type-only assertion: the execute signature uses the public
     // ToolContext (narrow base). A daemon-internal field added to the
     // rich ToolContext that doesn't exist on the narrow one must not be
@@ -71,7 +71,7 @@ describe("ToolDefinition (public author-facing tool spec) ", () => {
     // lives in `tsc --noEmit` over this file.
     const tool: ToolDefinition = {
       async execute(_input, ctx) {
-        // `ctx` is `ToolContext` (the narrow public one). Touch
+        // `ctx` is the public `ToolContext`. Touch
         // commonly-needed fields to make sure they're present.
         const _conversationId = ctx.conversationId;
         const _workingDir = ctx.workingDir;
