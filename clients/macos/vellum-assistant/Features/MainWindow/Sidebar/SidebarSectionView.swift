@@ -482,8 +482,9 @@ struct SidebarSectionView: View {
 
 /// ViewModifier that conditionally attaches a SidebarSectionHeaderDropDelegate
 /// to a section header when sidebar and conversationManager are available.
-/// For the Scheduled group, uses an AppKit-based overlay to show the native
-/// macOS forbidden cursor (SwiftUI's DropProposal(.forbidden) doesn't produce it).
+/// For non-droppable system groups, uses an AppKit-based overlay to show the
+/// native macOS forbidden cursor (SwiftUI's DropProposal(.forbidden) doesn't
+/// produce it).
 struct SectionHeaderDropModifier: ViewModifier {
     let group: ConversationGroup
     let sidebar: SidebarInteractionState?
@@ -491,7 +492,7 @@ struct SectionHeaderDropModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         if let sidebar, let conversationManager {
-            if group.id == ConversationGroup.scheduled.id {
+            if group.id == ConversationGroup.scheduled.id || group.id == ConversationGroup.slack.id {
                 content.overlay(
                     ForbiddenDropOverlay(
                         isActive: sidebar.draggingConversationId != nil,
@@ -515,7 +516,8 @@ struct SectionHeaderDropModifier: ViewModifier {
 
 /// ViewModifier that conditionally attaches a conversation-group drop target to
 /// an expanded section body so drops work reliably in whitespace between rows.
-/// For the Scheduled group, uses an AppKit-based overlay for the forbidden cursor.
+/// For non-droppable system groups, uses an AppKit-based overlay for the
+/// forbidden cursor.
 struct SectionBodyDropModifier: ViewModifier {
     let groupId: String
     let sidebar: SidebarInteractionState?
@@ -523,7 +525,7 @@ struct SectionBodyDropModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         if let sidebar, let conversationManager {
-            if groupId == ConversationGroup.scheduled.id {
+            if groupId == ConversationGroup.scheduled.id || groupId == ConversationGroup.slack.id {
                 content.overlay(
                     ForbiddenDropOverlay(
                         isActive: sidebar.draggingConversationId != nil,
@@ -555,9 +557,14 @@ struct SidebarConversationRowDropDelegate: DropDelegate {
 
     func validateDrop(info: DropInfo) -> Bool {
         guard let sourceId = sidebar.draggingConversationId,
-              sourceId != conversation.id else { return false }
+              sourceId != conversation.id,
+              let source = conversationManager.listStore.conversationsByLocalId[sourceId]
+        else { return false }
+        if sectionGroupId == ConversationGroup.slack.id {
+            return false
+        }
         // Block within-Recents reorder — Recents uses recency sorting.
-        let sourceGroup = conversationManager.listStore.conversationsByLocalId[sourceId]?.groupId
+        let sourceGroup = source.groupId
         if sourceGroup == ConversationGroup.all.id && conversation.groupId == ConversationGroup.all.id {
             return false
         }
@@ -570,6 +577,9 @@ struct SidebarConversationRowDropDelegate: DropDelegate {
 
     func dropEntered(info: DropInfo) {
         guard conversation.id != sidebar.draggingConversationId else { return }
+        if sectionGroupId == ConversationGroup.slack.id {
+            return
+        }
         // Suppress drop indicator for within-Recents drags
         if conversation.groupId == ConversationGroup.all.id,
            let dragId = sidebar.draggingConversationId,
@@ -595,9 +605,14 @@ struct SidebarConversationRowDropDelegate: DropDelegate {
     func performDrop(info: DropInfo) -> Bool {
         let sourceId = sidebar.draggingConversationId
         sidebar.endConversationDrag()
-        guard let sourceId, sourceId != conversation.id else { return false }
+        guard let sourceId, sourceId != conversation.id,
+              let source = conversationManager.listStore.conversationsByLocalId[sourceId]
+        else { return false }
+        if sectionGroupId == ConversationGroup.slack.id {
+            return false
+        }
         // Block within-Recents reorder
-        let sourceGroup = conversationManager.listStore.conversationsByLocalId[sourceId]?.groupId
+        let sourceGroup = source.groupId
         if sourceGroup == ConversationGroup.all.id && conversation.groupId == ConversationGroup.all.id {
             return false
         }
