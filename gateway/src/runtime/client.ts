@@ -219,6 +219,8 @@ export type RuntimeInboundResponse = {
   };
   /** When true, the runtime denied the inbound message (e.g. ACL rejection). */
   denied?: boolean;
+  /** Machine-readable denial reason returned by the runtime ACL (e.g. "not_a_member"). */
+  reason?: string;
   /**
    * A user-facing rejection message that the runtime could not deliver via
    * the callback URL (e.g. due to auth failure). When present, the gateway

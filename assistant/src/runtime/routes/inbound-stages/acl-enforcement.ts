@@ -342,6 +342,49 @@ export async function enforceIngressAcl(
           }
         }
 
+        // Email: initiate a verification challenge via the guardian notification
+        // pipeline. Unlike Slack, we cannot DM the requester directly — the
+        // verification code is delivered to the guardian, who decides whether
+        // to share it with the email sender out-of-band.
+        if (sourceChannel === "email" && (canonicalSenderId ?? rawSenderId)) {
+          const emailVerifyResult = initiateEmailVerificationChallenge({
+            sourceChannel,
+            senderUserId: (canonicalSenderId ?? rawSenderId)!,
+          });
+
+          if (emailVerifyResult.initiated) {
+            try {
+              notifyGuardianOfAccessRequest({
+                canonicalAssistantId,
+                sourceChannel,
+                conversationExternalId,
+                actorExternalId: canonicalSenderId ?? rawSenderId,
+                actorDisplayName,
+                actorUsername,
+                messagePreview: truncate(
+                  trimmedContent,
+                  MESSAGE_PREVIEW_MAX_LENGTH,
+                ),
+              });
+            } catch (err) {
+              log.error(
+                { err, sourceChannel, conversationExternalId },
+                "Failed to notify guardian of access request (email verification)",
+              );
+            }
+
+            return {
+              resolvedMember: null,
+              earlyResponse: ({
+                accepted: true,
+                denied: true,
+                reason: "verification_challenge_sent",
+                verificationSessionId: emailVerifyResult.sessionId,
+              }),
+            };
+          }
+        }
+
         // Notify the guardian about the access request so they can approve/deny.
         // Uses the shared helper which handles guardian binding lookup,
         // deduplication, canonical request creation, and notification emission.
@@ -1048,10 +1091,10 @@ async function handleInviteCodeIntercept(params: {
 }
 
 // ---------------------------------------------------------------------------
-// Slack verification challenge
+// Channel verification challenges
 // ---------------------------------------------------------------------------
 
-interface SlackVerificationResult {
+interface VerificationChallengeResult {
   initiated: boolean;
   sessionId?: string;
 }
@@ -1066,7 +1109,7 @@ interface SlackVerificationResult {
 function initiateSlackVerificationChallenge(params: {
   sourceChannel: ChannelId;
   senderUserId: string;
-}): SlackVerificationResult {
+}): VerificationChallengeResult {
   const { sourceChannel, senderUserId } = params;
 
   // Skip if there is already a pending challenge or active session for
@@ -1117,6 +1160,56 @@ function initiateSlackVerificationChallenge(params: {
     log.error(
       { err, sourceChannel, senderUserId },
       "Failed to initiate Slack verification challenge",
+    );
+    return { initiated: false };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Email verification challenge
+// ---------------------------------------------------------------------------
+
+function initiateEmailVerificationChallenge(params: {
+  sourceChannel: ChannelId;
+  senderUserId: string;
+}): VerificationChallengeResult {
+  const { sourceChannel, senderUserId } = params;
+
+  const existingChallenge = getPendingSession(sourceChannel);
+  const existingSession = findActiveSession(sourceChannel);
+  const senderHasPending =
+    (existingChallenge &&
+      existingChallenge.expectedExternalUserId === senderUserId) ||
+    (existingSession &&
+      existingSession.expectedExternalUserId === senderUserId);
+  if (senderHasPending) {
+    log.debug(
+      { sourceChannel, senderUserId },
+      "Email verification: skipping — existing challenge/session for this sender",
+    );
+    return { initiated: false };
+  }
+
+  try {
+    const session = createOutboundSession({
+      channel: sourceChannel,
+      expectedExternalUserId: senderUserId,
+      expectedChatId: senderUserId,
+      identityBindingStatus: "bound",
+      destinationAddress: senderUserId,
+      verificationPurpose: "trusted_contact",
+    });
+
+    log.info(
+      { sourceChannel, senderUserId, sessionId: session.sessionId },
+      "Email verification challenge initiated for unknown contact",
+    );
+
+    return { initiated: true, sessionId: session.sessionId };
+  } catch (err) {
+    log.error(
+      { err, sourceChannel, senderUserId },
+      "Failed to initiate email verification challenge",
     );
     return { initiated: false };
   }

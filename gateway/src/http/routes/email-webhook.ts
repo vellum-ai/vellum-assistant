@@ -227,9 +227,17 @@ export function createEmailWebhookHandler(
       dedupCache.mark(eventId);
 
       if (!result.rejected) {
+        const denied = result.runtimeResponse?.denied ?? false;
+        const deniedReason = denied ? (result.runtimeResponse?.reason ?? "unknown") : undefined;
         tlog.info(
-          { status: "forwarded", eventId },
-          "Email message forwarded to runtime",
+          {
+            status: denied ? "denied" : "forwarded",
+            eventId,
+            ...(denied && { deniedReason }),
+          },
+          denied
+            ? "Email message denied by runtime"
+            : "Email message forwarded to runtime",
         );
       }
 
