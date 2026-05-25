@@ -59,7 +59,7 @@ import {
   unregisterPluginTools,
 } from "../tools/registry.js";
 import type {
-  LoadedPluginTool,
+  LoadedTool,
   ToolContext,
   ToolExecutionResult,
 } from "../tools/types.js";
@@ -81,8 +81,8 @@ const fakeCtx: DaemonContext = {
 
 function makeFakeTool(
   name: string,
-  extras: Partial<LoadedPluginTool> = {},
-): LoadedPluginTool {
+  extras: Partial<LoadedTool> = {},
+): LoadedTool {
   return {
     name,
     description: `Fake ${name}`,
@@ -281,7 +281,7 @@ describe("registerPluginTools / unregisterPluginTools helpers", () => {
     expect(alias).toMatch(/^[a-zA-Z0-9_-]{1,64}$/);
     expect(alias.startsWith("Stripe_Link_CLI__")).toBe(true);
     expect(getTool(alias)).toBeDefined();
-    expect(accepted[0]!.getDefinition().name).toBe(alias);
+    expect(accepted[0]!.name).toBe(alias);
 
     await accepted[0]!.execute(
       {},
@@ -331,7 +331,7 @@ describe("registerPluginTools / unregisterPluginTools helpers", () => {
       ownerSkillId: "some-other-skill",
       ownerSkillBundled: true,
       ownerSkillVersionHash: "deadbeef",
-    } as unknown as LoadedPluginTool;
+    } as unknown as LoadedTool;
     registerPluginTools("my-plugin", [spoofed]);
     const retrieved = getTool("pt_spoof");
     expect(retrieved?.origin).toBe("plugin");

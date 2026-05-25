@@ -9,7 +9,6 @@
  */
 
 import { RiskLevel } from "../../permissions/types.js";
-import type { ToolDefinition } from "../../providers/types.js";
 import type { Tool, ToolExecutionResult } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -34,11 +33,7 @@ const appOpenTool: Tool = {
   defaultRiskLevel: RiskLevel.Low,
   executionMode: "proxy",
 
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
+  input_schema: {
         type: "object",
         properties: {
           app_id: {
@@ -54,8 +49,6 @@ const appOpenTool: Tool = {
         },
         required: ["app_id"],
       },
-    };
-  },
 
   execute: proxyExecute,
 };

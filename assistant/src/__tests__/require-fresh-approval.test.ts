@@ -116,7 +116,7 @@ mock.module("../tools/registry.js", () => ({
       category: isGmailTool ? "gmail" : "credential-execution",
       defaultRiskLevel: "high",
       executionTarget: isGmailTool ? ("host" as const) : undefined,
-      getDefinition: () => ({}),
+      input_schema: {},
       execute: async () => fakeToolResult,
     };
   },

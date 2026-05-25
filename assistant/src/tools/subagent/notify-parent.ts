@@ -1,5 +1,4 @@
 import { RiskLevel } from "../../permissions/types.js";
-import type { ToolDefinition } from "../../providers/types.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { registerTool } from "../registry.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
@@ -39,11 +38,7 @@ class NotifyParentTool implements Tool {
   category = "orchestration";
   defaultRiskLevel = RiskLevel.Low;
 
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
+  input_schema = {
         type: "object",
         properties: {
           message: {
@@ -63,9 +58,7 @@ class NotifyParentTool implements Tool {
           },
         },
         required: ["message", "activity"],
-      },
-    };
-  }
+      };
 
   async execute(
     input: Record<string, unknown>,

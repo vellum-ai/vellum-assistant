@@ -7,7 +7,6 @@ import { Readable } from "node:stream";
 
 import type { WebFetchMetadata } from "../../daemon/message-types/web-activity.js";
 import { RiskLevel } from "../../permissions/types.js";
-import type { ToolDefinition } from "../../providers/types.js";
 import { wrapUntrustedContent } from "../../security/untrusted-content.js";
 import { faviconUrlForDomain } from "../../util/favicon.js";
 import { getLogger } from "../../util/logger.js";
@@ -992,11 +991,7 @@ class WebFetchTool implements Tool {
   category = "network";
   defaultRiskLevel = RiskLevel.Low;
 
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
+  input_schema = {
         type: "object",
         properties: {
           url: {
@@ -1029,9 +1024,7 @@ class WebFetchTool implements Tool {
           },
         },
         required: ["url"],
-      },
-    };
-  }
+      };
 
   async execute(
     input: Record<string, unknown>,

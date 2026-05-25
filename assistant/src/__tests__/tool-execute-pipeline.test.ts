@@ -113,7 +113,7 @@ mock.module("../tools/registry.js", () => ({
       description: "test tool",
       category: "test",
       defaultRiskLevel: "low",
-      getDefinition: () => ({}),
+      input_schema: {},
       execute: async (input: Record<string, unknown>) => {
         lastToolCall = { name, input };
         return fakeToolResult;

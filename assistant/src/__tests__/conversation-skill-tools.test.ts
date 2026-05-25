@@ -108,11 +108,7 @@ mock.module("../tools/skills/skill-tool-factory.js", () => ({
       ownerSkillId: skillId,
       ownerSkillVersionHash: versionHash,
       ownerSkillBundled: bundled ?? undefined,
-      getDefinition: () => ({
-        name: entry.name,
-        description: entry.description,
-        input_schema: entry.input_schema as object,
-      }),
+      input_schema: entry.input_schema as object,
       execute: async () => ({ content: "", isError: false }),
     }));
   },

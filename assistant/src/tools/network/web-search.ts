@@ -4,7 +4,6 @@ import type {
   WebSearchResultItem,
 } from "../../daemon/message-types/web-activity.js";
 import { RiskLevel } from "../../permissions/types.js";
-import type { ToolDefinition } from "../../providers/types.js";
 import { getProviderKeyAsync } from "../../security/secure-keys.js";
 import { wrapUntrustedContent } from "../../security/untrusted-content.js";
 import { faviconUrlForDomain } from "../../util/favicon.js";
@@ -651,38 +650,31 @@ class WebSearchTool implements Tool {
     "Search the web and return results. Useful for looking up current information, documentation, or anything the assistant doesn't know.";
   category = "network";
   defaultRiskLevel = RiskLevel.Low;
-
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
-        type: "object",
-        properties: {
-          query: {
-            type: "string",
-            description: "The search query string",
-          },
-          count: {
-            type: "number",
-            description:
-              "Number of results to return (1-20, default 10). Used with Brave and Tavily providers.",
-          },
-          offset: {
-            type: "number",
-            description:
-              "Pagination offset (0-9, default 0). Only used with Brave provider.",
-          },
-          freshness: {
-            type: "string",
-            description:
-              'Filter by recency: "pd" (past day), "pw" (past week), "pm" (past month), "py" (past year). Used with Brave and Tavily providers.',
-          },
-        },
-        required: ["query"],
+  input_schema = {
+    type: "object",
+    properties: {
+      query: {
+        type: "string",
+        description: "The search query string",
       },
-    };
-  }
+      count: {
+        type: "number",
+        description:
+          "Number of results to return (1-20, default 10). Used with Brave and Tavily providers.",
+      },
+      offset: {
+        type: "number",
+        description:
+          "Pagination offset (0-9, default 0). Only used with Brave provider.",
+      },
+      freshness: {
+        type: "string",
+        description:
+          'Filter by recency: "pd" (past day), "pw" (past week), "pm" (past month), "py" (past year). Used with Brave and Tavily providers.',
+      },
+    },
+    required: ["query"],
+  };
 
   async execute(
     input: Record<string, unknown>,

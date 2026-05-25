@@ -1267,7 +1267,7 @@ describe("credential_store tool — tool definition", () => {
   });
 
   test("getDefinition returns valid schema with required action", () => {
-    const def = credentialStoreTool.getDefinition();
+    const def = credentialStoreTool;
     expect(def.name).toBe("credential_store");
     const schema = def.input_schema as Record<string, unknown>;
     expect(schema.type).toBe("object");
@@ -1277,7 +1277,7 @@ describe("credential_store tool — tool definition", () => {
   });
 
   test("getDefinition includes injection_templates schema", () => {
-    const def = credentialStoreTool.getDefinition();
+    const def = credentialStoreTool;
     const schemaProps = (def.input_schema as Record<string, unknown>)
       .properties as Record<string, Record<string, unknown>>;
     const templates = schemaProps.injection_templates as Record<

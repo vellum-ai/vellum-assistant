@@ -3,7 +3,6 @@ import { extname } from "node:path";
 import { supportsHostProxy } from "../../channels/types.js";
 import { HostFileProxy } from "../../daemon/host-file-proxy.js";
 import { RiskLevel } from "../../permissions/types.js";
-import type { ToolDefinition } from "../../providers/types.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
 import { FileSystemOps } from "../shared/filesystem/file-ops-service.js";
 import {
@@ -20,11 +19,7 @@ class HostFileReadTool implements Tool {
   category = "host-filesystem";
   defaultRiskLevel = RiskLevel.Medium;
 
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
+  input_schema = {
         type: "object",
         properties: {
           path: {
@@ -46,9 +41,7 @@ class HostFileReadTool implements Tool {
           },
         },
         required: ["path"],
-      },
-    };
-  }
+      };
 
   async execute(
     input: Record<string, unknown>,

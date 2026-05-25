@@ -1,5 +1,4 @@
 import { RiskLevel } from "../../permissions/types.js";
-import type { ToolDefinition } from "../../providers/types.js";
 import { registerTool } from "../registry.js";
 import { FileSystemOps } from "../shared/filesystem/file-ops-service.js";
 import { formatEditDiff } from "../shared/filesystem/format-diff.js";
@@ -13,11 +12,7 @@ class FileEditTool implements Tool {
   category = "filesystem";
   defaultRiskLevel = RiskLevel.Low;
 
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
+  input_schema = {
         type: "object",
         properties: {
           path: {
@@ -45,9 +40,7 @@ class FileEditTool implements Tool {
           },
         },
         required: ["path", "old_string", "new_string", "activity"],
-      },
-    };
-  }
+      };
 
   async execute(
     input: Record<string, unknown>,

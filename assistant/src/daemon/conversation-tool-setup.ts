@@ -91,8 +91,8 @@ export type { ToolSetupContext } from "./tool-setup-types.js";
 export function buildToolDefinitions(): ToolDefinition[] {
   return [
     ...getAllToolDefinitions(),
-    ...allUiSurfaceTools.map((t) => t.getDefinition()),
-    ...coreAppProxyTools.map((t) => t.getDefinition()),
+    ...allUiSurfaceTools,
+    ...coreAppProxyTools,
   ];
 }
 

@@ -1,5 +1,4 @@
 import { RiskLevel } from "../../permissions/types.js";
-import type { ToolDefinition } from "../../providers/types.js";
 import { registerTool } from "../registry.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 
@@ -10,11 +9,7 @@ class SkillExecuteTool implements Tool {
   category = "skills";
   defaultRiskLevel = RiskLevel.Low;
 
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
+  input_schema = {
         type: "object",
         properties: {
           tool: {
@@ -34,9 +29,7 @@ class SkillExecuteTool implements Tool {
           },
         },
         required: ["tool", "input", "activity"],
-      },
-    };
-  }
+      };
 
   async execute(
     _input: Record<string, unknown>,
