@@ -130,6 +130,10 @@ function deriveToolName(toolFileBaseName: string): string {
  * The default `execute` returns an error result so the model sees a clear
  * "this tool isn't wired up" signal at call time. The plugin still loads
  * cleanly — broken individual tools must never block daemon boot.
+ *
+ * `executionTarget` defaults to "sandbox" because plugin tool code runs
+ * in-process inside the assistant container. Plugins that proxy work to
+ * the connected client should declare `executionTarget: "host"` explicitly.
  */
 export const PLUGIN_TOOL_DEFAULTS = Object.freeze({
   description: "",
@@ -139,6 +143,7 @@ export const PLUGIN_TOOL_DEFAULTS = Object.freeze({
     properties: {},
     additionalProperties: false,
   }) as object,
+  executionTarget: "sandbox" as const,
 });
 
 /**
@@ -169,12 +174,15 @@ function applyPluginToolDefaults(
           content: `plugin tool ${name} has no execute implementation`,
           isError: true,
         });
+  const executionTarget =
+    tool.executionTarget ?? PLUGIN_TOOL_DEFAULTS.executionTarget;
   return {
     ...tool,
     name,
     description,
     defaultRiskLevel,
     input_schema,
+    executionTarget,
     execute,
   };
 }

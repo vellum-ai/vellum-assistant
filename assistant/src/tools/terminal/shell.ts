@@ -48,6 +48,7 @@ class ShellTool implements Tool {
   name = "bash";
   description = "Execute a shell command on the local machine";
   category = "terminal";
+  executionTarget = "sandbox" as const;
   defaultRiskLevel = RiskLevel.Medium;
 
   input_schema = {

@@ -19,6 +19,7 @@ class RememberTool implements Tool {
   name = "remember";
   description = graphRememberDefinition.description;
   category = "memory";
+  executionTarget = "sandbox" as const;
   defaultRiskLevel = RiskLevel.Low;
   input_schema = graphRememberDefinition.input_schema;
 
@@ -47,6 +48,7 @@ class RecallTool implements Tool {
   name = "recall";
   description = graphRecallDefinition.description;
   category = "memory";
+  executionTarget = "sandbox" as const;
   defaultRiskLevel = RiskLevel.Low;
   input_schema = graphRecallDefinition.input_schema;
 

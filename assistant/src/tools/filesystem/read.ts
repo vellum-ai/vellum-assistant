@@ -15,6 +15,7 @@ class FileReadTool implements Tool {
   description =
     "Read the contents of a file on your own machine. For image files (JPEG, PNG, GIF, WebP), returns the image for visual analysis. Use host_file_read for files on your guardian's device instead.";
   category = "filesystem";
+  executionTarget = "sandbox" as const;
   defaultRiskLevel = RiskLevel.Low;
 
   input_schema = {

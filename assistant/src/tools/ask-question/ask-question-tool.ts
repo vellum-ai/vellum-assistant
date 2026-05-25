@@ -136,6 +136,7 @@ export class AskQuestionTool implements Tool {
   name = "ask_question";
   description = DESCRIPTION;
   category = "interaction";
+  executionTarget = "sandbox" as const;
   defaultRiskLevel = RiskLevel.Low;
   input_schema = {
         type: "object",

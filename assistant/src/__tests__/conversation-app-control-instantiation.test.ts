@@ -110,6 +110,7 @@ mock.module("../tools/skills/skill-tool-factory.js", () => ({
       description: entry.description,
       category: entry.category,
       defaultRiskLevel: RiskLevel.Medium,
+      executionTarget: "sandbox" as const,
       origin: "skill" as const,
       ownerSkillId: skillId,
       ownerSkillVersionHash: versionHash,

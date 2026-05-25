@@ -32,6 +32,7 @@ const appOpenTool: Tool = {
   category: "apps",
   defaultRiskLevel: RiskLevel.Low,
   executionMode: "proxy",
+  executionTarget: "host",
 
   input_schema: {
         type: "object",

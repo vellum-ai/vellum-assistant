@@ -31,6 +31,7 @@ export const computerUseClickTool: Tool = {
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionMode: "proxy",
+  executionTarget: "host",
 
   input_schema: {
         type: "object",
@@ -81,6 +82,7 @@ export const computerUseTypeTextTool: Tool = {
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionMode: "proxy",
+  executionTarget: "host",
 
   input_schema: {
         type: "object",
@@ -116,6 +118,7 @@ export const computerUseKeyTool: Tool = {
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionMode: "proxy",
+  executionTarget: "host",
 
   input_schema: {
         type: "object",
@@ -152,6 +155,7 @@ export const computerUseScrollTool: Tool = {
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionMode: "proxy",
+  executionTarget: "host",
 
   input_schema: {
         type: "object",
@@ -205,6 +209,7 @@ export const computerUseDragTool: Tool = {
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionMode: "proxy",
+  executionTarget: "host",
 
   input_schema: {
         type: "object",
@@ -263,6 +268,7 @@ export const computerUseWaitTool: Tool = {
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionMode: "proxy",
+  executionTarget: "host",
 
   input_schema: {
         type: "object",
@@ -298,6 +304,7 @@ export const computerUseOpenAppTool: Tool = {
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionMode: "proxy",
+  executionTarget: "host",
 
   input_schema: {
         type: "object",
@@ -335,6 +342,7 @@ export const computerUseRunAppleScriptTool: Tool = {
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionMode: "proxy",
+  executionTarget: "host",
 
   input_schema: {
         type: "object",
@@ -371,6 +379,7 @@ export const computerUseDoneTool: Tool = {
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionMode: "proxy",
+  executionTarget: "host",
 
   input_schema: {
         type: "object",
@@ -397,6 +406,7 @@ export const computerUseRespondTool: Tool = {
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionMode: "proxy",
+  executionTarget: "host",
 
   input_schema: {
         type: "object",
@@ -427,6 +437,7 @@ const computerUseObserveTool: Tool = {
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionMode: "proxy",
+  executionTarget: "host",
 
   input_schema: {
         type: "object",

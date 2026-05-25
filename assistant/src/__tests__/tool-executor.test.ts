@@ -333,6 +333,7 @@ describe("ToolExecutor allowedToolNames gating", () => {
         description: "tool from a skill",
         category: "skill",
         defaultRiskLevel: RiskLevel.Low,
+        executionTarget: "sandbox" as const,
         origin: "skill" as const,
         ownerSkillId: "my-skill",
         input_schema: { type: "object" as const, properties: {} },
@@ -422,6 +423,7 @@ describe("ToolExecutor policy context plumbing", () => {
         description: "core tool",
         category: "core",
         defaultRiskLevel: RiskLevel.Low,
+        executionTarget: "sandbox" as const,
         origin: "core" as const,
         input_schema: { type: "object" as const, properties: {} },
         execute: async () => fakeToolResult,
@@ -476,37 +478,6 @@ describe("ToolExecutor policy context plumbing", () => {
     });
   });
 
-  test("skill tool without executionTarget passes undefined executionTarget", async () => {
-    getToolOverride = (name: string) => {
-      if (name === "unknown_tool") return undefined;
-      return {
-        name,
-        description: "skill without target",
-        category: "skill",
-        defaultRiskLevel: RiskLevel.Low,
-        origin: "skill" as const,
-        ownerSkillId: "no-target-skill",
-        // executionTarget intentionally omitted
-        input_schema: { type: "object" as const, properties: {} },
-        execute: async () => fakeToolResult,
-      };
-    };
-
-    const executor = new ToolExecutor(makePrompter());
-    const result = await executor.execute(
-      "no_target_tool",
-      {},
-      makeContext({ requireFreshApproval: true }),
-    );
-
-    expect(result.isError).toBe(false);
-    expect(lastCheckArgs).toBeDefined();
-    expect(lastCheckArgs!.policyContext).toEqual({
-      conversationId: "conversation-1",
-      executionContext: "conversation",
-      executionTarget: undefined,
-    });
-  });
 });
 
 // ---------------------------------------------------------------------------

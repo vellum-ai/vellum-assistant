@@ -421,6 +421,7 @@ describe("Tool execution pipeline benchmark", () => {
         description: `Benchmark tool (${sleepMs}ms)`,
         category: "benchmark",
         defaultRiskLevel: RiskLevel.Low,
+        executionTarget: "sandbox",
         input_schema: { type: "object" as const, properties: {} },
         execute: async (): Promise<ToolExecutionResult> => {
           if (sleepMs > 0) {

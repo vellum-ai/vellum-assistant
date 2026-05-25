@@ -23,6 +23,7 @@ class RunAuthenticatedCommandTool implements Tool {
   description =
     "Execute a command with credential environment variables injected by CES. The command runs inside the CES sandbox - the assistant never sees raw secrets.";
   category = "credential-execution";
+  executionTarget = "sandbox" as const;
   defaultRiskLevel = RiskLevel.High;
 
   input_schema = {

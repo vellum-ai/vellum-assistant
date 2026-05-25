@@ -375,6 +375,7 @@ describe("plugin bootstrap", () => {
             name: "gated-off-tool",
             description: "should not be registered",
             defaultRiskLevel: RiskLevel.Low,
+            executionTarget: "sandbox",
             input_schema: { type: "object", properties: {}, required: [] },
             execute: async () => ({ content: "nope", isError: false }),
           },

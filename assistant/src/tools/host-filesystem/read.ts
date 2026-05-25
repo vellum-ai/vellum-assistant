@@ -17,6 +17,7 @@ class HostFileReadTool implements Tool {
   description =
     "Read the contents of a file on your guardian's device, including images (JPEG, PNG, GIF, WebP). For files on your own machine, use file_read instead.";
   category = "host-filesystem";
+  executionTarget = "host" as const;
   defaultRiskLevel = RiskLevel.Medium;
 
   input_schema = {

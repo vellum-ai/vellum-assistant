@@ -34,6 +34,7 @@ class FileWriteTool implements Tool {
   description =
     "Write content to a file on your own machine, creating it if it does not exist. Use host_file_write for files on your guardian's device instead.";
   category = "filesystem";
+  executionTarget = "sandbox" as const;
   defaultRiskLevel = RiskLevel.Low;
 
   input_schema = {

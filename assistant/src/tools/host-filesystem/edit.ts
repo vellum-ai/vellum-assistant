@@ -12,6 +12,7 @@ class HostFileEditTool implements Tool {
   description =
     "Replace exact text in a file on your guardian's device with new text. For files on your own machine, use file_edit instead.";
   category = "host-filesystem";
+  executionTarget = "host" as const;
   defaultRiskLevel = RiskLevel.Medium;
 
   input_schema = {

@@ -9,6 +9,7 @@ class FileListTool implements Tool {
   description =
     "List the contents of a directory on your own machine. Returns file and subdirectory names with type indicators and sizes.";
   category = "filesystem";
+  executionTarget = "sandbox" as const;
   defaultRiskLevel = RiskLevel.Low;
 
   input_schema = {

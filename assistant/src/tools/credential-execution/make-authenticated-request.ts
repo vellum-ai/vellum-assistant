@@ -23,6 +23,7 @@ class MakeAuthenticatedRequestTool implements Tool {
   description =
     "Execute an authenticated HTTP request through CES. CES injects the credential and returns the response - the assistant never sees raw secrets.";
   category = "credential-execution";
+  executionTarget = "sandbox" as const;
   defaultRiskLevel = RiskLevel.High;
 
   input_schema = {
