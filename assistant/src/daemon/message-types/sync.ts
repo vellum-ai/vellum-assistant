@@ -11,21 +11,20 @@
  * `ServerMessage` union from these aliases.
  */
 
+export type {
+  ConversationSyncInvalidationTag,
+  KnownSyncInvalidationTag,
+  SyncChangedMessage,
+  SyncInvalidationTag,
+} from "../../api/sse-events/sync.js";
 export {
-  SYNC_TAGS,
-  SyncInvalidationTagSchema,
-  SyncChangedMessageSchema,
+  buildSyncChangedMessage,
   conversationMessagesSyncTag,
   conversationMetadataSyncTag,
   isConversationMetadataSyncTag,
-  buildSyncChangedMessage,
-} from "../../api/sse-events/sync.js";
-
-export type {
-  KnownSyncInvalidationTag,
-  ConversationSyncInvalidationTag,
-  SyncInvalidationTag,
-  SyncChangedMessage,
+  SYNC_TAGS,
+  SyncChangedMessageSchema,
+  SyncInvalidationTagSchema,
 } from "../../api/sse-events/sync.js";
 
 import type { SyncChangedMessage } from "../../api/sse-events/sync.js";

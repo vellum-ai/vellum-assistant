@@ -10,5 +10,9 @@
     ".": "./index.ts",
     "./sse-events": "./sse-events/index.ts",
     "./sse-events/sync": "./sse-events/sync.ts"
+  },
+  "//dependencies": "Source-as-package declarative dep list: consumers in the same repo must provide a copy of each name here in their own `node_modules`. The consumer's postinstall symlinks them into `assistant/src/api/node_modules/` so standard node walk-up resolves them when the source-as-package files are imported. Adding a dep here is the single source of truth — no other config needs to change.",
+  "dependencies": {
+    "zod": "4.3.6"
   }
 }

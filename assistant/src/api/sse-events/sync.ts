@@ -58,7 +58,6 @@ export type ConversationSyncInvalidationTag =
 export type SyncInvalidationTag =
   | KnownSyncInvalidationTag
   | ConversationSyncInvalidationTag
-  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
   | (string & {});
 
 export function conversationMessagesSyncTag(
