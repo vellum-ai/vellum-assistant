@@ -115,11 +115,15 @@ export interface RecordMemoryV2ActivationLogParams {
    * `per-turn` for normal append injections, `errored` when `injectMemoryV2Block`
    * threw before completing — telemetry is still written so silent failures
    * are observable in the database, with whatever `concepts` rows had been
-   * built so far (possibly empty). `router` indicates the Sonnet
-   * router selected the per-turn page set; router-mode rows carry zeroed
-   * activation values and `source: "router"` on every concept row.
+   * built so far (possibly empty). `router` indicates the LLM router selected
+   * the per-turn page set; router-mode rows carry zeroed activation values and
+   * `source: "router"` on every concept row. `v3_shadow` is written by the
+   * live-shadow v3 retrieval middleware: it records v3's selection set for
+   * comparison without affecting injected context. The harness oracle filters
+   * `mode='router'`, so `v3_shadow` rows never pollute it; the inspector can
+   * still surface them.
    */
-  mode: "context-load" | "per-turn" | "errored" | "router";
+  mode: "context-load" | "per-turn" | "errored" | "router" | "v3_shadow";
   concepts: MemoryV2ConceptRowRecord[];
   config: MemoryV2ConfigSnapshot;
 }
@@ -167,7 +171,7 @@ export function backfillMemoryV2ActivationMessageId(
 export interface MemoryV2ActivationLog {
   conversationId: string;
   turn: number;
-  mode: "context-load" | "per-turn" | "errored" | "router";
+  mode: "context-load" | "per-turn" | "errored" | "router" | "v3_shadow";
   concepts: MemoryV2ConceptRowRecord[];
   config: MemoryV2ConfigSnapshot;
 }
@@ -188,7 +192,12 @@ export function getMemoryV2ActivationLogByMessageIds(
   return {
     conversationId: row.conversationId,
     turn: row.turn,
-    mode: row.mode as "context-load" | "per-turn" | "errored" | "router",
+    mode: row.mode as
+      | "context-load"
+      | "per-turn"
+      | "errored"
+      | "router"
+      | "v3_shadow",
     concepts: JSON.parse(row.conceptsJson) as MemoryV2ConceptRowRecord[],
     config: JSON.parse(row.configJson) as MemoryV2ConfigSnapshot,
   };
