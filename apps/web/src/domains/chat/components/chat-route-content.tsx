@@ -19,7 +19,7 @@
  */
 
 import * as Sentry from "@sentry/react";
-import { type Dispatch, type FormEvent, type MutableRefObject, type ReactNode, type RefObject, type SetStateAction, useCallback, useEffect, useMemo, useRef } from "react";
+import { type Dispatch, type FormEvent, type MutableRefObject, type ReactNode, type RefObject, type SetStateAction, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ChatBody } from "@/domains/chat/components/chat-body.js";
 import { SlackChannelFooter } from "@/domains/chat/components/slack-channel-footer.js";
@@ -984,10 +984,33 @@ export function ChatRouteContent({
   // Disk pressure banner
   // -------------------------------------------------------------------------
 
+  const [warningDismissed, setWarningDismissed] = useState(() => {
+    if (!assistantId) return false;
+    return localStorage.getItem(`disk-pressure-warning-dismissed-${assistantId}`) === "true";
+  });
+
+  const dismissWarning = useCallback(() => {
+    if (!assistantId) return;
+    localStorage.setItem(`disk-pressure-warning-dismissed-${assistantId}`, "true");
+    setWarningDismissed(true);
+  }, [assistantId]);
+
+  // Reset dismiss when state escalates to critical or drops below warning
+  useEffect(() => {
+    const st = diskPressure.status?.state;
+    if (st && st !== "warning" && warningDismissed) {
+      if (assistantId) {
+        localStorage.removeItem(`disk-pressure-warning-dismissed-${assistantId}`);
+      }
+      setWarningDismissed(false);
+    }
+  }, [diskPressure.status?.state, warningDismissed, assistantId]);
+
   const renderDiskPressureBanner = useCallback((): ReactNode => {
     if (!diskPressure.status) return null;
     const mode = diskPressure.mode === "inactive" ? null : (diskPressure.mode as DiskPressureBannerMode | null);
     if (!mode) return null;
+    if (mode === "warning" && warningDismissed) return null;
     return (
       <DiskPressureBanner
         status={diskPressure.status}
@@ -995,14 +1018,14 @@ export function ChatRouteContent({
         isAcknowledging={diskPressure.isAcknowledgingDiskPressure}
         acknowledgeError={diskPressure.diskPressureAcknowledgeError?.message ?? null}
         onAcknowledge={() => void diskPressure.acknowledgeDiskPressure()}
-        onDismissWarning={() => {/* TODO: localStorage dismiss */}}
+        onDismissWarning={dismissWarning}
         onReviewWorkspaceData={() => void navigate(routes.workspace)}
         // Only platform-hosted assistants (kind === "active") have a billing plan to upgrade.
         // No dedicated hosting-topology store exists yet, so we read from the assistantState prop.
         onUpgradeStorage={assistantState.kind === "active" ? () => void navigate(`${routes.settings.billing}?adjust_plan=1`) : null}
       />
     );
-  }, [diskPressure, navigate, assistantState.kind]);
+  }, [diskPressure, navigate, assistantState.kind, warningDismissed, dismissWarning]);
 
   // -------------------------------------------------------------------------
   // Billing composer banner

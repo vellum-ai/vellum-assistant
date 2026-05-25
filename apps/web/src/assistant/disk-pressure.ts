@@ -35,10 +35,17 @@ export function requiresDiskPressureAcknowledgement(
   );
 }
 
+function isDiskPressureWarning(
+  status: DiskPressureStatus | null | undefined,
+): boolean {
+  return Boolean(status?.enabled && status.state === "warning");
+}
+
 export function shouldShowDiskPressureBanner(
   status: DiskPressureStatus | null | undefined,
 ): boolean {
   return (
+    isDiskPressureWarning(status) ||
     requiresDiskPressureAcknowledgement(status) ||
     isDiskPressureCleanupActive(status)
   );
@@ -53,6 +60,10 @@ export function getDiskPressureMonitorMode(
 
   if (isDiskPressureCleanupActive(status)) {
     return "cleanup";
+  }
+
+  if (isDiskPressureWarning(status)) {
+    return "warning";
   }
 
   return "inactive";

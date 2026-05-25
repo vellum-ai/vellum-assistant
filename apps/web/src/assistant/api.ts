@@ -67,7 +67,7 @@ export type GetHealthzResult =
   | { ok: true; status: number; data: AssistantHealthz }
   | { ok: false; status: number; error: Record<string, unknown> };
 
-export type DiskPressureState = "disabled" | "ok" | "critical" | "unknown";
+export type DiskPressureState = "disabled" | "ok" | "warning" | "critical" | "unknown";
 
 export type DiskPressureBlockedCapability =
   | "agent-turns"
