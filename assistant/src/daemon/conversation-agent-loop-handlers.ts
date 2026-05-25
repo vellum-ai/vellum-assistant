@@ -7,6 +7,7 @@
  */
 
 import type pino from "pino";
+import { v4 as uuid } from "uuid";
 
 import type { AgentEvent } from "../agent/loop.js";
 import type {
@@ -145,8 +146,28 @@ export interface EventHandlerState {
   contextTooLargeError: unknown;
   providerErrorUserMessage: string | null;
   /**
+   * Pre-allocated anchor id for the entire assistant turn. Allocated at
+   * agent-loop start (passed into {@link createEventHandlerState}) and
+   * inserted into the messages table as an empty row at the same moment,
+   * so the id is born with a backing DB record. Every SSE event for this
+   * turn stamps `messageId = assistantTurnId`. Stable across multi-call
+   * tool turns whose subsequent rows keep internal ids the client never
+   * sees directly (server-side read-path merging via
+   * `findDisplayTurnEndIndex` collapses them at history-load time).
+   */
+  readonly assistantTurnId: string;
+  /**
+   * Tracks whether the pre-allocated anchor row's content has been
+   * finalized via the `update_content` persistence op. The first
+   * `handleMessageComplete` of the turn UPDATEs the anchor (flips this to
+   * true); any subsequent `message_complete` events in the same agent loop
+   * (multi-call tool turns) INSERT new rows with their own internal ids.
+   */
+  anchorContentWritten: boolean;
+  /**
    * First persisted assistant row in this run; history keeps this id when it
-   * merges tool-turn rows into one display bubble.
+   * merges tool-turn rows into one display bubble. Pre-populated to
+   * {@link assistantTurnId} since the anchor row is inserted at turn start.
    */
   firstAssistantMessageId: string | undefined;
   lastAssistantMessageId: string | undefined;
@@ -229,7 +250,22 @@ export interface EventHandlerDeps {
 
 // ── Factory ──────────────────────────────────────────────────────────
 
-export function createEventHandlerState(): EventHandlerState {
+/**
+ * Construct an EventHandlerState. The `assistantTurnId` argument is the
+ * pre-allocated anchor id for the turn (see {@link EventHandlerState.assistantTurnId}).
+ * Defaults to a fresh uuid so tests can call `createEventHandlerState()` with
+ * no arguments — production code (the agent loop) always passes the
+ * id it allocated alongside the empty anchor row insert.
+ *
+ * `turnStartedAt` lets the caller align the state's display timestamp with
+ * the timestamp it used when inserting the anchor row, so the two cannot
+ * drift apart even by a few ms. Defaults to `Date.now()` for callers that
+ * don't track this externally (tests).
+ */
+export function createEventHandlerState(
+  assistantTurnId: string = uuid(),
+  turnStartedAt: number = Date.now(),
+): EventHandlerState {
   return {
     llmCallStartedEmitted: false,
     pendingDirectiveDisplayBuffer: "",
@@ -249,7 +285,13 @@ export function createEventHandlerState(): EventHandlerState {
     imageTooLargeDetected: false,
     contextTooLargeError: null,
     providerErrorUserMessage: null,
-    firstAssistantMessageId: undefined,
+    assistantTurnId,
+    anchorContentWritten: false,
+    // Pre-populate from the pre-allocated anchor so existing
+    // `firstAssistantMessageId ??= ...` patterns are no-ops and
+    // `getClientDisplayMessageId` returns the anchor from the moment the
+    // turn starts.
+    firstAssistantMessageId: assistantTurnId,
     lastAssistantMessageId: undefined,
     pendingToolResults: new Map(),
     persistedToolUseIds: new Set(),
@@ -269,7 +311,7 @@ export function createEventHandlerState(): EventHandlerState {
     toolConfirmationOutcomes: new Map(),
     toolRiskOutcomes: new Map(),
     currentTurnToolUseIds: [],
-    turnStartedAt: Date.now(),
+    turnStartedAt,
     serverToolStartedAt: new Map(),
     serverToolInputs: new Map(),
   };
@@ -279,6 +321,77 @@ export function getClientDisplayMessageId(
   state: EventHandlerState,
 ): string | undefined {
   return state.firstAssistantMessageId ?? state.lastAssistantMessageId;
+}
+
+/**
+ * Build the channel/interface/slack metadata envelope for an assistant
+ * message persisted by the agent loop. Called both at turn start (to
+ * stamp the pre-allocated anchor row with provenance the moment it is
+ * inserted) and at `message_complete` (to re-write the envelope alongside
+ * the canonical content via the `update_content` op). The envelope shape
+ * is identical in both cases — the only field that changes post-send is
+ * `slackMeta.channelTs`, which is filled in by `deliverReplyViaCallback`
+ * after the Slack gateway returns the assigned ts.
+ *
+ * Exported so `runAgentLoopImpl` (which lives in a sibling file but does
+ * not import the handler module's locals) can call it at turn start.
+ */
+export function buildAssistantChannelMetadata(args: {
+  readonly conversationId: string;
+  readonly trustContext: AgentLoopConversationContext["trustContext"];
+  readonly trustContextRequesterChatId: string | undefined;
+  readonly turnChannelContext: TurnChannelContext;
+  readonly turnInterfaceContext: TurnInterfaceContext;
+  readonly turnStartedAt: number;
+  readonly resolveTimestampTimezone: () => string | undefined;
+}): Record<string, unknown> {
+  const envelope: Record<string, unknown> = {
+    ...provenanceFromTrustContext(args.trustContext),
+    userMessageChannel: args.turnChannelContext.userMessageChannel,
+    assistantMessageChannel: args.turnChannelContext.assistantMessageChannel,
+    userMessageInterface: args.turnInterfaceContext.userMessageInterface,
+    assistantMessageInterface:
+      args.turnInterfaceContext.assistantMessageInterface,
+    sentAt: args.turnStartedAt,
+  };
+
+  // When the assistant is replying through Slack, stamp a `slackMeta`
+  // sub-object so the transcript-rendering / thread-aware-context lookup
+  // can identify this row's thread without joining tables.
+  // Persistence happens BEFORE the Slack adapter sends the message, so
+  // Slack's authoritative `ts` (-> `channelTs`) is not yet known and is
+  // intentionally omitted here. The post-send reconciliation step in
+  // `deliverReplyViaCallback` writes `channelTs` back into this row once
+  // the gateway returns the Slack-assigned ts, restoring a fully-formed
+  // metadata envelope before any subsequent turn reads the row.
+  if (
+    args.turnChannelContext.assistantMessageChannel === "slack" &&
+    args.trustContextRequesterChatId
+  ) {
+    const channelId = args.trustContextRequesterChatId;
+    const threadTs = getThreadTs(args.conversationId);
+    const timestampTimezone = args.resolveTimestampTimezone();
+    const timestampTimezoneLabel = formatSlackTimezoneLabel(
+      timestampTimezone,
+      { nowMs: args.turnStartedAt },
+    );
+    const partialSlackMeta: Partial<SlackMessageMetadata> = {
+      source: "slack",
+      eventKind: "message",
+      channelId,
+      ...(threadTs ? { threadTs } : {}),
+      timestampTimezone,
+      ...(timestampTimezoneLabel ? { timestampTimezoneLabel } : {}),
+    };
+    envelope.slackMeta = writeSlackMetadata(
+      // `channelTs` is filled in by the post-send reconciliation step in
+      // `deliverReplyViaCallback`; cast through the Partial to satisfy
+      // the writer's type at this pre-send boundary.
+      partialSlackMeta as SlackMessageMetadata,
+    );
+  }
+
+  return envelope;
 }
 
 // ── Shared Helper ────────────────────────────────────────────────────
@@ -1035,52 +1148,17 @@ export async function handleMessageComplete(
     } as unknown as ContentBlock);
   }
 
-  const assistantChannelMetadata: Record<string, unknown> = {
-    ...provenanceFromTrustContext(deps.ctx.trustContext),
-    userMessageChannel: deps.turnChannelContext.userMessageChannel,
-    assistantMessageChannel: deps.turnChannelContext.assistantMessageChannel,
-    userMessageInterface: deps.turnInterfaceContext.userMessageInterface,
-    assistantMessageInterface:
-      deps.turnInterfaceContext.assistantMessageInterface,
-    sentAt: state.turnStartedAt,
-  };
+  const assistantChannelMetadata = buildAssistantChannelMetadata({
+    conversationId: deps.ctx.conversationId,
+    trustContext: deps.ctx.trustContext,
+    trustContextRequesterChatId: deps.ctx.trustContext?.requesterChatId,
+    turnChannelContext: deps.turnChannelContext,
+    turnInterfaceContext: deps.turnInterfaceContext,
+    turnStartedAt: state.turnStartedAt,
+    resolveTimestampTimezone: () =>
+      resolveAssistantReplyTimestampTimezone(deps.ctx),
+  });
 
-  // When the assistant is replying through Slack, stamp a `slackMeta`
-  // sub-object so the transcript-rendering / thread-aware-context lookup
-  // can identify this row's thread without joining tables.
-  // Persistence happens BEFORE the Slack adapter sends the message, so
-  // Slack's authoritative `ts` (-> `channelTs`) is not yet known and is
-  // intentionally omitted here. The post-send reconciliation step in
-  // `deliverReplyViaCallback` writes `channelTs` back into this row once
-  // the gateway returns the Slack-assigned ts, restoring a fully-formed
-  // metadata envelope before any subsequent turn reads the row.
-  if (deps.turnChannelContext.assistantMessageChannel === "slack") {
-    const channelId = deps.ctx.trustContext?.requesterChatId;
-    if (channelId) {
-      const threadTs = getThreadTs(deps.ctx.conversationId);
-      const timestampTimezone = resolveAssistantReplyTimestampTimezone(
-        deps.ctx,
-      );
-      const timestampTimezoneLabel = formatSlackTimezoneLabel(
-        timestampTimezone,
-        { nowMs: state.turnStartedAt },
-      );
-      const partialSlackMeta: Partial<SlackMessageMetadata> = {
-        source: "slack",
-        eventKind: "message",
-        channelId,
-        ...(threadTs ? { threadTs } : {}),
-        timestampTimezone,
-        ...(timestampTimezoneLabel ? { timestampTimezoneLabel } : {}),
-      };
-      assistantChannelMetadata.slackMeta = writeSlackMetadata(
-        // `channelTs` is filled in by the post-send reconciliation step in
-        // `deliverReplyViaCallback`; cast through the Partial to satisfy
-        // the writer's type at this pre-send boundary.
-        partialSlackMeta as SlackMessageMetadata,
-      );
-    }
-  }
   // Redact known-pattern secrets from assistant text blocks before they are
   // written to durable storage. Non-text blocks (images, UI surfaces) pass
   // through unchanged. The live model history retains the original values.
@@ -1091,28 +1169,60 @@ export async function handleMessageComplete(
     }
     return block;
   });
+  const contentJson = JSON.stringify(contentForPersistence);
 
   // Route the assistant-message persistence through the `persistence`
-  // pipeline. No `syncToDisk` here — the orchestrator separately invokes
+  // pipeline. The first `message_complete` of every turn UPDATEs the
+  // pre-allocated anchor row that was inserted at turn start (anchorContentWritten
+  // flips here). Subsequent message_complete events in the same agent loop
+  // (multi-LLM-call tool turns) INSERT new rows with their own internal ids —
+  // the read path's `findDisplayTurnEndIndex` collapses these into one
+  // display turn at history-load time, so the anchor id continues to be
+  // the client-visible identity for the whole turn.
+  //
+  // No `syncToDisk` here — the orchestrator separately invokes
   // `syncMessageToDisk` on `state.lastAssistantMessageId` after the loop
   // completes (see `conversation-agent-loop.ts::syncLastAssistantMessageToDisk`).
-  const assistantPersistResult = (await runPipeline<PersistArgs, PersistResult>(
-    "persistence",
-    getMiddlewaresFor("persistence"),
-    defaultPersistenceTerminal,
-    {
-      op: "add",
-      conversationId: deps.ctx.conversationId,
-      role: "assistant",
-      content: JSON.stringify(contentForPersistence),
-      metadata: assistantChannelMetadata,
-    },
-    buildHandlerTurnContext(deps),
-    DEFAULT_TIMEOUTS.persistence,
-  )) as PersistAddResult;
-  const assistantMsg = assistantPersistResult.message;
-  state.firstAssistantMessageId ??= assistantMsg.id;
-  state.lastAssistantMessageId = assistantMsg.id;
+  let assistantMessageId: string;
+  if (!state.anchorContentWritten) {
+    await runPipeline<PersistArgs, PersistResult>(
+      "persistence",
+      getMiddlewaresFor("persistence"),
+      defaultPersistenceTerminal,
+      {
+        op: "update_content",
+        messageId: state.assistantTurnId,
+        content: contentJson,
+        metadataUpdates: assistantChannelMetadata,
+      },
+      buildHandlerTurnContext(deps),
+      DEFAULT_TIMEOUTS.persistence,
+    );
+    state.anchorContentWritten = true;
+    assistantMessageId = state.assistantTurnId;
+  } else {
+    const assistantPersistResult = (await runPipeline<
+      PersistArgs,
+      PersistResult
+    >(
+      "persistence",
+      getMiddlewaresFor("persistence"),
+      defaultPersistenceTerminal,
+      {
+        op: "add",
+        conversationId: deps.ctx.conversationId,
+        role: "assistant",
+        content: contentJson,
+        metadata: assistantChannelMetadata,
+      },
+      buildHandlerTurnContext(deps),
+      DEFAULT_TIMEOUTS.persistence,
+    )) as PersistAddResult;
+    assistantMessageId = assistantPersistResult.message.id;
+  }
+  state.firstAssistantMessageId ??= assistantMessageId;
+  state.lastAssistantMessageId = assistantMessageId;
+  const assistantMsg = { id: assistantMessageId };
 
   // Backfill message_id on all LLM request logs from this turn.
   // The agent loop is single-threaded per conversation, so all rows with

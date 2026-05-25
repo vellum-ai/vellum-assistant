@@ -59,6 +59,23 @@ mock.module("../memory/conversation-crud.js", () => ({
   getConversation: () => null,
   getMessageById: () => null,
   updateMessageContent: () => {},
+  // PR 2b: handleMessageComplete now writes the first message_complete via
+  // `update_content`, which lands here. Record the call into
+  // `addMessageCalls` with the same shape `addMessage` uses so the existing
+  // content-focused assertions continue to work (this test cares about the
+  // exact bytes persisted, not which DB op wrote them).
+  updateMessageContentAndMetadata: (
+    _messageId: string,
+    content: string,
+    metadataUpdates: Record<string, unknown>,
+  ) => {
+    addMessageCalls.push({
+      conversationId: "anchor-synth",
+      role: "assistant",
+      content,
+      metadata: metadataUpdates,
+    });
+  },
   provenanceFromTrustContext: () => ({}),
 }));
 

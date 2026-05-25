@@ -33,15 +33,22 @@
  * Design doc: `.private/plans/agent-plugin-system.md` (PR 27).
  */
 
+import { getConfig } from "../../config/loader.js";
 import {
   addMessage,
   deleteMessageById,
+  getMessageById,
+  messageMetadataSchema,
   updateMessageContent,
   updateMessageContentAndMetadata,
   updateMessageMetadata,
 } from "../../memory/conversation-crud.js";
 import { syncMessageToDisk } from "../../memory/conversation-disk-view.js";
+import { indexMessageNow } from "../../memory/indexer.js";
+import { getLogger } from "../../util/logger.js";
 import { registerPlugin } from "../registry.js";
+
+const log = getLogger("default-persistence");
 import {
   type Middleware,
   type PersistArgs,
@@ -95,6 +102,43 @@ export async function defaultPersistenceTerminal(
         );
       } else {
         updateMessageContent(args.messageId, args.content);
+      }
+
+      // Index the just-finalized content. Mirrors the addMessage path —
+      // when the anchor row was originally inserted at turn start its
+      // content was the empty marker, so `indexMessageNow` early-returned
+      // (indexer.ts:69-71). Now that content is real we run indexing
+      // exactly as if this had been a fresh row insert. Non-fatal: a
+      // failure here must not block the turn from completing.
+      try {
+        const row = getMessageById(args.messageId);
+        if (row) {
+          const parsed = row.metadata
+            ? messageMetadataSchema.safeParse(JSON.parse(row.metadata))
+            : null;
+          const provenanceTrustClass = parsed?.success
+            ? parsed.data.provenanceTrustClass
+            : undefined;
+          const automated = parsed?.success ? parsed.data.automated : undefined;
+          await indexMessageNow(
+            {
+              messageId: row.id,
+              conversationId: row.conversationId,
+              role: row.role,
+              content: row.content,
+              createdAt: row.createdAt,
+              scopeId: "default",
+              provenanceTrustClass,
+              automated,
+            },
+            getConfig().memory,
+          );
+        }
+      } catch (err) {
+        log.warn(
+          { err, messageId: args.messageId },
+          "Failed to index message after update_content (non-fatal)",
+        );
       }
       return { op: "update_content" };
     }

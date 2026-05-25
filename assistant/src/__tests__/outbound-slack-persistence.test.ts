@@ -107,7 +107,48 @@ mock.module("../memory/conversation-crud.js", () => ({
         : {};
     row.metadata = JSON.stringify({ ...existing, ...updates });
   },
-  updateMessageContent: () => {},
+  updateMessageContent: (messageId: string, content: string) => {
+    const row = persistedRows.find((candidate) => candidate.id === messageId);
+    if (row) row.content = content;
+  },
+  // PR 2b: handleMessageComplete now writes the first message_complete via
+  // `update_content`, which lands here. The mock either updates an existing
+  // anchor row (when production has pre-seeded one at turn start) or
+  // synthesizes one for tests that don't pre-seed. Either way, we record
+  // the call into `addMessageCalls` with the same shape `addMessage` uses
+  // so the existing slackMeta-focused assertions continue to work.
+  updateMessageContentAndMetadata: (
+    messageId: string,
+    content: string,
+    metadataUpdates: Record<string, unknown>,
+  ) => {
+    let row = persistedRows.find((candidate) => candidate.id === messageId);
+    if (!row) {
+      row = {
+        id: messageId,
+        conversationId: "anchor-synth",
+        role: "assistant",
+        content: "",
+        createdAt: Date.now(),
+        metadata: null,
+      };
+      persistedRows.push(row);
+    }
+    const existing =
+      row.metadata && typeof row.metadata === "string"
+        ? (JSON.parse(row.metadata) as Record<string, unknown>)
+        : {};
+    const merged = { ...existing, ...metadataUpdates };
+    row.content = content;
+    row.metadata = JSON.stringify(merged);
+    addMessageCalls.push({
+      id: messageId,
+      conversationId: row.conversationId,
+      role: row.role,
+      content,
+      metadata: merged,
+    });
+  },
   // The handler treats provenance as a flat spread; returning {} keeps the
   // metadata snapshot focused on the fields under test.
   provenanceFromTrustContext: () => ({}),
