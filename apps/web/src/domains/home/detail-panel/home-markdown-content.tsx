@@ -1,9 +1,7 @@
 import type { MouseEvent } from "react";
 import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
-import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
 
 import { cn } from "@vellum/design-library";
 import { openUrl } from "@/runtime/browser.js";
@@ -182,8 +180,7 @@ export function HomeMarkdownContent({
   return (
     <div className={cn("text-body-medium-default", className)}>
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkMath]}
-        rehypePlugins={[rehypeKatex]}
+        remarkPlugins={[remarkGfm]}
         components={markdownComponents}
       >
         {content}

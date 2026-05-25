@@ -8,9 +8,7 @@
 
 import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
-import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
 
 /**
  * True if the file looks like markdown by name or mime type.
@@ -224,8 +222,7 @@ export function FileMarkdown({
   const rendered = shouldStripFrontmatter ? stripFrontmatter(content) : content;
   return (
     <ReactMarkdown
-      remarkPlugins={[remarkGfm, remarkMath]}
-      rehypePlugins={[rehypeKatex]}
+      remarkPlugins={[remarkGfm]}
       components={fileMarkdownComponents}
     >
       {rendered}
