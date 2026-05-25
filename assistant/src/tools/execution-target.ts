@@ -6,29 +6,40 @@ export interface ManifestOverride {
   execution_target: "host" | "sandbox";
 }
 
+/**
+ * Pure compute used at tool construction / load time. Every `LoadedTool`
+ * carries `executionTarget` as a required field; this function is the
+ * single place where we decide what value to stamp.
+ *
+ * - `declared` wins (skill manifest, factory, hand-written tool).
+ * - `executionMode === "proxy"` => host (proxied tools run on the connected client).
+ * - Prefix heuristic catches anything still unset (`host_*` / `computer_use_*`).
+ * - Default: sandbox.
+ */
+export function computeExecutionTarget(
+  name: string,
+  declared?: ExecutionTarget,
+  executionMode?: "local" | "proxy",
+): ExecutionTarget {
+  if (declared) return declared;
+  if (executionMode === "proxy") return "host";
+  if (name.startsWith("host_") || name.startsWith("computer_use_")) {
+    return "host";
+  }
+  return "sandbox";
+}
+
+/**
+ * Runtime reader. For registered tools, returns the value stamped at load
+ * time. For unregistered tools (Permission Simulator's "what would this
+ * tool do?" path), falls back to manifest metadata or `computeExecutionTarget`.
+ */
 export function resolveExecutionTarget(
   toolName: string,
   manifestOverride?: ManifestOverride,
 ): ExecutionTarget {
   const tool = getTool(toolName);
-  // Manifest-declared execution target is authoritative - check it first so
-  // skill tools with host_/computer_use_ prefixes aren't mis-classified.
-  if (tool?.executionTarget) {
-    return tool.executionTarget;
-  }
-  // Check the tool's executionMode metadata - proxy tools run on the connected
-  // client (host), not inside the sandbox.
-  if (tool?.executionMode === "proxy") {
-    return "host";
-  }
-  // Use manifest metadata for unregistered skill tools so the Permission
-  // Simulator shows accurate execution targets instead of defaulting to sandbox.
-  if (!tool && manifestOverride) {
-    return manifestOverride.execution_target;
-  }
-  // Prefix heuristics for core tools that don't declare an explicit target.
-  if (toolName.startsWith("host_") || toolName.startsWith("computer_use_")) {
-    return "host";
-  }
-  return "sandbox";
+  if (tool) return tool.executionTarget;
+  if (manifestOverride) return manifestOverride.execution_target;
+  return computeExecutionTarget(toolName);
 }

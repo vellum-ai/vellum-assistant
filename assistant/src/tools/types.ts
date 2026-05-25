@@ -325,6 +325,15 @@ export interface ToolDefinition {
   description?: string;
   defaultRiskLevel?: RiskLevel;
   input_schema?: object;
+  /**
+   * Where the tool's code physically runs — sandbox (assistant container)
+   * or host (guardian's device via host-bridge proxy). Resolved once at
+   * load time by `resolveExecutionTarget` and stamped onto every loaded
+   * tool. Read by `requiresGuardianApprovalForActor` (the only behavioral
+   * gate) and surfaced to the client UI / guardian channels on approval
+   * prompts.
+   */
+  executionTarget?: ExecutionTarget;
   execute?: (
     input: Record<string, unknown>,
     context: ToolContext,
@@ -350,7 +359,4 @@ export interface Tool extends LoadedTool {
   ownerSkillVersionHash?: string;
   /** Whether the owning skill is bundled with the daemon (trusted first-party). */
   ownerSkillBundled?: boolean;
-  /** Declared execution target from the skill manifest. Used by resolveExecutionTarget
-   * to accurately label lifecycle events for skill-provided tools. */
-  executionTarget?: ExecutionTarget;
 }
