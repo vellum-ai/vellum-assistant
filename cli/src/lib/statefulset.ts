@@ -257,7 +257,6 @@ export interface BuildServiceRunArgsOpts extends DockerRunSecrets {
   instanceName: string;
   res: DockerResourceNames;
   extraAssistantEnv?: Record<string, string>;
-  defaultWorkspaceConfigPath?: string;
   /** Avatar device path, if available. Injected by `docker.ts` after resolving. */
   avatarDevicePath?: string;
 }
@@ -286,7 +285,6 @@ export function buildServiceRunArgs(
     instanceName,
     res,
     extraAssistantEnv,
-    defaultWorkspaceConfigPath,
     avatarDevicePath,
   } = opts;
 
@@ -354,14 +352,6 @@ export function buildServiceRunArgs(
           "-e", `VELLUM_ASSISTANT_NAME=${instanceName}`,
           "-e", `GATEWAY_INTERNAL_URL=http://localhost:${GATEWAY_INTERNAL_PORT}`,
         );
-
-        if (defaultWorkspaceConfigPath) {
-          const cPath = `/tmp/vellum-default-workspace-config-${Date.now()}.json`;
-          args.push(
-            "-v", `${defaultWorkspaceConfigPath}:${cPath}:ro`,
-            "-e", `VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH=${cPath}`,
-          );
-        }
 
         if (extraAssistantEnv) {
           for (const [k, v] of Object.entries(extraAssistantEnv)) {
