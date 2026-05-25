@@ -58,6 +58,7 @@ import * as documentCreate from "./bundled-skills/document-editor/tools/document
 import * as documentDelete from "./bundled-skills/document-editor/tools/document-delete.js";
 import * as documentFind from "./bundled-skills/document-editor/tools/document-find.js";
 import * as documentList from "./bundled-skills/document-editor/tools/document-list.js";
+import * as documentOpen from "./bundled-skills/document-editor/tools/document-open.js";
 import * as documentRead from "./bundled-skills/document-editor/tools/document-read.js";
 import * as documentReplaceText from "./bundled-skills/document-editor/tools/document-replace-text.js";
 import * as documentUpdate from "./bundled-skills/document-editor/tools/document-update.js";
@@ -175,6 +176,7 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["contacts:tools/google-contacts.ts", googleContacts],
 
   // document-editor
+  ["document-editor:tools/document-open.ts", documentOpen],
   ["document-editor:tools/document-create.ts", documentCreate],
   ["document-editor:tools/document-update.ts", documentUpdate],
   ["document-editor:tools/document-read.ts", documentRead],

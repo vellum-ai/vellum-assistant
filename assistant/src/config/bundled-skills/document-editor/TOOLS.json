@@ -2,6 +2,24 @@
   "version": 1,
   "tools": [
     {
+      "name": "document_open",
+      "description": "Open an existing document in the editor panel. Use this when the user asks to see or pull up a document that exists but isn't currently visible in the editor — for example after switching devices, refreshing, or when the editor panel was closed.",
+      "category": "document-editor",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "surface_id": {
+            "type": "string",
+            "description": "The ID of the document to open"
+          }
+        },
+        "required": ["surface_id"]
+      },
+      "executor": "tools/document-open.ts",
+      "execution_target": "host"
+    },
+    {
       "name": "document_create",
       "description": "Create a new long-form document with a rich text editor. Use this when the user asks to write a blog post, article, or any long-form content. The editor opens in workspace mode with chat docked to the side.",
       "category": "document-editor",
