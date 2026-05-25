@@ -86,9 +86,18 @@ mock.module("../../util/logger.js", () => ({
 // the test having to populate the real OS keyring. Driven via `secureKeyStore`
 // per test in beforeEach; the default seeds a vault token so existing tests
 // (which assume claude spawns succeed) keep passing.
+//
+// The real module's other exports are spread in so transitive importers
+// (e.g. session-manager → pending-interactions → credential-routes, which
+// imports `getSecureKeyResultAsync`) still resolve at parse time. Bun's
+// `mock.module` is process-global and returns *exactly* the keys the factory
+// returns — without the spread, any consumer pulling a non-`getSecureKeyAsync`
+// export errors with "Export named '<X>' not found".
 const secureKeyStore = new Map<string, string>();
+const realSecureKeys = await import("../../security/secure-keys.js");
 
 mock.module("../../security/secure-keys.js", () => ({
+  ...realSecureKeys,
   getSecureKeyAsync: async (key: string) => secureKeyStore.get(key),
 }));
 

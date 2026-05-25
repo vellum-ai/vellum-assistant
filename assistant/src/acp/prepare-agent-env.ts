@@ -20,7 +20,6 @@ import { basename } from "node:path";
 import { FailedDependencyError } from "../runtime/routes/errors.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
-
 import type { AcpAgentConfig } from "./types.js";
 
 /**
