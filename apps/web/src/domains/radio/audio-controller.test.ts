@@ -313,6 +313,12 @@ describe("RadioAudioController", () => {
     expect(incoming.playCalls).toBe(0);
     expect(incoming.paused).toBe(true);
     expect(incoming.volume).toBe(1);
+
+    await controller.resume();
+
+    expect(incoming.playCalls).toBe(1);
+    expect(incoming.paused).toBe(false);
+    expect(djAudio.playCalls).toBe(1);
   });
 
   it("leaves initial audio paused when paused while initial play is pending", async () => {

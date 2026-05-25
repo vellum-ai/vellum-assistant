@@ -249,9 +249,13 @@ export class RadioAudioController {
     audio: RadioAudioLike,
     track: ResolvedRadioTrack,
   ): void {
+    this.djAudio?.pause();
+    this.outgoingAudio?.pause();
     this.detachCurrentAudioListeners();
     this.currentAudio = audio;
     this.currentTrack = track;
+    this.djAudio = null;
+    this.outgoingAudio = null;
     this.hasFiredTrackEnding = false;
     this.attachCurrentAudioListeners(audio);
     audio.volume = 1;
