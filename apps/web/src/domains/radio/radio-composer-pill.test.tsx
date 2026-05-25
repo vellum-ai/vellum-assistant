@@ -236,7 +236,7 @@ describe("RadioComposerPill", () => {
 
     expect(screen.queryByText(track.title)).toBeNull();
     expect(screen.getAllByText("Off").length).toBeGreaterThan(0);
-    expect(screen.getByText("Radio")).toBeTruthy();
+    expect(screen.getAllByText("Radio").length).toBeGreaterThan(0);
     expect(screen.getByLabelText("Play radio")).toBeTruthy();
     expect(
       screen.getByLabelText("Skip radio segment").getAttribute("disabled"),

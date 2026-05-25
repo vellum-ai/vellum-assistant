@@ -255,6 +255,7 @@ describe("useRadioStore", () => {
 
     state = store.getState();
     expect(state.status).toBe("playing");
+    expect(state.displayCue).toBe("song");
     expect(state.currentTrack?.id).toBe("buffer-bloom");
     expect(state.nextTrack).toBeNull();
   });
@@ -280,6 +281,7 @@ describe("useRadioStore", () => {
     await skipPromise;
 
     expect(store.getState().status).toBe("paused");
+    expect(store.getState().displayCue).toBe("song");
     expect(store.getState().currentTrack?.id).toBe("buffer-bloom");
     expect(store.getState().nextTrack).toBeNull();
   });

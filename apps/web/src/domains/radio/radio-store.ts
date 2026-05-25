@@ -397,6 +397,7 @@ async function applyAdvanceResponse({
   const statusAfterTransition = get().status;
   if (statusAfterTransition === "paused") {
     set({
+      displayCue: "song",
       currentTrack: track,
       nextTrack: null,
     });
@@ -407,6 +408,7 @@ async function applyAdvanceResponse({
 
   set({
     status: "playing",
+    displayCue: "song",
     currentTrack: track,
     nextTrack: null,
   });

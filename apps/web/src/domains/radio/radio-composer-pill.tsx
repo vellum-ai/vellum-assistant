@@ -46,8 +46,11 @@ function cueIcon(cue: RadioDisplayCue | null, status: RadioStatus) {
 }
 
 function statusText(status: RadioStatus): string {
+  if (status === "idle") return "Radio";
   if (status === "loading") return "Starting radio";
+  if (status === "transitioning") return "Cueing break";
   if (status === "paused") return "Paused";
+  if (status === "setup_needed") return "Setup needed";
   if (status === "error") return "Radio unavailable";
   return "On Air";
 }
