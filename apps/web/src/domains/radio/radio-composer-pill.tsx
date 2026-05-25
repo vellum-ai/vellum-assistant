@@ -54,6 +54,7 @@ function statusText(status: RadioStatus): string {
 
 export function RadioComposerPill({ assistantId }: RadioComposerPillProps) {
   const navigate = useNavigate();
+  const stationAssistantId = useRadioStore.use.assistantId();
   const status = useRadioStore.use.status();
   const displayCue = useRadioStore.use.displayCue();
   const isExpanded = useRadioStore.use.isExpanded();
@@ -69,22 +70,34 @@ export function RadioComposerPill({ assistantId }: RadioComposerPillProps) {
   const pause = useRadioStore.use.pause();
   const resume = useRadioStore.use.resume();
   const skip = useRadioStore.use.skip();
-  const toggleExpanded = useRadioStore.use.toggleExpanded();
+  const setExpanded = useRadioStore.use.setExpanded();
   const hide = useRadioStore.use.hide();
   const show = useRadioStore.use.show();
 
-  const label = cueLabel(displayCue, status);
-  const CueIcon = cueIcon(displayCue, status);
-  const countdown = formatCountdown(remainingMs);
-  const trackDurationMs = currentTrack?.durationMs ?? 0;
+  const isCurrentAssistant =
+    stationAssistantId === null || stationAssistantId === assistantId;
+  const scopedStatus = isCurrentAssistant ? status : "idle";
+  const scopedDisplayCue = isCurrentAssistant ? displayCue : null;
+  const scopedCurrentTrack = isCurrentAssistant ? currentTrack : null;
+  const scopedNextTrack = isCurrentAssistant ? nextTrack : null;
+  const scopedDjText = isCurrentAssistant ? djText : null;
+  const scopedProgressMs = isCurrentAssistant ? progressMs : 0;
+  const scopedRemainingMs = isCurrentAssistant ? remainingMs : 0;
+  const scopedSetup = isCurrentAssistant ? setup : null;
+  const scopedErrorMessage = isCurrentAssistant ? errorMessage : null;
+
+  const label = cueLabel(scopedDisplayCue, scopedStatus);
+  const CueIcon = cueIcon(scopedDisplayCue, scopedStatus);
+  const countdown = formatCountdown(scopedRemainingMs);
+  const trackDurationMs = scopedCurrentTrack?.durationMs ?? 0;
   const progressPercent =
     trackDurationMs > 0
-      ? Math.max(0, Math.min(100, Math.round((progressMs / trackDurationMs) * 100)))
+      ? Math.max(0, Math.min(100, Math.round((scopedProgressMs / trackDurationMs) * 100)))
       : 0;
-  const isPaused = status === "paused";
+  const isPaused = scopedStatus === "paused";
   const canResume = isPaused;
-  const canPause = status === "playing" || status === "transitioning";
-  const setupNeeded = status === "setup_needed" || !!setup;
+  const canPause = scopedStatus === "playing" || scopedStatus === "transitioning";
+  const setupNeeded = scopedStatus === "setup_needed" || !!scopedSetup;
 
   const handlePrimaryPlayback = useCallback(() => {
     if (canResume) {
@@ -119,12 +132,16 @@ export function RadioComposerPill({ assistantId }: RadioComposerPillProps) {
   }
 
   return (
-    <Popover.Root open={isExpanded} onOpenChange={toggleExpanded}>
+    <Popover.Root open={isExpanded} onOpenChange={setExpanded}>
       <Popover.Trigger asChild>
         <Button
           variant="ghost"
           size="compact"
-          active={isExpanded || status === "playing" || status === "transitioning"}
+          active={
+            isExpanded ||
+            scopedStatus === "playing" ||
+            scopedStatus === "transitioning"
+          }
           leftIcon={<CueIcon className="h-3.5 w-3.5 shrink-0" />}
           className="max-w-[180px] rounded-full px-2"
           tintColor="var(--content-default)"
@@ -132,7 +149,7 @@ export function RadioComposerPill({ assistantId }: RadioComposerPillProps) {
         >
           <span className="flex min-w-0 items-center gap-1.5">
             <span className="shrink-0 text-[11px] font-medium">
-              {statusText(status)}
+              {statusText(scopedStatus)}
             </span>
             <span className="truncate text-[11px] text-[var(--content-tertiary)]">
               {label}
@@ -160,23 +177,24 @@ export function RadioComposerPill({ assistantId }: RadioComposerPillProps) {
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <p className="truncate text-sm font-medium text-[var(--content-default)]">
-                  {currentTrack?.title ?? (setupNeeded ? "Radio setup needed" : "Radio")}
+                  {scopedCurrentTrack?.title ??
+                    (setupNeeded ? "Radio setup needed" : "Radio")}
                 </p>
                 <span className="shrink-0 text-[11px] text-[var(--content-tertiary)]">
                   {label}
                 </span>
               </div>
-              {currentTrack?.artist ? (
+              {scopedCurrentTrack?.artist ? (
                 <p className="truncate text-xs text-[var(--content-tertiary)]">
-                  {currentTrack.artist}
+                  {scopedCurrentTrack.artist}
                 </p>
               ) : null}
             </div>
           </div>
 
-          {nextTrack ? (
+          {scopedNextTrack ? (
             <p className="truncate text-xs text-[var(--content-secondary)]">
-              Next: {nextTrack.title}
+              Next: {scopedNextTrack.title}
             </p>
           ) : null}
 
@@ -194,16 +212,17 @@ export function RadioComposerPill({ assistantId }: RadioComposerPillProps) {
             />
           </div>
 
-          {djText ? (
+          {scopedDjText ? (
             <p className="line-clamp-3 text-xs text-[var(--content-secondary)]">
-              {djText}
+              {scopedDjText}
             </p>
           ) : null}
 
           {setupNeeded ? (
             <div className="space-y-2 rounded-[8px] bg-[var(--surface-muted)] p-2">
               <p className="text-xs text-[var(--content-secondary)]">
-                {setup?.message ?? "Configure Text-to-Speech to use radio DJ breaks."}
+                {scopedSetup?.message ??
+                  "Configure Text-to-Speech to use radio DJ breaks."}
               </p>
               <Button
                 variant="outlined"
@@ -217,9 +236,9 @@ export function RadioComposerPill({ assistantId }: RadioComposerPillProps) {
             </div>
           ) : null}
 
-          {status === "error" && errorMessage ? (
+          {scopedStatus === "error" && scopedErrorMessage ? (
             <p className="text-xs text-[var(--content-secondary)]">
-              {errorMessage}
+              {scopedErrorMessage}
             </p>
           ) : null}
 
@@ -244,7 +263,7 @@ export function RadioComposerPill({ assistantId }: RadioComposerPillProps) {
                 iconOnly={<SkipForward className="h-3.5 w-3.5" />}
                 aria-label="Skip radio segment"
                 onClick={handleSkip}
-                disabled={!currentTrack && status !== "playing"}
+                disabled={!scopedCurrentTrack && scopedStatus !== "playing"}
               />
             </div>
             <Button
