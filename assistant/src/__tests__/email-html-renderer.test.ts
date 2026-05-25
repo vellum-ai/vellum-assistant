@@ -49,6 +49,18 @@ describe("markdownToEmailHtml", () => {
     expect(result).toBe("");
   });
 
+  test("converts literal backslash-n after normalization", () => {
+    // LLMs often produce literal "\n" instead of real newlines.
+    // handleEmailSend normalizes them before calling markdownToEmailHtml.
+    const raw = "Hi Noa,\\n\\nTesting line breaks!\\n\\nThanks!";
+    const normalized = raw.replace(/\\n/g, "\n");
+    const result = markdownToEmailHtml(normalized);
+    expect(result).toContain("<p>Hi Noa,</p>");
+    expect(result).toContain("<p>Testing line breaks!</p>");
+    expect(result).toContain("<p>Thanks!</p>");
+    expect(result).not.toContain("\\n");
+  });
+
   test("handles multiline markdown email", () => {
     const md = `Hi there,
 
