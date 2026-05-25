@@ -1,7 +1,6 @@
 import type { McpServerConfig } from "../../config/schemas/mcp.js";
 import type { McpServerManager } from "../../mcp/manager.js";
 import { RiskLevel } from "../../permissions/types.js";
-import type { ToolDefinition } from "../../providers/types.js";
 import { toProviderSafeToolName } from "../provider-tool-name.js";
 import { schemaDefinesProperty } from "../schema-transforms.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
@@ -53,13 +52,7 @@ export function createMcpTool(
     ownerMcpServerId: serverId,
     executionTarget: "host",
 
-    getDefinition(): ToolDefinition {
-      return {
-        name: namespacedName,
-        description: metadata.description,
-        input_schema: metadata.inputSchema as ToolDefinition["input_schema"],
-      };
-    },
+    input_schema: metadata.inputSchema as object,
 
     async execute(
       input: Record<string, unknown>,

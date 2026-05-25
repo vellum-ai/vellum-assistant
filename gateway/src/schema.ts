@@ -4007,9 +4007,9 @@ export function buildSchema(): Record<string, unknown> {
       },
       "/inbound/register": {
         post: {
-          summary: "Auto-verify guardian email (BYO provider)",
+          summary: "Auto-verify guardian email",
           description:
-            "Called by the platform after registering a BYO email provider webhook. Validates the provider API key, cross-checks the guardian email (when provider supports it), and creates a guardian email channel binding.",
+            "Called by the platform to auto-verify the guardian's email channel. For BYO providers (resend, mailgun), validates the provider API key. For platform-managed email (vellum), the route's auth is sufficient. Creates a guardian email channel binding.",
           operationId: "inboundRegister",
           security: [{ BearerAuth: [] }],
           requestBody: {
@@ -4022,7 +4022,7 @@ export function buildSchema(): Record<string, unknown> {
                   properties: {
                     type: {
                       type: "string",
-                      description: "Email provider type (e.g. resend, mailgun)",
+                      description: "Email provider type (e.g. resend, mailgun, vellum)",
                     },
                     guardian_email: {
                       type: "string",

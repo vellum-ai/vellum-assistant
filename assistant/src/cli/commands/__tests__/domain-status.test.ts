@@ -2,9 +2,9 @@
  * Tests for the domain status CLI subcommand (thin IPC wrapper).
  *
  * Validates:
- *   - status calls domain_status
+ *   - status calls domain_status then domain_verification_status
  *   - --json outputs structured response
- *   - no domain shows helpful message
+ *   - unknown subdomain shows helpful message
  *   - error responses are surfaced correctly
  */
 
@@ -99,15 +99,16 @@ async function runDomainCommand(...args: string[]) {
 // status
 // ---------------------------------------------------------------------------
 
-describe("assistant domain status", () => {
-  test("calls domain_status", async () => {
-    mockIpcCallFn = mock(() =>
-      Promise.resolve({
+function mockDomainStatusWithVerification() {
+  mockIpcCallFn = mock((method: string) => {
+    if (method === "domain_status") {
+      return Promise.resolve({
         ok: true,
         result: {
           results: [
             {
               id: "550e8400-e29b-41d4-a716-446655440000",
+              subdomain: "becky",
               domain: "becky.vellum.me",
               status: "active",
               verified: true,
@@ -115,38 +116,37 @@ describe("assistant domain status", () => {
             },
           ],
         },
-      }),
-    );
+      });
+    }
+    return Promise.resolve({
+      ok: true,
+      result: {
+        domain: "becky.vellum.me",
+        status: "verified",
+        message: "DNS records have been verified.",
+      },
+    });
+  }) as unknown as typeof mockIpcCallFn;
+}
 
-    await runDomainCommand("domain", "status");
+describe("assistant domain status", () => {
+  test("calls domain_status and domain_verification_status", async () => {
+    mockDomainStatusWithVerification();
 
-    expect(mockIpcCallFn).toHaveBeenCalledWith("domain_status");
+    await runDomainCommand("domain", "status", "becky");
+
+    expect(mockIpcCallFn).toHaveBeenCalledTimes(2);
     expect(process.exitCode).toBe(0);
   });
 
   test("--json outputs structured response", async () => {
-    mockIpcCallFn = mock(() =>
-      Promise.resolve({
-        ok: true,
-        result: {
-          results: [
-            {
-              id: "550e8400-e29b-41d4-a716-446655440000",
-              domain: "becky.vellum.me",
-              status: "active",
-              verified: true,
-              created_at: "2026-04-15T19:00:00Z",
-            },
-          ],
-        },
-      }),
-    );
+    mockDomainStatusWithVerification();
 
-    const output = await runDomainCommand("domain", "--json", "status");
+    const output = await runDomainCommand("domain", "--json", "status", "becky");
 
     const parsed = JSON.parse(output.trim());
-    expect(parsed.results).toHaveLength(1);
-    expect(parsed.results[0].domain).toBe("becky.vellum.me");
+    expect(parsed.domain.domain).toBe("becky.vellum.me");
+    expect(parsed.verification.status).toBe("verified");
     expect(process.exitCode).toBe(0);
   });
 
@@ -158,8 +158,8 @@ describe("assistant domain status", () => {
       }),
     );
 
-    await runDomainCommand("domain", "status");
-    expect(process.exitCode).toBe(0);
+    await runDomainCommand("domain", "status", "becky");
+    expect(process.exitCode).toBe(1);
   });
 
   test("IPC error with --json outputs error envelope", async () => {
@@ -171,7 +171,7 @@ describe("assistant domain status", () => {
       }),
     ) as unknown as typeof mockIpcCallFn;
 
-    const output = await runDomainCommand("domain", "--json", "status");
+    const output = await runDomainCommand("domain", "--json", "status", "becky");
 
     expect(process.exitCode).not.toBe(0);
     const parsed = JSON.parse(output.trim());
@@ -187,7 +187,7 @@ describe("assistant domain status", () => {
       }),
     ) as unknown as typeof mockIpcCallFn;
 
-    await runDomainCommand("domain", "status");
+    await runDomainCommand("domain", "status", "becky");
     expect(process.exitCode).not.toBe(0);
   });
 });

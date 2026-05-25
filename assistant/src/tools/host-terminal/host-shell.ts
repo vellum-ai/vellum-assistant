@@ -23,7 +23,6 @@ import { getConfig } from "../../config/loader.js";
 import { isCesShellLockdownEnabled } from "../../credential-execution/feature-gates.js";
 import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
 import { RiskLevel } from "../../permissions/types.js";
-import type { ToolDefinition } from "../../providers/types.js";
 import { isUntrustedTrustClass } from "../../runtime/actor-trust-resolver.js";
 import { wakeAgentForOpportunity } from "../../runtime/agent-wake.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
@@ -102,11 +101,7 @@ class HostShellTool implements Tool {
   // untrusted sessions (see execute()).
   defaultRiskLevel = RiskLevel.Medium;
 
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
+  input_schema = {
         type: "object",
         properties: {
           command: {
@@ -140,9 +135,7 @@ class HostShellTool implements Tool {
           },
         },
         required: ["command", "activity"],
-      },
-    };
-  }
+      };
 
   async execute(
     input: Record<string, unknown>,

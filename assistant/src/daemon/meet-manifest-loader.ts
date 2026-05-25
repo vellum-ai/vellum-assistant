@@ -44,7 +44,6 @@ import type {
   ExecutionTarget,
   Tool,
   ToolContext,
-  ToolDefinition,
 } from "../tools/types.js";
 import { RiskLevel } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
@@ -132,15 +131,11 @@ function buildProxyTool(
   supervisor: MeetHostSupervisor,
   manifestHash: string,
 ): Tool {
-  const definition: ToolDefinition = {
-    name: entry.name,
-    description: entry.description,
-    input_schema: (entry.input_schema as object) ?? {},
-  };
   const risk = coerceRiskLevel(entry.risk, entry.name);
   return {
     name: entry.name,
     description: entry.description,
+    input_schema: (entry.input_schema as object) ?? {},
     category: entry.category,
     defaultRiskLevel: risk,
     executionMode: "proxy",
@@ -149,7 +144,6 @@ function buildProxyTool(
     ownerSkillId: MEET_SKILL_ID,
     ownerSkillBundled: true,
     ownerSkillVersionHash: manifestHash,
-    getDefinition: () => definition,
     execute: async (input, context) => {
       // `dispatchTool` ensures the meet-host child is up + connected
       // before sending the frame, so callers don't need a separate

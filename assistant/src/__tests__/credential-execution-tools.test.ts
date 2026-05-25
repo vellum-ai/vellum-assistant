@@ -13,7 +13,7 @@ import type { Tool } from "../tools/types.js";
 
 describe("CES tool schema shapes", () => {
   test("make_authenticated_request has correct name and required fields", () => {
-    const def = makeAuthenticatedRequestTool.getDefinition();
+    const def = makeAuthenticatedRequestTool;
     expect(def.name).toBe("make_authenticated_request");
     const schema = def.input_schema as {
       required: string[];
@@ -28,7 +28,7 @@ describe("CES tool schema shapes", () => {
   });
 
   test("run_authenticated_command has correct name and required fields", () => {
-    const def = runAuthenticatedCommandTool.getDefinition();
+    const def = runAuthenticatedCommandTool;
     expect(def.name).toBe("run_authenticated_command");
     const schema = def.input_schema as {
       required: string[];
@@ -43,7 +43,7 @@ describe("CES tool schema shapes", () => {
   });
 
   test("manage_secure_command_tool has correct name and required fields", () => {
-    const def = manageSecureCommandTool.getDefinition();
+    const def = manageSecureCommandTool;
     expect(def.name).toBe("manage_secure_command_tool");
     const schema = def.input_schema as {
       required: string[];
@@ -95,7 +95,7 @@ describe("CES tool manifest registration", () => {
 
   test("no CES tool exposes raw secret values in its schema", () => {
     for (const tool of cesTools) {
-      const def = tool.getDefinition();
+      const def = tool;
       const schema = def.input_schema as {
         properties: Record<string, { type?: string; description?: string }>;
       };
@@ -114,7 +114,7 @@ describe("CES tool manifest registration", () => {
 
 describe("secure tool installation is separate from credential grants", () => {
   test("manage_secure_command_tool accepts only bundle metadata, not raw bytes", () => {
-    const def = manageSecureCommandTool.getDefinition();
+    const def = manageSecureCommandTool;
     const schema = def.input_schema as {
       properties: Record<string, unknown>;
     };
@@ -144,7 +144,7 @@ describe("secure tool installation is separate from credential grants", () => {
   });
 
   test("manage_secure_command_tool action enum does not include grant actions", () => {
-    const def = manageSecureCommandTool.getDefinition();
+    const def = manageSecureCommandTool;
     const schema = def.input_schema as {
       properties: {
         action: { enum?: string[] };

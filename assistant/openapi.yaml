@@ -4698,7 +4698,7 @@ paths:
                     description: Assistant-minted internal conversation id. The authoritative identifier for the conversation.
                   conversationKey:
                     type: string
-                    description: Echo of the optional external key supplied by the client (or the value the daemon minted when omitted).
+                    description: Echo of the optional external key supplied by the client.
                   conversationType:
                     type: string
                   created:
@@ -7412,6 +7412,15 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/domain/verification-status:
+    post:
+      operationId: domain_verificationstatus_post
+      summary: Get live DNS verification status for a domain
+      tags:
+        - domain
+      responses:
+        "200":
+          description: Successful response
   /v1/email/attachment-get:
     get:
       operationId: email_attachmentget_get
@@ -9715,6 +9724,7 @@ paths:
                             - fireworks
                             - openrouter
                             - openai-compatible
+                            - minimax
                         auth:
                           oneOf:
                             - type: object
@@ -9831,7 +9841,9 @@ paths:
           required: false
           schema:
             type: string
-          description: "Filter by provider. One of: anthropic, openai, gemini, ollama, fireworks, openrouter, openai-compatible"
+          description:
+            "Filter by provider. One of: anthropic, openai, gemini, ollama, fireworks, openrouter, openai-compatible,
+            minimax"
     post:
       operationId: inference_providerconnections_post
       summary: Create a provider connection
@@ -9859,6 +9871,7 @@ paths:
                       - fireworks
                       - openrouter
                       - openai-compatible
+                      - minimax
                   auth:
                     oneOf:
                       - type: object
@@ -9990,6 +10003,7 @@ paths:
                     - fireworks
                     - openrouter
                     - openai-compatible
+                    - minimax
                 auth:
                   oneOf:
                     - type: object
@@ -10141,6 +10155,7 @@ paths:
                       - fireworks
                       - openrouter
                       - openai-compatible
+                      - minimax
                   auth:
                     oneOf:
                       - type: object
@@ -10286,6 +10301,7 @@ paths:
                       - fireworks
                       - openrouter
                       - openai-compatible
+                      - minimax
                   auth:
                     oneOf:
                       - type: object
@@ -11417,6 +11433,50 @@ paths:
               required:
                 - op
               additionalProperties: false
+  /v1/memory/v2/compare-retrievers:
+    post:
+      operationId: memory_v2_compareretrievers_post
+      summary: Compare retrievers against the router's logged selections (read-only)
+      description:
+        Runs one or more retrievers over a sample of historical turns (memory_v2_activation_logs, mode='router')
+        and scores their selected pages against the logged selections as ground truth, reconstructing each turn's inputs
+        from the messages table + current NOW. Read-only — writes nothing. Each scored turn re-runs the router (one LLM
+        call), so keep `limit` modest. Today the only retriever is the router itself, so this is the harness self-test.
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                limit:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                strategy:
+                  type: string
+                  enum:
+                    - recent
+                    - random
+                conversationIds:
+                  type: array
+                  items:
+                    type: string
+                    minLength: 1
+                ks:
+                  type: array
+                  items:
+                    type: integer
+                    exclusiveMinimum: 0
+                    maximum: 9007199254740991
+                includeNotInjected:
+                  type: boolean
+              additionalProperties: false
   /v1/memory/v2/concept-frequency:
     post:
       operationId: memory_v2_conceptfrequency_post
@@ -11631,6 +11691,48 @@ paths:
       description:
         Read-only structural validation of the v2 workspace — reports orphan edges, oversized pages, and parse
         failures. Runnable regardless of memory.v2.enabled so operators can dry-run validation before flipping the flag.
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: {}
+              additionalProperties: false
+  /v1/memory/v3/tree:
+    post:
+      operationId: memory_v3_tree_post
+      summary: Return a serializable view of the memory v3 tree DAG (read-only)
+      description:
+        Returns the v3 tree root id plus every node and its ordered child refs (page:/node:) as a JSON-serializable
+        projection of the in-memory TreeIndex. Read-only; the CLI uses it to print an indented tree with shared-DAG
+        re-entries marked.
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: {}
+              additionalProperties: false
+  /v1/memory/v3/validate:
+    post:
+      operationId: memory_v3_validate_post
+      summary: Validate the memory v3 tree structure (read-only)
+      description:
+        Read-only structural validation of the hand-authored v3 tree DAG. Reports dangling child refs, orphan
+        pages, cycles, stale compositional indexes, and unknown edge targets. Writes nothing and runs no LLM — operators
+        dry-run it while the v2 → v3 migration is in flight.
       tags:
         - memory
       responses:

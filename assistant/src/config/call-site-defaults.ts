@@ -47,6 +47,10 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
   memoryV2Migration: { profile: "cost-optimized" },
   memoryV2Sweep: { profile: "cost-optimized" },
   memoryV2Consolidation: { profile: "balanced" },
+  // memory v3: cheap filter + descent, capable gate.
+  memoryV3Filter: { profile: "cost-optimized" },
+  memoryV3Descent: { profile: "cost-optimized" },
+  memoryV3Gate: { profile: "balanced" },
   conversationSummarization: { profile: "cost-optimized" },
   conversationTitle: { profile: "cost-optimized" },
   approvalCopy: { profile: "cost-optimized" },

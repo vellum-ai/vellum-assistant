@@ -184,11 +184,6 @@ export function ChatLayout() {
     layoutAvatar.traits,
   );
 
-  // Routes assistant-global sync events from `bus.sse.event` into the
-  // avatar / identity / config / sounds / schedules / conversation
-  // list query caches so the sidebar stays live on every chat-layout
-  // child route.
-
   // Home page unread indicator — drives the red dot on the Home button in
   // the layout header. Gated on the homePage feature flag so the hook
   // doesn't fire its query when the home route is disabled.

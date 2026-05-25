@@ -87,11 +87,13 @@ function notFoundJson(message: string): Response {
 
 /**
  * Validates that a runId is safe to use in file system operations.
- * Returns true if it matches the expected format (eval-...-<timestamp>),
- * preventing path traversal attacks.
+ * Returns true if it matches `eval-<slug>-<17-digit
+ * YYYYMMDDhhmmssSSS>-<4 hex chars>` (produced by
+ * `commands/run.ts#timestampSuffix`). Prevents path traversal attacks
+ * via the runId path segment.
  */
 function isValidRunId(runId: string): boolean {
-  return /^eval-[a-z0-9\-]+-\d{14}$/.test(runId);
+  return /^eval-[a-z0-9\-]+-\d{17}-[a-f0-9]{4}$/.test(runId);
 }
 
 /**
@@ -102,10 +104,14 @@ function isValidRunId(runId: string): boolean {
  *
  * Allowed:
  *   - `subprocess-<step>.log` — adapter subprocess tee output
- *   - `docker-inspect.json` / `docker-logs.txt` — hatch-failure forensics
+ *   - `docker-inspect-<service>.json` / `docker-logs-<service>.txt` —
+ *     per-sibling-container forensics written by the vellum adapter's
+ *     catch path (one pair per `vellumDockerSiblingContainers` entry:
+ *     assistant, gateway, credential-executor)
  */
 function isAllowedRunArtifactName(name: string): boolean {
-  if (name === "docker-inspect.json" || name === "docker-logs.txt") return true;
+  if (/^docker-inspect-[a-z0-9\-]+\.json$/.test(name)) return true;
+  if (/^docker-logs-[a-z0-9\-]+\.txt$/.test(name)) return true;
   return /^subprocess-[a-z0-9\-]+\.log$/.test(name);
 }
 

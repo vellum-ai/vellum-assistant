@@ -2,6 +2,7 @@ import OpenAI from "openai";
 
 import { isAbortReason } from "../../util/abort-reasons.js";
 import { ProviderError } from "../../util/errors.js";
+import { getLogger } from "../../util/logger.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
 import { escapeXmlAttr } from "../../util/xml.js";
 import { createStreamTimeout } from "../stream-timeout.js";
@@ -15,6 +16,8 @@ import type {
 } from "../types.js";
 import { ContextOverflowError } from "../types.js";
 import { detectOpenAICompatibleContextOverflow } from "./chat-completions-provider.js";
+
+const log = getLogger("openai-responses");
 
 export interface OpenAIResponsesProviderOptions {
   baseURL?: string;
@@ -106,6 +109,7 @@ export class OpenAIResponsesProvider implements Provider {
   private streamTimeoutMs: number;
   private useNativeWebSearch: boolean;
   private codexSubscription: boolean;
+  private lastCodexErrorBody: string | undefined;
 
   constructor(
     apiKey: string,
@@ -125,6 +129,27 @@ export class OpenAIResponsesProvider implements Provider {
         ? "https://chatgpt.com/backend-api/codex"
         : options.baseURL,
       timeout: sdkTimeoutMs,
+      ...(this.codexSubscription
+        ? {
+            fetch: async (url: RequestInfo | URL, init?: RequestInit) => {
+              const res = await globalThis.fetch(url, init);
+              if (!res.ok) {
+                const body = await res.text();
+                this.lastCodexErrorBody = body;
+                log.warn(
+                  { status: res.status, body, url: String(url) },
+                  "Codex endpoint raw error response",
+                );
+                return new Response(body, {
+                  status: res.status,
+                  statusText: res.statusText,
+                  headers: res.headers,
+                });
+              }
+              return res;
+            },
+          }
+        : {}),
     });
     this.model = model;
     this.useNativeWebSearch = options.useNativeWebSearch ?? false;
@@ -152,6 +177,7 @@ export class OpenAIResponsesProvider implements Provider {
       const params: Record<string, unknown> = {
         model: modelOverride ?? this.model,
         input,
+        ...(this.codexSubscription ? { store: false } : {}),
       };
 
       if (systemPrompt) {
@@ -412,6 +438,21 @@ export class OpenAIResponsesProvider implements Provider {
           ? signal.reason
           : undefined;
       if (error instanceof OpenAI.APIError) {
+        // Temporary diagnostic: log the raw error shape for Codex 400 debugging
+        if (this.codexSubscription) {
+          log.warn(
+            {
+              status: error.status,
+              message: error.message,
+              code: error.code,
+              type: error.type,
+              param: error.param,
+              errorBody: error.error,
+              headers: Object.fromEntries(error.headers?.entries?.() ?? []),
+            },
+            "Codex subscription API error — raw details",
+          );
+        }
         const overflow = detectOpenAICompatibleContextOverflow(error);
         if (overflow) {
           throw new ContextOverflowError(
@@ -433,8 +474,22 @@ export class OpenAIResponsesProvider implements Provider {
         if (retryAfterMs !== undefined)
           errorOptions.retryAfterMs = retryAfterMs;
         if (abortReason) errorOptions.abortReason = abortReason;
+        let errorDetail = error.message;
+        if (this.lastCodexErrorBody) {
+          try {
+            const parsed = JSON.parse(this.lastCodexErrorBody);
+            if (parsed.detail) errorDetail = parsed.detail;
+          } catch {
+            errorDetail = this.lastCodexErrorBody.slice(0, 200);
+          }
+          this.lastCodexErrorBody = undefined;
+        }
+        const extras = [error.code, error.type, error.param]
+          .filter(Boolean)
+          .join(", ");
+        const extraSuffix = extras ? ` [${extras}]` : "";
         throw new ProviderError(
-          `${this.providerLabel} API error (${error.status}): ${error.message}`,
+          `${this.providerLabel} API error (${error.status}): ${errorDetail}${extraSuffix}`,
           this.name,
           error.status,
           Object.keys(errorOptions).length > 0 ? errorOptions : undefined,

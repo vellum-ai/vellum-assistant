@@ -331,10 +331,10 @@ function buildTitlePrompt(
   }
 
   if (userMessage) {
-    parts.push(`User: ${userMessage}`);
+    parts.push(`User: ${stripThinkingTags(userMessage)}`);
   }
   if (assistantResponse) {
-    parts.push(`Assistant: ${assistantResponse}`);
+    parts.push(`Assistant: ${stripThinkingTags(assistantResponse)}`);
   }
 
   return parts.join("\n");
@@ -378,10 +378,26 @@ function truncateTitle(title: string): string {
 function normalizeTitle(raw: string): string {
   let title = raw.trim().replace(/^["']|["']$/g, "");
   title = stripMarkdown(title);
+  title = stripThinkingTags(title);
   if (META_FAILURE_TITLES.has(title.toLowerCase())) {
     return "";
   }
   return truncateTitle(title);
+}
+
+/** Strip thinking tags so they don't bleed into generated titles. */
+function stripThinkingTags(text: string): string {
+  return text
+    .replace(/<thinking>[\s\S]*?<\/thinking>/gi, "")
+    .replace(/<thought>[\s\S]*?<\/thought>/gi, "")
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .replace(/<thought>/gi, "")
+    .replace(/<\/thought>/gi, "")
+    .replace(/<thinking>/gi, "")
+    .replace(/<\/thinking>/gi, "")
+    .replace(/<think>/gi, "")
+    .replace(/<\/think>/gi, "")
+    .replace(/<:[^>]*>/gi, "");
 }
 
 /** Strip common markdown formatting so titles render as plain text. */
@@ -458,7 +474,7 @@ function buildRegenerationPrompt(recentMessages: MessageRow[]): string {
     const text = extractTextForTitle(msg.content);
     if (!text) continue;
     const role = msg.role === "user" ? "User" : "Assistant";
-    parts.push(`${role}: ${text}`);
+    parts.push(`${role}: ${stripThinkingTags(text)}`);
   }
 
   return parts.join("\n");

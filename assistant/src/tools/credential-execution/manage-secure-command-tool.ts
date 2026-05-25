@@ -18,7 +18,6 @@
 import type { ManageSecureCommandTool } from "@vellumai/service-contracts/rpc";
 
 import { RiskLevel } from "../../permissions/types.js";
-import type { ToolDefinition } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 
@@ -33,11 +32,7 @@ class ManageSecureCommandToolImpl implements Tool {
   category = "credential-execution";
   defaultRiskLevel = RiskLevel.High;
 
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
+  input_schema = {
         type: "object",
         properties: {
           action: {
@@ -236,9 +231,7 @@ class ManageSecureCommandToolImpl implements Tool {
           },
         },
         required: ["action", "toolName"],
-      },
-    };
-  }
+      };
 
   async execute(
     input: Record<string, unknown>,

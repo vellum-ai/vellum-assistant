@@ -8,6 +8,7 @@ import {
   CLIENT_FLAG_DEFAULTS,
   flagKeyToStoreKey,
 } from "@/lib/feature-flags/feature-flag-catalog.js";
+import { useFlagQueryFreshness } from "@/lib/backwards-compat/flag-query-freshness.js";
 
 interface ClientFlagValuesResponse {
   flags: Record<string, boolean>;
@@ -47,12 +48,12 @@ function mapFlags(
 }
 
 export function useClientFeatureFlagSync(enabled: boolean) {
+  const freshness = useFlagQueryFreshness();
   const { data } = useQuery({
     queryKey: CLIENT_FLAG_QUERY_KEY,
     queryFn: fetchClientFlagValues,
     enabled,
-    staleTime: 5_000,
-    refetchInterval: 5_000,
+    ...freshness,
     retry: 1,
   });
 

@@ -23,6 +23,10 @@ import {
   totalEdgeCount,
   validateEdgeTargets,
 } from "../../memory/v2/edge-index.js";
+import { runComparisonOverHistory } from "../../memory/v2/harness/compare.js";
+import type { Retriever } from "../../memory/v2/harness/retriever.js";
+import { createRouterRetriever } from "../../memory/v2/harness/router-retriever.js";
+import type { ComparisonReport } from "../../memory/v2/harness/runner.js";
 import { computeInjectionScores } from "../../memory/v2/injection-events.js";
 import { loadNowText } from "../../memory/v2/now-text.js";
 import { getPageIndex } from "../../memory/v2/page-index.js";
@@ -35,6 +39,7 @@ import {
 import { ROUTER_PROMPT } from "../../memory/v2/prompts/router.js";
 import { type RouterSource, runRouter } from "../../memory/v2/router.js";
 import { seedV2SkillEntries } from "../../memory/v2/skill-store.js";
+import { createV3Retriever } from "../../memory/v3/retriever.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { RouteError } from "./errors.js";
@@ -602,6 +607,62 @@ async function handleGetNowText(): Promise<MemoryV2NowTextResult> {
   return { nowText };
 }
 
+// ── Compare retrievers over historical turns (read-only) ────────────────
+
+const MemoryV2CompareRetrieversParams = z
+  .object({
+    /**
+     * How many historical `mode='router'` turns to sample. Each scored turn
+     * re-runs the router (one LLM call), so keep this modest. Default 20.
+     */
+    limit: z.number().int().positive().optional(),
+    strategy: z.enum(["recent", "random"]).optional(),
+    conversationIds: z.array(z.string().min(1)).optional(),
+    ks: z.array(z.number().int().positive()).optional(),
+    includeNotInjected: z.boolean().optional(),
+  })
+  .strict();
+
+const DEFAULT_COMPARE_LIMIT = 20;
+const DEFAULT_COMPARE_KS = [5, 10, 25, 50];
+
+export async function handleCompareRetrievers({
+  body = {},
+  abortSignal,
+}: RouteHandlerArgs): Promise<ComparisonReport> {
+  requireMemoryV2Enabled();
+  const { limit, strategy, conversationIds, ks, includeNotInjected } =
+    MemoryV2CompareRetrieversParams.parse(body);
+
+  const config = loadConfig();
+  const workspaceDir = getWorkspaceDir();
+  const pageIndex = await getPageIndex(workspaceDir);
+  const db = getDb();
+
+  // The router is always comparand #1 (the harness self-test against its own
+  // logged ground truth). v3 joins as comparand #2 only when explicitly
+  // enabled, so the default compare surface is unchanged until v3 is switched
+  // on. v3 is offline-only here — the loop reads `db` but mutates nothing.
+  const retrievers: Retriever[] = [createRouterRetriever(db)];
+  if (config.memory.v3.enabled) {
+    retrievers.push(createV3Retriever(db));
+  }
+
+  return runComparisonOverHistory({
+    db,
+    workspaceDir,
+    config,
+    retrievers,
+    ks: ks ?? DEFAULT_COMPARE_KS,
+    limit: limit ?? DEFAULT_COMPARE_LIMIT,
+    pageExists: (slug) => pageIndex.bySlug.has(slug),
+    ...(strategy !== undefined ? { strategy } : {}),
+    ...(conversationIds !== undefined ? { conversationIds } : {}),
+    ...(includeNotInjected !== undefined ? { includeNotInjected } : {}),
+    ...(abortSignal !== undefined ? { signal: abortSignal } : {}),
+  });
+}
+
 // ── Route definitions ───────────────────────────────────────────────────
 
 export const ROUTES: RouteDefinition[] = [
@@ -692,6 +753,18 @@ export const ROUTES: RouteDefinition[] = [
       "Runs the memory router against the live page index + EMA scores with optional tier_size / batch_size overrides, without recording an injection event or writing an activation log. Returns the slugs that would have been selected, per-slug tier provenance, EMA scores, and the effective router config so operators can validate knob changes before flipping them in workspace config.",
     tags: ["memory"],
     requestBody: MemoryV2SimulateRouterParams,
+  },
+  {
+    operationId: "memory_v2_compare_retrievers",
+    method: "POST",
+    endpoint: "memory/v2/compare-retrievers",
+    handler: handleCompareRetrievers,
+    summary:
+      "Compare retrievers against the router's logged selections (read-only)",
+    description:
+      "Runs one or more retrievers over a sample of historical turns (memory_v2_activation_logs, mode='router') and scores their selected pages against the logged selections as ground truth, reconstructing each turn's inputs from the messages table + current NOW. Read-only — writes nothing. Each scored turn re-runs the router (one LLM call), so keep `limit` modest. Today the only retriever is the router itself, so this is the harness self-test.",
+    tags: ["memory"],
+    requestBody: MemoryV2CompareRetrieversParams,
   },
   {
     operationId: "memory_v2_router_prompt_template",

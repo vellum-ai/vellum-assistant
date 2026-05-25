@@ -40,7 +40,7 @@ Examples:
   $ assistant domain register velly
   $ assistant domain register velly --email-username hello
   $ assistant domain register --json
-  $ assistant domain status`,
+  $ assistant domain status velly`,
       );
 
       domain
@@ -77,7 +77,7 @@ Examples:
   ✓ Registered my-assistant.${baseDomain}
 
   $ assistant domain register velly --json
-  {"domain":"velly.${baseDomain}","id":"...","status":"active","verified":true}`,
+  {"domain":"velly.${baseDomain}","id":"..."}`,
         )
         .action(
           async (
@@ -97,8 +97,6 @@ Examples:
               id: string;
               subdomain?: string;
               domain?: string;
-              status?: string;
-              verified?: boolean;
               created_at?: string;
               created?: string;
               email_error?: { detail: string; code: string };
@@ -136,42 +134,40 @@ Examples:
                   `⚠ Email registration failed: ${data.email_error.detail}`,
                 );
               }
-              if (data.verified === false) {
-                log.info(
-                  "  ⚠ Domain verification pending — this usually resolves within a few seconds.",
-                );
-              }
             }
           },
         );
 
       domain
-        .command("status")
-        .description("Show this assistant's domain registration and health")
+        .command("status <subdomain>")
+        .description(
+          "Show registration and DNS verification status for a subdomain",
+        )
         .addHelpText(
           "after",
           `
-Shows the domain currently registered for this assistant, including
-verification status and DNS health.
+Arguments:
+  subdomain   The subdomain to check (e.g. "velly").
+
+Shows the domain's registration details and live DNS verification
+status from the email provider.
 
 Examples:
-  $ assistant domain status
-  Domain:   velly.${baseDomain}
-  Status:   active
-  Verified: yes
-  Created:  2026-04-15
+  $ assistant domain status velly
+  Domain:       velly.${baseDomain}
+  Verification: verified
+                DNS records have been verified. Your domain is ready to send and receive email.
+  Created:      2026-04-15
 
-  $ assistant domain status --json
-  {"domain":"velly.${baseDomain}","status":"active","verified":true,...}`,
+  $ assistant domain status velly --json
+  {"domain":{"subdomain":"velly","id":"..."},"verification":{"status":"verified","message":"..."}}`,
         )
-        .action(async (_opts: unknown, cmd: Command) => {
+        .action(async (subdomain: string, _opts: unknown, cmd: Command) => {
           const r = await cliIpcCall<{
             results: {
               id: string;
               subdomain?: string;
               domain?: string;
-              status?: string;
-              verified?: boolean;
               created_at?: string;
               created?: string;
             }[];
@@ -185,28 +181,51 @@ Examples:
 
           const data = r.result!;
           const domains = data.results ?? [];
+          const d = domains.find(
+            (entry) => entry.subdomain === subdomain,
+          );
+
+          if (!d) {
+            if (shouldOutputJson(cmd)) {
+              writeOutput(cmd, { error: `Domain "${subdomain}" not found` });
+              process.exitCode = 1;
+            } else {
+              log.error(
+                `Domain "${subdomain}" is not registered for this assistant.`,
+              );
+              process.exitCode = 1;
+            }
+            return;
+          }
+
+          // Fetch live verification status
+          const v = await cliIpcCall<{
+            domain: string;
+            status: string;
+            message: string;
+          }>("domain_verification_status", {
+            body: { domain_id: d.id },
+          });
+
+          const verification = v.ok ? v.result : undefined;
 
           if (shouldOutputJson(cmd)) {
-            writeOutput(cmd, data);
-          } else if (domains.length === 0) {
-            log.info(
-              "No domain registered for this assistant. Run: assistant domain register [subdomain]",
-            );
+            writeOutput(cmd, { domain: d, verification: verification ?? null });
           } else {
-            for (const d of domains) {
-              const displayDomain =
-                d.domain ??
-                (d.subdomain ? `${d.subdomain}.${apexDomain}` : "unknown");
-              const createdRaw = d.created_at ?? d.created;
-              const createdDate = createdRaw
-                ? createdRaw.split("T")[0]
-                : "unknown";
-              log.info(`Domain:   ${displayDomain}`);
-              if (d.status != null) log.info(`Status:   ${d.status}`);
-              if (d.verified != null)
-                log.info(`Verified: ${d.verified ? "yes" : "no"}`);
-              log.info(`Created:  ${createdDate}`);
+            const displayDomain =
+              d.domain ??
+              (d.subdomain ? `${d.subdomain}.${apexDomain}` : "unknown");
+            const createdRaw = d.created_at ?? d.created;
+            const createdDate = createdRaw
+              ? createdRaw.split("T")[0]
+              : "unknown";
+            log.info(`Domain:       ${displayDomain}`);
+            const vStatus = verification?.status ?? "unknown";
+            log.info(`Verification: ${vStatus}`);
+            if (verification?.message) {
+              log.info(`              ${verification.message}`);
             }
+            log.info(`Created:      ${createdDate}`);
           }
         });
     },

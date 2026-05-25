@@ -12,6 +12,7 @@ import { client, SDK_BASE_OPTIONS } from "@/domains/chat/api/client.js";
 import { recordChatDiagnostic, resolvePlatformTag } from "@/domains/chat/utils/diagnostics.js";
 import { parseAssistantEvent, readEventConversationId } from "@/domains/chat/api/event-parser.js";
 import type { AssistantEvent } from "@/domains/chat/api/event-types.js";
+import { pickConversationIdWireField } from "@/lib/backwards-compat/conversation-id-wire-field.js";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity.js";
 import {
   markClientEstablished,
@@ -308,15 +309,21 @@ export function subscribeChatEvents(
     dataFramesReceivedSinceConnect = 0;
     let streamError: Error | null = null;
     try {
+      // Daemon 0.8.5+ accepts `conversationId` on this endpoint as a
+      // direct internal-id lookup; older daemons only understand the
+      // legacy `conversationKey` (external-key path). The gate that
+      // picks between them lives in
+      // `lib/backwards-compat/conversation-id-wire-field.ts`.
       const { stream } = await client.sse.get<Record<string, unknown> | string>({
         ...SDK_BASE_OPTIONS,
         url: "/v1/assistants/{assistant_id}/events/",
         path: { assistant_id: assistantId },
-        // SSE endpoint `GET /v1/assistants/{id}/events/` accepts only
-        // `conversationKey` as its query param (see events-routes.ts).
-        // Map the internal conversationId variable onto the wire field.
         ...(requestedConversationId
-          ? { query: { conversationKey: requestedConversationId } }
+          ? {
+              query: {
+                [pickConversationIdWireField()]: requestedConversationId,
+              },
+            }
           : {}),
         headers: {
           Accept: "text/event-stream, application/json",

@@ -388,3 +388,160 @@ export const MemoryV2ConfigSchema = z
   });
 
 export type MemoryV2Config = z.infer<typeof MemoryV2ConfigSchema>;
+
+/**
+ * Memory v3 (multi-lane, bounded-descent retrieval) configuration.
+ *
+ * Additive scaffolding only — defaults to `enabled: false` so existing
+ * configs are untouched and the v3 retrieval loop stays inert until later
+ * PRs wire it up. Every field carries a default and the whole block is
+ * `.default(...)`-wrapped so a config that omits `memory.v3` entirely still
+ * parses to these documented defaults.
+ */
+export const MemoryV3ConfigSchema = z
+  .object({
+    enabled: z
+      .boolean({ error: "memory.v3.enabled must be a boolean" })
+      .default(false)
+      .describe(
+        "Whether the v3 memory subsystem (multi-lane bounded-descent retrieval) is enabled. Off by default until the v3 loop is wired up.",
+      ),
+    shadow: z
+      .boolean({ error: "memory.v3.shadow must be a boolean" })
+      .default(false)
+      .describe(
+        "Live-shadow toggle: when on, the v3 retrieval loop runs alongside the active path for comparison without affecting injected context. Consumed by a later PR.",
+      ),
+    passCap: z
+      .number({ error: "memory.v3.passCap must be a number" })
+      .int("memory.v3.passCap must be an integer")
+      .default(3)
+      .describe(
+        "Maximum number of retrieval passes (router → descent rounds) the v3 loop may run per turn.",
+      ),
+    breadthBudget: z
+      .number({ error: "memory.v3.breadthBudget must be a number" })
+      .int("memory.v3.breadthBudget must be an integer")
+      .default(6)
+      .describe(
+        "Per-pass breadth budget — the number of frontier candidates the v3 loop may expand at each step.",
+      ),
+    maxDepth: z
+      .number({ error: "memory.v3.maxDepth must be a number" })
+      .int("memory.v3.maxDepth must be an integer")
+      .default(6)
+      .describe(
+        "Maximum descent depth the v3 loop traverses through the memory tree before stopping.",
+      ),
+    denseQuota: z
+      .object({
+        activeDomain: z
+          .number({
+            error: "memory.v3.denseQuota.activeDomain must be a number",
+          })
+          .describe(
+            "Dense-lane candidate quota allocated to the conversation's active domain.",
+          ),
+        offDomain: z
+          .number({ error: "memory.v3.denseQuota.offDomain must be a number" })
+          .describe(
+            "Dense-lane candidate quota allocated to off-domain (exploratory) retrieval.",
+          ),
+      })
+      .default({ activeDomain: 30, offDomain: 8 })
+      .describe(
+        "Dense-lane candidate quotas split between the active domain and off-domain exploration.",
+      ),
+    lanes: z
+      .object({
+        hot: z
+          .boolean()
+          .default(true)
+          .describe("Whether the hot (recently-touched) retrieval lane is on."),
+        sparse: z
+          .boolean()
+          .default(true)
+          .describe("Whether the sparse (BM25-style keyword) lane is on."),
+        dense: z
+          .boolean()
+          .default(true)
+          .describe("Whether the dense (embedding-similarity) lane is on."),
+        tree: z
+          .boolean()
+          .default(true)
+          .describe("Whether the tree (hierarchical descent) lane is on."),
+        edges: z
+          .boolean()
+          .default(true)
+          .describe("Whether the edges (graph-adjacency) lane is on."),
+      })
+      .default({
+        hot: true,
+        sparse: true,
+        dense: true,
+        tree: true,
+        edges: true,
+      })
+      .describe(
+        "Per-lane on/off toggles for the v3 multi-lane retrieval fanout. All lanes on by default.",
+      ),
+    ks: z
+      .array(z.number({ error: "memory.v3.ks entries must be numbers" }))
+      .default([5, 10, 25, 50])
+      .describe(
+        "Evaluation top-K cutoffs the v3 loop reports metrics at (e.g. recall@K).",
+      ),
+    write: z
+      .object({
+        enabled: z
+          .boolean({ error: "memory.v3.write.enabled must be a boolean" })
+          .default(false)
+          .describe(
+            "Whether v3 consolidation owns the shared-buffer drain + tree build. Off by default — v2 consolidation stays the sole buffer-drainer. Does NOT introduce a separate buffer.",
+          ),
+        consolidateIntervalMs: z
+          .number({
+            error: "memory.v3.write.consolidateIntervalMs must be a number",
+          })
+          .int("memory.v3.write.consolidateIntervalMs must be an integer")
+          .positive("memory.v3.write.consolidateIntervalMs must be positive")
+          .default(3600000)
+          .describe(
+            "Interval, in milliseconds, between scheduled v3 consolidation runs once the v3 write path owns the drain. Default 1 hour.",
+          ),
+        coactivation: z
+          .boolean({ error: "memory.v3.write.coactivation must be a boolean" })
+          .default(false)
+          .describe(
+            "Whether v3 consolidation learns co-activation edges during the tree build. Off by default; consumed by a later PR.",
+          ),
+      })
+      .default({
+        enabled: false,
+        consolidateIntervalMs: 3600000,
+        coactivation: false,
+      })
+      .describe(
+        "Memory v3 write-path configuration. All default-off scaffolding — controls whether v3 consolidation owns the shared-buffer drain + tree build. Consumed by later PRs.",
+      ),
+  })
+  .default({
+    enabled: false,
+    shadow: false,
+    passCap: 3,
+    breadthBudget: 6,
+    maxDepth: 6,
+    denseQuota: { activeDomain: 30, offDomain: 8 },
+    lanes: { hot: true, sparse: true, dense: true, tree: true, edges: true },
+    ks: [5, 10, 25, 50],
+    write: {
+      enabled: false,
+      consolidateIntervalMs: 3600000,
+      coactivation: false,
+    },
+  })
+  .describe(
+    "Memory v3 — multi-lane bounded-descent retrieval. Additive scaffolding, disabled by default.",
+  );
+
+export type MemoryV3Config = z.infer<typeof MemoryV3ConfigSchema>;

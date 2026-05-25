@@ -384,14 +384,7 @@ function handleToolNamesList() {
   };
   const schemas: Record<string, SchemaShape> = {};
 
-  const rawDefs: ToolDefinition[] = [];
-  for (const tool of tools) {
-    try {
-      rawDefs.push(tool.getDefinition());
-    } catch {
-      // Skip tools whose definitions can't be resolved
-    }
-  }
+  const rawDefs: ToolDefinition[] = tools;
 
   const transformedDefs = injectActivityField(rawDefs, ACTIVITY_SKIP_SET);
   for (const def of transformedDefs) {

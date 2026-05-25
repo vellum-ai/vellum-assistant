@@ -1,9 +1,49 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 
-import type { AgentEvent } from "../../adapter";
-import { ensureRunArtifacts, readTranscript, readUsage } from "../../metrics";
+import type {
+  AgentEvent,
+  AgentHatchInput,
+  AgentMessage,
+  BaseAgent,
+} from "../../adapter";
+import {
+  ensureRunArtifacts,
+  readRunMetadata,
+  readTranscript,
+  readUsage,
+} from "../../metrics";
+import type { Profile } from "../../profile";
+import type { Simulator, SimulatorDecision } from "../../simulator/types";
+import type { TestDef } from "../../test-def";
 import { AgentEventCollector } from "../event-collector";
-import { assistantContent, collectAndPersistEvents } from "../run-once";
+
+// `createAgent` lives behind the species switch in `../create-agent`.
+// We mock it here so the hatch-failure regression below can hand
+// `runEvalOnce` a throwing `BaseAgent` stub without standing up a real
+// vellum/hermes container. `nextAgent` is set per-test in `describe`
+// blocks that need it; tests above this point don't touch it.
+let nextAgent: BaseAgent | null = null;
+mock.module("../create-agent", () => ({
+  createAgent: (input: AgentHatchInput): BaseAgent => {
+    if (!nextAgent) {
+      throw new Error(
+        `test forgot to set nextAgent before runEvalOnce reached createAgent (runId=${input.runId})`,
+      );
+    }
+    return nextAgent;
+  },
+}));
+
+// Import-under-test goes AFTER `mock.module` so `run-once.ts`'s
+// import-time reference to `createAgent` resolves to the stub above.
+import {
+  assistantContent,
+  collectAndPersistEvents,
+  markErrorAsReportedToProgress,
+  runEvalOnce,
+  wasErrorReportedToProgress,
+} from "../run-once";
+import type { EvalProgressEvent } from "../progress";
 
 function event(message: AgentEvent["message"]): AgentEvent {
   return { message };
@@ -271,5 +311,245 @@ describe("collectAndPersistEvents", () => {
     expect(result.eventCount).toBe(1);
     expect(result.transcriptTurnCount).toBe(0);
     expect(await readTranscript(runId)).toEqual([]);
+  });
+});
+
+/**
+ * Minimal `BaseAgent` stub that throws on `hatch()` and tracks whether
+ * `shutdown()` was invoked. Used by the regression test below to verify
+ * that the catch + finally blocks in `runEvalOnce` see the throw — pre-
+ * fix, `agent.hatch()` lived outside the try, so neither block ran.
+ */
+function throwingHatchAgent(input: AgentHatchInput): {
+  agent: BaseAgent;
+  shutdownCalls: number[];
+} {
+  const tracker = { count: 0 };
+  const agent: BaseAgent = {
+    id: input.runId ?? "throwing-agent",
+    conversationKey: `evals:test:${input.runId ?? "throwing-agent"}`,
+    async hatch(): Promise<void> {
+      throw new Error("simulated post-hatch failure (e.g. jail apply)");
+    },
+    async send(_message: AgentMessage): Promise<void> {
+      throw new Error("unreachable: hatch already threw");
+    },
+    async runSetupCommand(): Promise<void> {
+      throw new Error("unreachable: hatch already threw");
+    },
+    events(): AsyncIterable<AgentEvent> {
+      throw new Error("unreachable: hatch already threw");
+    },
+    async shutdown(): Promise<void> {
+      tracker.count += 1;
+    },
+  };
+  return {
+    agent,
+    get shutdownCalls() {
+      return [tracker.count];
+    },
+  };
+}
+
+function fakeProfile(id: string): Profile {
+  return {
+    id,
+    manifest: { species: "vellum" },
+    workspaceDir: `/tmp/${id}`,
+  };
+}
+
+function fakeTestDef(id: string): TestDef {
+  return {
+    id,
+    specPath: `/tmp/${id}/SPEC.md`,
+    setupPath: `/tmp/${id}/setup.ts`,
+    setupCommands: [],
+    metricsDir: `/tmp/${id}/metrics`,
+    metricPaths: [],
+  };
+}
+
+/**
+ * Regression: pre-fix, `await agent.hatch()` sat OUTSIDE the try/catch/
+ * finally in `runEvalOnce`, between `writeRunMetadata({status:"running"})`
+ * and the try block. Any throw from inside `agent.hatch()` (jail-apply
+ * failure, setup-command failure inside `VellumAgent.hatch`) bypassed:
+ *
+ *   - The catch that writes `status: "failed"` + the error message.
+ *   - The finally that clears the heartbeat interval AND runs the
+ *     `status === "running"` safety-net write.
+ *
+ * The on-disk run was therefore left `status: "running"` with a fresh
+ * heartbeat, and the scavenger in the *next* `evals run` invocation
+ * surfaced it as `Process exited without completing (last heartbeat: …)`
+ * — opaque to the operator. Vargas's 2026-05-25 timeline-recall report
+ * was exactly this shape.
+ */
+describe("runEvalOnce — hatch failure metadata", () => {
+  // Stand-in `Simulator` that satisfies the constructor inside
+  // `runEvalOnce` without reaching for `ANTHROPIC_API_KEY` (the real
+  // `UserSimulator` ctor requires it and would mask the bug under test
+  // with an unrelated throw). The decide() method is unreachable
+  // because hatch throws first.
+  const inertSimulator: Simulator = {
+    async decide(): Promise<SimulatorDecision> {
+      return { action: "end", reason: "unreachable in hatch-throw test" };
+    },
+  };
+
+  afterEach(() => {
+    nextAgent = null;
+  });
+
+  test("writes status:'failed' (not 'running') when agent.hatch() throws", async () => {
+    const runId = `test-hatch-throw-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const harness = throwingHatchAgent({
+      profile: fakeProfile("p-fake"),
+      testId: "t-fake",
+      runId,
+    });
+    nextAgent = harness.agent;
+
+    await expect(
+      runEvalOnce({
+        profile: fakeProfile("p-fake"),
+        test: fakeTestDef("t-fake"),
+        runId,
+        simulator: inertSimulator,
+      }),
+    ).rejects.toThrow("simulated post-hatch failure");
+
+    const metadata = await readRunMetadata(runId);
+    expect(metadata).toBeDefined();
+    // The exact-value assertion is the regression: pre-fix this would
+    // be `"running"` because the catch never ran.
+    expect(metadata?.status).toBe("failed");
+    expect(metadata?.completedAt).toBeDefined();
+    expect(metadata?.error ?? "").toContain("simulated post-hatch failure");
+
+    // Finally block ran → shutdown was called even on the throw path.
+    // This is the second leg of the bug fix: without it, hatch failures
+    // would leak any partial container state to the next run.
+    expect(harness.shutdownCalls[0]).toBe(1);
+  });
+});
+
+/**
+ * Diagnostic-gap regression: pre-fix, `createAgent(...)` and
+ * `new UserSimulator(...)` were constructed BEFORE the try block in
+ * `runEvalOnce`. A throw from either (most common: ANTHROPIC_API_KEY
+ * unset → `new UserSimulator()` throws synchronously) propagated up
+ * to the CLI's per-test `catch {}` in `commands/run.ts`, which
+ * trusted that run-once had already emitted a structured progress
+ * event with the diagnostic detail. It hadn't — there was nothing
+ * inside that try yet — so the CLI exited 1 with literally no
+ * stdout/stderr explanation.
+ *
+ * Post-fix:
+ *   - Construction lives inside `runEvalOnce`'s try, so the catch
+ *     emits a `status:"error"` progress event with the throw's
+ *     message.
+ *   - The error gets marked via `markErrorAsReportedToProgress` so
+ *     the outer CLI catch can tell "structured event already on the
+ *     wire" from "throw bypassed everything; emit a fallback line".
+ *   - The finally guards `agent?.shutdown()` so a construction-time
+ *     throw doesn't NPE during cleanup.
+ */
+describe("runEvalOnce — construction failure diagnostic gap", () => {
+  const inertSimulator: Simulator = {
+    async decide(): Promise<SimulatorDecision> {
+      return {
+        action: "end",
+        reason: "unreachable in construction-throw test",
+      };
+    },
+  };
+
+  afterEach(() => {
+    nextAgent = null;
+  });
+
+  test("emits a status:'error' progress event when createAgent throws", async () => {
+    // `nextAgent` left null → the test seam in `mock.module` above
+    // throws "test forgot to set nextAgent ...". This simulates any
+    // construction-time throw (missing API key, profile species the
+    // adapter switch rejects, etc.) — the shape of the gap is what
+    // matters, not the exact message.
+    const runId = `test-ctor-throw-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const events: EvalProgressEvent[] = [];
+
+    let captured: unknown;
+    try {
+      await runEvalOnce({
+        profile: fakeProfile("p-fake"),
+        test: fakeTestDef("t-fake"),
+        runId,
+        simulator: inertSimulator,
+        progress: (event) => events.push(event),
+      });
+    } catch (err) {
+      captured = err;
+    }
+
+    // The throw still propagates so callers can flip exit codes.
+    expect(captured).toBeInstanceOf(Error);
+    expect((captured as Error).message).toContain(
+      "test forgot to set nextAgent",
+    );
+
+    // The diagnostic gap: a structured `status:"error"` event MUST
+    // reach the reporter. Pre-fix this list would be empty.
+    const errorEvents = events.filter((e) => e.status === "error");
+    expect(errorEvents.length).toBeGreaterThanOrEqual(1);
+    expect(errorEvents[0].message).toContain("test forgot to set nextAgent");
+
+    // And the error must be marked so the outer CLI catch stays quiet
+    // instead of double-emitting.
+    expect(wasErrorReportedToProgress(captured)).toBe(true);
+
+    // No metadata write happened — `ensureRunArtifacts` never ran, so
+    // there's no run directory to write into. The catch correctly
+    // skips the write rather than NPE'ing on `runDir`.
+    const metadata = await readRunMetadata(runId);
+    expect(metadata).toBeUndefined();
+  });
+});
+
+/**
+ * Unit tests for the WeakSet-backed marker mechanism itself. Kept
+ * separate from the integration test above so a future refactor of
+ * the marker storage (Symbol-on-error, dedicated subclass, etc.)
+ * doesn't have to retouch the runEvalOnce regression.
+ */
+describe("error-reported-to-progress marker", () => {
+  test("an unmarked error is reported as not-yet-emitted", () => {
+    expect(wasErrorReportedToProgress(new Error("fresh"))).toBe(false);
+  });
+
+  test("marking flips the read", () => {
+    const err = new Error("ergonomic");
+    expect(wasErrorReportedToProgress(err)).toBe(false);
+    markErrorAsReportedToProgress(err);
+    expect(wasErrorReportedToProgress(err)).toBe(true);
+  });
+
+  test("marking is tolerant of primitives and null", () => {
+    // WeakSet can't hold primitives; the helpers silently no-op. This
+    // matters because the catch in run-once.ts receives `unknown`, and
+    // a `throw "bare string"` from a third-party module shouldn't
+    // crash the catch trying to mark it.
+    expect(() => markErrorAsReportedToProgress("string")).not.toThrow();
+    expect(() => markErrorAsReportedToProgress(null)).not.toThrow();
+    expect(() => markErrorAsReportedToProgress(undefined)).not.toThrow();
+    expect(() => markErrorAsReportedToProgress(42)).not.toThrow();
+
+    // ... and reads return false (the "emit fallback" signal) for
+    // primitives, which is the correct conservative default.
+    expect(wasErrorReportedToProgress("string")).toBe(false);
+    expect(wasErrorReportedToProgress(null)).toBe(false);
+    expect(wasErrorReportedToProgress(undefined)).toBe(false);
+    expect(wasErrorReportedToProgress(42)).toBe(false);
   });
 });

@@ -87,16 +87,35 @@ export function useChatContextQuery(
  * Returns an empty array until the query resolves so consumers can render
  * an empty sidebar without null-checking. Cache writes from mutations and
  * SSE handlers feed through here automatically.
+ *
+ * `isError` and `refetch` are exposed so chat-surface consumers can
+ * surface a visible error state when the conversation list fails — most
+ * notably for self-hosted assistants, where a missing actor-token JWT
+ * surfaces as a gateway 401 that has to terminate the loading spinner
+ * with an actionable retry instead of silently keeping the sidebar
+ * empty.
  */
 export function useConversationListQuery(
   assistantId: string | null,
   enabled: boolean = true,
-): { conversations: Conversation[]; isLoading: boolean; isPending: boolean } {
+): {
+  conversations: Conversation[];
+  isLoading: boolean;
+  isPending: boolean;
+  isError: boolean;
+  refetch: () => void;
+} {
   const query = useChatContextQuery(assistantId, enabled);
   return {
     conversations: query.data?.conversations ?? EMPTY_CONVERSATIONS,
     isLoading: query.isLoading,
     isPending: query.isPending,
+    isError: query.isError,
+    // Wrap in a void-returning closure so callers don't have to know
+    // about TanStack's `QueryObserverResult` promise.
+    refetch: () => {
+      void query.refetch();
+    },
   };
 }
 

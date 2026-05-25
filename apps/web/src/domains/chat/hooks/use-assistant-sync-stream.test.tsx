@@ -46,6 +46,13 @@ function emit(event: AssistantEvent): void {
   useEventBusStore.getState().publish("sse.event", event);
 }
 
+function emitOpened(
+  cause: "fresh" | "error" | "watchdog" | "resume",
+  assistantId = "asst-1",
+): void {
+  useEventBusStore.getState().publish("sse.opened", { assistantId, cause });
+}
+
 beforeEach(() => {
   __resetEventBusForTesting();
 });
@@ -273,6 +280,50 @@ describe("useAssistantSyncStream", () => {
         queryKey: [ASSISTANT_FLAG_VALUES_QUERY_KEY],
       });
     });
+  });
+
+  test("invalidates both flag queries on sse.opened reconnect (cause=error)", async () => {
+    const queryClient = freshQueryClient();
+    const spy = mock(() => Promise.resolve());
+    queryClient.invalidateQueries = spy as never;
+    renderHook(() => useAssistantSyncStream("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    emitOpened("error");
+    await waitFor(() => {
+      expect(spy).toHaveBeenCalledWith({ queryKey: CLIENT_FLAG_QUERY_KEY });
+      expect(spy).toHaveBeenCalledWith({
+        queryKey: [ASSISTANT_FLAG_VALUES_QUERY_KEY],
+      });
+    });
+  });
+
+  test("invalidates both flag queries on sse.opened (cause=watchdog and cause=resume)", async () => {
+    const queryClient = freshQueryClient();
+    const spy = mock(() => Promise.resolve());
+    queryClient.invalidateQueries = spy as never;
+    renderHook(() => useAssistantSyncStream("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    emitOpened("watchdog");
+    emitOpened("resume");
+    await waitFor(() => {
+      // 2 emits × 2 query keys = 4 invalidate calls.
+      expect(spy).toHaveBeenCalledTimes(4);
+    });
+  });
+
+  test("does NOT invalidate on sse.opened (cause=fresh) — initial mount fetch covers it", async () => {
+    const queryClient = freshQueryClient();
+    const spy = mock(() => Promise.resolve());
+    queryClient.invalidateQueries = spy as never;
+    renderHook(() => useAssistantSyncStream("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    emitOpened("fresh");
+    // Give the bus a microtask to deliver.
+    await Promise.resolve();
+    expect(spy).not.toHaveBeenCalled();
   });
 
   test("unsubscribes from the bus when isAssistantActive flips true -> false", () => {

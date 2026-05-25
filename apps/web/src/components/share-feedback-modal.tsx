@@ -244,7 +244,8 @@ async function buildClientLogsFile(
         : null;
     if (debugApi) {
       const triagePayload = {
-        tail: debugApi.tail?.() ?? null,
+        clientMessages: debugApi.getClientMessages?.() ?? null,
+        transcriptItems: debugApi.getTranscriptItems?.() ?? null,
         thinkingIndicator: debugApi.thinkingIndicator?.() ?? null,
       };
       const triageBytes = new TextEncoder().encode(

@@ -1,6 +1,5 @@
 import type { SkillToolEntry } from "../../config/skills.js";
 import { RiskLevel } from "../../permissions/types.js";
-import type { ToolDefinition } from "../../providers/types.js";
 import type {
   ExecutionTarget,
   Tool,
@@ -63,13 +62,7 @@ export function createSkillTool(
     ownerSkillVersionHash: versionHash,
     ownerSkillBundled: bundled,
 
-    getDefinition(): ToolDefinition {
-      return {
-        name: entry.name,
-        description: entry.description,
-        input_schema: entry.input_schema as ToolDefinition["input_schema"],
-      };
-    },
+    input_schema: entry.input_schema as object,
 
     async execute(
       input: Record<string, unknown>,

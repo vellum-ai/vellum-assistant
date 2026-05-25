@@ -55,6 +55,8 @@ import { downMemoryV2InjectionEvents } from "./256-memory-v2-injection-events.js
 import { downConversationCleanedAt } from "./259-conversation-cleaned-at.js";
 import { downRenameCleanedAt } from "./260-rename-cleaned-at.js";
 import { downLlmUsageAddRawUsage } from "./261-llm-usage-add-raw-usage.js";
+import { downMemoryV3Coactivation } from "./262-memory-v3-coactivation.js";
+import { downMemoryV3AutoEdges } from "./263-memory-v3-auto-edges.js";
 
 export interface MigrationRegistryEntry {
   /** The checkpoint key written to memory_checkpoints on completion. */
@@ -469,6 +471,20 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     description:
       "Add raw_usage TEXT column to llm_usage_events for storing the provider's untouched usage block as JSON (Anthropic TTL breakdown, OpenAI prompt/completion token details, etc.) so downstream consumers can extract provider-specific detail without per-field schema changes",
     down: downLlmUsageAddRawUsage,
+  },
+  {
+    key: "migration_memory_v3_coactivation_v1",
+    version: 55,
+    description:
+      "Create memory_v3_coactivation table — append-only log of pass-1 → pass-N co-activation pairs (gradient signal) emitted by the v3 retrieval loop and reconciled later by edge-learning",
+    down: downMemoryV3Coactivation,
+  },
+  {
+    key: "migration_memory_v3_auto_edges_v1",
+    version: 56,
+    description:
+      "Create memory_v3_auto_edges table — weighted, decaying learned association graph (distinct from curated edges:) accrued by the edge-learning job from used co-activations and consumed above-threshold by edge expansion",
+    down: downMemoryV3AutoEdges,
   },
 ];
 

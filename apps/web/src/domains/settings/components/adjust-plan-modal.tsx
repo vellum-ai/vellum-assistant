@@ -1,4 +1,4 @@
-import { Crown, Loader2, Palmtree } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Crown, Loader2, Palmtree } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -136,7 +136,7 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
   );
   const portalSnapshot = buildPortalReturnSnapshot(subscriptionQuery.data);
   const portalMutation = useBillingPortalSession(portalSnapshot);
-  const [downgradeOpen, setDowngradeOpen] = useState(false);
+  const [view, setView] = useState<"plans" | "downgrade-confirm">("plans");
   const [tierDowngradeOpen, setTierDowngradeOpen] = useState(false);
   const [selectedMachineTier, setSelectedMachineTier] =
     useState<MachineTierEnum | null>(null);
@@ -325,7 +325,7 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
 
   const handleConfirmDowngrade = () => {
     if (portalMutation.isPending) return;
-    setDowngradeOpen(false);
+    setView("plans");
     portalMutation.mutate({});
   };
 
@@ -457,10 +457,57 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
       <Modal.Root
         open={open}
         onOpenChange={(next) => {
-          if (!next) onClose();
+          if (!next) {
+            setView("plans");
+            onClose();
+          }
         }}
       >
-        <Modal.Content size="lg">
+        <Modal.Content size={view === "plans" ? "lg" : "md"}>
+          {view === "downgrade-confirm" ? (
+            <>
+              <Modal.Header>
+                <Modal.Title icon={AlertTriangle}>Downgrade to Base?</Modal.Title>
+              </Modal.Header>
+              <Modal.Body>
+                <Typography
+                  as="p"
+                  variant="body-medium-default"
+                  className="text-(--content-secondary)"
+                >
+                  Downgrading removes the following Pro features:
+                </Typography>
+                <ul className="mt-4 list-disc space-y-2 pl-5">
+                  {lostFeatures.map((feature) => (
+                    <li key={feature}>
+                      <Typography as="span" variant="body-medium-default">
+                        {feature}
+                      </Typography>
+                    </li>
+                  ))}
+                </ul>
+              </Modal.Body>
+              <Modal.Footer>
+                <Button
+                  variant="ghost"
+                  onClick={() => setView("plans")}
+                  disabled={portalMutation.isPending}
+                  leftIcon={<ArrowLeft className="h-4 w-4" />}
+                >
+                  Back
+                </Button>
+                <Button
+                  variant="danger"
+                  onClick={handleConfirmDowngrade}
+                  disabled={portalMutation.isPending}
+                  data-testid="confirm-downgrade-button"
+                >
+                  Confirm Downgrade
+                </Button>
+              </Modal.Footer>
+            </>
+          ) : (
+            <>
           <Modal.Header>
             <Modal.Title className="sr-only">Upgrade Plan</Modal.Title>
           </Modal.Header>
@@ -690,7 +737,7 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                                 <Button
                                   variant="outlined"
                                   className="w-full"
-                                  onClick={() => setDowngradeOpen(true)}
+                                  onClick={() => setView("downgrade-confirm")}
                                   disabled={portalMutation.isPending}
                                   data-testid="modal-downgrade-to-base-button"
                                 >
@@ -740,15 +787,10 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
               </Button>
             </div>
           </Modal.Footer>
+            </>
+          )}
         </Modal.Content>
       </Modal.Root>
-      <DowngradeReconfirmModal
-        open={downgradeOpen}
-        onCancel={() => setDowngradeOpen(false)}
-        onConfirm={handleConfirmDowngrade}
-        confirming={portalMutation.isPending}
-        lostFeatures={lostFeatures}
-      />
       <DowngradeReconfirmModal
         open={tierDowngradeOpen}
         onCancel={() => setTierDowngradeOpen(false)}

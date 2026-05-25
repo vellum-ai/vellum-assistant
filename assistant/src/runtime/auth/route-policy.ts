@@ -479,10 +479,16 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "memory/v2/ema-scores:POST", scopes: ["settings.read"] },
   { endpoint: "memory/v2/simulate-router:POST", scopes: ["settings.read"] },
   {
+    endpoint: "memory/v2/compare-retrievers:POST",
+    scopes: ["settings.read"],
+  },
+  {
     endpoint: "memory/v2/router-prompt-template:GET",
     scopes: ["settings.read"],
   },
   { endpoint: "memory/v2/now-text:GET", scopes: ["settings.read"] },
+  { endpoint: "memory/v3/validate:POST", scopes: ["settings.read"] },
+  { endpoint: "memory/v3/tree:POST", scopes: ["settings.read"] },
 
   // Trust rule listing
   { endpoint: "trust-rules/manage:GET", scopes: ["settings.read"] },
@@ -942,6 +948,11 @@ registerPolicy("domain/register", {
 });
 
 registerPolicy("domain/status", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("domain/verification-status", {
   requiredScopes: ["settings.read"],
   allowedPrincipalTypes: ["local"],
 });

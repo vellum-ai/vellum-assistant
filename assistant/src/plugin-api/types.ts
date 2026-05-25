@@ -1,43 +1,17 @@
 /**
- * Public plugin-API types.
- *
- * This module is the entry point plugin authors land on when they import
- * from `@vellumai/plugin-api`. The shapes here are the canonical public
- * contract — anything exported is part of the surface that semver gates.
- *
- * ## Tool-execution types
- *
- * `ToolContext` and `ToolExecutionResult` are re-exports of the narrow,
- * stable bases defined alongside their daemon-internal counterparts in
- * `assistant/src/tools/types.ts`. The daemon-internal `ToolContext` /
- * `ToolExecutionResult` (with CES, trust classification, lifecycle
- * events, sensitive-output bindings, risk metadata, etc.) `extends`
- * the public bases, so the runtime can hand plugins the full value
- * without a manual cast and tsc enforces the structural relationship.
- * Plugin tools see the narrow surface only — they MUST NOT set fields
- * that belong to the daemon-internal extension.
- *
- * ## Hook contexts
- *
- * The init / shutdown hook contexts are owned by this module directly.
- * They have no daemon-internal extension today (the daemon constructs
- * and hands them straight through), so there's nothing to inherit from.
- *
- * ## Compatibility
- *
- * Adding fields to any public shape is non-breaking. Renaming or
- * removing fields is breaking and gated on a major bump of
- * `@vellumai/plugin-api`.
+ * Public plugin-API types — the canonical contract for
+ * `@vellumai/plugin-api`. Adding fields is non-breaking; renaming /
+ * removing is breaking and gated on a major bump.
  */
 
 import type { Message } from "../providers/types.js";
 
-// ─── Tool-execution types (re-exported from daemon source-of-truth) ──────────
-
 export type {
-  PluginToolContext as ToolContext,
-  PluginToolExecutionResult as ToolExecutionResult,
+  ToolContext,
+  ToolDefinition,
+  ToolExecutionResult,
 } from "../tools/types.js";
+export { RiskLevel } from "../tools/types.js";
 
 // ─── Logger ──────────────────────────────────────────────────────────────────
 

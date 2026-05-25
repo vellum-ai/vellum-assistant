@@ -19,6 +19,7 @@
 import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
+import type { ComparisonReport } from "../../memory/v2/harness/runner.js";
 import type {
   MemoryV2BackfillOp,
   MemoryV2BackfillResult,
@@ -29,6 +30,10 @@ import type {
 } from "../../runtime/routes/memory-v2-routes.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
+import {
+  renderComparisonReport,
+  renderTurnTrace,
+} from "./memory-v2-compare-render.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -565,6 +570,168 @@ Examples:
                 }
               }
               log.info("");
+            }
+          },
+        );
+
+      // ── compare ─────────────────────────────────────────────────────────
+
+      v2.command("compare")
+        .description(
+          "Compare retrievers against the router's logged picks over a sample of real turns (read-only)",
+        )
+        .option(
+          "--limit <n>",
+          "How many historical turns to sample (default 20). Each re-runs the router = one LLM call.",
+        )
+        .option(
+          "--strategy <recent|random>",
+          "Sampling strategy over historical turns (default recent)",
+        )
+        .option(
+          "--k <list>",
+          "Comma-separated recall@k cutoffs (default 5,10,25,50)",
+        )
+        .option(
+          "--conversation <id>",
+          "Restrict to a conversation id (repeatable)",
+          (val: string, acc: string[]) => {
+            acc.push(val);
+            return acc;
+          },
+          [] as string[],
+        )
+        .option(
+          "--trace <conversationId:turn>",
+          "Print the per-retriever breakdown for one scored turn",
+        )
+        .option(
+          "--include-not-injected",
+          "Also count router picks cut by the injection cap as ground truth",
+        )
+        .option("--json", "Emit raw JSON instead of a formatted report")
+        .addHelpText(
+          "after",
+          `
+Runs the comparison harness read-only: samples historical 'router'-mode turns
+from memory_v2_activation_logs, reconstructs each turn's inputs, re-runs each
+retriever, and scores selections against the logged picks (recall@k). NO writes.
+
+Cost: each scored turn re-runs the router (one LLM call), so --limit is the
+cost knob — start small. Today the only retriever is the router itself, so this
+is the harness self-test (router graded against its own logged picks); the gap
+from 1.0 is input-reconstruction drift (NOW.md / config moved since the turn).
+
+Examples:
+  $ assistant memory v2 compare --limit 20
+  $ assistant memory v2 compare --limit 50 --strategy random --k 5,10,25
+  $ assistant memory v2 compare --limit 20 --trace conv-abc:7
+  $ assistant memory v2 compare --limit 20 --json | jq '.retrievers[0].aggregate'`,
+        )
+        .action(
+          async (opts: {
+            limit?: string;
+            strategy?: string;
+            k?: string;
+            conversation?: string[];
+            trace?: string;
+            includeNotInjected?: boolean;
+            json?: boolean;
+          }) => {
+            let limit: number | undefined;
+            if (opts.limit !== undefined) {
+              const parsed = Number(opts.limit);
+              if (!Number.isInteger(parsed) || parsed < 1) {
+                log.error(
+                  `--limit must be a positive integer (got "${opts.limit}")`,
+                );
+                process.exitCode = 1;
+                return;
+              }
+              limit = parsed;
+            }
+
+            if (
+              opts.strategy !== undefined &&
+              opts.strategy !== "recent" &&
+              opts.strategy !== "random"
+            ) {
+              log.error(
+                `--strategy must be "recent" or "random" (got "${opts.strategy}")`,
+              );
+              process.exitCode = 1;
+              return;
+            }
+
+            let ks: number[] | undefined;
+            if (opts.k !== undefined) {
+              ks = opts.k.split(",").map((s) => Number(s.trim()));
+              if (ks.some((k) => !Number.isInteger(k) || k < 1)) {
+                log.error(
+                  `--k must be a comma-separated list of positive integers (got "${opts.k}")`,
+                );
+                process.exitCode = 1;
+                return;
+              }
+            }
+
+            const conversationIds =
+              opts.conversation && opts.conversation.length > 0
+                ? opts.conversation
+                : undefined;
+
+            const result = await cliIpcCall<ComparisonReport>(
+              "memory_v2_compare_retrievers",
+              {
+                body: {
+                  ...(limit !== undefined ? { limit } : {}),
+                  ...(opts.strategy !== undefined
+                    ? { strategy: opts.strategy }
+                    : {}),
+                  ...(ks !== undefined ? { ks } : {}),
+                  ...(conversationIds !== undefined ? { conversationIds } : {}),
+                  ...(opts.includeNotInjected === true
+                    ? { includeNotInjected: true }
+                    : {}),
+                },
+              },
+            );
+
+            if (!result.ok) {
+              log.error(result.error ?? "Failed to compare retrievers");
+              process.exitCode = 1;
+              return;
+            }
+
+            const payload = result.result!;
+
+            if (opts.json === true) {
+              log.info(JSON.stringify(payload, null, 2));
+              return;
+            }
+
+            log.info(renderComparisonReport(payload));
+
+            if (opts.trace !== undefined) {
+              const sep = opts.trace.lastIndexOf(":");
+              if (sep <= 0 || sep === opts.trace.length - 1) {
+                log.error(
+                  `--trace must be "<conversationId>:<turn>" (got "${opts.trace}")`,
+                );
+                process.exitCode = 1;
+                return;
+              }
+              const conversationId = opts.trace.slice(0, sep);
+              const turn = Number(opts.trace.slice(sep + 1));
+              if (!Number.isInteger(turn)) {
+                log.error(
+                  `--trace turn must be an integer (got "${opts.trace.slice(sep + 1)}")`,
+                );
+                process.exitCode = 1;
+                return;
+              }
+              log.info("");
+              log.info(renderTurnTrace(payload, conversationId, turn));
             }
           },
         );

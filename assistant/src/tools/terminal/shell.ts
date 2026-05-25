@@ -4,7 +4,6 @@ import { spawn } from "node:child_process";
 import { getConfig } from "../../config/loader.js";
 import { isCesShellLockdownEnabled } from "../../credential-execution/feature-gates.js";
 import { RiskLevel } from "../../permissions/types.js";
-import type { ToolDefinition } from "../../providers/types.js";
 import { isUntrustedTrustClass } from "../../runtime/actor-trust-resolver.js";
 import { wakeAgentForOpportunity } from "../../runtime/agent-wake.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
@@ -51,11 +50,7 @@ class ShellTool implements Tool {
   category = "terminal";
   defaultRiskLevel = RiskLevel.Medium;
 
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
+  input_schema = {
         type: "object",
         properties: {
           command: {
@@ -91,9 +86,7 @@ class ShellTool implements Tool {
           },
         },
         required: ["command", "activity"],
-      },
-    };
-  }
+      };
 
   async execute(
     input: Record<string, unknown>,

@@ -53,6 +53,21 @@ export interface SubprocessLogFile {
   content: string;
 }
 
+/**
+ * One docker-forensics artifact written by the vellum adapter's catch
+ * path (`captureContainerForensics`) on hatch failure. Same name+content
+ * shape as `SubprocessLogFile` so the report UI can render them inline
+ * alongside subprocess logs instead of as bare download links —
+ * scrolling to a separate file to see *why* a container died was the
+ * same regression we already fixed for subprocess logs in #31918.
+ */
+export interface DockerArtifactFile {
+  name: string;
+  content: string;
+  /** "json" for `docker-inspect-*.json`, "text" for `docker-logs-*.txt`. */
+  kind: "json" | "text";
+}
+
 /** Full execution detail — drilled-into view from session → test → profile. */
 export interface ReportRunDetail extends ReportRunSummary {
   metadata?: RunMetadata;
@@ -73,12 +88,17 @@ export interface ReportRunDetail extends ReportRunSummary {
    */
   subprocessLogs: SubprocessLogFile[];
   /**
-   * Filenames of any container-forensics artifacts written by the vellum
-   * adapter on hatch failure: `docker-inspect.json` and/or `docker-logs.txt`.
-   * Empty when the run never hit the catch path. Same URL contract as
-   * `subprocessLogs`.
+   * Container-forensics artifacts the vellum adapter wrote on hatch
+   * failure — `docker-inspect-<service>.json` (raw `docker inspect`
+   * output) and `docker-logs-<service>.txt` (last 200 stdout/stderr
+   * lines), one pair per `vellumDockerSiblingContainers` entry.
+   *
+   * Each entry carries the filename + full file content so the UI can
+   * inline-render the snapshot in the same way as `subprocessLogs`. The
+   * raw download link still lives at `/api/runs/<runId>/files/<name>`.
+   * Empty when the run never hit the hatch catch path.
    */
-  dockerArtifacts: string[];
+  dockerArtifacts: DockerArtifactFile[];
 }
 
 export type SessionStatus =
@@ -225,23 +245,30 @@ const STRUCTURED_RUN_FILES = new Set<string>([
   "progress.ndjson",
 ]);
 
-/** Filenames the docker-forensics capture path writes on hatch failure. */
-const DOCKER_ARTIFACT_NAMES = new Set<string>([
-  "docker-inspect.json",
-  "docker-logs.txt",
-]);
+/**
+ * Filename patterns the docker-forensics capture path writes on hatch
+ * failure — `docker-inspect-<service>.json` / `docker-logs-<service>.txt`,
+ * one pair per `vellumDockerSiblingContainers` entry. Pattern match so a
+ * new sibling doesn't silently disappear from the UI.
+ */
+const DOCKER_INSPECT_RE = /^docker-inspect-[a-z0-9\-]+\.json$/;
+const DOCKER_LOGS_RE = /^docker-logs-[a-z0-9\-]+\.txt$/;
 
 /**
- * List run-directory files that should be exposed as raw downloadable
- * artifacts on the run-detail page. Returns the subprocess logs with
- * their full contents already loaded (so the UI can inline-render them)
- * and docker snapshot filenames (which stay as raw downloads — they're
- * structured JSON / multi-megabyte container stdout that don't make
- * sense to inline).
+ * List run-directory files that should be surfaced inline on the
+ * run-detail page. Returns subprocess logs AND docker forensics with
+ * their full contents already loaded so the UI can inline-render both
+ * in the same `[ts] [step] glyph msg` shape — the regression Vargas
+ * flagged in 2026-05 was the docker snapshot section dropping back to
+ * bare download links while the rest of the logs went inline in #31918.
+ *
+ * Per-file read errors collapse to an empty `content` so one unreadable
+ * file doesn't blank the whole page; the operator still sees the entry
+ * (and can hit `/api/runs/<runId>/files/<name>` directly).
  */
 async function listExtraArtifacts(runDir: string): Promise<{
   subprocessLogs: SubprocessLogFile[];
-  dockerArtifacts: string[];
+  dockerArtifacts: DockerArtifactFile[];
 }> {
   let entries: string[];
   try {
@@ -250,11 +277,15 @@ async function listExtraArtifacts(runDir: string): Promise<{
     return { subprocessLogs: [], dockerArtifacts: [] };
   }
   const subprocessNames: string[] = [];
-  const dockerArtifacts: string[] = [];
+  const dockerNames: Array<{ name: string; kind: "json" | "text" }> = [];
   for (const name of entries.sort()) {
     if (STRUCTURED_RUN_FILES.has(name)) continue;
-    if (DOCKER_ARTIFACT_NAMES.has(name)) {
-      dockerArtifacts.push(name);
+    if (DOCKER_INSPECT_RE.test(name)) {
+      dockerNames.push({ name, kind: "json" });
+      continue;
+    }
+    if (DOCKER_LOGS_RE.test(name)) {
+      dockerNames.push({ name, kind: "text" });
       continue;
     }
     if (/^subprocess-[a-z0-9\-]+\.log$/.test(name)) {
@@ -262,16 +293,21 @@ async function listExtraArtifacts(runDir: string): Promise<{
       continue;
     }
   }
-  // Read every subprocess log's contents in parallel. Per-file errors
-  // collapse to empty strings so one unreadable log doesn't blank the
-  // whole page — the operator still sees the filename and can click
-  // through to the raw endpoint to diagnose.
-  const subprocessLogs = await Promise.all(
-    subprocessNames.map(async (name) => ({
-      name,
-      content: await readFile(join(runDir, name), "utf8").catch(() => ""),
-    })),
-  );
+  const [subprocessLogs, dockerArtifacts] = await Promise.all([
+    Promise.all(
+      subprocessNames.map(async (name) => ({
+        name,
+        content: await readFile(join(runDir, name), "utf8").catch(() => ""),
+      })),
+    ),
+    Promise.all(
+      dockerNames.map(async ({ name, kind }) => ({
+        name,
+        kind,
+        content: await readFile(join(runDir, name), "utf8").catch(() => ""),
+      })),
+    ),
+  ]);
   return { subprocessLogs, dockerArtifacts };
 }
 

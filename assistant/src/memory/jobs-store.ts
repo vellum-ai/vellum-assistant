@@ -44,6 +44,9 @@ export type MemoryJobType =
   | "memory_v2_migrate"
   | "memory_v2_reembed"
   | "memory_v2_activation_recompute"
+  | "memory_v3_consolidate"
+  | "memory_v3_index_maintenance"
+  | "memory_v3_edge_learning"
   | "memory_retrospective";
 
 export const EMBED_JOB_TYPES: MemoryJobType[] = [
@@ -67,6 +70,7 @@ export const SLOW_LLM_JOB_TYPES: MemoryJobType[] = [
   "generate_conversation_starters",
   "memory_v2_sweep",
   "memory_v2_consolidate",
+  "memory_v3_consolidate",
   "memory_v2_migrate",
   "memory_retrospective",
   "backfill",

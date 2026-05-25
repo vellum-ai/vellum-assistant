@@ -41,6 +41,7 @@ import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import type { ChatError } from "@/domains/chat/types.js";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 import type { TranscriptHandle } from "@/domains/chat/transcript/transcript.js";
+import type { TranscriptItem } from "@/domains/chat/transcript/types.js";
 import type { TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
 import { type UIContext } from "@/domains/messaging/turn-selectors.js";
 import { peekPendingPreChatContext, type PreChatOnboardingContext } from "@/domains/onboarding/prechat.js";
@@ -186,10 +187,11 @@ export function ChatPage() {
   const shouldRenderChat =
     isAssistantActive ||
     (assistantState.kind === "self_hosted" && selfHostedChatEnabled);
-  const { conversations } = useConversationListQuery(
-    assistantId,
-    shouldRenderChat,
-  );
+  const {
+    conversations,
+    isError: conversationListIsError,
+    refetch: refetchConversationList,
+  } = useConversationListQuery(assistantId, shouldRenderChat);
   const { conversationGroups } = useConversationGroupsQuery(
     assistantId,
     shouldRenderChat && conversationGroupsUI,
@@ -247,6 +249,8 @@ export function ChatPage() {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const messagesRef = useRef<DisplayMessage[]>(messages);
   messagesRef.current = messages;
+  const sanitizedMessagesRef = useRef<DisplayMessage[]>([]);
+  const transcriptItemsRef = useRef<TranscriptItem[]>([]);
   // Owned here so `useChatDebugApi` (also called from this component) can
   // read scroll geometry directly via `transcriptRef.current.getScrollElement()`.
   // Threaded down to ChatRouteContent through the `refs` prop and bound on
@@ -890,6 +894,8 @@ export function ChatPage() {
   // by which point initialization is complete.
   useChatDebugApi({
     messagesRef,
+    sanitizedMessagesRef,
+    transcriptItemsRef,
     transcriptRef,
     streamContextRef,
     streamRef,
@@ -1333,6 +1339,29 @@ export function ChatPage() {
     return <SelfHostedScreen />;
   }
 
+  // Self-hosted runtime call failed — most commonly because we don't yet
+  // have an actor-token JWT for the user's gateway (the web pair flow is
+  // still being built; see `lib/self-hosted/actor-token.ts`). Land on a
+  // terminal error state with a retry button instead of leaving the
+  // sidebar + transcript stuck in the seeded `isLoadingHistory` skeleton.
+  if (
+    assistantState.kind === "self_hosted" &&
+    selfHostedChatEnabled &&
+    conversationListIsError
+  ) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
+        <p className="text-[var(--text-secondary)]">
+          Couldn&apos;t reach your self-hosted assistant. Make sure your
+          assistant is running, then try again.
+        </p>
+        <Button variant="primary" onClick={refetchConversationList}>
+          Try again
+        </Button>
+      </div>
+    );
+  }
+
   if (assistantState.kind === "awaiting_version_selection") {
     return <VersionSelectionScreen onHatch={hatchVersion} />;
   }
@@ -1535,6 +1564,8 @@ export function ChatPage() {
     refs: {
       inputRef,
       messagesRef,
+      sanitizedMessagesRef,
+      transcriptItemsRef,
       activeConversationIdRef,
       assistantIdRef,
       streamContextRef,

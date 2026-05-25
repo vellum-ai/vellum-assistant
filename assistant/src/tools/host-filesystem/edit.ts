@@ -1,7 +1,6 @@
 import { supportsHostProxy } from "../../channels/types.js";
 import { HostFileProxy } from "../../daemon/host-file-proxy.js";
 import { RiskLevel } from "../../permissions/types.js";
-import type { ToolDefinition } from "../../providers/types.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
 import { FileSystemOps } from "../shared/filesystem/file-ops-service.js";
 import { formatEditDiff } from "../shared/filesystem/format-diff.js";
@@ -15,11 +14,7 @@ class HostFileEditTool implements Tool {
   category = "host-filesystem";
   defaultRiskLevel = RiskLevel.Medium;
 
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
+  input_schema = {
         type: "object",
         properties: {
           path: {
@@ -46,9 +41,7 @@ class HostFileEditTool implements Tool {
           },
         },
         required: ["path", "old_string", "new_string"],
-      },
-    };
-  }
+      };
 
   async execute(
     input: Record<string, unknown>,

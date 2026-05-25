@@ -1,7 +1,6 @@
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 
 import { RiskLevel } from "../permissions/types.js";
-import type { ToolDefinition } from "../providers/types.js";
 import {
   __clearRegistryForTesting,
   __resetRegistryForTesting,
@@ -30,13 +29,7 @@ function makeFakeTool(name: string): Tool {
     description: `Fake ${name}`,
     category: "test",
     defaultRiskLevel: RiskLevel.Low,
-    getDefinition(): ToolDefinition {
-      return {
-        name,
-        description: `Fake ${name}`,
-        input_schema: { type: "object", properties: {}, required: [] },
-      };
-    },
+    input_schema: { type: "object", properties: {}, required: [] },
     async execute(
       _input: Record<string, unknown>,
       _context: ToolContext,

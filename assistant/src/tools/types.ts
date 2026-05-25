@@ -5,7 +5,6 @@ import type {
   ProxyApprovalCallback,
   RiskLevel,
   SensitiveOutputBinding,
-  ToolDefinition,
   ToolExecutionErrorEvent,
   ToolExecutionStartEvent,
   ToolPermissionDeniedEvent,
@@ -64,7 +63,6 @@ export type {
   ProxyEnvVars,
   SensitiveOutputBinding,
   SensitiveOutputKind,
-  ToolDefinition,
   ToolExecutionErrorEvent,
   ToolExecutionStartEvent,
   ToolPermissionDeniedEvent,
@@ -76,19 +74,7 @@ export { RiskLevel } from "@vellumai/skill-host-contracts";
 // Assistant-side concrete overlays
 // ---------------------------------------------------------------------------
 
-/**
- * Public, narrow subset of {@link ToolExecutionResult} that plugin-authored
- * tools are responsible for producing. Re-exported from
- * `@vellumai/plugin-api` as `ToolExecutionResult` — the type name plugin
- * authors actually import. The daemon-internal version below extends
- * this and adds runtime-only fields (risk metadata, approval
- * bookkeeping, sensitive-output bindings, etc.) that the executor
- * populates around the call — plugins MUST NOT set those.
- *
- * Adding fields here is a non-breaking change; renaming or removing
- * fields is breaking and gated on a major bump of `@vellumai/plugin-api`.
- */
-export interface PluginToolExecutionResult {
+export interface ToolExecutionResult {
   /** Textual result shown to the model in the tool-result block. Empty string is valid. */
   content: string;
   /** When true, the agent loop treats `content` as an error and may surface it / retry. */
@@ -105,9 +91,6 @@ export interface PluginToolExecutionResult {
    * the LLM voluntarily end its turn.
    */
   yieldToUser?: boolean;
-}
-
-export interface ToolExecutionResult extends PluginToolExecutionResult {
   diff?: DiffInfo;
   /** Optional rich content blocks (e.g. images) to include alongside text in the tool result. */
   contentBlocks?: ContentBlock[];
@@ -211,20 +194,7 @@ export type ToolLifecycleEventHandler = (
   event: ToolLifecycleEvent,
 ) => void | Promise<void>;
 
-/**
- * Public, narrow subset of {@link ToolContext} handed to plugin-authored
- * tools. Re-exported from `@vellumai/plugin-api` as `ToolContext` — the
- * type name plugin authors actually import. The daemon-internal version
- * below extends this and adds host-only fields (CES client, trust class,
- * lifecycle handlers, requester metadata, host-bash proxy, etc.). Plugin
- * tools see this shape only — the runtime still hands them the full
- * {@link ToolContext} value, but the structural extension here guarantees
- * the assignment without a manual cast.
- *
- * Adding fields here is a non-breaking change; renaming or removing
- * fields is breaking and gated on a major bump of `@vellumai/plugin-api`.
- */
-export interface PluginToolContext {
+export interface ToolContext {
   /** Identifier of the conversation this tool invocation belongs to. */
   conversationId: string;
   /** Working directory the daemon was launched from. */
@@ -235,9 +205,6 @@ export interface PluginToolContext {
   signal?: AbortSignal;
   /** Optional incremental-output callback for streaming tools. Streaming tools should fall back to returning the full result in `content` when this is absent. */
   onOutput?: (chunk: string) => void;
-}
-
-export interface ToolContext extends PluginToolContext {
   /** Logical assistant scope for multi-assistant routing. */
   assistantId?: string;
   /** When set, the tool execution is part of a task run. Used to retrieve ephemeral permission rules. */
@@ -349,11 +316,26 @@ export interface ToolContext extends PluginToolContext {
   sourceActorPrincipalId?: string;
 }
 
-export interface Tool {
-  name: string;
-  description: string;
+/**
+ * Author-facing tool spec — re-exported from `@vellumai/plugin-api`.
+ * The loader fills documented defaults for omitted fields; see
+ * `applyPluginToolDefaults` in `external-plugin-loader.ts`.
+ */
+export interface ToolDefinition {
+  description?: string;
+  defaultRiskLevel?: RiskLevel;
+  input_schema?: object;
+  execute?: (
+    input: Record<string, unknown>,
+    context: ToolContext,
+  ) => Promise<ToolExecutionResult>;
+}
+
+/** Tool after the loader has derived its name and filled defaults. */
+export type LoadedTool = Required<ToolDefinition> & { name: string };
+
+export interface Tool extends LoadedTool {
   category: string;
-  defaultRiskLevel: RiskLevel;
   /** When set to 'proxy', the tool is forwarded to a connected client rather than executed locally. */
   executionMode?: "local" | "proxy";
   /** Whether this tool is a core built-in, provided by a skill, contributed by a plugin, or from an MCP server. */
@@ -371,60 +353,4 @@ export interface Tool {
   /** Declared execution target from the skill manifest. Used by resolveExecutionTarget
    * to accurately label lifecycle events for skill-provided tools. */
   executionTarget?: ExecutionTarget;
-  getDefinition(): ToolDefinition;
-  execute(
-    input: Record<string, unknown>,
-    context: ToolContext,
-  ): Promise<ToolExecutionResult>;
 }
-
-/**
- * Plugin-facing tool shape. The narrow surface plugin authors implement;
- * differs from {@link Tool} in four ways:
- * - Plugins declare `input_schema` as a top-level field instead of
- *   implementing `getDefinition()`. The registration boundary synthesizes
- *   `getDefinition()` from `{name, description, input_schema}` before the
- *   tool enters the internal registry.
- * - `name` is derived from the tool file's basename by the external plugin
- *   loader.
- * - `category` is registry-owned and stamped to `"plugin"` when the tool is
- *   registered.
- * - All ownership stamps (`origin`, `ownerPluginId`, etc.) are set
- *   authoritatively by the bootstrap; plugin authors leave them blank.
- *
- * Every author-visible field is optional. The loader fills the four
- * normally-required slots (`description`, `defaultRiskLevel`,
- * `input_schema`, `execute`) with documented defaults when a plugin omits
- * them — see `applyPluginToolDefaults` in `external-plugin-loader.ts`.
- * A nameless, body-less `export default {}` is a valid (if useless) tool;
- * misconfigured tools surface at call time rather than blocking plugin
- * load.
- */
-export type PluginTool = Omit<
-  Tool,
-  "category" | "getDefinition" | "name" | "description" | "defaultRiskLevel"
-> & {
-  description?: string;
-  defaultRiskLevel?: RiskLevel;
-  input_schema?: object;
-  execute?: (
-    input: Record<string, unknown>,
-    context: ToolContext,
-  ) => Promise<ToolExecutionResult>;
-};
-
-/**
- * Plugin tool after the external loader has derived its registry name and
- * filled defaults for any author-omitted fields. All four normally-required
- * slots are guaranteed present.
- */
-export type LoadedPluginTool = PluginTool & {
-  name: string;
-  description: string;
-  defaultRiskLevel: RiskLevel;
-  input_schema: object;
-  execute: (
-    input: Record<string, unknown>,
-    context: ToolContext,
-  ) => Promise<ToolExecutionResult>;
-};

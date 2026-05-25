@@ -277,13 +277,16 @@ async function handleEmailSend({ body = {} }: RouteHandlerArgs) {
 
   const fromAddress = addresses[0].address;
 
+  // LLMs often produce literal "\n" escape sequences instead of real newlines.
+  const normalizedText = text?.replace(/\\n/g, "\n") ?? "";
+
   // Auto-generate HTML from text if not provided
-  const resolvedHtml = html ?? markdownToEmailHtml(text);
+  const resolvedHtml = html ?? markdownToEmailHtml(normalizedText);
 
   const payload: Record<string, unknown> = {
     to,
     from_address: fromAddress,
-    text,
+    text: normalizedText,
   };
   if (subject) payload.subject = subject;
   if (resolvedHtml) payload.html = resolvedHtml;

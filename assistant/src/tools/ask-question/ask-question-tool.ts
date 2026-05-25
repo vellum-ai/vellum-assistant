@@ -2,13 +2,12 @@ import { z } from "zod";
 
 import { QuestionPrompter } from "../../permissions/question-prompter.js";
 import { RiskLevel } from "../../permissions/types.js";
-import type { ToolDefinition } from "../../providers/types.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 
 // ── Input schema ────────────────────────────────────────────────────
 // Runtime validation lives in Zod; the wire-level definition surfaced
-// to the LLM is the hand-written JSON Schema in getDefinition() below.
+// to the LLM is the hand-written JSON Schema in `input_schema` below.
 // (The codebase does not currently use zod-to-json-schema for tool defs,
 // so the two are kept in sync manually.)
 
@@ -109,6 +108,28 @@ const DESCRIPTION = [
   "context shown beneath the label.",
 ].join("\n");
 
+// Shared option-schema fragment used by both the batched `questions[]`
+// shape and the legacy flat `options` field.
+const OPTION_ITEMS_SCHEMA = {
+  type: "object",
+  properties: {
+    id: {
+      type: "string",
+      description:
+        "Stable identifier for this option (returned verbatim in the response).",
+    },
+    label: {
+      type: "string",
+      description: "Short human-readable label.",
+    },
+    description: {
+      type: "string",
+      description: "Optional one-line context shown beneath the label.",
+    },
+  },
+  required: ["id", "label"],
+} as const;
+
 // ── Tool ────────────────────────────────────────────────────────────
 
 export class AskQuestionTool implements Tool {
@@ -116,46 +137,7 @@ export class AskQuestionTool implements Tool {
   description = DESCRIPTION;
   category = "interaction";
   defaultRiskLevel = RiskLevel.Low;
-
-  // Override hook for tests: lets a test replace the prompter factory
-  // without monkey-patching the module. Default factory wires the real
-  // broadcastMessage so the question reaches every connected client.
-  private prompterFactory: () => Pick<QuestionPrompter, "prompt">;
-
-  constructor(
-    prompterFactory: () => Pick<QuestionPrompter, "prompt"> = () =>
-      new QuestionPrompter({ broadcastMessage }),
-  ) {
-    this.prompterFactory = prompterFactory;
-  }
-
-  getDefinition(): ToolDefinition {
-    // Shared option-schema fragment used by both the batched `questions[]`
-    // shape and the legacy flat `options` field.
-    const optionItemsSchema = {
-      type: "object",
-      properties: {
-        id: {
-          type: "string",
-          description:
-            "Stable identifier for this option (returned verbatim in the response).",
-        },
-        label: {
-          type: "string",
-          description: "Short human-readable label.",
-        },
-        description: {
-          type: "string",
-          description: "Optional one-line context shown beneath the label.",
-        },
-      },
-      required: ["id", "label"],
-    } as const;
-
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
+  input_schema = {
         type: "object",
         properties: {
           // ── Recommended shape ─────────────────────────────────────
@@ -182,7 +164,7 @@ export class AskQuestionTool implements Tool {
                   maxItems: 4,
                   description:
                     "2–4 structured options. The UI always appends a free-text fallback slot, so do not include a 'something else' option here.",
-                  items: optionItemsSchema,
+                  items: OPTION_ITEMS_SCHEMA,
                 },
                 freeTextPlaceholder: {
                   type: "string",
@@ -212,7 +194,7 @@ export class AskQuestionTool implements Tool {
             maxItems: 4,
             description:
               "Legacy: 2–4 structured options. Prefer `questions[].options`. The UI always appends a free-text fallback slot, so do not include a 'something else' option here.",
-            items: optionItemsSchema,
+            items: OPTION_ITEMS_SCHEMA,
           },
           freeTextPlaceholder: {
             type: "string",
@@ -222,8 +204,18 @@ export class AskQuestionTool implements Tool {
         },
         // No top-level `required` — caller must supply either `questions`
         // or the legacy flat trio (`question` + `options`). Enforced in Zod.
-      },
     };
+
+  // Override hook for tests: lets a test replace the prompter factory
+  // without monkey-patching the module. Default factory wires the real
+  // broadcastMessage so the question reaches every connected client.
+  private prompterFactory: () => Pick<QuestionPrompter, "prompt">;
+
+  constructor(
+    prompterFactory: () => Pick<QuestionPrompter, "prompt"> = () =>
+      new QuestionPrompter({ broadcastMessage }),
+  ) {
+    this.prompterFactory = prompterFactory;
   }
 
   async execute(

@@ -1,7 +1,12 @@
 /** `evals run` — Cartesian profile × test runner. */
+import { randomBytes } from "crypto";
+
 import type { Command } from "commander";
 
-import { runEvalOnce } from "../lib/runner/run-once";
+import {
+  runEvalOnce,
+  wasErrorReportedToProgress,
+} from "../lib/runner/run-once";
 import {
   createConsoleReporter,
   createSummaryOnlyReporter,
@@ -10,7 +15,6 @@ import {
   abandonAllRunningRunsSync,
   scavengeAbandonedRuns,
 } from "../lib/metrics";
-import { cleanupOrphanedEvalContainers } from "../lib/orphan-cleanup";
 import { loadProfile } from "../lib/profile";
 import { loadTestDef } from "../lib/test-def";
 import { openInBrowser, startReportServer } from "./server";
@@ -32,11 +36,22 @@ function splitCsv(raw: string): string[] {
     .filter((s) => s.length > 0);
 }
 
+/**
+ * Run ID suffix used to disambiguate concurrent evals invocations.
+ *
+ * Format: `YYYYMMDDhhmmssSSS-XXXX` (17-digit ms-precision timestamp + 4
+ * hex chars of randomness). The ms precision + ~65k random variants
+ * give effectively-zero collisions across parallel `evals run`
+ * invocations, which is what lets the Vellum adapter's catch-path
+ * teardown safely operate only on its own docker resources.
+ */
 function timestampSuffix(): string {
-  return new Date()
+  const ms = new Date()
     .toISOString()
     .replace(/[^0-9]/g, "")
-    .slice(0, 14);
+    .slice(0, 17);
+  const rand = randomBytes(2).toString("hex");
+  return `${ms}-${rand}`;
 }
 
 function slugifyLabel(label: string): string {
@@ -113,25 +128,16 @@ export function registerRunCommand(program: Command): void {
         // `evals run` against the same .runs/ directory).
         await scavengeAbandonedRuns();
 
-        // Then sweep docker for orphaned eval containers — the ones that
-        // a crashed `vellum hatch` left in `Created` state still holding
-        // their port reservation. Without this the next run hits
-        // `bind for 0.0.0.0:20100 failed: port is already allocated`
-        // (the exact failure that motivated this cleanup pass).
-        const containerCleanup = await cleanupOrphanedEvalContainers();
-        if (containerCleanup.skipReason) {
-          // Docker not available locally — surface once so it's clear
-          // this guard rail was skipped, but don't fail the run.
-          process.stderr.write(
-            `Skipped orphan container cleanup: ${containerCleanup.skipReason}\n`,
-          );
-        } else if (containerCleanup.removed > 0) {
-          process.stderr.write(
-            `Cleaned up ${containerCleanup.removed} orphaned eval container(s) ` +
-              `(kept ${containerCleanup.kept}): ` +
-              `${containerCleanup.removedNames.join(", ")}\n`,
-          );
-        }
+        // Note: we no longer pre-sweep docker resources from prior eval
+        // runs. The previous orphan-cleanup pass existed to free up the
+        // gateway's host port (e.g. 20100) when an earlier hatch crashed
+        // mid-flight. That's now obsolete because `hatchDocker` discovers
+        // an open port at hatch time via `findOpenPort()` (see
+        // `cli/src/lib/port-allocator.ts`), so a stuck previous container
+        // can no longer wedge the next hatch. Dead docker resources from
+        // crashed runs are now garbage to be reaped on demand (e.g. via
+        // `docker container prune` / `docker volume prune`) rather than
+        // a prerequisite for forward progress.
 
         const profiles = await Promise.all(
           splitCsv(opts.profiles).map((id) => loadProfile(id)),
@@ -177,14 +183,32 @@ export function registerRunCommand(program: Command): void {
               // No stdout dump: the runner has already emitted the
               // `result` progress event with per-metric scores in the
               // same timestamped/labeled format as every other step.
-            } catch {
+            } catch (err) {
               // Per-test isolation: a crash in one combination (e.g. the
               // user simulator returning unparseable content) shouldn't
-              // take down the rest of the suite. The run-once layer has
-              // already written status:"failed" + error to the run's
-              // metadata and emitted a red `status: "error"` progress
-              // event with diagnostic details, so we just flip the
-              // exit-code flag and move on.
+              // take down the rest of the suite.
+              //
+              // The run-once layer normally already writes status:"failed"
+              // + error to the run's metadata and emits a red
+              // `status:"error"` progress event with diagnostic details
+              // before re-throwing — at which point we just flip the
+              // exit-code flag and move on. `wasErrorReportedToProgress`
+              // is the explicit signal that path completed.
+              //
+              // Without the marker we'd be in the "throw bypassed
+              // run-once's inner catch" case (e.g. a future regression
+              // moves construction back outside the try, or runEvalOnce
+              // throws synchronously from its function header). Emit one
+              // line through the same reporter so the operator gets
+              // SOMETHING — silent exit with exit-code 1 was the actual
+              // diagnostic gap that motivated this guard.
+              if (!wasErrorReportedToProgress(err)) {
+                progress({
+                  step: "shutdown",
+                  status: "error",
+                  message: err instanceof Error ? err.message : String(err),
+                });
+              }
               anyFailed = true;
             }
           }

@@ -23,11 +23,7 @@ import type { MeetHostSupervisor } from "../../daemon/meet-host-supervisor.js";
 import { registerShutdownHook } from "../../daemon/shutdown-registry.js";
 import { registerSkillRoute } from "../../runtime/skill-route-registry.js";
 import { registerSkillTools } from "../../tools/registry.js";
-import type {
-  ExecutionTarget,
-  Tool,
-  ToolDefinition,
-} from "../../tools/types.js";
+import type { ExecutionTarget, Tool } from "../../tools/types.js";
 import { RiskLevel } from "../../tools/types.js";
 import { getLogger } from "../../util/logger.js";
 import type { SkillIpcRoute } from "../skill-ipc-types.js";
@@ -182,16 +178,12 @@ export function __getActiveSessionCountForTesting(): number {
  * exercised end-to-end.
  */
 function buildProxyTool(manifest: ToolManifest): Tool {
-  const definition: ToolDefinition = {
-    name: manifest.name,
-    description: manifest.description,
-    input_schema: manifest.input_schema as object,
-  };
   // RiskLevel is a string enum whose values are "low" | "medium" | "high",
   // matching the schema above exactly — the cast is a no-op at runtime.
   return {
     name: manifest.name,
     description: manifest.description,
+    input_schema: manifest.input_schema as object,
     category: manifest.category,
     defaultRiskLevel: manifest.defaultRiskLevel as RiskLevel,
     executionMode: manifest.executionMode ?? "proxy",
@@ -200,7 +192,6 @@ function buildProxyTool(manifest: ToolManifest): Tool {
     ownerSkillId: manifest.ownerSkillId,
     ownerSkillBundled: manifest.ownerSkillBundled,
     ownerSkillVersionHash: manifest.ownerSkillVersionHash,
-    getDefinition: () => definition,
     execute: async () => {
       // Only reached when no supervisor is attached (tests/boot race);
       // the supervisor short-circuit above replaces this with the

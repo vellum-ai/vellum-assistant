@@ -50,9 +50,9 @@ import { z } from "zod";
 
 import assistantPkg from "../../package.json" with { type: "json" };
 import type {
-  LoadedPluginTool,
-  PluginTool,
+  LoadedTool,
   RiskLevel,
+  ToolDefinition,
   ToolExecutionResult,
 } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
@@ -142,14 +142,14 @@ export const PLUGIN_TOOL_DEFAULTS = Object.freeze({
 });
 
 /**
- * Fill the four normally-required {@link PluginTool} fields with documented
- * defaults when the author omitted them. Returns a {@link LoadedPluginTool}
- * that is safe to register.
+ * Fill the four normally-required {@link ToolDefinition} fields with
+ * documented defaults when the author omitted them. Returns a
+ * {@link LoadedTool} that is safe to register.
  */
 function applyPluginToolDefaults(
-  tool: PluginTool,
+  tool: ToolDefinition,
   name: string,
-): LoadedPluginTool {
+): LoadedTool {
   const description =
     typeof tool.description === "string"
       ? tool.description
@@ -159,8 +159,7 @@ function applyPluginToolDefaults(
       ? tool.defaultRiskLevel
       : PLUGIN_TOOL_DEFAULTS.defaultRiskLevel;
   const input_schema =
-    tool.input_schema !== null &&
-    typeof tool.input_schema === "object"
+    tool.input_schema !== null && typeof tool.input_schema === "object"
       ? tool.input_schema
       : PLUGIN_TOOL_DEFAULTS.input_schema;
   const execute =
@@ -343,7 +342,7 @@ async function buildPluginFromDir(pluginDir: string): Promise<Plugin> {
   for (const { name: toolName, path: toolPath } of listSurfaceDir(
     join(pluginDir, "tools"),
   )) {
-    const tool = await importDefault<PluginTool>(toolPath);
+    const tool = await importDefault<ToolDefinition>(toolPath);
     if (tool === null || typeof tool !== "object") {
       throw new Error(
         `external plugin ${name}: ${toolPath} default export must be an object`,

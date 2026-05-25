@@ -72,8 +72,10 @@ import { useDeployStore } from "@/domains/chat/deploy-store.js";
 import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
 import type { SubagentEntry, SubagentState } from "@/domains/subagents/subagent-store.js";
 import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/utils/reconcile.js";
+
 import { buildTranscriptItems } from "@/domains/chat/transcript/build-items.js";
-import type { TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
+import { sanitizeDisplayMessages } from "@/domains/chat/utils/sanitize-display-messages.js";
+import type { TranscriptItem, TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
 import type { HistoryPaginationResult } from "@/domains/chat/transcript/use-history-pagination.js";
 import {
   canStopGeneration,
@@ -216,6 +218,8 @@ export interface AvatarData {
 export interface ChatRouteRefs {
   inputRef: RefObject<HTMLTextAreaElement | null>;
   messagesRef: MutableRefObject<DisplayMessage[]>;
+  sanitizedMessagesRef: MutableRefObject<DisplayMessage[]>;
+  transcriptItemsRef: MutableRefObject<TranscriptItem[]>;
   activeConversationIdRef: MutableRefObject<string | null>;
   assistantIdRef: MutableRefObject<string | null>;
   streamContextRef: MutableRefObject<StreamContext | null>;
@@ -501,6 +505,8 @@ export function ChatRouteContent({
   const {
     inputRef,
     messagesRef,
+    sanitizedMessagesRef,
+    transcriptItemsRef,
     activeConversationIdRef: _activeConversationIdRef,
     assistantIdRef: _assistantIdRef,
     streamContextRef,
@@ -773,10 +779,22 @@ export function ChatRouteContent({
 
   const thinkingLabel = getThinkingStatusText(turnState);
 
+  // Single render-boundary cleanup pass. `sanitizeDisplayMessages` houses
+  // every "this shouldn't be necessary, but is" hack we apply before the
+  // transcript renders (timestamp sort, blank/phantom row filter, duplicate
+  // trailing assistant drop). See `sanitize-display-messages.ts` for the
+  // rationale and removal triggers for each sub-step.
+  const sanitizedMessages = useMemo(
+    () => sanitizeDisplayMessages(messages),
+    [messages],
+  );
+
+  sanitizedMessagesRef.current = sanitizedMessages;
+
   const transcriptItems = useMemo(
     () =>
       buildTranscriptItems({
-        messages,
+        messages: sanitizedMessages,
         pendingSecret: pendingSecret
           ? { requestId: pendingSecret.requestId }
           : null,
@@ -800,7 +818,7 @@ export function ChatRouteContent({
         showOnboardingChoice,
       }),
     [
-      messages,
+      sanitizedMessages,
       pendingSecret,
       pendingConfirmation,
       inlineConfirmationAttached,
@@ -811,6 +829,8 @@ export function ChatRouteContent({
       showOnboardingChoice,
     ],
   );
+
+  transcriptItemsRef.current = transcriptItems;
 
   // -------------------------------------------------------------------------
   // Scroll coordination
@@ -1313,7 +1333,7 @@ export function ChatRouteContent({
     <SlackChannelFooter
       assistantId={assistantId ?? undefined}
       conversation={activeConversation}
-      messages={messages}
+      messages={sanitizedMessages}
     />
   );
 

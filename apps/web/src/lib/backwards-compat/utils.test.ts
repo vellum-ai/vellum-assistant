@@ -1,0 +1,66 @@
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { cleanup, renderHook } from "@testing-library/react";
+
+import { useAssistantSupports } from "@/lib/backwards-compat/utils.js";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store.js";
+
+function setVersion(version: string | null) {
+  useAssistantIdentityStore.getState().setIdentity("test-asst", version);
+}
+
+function check(version: string | null, minVersion: string): boolean {
+  setVersion(version);
+  const { result } = renderHook(() => useAssistantSupports(minVersion));
+  return result.current;
+}
+
+beforeEach(() => {
+  useAssistantIdentityStore.getState().clearIdentity();
+});
+
+afterEach(() => {
+  cleanup();
+  useAssistantIdentityStore.getState().clearIdentity();
+});
+
+describe("useAssistantSupports", () => {
+  test("returns false when the version is unknown", () => {
+    expect(check(null, "0.8.5")).toBe(false);
+    expect(check("", "0.8.5")).toBe(false);
+  });
+
+  test("returns false for unparseable versions", () => {
+    expect(check("not-a-version", "0.8.5")).toBe(false);
+    expect(check("0.8", "0.8.5")).toBe(false);
+  });
+
+  test("returns false when the minVersion is unparseable", () => {
+    expect(check("0.8.5", "garbage")).toBe(false);
+  });
+
+  test("returns true when version >= minVersion", () => {
+    expect(check("0.8.5", "0.8.5")).toBe(true);
+    expect(check("0.8.6", "0.8.5")).toBe(true);
+    expect(check("0.9.0", "0.8.5")).toBe(true);
+    expect(check("1.0.0", "0.8.5")).toBe(true);
+  });
+
+  test("returns false when version < minVersion", () => {
+    expect(check("0.8.4", "0.8.5")).toBe(false);
+    expect(check("0.7.99", "0.8.5")).toBe(false);
+    expect(check("0.0.1", "0.8.5")).toBe(false);
+  });
+
+  test("treats pre-release suffixes as the full patch version", () => {
+    // 0.8.5-rc.1 counts as >= 0.8.5, not the strict-semver "less than"
+    // it would normally be. Testers on RCs get the new path.
+    expect(check("0.8.5-rc.1", "0.8.5")).toBe(true);
+    expect(check("0.8.5-alpha", "0.8.5")).toBe(true);
+    expect(check("0.9.0-beta.3", "0.8.5")).toBe(true);
+  });
+
+  test("strips leading 'v' prefix on the version", () => {
+    expect(check("v0.8.5", "0.8.5")).toBe(true);
+    expect(check("v0.8.4", "0.8.5")).toBe(false);
+  });
+});

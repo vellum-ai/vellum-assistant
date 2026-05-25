@@ -111,7 +111,7 @@ mock.module("../tools/registry.js", () => ({
       description: "test tool",
       category: "shell",
       defaultRiskLevel: "medium",
-      getDefinition: () => ({}),
+      input_schema: {},
       execute: async () => fakeToolResult,
     };
   },

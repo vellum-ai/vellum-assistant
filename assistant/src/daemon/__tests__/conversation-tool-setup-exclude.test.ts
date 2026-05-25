@@ -30,7 +30,7 @@ function mcpTool(name: string): Tool {
     name,
     description: name,
     origin: "mcp",
-    getDefinition: () => def(name),
+    input_schema: def(name).input_schema,
   } as unknown as Tool;
 }
 

@@ -1219,19 +1219,20 @@ function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceCardProp
             <Notice
               tone="info"
               icon={<Crown className="h-4 w-4" aria-hidden />}
-              title="Managed email is a Pro plan feature"
+              title="Get a dedicated email address for your assistant"
               actions={
                 <Button
                   size="compact"
-                  onClick={() => navigate(routes.settings.billing)}
+                  onClick={() => navigate(`${routes.settings.billing}?adjust_plan`)}
                 >
                   Upgrade to Pro
                 </Button>
               }
             >
-              Upgrade to register a {`<your-subdomain>.${emailRootDomain}`}{" "}
-              address managed by Vellum, or switch to <strong>Your Own</strong>{" "}
-              to bring your own provider.
+              Pro plans include a managed{" "}
+              {`<your-subdomain>.${emailRootDomain}`} inbox — no provider
+              setup required. Or switch to <strong>Your Own</strong> to bring
+              an existing provider.
             </Notice>
           ) : !assistantId ? (
             <p className="text-body-medium-lighter text-[var(--content-tertiary)]">

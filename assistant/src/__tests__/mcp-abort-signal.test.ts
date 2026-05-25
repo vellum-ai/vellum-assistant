@@ -142,7 +142,7 @@ describe("MCP AbortSignal threading", () => {
       );
 
       expect(tool.name).toBe("mcp__test-server__my-tool");
-      expect(tool.getDefinition().name).toBe("mcp__test-server__my-tool");
+      expect(tool.name).toBe("mcp__test-server__my-tool");
     });
 
     test("keeps MCP tool names with trailing whitespace distinct", () => {
@@ -211,7 +211,7 @@ describe("MCP AbortSignal threading", () => {
       expect(tool.name.startsWith("mcp__stripe_link-cli__create_link__")).toBe(
         true,
       );
-      expect(tool.getDefinition().name).toBe(tool.name);
+      expect(tool.name).toBe(tool.name);
 
       await tool.execute(
         { someArg: "value" },

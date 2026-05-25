@@ -1137,6 +1137,34 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     models: [],
     defaultModel: "",
   },
+  {
+    id: "minimax",
+    displayName: "MiniMax",
+    subtitle: "MiniMax AI models. Requires a MiniMax API key.",
+    setupMode: "api-key",
+    setupHint: "Enter your MiniMax API key to enable MiniMax models.",
+    envVar: "MINIMAX_API_KEY",
+    credentialsGuide: {
+      description: "Sign in to the MiniMax dashboard and create an API key.",
+      url: "https://platform.minimax.io/",
+      linkLabel: "Open MiniMax Dashboard",
+    },
+    models: [
+      {
+        id: "MiniMax-M2.7",
+        displayName: "MiniMax M2.7",
+        contextWindowTokens: 200000,
+        maxOutputTokens: 16384,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: false,
+        supportsToolUse: true,
+      },
+    ],
+    defaultModel: "MiniMax-M2.7",
+    apiKeyUrl: "https://platform.minimax.io/",
+    apiKeyPlaceholder: "sk-cp-...",
+  },
 ];
 
 export const PROVIDER_CATALOG: ProviderCatalogEntry[] =

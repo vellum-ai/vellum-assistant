@@ -20,6 +20,10 @@ import {
 } from "../../channels/types.js";
 import { isHttpAuthDisabled } from "../../config/env.js";
 import { getConfig } from "../../config/loader.js";
+import {
+  mergeConsecutiveAssistantMessages,
+  mergeToolResultsIntoAssistantMessages,
+} from "../../conversations/message-consolidation.js";
 import { createApprovalConversationGenerator } from "../../daemon/approval-generators.js";
 import type { Conversation } from "../../daemon/conversation.js";
 import {
@@ -86,10 +90,6 @@ import {
   getOrCreateConversation,
 } from "../../memory/conversation-key-store.js";
 import { searchConversations } from "../../memory/conversation-queries.js";
-import {
-  mergeConsecutiveAssistantMessages,
-  mergeToolResultsIntoAssistantMessages,
-} from "../../memory/message-consolidation.js";
 import { recordOnboardingEvent } from "../../memory/onboarding-events-store.js";
 import { buildSlackMessageDeepLinks } from "../../messaging/providers/slack/deep-link.js";
 import {
@@ -2026,14 +2026,25 @@ async function generateLlmSuggestion(
         ? escapeXmlContent(priorUserText)
         : priorUserText;
 
-  const systemPrompt =
-    "You generate short, casual reply suggestions a user might type next in a chat. Match the tone and register of the preceding conversation. Output only the reply text inside the requested tags — no preamble, no commentary.";
+  const systemPrompt = [
+    "You generate short, casual reply suggestions a user might type next in a chat.",
+    "Match the tone and register of the preceding conversation.",
+    "",
+    "CRITICAL — write from the USER'S perspective only, NEVER from the assistant's:",
+    "- The suggestion is what the USER will type into the chat input",
+    "- Use first-person \"I\" only if the user has used it in their prior messages",
+    "- NEVER start with phrases like \"I can help\", \"Here's what\", \"Let me\", \"I'd suggest\" — those are assistant-voice",
+    "- Think: if you were the user reading the assistant's reply, what question or follow-up would you ask next?",
+    "",
+    "Output only the reply text inside the requested tags — no preamble, no commentary.",
+  ].join("\n");
 
   const userPrompt =
     `Here is the end of a conversation:\n\n` +
     `<user_message>${truncatedUser ?? "(no prior user message)"}</user_message>\n` +
     `<assistant_message>${truncatedAssistant}</assistant_message>\n\n` +
-    `Write the user's next reply, focusing on the LAST question or call-to-action in the assistant message. Keep it short (under 15 words), casual, and in the user's voice. Respond in this exact format:\n\n` +
+    `Write the USER'S next reply — what the user would type. Focus on the LAST question or call-to-action in the assistant message. Keep it short (under 15 words), casual, and in the user's voice. ` +
+    `The reply must read as something typed BY the user, not something the assistant would say. Respond in this exact format:\n\n` +
     `<reply>YOUR_REPLY_HERE</reply>`;
 
   // Single user message only — no assistant-role prefill. Anthropic
