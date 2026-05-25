@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { MemoryConfigSchema } from "../memory.js";
-import { MemoryV2ConfigSchema } from "../memory-v2.js";
+import { MemoryV2ConfigSchema, MemoryV3ConfigSchema } from "../memory-v2.js";
 
 describe("MemoryV2ConfigSchema", () => {
   test("parses an empty object to documented defaults", () => {
@@ -209,6 +209,113 @@ describe("MemoryV2ConfigSchema", () => {
     expect(() =>
       MemoryV2ConfigSchema.parse({ router: { router_prompt_path: 42 } }),
     ).toThrow();
+  });
+});
+
+describe("MemoryV3ConfigSchema", () => {
+  test("parses an empty object to documented defaults", () => {
+    const parsed = MemoryV3ConfigSchema.parse({});
+    expect(parsed).toEqual({
+      enabled: false,
+      shadow: false,
+      passCap: 3,
+      breadthBudget: 6,
+      maxDepth: 6,
+      denseQuota: { activeDomain: 30, offDomain: 8 },
+      lanes: { hot: true, sparse: true, dense: true, tree: true, edges: true },
+      ks: [5, 10, 25, 50],
+    });
+  });
+
+  test("parses undefined to the same defaults (top-level .default)", () => {
+    expect(MemoryV3ConfigSchema.parse(undefined)).toEqual(
+      MemoryV3ConfigSchema.parse({}),
+    );
+  });
+
+  test("defaults to disabled for backwards compatibility", () => {
+    expect(MemoryV3ConfigSchema.parse({}).enabled).toBe(false);
+    expect(MemoryV3ConfigSchema.parse({}).shadow).toBe(false);
+  });
+
+  test("accepts explicit scalar overrides", () => {
+    const parsed = MemoryV3ConfigSchema.parse({
+      enabled: true,
+      shadow: true,
+      passCap: 5,
+      breadthBudget: 10,
+      maxDepth: 8,
+    });
+    expect(parsed.enabled).toBe(true);
+    expect(parsed.shadow).toBe(true);
+    expect(parsed.passCap).toBe(5);
+    expect(parsed.breadthBudget).toBe(10);
+    expect(parsed.maxDepth).toBe(8);
+  });
+
+  test("accepts explicit denseQuota override", () => {
+    const parsed = MemoryV3ConfigSchema.parse({
+      denseQuota: { activeDomain: 50, offDomain: 12 },
+    });
+    expect(parsed.denseQuota).toEqual({ activeDomain: 50, offDomain: 12 });
+  });
+
+  test("accepts a partial lanes override and defaults the rest", () => {
+    const parsed = MemoryV3ConfigSchema.parse({ lanes: { dense: false } });
+    expect(parsed.lanes).toEqual({
+      hot: true,
+      sparse: true,
+      dense: false,
+      tree: true,
+      edges: true,
+    });
+  });
+
+  test("accepts an explicit ks override", () => {
+    const parsed = MemoryV3ConfigSchema.parse({ ks: [1, 3, 7] });
+    expect(parsed.ks).toEqual([1, 3, 7]);
+  });
+
+  test("rejects a non-boolean enabled", () => {
+    expect(() => MemoryV3ConfigSchema.parse({ enabled: "yes" })).toThrow();
+  });
+
+  test("rejects a non-integer passCap", () => {
+    expect(() => MemoryV3ConfigSchema.parse({ passCap: 2.5 })).toThrow();
+  });
+
+  test("rejects non-number ks entries", () => {
+    expect(() => MemoryV3ConfigSchema.parse({ ks: ["a"] })).toThrow();
+  });
+});
+
+describe("MemoryConfigSchema integration with v3 block", () => {
+  test("includes a v3 block defaulting to disabled when v3 is omitted", () => {
+    const parsed = MemoryConfigSchema.parse({});
+    expect(parsed.v3).toBeDefined();
+    expect(parsed.v3.enabled).toBe(false);
+    expect(parsed.v3.shadow).toBe(false);
+    expect(parsed.v3.passCap).toBe(3);
+    expect(parsed.v3.lanes.dense).toBe(true);
+    expect(parsed.v3.ks).toEqual([5, 10, 25, 50]);
+  });
+
+  test("leaves pre-existing configs (no v3 key) otherwise unchanged", () => {
+    // A config authored before v3 existed parses fine and its v2 block is
+    // untouched; the v3 block is purely additive.
+    const parsed = MemoryConfigSchema.parse({ v2: { top_k: 50 } });
+    expect(parsed.v2.top_k).toBe(50);
+    expect(parsed.v3.enabled).toBe(false);
+  });
+
+  test("propagates v3 overrides through MemoryConfigSchema", () => {
+    const parsed = MemoryConfigSchema.parse({
+      v3: { enabled: true, passCap: 4 },
+    });
+    expect(parsed.v3.enabled).toBe(true);
+    expect(parsed.v3.passCap).toBe(4);
+    // Non-overridden v3 fields keep their defaults.
+    expect(parsed.v3.maxDepth).toBe(6);
   });
 });
 
