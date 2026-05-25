@@ -530,10 +530,13 @@ export function isToolActiveForContext(
     return !ctx.hasNoClient;
   }
   if (CLIENT_CAPABILITY_TOOL_NAMES.has(name)) {
-    if (
-      name === "ask_question" &&
-      ctx.channelCapabilities?.clientOS === "macos"
-    ) {
+    if (name === "ask_question") {
+      const isMacOSClientTurn =
+        ctx.channelCapabilities?.clientOS === "macos" ||
+        ctx.transportInterface === "macos";
+      if (!isMacOSClientTurn) {
+        return !ctx.hasNoClient;
+      }
       // macOS has no UI handler for question_request yet; hiding the tool
       // avoids a 5-minute prompter timeout when the LLM would otherwise call it.
       return false;

@@ -558,9 +558,42 @@ describe("isToolActiveForContext — ask_question macOS gating", () => {
     ).toBe(false);
   });
 
+  test("ask_question is NOT active for macOS transport without channelCapabilities", () => {
+    expect(
+      isToolActiveForContext(
+        "ask_question",
+        makeCtx({
+          hasNoClient: false,
+          transportInterface: "macos",
+        }),
+      ),
+    ).toBe(false);
+  });
+
   test("ask_question is active when channelCapabilities is undefined (backwards-compat)", () => {
     expect(
       isToolActiveForContext("ask_question", makeCtx({ hasNoClient: false })),
+    ).toBe(true);
+  });
+
+  test("ask_question remains active for web and iOS transports", () => {
+    expect(
+      isToolActiveForContext(
+        "ask_question",
+        makeCtx({
+          hasNoClient: false,
+          transportInterface: "web",
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isToolActiveForContext(
+        "ask_question",
+        makeCtx({
+          hasNoClient: false,
+          transportInterface: "ios",
+        }),
+      ),
     ).toBe(true);
   });
 
