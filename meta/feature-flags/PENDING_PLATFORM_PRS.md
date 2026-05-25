@@ -15,3 +15,4 @@ Remove an entry from this file once its companion platform PR is merged.
 | Flag key | Registry declaration date | Owner | Status | Required platform work |
 |---|---|---|---|---|
 | `meet` | 2026-04-19 | sidd@vellum.ai | Platform PR not yet opened (as of 2026-04-19) | Terraform entry in `../vellum-assistant-platform/terraform/launchdarkly.tf` (or equivalent) with `defaultEnabled: false` and a description pointing at `skills/meet-join/SKILL.md`. |
+| `assistant-radio` | 2026-05-25 | Unassigned | Platform PR not yet opened (as of 2026-05-25) | LaunchDarkly/Terraform platform flag with `defaultEnabled: false` for the web composer radio pill rollout. |
