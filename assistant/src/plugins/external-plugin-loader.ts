@@ -51,7 +51,7 @@ import { z } from "zod";
 import assistantPkg from "../../package.json" with { type: "json" };
 import type {
   LoadedPluginTool,
-  PluginTool,
+  PluginToolSpec,
   RiskLevel,
   ToolExecutionResult,
 } from "../tools/types.js";
@@ -142,36 +142,48 @@ export const PLUGIN_TOOL_DEFAULTS = Object.freeze({
 });
 
 /**
- * Fill the four normally-required {@link PluginTool} fields with documented
- * defaults when the author omitted them. Returns a {@link LoadedPluginTool}
- * that is safe to register.
+ * Fill the four normally-required {@link PluginToolSpec} fields with
+ * documented defaults when the author omitted them. Returns a
+ * {@link LoadedPluginTool} that is safe to register.
  */
 function applyPluginToolDefaults(
-  tool: PluginTool,
+  tool: PluginToolSpec,
   name: string,
 ): LoadedPluginTool {
   const description =
     typeof tool.description === "string"
       ? tool.description
       : PLUGIN_TOOL_DEFAULTS.description;
-  const defaultRiskLevel =
+  // Cast the public string-union to the internal `RiskLevel` enum. Runtime
+  // values are identical (`RiskLevel.Low === "low"` etc.) and the loader is
+  // the documented narrow→rich conversion boundary.
+  const defaultRiskLevel: RiskLevel =
     typeof tool.defaultRiskLevel === "string"
-      ? tool.defaultRiskLevel
+      ? (tool.defaultRiskLevel as RiskLevel)
       : PLUGIN_TOOL_DEFAULTS.defaultRiskLevel;
   const input_schema =
-    tool.input_schema !== null &&
-    typeof tool.input_schema === "object"
+    tool.input_schema !== null && typeof tool.input_schema === "object"
       ? tool.input_schema
       : PLUGIN_TOOL_DEFAULTS.input_schema;
-  const execute =
+  // Cast narrow author `execute` → rich internal `execute`. Safe at
+  // runtime because the rich `ToolContext` extends the narrow
+  // `PluginToolContext`: a function that only reads narrow fields works
+  // fine when the host hands it a rich context. The cast is one-way and
+  // happens once, here at the loader boundary.
+  const execute: LoadedPluginTool["execute"] =
     typeof tool.execute === "function"
-      ? tool.execute
+      ? (tool.execute as LoadedPluginTool["execute"])
       : async (): Promise<ToolExecutionResult> => ({
           content: `plugin tool ${name} has no execute implementation`,
           isError: true,
         });
+  // Construct the loaded shape explicitly (no spread of `tool`) so any
+  // extra fields the author tried to set on the imported runtime object
+  // — origin, ownerPluginId, executionMode, … — are dropped here at the
+  // load boundary rather than propagated into the registry. TypeScript
+  // would have caught these at compile time for TS authors, but JS
+  // authors and transpiled artifacts could still ship them at runtime.
   return {
-    ...tool,
     name,
     description,
     defaultRiskLevel,
@@ -343,7 +355,7 @@ async function buildPluginFromDir(pluginDir: string): Promise<Plugin> {
   for (const { name: toolName, path: toolPath } of listSurfaceDir(
     join(pluginDir, "tools"),
   )) {
-    const tool = await importDefault<PluginTool>(toolPath);
+    const tool = await importDefault<PluginToolSpec>(toolPath);
     if (tool === null || typeof tool !== "object") {
       throw new Error(
         `external plugin ${name}: ${toolPath} default export must be an object`,

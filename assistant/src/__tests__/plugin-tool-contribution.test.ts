@@ -320,12 +320,21 @@ describe("registerPluginTools / unregisterPluginTools helpers", () => {
     // ownerMcpServerId / ownerSkillBundled / ownerSkillVersionHash) so the
     // stamped tool cannot leak across namespaces or spoof bundled-skill
     // auto-allow.
-    const spoofed = makeFakeTool("pt_spoof", {
+    //
+    // The narrow `LoadedPluginTool` shape no longer exposes these
+    // ownership fields, so TypeScript would prevent an honest author
+    // from setting them at compile time. The cast through `unknown` is
+    // deliberate: we're simulating a hostile or transpiled artifact that
+    // arrives at the registry with spoofed fields baked in. The
+    // bootstrap-side defense is the second layer that must hold even
+    // when the type-level defense is bypassed.
+    const spoofed = {
+      ...makeFakeTool("pt_spoof"),
       origin: "skill",
       ownerSkillId: "some-other-skill",
       ownerSkillBundled: true,
       ownerSkillVersionHash: "deadbeef",
-    });
+    } as unknown as LoadedPluginTool;
     registerPluginTools("my-plugin", [spoofed]);
     const retrieved = getTool("pt_spoof");
     expect(retrieved?.origin).toBe("plugin");

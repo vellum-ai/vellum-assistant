@@ -39,73 +39,14 @@ export type {
   PluginToolExecutionResult as ToolExecutionResult,
 } from "../tools/types.js";
 
-// ─── Tool authoring surface ──────────────────────────────────────────────────
+// ─── Tool authoring surface (re-exported from daemon source-of-truth) ───────
+//
+// `ToolDefinition` is `PluginToolSpec` from `assistant/src/tools/types.ts`,
+// re-exported under its public name. The canonical docstring (covering
+// defaults, naming-collision with `@vellumai/skill-host-contracts`, etc.)
+// lives at the definition site and is preserved by LSP across the alias.
 
-import type {
-  PluginToolContext as PublicToolContext,
-  PluginToolExecutionResult as PublicToolExecutionResult,
-} from "../tools/types.js";
-
-/**
- * Author-facing tool spec — what a plugin tool file or workspace tool file
- * default-exports.
- *
- * `name` is omitted from this shape because the host derives it
- * authoritatively from the tool's owning location:
- * - Plugins: `tools/<basename>.{ts,js}` → name = basename
- * - Workspace tools: `<workspaceDir>/tools/<name>.{ts,js,json}` → name = filename stem
- *
- * Ownership stamps (`origin`, `ownerPluginId`, `ownerWorkspacePath`, etc.)
- * are also set authoritatively by the host. Authors leave them blank.
- *
- * Every field on this interface is optional. The host fills the four
- * normally-required slots (`description`, `defaultRiskLevel`,
- * `input_schema`, `execute`) with documented defaults when omitted, so a
- * misconfigured tool still loads cleanly and surfaces its problem at call
- * time rather than blocking assistant boot.
- *
- * Default values differ by origin:
- * - Plugin tools default `defaultRiskLevel` to `"medium"`.
- * - Workspace tools default `defaultRiskLevel` to `"high"` — they run
- *   arbitrary on-disk code under the operator's workspace, so the floor
- *   is higher than for in-tree-vetted plugin code.
- *
- * (NOTE: there's an unrelated internal type also called `ToolDefinition`
- * in `@vellumai/skill-host-contracts` that represents the JSON-schema
- * bundle sent to LLM providers. That's the runtime/provider-side shape;
- * this is the author-time shape. The names overlap but the imports are
- * disjoint — plugin and workspace authors should always import this
- * `ToolDefinition` from `@vellumai/plugin-api`.)
- */
-export interface ToolDefinition {
-  /**
-   * Free-form description the model sees in its tool list. Defaults to
-   * an empty string when omitted.
-   */
-  description?: string;
-  /**
-   * Default risk level applied when no path-based escalation matches.
-   * Defaults to `"medium"` for plugin tools and `"high"` for workspace
-   * tools.
-   */
-  defaultRiskLevel?: "low" | "medium" | "high";
-  /**
-   * JSON-Schema describing the tool's input arguments. Defaults to
-   * `{ type: "object", properties: {}, additionalProperties: false }`
-   * when omitted.
-   */
-  input_schema?: object;
-  /**
-   * Execute handler. The host calls this with the model's input payload
-   * and a narrow `ToolContext`. Defaults to a stub that returns an error
-   * result when omitted (so the model sees a clear "not wired up" signal
-   * instead of the tool silently no-op'ing).
-   */
-  execute?: (
-    input: Record<string, unknown>,
-    context: PublicToolContext,
-  ) => Promise<PublicToolExecutionResult>;
-}
+export type { PluginToolSpec as ToolDefinition } from "../tools/types.js";
 
 // ─── Logger ──────────────────────────────────────────────────────────────────
 

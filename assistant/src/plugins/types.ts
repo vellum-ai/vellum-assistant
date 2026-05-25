@@ -1010,9 +1010,10 @@ export interface Injector {
 /**
  * Tool registration contributed by a plugin. Uses the narrow
  * {@link LoadedPluginTool} shape. External plugin authors declare the
- * nameless `PluginTool` file shape; the loader derives `name` from the
- * `tools/<name>.ts` basename before storing it on `plugin.tools`. Authors
- * also leave category / ownership metadata to the bootstrap, which stamps
+ * nameless `ToolDefinition` (from `@vellumai/plugin-api`) file shape;
+ * the loader derives `name` from the `tools/<name>.ts` basename before
+ * storing it on `plugin.tools`. Authors also leave category / ownership
+ * metadata to the bootstrap, which stamps
  * `category: "plugin"`, `origin: "plugin"`, and
  * `ownerPluginId: <plugin.name>` before handing the batch to
  * `registerPluginTools`. The registration boundary synthesizes

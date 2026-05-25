@@ -7,10 +7,13 @@
  * `assistant/src/plugin-api/types.ts`, this file fails to type-check and
  * the regression is caught at `tsc --noEmit` / `bun test` time.
  *
- * The shape is identical (structurally) to the existing internal
- * `PluginTool`, so this also covers the migration path of plugin authors
- * switching their imports from the legacy `PluginTool` name to the new
- * `ToolDefinition` name.
+ * The same shape lives internally as `PluginToolSpec` in
+ * `assistant/src/tools/types.ts` — the public `ToolDefinition` is just
+ * a re-export. This file asserts the public face stays stable; a sibling
+ * test in the daemon-internal suite would assert the internal face stays
+ * stable. (Today they're literally the same symbol, so one test covers
+ * both — but the separation gives future-us room to diverge them
+ * without losing test coverage.)
  */
 
 import { describe, expect, test } from "bun:test";

@@ -379,50 +379,104 @@ export interface Tool {
 }
 
 /**
- * Plugin-facing tool shape. The narrow surface plugin authors implement;
- * differs from {@link Tool} in four ways:
- * - Plugins declare `input_schema` as a top-level field instead of
+ * Strict author-facing tool spec. The narrow surface plugin and workspace
+ * tool authors implement. This is the canonical source-of-truth definition
+ * — `@vellumai/plugin-api` re-exports this type as `ToolDefinition` for
+ * external authors.
+ *
+ * Differs from the internal {@link Tool} shape in four ways:
+ * - Authors declare `input_schema` as a top-level field instead of
  *   implementing `getDefinition()`. The registration boundary synthesizes
  *   `getDefinition()` from `{name, description, input_schema}` before the
  *   tool enters the internal registry.
- * - `name` is derived from the tool file's basename by the external plugin
- *   loader.
- * - `category` is registry-owned and stamped to `"plugin"` when the tool is
- *   registered.
- * - All ownership stamps (`origin`, `ownerPluginId`, etc.) are set
- *   authoritatively by the bootstrap; plugin authors leave them blank.
+ * - `name` is derived from the tool file's basename by the host loader.
+ * - `category` is registry-owned and stamped to `"plugin"` /
+ *   `"workspace"` when the tool is registered.
+ * - All ownership stamps (`origin`, `ownerPluginId`, etc.) and host-level
+ *   fields (`executionMode`, `executionTarget`, …) are NOT exposed on
+ *   this shape. They are set authoritatively by the bootstrap and would
+ *   otherwise tempt authors into trying to spoof ownership.
  *
- * Every author-visible field is optional. The loader fills the four
- * normally-required slots (`description`, `defaultRiskLevel`,
- * `input_schema`, `execute`) with documented defaults when a plugin omits
- * them — see `applyPluginToolDefaults` in `external-plugin-loader.ts`.
- * A nameless, body-less `export default {}` is a valid (if useless) tool;
- * misconfigured tools surface at call time rather than blocking plugin
- * load.
+ * Every field is optional. The loader fills the four normally-required
+ * slots (`description`, `defaultRiskLevel`, `input_schema`, `execute`)
+ * with documented defaults when an author omits them — see
+ * `applyPluginToolDefaults` in `external-plugin-loader.ts` and
+ * `WORKSPACE_TOOL_DEFAULTS` in `workspace-tools/loader.ts`. A nameless,
+ * body-less `export default {}` is a valid (if useless) tool;
+ * misconfigured tools surface at call time rather than blocking host
+ * boot.
+ *
+ * Default `defaultRiskLevel` differs by origin:
+ * - Plugin tools default to `"medium"`.
+ * - Workspace tools default to `"high"` — they run arbitrary on-disk
+ *   code under the operator's workspace, so the floor is higher than
+ *   for in-tree-vetted plugin code.
+ *
+ * (Note: there's an internal type also called `ToolDefinition` in
+ * `@vellumai/skill-host-contracts` that represents the JSON-schema
+ * bundle sent to LLM providers. That's the runtime/provider-side shape;
+ * this is the author-time shape. The names overlap but the imports are
+ * disjoint — plugin and workspace authors should always import
+ * `ToolDefinition` from `@vellumai/plugin-api`.)
  */
-export type PluginTool = Omit<
-  Tool,
-  "category" | "getDefinition" | "name" | "description" | "defaultRiskLevel"
-> & {
+export interface PluginToolSpec {
+  /**
+   * Free-form description the model sees in its tool list. Defaults to
+   * an empty string when omitted.
+   */
   description?: string;
-  defaultRiskLevel?: RiskLevel;
+  /**
+   * Default risk level applied when no path-based escalation matches.
+   * Defaults to `"medium"` for plugin tools and `"high"` for workspace
+   * tools.
+   *
+   * Typed as a string union (not the `RiskLevel` enum) so external
+   * authors can write `defaultRiskLevel: "low"` without importing the
+   * host's enum. The values are identical at runtime
+   * (`RiskLevel.Low === "low"`); the loader casts to the enum at the
+   * registration boundary in `applyPluginToolDefaults`.
+   */
+  defaultRiskLevel?: "low" | "medium" | "high";
+  /**
+   * JSON-Schema describing the tool's input arguments. Defaults to
+   * `{ type: "object", properties: {}, additionalProperties: false }`
+   * when omitted.
+   */
   input_schema?: object;
+  /**
+   * Execute handler. The host calls this with the model's input payload
+   * and a narrow `PluginToolContext`. Defaults to a stub that returns an
+   * error result when omitted (so the model sees a clear "not wired up"
+   * signal instead of the tool silently no-op'ing).
+   */
   execute?: (
     input: Record<string, unknown>,
-    context: ToolContext,
-  ) => Promise<ToolExecutionResult>;
-};
+    context: PluginToolContext,
+  ) => Promise<PluginToolExecutionResult>;
+}
 
 /**
- * Plugin tool after the external loader has derived its registry name and
+ * Author-time tool spec after the host has derived its registry name and
  * filled defaults for any author-omitted fields. All four normally-required
- * slots are guaranteed present.
+ * slots are guaranteed present. The internal stamping (origin, ownerPluginId,
+ * category, getDefinition) is added separately by `registerPluginTools`.
+ *
+ * Two fields are overridden from `Required<PluginToolSpec>` to use the
+ * internal rich types instead of the narrow public ones:
+ * - `defaultRiskLevel`: `RiskLevel` enum (vs `"low" | "medium" | "high"`),
+ *   because downstream `Tool.defaultRiskLevel` is the enum.
+ * - `execute`: receives the rich `ToolContext` and returns the rich
+ *   `ToolExecutionResult`, because `Tool.execute` is the rich variant.
+ *   The narrow author function is widened via cast in
+ *   `applyPluginToolDefaults` — safe at runtime because the rich types
+ *   extend the narrow ones (a function that only reads narrow fields
+ *   works fine when called with a rich object).
  */
-export type LoadedPluginTool = PluginTool & {
+export type LoadedPluginTool = Required<
+  Omit<PluginToolSpec, "defaultRiskLevel" | "execute">
+> & {
   name: string;
-  description: string;
   defaultRiskLevel: RiskLevel;
-  input_schema: object;
   execute: (
     input: Record<string, unknown>,
     context: ToolContext,
