@@ -35,8 +35,10 @@ import {
   getChatContext,
 } from "@/domains/chat/api/assistant.js";
 import {
+  CONVERSATION_NOT_FOUND,
   type Conversation,
   type ConversationGroup,
+  fetchConversationDetail,
   fetchGroups,
 } from "@/domains/chat/api/conversations.js";
 
@@ -270,6 +272,53 @@ export function removeConversation(
   updateChatContextConversations(queryClient, assistantId, (conversations) => {
     const filtered = conversations.filter((c) => c.conversationId !== key);
     return filtered.length === conversations.length ? conversations : filtered;
+  });
+}
+
+/**
+ * Refresh a single conversation row in the cached sidebar list by
+ * fetching `GET /v1/conversations/:id` and patching the cache in place.
+ *
+ * Drives the per-conversation `sync_changed` metadata-tag handler in
+ * `use-assistant-sync-stream.ts`: when the assistant emits a
+ * `conversation:<id>:metadata` invalidation for a content-only change
+ * (seen state, title, attention cursor), the consumer GETs that single
+ * row instead of refetching the full paginated list — a single request
+ * per signal instead of the legacy ~14-request drain at a few hundred
+ * conversations.
+ *
+ * Behavior:
+ * - Row present and server returns a payload: replace the cached row
+ *   with the server copy (shape is identical — both ends serialize via
+ *   `serializeConversationSummary`).
+ * - Row absent from cache but server returns a payload: append; the
+ *   row will sort into place on the next list refetch.
+ * - Server returns 404 (`CONVERSATION_NOT_FOUND`): remove the row from
+ *   the cache. Mirrors how `deleteConversation` cleans up after a local
+ *   deletion.
+ * - Network / other errors: rethrown to the caller so the SSE consumer
+ *   can log/sentry-capture without silently dropping the signal.
+ */
+export async function refreshConversationRow(
+  queryClient: QueryClient,
+  assistantId: string | null,
+  conversationId: string,
+): Promise<void> {
+  if (!assistantId) return;
+  const result = await fetchConversationDetail(assistantId, conversationId);
+  if (result === CONVERSATION_NOT_FOUND) {
+    removeConversation(queryClient, assistantId, conversationId);
+    return;
+  }
+  updateChatContextConversations(queryClient, assistantId, (conversations) => {
+    let replaced = false;
+    const next = conversations.map((c) => {
+      if (c.conversationId !== result.conversationId) return c;
+      replaced = true;
+      return result;
+    });
+    if (replaced) return next;
+    return [...conversations, result];
   });
 }
 

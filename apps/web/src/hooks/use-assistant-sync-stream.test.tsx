@@ -20,8 +20,47 @@ import {
   useEventBusStore,
 } from "@/stores/event-bus-store.js";
 
+// ---------------------------------------------------------------------------
+// Module mock — `@/domains/chat/api/conversations.js`.
+//
+// `refreshConversationRow` (in `conversation-queries.ts`) calls
+// `fetchConversationDetail` to GET the post-mutation row. We spread the
+// real module so every other consumer (e.g. `isBackgroundConversation`
+// pulled in transitively by `chat/api/assistant.ts`) keeps its original
+// behavior, and only override `fetchConversationDetail` to a configurable
+// impl. The default `fetchConversationDetailImpl` throws so any test
+// that doesn't set up its own impl fails loudly instead of making a
+// real network call.
+// ---------------------------------------------------------------------------
+const realConversationsModule = await import(
+  "@/domains/chat/api/conversations.js"
+);
+const { CONVERSATION_NOT_FOUND } = realConversationsModule;
+
+let fetchConversationDetailImpl: (
+  assistantId: string,
+  conversationId: string,
+) => Promise<unknown> = () =>
+  Promise.reject(
+    new Error(
+      "fetchConversationDetail mock not configured — set fetchConversationDetailImpl in the test",
+    ),
+  );
+const fetchConversationDetailCalls: Array<{
+  assistantId: string;
+  conversationId: string;
+}> = [];
+
+mock.module("@/domains/chat/api/conversations.js", () => ({
+  ...realConversationsModule,
+  fetchConversationDetail: (assistantId: string, conversationId: string) => {
+    fetchConversationDetailCalls.push({ assistantId, conversationId });
+    return fetchConversationDetailImpl(assistantId, conversationId);
+  },
+}));
+
 const { useAssistantSyncStream } = await import(
-  "@/domains/chat/hooks/use-assistant-sync-stream.js"
+  "@/hooks/use-assistant-sync-stream.js"
 );
 
 function createWrapper(queryClient: QueryClient) {
@@ -55,6 +94,13 @@ function emitOpened(
 
 beforeEach(() => {
   __resetEventBusForTesting();
+  fetchConversationDetailCalls.length = 0;
+  fetchConversationDetailImpl = () =>
+    Promise.reject(
+      new Error(
+        "fetchConversationDetail mock not configured — set fetchConversationDetailImpl in the test",
+      ),
+    );
 });
 
 afterEach(() => {
@@ -182,23 +228,125 @@ describe("useAssistantSyncStream", () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  test("per-conversation metadata tags schedule a debounced list refresh", async () => {
+  test("per-conversation metadata tags GET-and-patch the cached row (no list refetch)", async () => {
+    // `conversation:<id>:metadata` is the per-row content signal. The
+    // hook resolves it by calling `fetchConversationDetail` for that
+    // single conversation and replacing the row in the cached chat
+    // context — NOT by invalidating the full paginated list (which
+    // used to trigger the ~14-request sidebar drain on a few hundred
+    // conversations). This test pins (a) the GET fires for the right
+    // id and (b) the cache patch reflects the response.
     const queryClient = freshQueryClient();
-    const spy = mock(() => Promise.resolve());
-    queryClient.invalidateQueries = spy as never;
+    queryClient.setQueryData(chatContextQueryKey("asst-1"), {
+      assistantId: "asst-1",
+      conversationId: "conv-1",
+      conversations: [
+        {
+          conversationId: "conv-1",
+          title: "Old title",
+          hasUnseenLatestAssistantMessage: true,
+          lastSeenAssistantMessageAt: undefined,
+        },
+        {
+          conversationId: "conv-2",
+          title: "Untouched",
+          hasUnseenLatestAssistantMessage: true,
+        },
+      ],
+    });
+    fetchConversationDetailImpl = async (_assistantId, conversationId) => ({
+      conversationId,
+      title: "Old title",
+      hasUnseenLatestAssistantMessage: false,
+      lastSeenAssistantMessageAt: "2026-05-25T12:00:00.000Z",
+    });
+    const invalidateSpy = mock(() => Promise.resolve());
+    queryClient.invalidateQueries = invalidateSpy as never;
+
     renderHook(() => useAssistantSyncStream("asst-1", true), {
       wrapper: createWrapper(queryClient),
     });
-    emit(syncEvent(["conversation:abc:metadata"]));
-    emit(syncEvent(["conversation:abc:metadata"]));
-    await new Promise((resolve) => setTimeout(resolve, 350));
-    const listCalls = (spy.mock.calls as unknown as Array<[unknown]>).filter(
-      (call) => {
-        const arg = call[0] as { queryKey: readonly unknown[] } | undefined;
-        return arg?.queryKey?.[0] === chatContextQueryKey("asst-1")[0];
-      },
+    emit(syncEvent(["conversation:conv-1:metadata"]));
+
+    await waitFor(() => {
+      const ctx = queryClient.getQueryData(chatContextQueryKey("asst-1")) as {
+        conversations: Array<{
+          conversationId: string;
+          hasUnseenLatestAssistantMessage?: boolean;
+          lastSeenAssistantMessageAt?: string;
+        }>;
+      };
+      const conv1 = ctx.conversations.find(
+        (c) => c.conversationId === "conv-1",
+      );
+      expect(conv1?.hasUnseenLatestAssistantMessage).toBe(false);
+      expect(conv1?.lastSeenAssistantMessageAt).toBe(
+        "2026-05-25T12:00:00.000Z",
+      );
+    });
+
+    // Fetch happened for the right id.
+    expect(fetchConversationDetailCalls).toEqual([
+      { assistantId: "asst-1", conversationId: "conv-1" },
+    ]);
+
+    // Untouched row stays untouched.
+    const ctxAfter = queryClient.getQueryData(
+      chatContextQueryKey("asst-1"),
+    ) as {
+      conversations: Array<{
+        conversationId: string;
+        hasUnseenLatestAssistantMessage?: boolean;
+      }>;
+    };
+    const conv2 = ctxAfter.conversations.find(
+      (c) => c.conversationId === "conv-2",
     );
-    expect(listCalls.length).toBe(1);
+    expect(conv2?.hasUnseenLatestAssistantMessage).toBe(true);
+
+    // Critically — no list-level invalidation fires.
+    const listCalls = (
+      invalidateSpy.mock.calls as unknown as Array<[unknown]>
+    ).filter((call) => {
+      const arg = call[0] as { queryKey: readonly unknown[] } | undefined;
+      return arg?.queryKey?.[0] === chatContextQueryKey("asst-1")[0];
+    });
+    expect(listCalls.length).toBe(0);
+  });
+
+  test("per-conversation metadata tag handles a 404 (deleted-by-other-client) by removing the row", async () => {
+    // If the row was deleted between the sync signal and our GET, the
+    // server returns 404 and `fetchConversationDetail` resolves to the
+    // `CONVERSATION_NOT_FOUND` sentinel. `refreshConversationRow` should
+    // call `removeConversation` so the sidebar drops the stale row
+    // instead of leaving it as a tombstone.
+    const queryClient = freshQueryClient();
+    queryClient.setQueryData(chatContextQueryKey("asst-1"), {
+      assistantId: "asst-1",
+      conversationId: "conv-1",
+      conversations: [
+        { conversationId: "conv-1", title: "Tombstone" },
+        { conversationId: "conv-2", title: "Survivor" },
+      ],
+    });
+    fetchConversationDetailImpl = async () => CONVERSATION_NOT_FOUND;
+
+    renderHook(() => useAssistantSyncStream("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    emit(syncEvent(["conversation:conv-1:metadata"]));
+
+    await waitFor(() => {
+      const ctx = queryClient.getQueryData(chatContextQueryKey("asst-1")) as {
+        conversations: Array<{ conversationId: string }>;
+      };
+      expect(
+        ctx.conversations.some((c) => c.conversationId === "conv-1"),
+      ).toBe(false);
+      expect(
+        ctx.conversations.some((c) => c.conversationId === "conv-2"),
+      ).toBe(true);
+    });
   });
 
   test("per-conversation messages tags do NOT refetch the sidebar list", async () => {

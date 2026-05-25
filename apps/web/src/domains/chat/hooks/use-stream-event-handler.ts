@@ -58,7 +58,6 @@ import {
 } from "@/domains/chat/utils/stream-handlers/tool-call-handlers.js";
 import {
   handleUsageUpdate,
-  handleConversationListInvalidated,
   handleConversationTitleUpdated,
   handleNotificationIntent,
   handleCompactionCircuitOpen,
@@ -401,7 +400,17 @@ export function useStreamEventHandler(
           handleUsageUpdate(event, ctx);
           break;
         case "conversation_list_invalidated":
-          handleConversationListInvalidated(event, ctx);
+          // Legacy macOS-only broadcast. Web receives the paired
+          // `sync_changed` (`conversationsList` umbrella for shape
+          // changes, `conversation:<id>:metadata` for content) directly
+          // and patches the cached list there. The hub scopes this
+          // event to `targetInterfaceId: "macos"`, so it should not
+          // reach web in practice — handling no-op'd as defense in
+          // depth in case a deployment runs an older assistant.
+          //
+          // TODO(electron-cutover): drop the case once macOS migrates
+          // to the Electron client and `conversation_list_invalidated`
+          // is retired from the event types entirely.
           break;
         case "conversation_title_updated":
           handleConversationTitleUpdated(event, ctx);

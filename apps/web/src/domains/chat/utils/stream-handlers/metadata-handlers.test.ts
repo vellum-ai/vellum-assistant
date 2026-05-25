@@ -6,7 +6,6 @@ import type { Conversation } from "@/domains/chat/api/conversations.js";
 import type { ChatContext } from "@/domains/chat/api/assistant.js";
 import {
   handleUsageUpdate,
-  handleConversationListInvalidated,
   handleConversationTitleUpdated,
   handleCompactionCircuitOpen,
   handleCompactionCircuitClosed,
@@ -74,17 +73,6 @@ describe("handleUsageUpdate", () => {
       ctx.contextWindowUsageByConversationRef.current.get("conv-1")
         ?.fillRatio,
     ).toBe(1);
-  });
-});
-
-describe("handleConversationListInvalidated", () => {
-  it("schedules conversation list refetch", () => {
-    const ctx = makeCtx();
-    handleConversationListInvalidated(
-      { type: "conversation_list_invalidated", reason: "created" },
-      ctx,
-    );
-    expect(ctx.scheduleConversationListRefetch).toHaveBeenCalled();
   });
 });
 

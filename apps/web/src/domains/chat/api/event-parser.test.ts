@@ -941,6 +941,7 @@ describe("parseAssistantEvent", () => {
       expect(event.type).toBe("identity_changed");
     });
   });
+
 });
 
 describe("envelope format parsing", () => {

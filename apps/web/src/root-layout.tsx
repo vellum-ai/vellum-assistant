@@ -10,7 +10,7 @@ import {
 } from "@/domains/chat/hooks/use-assistant-lifecycle.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 import { useEnvironmentStore } from "@/lib/environment/environment-store.js";
-import { useAssistantSyncStream } from "@/domains/chat/hooks/use-assistant-sync-stream.js";
+import { useAssistantSyncStream } from "@/hooks/use-assistant-sync-stream.js";
 import { useClientFeatureFlagSync } from "@/lib/feature-flags/use-client-feature-flag-sync.js";
 import { useAssistantFeatureFlagSync } from "@/lib/feature-flags/use-assistant-feature-flag-sync.js";
 
