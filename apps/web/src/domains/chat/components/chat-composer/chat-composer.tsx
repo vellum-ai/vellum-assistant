@@ -205,6 +205,7 @@ export interface ChatComposerProps {
   modelSupportsVision?: boolean;
 
   // chrome surfacing existing buttons (rendered in the form's bottom-left row)
+  radioSlot?: ReactNode;
   thresholdPickerSlot?: ReactNode;
   contextWindowIndicatorSlot?: ReactNode;
 
@@ -257,6 +258,7 @@ export function ChatComposer({
   onVoiceBeforeStart,
   onStopGenerating,
   assistantId,
+  radioSlot,
   thresholdPickerSlot,
   contextWindowIndicatorSlot,
   noticesAboveFormSlot,
@@ -598,6 +600,7 @@ export function ChatComposer({
             )}
             <div className="flex items-center justify-between px-2 pb-2">
               <div className="flex items-center gap-1">
+                {radioSlot}
                 {thresholdPickerSlot}
                 {contextWindowIndicatorSlot}
               </div>
