@@ -19,6 +19,8 @@ export interface RadioTrack {
   sha256: string;
 }
 
+export type RadioTrackResponse = Omit<RadioTrack, "assetPath">;
+
 export interface RadioAdvanceRequest {
   segmentId?: string;
   currentTrackId?: string;
@@ -30,14 +32,14 @@ export interface RadioAdvanceRequest {
 export interface RadioAdvanceResponse {
   segmentId: string;
   displayCue: RadioDisplayCue;
-  track: RadioTrack;
+  track: RadioTrackResponse;
   playbackPlan: RadioPlaybackPlan;
   djBreak?: RadioDjBreak;
   setup?: RadioSetup;
 }
 
 export interface RadioPlaybackPlan {
-  track: RadioTrack;
+  track: RadioTrackResponse;
   displayCue: RadioDisplayCue;
   reason: RadioAdvanceReason;
   djBreak?: RadioDjBreak;

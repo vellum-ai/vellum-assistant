@@ -39,6 +39,7 @@ mock.module("../../../radio/dj-planner.js", () => ({
 }));
 
 mock.module("../../../radio/radio-tts.js", () => ({
+  RADIO_TTS_SETTINGS_PATH: "/assistant/settings/ai",
   synthesizeRadioDjBreak: async (text: string, signal?: AbortSignal) => {
     ttsCalls.push({ text, signal });
     if (ttsError) throw ttsError;
@@ -60,6 +61,16 @@ function getRoute(endpoint: string, method: string) {
   );
   if (!route) throw new Error(`${method} ${endpoint} not found`);
   return route;
+}
+
+function expectClientTrackResponse(track: unknown, expectedAudioPath: string) {
+  expect(track).toBeObject();
+  const record = track as Record<string, unknown>;
+
+  expect(record.assetPath).toBeUndefined();
+  expect(record.audioPath).toBe(expectedAudioPath);
+  expect(String(record.audioPath).startsWith("radio/tracks/")).toBe(true);
+  expect(String(record.audioPath).startsWith("/")).toBe(false);
 }
 
 const softLaunch = getRadioTrack("soft-launch")!;
@@ -108,6 +119,14 @@ describe("radio routes", () => {
     });
     expect(typeof (response as { segmentId: string }).segmentId).toBe("string");
     expect((response as { djBreak?: unknown }).djBreak).toBeUndefined();
+    expectClientTrackResponse(
+      (response as { track: unknown }).track,
+      softLaunch.audioPath,
+    );
+    expectClientTrackResponse(
+      (response as { playbackPlan: { track: unknown } }).playbackPlan.track,
+      softLaunch.audioPath,
+    );
     expect(plannerCalls).toHaveLength(0);
     expect(ttsCalls).toHaveLength(0);
   });
@@ -157,6 +176,14 @@ describe("radio routes", () => {
         },
       },
     });
+    expectClientTrackResponse(
+      (response as { track: unknown }).track,
+      bufferBloom.audioPath,
+    );
+    expectClientTrackResponse(
+      (response as { playbackPlan: { track: unknown } }).playbackPlan.track,
+      bufferBloom.audioPath,
+    );
   });
 
   test("missing TTS returns setup-needed with the settings path", async () => {

@@ -26,6 +26,7 @@ import type {
   RadioDjBreak,
   RadioSetup,
   RadioTrack,
+  RadioTrackResponse,
 } from "../../radio/types.js";
 import { BadRequestError, NotFoundError, RouteError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -44,7 +45,6 @@ const radioTrackSchema = z.object({
   title: z.string(),
   artist: z.string(),
   durationMs: z.number().int(),
-  assetPath: z.string(),
   audioPath: z.string(),
   sourceLabel: z.string(),
   license: z.literal("repo-generated"),
@@ -268,21 +268,27 @@ function buildAdvanceResponse({
   djBreak?: RadioDjBreak;
   setup?: RadioSetup;
 }): RadioAdvanceResponse {
+  const trackResponse = toRadioTrackResponse(track);
   const playbackPlan = {
     reason,
     displayCue,
-    track,
+    track: trackResponse,
     ...(djBreak ? { djBreak } : {}),
   };
 
   return {
     segmentId,
     displayCue,
-    track,
+    track: trackResponse,
     playbackPlan,
     ...(djBreak ? { djBreak } : {}),
     ...(setup ? { setup } : {}),
   };
+}
+
+function toRadioTrackResponse(track: RadioTrack): RadioTrackResponse {
+  const { assetPath: _assetPath, ...trackResponse } = track;
+  return trackResponse;
 }
 
 function fallbackDjText(track: RadioTrack, reason: RadioAdvanceReason): string {
