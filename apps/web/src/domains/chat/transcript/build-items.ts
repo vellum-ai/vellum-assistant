@@ -53,30 +53,10 @@ export interface BuildTranscriptItemsInput {
  *        d. `ErrorItem` when `errorNotice` is a non-empty string.
  *
  * Every returned item carries a non-empty, distinct `key`.
+ *
+ * `messages` must already be sanitized — phantom/blank row filtering and
+ * trailing-duplicate drops happen upstream in `sanitizeDisplayMessages`.
  */
-function isInvalidMessage(message: DisplayMessage): boolean {
-  // Assistant rows always render; queued user rows collapse into a marker upstream.
-  if (message.role !== "user") return false;
-  if (message.queueStatus === "queued") return false;
-
-  // Any meaningful signal short-circuits as valid. Without one of these the
-  // row is a blank bubble (e.g. an orphan tool_result at a pagination boundary
-  // that the daemon's renderer already stripped).
-  if (message.content && message.content.trim().length > 0) return false;
-  if (
-    message.textSegments?.some(
-      (s) => typeof s.content === "string" && s.content.trim().length > 0,
-    )
-  )
-    return false;
-  if (message.surfaces && message.surfaces.length > 0) return false;
-  if (message.attachments && message.attachments.length > 0) return false;
-  if (message.slackMessage) return false;
-  if (message.toolCalls?.some((tc) => tc.toolName !== "unknown")) return false;
-
-  return true;
-}
-
 export function buildTranscriptItems(
   input: BuildTranscriptItemsInput,
 ): TranscriptItem[] {
@@ -102,10 +82,6 @@ export function buildTranscriptItems(
     // messages for state reconstruction (history.ts extracts them). They
     // should not render as user bubbles. Matches macOS ChatVisibleMessageFilter.
     if (message.isSubagentNotification) {
-      continue;
-    }
-
-    if (isInvalidMessage(message)) {
       continue;
     }
 
