@@ -47,6 +47,8 @@ const DEFAULT_PREFETCH_WINDOW_MS = 12_000;
 const DEFAULT_RAMP_DURATION_MS = 1_500;
 const DEFAULT_DUCK_VOLUME = 0.18;
 
+type PlayResult = "played" | "paused" | "inactive";
+
 function defaultCreateAudio(url: string): RadioAudioLike {
   return new Audio(url);
 }
@@ -114,14 +116,7 @@ export class RadioAudioController {
     this.outgoingAudio = null;
     this.hasFiredTrackEnding = false;
     this.attachCurrentAudioListeners(audio);
-    await audio.play();
-    if (!this.isActiveOperation(operationToken)) {
-      audio.pause();
-      return;
-    }
-    if (this.pausedByUser) {
-      audio.pause();
-    }
+    await this.playAudio(audio, operationToken);
   }
 
   pause(): void {
@@ -163,14 +158,12 @@ export class RadioAudioController {
       });
     }
 
-    await djAudio.play();
-    if (!this.isActiveOperation(operationToken)) {
-      djAudio.pause();
+    const djPlayResult = await this.playAudio(djAudio, operationToken);
+    if (djPlayResult === "inactive") {
       nextAudio.pause();
       return;
     }
-    if (this.pausedByUser) {
-      djAudio.pause();
+    if (djPlayResult === "paused") {
       this.attachNextTrackPaused(nextAudio, params.nextTrack);
       return;
     }
@@ -180,14 +173,12 @@ export class RadioAudioController {
     this.currentTrack = params.nextTrack;
     this.hasFiredTrackEnding = false;
     this.attachCurrentAudioListeners(nextAudio);
-    await nextAudio.play();
-    if (!this.isActiveOperation(operationToken)) {
-      nextAudio.pause();
+    const nextPlayResult = await this.playAudio(nextAudio, operationToken);
+    if (nextPlayResult === "inactive") {
       return;
     }
-    if (this.pausedByUser) {
+    if (nextPlayResult === "paused") {
       nextAudio.volume = 1;
-      nextAudio.pause();
       return;
     }
     this.rampVolume(nextAudio, 1, this.rampDurationMs);
@@ -217,6 +208,34 @@ export class RadioAudioController {
 
   private isActiveOperation(operationToken: number): boolean {
     return !this.disposed && operationToken === this.operationGeneration;
+  }
+
+  private async playAudio(
+    audio: RadioAudioLike,
+    operationToken: number,
+  ): Promise<PlayResult> {
+    try {
+      await audio.play();
+    } catch (error) {
+      if (
+        (!this.isActiveOperation(operationToken) || this.pausedByUser) &&
+        isInterruptedPlayError(error)
+      ) {
+        audio.pause();
+        return this.pausedByUser ? "paused" : "inactive";
+      }
+      throw error;
+    }
+
+    if (!this.isActiveOperation(operationToken)) {
+      audio.pause();
+      return "inactive";
+    }
+    if (this.pausedByUser) {
+      audio.pause();
+      return "paused";
+    }
+    return "played";
   }
 
   private attachCurrentAudioListeners(audio: RadioAudioLike): void {
@@ -330,4 +349,11 @@ export class RadioAudioController {
     }
     this.pendingRampFrames.clear();
   }
+}
+
+function isInterruptedPlayError(error: unknown): boolean {
+  return (
+    error instanceof DOMException &&
+    (error.name === "AbortError" || error.message.includes("interrupted"))
+  );
 }
