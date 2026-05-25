@@ -579,6 +579,32 @@ export interface ConversationTitleUpdatedEvent {
 }
 
 /**
+ * Server push — a single conversation's attention/seen state changed.
+ *
+ * Carries the full post-mutation state inline so handlers can patch the
+ * cached conversation row directly without refetching the paginated
+ * conversation list. Emitted by the daemon's `handleRecordSeen` and
+ * `handleMarkUnread` (see `assistant/src/runtime/routes/
+ * conversation-list-routes.ts`) in lieu of the bulkier
+ * `conversation_list_invalidated` + `conversationsList` sync fan-out we
+ * used to publish for seen/unread mutations — that pattern triggered a
+ * full sidebar drain on every conversation switch that landed on an
+ * unseen conversation.
+ *
+ * Timestamp fields are Unix epoch milliseconds; the cache patcher
+ * normalizes them to ISO strings before applying.
+ */
+export interface ConversationSeenChangedEvent {
+  type: "conversation_seen_changed";
+  conversationId: string;
+  hasUnseenLatestAssistantMessage: boolean;
+  /** Unix epoch ms; `null` when no assistant message exists on this conversation. */
+  latestAssistantMessageAt: number | null;
+  /** Unix epoch ms; `null` when no assistant message has been seen yet. */
+  lastSeenAssistantMessageAt: number | null;
+}
+
+/**
  * Server push asking the client to display a native notification. Mirrors
  * the daemon's `NotificationIntent` message (see
  * `assistant/src/daemon/message-types/notifications.ts`). The macOS client
@@ -772,6 +798,7 @@ export type AssistantEvent =
   | ToolProgressEvent
   | ConversationListInvalidatedEvent
   | ConversationTitleUpdatedEvent
+  | ConversationSeenChangedEvent
   | NotificationIntentEvent
   | UsageUpdateEvent
   | GenerationCancelledEvent

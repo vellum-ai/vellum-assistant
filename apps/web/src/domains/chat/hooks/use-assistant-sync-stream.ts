@@ -16,7 +16,11 @@
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-import type { AssistantEvent } from "@/domains/chat/api/event-types.js";
+import type {
+  AssistantEvent,
+  ConversationSeenChangedEvent,
+} from "@/domains/chat/api/event-types.js";
+import { applyConversationSeenStateLocal } from "@/domains/conversations/conversation-queries.js";
 import { assistantIdentityQueryKey } from "@/hooks/use-assistant-identity-init.js";
 import { ASSISTANT_FLAG_VALUES_QUERY_KEY } from "@/lib/feature-flags/use-assistant-feature-flag-sync.js";
 import { CLIENT_FLAG_QUERY_KEY } from "@/lib/feature-flags/use-client-feature-flag-sync.js";
@@ -140,10 +144,27 @@ export function useAssistantSyncStream(
       }
     };
 
+    const handleSeenChanged = (event: ConversationSeenChangedEvent) => {
+      // Patch the cached conversation row directly with the new attention
+      // state. No list invalidation — see the publisher-side comment at
+      // `assistant/src/runtime/sync/resource-sync-events.ts` →
+      // `publishConversationSeenChanged` for why this avoids the full
+      // sidebar drain we used to incur on every conversation switch.
+      applyConversationSeenStateLocal(queryClient, assistantId, {
+        conversationId: event.conversationId,
+        hasUnseenLatestAssistantMessage: event.hasUnseenLatestAssistantMessage,
+        latestAssistantMessageAt: event.latestAssistantMessageAt,
+        lastSeenAssistantMessageAt: event.lastSeenAssistantMessageAt,
+      });
+    };
+
     const handleEvent = (event: AssistantEvent) => {
       switch (event.type) {
         case "sync_changed":
           handleSyncChanged(event);
+          return;
+        case "conversation_seen_changed":
+          handleSeenChanged(event);
           return;
         case "home_feed_updated":
         case "relationship_state_updated":

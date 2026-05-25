@@ -251,6 +251,53 @@ export function markConversationSeenLocal(
   });
 }
 
+/**
+ * Apply a daemon-pushed `conversation_seen_changed` event's payload to
+ * the local cache. Symmetric with `markConversationSeenLocal` but
+ * handles both seen and unread transitions and takes the full canonical
+ * post-mutation state from the daemon rather than deriving it locally.
+ *
+ * Timestamps arrive as Unix epoch milliseconds on the wire and are
+ * normalized to ISO-8601 strings here so the cache shape stays
+ * consistent with the rest of the `Conversation` row (see
+ * `normalizeTimestamp` in `chat/api/conversations.ts`).
+ */
+export function applyConversationSeenStateLocal(
+  queryClient: QueryClient,
+  assistantId: string | null,
+  params: {
+    conversationId: string;
+    hasUnseenLatestAssistantMessage: boolean;
+    latestAssistantMessageAt: number | null;
+    lastSeenAssistantMessageAt: number | null;
+  },
+): void {
+  const latestIso = epochMsToIso(params.latestAssistantMessageAt);
+  const lastSeenIso = epochMsToIso(params.lastSeenAssistantMessageAt);
+  updateChatContextConversations(queryClient, assistantId, (conversations) => {
+    let changed = false;
+    const next = conversations.map((c) => {
+      if (c.conversationId !== params.conversationId) return c;
+      changed = true;
+      return {
+        ...c,
+        hasUnseenLatestAssistantMessage: params.hasUnseenLatestAssistantMessage,
+        // Preserve cached values when the daemon reports `null` so we
+        // never lose previously-known state to a sparse event payload.
+        latestAssistantMessageAt: latestIso ?? c.latestAssistantMessageAt,
+        lastSeenAssistantMessageAt: lastSeenIso ?? c.lastSeenAssistantMessageAt,
+      };
+    });
+    return changed ? next : conversations;
+  });
+}
+
+function epochMsToIso(value: number | null): string | undefined {
+  if (value == null) return undefined;
+  if (!Number.isFinite(value)) return undefined;
+  return new Date(value).toISOString();
+}
+
 export function prependConversation(
   queryClient: QueryClient,
   assistantId: string | null,

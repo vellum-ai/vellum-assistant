@@ -90,6 +90,52 @@ export function publishConversationListAndMetadataChanged(
   );
 }
 
+/**
+ * Server push — a single conversation's attention/seen state changed.
+ *
+ * Carries the full post-mutation state inline so subscribers can patch
+ * their cached conversation row directly without refetching the paginated
+ * conversation list. This deliberately publishes neither a
+ * `conversation_list_invalidated` broadcast nor any `sync_changed` tag:
+ * the seen flag is per-conversation attention state, not list-shaped, and
+ * tagging it as `conversationsList` previously triggered a full sidebar
+ * drain (`limit=50&offset=0..N` for foreground + background variants) on
+ * every conversation switch that landed on an unseen conversation.
+ *
+ * The originating client's echo of this event is a no-op: it has already
+ * applied the same patch optimistically (`markConversationSeenLocal` on
+ * web). Other clients (sibling tabs, additional devices) receive it and
+ * patch their cache.
+ *
+ * @see ../../daemon/message-types/conversations.ts → `ConversationSeenChanged`
+ */
+export function publishConversationSeenChanged(
+  params: {
+    conversationId: string;
+    hasUnseenLatestAssistantMessage: boolean;
+    latestAssistantMessageAt: number | null;
+    lastSeenAssistantMessageAt: number | null;
+  },
+  // Reserved for symmetry with the rest of this file. The hub's
+  // self-echo suppression only fires on `sync_changed`, and this
+  // publisher emits no sync tag — so the originating client receives
+  // the typed event back (idempotent no-op cache patch). Threading an
+  // `originClientId` here lets future callers wire suppression in if
+  // we ever extend the hub to filter typed events.
+  _originClientId?: string,
+): void {
+  broadcastMessage(
+    {
+      type: "conversation_seen_changed",
+      conversationId: params.conversationId,
+      hasUnseenLatestAssistantMessage: params.hasUnseenLatestAssistantMessage,
+      latestAssistantMessageAt: params.latestAssistantMessageAt,
+      lastSeenAssistantMessageAt: params.lastSeenAssistantMessageAt,
+    },
+    params.conversationId,
+  );
+}
+
 export function publishConversationTitleChanged(
   conversationId: string,
   title: string,

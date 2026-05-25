@@ -473,6 +473,13 @@ export function useStreamEventHandler(
           // subscribes to the event bus directly. The chat-stream handler
           // is intentionally a no-op here.
           break;
+        case "conversation_seen_changed":
+          // The sidebar cache patch happens in `useAssistantSyncStream`
+          // (chat-layout scope) so the unread dot clears whether or not a
+          // chat page is mounted. Nothing more to do at the chat-page
+          // scope — the page header and message stream don't read seen
+          // state.
+          break;
         case "unknown":
           break;
         default: {

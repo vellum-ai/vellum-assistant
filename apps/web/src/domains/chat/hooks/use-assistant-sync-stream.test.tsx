@@ -225,6 +225,129 @@ describe("useAssistantSyncStream", () => {
     expect(listCalls.length).toBe(0);
   });
 
+  test("conversation_seen_changed patches the cached conversation row without refetching the list", async () => {
+    // The daemon emits this event in lieu of the old `conversationsList`
+    // sync fan-out for seen/unread mutations. Verify (a) the targeted
+    // row is patched in-place with the new attention state and
+    // (b) no list-level invalidation fires — that was the source of the
+    // ~14-request sidebar redrain on every conversation switch.
+    const queryClient = freshQueryClient();
+    const spy = mock(() => Promise.resolve());
+    queryClient.invalidateQueries = spy as never;
+    // Seed the cache with one unseen conversation we expect to be patched
+    // and one that should remain untouched.
+    queryClient.setQueryData(chatContextQueryKey("asst-1"), {
+      assistantId: "asst-1",
+      conversationId: "conv-1",
+      conversations: [
+        {
+          conversationId: "conv-1",
+          title: "Unseen",
+          hasUnseenLatestAssistantMessage: true,
+          latestAssistantMessageAt: "2026-05-25T00:00:00.000Z",
+          lastSeenAssistantMessageAt: undefined,
+        },
+        {
+          conversationId: "conv-2",
+          title: "Other",
+          hasUnseenLatestAssistantMessage: true,
+          latestAssistantMessageAt: "2026-05-24T00:00:00.000Z",
+          lastSeenAssistantMessageAt: undefined,
+        },
+      ],
+    });
+    renderHook(() => useAssistantSyncStream("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    const seenAt = Date.UTC(2026, 4, 25, 12, 0, 0); // 2026-05-25T12:00:00.000Z
+    emit({
+      type: "conversation_seen_changed",
+      conversationId: "conv-1",
+      hasUnseenLatestAssistantMessage: false,
+      latestAssistantMessageAt: seenAt,
+      lastSeenAssistantMessageAt: seenAt,
+    } as unknown as AssistantEvent);
+
+    await waitFor(() => {
+      const ctx = queryClient.getQueryData(chatContextQueryKey("asst-1")) as {
+        conversations: Array<{
+          conversationId: string;
+          hasUnseenLatestAssistantMessage?: boolean;
+          lastSeenAssistantMessageAt?: string;
+        }>;
+      };
+      const conv1 = ctx.conversations.find((c) => c.conversationId === "conv-1");
+      expect(conv1?.hasUnseenLatestAssistantMessage).toBe(false);
+      expect(conv1?.lastSeenAssistantMessageAt).toBe(
+        new Date(seenAt).toISOString(),
+      );
+    });
+
+    // Untouched row stays untouched.
+    const ctxAfter = queryClient.getQueryData(chatContextQueryKey("asst-1")) as {
+      conversations: Array<{
+        conversationId: string;
+        hasUnseenLatestAssistantMessage?: boolean;
+      }>;
+    };
+    const conv2 = ctxAfter.conversations.find(
+      (c) => c.conversationId === "conv-2",
+    );
+    expect(conv2?.hasUnseenLatestAssistantMessage).toBe(true);
+
+    // And critically — no list invalidation.
+    const listCalls = (spy.mock.calls as unknown as Array<[unknown]>).filter(
+      (call) => {
+        const arg = call[0] as { queryKey: readonly unknown[] } | undefined;
+        return arg?.queryKey?.[0] === chatContextQueryKey("asst-1")[0];
+      },
+    );
+    expect(listCalls.length).toBe(0);
+  });
+
+  test("conversation_seen_changed with hasUnseen=true (mark-unread echo) patches the row", async () => {
+    // Symmetric to the seen case — verify the publisher handles both
+    // directions of the seen/unread toggle. This is the path the
+    // mark-unread mutation echoes back through to sibling clients.
+    const queryClient = freshQueryClient();
+    queryClient.setQueryData(chatContextQueryKey("asst-1"), {
+      assistantId: "asst-1",
+      conversationId: "conv-1",
+      conversations: [
+        {
+          conversationId: "conv-1",
+          title: "Was seen",
+          hasUnseenLatestAssistantMessage: false,
+          latestAssistantMessageAt: "2026-05-25T00:00:00.000Z",
+          lastSeenAssistantMessageAt: "2026-05-25T00:00:00.000Z",
+        },
+      ],
+    });
+    renderHook(() => useAssistantSyncStream("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    emit({
+      type: "conversation_seen_changed",
+      conversationId: "conv-1",
+      hasUnseenLatestAssistantMessage: true,
+      latestAssistantMessageAt: Date.UTC(2026, 4, 25, 0, 0, 0),
+      lastSeenAssistantMessageAt: Date.UTC(2026, 4, 25, 0, 0, 0),
+    } as unknown as AssistantEvent);
+
+    await waitFor(() => {
+      const ctx = queryClient.getQueryData(chatContextQueryKey("asst-1")) as {
+        conversations: Array<{
+          conversationId: string;
+          hasUnseenLatestAssistantMessage?: boolean;
+        }>;
+      };
+      const conv1 = ctx.conversations.find((c) => c.conversationId === "conv-1");
+      expect(conv1?.hasUnseenLatestAssistantMessage).toBe(true);
+    });
+  });
+
   test("invalidates home-feed queries on home_feed_updated and relationship_state_updated", async () => {
     const queryClient = freshQueryClient();
     const spy = mock(() => Promise.resolve());

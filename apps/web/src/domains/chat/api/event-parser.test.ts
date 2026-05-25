@@ -919,6 +919,79 @@ describe("parseAssistantEvent", () => {
       expect(event.type).toBe("identity_changed");
     });
   });
+
+  describe("conversation_seen_changed", () => {
+    test("parses a well-formed payload with numeric epoch-ms timestamps", () => {
+      const event = parseAssistantEvent("conversation_seen_changed", {
+        conversationId: "conv-1",
+        hasUnseenLatestAssistantMessage: false,
+        latestAssistantMessageAt: 1_700_000_000_000,
+        lastSeenAssistantMessageAt: 1_700_000_001_000,
+      });
+      expect(event).toEqual({
+        type: "conversation_seen_changed",
+        conversationId: "conv-1",
+        hasUnseenLatestAssistantMessage: false,
+        latestAssistantMessageAt: 1_700_000_000_000,
+        lastSeenAssistantMessageAt: 1_700_000_001_000,
+      });
+    });
+
+    test("null timestamps round-trip as null", () => {
+      const event = parseAssistantEvent("conversation_seen_changed", {
+        conversationId: "conv-1",
+        hasUnseenLatestAssistantMessage: true,
+        latestAssistantMessageAt: null,
+        lastSeenAssistantMessageAt: null,
+      });
+      expect(event).toEqual({
+        type: "conversation_seen_changed",
+        conversationId: "conv-1",
+        hasUnseenLatestAssistantMessage: true,
+        latestAssistantMessageAt: null,
+        lastSeenAssistantMessageAt: null,
+      });
+    });
+
+    test("non-numeric timestamps degrade to null (parser hardening)", () => {
+      // Anything that isn't a finite number is rejected — keeps the
+      // cache patcher's input contract tight. See the parser's inline
+      // comment for the rationale.
+      const event = parseAssistantEvent("conversation_seen_changed", {
+        conversationId: "conv-1",
+        hasUnseenLatestAssistantMessage: false,
+        latestAssistantMessageAt: "2026-05-25T00:00:00Z",
+        lastSeenAssistantMessageAt: Number.NaN,
+      });
+      expect(event).toEqual({
+        type: "conversation_seen_changed",
+        conversationId: "conv-1",
+        hasUnseenLatestAssistantMessage: false,
+        latestAssistantMessageAt: null,
+        lastSeenAssistantMessageAt: null,
+      });
+    });
+
+    test("missing conversationId degrades to UnknownEvent", () => {
+      const event = parseAssistantEvent("conversation_seen_changed", {
+        hasUnseenLatestAssistantMessage: false,
+      });
+      expect(event.type).toBe("unknown");
+    });
+
+    test("non-boolean hasUnseen defaults to false (defensive)", () => {
+      const event = parseAssistantEvent("conversation_seen_changed", {
+        conversationId: "conv-1",
+        hasUnseenLatestAssistantMessage: "yes",
+        latestAssistantMessageAt: null,
+        lastSeenAssistantMessageAt: null,
+      });
+      expect(event.type).toBe("conversation_seen_changed");
+      if (event.type === "conversation_seen_changed") {
+        expect(event.hasUnseenLatestAssistantMessage).toBe(false);
+      }
+    });
+  });
 });
 
 describe("envelope format parsing", () => {
