@@ -234,12 +234,20 @@ export async function startOutbound(
       params.rebind,
       originConversationId,
     );
+  } else if (channel === "email") {
+    return startOutboundEmail(
+      params.destination,
+      assistantId,
+      channel,
+      params.rebind,
+      originConversationId,
+    );
   }
 
   return {
     success: false,
     error: "unsupported_channel",
-    message: `Outbound verification is only supported for Telegram, phone, and Slack. Got: ${channel}`,
+    message: `Outbound verification is not supported for ${channel}. Supported channels: Telegram, phone, Slack, email.`,
     channel,
   };
 }
@@ -579,6 +587,70 @@ function startOutboundSlack(
     channel,
     originConversationId,
     _pendingSlackDm: { userId: destination, text: slackBody, assistantId },
+  };
+}
+
+function startOutboundEmail(
+  destination: string | undefined,
+  assistantId: string,
+  channel: ChannelId,
+  rebind?: boolean,
+  originConversationId?: string,
+): OutboundActionResult {
+  if (!destination) {
+    return {
+      success: false,
+      error: "missing_destination",
+      message:
+        "An email address is required for outbound email verification.",
+      channel,
+    };
+  }
+
+  const normalizedEmail = destination.trim().toLowerCase();
+
+  const existingBinding = getGuardianBinding(assistantId, channel);
+  if (existingBinding && !rebind) {
+    return {
+      success: false,
+      error: "already_bound",
+      message:
+        "A guardian is already bound for this channel. Set rebind: true to replace.",
+      channel,
+    };
+  }
+
+  const recentSendCount = countRecentSendsToDestination(
+    channel,
+    normalizedEmail,
+    DESTINATION_RATE_WINDOW_MS,
+  );
+  if (recentSendCount >= MAX_SENDS_PER_DESTINATION_WINDOW) {
+    return {
+      success: false,
+      error: "rate_limited",
+      message:
+        "Too many verification attempts to this email address. Please try again later.",
+      channel,
+    };
+  }
+
+  const sessionResult = createOutboundSession({
+    channel,
+    expectedExternalUserId: normalizedEmail,
+    expectedChatId: normalizedEmail,
+    identityBindingStatus: "bound",
+    destinationAddress: normalizedEmail,
+    verificationPurpose: rebind ? "guardian" : "trusted_contact",
+  });
+
+  return {
+    success: true,
+    verificationSessionId: sessionResult.sessionId,
+    secret: sessionResult.secret,
+    expiresAt: sessionResult.expiresAt,
+    channel,
+    originConversationId,
   };
 }
 
