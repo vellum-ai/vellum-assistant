@@ -21,7 +21,7 @@ import {
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { getRiskBadgeStyle, getProvenanceText, wasExpected } from "@/domains/chat/utils/risk-utils.js";
-import { useElapsedTime } from "@/domains/chat/hooks/use-elapsed-time.js";
+import { formatStartTime, useElapsedTime } from "@/domains/chat/hooks/use-elapsed-time.js";
 
 import type { AllowlistOption, ChatMessageToolCall, ConfirmationDecision, DirectoryScopeOption, ScopeOption } from "@/domains/chat/api/event-types.js";
 import {
@@ -262,6 +262,8 @@ export function ToolCallChip({
   const isError = toolCall.status === "error" || toolCall.isError;
   const hasPendingConfirmation = !!toolCall.pendingConfirmation;
   const duration = useElapsedTime(toolCall.startedAt, !isRunning, toolCall.completedAt);
+  const formattedStartTime = formatStartTime(toolCall.startedAt);
+  const startTimeTooltip = formattedStartTime ? `Started ${formattedStartTime}` : undefined;
 
   const inputSummary = extractInputSummary(toolCall.toolName, toolCall.input);
   const activity = toolCall.input?.activity ?? toolCall.input?.reason;
@@ -333,7 +335,9 @@ export function ToolCallChip({
       {embedded && (
         <span className="ml-auto flex items-center gap-1.5 text-[var(--content-tertiary)]">
           {duration && (
-            <span className="text-label-small-default">{duration}</span>
+            <span className="text-label-small-default" title={startTimeTooltip}>
+              {duration}
+            </span>
           )}
           {canExpand && (expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />)}
         </span>
@@ -361,14 +365,18 @@ export function ToolCallChip({
             <div className="mb-1.5 text-label-small-default uppercase tracking-wider text-[var(--content-tertiary)]">
               Technical Details
             </div>
-            {toolCall.result !== undefined && (
-              <div className="text-[var(--content-secondary)]">
-                {isError ? "Error output" : "Output text"}
-              </div>
-            )}
+            <div className="text-[var(--content-secondary)]">Tool Name</div>
             <div className="text-[var(--content-secondary)]">
               {toolCall.toolName.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
             </div>
+            {formattedStartTime && (
+              <div className="mt-0.5">
+                <span className="text-label-medium-default text-[var(--content-default)]">
+                  started:
+                </span>{" "}
+                <span className="text-[var(--content-tertiary)]">{formattedStartTime}</span>
+              </div>
+            )}
             {Object.entries(toolCall.input).map(([key, value]) => (
               <div key={key} className="mt-0.5">
                 <span className="text-label-medium-default text-[var(--content-default)]">
@@ -495,7 +503,10 @@ export function ToolCallChip({
         </span>
         <span className="ml-auto flex items-center gap-1.5 text-[var(--content-tertiary)]">
           {duration && (
-            <span className="text-label-small-default text-[var(--content-tertiary)]">
+            <span
+              className="text-label-small-default text-[var(--content-tertiary)]"
+              title={startTimeTooltip}
+            >
               {duration}
             </span>
           )}
