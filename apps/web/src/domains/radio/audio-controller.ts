@@ -79,6 +79,7 @@ export class RadioAudioController {
   private currentEndedListener: (() => void) | null = null;
   private currentTimeupdateListener: (() => void) | null = null;
   private disposed = false;
+  private operationGeneration = 0;
   private readonly pendingRampFrames = new Set<number>();
 
   constructor(options: RadioAudioControllerOptions = {}) {
@@ -97,7 +98,7 @@ export class RadioAudioController {
   }
 
   async playInitial(track: ResolvedRadioTrack): Promise<void> {
-    this.disposed = false;
+    const operationToken = this.beginOperation();
     this.cancelPendingRamps();
     this.detachCurrentAudioListeners();
     this.currentAudio?.pause();
@@ -113,9 +114,13 @@ export class RadioAudioController {
     this.hasFiredTrackEnding = false;
     this.attachCurrentAudioListeners(audio);
     await audio.play();
+    if (!this.isActiveOperation(operationToken)) {
+      audio.pause();
+    }
   }
 
   pause(): void {
+    this.outgoingAudio?.pause();
     this.currentAudio?.pause();
     this.djAudio?.pause();
   }
@@ -134,7 +139,7 @@ export class RadioAudioController {
   }
 
   async applyTransition(params: RadioTransitionParams): Promise<void> {
-    this.disposed = false;
+    const operationToken = this.beginOperation();
     this.cancelPendingRamps();
     const outgoingAudio = this.currentAudio;
     const djAudio = this.createAudio(params.djBreak.audioUrl);
@@ -152,6 +157,11 @@ export class RadioAudioController {
     }
 
     await djAudio.play();
+    if (!this.isActiveOperation(operationToken)) {
+      djAudio.pause();
+      nextAudio.pause();
+      return;
+    }
 
     this.detachCurrentAudioListeners();
     this.currentAudio = nextAudio;
@@ -159,11 +169,16 @@ export class RadioAudioController {
     this.hasFiredTrackEnding = false;
     this.attachCurrentAudioListeners(nextAudio);
     await nextAudio.play();
+    if (!this.isActiveOperation(operationToken)) {
+      nextAudio.pause();
+      return;
+    }
     this.rampVolume(nextAudio, 1, this.rampDurationMs);
   }
 
   dispose(): void {
     this.disposed = true;
+    this.operationGeneration += 1;
     this.cancelPendingRamps();
     this.detachCurrentAudioListeners();
     this.currentAudio?.pause();
@@ -173,6 +188,16 @@ export class RadioAudioController {
     this.currentTrack = null;
     this.djAudio = null;
     this.outgoingAudio = null;
+  }
+
+  private beginOperation(): number {
+    this.disposed = false;
+    this.operationGeneration += 1;
+    return this.operationGeneration;
+  }
+
+  private isActiveOperation(operationToken: number): boolean {
+    return !this.disposed && operationToken === this.operationGeneration;
   }
 
   private attachCurrentAudioListeners(audio: RadioAudioLike): void {

@@ -364,7 +364,18 @@ async function applyAdvanceResponse({
     playbackPlan,
   });
 
-  if (!isCurrentAdvance(token) || get().status !== "transitioning") return;
+  if (!isCurrentAdvance(token)) return;
+
+  const statusAfterTransition = get().status;
+  if (statusAfterTransition === "paused") {
+    set({
+      currentTrack: track,
+      nextTrack: null,
+    });
+    return;
+  }
+
+  if (statusAfterTransition !== "transitioning") return;
 
   set({
     status: "playing",
