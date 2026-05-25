@@ -8,7 +8,6 @@
 
 import { useCallback } from "react";
 
-import { computeNudgeSidebarVisible } from "@/domains/nudges/nudge-prefs.js";
 import { useNudgeStore } from "@/domains/nudges/nudge-store.js";
 import {
   readGitHubNudgeStarred,
@@ -41,8 +40,7 @@ function isGitHubNudgeResolved(): boolean {
   if (readGitHubNudgeStarred()) {
     return true;
   }
-  const state = useNudgeStore.getState();
-  return state.githubBannerDismissed && state.githubSidebarDismissed;
+  return useNudgeStore.getState().githubBannerDismissed;
 }
 
 function isGitHubDismissCooldownElapsed(): boolean {
@@ -100,19 +98,10 @@ export function joinDiscord(): void {
 export interface DiscordNudgeState {
   /** True iff the user hasn't joined and hasn't dismissed the banner and prerequisites are met. */
   bannerShouldShow: boolean;
-  /**
-   * True iff the user hasn't joined, hasn't dismissed the sidebar
-   * entry, AND has already dismissed (or no longer needs to see) the
-   * banner. The banner is the first surface; the sidebar only appears
-   * once the banner is no longer eligible to render.
-   */
-  sidebarEntryVisible: boolean;
   /** Open the Discord invite and persist the "joined" flag. */
   handleJoin: () => void;
   /** Persist the "banner dismissed" flag. */
   handleBannerDismiss: () => void;
-  /** Persist the "sidebar dismissed" flag. */
-  handleSidebarDismiss: () => void;
 }
 
 export function useDiscordNudgeState(
@@ -121,16 +110,9 @@ export function useDiscordNudgeState(
 ): DiscordNudgeState {
   const joined = useNudgeStore.use.discordJoined();
   const bannerDismissed = useNudgeStore.use.discordBannerDismissed();
-  const sidebarDismissed = useNudgeStore.use.discordSidebarDismissed();
 
-  // The Discord prereq cascade reads GitHub nudge state via `getState()`
-  // inside `areDiscordPrerequisitesMet`. Subscribe to those fields here too
-  // so the Discord nudge re-evaluates the moment a GitHub action flips one
-  // of them — otherwise this component would only re-render when one of
-  // its own three Discord fields changes.
   useNudgeStore.use.githubStarred();
   useNudgeStore.use.githubBannerDismissed();
-  useNudgeStore.use.githubSidebarDismissed();
   useNudgeStore.use.discordFirstSeenAt();
 
   const prerequisitesMet = areDiscordPrerequisitesMet(
@@ -147,22 +129,10 @@ export function useDiscordNudgeState(
     useNudgeStore.getState().dismissDiscordBanner();
   }, []);
 
-  const handleSidebarDismiss = useCallback(() => {
-    useNudgeStore.getState().dismissDiscordSidebar();
-  }, []);
-
   return {
     bannerShouldShow: prerequisitesMet && !joined && !bannerDismissed,
-    sidebarEntryVisible:
-      prerequisitesMet &&
-      computeNudgeSidebarVisible({
-        converted: joined,
-        bannerDismissed,
-        sidebarDismissed,
-      }),
     handleJoin,
     handleBannerDismiss,
-    handleSidebarDismiss,
   };
 }
 

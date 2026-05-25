@@ -5,10 +5,6 @@ export const KEY_GITHUB_NUDGE_STARRED = "app.githubNudge.starred";
 export const KEY_GITHUB_NUDGE_BANNER_DISMISSED =
   "app.githubNudge.bannerDismissed";
 
-/** localStorage key: user dismissed the sidebar nudge entry. */
-export const KEY_GITHUB_NUDGE_SIDEBAR_DISMISSED =
-  "app.githubNudge.sidebarDismissed";
-
 /**
  * localStorage key: epoch-ms timestamp of the last time the user
  * dismissed the GitHub nudge banner. Used by the Discord nudge module

@@ -2,7 +2,7 @@
  * Zustand store for GitHub + Discord nudge prefs.
  *
  * Owns whether each nudge has been actioned (starred, joined) or
- * dismissed (banner, sidebar) and when. `github-prefs.ts` and
+ * dismissed (banner) and when. `github-prefs.ts` and
  * `discord-prefs.ts` expose thin selector hooks (`useGitHubNudgeState`,
  * `useDiscordNudgeState`) backed by this store.
  *
@@ -28,12 +28,10 @@ import {
   KEY_GITHUB_NUDGE_STARRED,
   KEY_GITHUB_NUDGE_BANNER_DISMISSED,
   KEY_GITHUB_NUDGE_BANNER_DISMISSED_AT,
-  KEY_GITHUB_NUDGE_SIDEBAR_DISMISSED,
 } from "@/domains/nudges/github-constants.js";
 import {
   KEY_DISCORD_NUDGE_JOINED,
   KEY_DISCORD_NUDGE_BANNER_DISMISSED,
-  KEY_DISCORD_NUDGE_SIDEBAR_DISMISSED,
   KEY_DISCORD_NUDGE_FIRST_SEEN_AT,
 } from "@/domains/nudges/discord-constants.js";
 
@@ -46,10 +44,8 @@ export interface NudgeState {
   githubBannerDismissed: boolean;
   /** Epoch ms of the most recent GitHub banner dismiss. 0 = never. */
   githubBannerDismissedAt: number;
-  githubSidebarDismissed: boolean;
   discordJoined: boolean;
   discordBannerDismissed: boolean;
-  discordSidebarDismissed: boolean;
   /** Epoch ms of the first time the Discord nudge module observed the user. 0 = not yet recorded. */
   discordFirstSeenAt: number;
 }
@@ -57,10 +53,8 @@ export interface NudgeState {
 export interface NudgeActions {
   markGitHubStarred: () => void;
   dismissGitHubBanner: () => void;
-  dismissGitHubSidebar: () => void;
   markDiscordJoined: () => void;
   dismissDiscordBanner: () => void;
-  dismissDiscordSidebar: () => void;
   /** Stamp `discordFirstSeenAt` to `Date.now()` on first observation. No-op afterwards. */
   ensureDiscordFirstSeenAt: () => void;
 }
@@ -75,10 +69,8 @@ const INITIAL_STATE: NudgeState = {
   githubStarred: false,
   githubBannerDismissed: false,
   githubBannerDismissedAt: 0,
-  githubSidebarDismissed: false,
   discordJoined: false,
   discordBannerDismissed: false,
-  discordSidebarDismissed: false,
   discordFirstSeenAt: 0,
 };
 
@@ -99,10 +91,8 @@ const useNudgeStoreBase = create<NudgeStore>()(
           githubBannerDismissed: true,
           githubBannerDismissedAt: Date.now(),
         }),
-      dismissGitHubSidebar: () => set({ githubSidebarDismissed: true }),
       markDiscordJoined: () => set({ discordJoined: true }),
       dismissDiscordBanner: () => set({ discordBannerDismissed: true }),
-      dismissDiscordSidebar: () => set({ discordSidebarDismissed: true }),
       ensureDiscordFirstSeenAt: () => {
         if (get().discordFirstSeenAt === 0) {
           set({ discordFirstSeenAt: Date.now() });
@@ -117,10 +107,8 @@ const useNudgeStoreBase = create<NudgeStore>()(
         githubStarred: state.githubStarred,
         githubBannerDismissed: state.githubBannerDismissed,
         githubBannerDismissedAt: state.githubBannerDismissedAt,
-        githubSidebarDismissed: state.githubSidebarDismissed,
         discordJoined: state.discordJoined,
         discordBannerDismissed: state.discordBannerDismissed,
-        discordSidebarDismissed: state.discordSidebarDismissed,
         discordFirstSeenAt: state.discordFirstSeenAt,
       }),
     },
@@ -158,10 +146,8 @@ const LEGACY_KEYS = [
   KEY_GITHUB_NUDGE_STARRED,
   KEY_GITHUB_NUDGE_BANNER_DISMISSED,
   KEY_GITHUB_NUDGE_BANNER_DISMISSED_AT,
-  KEY_GITHUB_NUDGE_SIDEBAR_DISMISSED,
   KEY_DISCORD_NUDGE_JOINED,
   KEY_DISCORD_NUDGE_BANNER_DISMISSED,
-  KEY_DISCORD_NUDGE_SIDEBAR_DISMISSED,
   KEY_DISCORD_NUDGE_FIRST_SEEN_AT,
 ];
 

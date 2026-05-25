@@ -8,7 +8,6 @@
 
 import { useCallback } from "react";
 
-import { computeNudgeSidebarVisible } from "@/domains/nudges/nudge-prefs.js";
 import { useNudgeStore } from "@/domains/nudges/nudge-store.js";
 import { GITHUB_REPO_URL } from "@/domains/nudges/github-constants.js";
 
@@ -31,25 +30,15 @@ export function readGitHubBannerDismissedAt(): number {
 export interface GitHubNudgeState {
   /** True iff the user hasn't starred and hasn't dismissed the banner. */
   bannerShouldShow: boolean;
-  /**
-   * True iff the user hasn't starred, hasn't dismissed the sidebar
-   * entry, AND has already dismissed (or no longer needs to see) the
-   * banner. The banner is the first surface; the sidebar only appears
-   * once the banner is no longer eligible to render.
-   */
-  sidebarEntryVisible: boolean;
   /** Open the GitHub repo and persist the "starred" flag. */
   handleStar: () => void;
   /** Persist the "banner dismissed" flag. */
   handleBannerDismiss: () => void;
-  /** Persist the "sidebar dismissed" flag. */
-  handleSidebarDismiss: () => void;
 }
 
 export function useGitHubNudgeState(): GitHubNudgeState {
   const starred = useNudgeStore.use.githubStarred();
   const bannerDismissed = useNudgeStore.use.githubBannerDismissed();
-  const sidebarDismissed = useNudgeStore.use.githubSidebarDismissed();
 
   const handleStar = useCallback(() => {
     openGitHubRepo();
@@ -60,20 +49,10 @@ export function useGitHubNudgeState(): GitHubNudgeState {
     useNudgeStore.getState().dismissGitHubBanner();
   }, []);
 
-  const handleSidebarDismiss = useCallback(() => {
-    useNudgeStore.getState().dismissGitHubSidebar();
-  }, []);
-
   return {
     bannerShouldShow: !starred && !bannerDismissed,
-    sidebarEntryVisible: computeNudgeSidebarVisible({
-      converted: starred,
-      bannerDismissed,
-      sidebarDismissed,
-    }),
     handleStar,
     handleBannerDismiss,
-    handleSidebarDismiss,
   };
 }
 

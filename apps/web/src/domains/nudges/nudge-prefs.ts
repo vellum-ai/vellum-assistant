@@ -51,27 +51,3 @@ export function writeNumberPref(key: string, value: number): void {
     // Storage unavailable — degrade gracefully.
   }
 }
-
-/**
- * Cascade gate shared by every app-nudge module. The sidebar entry is
- * the second surface a user sees after the in-chat banner; it should
- * only appear once the banner is no longer eligible to render — either
- * because the user converted (clicked the CTA → `converted = true`)
- * or because the user dismissed the banner (`bannerDismissed = true`).
- *
- * The user can then dismiss the sidebar entry independently
- * (`sidebarDismissed = true`), at which point the only remaining
- * surface is the always-visible Settings card.
- *
- * Without this cascade, the banner and sidebar render simultaneously
- * the moment they become eligible, which double-prompts the user.
- */
-export function computeNudgeSidebarVisible(args: {
-  converted: boolean;
-  bannerDismissed: boolean;
-  sidebarDismissed: boolean;
-}): boolean {
-  if (args.converted) return false;
-  if (args.sidebarDismissed) return false;
-  return args.bannerDismissed;
-}
