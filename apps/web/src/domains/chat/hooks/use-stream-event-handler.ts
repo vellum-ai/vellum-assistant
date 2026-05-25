@@ -343,6 +343,15 @@ export function useStreamEventHandler(
         case "navigate_settings":
           handleNavigateSettings(event, ctx);
           break;
+        case "assistant_turn_start":
+          // Server-emitted in PR 2b. The event carries the pre-allocated
+          // anchor messageId for the entire assistant turn. PR 2c will
+          // consume it to reconcile the optimistic assistant placeholder
+          // against the server's authoritative id (and drop content-based
+          // reconcile matching). Until then, stableId-based reconcile
+          // continues to function — this case is intentionally a no-op so
+          // the exhaustive switch stays well-typed.
+          break;
         case "assistant_text_delta":
           handleAssistantTextDelta(event, ctx);
           break;

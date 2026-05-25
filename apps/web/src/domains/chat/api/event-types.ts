@@ -89,6 +89,23 @@ export interface ChatMessage {
 // Runtime event types
 // ---------------------------------------------------------------------------
 
+/**
+ * First SSE event of every assistant turn. Carries the pre-allocated
+ * anchor `messageId` that every subsequent event of the turn re-stamps.
+ *
+ * PR 2c will consume this to drop content-based reconcile matching —
+ * the client uses the anchor id to swap its optimistic assistant
+ * placeholder with the server's authoritative row.
+ *
+ * PR 2b: client receives this event but does not act on it yet. Existing
+ * stableId-based reconcile continues to function until PR 2c.
+ */
+export interface AssistantTurnStartEvent {
+  type: "assistant_turn_start";
+  conversationId: string;
+  messageId: string;
+}
+
 export interface AssistantTextDeltaEvent {
   type: "assistant_text_delta";
   text: string;
@@ -755,6 +772,7 @@ export interface InteractionResolvedEvent {
 }
 
 export type AssistantEvent =
+  | AssistantTurnStartEvent
   | AssistantTextDeltaEvent
   | MessageCompleteEvent
   | GenerationHandoffEvent

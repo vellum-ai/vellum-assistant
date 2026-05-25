@@ -72,10 +72,37 @@ export interface UserMessageEcho {
   clientMessageId?: string;
 }
 
+/**
+ * Emitted as the first SSE event of every assistant turn. Carries the
+ * pre-allocated `messageId` (the anchor) that every subsequent event in
+ * the turn (`assistant_text_delta`, `tool_use_*`, `ui_surface_*`,
+ * `message_complete`, etc.) re-stamps. The anchor is created with a
+ * backing empty row in the `messages` table at the same moment, so the
+ * id is born with a real DB record (LLM-log correlation, refresh-during-
+ * stream, and crash-recovery all key off the row from event #1 onward).
+ *
+ * Clients use this event to reconcile their optimistic assistant
+ * placeholder against the server's authoritative id without any
+ * content-based matching.
+ */
+export interface AssistantTurnStart {
+  type: "assistant_turn_start";
+  conversationId: string;
+  /** Pre-allocated anchor id for this assistant turn. */
+  messageId: string;
+}
+
 export interface AssistantTextDelta {
   type: "assistant_text_delta";
   text: string;
   conversationId?: string;
+  /**
+   * Anchor id of the assistant turn this delta belongs to. Matches the
+   * `messageId` emitted by the preceding `assistant_turn_start` event and
+   * is stable across the entire turn (including multi-call tool turns
+   * whose subsequent rows keep internal ids the client never sees).
+   */
+  messageId?: string;
 }
 
 export interface AssistantThinkingDelta {
@@ -539,6 +566,7 @@ export type _MessagesClientMessages =
 
 export type _MessagesServerMessages =
   | UserMessageEcho
+  | AssistantTurnStart
   | AssistantTextDelta
   | AssistantThinkingDelta
   | ToolUseStart

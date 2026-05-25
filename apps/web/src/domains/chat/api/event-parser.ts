@@ -83,6 +83,25 @@ export function parseAssistantEvent(
 ): AssistantEvent {
   const parsed = ((): AssistantEvent => {
     switch (rawType) {
+    case "assistant_turn_start": {
+      // Validate required fields. The server only emits this event with a
+      // populated messageId + conversationId (it's the anchor id for the
+      // turn); a missing field signals a wire-shape mismatch we should
+      // route through the unknown-event path rather than guess at.
+      const messageId =
+        typeof data.messageId === "string" ? data.messageId : null;
+      const conversationId =
+        typeof data.conversationId === "string" ? data.conversationId : null;
+      if (!messageId || !conversationId) {
+        return { type: "unknown", rawType, data };
+      }
+      return {
+        type: "assistant_turn_start",
+        conversationId,
+        messageId,
+      };
+    }
+
     case "assistant_text_delta":
       return {
         type: "assistant_text_delta",
