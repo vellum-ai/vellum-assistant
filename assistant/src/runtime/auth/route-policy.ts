@@ -479,6 +479,10 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "memory/v2/ema-scores:POST", scopes: ["settings.read"] },
   { endpoint: "memory/v2/simulate-router:POST", scopes: ["settings.read"] },
   {
+    endpoint: "memory/v2/compare-retrievers:POST",
+    scopes: ["settings.read"],
+  },
+  {
     endpoint: "memory/v2/router-prompt-template:GET",
     scopes: ["settings.read"],
   },
