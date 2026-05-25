@@ -995,7 +995,6 @@ export function ChatRouteContent({
         isAcknowledging={diskPressure.isAcknowledgingDiskPressure}
         acknowledgeError={diskPressure.diskPressureAcknowledgeError?.message ?? null}
         onAcknowledge={() => void diskPressure.acknowledgeDiskPressure()}
-        onReviewDiskUsage={handleReviewDiskUsage}
         onDismissWarning={() => {/* TODO: localStorage dismiss */}}
         onReviewWorkspaceData={() => void navigate(routes.workspace)}
         // Only platform-hosted assistants (kind === "active") have a billing plan to upgrade.
@@ -1003,7 +1002,7 @@ export function ChatRouteContent({
         onUpgradeStorage={assistantState.kind === "active" ? () => void navigate(`${routes.settings.billing}?adjust_plan=1`) : null}
       />
     );
-  }, [diskPressure, handleReviewDiskUsage, navigate]);
+  }, [diskPressure, navigate, assistantState.kind]);
 
   // -------------------------------------------------------------------------
   // Billing composer banner

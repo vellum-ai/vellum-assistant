@@ -15,7 +15,6 @@ export interface DiskPressureBannerProps {
   isAcknowledging?: boolean;
   acknowledgeError?: string | null;
   onAcknowledge: () => void;
-  onReviewDiskUsage: () => void;
   onDismissWarning?: () => void;
   onReviewWorkspaceData?: () => void;
   onUpgradeStorage?: (() => void) | null;
@@ -28,15 +27,12 @@ export function DiskPressureBanner(props: DiskPressureBannerProps) {
     isAcknowledging = false,
     acknowledgeError,
     onAcknowledge,
-    onReviewDiskUsage,
     onDismissWarning,
     onReviewWorkspaceData,
     onUpgradeStorage,
   } = props;
   const [showAcknowledgeModal, setShowAcknowledgeModal] = useState(false);
   const formattedUsage = formatDiskPressureUsage(status);
-  const usagePrefix =
-    formattedUsage === "Unknown" ? null : `Current usage: ${formattedUsage}. `;
 
   if (mode === "warning") {
     const usagePercent = status.usagePercent ?? 0;
