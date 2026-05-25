@@ -33,6 +33,7 @@ import {
   readFile,
   rename,
   rm,
+  stat,
   writeFile,
 } from "node:fs/promises";
 import { dirname, join, relative, sep } from "node:path";
@@ -268,6 +269,26 @@ export async function readNode(
   }
   const { frontmatter, body } = parseNodeContent(raw);
   return { id, frontmatter, body };
+}
+
+/**
+ * File mtime for a tree node, in epoch ms. Returns 0 when the file is missing
+ * or unreadable — callers treat 0 as "no mtime" (e.g. the validator's stale-
+ * index check reads a missing node as the oldest possible mtime so it never
+ * spuriously flags a parent against an absent child). Mirrors v2's
+ * `getPageMtimeMs`.
+ */
+export async function getNodeMtimeMs(
+  workspaceDir: string,
+  id: string,
+): Promise<number> {
+  validateNodeId(id);
+  try {
+    const s = await stat(getNodePath(workspaceDir, id));
+    return s.mtimeMs;
+  } catch {
+    return 0;
+  }
 }
 
 /**
