@@ -518,10 +518,7 @@ function LegacyToolCallProgressCard({
           {elapsed && (
             <span
               className="text-label-small-default text-[var(--content-tertiary)]"
-              title={(() => {
-                const formatted = formatStartTime(earliestStart);
-                return formatted ? `Started ${formatted}` : undefined;
-              })()}
+              title={formatStartTime(earliestStart)}
             >
               {elapsed}
             </span>
