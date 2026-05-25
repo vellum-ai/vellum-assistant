@@ -44,6 +44,15 @@ function translateAgentEventToServerMessage(
 ): ServerMessage | null {
   switch (event.type) {
     case "text_delta":
+      // TODO(PR-2b-followup): wakes emit text_delta without a prior
+      // `assistant_turn_start`. The wake path uses `persistTailMessage`
+      // after `agentLoop.run` returns, so anchor allocation needs a
+      // wake-specific implementation (pre-allocate, insert empty anchor,
+      // then have `persistTailMessage` switch to update_content for the
+      // first assistant message in the tail). Deferred to a follow-up PR
+      // so this commit doesn't churn the wake persistence model alongside
+      // the main turn path. Clients see legacy unstable-id semantics for
+      // wake-produced assistant messages until then.
       return {
         type: "assistant_text_delta",
         text: event.text,

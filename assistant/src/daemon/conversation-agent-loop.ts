@@ -159,10 +159,12 @@ import {
   type ReducerState,
 } from "./context-overflow-reducer.js";
 import {
+  buildAssistantChannelMetadata,
   createEventHandlerState,
   dispatchAgentEvent,
   type EventHandlerDeps,
   getClientDisplayMessageId,
+  resolveAssistantReplyTimestampTimezone,
 } from "./conversation-agent-loop-handlers.js";
 import {
   approveHostAttachmentRead,
@@ -903,7 +905,70 @@ export async function runAgentLoopImpl(
 
   ctx.profiler.startRequest();
   let turnStarted = false;
-  const state = createEventHandlerState();
+
+  // Pre-allocate the assistant turn's anchor message id BEFORE any agent
+  // events fire so every SSE event for this turn (text deltas, tool starts,
+  // message_complete) can stamp the same `messageId`. The empty anchor row
+  // is inserted into the DB right now so plugins observing persistence see
+  // the row from event #1 onward — `handleMessageComplete` later switches
+  // to `update_content` to finalize the content into this same row.
+  //
+  // Indexer side: indexMessageNow early-returns on empty content
+  // (memory/indexer.ts:69-71), so the anchor insert is a free no-op for
+  // indexing; the eventual update_content path runs real indexing once
+  // content is non-empty.
+  const assistantTurnId = uuid();
+  const turnStartedAt = Date.now();
+  const anchorMetadata = buildAssistantChannelMetadata({
+    conversationId: ctx.conversationId,
+    trustContext: ctx.trustContext,
+    trustContextRequesterChatId: ctx.trustContext?.requesterChatId,
+    turnChannelContext: capturedTurnChannelContext,
+    turnInterfaceContext: capturedTurnInterfaceContext,
+    turnStartedAt,
+    resolveTimestampTimezone: () =>
+      resolveAssistantReplyTimestampTimezone(ctx),
+  });
+  try {
+    await runPipeline<PersistArgs, PersistResult>(
+      "persistence",
+      getMiddlewaresFor("persistence"),
+      defaultPersistenceTerminal,
+      {
+        op: "add",
+        conversationId: ctx.conversationId,
+        role: "assistant",
+        // Empty JSON array — the JSON shape downstream consumers (clients,
+        // disk-view readers) already expect for assistant content blocks.
+        content: "[]",
+        metadata: anchorMetadata,
+        // Skip indexing for the anchor insert; the empty marker would
+        // early-return anyway, but skipping is explicit and saves the
+        // tokenizer/embedding round-trip.
+        addOptions: { skipIndexing: true, id: assistantTurnId },
+      },
+      buildPluginTurnContext(ctx, reqId),
+      DEFAULT_TIMEOUTS.persistence,
+    );
+  } catch (err) {
+    // Anchor-row insertion failures must not block the turn. Log loudly
+    // and continue — the worst case is that downstream events lose their
+    // stable id and the turn falls back to the legacy unstable-id path.
+    log.warn(
+      { err, conversationId: ctx.conversationId, assistantTurnId },
+      "Failed to insert assistant turn anchor row; continuing without pre-allocated id",
+    );
+  }
+  // Emit the assistant_turn_start event so the client can reconcile its
+  // optimistic placeholder against the authoritative anchor id before any
+  // text_delta arrives.
+  onEvent({
+    type: "assistant_turn_start",
+    conversationId: ctx.conversationId,
+    messageId: assistantTurnId,
+  });
+
+  const state = createEventHandlerState(assistantTurnId, turnStartedAt);
   let persistedErrorAssistantMessage = false;
 
   const publishLoopMessagesChanged = (): void => {
@@ -3101,20 +3166,73 @@ export async function runAgentLoopImpl(
       const errorAssistantMessage = createAssistantMessage(
         state.providerErrorUserMessage,
       );
-      const errorPersistResult = (await runPipeline<PersistArgs, PersistResult>(
-        "persistence",
-        getMiddlewaresFor("persistence"),
-        defaultPersistenceTerminal,
-        {
-          op: "add",
-          conversationId: ctx.conversationId,
-          role: "assistant",
-          content: JSON.stringify(errorAssistantMessage.content),
-          metadata: errChannelMeta,
-        },
-        buildPluginTurnContext(ctx, reqId),
-        DEFAULT_TIMEOUTS.persistence,
-      )) as PersistAddResult;
+      // Provider-failure turns never fire `message_complete`, so
+      // `state.anchorContentWritten` is still false here. Finalize the
+      // pre-allocated anchor row with the synthetic error content via
+      // `update_content` so the client's anchor id (already emitted at
+      // turn start) resolves to the same row that holds the error text.
+      // If anchor insertion failed earlier (e.g. DB unavailable) we fall
+      // back to the legacy `add` path so the error message still surfaces.
+      let errorAssistantMessageId: string;
+      if (!state.anchorContentWritten) {
+        try {
+          await runPipeline<PersistArgs, PersistResult>(
+            "persistence",
+            getMiddlewaresFor("persistence"),
+            defaultPersistenceTerminal,
+            {
+              op: "update_content",
+              messageId: state.assistantTurnId,
+              content: JSON.stringify(errorAssistantMessage.content),
+              metadataUpdates: errChannelMeta,
+            },
+            buildPluginTurnContext(ctx, reqId),
+            DEFAULT_TIMEOUTS.persistence,
+          );
+          state.anchorContentWritten = true;
+          errorAssistantMessageId = state.assistantTurnId;
+        } catch (err) {
+          log.warn(
+            { err, conversationId: ctx.conversationId, assistantTurnId: state.assistantTurnId },
+            "Failed to update anchor row with error message; falling back to add",
+          );
+          const fallback = (await runPipeline<PersistArgs, PersistResult>(
+            "persistence",
+            getMiddlewaresFor("persistence"),
+            defaultPersistenceTerminal,
+            {
+              op: "add",
+              conversationId: ctx.conversationId,
+              role: "assistant",
+              content: JSON.stringify(errorAssistantMessage.content),
+              metadata: errChannelMeta,
+            },
+            buildPluginTurnContext(ctx, reqId),
+            DEFAULT_TIMEOUTS.persistence,
+          )) as PersistAddResult;
+          errorAssistantMessageId = fallback.message.id;
+        }
+      } else {
+        const errorPersistResult = (await runPipeline<
+          PersistArgs,
+          PersistResult
+        >(
+          "persistence",
+          getMiddlewaresFor("persistence"),
+          defaultPersistenceTerminal,
+          {
+            op: "add",
+            conversationId: ctx.conversationId,
+            role: "assistant",
+            content: JSON.stringify(errorAssistantMessage.content),
+            metadata: errChannelMeta,
+          },
+          buildPluginTurnContext(ctx, reqId),
+          DEFAULT_TIMEOUTS.persistence,
+        )) as PersistAddResult;
+        errorAssistantMessageId = errorPersistResult.message.id;
+      }
+      const errorPersistResult = { message: { id: errorAssistantMessageId } };
       persistedErrorAssistantMessage = true;
       newMessages.push(errorAssistantMessage);
       // Pipe the just-assigned message id into any orphaned LLM request log

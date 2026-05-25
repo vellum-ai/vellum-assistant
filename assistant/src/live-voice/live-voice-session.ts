@@ -432,6 +432,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           assistant_text_delta: (msg) => {
             if (!this.isForwardingAssistantText(token)) return;
             this.markFirstAssistantDelta(turnId);
+            // live-voice frames have their own turn model (turnId), so
+            // `messageId` from the upstream SSE event isn't propagated.
             void this.sendFrame({
               type: "assistant_text_delta",
               text: msg.text,

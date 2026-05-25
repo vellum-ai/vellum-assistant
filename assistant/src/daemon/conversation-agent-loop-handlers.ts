@@ -317,10 +317,26 @@ export function createEventHandlerState(
   };
 }
 
+/**
+ * Return the message id the client should display for this turn.
+ *
+ * With pre-allocation (PR 2b) the anchor id is allocated at turn start and
+ * is the canonical client-facing identity for the whole turn — every SSE
+ * event for the turn already stamps this id, and the first
+ * `message_complete` writes its content into this row via `update_content`.
+ *
+ * The `firstAssistantMessageId` / `lastAssistantMessageId` fallbacks remain
+ * for symmetry with the wake path (PR-2b-followup) which still produces
+ * tail rows without pre-allocation.
+ */
 export function getClientDisplayMessageId(
   state: EventHandlerState,
 ): string | undefined {
-  return state.firstAssistantMessageId ?? state.lastAssistantMessageId;
+  return (
+    state.assistantTurnId ??
+    state.firstAssistantMessageId ??
+    state.lastAssistantMessageId
+  );
 }
 
 /**
@@ -502,7 +518,7 @@ function computeToolUseStatusText(
   return `Running ${friendlyToolName(name)}`;
 }
 
-function resolveAssistantReplyTimestampTimezone(
+export function resolveAssistantReplyTimestampTimezone(
   ctx: AgentLoopConversationContext,
 ): string {
   const config = getConfig();
@@ -542,6 +558,7 @@ function handleTextDelta(
       type: "assistant_text_delta",
       text: drained.emitText,
       conversationId: deps.ctx.conversationId,
+      messageId: state.assistantTurnId,
     });
     if (deps.shouldGenerateTitle) state.firstAssistantText += drained.emitText;
   }
@@ -1042,6 +1059,7 @@ export async function handleMessageComplete(
       type: "assistant_text_delta",
       text: state.pendingDirectiveDisplayBuffer,
       conversationId: deps.ctx.conversationId,
+      messageId: state.assistantTurnId,
     });
     if (deps.shouldGenerateTitle)
       state.firstAssistantText += state.pendingDirectiveDisplayBuffer;

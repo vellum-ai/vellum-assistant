@@ -58,10 +58,19 @@ export async function injectAuxAssistantMessage(params: {
   if (current && !current.processing) {
     current.getMessages().push(createAssistantMessage(params.text));
 
+    // Aux-injected messages are non-LLM canned content but they're still
+    // assistant rows the client renders. Emit assistant_turn_start first so
+    // the client gets the authoritative messageId before the delta arrives.
+    params.broadcastMessage({
+      type: "assistant_turn_start",
+      conversationId: params.conversationId,
+      messageId: msg.id,
+    });
     params.broadcastMessage({
       type: "assistant_text_delta",
       text: params.text,
       conversationId: params.conversationId,
+      messageId: msg.id,
     });
     params.broadcastMessage({
       type: "message_complete",

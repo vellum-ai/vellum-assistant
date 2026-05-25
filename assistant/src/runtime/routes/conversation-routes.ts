@@ -404,7 +404,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
         ? "Decision applied."
         : "Request already resolved.");
     const assistantMessage = createAssistantMessage(replyText);
-    await addMessage(
+    const persistedAssistant = await addMessage(
       conversationId,
       "assistant",
       JSON.stringify(assistantMessage.content),
@@ -414,10 +414,20 @@ async function tryConsumeCanonicalGuardianReply(params: {
     // Avoid mutating in-memory history / emitting stream deltas while a run is active.
     if (!conversation.isProcessing()) {
       conversation.getMessages().push(llmUserMessage, assistantMessage);
+      // Even though this is a canned (non-LLM) reply, emit assistant_turn_start
+      // first so the client can reconcile against the authoritative anchor id
+      // before the text_delta arrives. PR 2b establishes this as the universal
+      // turn-start signal for ALL assistant rows the client renders.
+      onEvent({
+        type: "assistant_turn_start",
+        conversationId,
+        messageId: persistedAssistant.id,
+      });
       onEvent({
         type: "assistant_text_delta",
         text: replyText,
         conversationId: conversationId,
+        messageId: persistedAssistant.id,
       });
       onEvent({ type: "message_complete", conversationId: conversationId });
     }
@@ -1404,7 +1414,7 @@ export async function handleSendMessage(
       const conversationId = mapping.conversationId;
 
       const assistantMsg = createAssistantMessage(cannedGreeting);
-      await addMessage(
+      const persistedAssistant = await addMessage(
         mapping.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
@@ -1444,9 +1454,15 @@ export async function handleSendMessage(
           clientMessageId,
         });
         broadcastMessage({
+          type: "assistant_turn_start",
+          conversationId,
+          messageId: persistedAssistant.id,
+        });
+        broadcastMessage({
           type: "assistant_text_delta",
           text: cannedGreeting,
           conversationId,
+          messageId: persistedAssistant.id,
         });
         broadcastMessage({ type: "message_complete", conversationId });
         publishConversationMessagesChanged(conversationId, originClientId);
@@ -1716,7 +1732,7 @@ export async function handleSendMessage(
       conversation.getMessages().push(llmMsg);
 
       const assistantMsg = createAssistantMessage(slashResult.message);
-      await addMessage(
+      const persistedAssistant = await addMessage(
         mapping.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
@@ -1767,9 +1783,15 @@ export async function handleSendMessage(
           broadcastMessage(modelInfoEvent);
         }
         broadcastMessage({
+          type: "assistant_turn_start",
+          conversationId,
+          messageId: persistedAssistant.id,
+        });
+        broadcastMessage({
           type: "assistant_text_delta",
           text: message,
           conversationId,
+          messageId: persistedAssistant.id,
         });
         broadcastMessage({
           type: "message_complete",
@@ -1838,7 +1860,7 @@ export async function handleSendMessage(
         const responseText = formatCompactResult(result);
 
         const assistantMsg = createAssistantMessage(responseText);
-        await addMessage(
+        const persistedAssistant = await addMessage(
           conversationId,
           "assistant",
           JSON.stringify(assistantMsg.content),
@@ -1848,9 +1870,15 @@ export async function handleSendMessage(
         conversation.getMessages().push(assistantMsg);
 
         broadcastMessage({
+          type: "assistant_turn_start",
+          conversationId,
+          messageId: persistedAssistant.id,
+        });
+        broadcastMessage({
           type: "assistant_text_delta",
           text: responseText,
           conversationId,
+          messageId: persistedAssistant.id,
         });
         broadcastMessage({ type: "message_complete", conversationId });
         publishConversationMessagesChanged(conversationId, originClientId);
@@ -1918,7 +1946,7 @@ export async function handleSendMessage(
       const responseText = formatCleanResult(result);
 
       const assistantMsg = createAssistantMessage(responseText);
-      await addMessage(
+      const persistedAssistant = await addMessage(
         conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
@@ -1928,9 +1956,15 @@ export async function handleSendMessage(
       conversation.getMessages().push(assistantMsg);
 
       broadcastMessage({
+        type: "assistant_turn_start",
+        conversationId,
+        messageId: persistedAssistant.id,
+      });
+      broadcastMessage({
         type: "assistant_text_delta",
         text: responseText,
         conversationId,
+        messageId: persistedAssistant.id,
       });
       broadcastMessage({ type: "message_complete", conversationId });
       publishConversationMessagesChanged(conversationId, originClientId);
