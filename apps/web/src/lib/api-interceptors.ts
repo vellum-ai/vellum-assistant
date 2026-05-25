@@ -14,8 +14,11 @@
  * runtime-proxied per-assistant path, {@link rewriteForSelfHostedIngress}
  * takes over instead — the URL's origin is swapped to the ingress, the
  * platform-only headers are stripped, cookie credentials are omitted,
- * and an `Authorization: Bearer` is attached when a token is available
- * (it isn't yet — see {@link getSelfHostedActorToken} below).
+ * and an `Authorization: Bearer` is attached when
+ * `getSelfHostedActorToken()` returns a value (it can briefly return
+ * `null` while `bootstrap_platform_actor_token` is mid-flight on the
+ * platform — the gateway then 401s and the chat surface lands on its
+ * error state).
  *
  * Import this module for its side effects in the app entrypoint
  * (`main.tsx`) so interceptors are installed before any API call fires.
@@ -25,7 +28,10 @@
 import { client as authClient } from "@/generated/auth/client.gen.js";
 import { client as platformClient } from "@/generated/api/client.gen.js";
 import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf.js";
-import { getSelfHostedIngressUrl } from "@/lib/self-hosted/ingress.js";
+import {
+  getSelfHostedActorToken,
+  getSelfHostedIngressUrl,
+} from "@/lib/self-hosted/connection.js";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity.js";
 import { getActiveOrganizationIdForRequests } from "@/stores/organization-store.js";
 
@@ -53,23 +59,6 @@ const RUNTIME_PROXIED_FIRST_SEGMENTS = new Set<string>(["conversations"]);
 
 const ASSISTANT_PATH_RE =
   /^\/v1\/assistants\/[^/]+\/([^/?#]+)(?:\/.*)?$/;
-
-/**
- * Resolve an actor-audience JWT for the user's self-hosted gateway.
- *
- * The macOS app obtains this via a `guardian/pair` handshake against the
- * gateway (see `clients/shared/Network/GatewayHTTPClient.swift`); the web
- * pair flow is not yet built. Until it is, this returns `null`, the
- * rewritten request fires unauthenticated, the gateway responds 401, and
- * the chat surface lands on its error state instead of an indefinite
- * spinner. That's the deliberate landing state for the flag-consumer PR.
- *
- * TODO(LUM-XXXX): Replace with the real pairing-bound token retrieval
- * once the web pair flow lands.
- */
-async function getSelfHostedActorToken(): Promise<string | null> {
-  return null;
-}
 
 /**
  * Rewrites a request bound for `/v1/assistants/{id}/{runtime-segment}/...`
@@ -112,7 +101,7 @@ export async function rewriteForSelfHostedIngress(
   headers.delete("X-CSRFToken");
   headers.delete("Vellum-Organization-Id");
 
-  const token = await getSelfHostedActorToken();
+  const token = getSelfHostedActorToken();
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
   } else {

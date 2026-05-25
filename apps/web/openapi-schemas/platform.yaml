@@ -4415,7 +4415,7 @@ components:
       properties:
         access_consented:
           type: boolean
-          description: When True, Vellum admins may view the daemon log file (/workspace/data/logs/vellum.log)
+          description: When True, Vellum admins may view the daemon log files (/workspace/data/logs/assistant-*.log)
             from this assistant pod for debugging. Defaults to False; the owner can
             revoke at any time.
       required:
@@ -4521,6 +4521,10 @@ components:
           type: string
           nullable: true
           readOnly: true
+        platform_actor_token:
+          type: string
+          nullable: true
+          readOnly: true
         access_consented:
           type: boolean
           readOnly: true
@@ -4535,6 +4539,7 @@ components:
       - machine_size
       - maintenance_mode
       - modified
+      - platform_actor_token
       - provisioned_storage_gib
       - release_channel
       - vembda_cluster_id
@@ -6253,7 +6258,7 @@ components:
       properties:
         access_consented:
           type: boolean
-          description: When True, Vellum admins may view the daemon log file (/workspace/data/logs/vellum.log)
+          description: When True, Vellum admins may view the daemon log files (/workspace/data/logs/assistant-*.log)
             from this assistant pod for debugging. Defaults to False; the owner can
             revoke at any time.
     PatchedAssistantPartialUpdateRequest:
