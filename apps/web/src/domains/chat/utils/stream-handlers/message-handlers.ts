@@ -29,7 +29,6 @@ export function handleAssistantTextDelta(
 
 export function handleAssistantActivityState(
   event: AssistantActivityStateEvent,
-  epoch: number,
   ctx: StreamHandlerContext,
 ): void {
   const convId =
@@ -82,12 +81,10 @@ export function handleAssistantActivityState(
     activityVersion: event.activityVersion,
     turnPhaseBefore,
   });
-  ctx.startReconciliationLoop(epoch);
 }
 
 export function handleMessageComplete(
   event: MessageCompleteEvent,
-  epoch: number,
   ctx: StreamHandlerContext,
 ): void {
   ctx.setMessages((prev) => finalizeMessageComplete(prev, event));
@@ -104,7 +101,6 @@ export function handleMessageComplete(
     hasContent: !!event.content,
     hasAttachments: !!event.attachments?.length,
   });
-  ctx.startReconciliationLoop(epoch);
 }
 
 export function handleGenerationHandoff(
