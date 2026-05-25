@@ -212,19 +212,30 @@ export class VellumAgent implements BaseAgent {
       );
     }
 
-    // We capture forensics + retire on every catch path now (PR r3) —
-    // the prior `hatchStarted` gate skipped them whenever the hatch
-    // subprocess itself exited non-zero (the common "port is already
-    // allocated" mode) which is exactly when the operator most needs
-    // the forensics. Retire is idempotent against missing resources,
-    // and `captureContainerForensics` silently no-ops on `docker
-    // inspect` exit != 0, so unconditionally trying them is safe.
+    // Catch-path teardown policy:
     //
-    // Run uniqueness in evals (the timestamp suffix in `runId`) makes
-    // the "name already exists path belongs to someone else" concern
-    // that motivated the original gate effectively impossible — and
-    // the orphan-cleanup pre-flight at the top of `evals run` further
-    // guarantees a clean slate.
+    // - `captureContainerForensics` is ALWAYS called on failure. It only
+    //   reads (`docker inspect`, `docker logs --tail 200`), never
+    //   destroys, so running it against a hatch that died at any stage —
+    //   including a port-collision failure that never created our
+    //   containers — is safe and is exactly the failure mode where
+    //   operators most need the forensics.
+    //
+    // - `jail.stop()` is ALWAYS called. It's a no-op if we never assigned
+    //   `this.jail` (i.e. hatch died before `applyDockerEgressJail`), so
+    //   it's safe.
+    //
+    // - `vellum retire` is gated on `hatchSucceeded`. Retire is
+    //   destructive (`docker rm -f` + network/volume teardown), and if
+    //   hatch failed with "name already exists" we'd be tearing down
+    //   another process's live containers. The new `findOpenPort()`
+    //   in `hatchDocker` makes that path almost impossible (the most
+    //   common collision was the port), but defensively we still only
+    //   retire what we know we created — the ms-precision + random
+    //   suffix on `runId` (see `evals/src/commands/run.ts#timestampSuffix`)
+    //   means a successful hatch unambiguously means the resources
+    //   under our `instanceName` are ours.
+    let hatchSucceeded = false;
     try {
       // Forward LLM provider API keys from the eval process env into the
       // hatch subprocess explicitly. The Vellum docker StatefulSet spec
@@ -252,6 +263,10 @@ export class VellumAgent implements BaseAgent {
         },
       );
       assertSuccess(hatch, `hatch Vellum profile ${this.profile.id}`);
+      // Hatch subprocess succeeded → docker resources under our
+      // instanceName are unambiguously ours. Only now is `retire` safe
+      // in the catch path.
+      hatchSucceeded = true;
 
       this.jail = await applyDockerEgressJail(this.runner, {
         containerName: this.assistantContainerName,
@@ -273,16 +288,27 @@ export class VellumAgent implements BaseAgent {
 
       this.hatched = true;
     } catch (err) {
-      // Capture container forensics BEFORE retire — once the container
-      // is removed, `docker inspect` and `docker logs` both return empty.
-      // Best-effort: any failure here (docker not installed, container
-      // gone, permission error) is silently ignored so we never shadow
-      // the original error with a diagnostics-capture error.
+      // Capture container forensics BEFORE any teardown — once
+      // containers are removed, `docker inspect` and `docker logs`
+      // both return empty. Best-effort: any failure here (docker not
+      // installed, container gone, permission error) is silently
+      // ignored so we never shadow the original error with a
+      // diagnostics-capture error.
       await this.captureContainerForensics().catch(() => undefined);
       await this.jail?.stop().catch(() => undefined);
-      await this.runner
-        .run(this.cliCommand, ["retire", this.id])
-        .catch(() => undefined);
+      if (hatchSucceeded) {
+        // Hatch returned 0 but a later step (setup commands, jail
+        // application) threw — we own these resources, retire them.
+        await this.runner
+          .run(this.cliCommand, ["retire", this.id])
+          .catch(() => undefined);
+      }
+      // If hatchSucceeded is false the hatch subprocess itself failed.
+      // We deliberately do NOT call `vellum retire` here: another
+      // process may legitimately hold an overlapping instance name in
+      // an extreme edge case, and we'd rather leak our own dead
+      // resources (they can be reaped with `docker container prune`)
+      // than risk tearing down a healthy parallel run.
       throw err;
     }
   }

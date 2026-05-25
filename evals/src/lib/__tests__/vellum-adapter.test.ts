@@ -297,16 +297,21 @@ describe("VellumAgent", () => {
     expect(runner.process.killed).toBe(true);
   });
 
-  test("captures forensics for every sibling container AND retires the run after any hatch failure", async () => {
-    // PR r3 trade-off: the previous gate (`if (hatchStarted)`) skipped
-    // forensics + retire whenever `vellum hatch` exited non-zero — the
-    // exact failure mode operators want diagnostics for (port collision,
-    // OOM, image build failure, …). We trade the theoretical "name
-    // collision could belong to a parallel run" safety for the much
-    // more common "show me what state my failed hatch left the
-    // containers in". Run uniqueness is preserved via the 14-digit
-    // timestamp suffix in `runId` and the pre-flight orphan-cleanup
-    // sweep at the top of `evals run`.
+  test("captures forensics for every sibling container but does NOT retire when hatch itself failed", async () => {
+    // Catch-path teardown policy (see vellum.ts for the full rationale):
+    //
+    // - `captureContainerForensics` is read-only (`docker inspect` /
+    //   `docker logs --tail 200`), so it ALWAYS runs on failure —
+    //   including port-collision failures that never created our
+    //   containers. This is the value the report-UI's `dockerArtifacts`
+    //   section relies on.
+    // - `vellum retire` is destructive (`docker rm -f` + network +
+    //   volume teardown), so it ONLY runs when hatch returned 0 and
+    //   we know the resources under `instanceName` are ours. When
+    //   hatch itself fails, we deliberately leak our own dead
+    //   resources rather than risk tearing down a parallel run's
+    //   live containers in the (very rare with `findOpenPort()` +
+    //   ms+random `runId`) "name already exists" edge case.
     class FailingRunner extends FakeRunner {
       override async run(
         command: string,
@@ -319,7 +324,7 @@ describe("VellumAgent", () => {
             exitCode: 1,
             stdout: "",
             stderr:
-              "docker: Error response from daemon: bind for 0.0.0.0:20100 failed: port is already allocated",
+              "docker: Error response from daemon: Conflict. The container name is already in use",
           };
         }
         return { exitCode: 0, stdout: "ok", stderr: "" };
@@ -331,10 +336,10 @@ describe("VellumAgent", () => {
       runner,
       profile,
       testId: "timeline-recall",
-      runId: "eval-vellum-bare-x-20260524160000",
+      runId: "eval-vellum-bare-x-20260524160000123-abcd",
     });
 
-    await expect(agent.hatch()).rejects.toThrow("port is already allocated");
+    await expect(agent.hatch()).rejects.toThrow(/name is already in use/);
     const sequence = runner.runs.map((r) => [r.command, ...r.args]);
 
     // Hatch attempted exactly once.
@@ -343,16 +348,18 @@ describe("VellumAgent", () => {
     );
     expect(hatchCalls).toHaveLength(1);
 
-    // Forensics captured for ALL three sibling containers — not just
-    // the assistant. The gateway inspect is the actionable artifact
-    // for port-collision failures.
+    // Forensics captured for ALL three sibling containers — the
+    // gateway inspect is the actionable artifact for port-collision
+    // failures, the assistant inspect carries OOM/build-failure
+    // signals, the credential-executor inspect covers volume mount
+    // failures.
     const inspectCalls = sequence.filter(
       (parts) => parts[0] === "docker" && parts[1] === "inspect",
     );
     expect(inspectCalls.map((c) => c[2])).toEqual([
-      "eval-vellum-bare-x-20260524160000-assistant",
-      "eval-vellum-bare-x-20260524160000-gateway",
-      "eval-vellum-bare-x-20260524160000-credential-executor",
+      "eval-vellum-bare-x-20260524160000123-abcd-assistant",
+      "eval-vellum-bare-x-20260524160000123-abcd-gateway",
+      "eval-vellum-bare-x-20260524160000123-abcd-credential-executor",
     ]);
     const logCalls = sequence.filter(
       (parts) =>
@@ -362,19 +369,75 @@ describe("VellumAgent", () => {
         parts[3] === "200",
     );
     expect(logCalls.map((c) => c[4])).toEqual([
-      "eval-vellum-bare-x-20260524160000-assistant",
-      "eval-vellum-bare-x-20260524160000-gateway",
-      "eval-vellum-bare-x-20260524160000-credential-executor",
+      "eval-vellum-bare-x-20260524160000123-abcd-assistant",
+      "eval-vellum-bare-x-20260524160000123-abcd-gateway",
+      "eval-vellum-bare-x-20260524160000123-abcd-credential-executor",
     ]);
 
-    // Retire fired exactly once, at the end, to clean up whatever
-    // partial state the failed hatch left behind. Without it the next
-    // run hits the same port collision.
+    // CRITICAL: retire must NOT have been called. The hatch subprocess
+    // exited non-zero (the resources under our instanceName may belong
+    // to a parallel run holding the name), so the catch path skips
+    // teardown — we'd rather leak our own dead resources than wipe a
+    // healthy parallel run.
+    const retireCalls = sequence.filter(
+      (parts) => parts[0] === "vellum" && parts[1] === "retire",
+    );
+    expect(retireCalls).toHaveLength(0);
+  });
+
+  test("retires the run when hatch succeeds but a later step (setup command) fails", async () => {
+    // The other half of the catch-path policy: once `vellum hatch`
+    // returned 0, the resources under our instanceName are
+    // unambiguously ours, so any subsequent throw (setup command,
+    // jail application) MUST retire them — otherwise the operator
+    // accumulates leaked instances across every failed eval run.
+    class HatchOkSetupFails extends FakeRunner {
+      override async run(
+        command: string,
+        args: string[],
+        opts?: RunOptions,
+      ): Promise<CommandResult> {
+        this.runs.push({ command, args, opts });
+        if (args[0] === "exec") {
+          // Setup commands are dispatched as `vellum exec <id> -- …`.
+          return {
+            exitCode: 1,
+            stdout: "",
+            stderr: "setup command crashed",
+          };
+        }
+        return { exitCode: 0, stdout: "ok", stderr: "" };
+      }
+    }
+
+    // Use a profile variant that actually has a setup command so the
+    // failing branch is reached.
+    const profileWithSetup = {
+      ...profile,
+      manifest: {
+        ...profile.manifest,
+        setup: ["echo hello"],
+      },
+    };
+
+    const runner = new HatchOkSetupFails();
+    const agent = new VellumAgent({
+      runner,
+      profile: profileWithSetup,
+      testId: "timeline-recall",
+      runId: "eval-vellum-bare-x-20260524160000123-abcd",
+    });
+
+    await expect(agent.hatch()).rejects.toThrow(/setup command/i);
+    const sequence = runner.runs.map((r) => [r.command, ...r.args]);
+
     const retireCalls = sequence.filter(
       (parts) => parts[0] === "vellum" && parts[1] === "retire",
     );
     expect(retireCalls).toHaveLength(1);
-    expect(retireCalls[0][2]).toBe("eval-vellum-bare-x-20260524160000");
+    expect(retireCalls[0][2]).toBe(
+      "eval-vellum-bare-x-20260524160000123-abcd",
+    );
   });
 });
 
