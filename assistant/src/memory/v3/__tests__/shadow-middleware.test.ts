@@ -40,12 +40,15 @@ mock.module("../../../util/logger.js", () => ({
 /** Drives `config.memory.v3.{enabled,shadow}` and `historical_pairs`. */
 let v3Enabled = false;
 let v3Shadow = false;
+/** When false, omit the `memory.v3` block entirely (mirrors configs built
+ * outside the Zod schema, e.g. agent-loop test fixtures). */
+let v3Present = true;
 
 function makeConfig(): AssistantConfig {
   return {
     memory: {
       v2: { router: { historical_pairs: 1 } },
-      v3: { enabled: v3Enabled, shadow: v3Shadow },
+      ...(v3Present ? { v3: { enabled: v3Enabled, shadow: v3Shadow } } : {}),
     },
   } as unknown as AssistantConfig;
 }
@@ -153,6 +156,7 @@ async function flush(): Promise<void> {
 beforeEach(() => {
   v3Enabled = false;
   v3Shadow = false;
+  v3Present = true;
   loopCalls.length = 0;
   logCalls.length = 0;
   loopImpl = async () => ({
@@ -197,6 +201,22 @@ describe("memory-v3 shadow middleware", () => {
   test("enabled but shadow off → still a pure pass-through", async () => {
     v3Enabled = true;
     v3Shadow = false;
+    const args = makeArgs();
+    const result = await memoryV3ShadowMiddleware(
+      args,
+      async () => DOWNSTREAM_RESULT,
+      makeCtx(),
+    );
+    expect(result).toBe(DOWNSTREAM_RESULT);
+    await flush();
+    expect(loopCalls.length).toBe(0);
+    expect(logCalls.length).toBe(0);
+  });
+
+  test("v3 config block absent → pass-through, no throw, no v3 call", async () => {
+    // Reproduces the agent-loop test fixtures (and any config built outside the
+    // Zod schema) where `memory.v3` is undefined. The gate must not throw.
+    v3Present = false;
     const args = makeArgs();
     const result = await memoryV3ShadowMiddleware(
       args,

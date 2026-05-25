@@ -257,7 +257,7 @@ async function runShadowAndLog(
 export const memoryV3ShadowMiddleware: Middleware<MemoryArgs, MemoryResult> =
   async function memoryV3Shadow(args, next) {
     const v3 = getConfig().memory.v3;
-    if (!v3.enabled || !v3.shadow) {
+    if (!v3?.enabled || !v3?.shadow) {
       // Inert: byte-for-byte pass-through, zero extra work.
       return next(args);
     }
