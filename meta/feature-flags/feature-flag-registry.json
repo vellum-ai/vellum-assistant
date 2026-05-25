@@ -194,6 +194,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "assistant-radio",
+      "scope": "assistant",
+      "key": "assistant-radio",
+      "label": "Assistant Radio",
+      "description": "Controls the web composer radio pill.",
+      "defaultEnabled": false
+    },
+    {
       "id": "fast-mode",
       "scope": "assistant",
       "key": "fast-mode",
