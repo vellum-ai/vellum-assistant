@@ -13,7 +13,6 @@ export const ERROR_MESSAGES: Record<string, string> = {
 const GLOBAL_STREAM_EVENT_TYPES: ReadonlySet<string> = new Set([
   "conversation_list_invalidated",
   "conversation_title_updated",
-  "conversation_seen_changed",
   "notification_intent",
   "identity_changed",
   "avatar_updated",

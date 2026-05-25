@@ -71,10 +71,23 @@ export async function injectAuxAssistantMessage(params: {
     });
   }
 
-  params.broadcastMessage({
-    type: "conversation_list_invalidated",
-    reason: "reordered",
-  });
+  // The injected aux message bumps `lastMessageAt`, which can move the
+  // row in the paginated sidebar window — that's a shape change. macOS
+  // refreshes its full list on `conversation_list_invalidated`; web
+  // refreshes via the paired `sync_changed` `conversationsList` tag.
+  //
+  // TODO(electron-cutover): drop the `conversation_list_invalidated`
+  // emission once macOS migrates to the Electron client and consumes
+  // `sync_changed` directly. See `runtime/sync/resource-sync-events.ts`
+  // for the symmetric helper used by route handlers.
+  params.broadcastMessage(
+    {
+      type: "conversation_list_invalidated",
+      reason: "reordered",
+    },
+    undefined,
+    { targetInterfaceId: "macos" },
+  );
   params.broadcastMessage({
     type: "sync_changed",
     tags: [

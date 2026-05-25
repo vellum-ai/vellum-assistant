@@ -944,7 +944,9 @@ export async function runDaemon(): Promise<void> {
 
     // Register the broadcast function for the notification signal pipeline's
     // macOS adapter so it can deliver notification_intent messages to clients.
-    registerBroadcastFn((msg) => broadcastMessage(msg));
+    registerBroadcastFn((msg, conversationId, options) =>
+      broadcastMessage(msg, conversationId, options),
+    );
 
     try {
       recoverStaleSchedules();

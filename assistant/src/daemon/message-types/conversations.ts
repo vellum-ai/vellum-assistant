@@ -220,30 +220,6 @@ export interface ConversationTitleUpdated {
   title: string;
 }
 
-/**
- * Server push — a single conversation's attention/seen state changed.
- *
- * Carries the full post-mutation state inline so subscribers can patch
- * their cached conversation row directly without refetching the paginated
- * conversation list. Emitted in lieu of (not in addition to) the bulkier
- * `conversation_list_invalidated` + `conversationsList`/`metadata` sync
- * fan-out we used to publish for seen/unread mutations.
- *
- * Timestamp fields are Unix epoch milliseconds (same encoding as the rest
- * of the `AssistantAttention` payload).
- *
- * @see ../runtime/sync/resource-sync-events.ts → `publishConversationSeenChanged`
- */
-export interface ConversationSeenChanged {
-  type: "conversation_seen_changed";
-  conversationId: string;
-  hasUnseenLatestAssistantMessage: boolean;
-  /** Latest assistant message timestamp on this conversation, or `null`. */
-  latestAssistantMessageAt: number | null;
-  /** Last-seen assistant message timestamp on this conversation, or `null`. */
-  lastSeenAssistantMessageAt: number | null;
-}
-
 /** Channel binding metadata exposed in conversation list APIs. */
 interface ChannelBinding {
   sourceChannel: ChannelId;
@@ -683,7 +659,6 @@ export type _ConversationsServerMessages =
   | ConversationErrorMessage
   | ConversationInfo
   | ConversationTitleUpdated
-  | ConversationSeenChanged
   | ConversationListResponse
   | ConversationsClearResponse
   | ConversationSearchResponse

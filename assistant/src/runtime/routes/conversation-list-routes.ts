@@ -32,7 +32,7 @@ import {
   buildConversationDetailResponse,
   serializeConversationSummary,
 } from "../services/conversation-serializer.js";
-import { publishConversationSeenChanged } from "../sync/resource-sync-events.js";
+import { publishConversationListAndMetadataChanged } from "../sync/resource-sync-events.js";
 import {
   BadRequestError,
   InternalError,
@@ -142,24 +142,9 @@ function handleRecordSeen({ body = {}, headers }: RouteHandlerArgs) {
     });
 
     if (wasUnseen) {
-      // Query the post-mutation state and publish a per-conversation typed
-      // event. We deliberately do NOT emit a list-level `sync_changed` here:
-      // the seen flag is per-conversation attention state, not list-shaped,
-      // and the bulky `conversationsList` + `metadata` fan-out used to
-      // force every subscribed web client to redrain the full paginated
-      // sidebar (~14 requests per switch at ~300 conversations) on every
-      // conversation switch that landed on an unseen conversation.
-      const newState = getAttentionStateByConversationIds([
+      publishConversationListAndMetadataChanged(
+        "seen_changed",
         conversationId,
-      ]).get(conversationId);
-      publishConversationSeenChanged(
-        {
-          conversationId,
-          hasUnseenLatestAssistantMessage: false,
-          latestAssistantMessageAt: newState?.latestAssistantMessageAt ?? null,
-          lastSeenAssistantMessageAt:
-            newState?.lastSeenAssistantMessageAt ?? null,
-        },
         headers?.["x-vellum-client-id"]?.trim() || undefined,
       );
     }
@@ -181,20 +166,9 @@ function handleMarkUnread({ body = {}, headers }: RouteHandlerArgs) {
   try {
     const changed = markConversationUnread(conversationId);
     if (changed) {
-      // Symmetric with `handleRecordSeen`: publish per-conversation typed
-      // event with the new state, no list-level `sync_changed`. See the
-      // long-form comment in `handleRecordSeen` for the rationale.
-      const newState = getAttentionStateByConversationIds([
+      publishConversationListAndMetadataChanged(
+        "seen_changed",
         conversationId,
-      ]).get(conversationId);
-      publishConversationSeenChanged(
-        {
-          conversationId,
-          hasUnseenLatestAssistantMessage: true,
-          latestAssistantMessageAt: newState?.latestAssistantMessageAt ?? null,
-          lastSeenAssistantMessageAt:
-            newState?.lastSeenAssistantMessageAt ?? null,
-        },
         headers?.["x-vellum-client-id"]?.trim() || undefined,
       );
     }

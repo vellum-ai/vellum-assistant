@@ -464,40 +464,6 @@ export function parseAssistantEvent(
       return { type: "conversation_title_updated", conversationId, title };
     }
 
-    case "conversation_seen_changed": {
-      const conversationId =
-        typeof data.conversationId === "string" ? data.conversationId : "";
-      if (!conversationId) {
-        return { type: "unknown", rawType, data };
-      }
-      const hasUnseenLatestAssistantMessage =
-        typeof data.hasUnseenLatestAssistantMessage === "boolean"
-          ? data.hasUnseenLatestAssistantMessage
-          : false;
-      // Wire format is Unix epoch ms (number) or `null`. Anything else is
-      // rejected to `null` to keep the cache patcher's narrowed input
-      // contract tight — a stringly-typed timestamp on the wire would be
-      // a daemon bug worth surfacing through the typed-event no-op path
-      // rather than silently round-tripped.
-      const latestAssistantMessageAt =
-        typeof data.latestAssistantMessageAt === "number" &&
-        Number.isFinite(data.latestAssistantMessageAt)
-          ? data.latestAssistantMessageAt
-          : null;
-      const lastSeenAssistantMessageAt =
-        typeof data.lastSeenAssistantMessageAt === "number" &&
-        Number.isFinite(data.lastSeenAssistantMessageAt)
-          ? data.lastSeenAssistantMessageAt
-          : null;
-      return {
-        type: "conversation_seen_changed",
-        conversationId,
-        hasUnseenLatestAssistantMessage,
-        latestAssistantMessageAt,
-        lastSeenAssistantMessageAt,
-      };
-    }
-
     case "notification_intent": {
       const title = typeof data.title === "string" ? data.title : "";
       const body = typeof data.body === "string" ? data.body : "";

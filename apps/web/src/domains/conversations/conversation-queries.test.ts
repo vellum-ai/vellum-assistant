@@ -4,7 +4,6 @@ import { QueryClient } from "@tanstack/react-query";
 
 import {
   appendGroup,
-  applyConversationSeenStateLocal,
   chatContextQueryKey,
   conversationGroupsQueryKey,
   deleteGroupAndResetConversations,
@@ -123,83 +122,6 @@ describe("markConversationSeenLocal", () => {
     expect(getConversations(qc)[0]!.lastSeenAssistantMessageAt).toBe(
       "2024-06-01T00:00:00Z",
     );
-  });
-});
-
-describe("applyConversationSeenStateLocal", () => {
-  it("applies a seen transition with epoch-ms timestamps normalized to ISO", () => {
-    const qc = new QueryClient();
-    seedChatContext(qc, [
-      makeConversation("a", {
-        hasUnseenLatestAssistantMessage: true,
-        latestAssistantMessageAt: "2024-01-01T00:00:00.000Z",
-      }),
-      makeConversation("b", { hasUnseenLatestAssistantMessage: true }),
-    ]);
-    const seenAt = Date.UTC(2026, 4, 25, 12, 0, 0);
-    applyConversationSeenStateLocal(qc, ASSISTANT_ID, {
-      conversationId: "a",
-      hasUnseenLatestAssistantMessage: false,
-      latestAssistantMessageAt: seenAt,
-      lastSeenAssistantMessageAt: seenAt,
-    });
-    const list = getConversations(qc);
-    expect(list[0]!.hasUnseenLatestAssistantMessage).toBe(false);
-    expect(list[0]!.lastSeenAssistantMessageAt).toBe(
-      new Date(seenAt).toISOString(),
-    );
-    // Untouched row stays untouched.
-    expect(list[1]!.hasUnseenLatestAssistantMessage).toBe(true);
-  });
-
-  it("applies an unread transition (hasUnseen=true)", () => {
-    const qc = new QueryClient();
-    seedChatContext(qc, [
-      makeConversation("a", {
-        hasUnseenLatestAssistantMessage: false,
-        lastSeenAssistantMessageAt: "2024-01-01T00:00:00.000Z",
-      }),
-    ]);
-    applyConversationSeenStateLocal(qc, ASSISTANT_ID, {
-      conversationId: "a",
-      hasUnseenLatestAssistantMessage: true,
-      latestAssistantMessageAt: Date.UTC(2024, 0, 1, 0, 0, 0),
-      lastSeenAssistantMessageAt: Date.UTC(2024, 0, 1, 0, 0, 0),
-    });
-    expect(getConversations(qc)[0]!.hasUnseenLatestAssistantMessage).toBe(true);
-  });
-
-  it("preserves cached timestamps when the daemon reports null (defensive)", () => {
-    const qc = new QueryClient();
-    seedChatContext(qc, [
-      makeConversation("a", {
-        hasUnseenLatestAssistantMessage: true,
-        latestAssistantMessageAt: "2024-01-01T00:00:00.000Z",
-        lastSeenAssistantMessageAt: "2023-12-31T00:00:00.000Z",
-      }),
-    ]);
-    applyConversationSeenStateLocal(qc, ASSISTANT_ID, {
-      conversationId: "a",
-      hasUnseenLatestAssistantMessage: false,
-      latestAssistantMessageAt: null,
-      lastSeenAssistantMessageAt: null,
-    });
-    const row = getConversations(qc)[0]!;
-    expect(row.hasUnseenLatestAssistantMessage).toBe(false);
-    expect(row.latestAssistantMessageAt).toBe("2024-01-01T00:00:00.000Z");
-    expect(row.lastSeenAssistantMessageAt).toBe("2023-12-31T00:00:00.000Z");
-  });
-
-  it("no-ops when the conversation is not in the cache", () => {
-    const qc = new QueryClient();
-    seedChatContext(qc, [makeConversation("a")]);
-    applyConversationSeenStateLocal(qc, ASSISTANT_ID, {
-      conversationId: "missing",
-      hasUnseenLatestAssistantMessage: false,
-      latestAssistantMessageAt: 0,
-      lastSeenAssistantMessageAt: 0,
-    });
-    expect(getConversations(qc)).toHaveLength(1);
   });
 });
 

@@ -345,6 +345,72 @@ async function fetchConversationList(
 }
 
 /**
+ * Indicates the conversation existed at request time but the server reported
+ * it as deleted (HTTP 404). Callers use this sentinel to remove the row from
+ * the cached list rather than treat the absence as a transient network error.
+ */
+export const CONVERSATION_NOT_FOUND = Symbol(
+  "vellum.conversation-not-found",
+);
+
+export type FetchConversationDetailResult =
+  | Conversation
+  | typeof CONVERSATION_NOT_FOUND;
+
+/**
+ * Fetch a single conversation row in list-row shape. Used by
+ * `refreshConversationRow` to GET-and-patch the cached sidebar list when
+ * the assistant emits a per-conversation `sync_changed` metadata tag —
+ * much cheaper than refetching the full paginated list
+ * (`limit=50&offset=0..N` × foreground + background — ~14 requests per
+ * write at a few hundred conversations).
+ *
+ * Returns the parsed row, or the `CONVERSATION_NOT_FOUND` sentinel when
+ * the server reports the conversation no longer exists.
+ *
+ * The assistant's `GET /v1/conversations/:id` handler reuses
+ * `serializeConversationSummary` — the exact serializer that powers
+ * `listConversations` page rows — so the parsed result is structurally
+ * compatible with rows already in the cache. See
+ * `assistant/src/runtime/services/conversation-serializer.ts`.
+ */
+export async function fetchConversationDetail(
+  assistantId: string,
+  conversationId: string,
+): Promise<FetchConversationDetailResult> {
+  const { data, error, response } = await client.get<unknown, unknown>({
+    ...SDK_BASE_OPTIONS,
+    url: "/v1/assistants/{assistant_id}/conversations/{conversation_id}/",
+    path: { assistant_id: assistantId, conversation_id: conversationId },
+    throwOnError: false,
+  });
+  assertHasResponse(response, error, "Failed to fetch conversation.");
+  if (response.status === 404) {
+    return CONVERSATION_NOT_FOUND;
+  }
+  if (!response.ok) {
+    const msg = extractErrorMessage(
+      error,
+      response,
+      "Failed to fetch conversation.",
+    );
+    throw new ApiError(response.status, msg);
+  }
+  const payload =
+    data && typeof data === "object" && !Array.isArray(data)
+      ? (data as { conversation?: unknown })
+      : null;
+  const parsed = parseConversation(payload?.conversation ?? null);
+  if (!parsed) {
+    throw new ApiError(
+      response.status,
+      "Conversation detail payload was malformed.",
+    );
+  }
+  return parsed;
+}
+
+/**
  * Fetch all conversations (foreground + background) for a given assistant.
  * The daemon filters conversation types server-side: the default list excludes
  * background/scheduled conversations, and `?conversationType=background` returns

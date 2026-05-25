@@ -9,18 +9,21 @@
  * Per-conversation events (text deltas, tool calls, interactions,
  * per-conversation message tags) are ignored here — those remain
  * owned by the conversation-scoped `useEventStream` mounted in
- * ChatPage. Per-conversation metadata/messages sync tags still bump
- * the sidebar list refresh.
+ * ChatPage.
+ *
+ * Conversation-list shape changes (`conversationsList` umbrella tag)
+ * still trigger a full sidebar refetch. Per-conversation content
+ * changes (`conversation:<id>:metadata`) GET-and-patch the single row
+ * via `refreshConversationRow`, avoiding the full paginated list
+ * drain.
  */
 
+import * as Sentry from "@sentry/react";
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-import type {
-  AssistantEvent,
-  ConversationSeenChangedEvent,
-} from "@/domains/chat/api/event-types.js";
-import { applyConversationSeenStateLocal } from "@/domains/conversations/conversation-queries.js";
+import type { AssistantEvent } from "@/domains/chat/api/event-types.js";
+import { refreshConversationRow } from "@/domains/conversations/conversation-queries.js";
 import { assistantIdentityQueryKey } from "@/hooks/use-assistant-identity-init.js";
 import { ASSISTANT_FLAG_VALUES_QUERY_KEY } from "@/lib/feature-flags/use-assistant-feature-flag-sync.js";
 import { CLIENT_FLAG_QUERY_KEY } from "@/lib/feature-flags/use-client-feature-flag-sync.js";
@@ -35,7 +38,7 @@ import {
   conversationGroupsQueryKey,
 } from "@/lib/sync/query-tags.js";
 import {
-  isConversationMetadataSyncTag,
+  parseConversationSyncTag,
   SYNC_TAGS,
   type SyncChangedEvent,
 } from "@/lib/sync/types.js";
@@ -119,52 +122,49 @@ export function useAssistantSyncStream(
               queryKey: [ASSISTANT_FLAG_VALUES_QUERY_KEY],
             });
             break;
-          default:
-            // Per-conversation metadata tags still bump the sidebar
-            // list — every metadata emit already pairs with
-            // `conversationsList`, but keep this here as a belt-and-
-            // suspenders signal for any future caller that emits
-            // metadata in isolation.
+          default: {
+            // Per-conversation metadata tags (`conversation:<id>:metadata`)
+            // GET-and-patch the single row via `refreshConversationRow`.
+            // Shape changes already pair with the `conversationsList`
+            // umbrella tag handled above, so we only get here for
+            // content-only signals (seen state, title, attention cursor) —
+            // a single request per signal instead of the legacy ~14-
+            // request paginated drain (`limit=50&offset=0..N` for
+            // foreground + background) at a few hundred conversations.
             //
-            // `:messages` tags intentionally do NOT trigger a list
-            // refresh. Refetching the entire paginated conversation
-            // list on every message persist (`limit=50&offset=0..N`
-            // for both foreground and background variants — ~14
-            // requests per write for assistants with a few hundred
-            // conversations) was disproportionate work for fields
-            // that the UI can tolerate going slightly stale between
-            // explicit list fetches. Consumers that need fresh
-            // `lastMessageAt`/attention state at high frequency can
+            // `:messages` tags are intentionally ignored here. Refetching
+            // the conversation list on every message persist was
+            // disproportionate work for fields that the UI tolerates
+            // going slightly stale between explicit list fetches.
+            // Consumers that need fresh `lastMessageAt` at high frequency
             // bind to the per-conversation message stream directly.
-            if (isConversationMetadataSyncTag(tag)) {
-              scheduleConversationListRefetch();
+            const parsed = parseConversationSyncTag(tag);
+            if (parsed?.resource === "metadata") {
+              void refreshConversationRow(
+                queryClient,
+                assistantId,
+                parsed.conversationId,
+              ).catch((err: unknown) => {
+                Sentry.captureException(err, {
+                  level: "warning",
+                  tags: { context: "useAssistantSyncStream.refreshRow" },
+                  extra: {
+                    assistantId,
+                    conversationId: parsed.conversationId,
+                  },
+                });
+              });
             }
             break;
+          }
         }
       }
-    };
-
-    const handleSeenChanged = (event: ConversationSeenChangedEvent) => {
-      // Patch the cached conversation row directly with the new attention
-      // state. No list invalidation — see the publisher-side comment at
-      // `assistant/src/runtime/sync/resource-sync-events.ts` →
-      // `publishConversationSeenChanged` for why this avoids the full
-      // sidebar drain we used to incur on every conversation switch.
-      applyConversationSeenStateLocal(queryClient, assistantId, {
-        conversationId: event.conversationId,
-        hasUnseenLatestAssistantMessage: event.hasUnseenLatestAssistantMessage,
-        latestAssistantMessageAt: event.latestAssistantMessageAt,
-        lastSeenAssistantMessageAt: event.lastSeenAssistantMessageAt,
-      });
     };
 
     const handleEvent = (event: AssistantEvent) => {
       switch (event.type) {
         case "sync_changed":
           handleSyncChanged(event);
-          return;
-        case "conversation_seen_changed":
-          handleSeenChanged(event);
           return;
         case "home_feed_updated":
         case "relationship_state_updated":
