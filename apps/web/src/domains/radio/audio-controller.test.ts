@@ -29,6 +29,7 @@ class FakeAudio {
     this.paused = false;
     if (this.playResult) {
       await this.playResult;
+      this.paused = false;
     }
   }
 
@@ -279,6 +280,62 @@ describe("RadioAudioController", () => {
     incoming.currentTime = 14;
     incoming.dispatch("timeupdate");
     expect(progress).toEqual([]);
+  });
+
+  it("does not start incoming audio when paused while DJ audio play is pending", async () => {
+    const djPlay = deferred<void>();
+    const controller = createController({
+      createAudio: (url) => {
+        const audio = new FakeAudio(url);
+        if (url === djBreak.audioUrl) {
+          audio.playResult = djPlay.promise;
+        }
+        createdAudio.push(audio);
+        return audio;
+      },
+    });
+
+    await controller.playInitial(track);
+    const transitionPromise = controller.applyTransition({
+      outgoingTrack: track,
+      djBreak,
+      nextTrack,
+      playbackPlan,
+    });
+    await Promise.resolve();
+
+    const [, djAudio, incoming] = createdAudio;
+    controller.pause();
+    djPlay.resolve();
+    await transitionPromise;
+
+    expect(djAudio.paused).toBe(true);
+    expect(incoming.playCalls).toBe(0);
+    expect(incoming.paused).toBe(true);
+    expect(incoming.volume).toBe(1);
+  });
+
+  it("leaves initial audio paused when paused while initial play is pending", async () => {
+    const initialPlay = deferred<void>();
+    const controller = createController({
+      createAudio: (url) => {
+        const audio = new FakeAudio(url);
+        audio.playResult = initialPlay.promise;
+        createdAudio.push(audio);
+        return audio;
+      },
+    });
+
+    const playPromise = controller.playInitial(track);
+    await Promise.resolve();
+
+    const [audio] = createdAudio;
+    controller.pause();
+    initialPlay.resolve();
+    await playPromise;
+
+    expect(audio.playCalls).toBe(1);
+    expect(audio.paused).toBe(true);
   });
 
   it("disposes audio, listeners, and pending volume ramps", async () => {
