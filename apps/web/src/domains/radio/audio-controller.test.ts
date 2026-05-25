@@ -59,6 +59,10 @@ function createFrameScheduler() {
       callbacks.push({ id, callback });
       return id;
     },
+    cancel(id: number): void {
+      const index = callbacks.findIndex((item) => item.id === id);
+      if (index >= 0) callbacks.splice(index, 1);
+    },
     run(time: number): void {
       const batch = callbacks.splice(0);
       for (const item of batch) item.callback(time);
@@ -120,6 +124,7 @@ describe("RadioAudioController", () => {
         return audio;
       },
       requestAnimationFrame: scheduler.request,
+      cancelAnimationFrame: scheduler.cancel,
       prefetchWindowMs: 5_000,
       rampDurationMs: 1_000,
       ...callbacks,
@@ -199,5 +204,38 @@ describe("RadioAudioController", () => {
     expect(outgoing.volume).toBeCloseTo(0.18, 2);
     expect(incoming.volume).toBeCloseTo(1, 2);
     expect(outgoing.pauseCalls).toBe(1);
+  });
+
+  it("disposes audio, listeners, and pending volume ramps", async () => {
+    const progress: Array<{ positionMs: number; remainingMs: number }> = [];
+    const controller = createController({
+      onProgress: (event) => progress.push(event),
+    });
+
+    await controller.playInitial(track);
+    const [outgoing] = createdAudio;
+
+    await controller.applyTransition({
+      outgoingTrack: track,
+      djBreak,
+      nextTrack,
+      playbackPlan,
+    });
+
+    const [, djAudio, incoming] = createdAudio;
+    controller.dispose();
+    const outgoingVolume = outgoing.volume;
+    const incomingVolume = incoming.volume;
+
+    scheduler.run(1_000);
+    outgoing.currentTime = 14;
+    outgoing.dispatch("timeupdate");
+
+    expect(outgoing.pauseCalls).toBe(1);
+    expect(djAudio.pauseCalls).toBe(1);
+    expect(incoming.pauseCalls).toBe(1);
+    expect(outgoing.volume).toBe(outgoingVolume);
+    expect(incoming.volume).toBe(incomingVolume);
+    expect(progress).toEqual([]);
   });
 });

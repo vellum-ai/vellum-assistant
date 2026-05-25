@@ -27,6 +27,7 @@ interface RadioController {
   pause: () => void;
   resume: () => Promise<void> | void;
   skip: () => void;
+  dispose: () => void;
   applyTransition: (params: {
     outgoingTrack?: ResolvedRadioTrack | null;
     djBreak: ResolvedRadioDjBreak;
@@ -104,17 +105,21 @@ const defaultDependencies: RadioStoreDependencies = {
 
 let dependencies = defaultDependencies;
 let controller: RadioController | null = null;
+let advanceSequence = 0;
+const inFlightAdvanceTokens = new Set<number>();
 
 export function setRadioStoreDependencies(
   overrides: Partial<RadioStoreDependencies>,
 ): void {
+  resetRuntimeController();
+  invalidateAdvances();
   dependencies = { ...defaultDependencies, ...overrides };
-  controller = null;
 }
 
 export function resetRadioStoreDependencies(): void {
+  resetRuntimeController();
+  invalidateAdvances();
   dependencies = defaultDependencies;
-  controller = null;
 }
 
 function getBrowserLocale(): string | undefined {
@@ -203,12 +208,43 @@ function getRadioController(
   return controller;
 }
 
+function resetRuntimeController(): void {
+  controller?.dispose();
+  controller = null;
+}
+
+function invalidateAdvances(): void {
+  advanceSequence += 1;
+  inFlightAdvanceTokens.clear();
+}
+
+function startAdvance(reason: RadioAdvanceReason): number | null {
+  if (reason === "song_ended" && inFlightAdvanceTokens.size > 0) {
+    return null;
+  }
+
+  const token = ++advanceSequence;
+  inFlightAdvanceTokens.add(token);
+  return token;
+}
+
+function finishAdvance(token: number): void {
+  inFlightAdvanceTokens.delete(token);
+}
+
+function isCurrentAdvance(token: number): boolean {
+  return token === advanceSequence;
+}
+
 async function advanceWithReason(
   reason: RadioAdvanceReason,
   assistantId: string,
   set: (partial: Partial<RadioStore>) => void,
   get: () => RadioStore,
 ): Promise<void> {
+  const token = startAdvance(reason);
+  if (token === null) return;
+
   const previousState = get();
   const outgoingTrack = previousState.currentTrack;
   const loadingStatus =
@@ -227,7 +263,9 @@ async function advanceWithReason(
       assistantId,
       buildAdvanceRequest(previousState, reason),
     );
+    if (!isCurrentAdvance(token)) return;
     await applyAdvanceResponse({
+      token,
       assistantId,
       reason,
       response,
@@ -236,15 +274,19 @@ async function advanceWithReason(
       get,
     });
   } catch (error) {
+    if (!isCurrentAdvance(token)) return;
     set({
       status: "error",
       displayCue: "error",
       errorMessage: errorMessageFrom(error),
     });
+  } finally {
+    finishAdvance(token);
   }
 }
 
 async function applyAdvanceResponse({
+  token,
   assistantId,
   reason,
   response,
@@ -252,6 +294,7 @@ async function applyAdvanceResponse({
   set,
   get,
 }: {
+  token: number;
   assistantId: string;
   reason: RadioAdvanceReason;
   response: RadioAdvanceResponse;
@@ -306,8 +349,8 @@ async function applyAdvanceResponse({
     status: "transitioning",
     displayCue: response.displayCue,
     segmentId: response.segmentId,
-    currentTrack: track,
-    nextTrack: null,
+    currentTrack: outgoingTrack,
+    nextTrack: track,
     djText: djBreak.text,
     setup: null,
     errorMessage: null,
@@ -319,6 +362,14 @@ async function applyAdvanceResponse({
     djBreak,
     nextTrack: track,
     playbackPlan,
+  });
+
+  if (!isCurrentAdvance(token) || get().status !== "transitioning") return;
+
+  set({
+    status: "playing",
+    currentTrack: track,
+    nextTrack: null,
   });
 }
 
@@ -363,7 +414,8 @@ const useRadioStoreBase = create<RadioStore>()((set, get) => ({
   },
 
   reset: () => {
-    controller = null;
+    resetRuntimeController();
+    invalidateAdvances();
     set({ ...INITIAL_STATE });
   },
 }));
