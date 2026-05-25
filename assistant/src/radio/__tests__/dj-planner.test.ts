@@ -51,7 +51,10 @@ const webFetchDefinition: ToolDefinition = {
   description: "Fetch a webpage",
   input_schema: {
     type: "object",
-    properties: { url: { type: "string" } },
+    properties: {
+      url: { type: "string" },
+      allow_private_network: { type: "boolean" },
+    },
     required: ["url"],
   },
 };
@@ -238,15 +241,31 @@ describe("planRadioDjBreak", () => {
 
   test("executes normal web_search tool_use blocks and feeds tool results into the next provider call", async () => {
     const controller = new AbortController();
+    const firstResponseContent: ContentBlock[] = [
+      {
+        type: "text",
+        text: "I should stay in the transcript before the tool call.",
+      },
+      {
+        type: "server_tool_use",
+        id: "srv_search",
+        name: "web_search",
+        input: { query: "server side search" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srv_search",
+        content: { status: "ok", encrypted_content: "opaque" },
+      },
+      {
+        type: "tool_use",
+        id: "toolu_search",
+        name: "web_search",
+        input: { query: "Phoenix sports tonight", count: 3 },
+      },
+    ];
     currentProvider = makeProvider([
-      providerResponse([
-        {
-          type: "tool_use",
-          id: "toolu_search",
-          name: "web_search",
-          input: { query: "Phoenix sports tonight", count: 3 },
-        },
-      ]),
+      providerResponse(firstResponseContent),
       providerResponse([
         {
           type: "text",
@@ -286,14 +305,7 @@ describe("planRadioDjBreak", () => {
     expect(secondCall[0].slice(-2)).toEqual([
       {
         role: "assistant",
-        content: [
-          {
-            type: "tool_use",
-            id: "toolu_search",
-            name: "web_search",
-            input: { query: "Phoenix sports tonight", count: 3 },
-          },
-        ],
+        content: firstResponseContent,
       },
       {
         role: "user",
@@ -306,6 +318,65 @@ describe("planRadioDjBreak", () => {
         ],
       },
     ]);
+  });
+
+  test("removes private-network web_fetch access and rejects attempts before execution", async () => {
+    currentProvider = makeProvider([
+      providerResponse([
+        {
+          type: "tool_use",
+          id: "toolu_fetch",
+          name: "web_fetch",
+          input: {
+            url: "http://127.0.0.1:7821/metadata",
+            allow_private_network: true,
+          },
+        },
+      ]),
+      providerResponse([
+        {
+          type: "text",
+          text: JSON.stringify({
+            nextTrackId: "buffer-bloom",
+            djText: "No private detours, just the next tune.",
+          }),
+        },
+      ]),
+    ]);
+
+    const result = await planRadioDjBreak(baseParams());
+
+    expect(result.nextTrackId).toBe("buffer-bloom");
+    expect(webFetchExecuteCalls).toHaveLength(0);
+
+    const firstCall = currentProvider.sendMessage.mock.calls[0] as Parameters<
+      Provider["sendMessage"]
+    >;
+    const djFacingFetchDefinition = firstCall[1]!.find(
+      (tool) => tool.name === "web_fetch",
+    )!;
+    expect(
+      Object.keys(djFacingFetchDefinition.input_schema.properties ?? {}),
+    ).not.toContain("allow_private_network");
+    expect(
+      Object.keys(webFetchDefinition.input_schema.properties ?? {}),
+    ).toContain("allow_private_network");
+
+    const secondCall = currentProvider.sendMessage.mock.calls[1] as Parameters<
+      Provider["sendMessage"]
+    >;
+    expect(secondCall[0].at(-1)).toEqual({
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: "toolu_fetch",
+          content:
+            "web_fetch allow_private_network is not available to the radio DJ.",
+          is_error: true,
+        },
+      ],
+    });
   });
 
   test("returns unexpected tool names as error tool results without executing them", async () => {

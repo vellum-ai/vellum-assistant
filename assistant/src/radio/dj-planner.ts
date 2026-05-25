@@ -113,7 +113,10 @@ export async function planRadioDjBreak(
   ];
   const searchTool = deps.webSearchTool ?? webSearchTool;
   const fetchTool = deps.webFetchTool ?? webFetchTool;
-  const tools = [searchTool.getDefinition(), fetchTool.getDefinition()];
+  const tools = [
+    cloneToolDefinition(searchTool.getDefinition()),
+    sanitizeWebFetchDefinition(fetchTool.getDefinition()),
+  ];
   const requestId = deps.createRequestId?.() ?? `radio-dj-${randomUUID()}`;
   const toolContext: ToolContext = {
     conversationId: "radio",
@@ -137,7 +140,7 @@ export async function planRadioDjBreak(
     );
 
     if (toolUses.length > 0) {
-      messages.push({ role: "assistant", content: toolUses });
+      messages.push({ role: "assistant", content: response.content });
       messages.push({
         role: "user",
         content: await Promise.all(
@@ -202,6 +205,19 @@ async function executeToolUse(
     toolContext: ToolContext;
   },
 ): Promise<ToolResultContent> {
+  if (
+    toolUse.name === "web_fetch" &&
+    toolUse.input.allow_private_network === true
+  ) {
+    return {
+      type: "tool_result",
+      tool_use_id: toolUse.id,
+      content:
+        "web_fetch allow_private_network is not available to the radio DJ.",
+      is_error: true,
+    };
+  }
+
   const tool = toolForName(toolUse.name, deps);
   if (!tool) {
     return {
@@ -236,6 +252,30 @@ function toolForName(
   if (name === "web_search") return deps.searchTool;
   if (name === "web_fetch") return deps.fetchTool;
   return null;
+}
+
+function cloneToolDefinition(definition: ToolDefinition): ToolDefinition {
+  return structuredClone(definition) as ToolDefinition;
+}
+
+function sanitizeWebFetchDefinition(
+  definition: ToolDefinition,
+): ToolDefinition {
+  const cloned = cloneToolDefinition(definition);
+  const inputSchema = cloned.input_schema;
+  if (!isRecord(inputSchema)) return cloned;
+
+  const properties = inputSchema.properties;
+  if (!isRecord(properties)) return cloned;
+
+  const { allow_private_network: _allowPrivateNetwork, ...safeProperties } =
+    properties;
+  inputSchema.properties = safeProperties;
+  return cloned;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function toolResultFromExecution(
