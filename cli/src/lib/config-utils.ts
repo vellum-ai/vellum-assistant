@@ -1,6 +1,31 @@
-import { writeFileSync } from "fs";
-import { tmpdir } from "os";
+import { existsSync, mkdirSync, writeFileSync } from "fs";
+import { homedir } from "os";
 import { join } from "path";
+
+/**
+ * Tmp dir for the hatch-time workspace-config overlay that gets bind-mounted
+ * into the assistant container.
+ *
+ * Why not `os.tmpdir()`? On macOS that resolves to `/var/folders/...`, which
+ * Colima's default virtiofs share does NOT expose to the Linux VM (only
+ * `/Users/...` is shared by default). Docker then bind-mounts a non-existent
+ * source — and on bind-mount-source-missing, Docker silently creates the
+ * destination inside the container as an empty directory. The daemon's
+ * overlay loader (`mergeDefaultWorkspaceConfig`) then hits EISDIR on
+ * `readFileSync`, returns `hadOverlay: false`, and the BYOK profile seeding
+ * silently skips — leaving fresh BYOK hatches on macOS Colima with
+ * `activeProfile=balanced` pointing at the unauthable `anthropic-managed`
+ * connection. First message then fails with HTTP 422
+ * `No API key configured for anthropic`.
+ *
+ * Anchoring under `$HOME/.vellum/run` keeps the file under the user's home
+ * (always virtiofs-shared on Colima) on every platform.
+ */
+function hatchOverlayTmpDir(): string {
+  const dir = join(homedir(), ".vellum", "run");
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  return dir;
+}
 
 /**
  * Convert flat dot-notation key=value pairs into a nested config object.
@@ -69,7 +94,7 @@ export function writeInitialConfig(
 
   const config = buildNestedConfig(configValues);
   const tempPath = join(
-    tmpdir(),
+    hatchOverlayTmpDir(),
     `vellum-default-workspace-config-${process.pid}-${Date.now()}.json`,
   );
   writeFileSync(tempPath, JSON.stringify(config, null, 2) + "\n");

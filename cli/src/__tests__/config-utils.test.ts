@@ -1,4 +1,6 @@
 import { readFileSync, rmSync } from "fs";
+import { homedir } from "os";
+import { join } from "path";
 import { describe, expect, test } from "bun:test";
 
 import {
@@ -60,6 +62,25 @@ describe("config-utils", () => {
   test("buildHatchConfigValues skips internal hatches without provider setup", () => {
     expect(buildHatchConfigValues({}, undefined)).toEqual({});
     expect(buildHatchConfigValues({}, null)).toEqual({});
+  });
+
+  test("writeInitialConfig anchors overlay under $HOME/.vellum/run (Colima virtiofs-shared)", () => {
+    // macOS Colima only virtiofs-shares the user's home dir by default.
+    // Anchoring outside $HOME (e.g. os.tmpdir() → /var/folders/...) makes
+    // the bind-mount source invisible to the VM; Docker then materializes
+    // the destination as an empty directory and the daemon's overlay
+    // loader trips on EISDIR. Keep the file under $HOME so the bind-mount
+    // works on every supported platform.
+    const path = writeInitialConfig({
+      "llm.default.provider": "anthropic",
+    });
+    expect(path).toBeDefined();
+    try {
+      const expectedPrefix = join(homedir(), ".vellum", "run") + "/";
+      expect(path!.startsWith(expectedPrefix)).toBe(true);
+    } finally {
+      if (path !== undefined) rmSync(path, { force: true });
+    }
   });
 
   test("writeInitialConfig does not add a mainAgent callSite for Anthropic defaults", () => {
