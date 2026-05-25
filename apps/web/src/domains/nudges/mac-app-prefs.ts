@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
 import {
-  computeNudgeSidebarVisible,
   readBooleanPref,
   writeBooleanPref,
   readNumberPref,
@@ -11,7 +10,6 @@ import {
 import {
   KEY_MAC_APP_DOWNLOADED,
   KEY_MAC_APP_BANNER_DISMISSED,
-  KEY_MAC_APP_SIDEBAR_DISMISSED,
   KEY_MAC_APP_ASSISTANT_TURNS_SEEN,
   MACOS_DOWNLOAD_URL,
 } from "@/domains/nudges/mac-app-constants.js";
@@ -36,14 +34,6 @@ function writeMacOsAppBannerDismissed(): void {
   writeBooleanPref(KEY_MAC_APP_BANNER_DISMISSED, true);
 }
 
-function readSidebarDismissed(): boolean {
-  return readBooleanPref(KEY_MAC_APP_SIDEBAR_DISMISSED, false);
-}
-
-function writeSidebarDismissed(): void {
-  writeBooleanPref(KEY_MAC_APP_SIDEBAR_DISMISSED, true);
-}
-
 export function readMacOsAssistantTurnsSeen(): number {
   return readNumberPref(KEY_MAC_APP_ASSISTANT_TURNS_SEEN, 0);
 }
@@ -60,19 +50,15 @@ export function incrementMacOsAssistantTurnsSeen(delta = 1): void {
 
 export function useMacOsNudgeState(): {
   bannerShouldShow: boolean;
-  sidebarEntryVisible: boolean;
   handleDownload: () => void;
   handleBannerDismiss: () => void;
-  handleSidebarDismiss: () => void;
 } {
   const [downloaded, setDownloaded] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
-  const [sidebarDismissed, setSidebarDismissed] = useState(false);
 
   useEffect(() => {
     setDownloaded(readMacOsAppDownloaded());
     setBannerDismissed(readMacOsAppBannerDismissed());
-    setSidebarDismissed(readSidebarDismissed());
   }, []);
 
   const handleDownload = useCallback(() => {
@@ -86,21 +72,10 @@ export function useMacOsNudgeState(): {
     setBannerDismissed(true);
   }, []);
 
-  const handleSidebarDismiss = useCallback(() => {
-    writeSidebarDismissed();
-    setSidebarDismissed(true);
-  }, []);
-
   return {
     bannerShouldShow: !downloaded && !bannerDismissed,
-    sidebarEntryVisible: computeNudgeSidebarVisible({
-      converted: downloaded,
-      bannerDismissed,
-      sidebarDismissed,
-    }),
     handleDownload,
     handleBannerDismiss,
-    handleSidebarDismiss,
   };
 }
 
@@ -123,6 +98,4 @@ export const __testing = {
   writeNumberPref,
   readMacOsAppBannerDismissed,
   writeMacOsAppBannerDismissed,
-  readSidebarDismissed,
-  writeSidebarDismissed,
 };

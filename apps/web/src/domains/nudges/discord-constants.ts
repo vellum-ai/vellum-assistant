@@ -5,10 +5,6 @@ export const KEY_DISCORD_NUDGE_JOINED = "app.discordNudge.joined";
 export const KEY_DISCORD_NUDGE_BANNER_DISMISSED =
   "app.discordNudge.bannerDismissed";
 
-/** localStorage key: user dismissed the sidebar nudge entry. */
-export const KEY_DISCORD_NUDGE_SIDEBAR_DISMISSED =
-  "app.discordNudge.sidebarDismissed";
-
 /**
  * localStorage key: epoch-ms timestamp of the first page load observed
  * by the Discord nudge module. Used to derive "account age" without a

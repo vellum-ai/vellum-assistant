@@ -132,7 +132,6 @@ export function ChatPage() {
     setTopBarCenter,
     setTopBarRightSlot,
     setOnSearchClick,
-    setFooterBanner,
   } = useAssistantContext();
   const chatPullToRefreshEnabled = useClientFeatureFlagStore.use.chatPullToRefreshEnabled();
   const deployToVercel = useAssistantFeatureFlagStore.use.deployToVercel();
@@ -1254,14 +1253,6 @@ export function ChatPage() {
       .catch(() => {});
     return () => { controller.abort(); };
   }, [messages, assistantId, activeConversationId, setSuggestion]);
-
-  // -------------------------------------------------------------------------
-  // Nudge sidebar footer banner — push into the layout via outlet context
-  // -------------------------------------------------------------------------
-  useEffect(() => {
-    setFooterBanner(nudges.sidebarBanner);
-    return () => { setFooterBanner(null); };
-  }, [nudges.sidebarBanner, setFooterBanner]);
 
   // -------------------------------------------------------------------------
   // Derived UI state

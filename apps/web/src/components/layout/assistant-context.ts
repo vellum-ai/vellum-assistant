@@ -37,7 +37,6 @@ export interface AssistantContextValue {
   setTopBarCenter: (node: ReactNode) => void;
   setTopBarRightSlot: (node: ReactNode) => void;
   setOnSearchClick: (cb: (() => void) | null) => void;
-  setFooterBanner: (node: ReactNode) => void;
 }
 
 export function useAssistantContext(): AssistantContextValue {

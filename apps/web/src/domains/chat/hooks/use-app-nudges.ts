@@ -1,10 +1,6 @@
-import { createElement, type MutableRefObject, type ReactNode, useEffect, useMemo, useState } from "react";
+import { type MutableRefObject, useEffect, useState } from "react";
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
-import { DiscordNudgeSidebarEntry } from "@/domains/nudges/components/discord-nudge-sidebar-entry.js";
-import { GitHubNudgeSidebarEntry } from "@/domains/nudges/components/github-nudge-sidebar-entry.js";
-import { MacOSAppSidebarEntry } from "@/domains/nudges/components/macos-app-sidebar-entry.js";
-import { IOSAppSidebarEntry } from "@/domains/nudges/components/ios-app-sidebar-entry.js";
 import { useIsIOSWeb } from "@/domains/nudges/ios-app-platform.js";
 import {
   readIOSAssistantTurnsSeen,
@@ -30,10 +26,8 @@ import type { DiscordNudgeState } from "@/domains/nudges/discord-prefs.js";
 
 interface PlatformNudgeState {
   bannerShouldShow: boolean;
-  sidebarEntryVisible: boolean;
   handleDownload: () => void;
   handleBannerDismiss: () => void;
-  handleSidebarDismiss: () => void;
 }
 
 /**
@@ -61,15 +55,10 @@ export interface AppNudgesState {
   /** GitHub star nudge state and handlers. */
   githubNudge: GitHubNudgeState;
   showGitHubBanner: boolean;
-  showGitHubSidebar: boolean;
 
   /** Discord community nudge state and handlers. */
   discordNudge: DiscordNudgeState;
   showDiscordBanner: boolean;
-  showDiscordSidebar: boolean;
-
-  /** Pre-composed sidebar footer banner node, or null when none should show. */
-  sidebarBanner: ReactNode;
 }
 
 // ---------------------------------------------------------------------------
@@ -154,12 +143,9 @@ export function useAppNudges(
   // -------------------------------------------------------------------------
   const githubNudge = useGitHubNudgeState();
   const platformNudgeResolved =
-    !isOnNudgePlatform ||
-    (!nudge.bannerShouldShow && !nudge.sidebarEntryVisible);
+    !isOnNudgePlatform || !nudge.bannerShouldShow;
   const showGitHubBanner =
     platformNudgeResolved && githubNudge.bannerShouldShow;
-  const showGitHubSidebar =
-    platformNudgeResolved && githubNudge.sidebarEntryVisible;
 
   // -------------------------------------------------------------------------
   // Discord community nudge — only after GitHub nudge is resolved
@@ -174,34 +160,6 @@ export function useAppNudges(
   );
   const showDiscordBanner =
     !showBanner && !showGitHubBanner && discordNudge.bannerShouldShow;
-  const showDiscordSidebar =
-    !showGitHubSidebar && discordNudge.sidebarEntryVisible;
-
-  const sidebarBanner = useMemo<ReactNode>(() => {
-    if (nudge.sidebarEntryVisible) {
-      return isOnIOS
-        ? createElement(IOSAppSidebarEntry, { onDownload: nudge.handleDownload, onDismiss: nudge.handleSidebarDismiss })
-        : createElement(MacOSAppSidebarEntry, { onDownload: nudge.handleDownload, onDismiss: nudge.handleSidebarDismiss });
-    }
-    if (showGitHubSidebar) {
-      return createElement(GitHubNudgeSidebarEntry, { onStar: githubNudge.handleStar, onDismiss: githubNudge.handleSidebarDismiss });
-    }
-    if (showDiscordSidebar) {
-      return createElement(DiscordNudgeSidebarEntry, { onJoin: discordNudge.handleJoin, onDismiss: discordNudge.handleSidebarDismiss });
-    }
-    return null;
-  }, [
-    isOnIOS,
-    nudge.sidebarEntryVisible,
-    nudge.handleDownload,
-    nudge.handleSidebarDismiss,
-    showGitHubSidebar,
-    githubNudge.handleStar,
-    githubNudge.handleSidebarDismiss,
-    showDiscordSidebar,
-    discordNudge.handleJoin,
-    discordNudge.handleSidebarDismiss,
-  ]);
 
   return {
     isOnIOS,
@@ -211,10 +169,7 @@ export function useAppNudges(
     showBanner,
     githubNudge,
     showGitHubBanner,
-    showGitHubSidebar,
     discordNudge,
     showDiscordBanner,
-    showDiscordSidebar,
-    sidebarBanner,
   };
 }

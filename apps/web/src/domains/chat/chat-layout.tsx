@@ -194,7 +194,6 @@ export function ChatLayout() {
   // --- Layout slot state for child route content ---
   const [topBarCenter, setTopBarCenter] = useState<ReactNode>(null);
   const [topBarRightSlot, setTopBarRightSlot] = useState<ReactNode>(null);
-  const [footerBanner, setFooterBanner] = useState<ReactNode>(null);
   const onSearchClickRef = useRef<(() => void) | null>(null);
   const setOnSearchClick = useCallback((cb: (() => void) | null) => {
     onSearchClickRef.current = cb;
@@ -216,7 +215,6 @@ export function ChatLayout() {
       setTopBarCenter,
       setTopBarRightSlot,
       setOnSearchClick,
-      setFooterBanner,
     }),
     [
       lifecycle.assistantId,
@@ -227,7 +225,6 @@ export function ChatLayout() {
       lifecycle.setAssistantId,
       lifecycle.autoGreetRef,
       setOnSearchClick,
-      setFooterBanner,
     ],
   );
 
@@ -528,7 +525,6 @@ export function ChatLayout() {
         onRenameGroup={handleRenameGroup}
         onDeleteGroup={handleDeleteGroup}
         onInspect={showLlmInspector ? handleInspectConversation : undefined}
-        footerBanner={footerBanner}
         footerAction={
           <PreferencesMenu
             assistantId={lifecycle.assistantId}
@@ -567,7 +563,6 @@ export function ChatLayout() {
       handleOpenLibrary,
       showLlmInspector,
       handleInspectConversation,
-      footerBanner,
     ],
   );
 

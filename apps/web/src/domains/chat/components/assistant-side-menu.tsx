@@ -52,7 +52,6 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onOpenApp?: (appId: string) => void;
   activeAppId?: string;
   onStartNewConversation?: () => void;
-  footerBanner?: ReactNode;
   footerAction?: ReactNode;
   onClose?: () => void;
   onSearchClick?: () => void;
@@ -110,7 +109,6 @@ export function AssistantSideMenu({
   onOpenApp,
   activeAppId,
   onStartNewConversation,
-  footerBanner,
   footerAction,
   onPinConversation,
   onRenameConversation,
@@ -500,9 +498,8 @@ export function AssistantSideMenu({
         )}
       </SideMenu.Body>
 
-      {(footerBanner || footerAction) ? (
+      {footerAction ? (
         <SideMenu.Footer>
-          {collapsed ? null : footerBanner}
           <SideMenu.Separator />
           {footerAction}
         </SideMenu.Footer>
