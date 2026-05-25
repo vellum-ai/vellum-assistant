@@ -504,6 +504,7 @@ export const MemoryV3ConfigSchema = z
             error: "memory.v3.write.consolidateIntervalMs must be a number",
           })
           .int("memory.v3.write.consolidateIntervalMs must be an integer")
+          .positive("memory.v3.write.consolidateIntervalMs must be positive")
           .default(3600000)
           .describe(
             "Interval, in milliseconds, between scheduled v3 consolidation runs once the v3 write path owns the drain. Default 1 hour.",

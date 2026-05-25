@@ -316,6 +316,24 @@ describe("MemoryV3ConfigSchema", () => {
       MemoryV3ConfigSchema.parse({ write: { consolidateIntervalMs: 1.5 } }),
     ).toThrow();
   });
+
+  test("rejects a non-positive write.consolidateIntervalMs", () => {
+    // 0 or negative would make the scheduler's `now - lastRun >= interval`
+    // check always true, flooding the queue with consolidation jobs.
+    expect(() =>
+      MemoryV3ConfigSchema.parse({ write: { consolidateIntervalMs: 0 } }),
+    ).toThrow();
+    expect(() =>
+      MemoryV3ConfigSchema.parse({ write: { consolidateIntervalMs: -1000 } }),
+    ).toThrow();
+  });
+
+  test("accepts a positive write.consolidateIntervalMs override", () => {
+    const parsed = MemoryV3ConfigSchema.parse({
+      write: { consolidateIntervalMs: 1800000 },
+    });
+    expect(parsed.write.consolidateIntervalMs).toBe(1800000);
+  });
 });
 
 describe("MemoryConfigSchema integration with v3 block", () => {
