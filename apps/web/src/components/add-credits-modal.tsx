@@ -1,6 +1,6 @@
 
 import { AlertCircle, CreditCard, Loader2 } from "lucide-react";
-import { useLocation, useSearchParams } from "react-router";
+import { Link, useLocation, useSearchParams } from "react-router";
 import { useEffect, useState } from "react";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -156,6 +156,14 @@ export function AddCreditsModal({ open, onOpenChange }: AddCreditsModalProps) {
                 {extractCheckoutError(checkoutMutation.error)}
               </div>
             )}
+
+            <Link
+              to="/assistant/settings/billing"
+              className="text-body-small-default text-[var(--content-tertiary)] underline hover:text-[var(--content-secondary)]"
+              onClick={() => onOpenChange(false)}
+            >
+              Configure Automatic Top-Ups →
+            </Link>
           </div>
         </Modal.Body>
 

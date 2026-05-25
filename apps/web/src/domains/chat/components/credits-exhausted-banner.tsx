@@ -10,10 +10,10 @@ export function CreditsExhaustedBanner({
 }: CreditsExhaustedBannerProps) {
   return (
     <BillingErrorBanner
-      ariaLabel="Your balance has run out"
+      ariaLabel="Your credit balance has run out"
       icon={<span style={{ fontSize: "1.25rem" }}>💰</span>}
-      title="Your balance has run out"
-      subtitle="Add funds to pick up where you left off."
+      title="Your credit balance has run out"
+      subtitle="Purchase additional credits to pick up where you left off."
       ctaLabel="Add Funds"
       onAction={onAddFunds}
     />
