@@ -79,6 +79,7 @@ export class RadioAudioController {
   private currentEndedListener: (() => void) | null = null;
   private currentTimeupdateListener: (() => void) | null = null;
   private disposed = false;
+  private pausedByUser = false;
   private operationGeneration = 0;
   private readonly pendingRampFrames = new Set<number>();
 
@@ -116,16 +117,22 @@ export class RadioAudioController {
     await audio.play();
     if (!this.isActiveOperation(operationToken)) {
       audio.pause();
+      return;
+    }
+    if (this.pausedByUser) {
+      audio.pause();
     }
   }
 
   pause(): void {
+    this.pausedByUser = true;
     this.outgoingAudio?.pause();
     this.currentAudio?.pause();
     this.djAudio?.pause();
   }
 
   async resume(): Promise<void> {
+    this.pausedByUser = false;
     if (this.currentAudio?.paused !== false) {
       await this.currentAudio?.play();
     }
@@ -162,6 +169,11 @@ export class RadioAudioController {
       nextAudio.pause();
       return;
     }
+    if (this.pausedByUser) {
+      djAudio.pause();
+      this.attachNextTrackPaused(nextAudio, params.nextTrack);
+      return;
+    }
 
     this.detachCurrentAudioListeners();
     this.currentAudio = nextAudio;
@@ -173,11 +185,17 @@ export class RadioAudioController {
       nextAudio.pause();
       return;
     }
+    if (this.pausedByUser) {
+      nextAudio.volume = 1;
+      nextAudio.pause();
+      return;
+    }
     this.rampVolume(nextAudio, 1, this.rampDurationMs);
   }
 
   dispose(): void {
     this.disposed = true;
+    this.pausedByUser = false;
     this.operationGeneration += 1;
     this.cancelPendingRamps();
     this.detachCurrentAudioListeners();
@@ -192,6 +210,7 @@ export class RadioAudioController {
 
   private beginOperation(): number {
     this.disposed = false;
+    this.pausedByUser = false;
     this.operationGeneration += 1;
     return this.operationGeneration;
   }
@@ -205,6 +224,19 @@ export class RadioAudioController {
     this.currentEndedListener = () => this.handleEnded();
     audio.addEventListener?.("timeupdate", this.currentTimeupdateListener);
     audio.addEventListener?.("ended", this.currentEndedListener);
+  }
+
+  private attachNextTrackPaused(
+    audio: RadioAudioLike,
+    track: ResolvedRadioTrack,
+  ): void {
+    this.detachCurrentAudioListeners();
+    this.currentAudio = audio;
+    this.currentTrack = track;
+    this.hasFiredTrackEnding = false;
+    this.attachCurrentAudioListeners(audio);
+    audio.volume = 1;
+    audio.pause();
   }
 
   private detachCurrentAudioListeners(): void {
