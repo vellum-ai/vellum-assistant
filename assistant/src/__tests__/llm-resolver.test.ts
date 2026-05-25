@@ -2,7 +2,10 @@ import { describe, expect, test } from "bun:test";
 
 import { z } from "zod";
 
-import { resolveCallSiteConfig, resolveDefaultProfileKey } from "../config/llm-resolver.js";
+import {
+  resolveCallSiteConfig,
+  resolveDefaultProfileKey,
+} from "../config/llm-resolver.js";
 import { type LLMCallSite, LLMSchema } from "../config/schemas/llm.js";
 
 const fullDefault = {
@@ -690,13 +693,28 @@ describe("resolveCallSiteConfig", () => {
     });
 
     const callSites: LLMCallSite[] = [
-      "mainAgent", "subagentSpawn", "heartbeatAgent", "filingAgent",
-      "compactionAgent", "analyzeConversation", "callAgent",
-      "memoryExtraction", "memoryConsolidation", "memoryRetrieval",
-      "memoryRouter", "recall", "conversationSummarization",
-      "commitMessage", "conversationStarters", "replySuggestion",
-      "conversationTitle", "identityIntro", "emptyStateGreeting",
-      "notificationDecision", "interactionClassifier", "inference",
+      "mainAgent",
+      "subagentSpawn",
+      "heartbeatAgent",
+      "filingAgent",
+      "compactionAgent",
+      "analyzeConversation",
+      "callAgent",
+      "memoryExtraction",
+      "memoryConsolidation",
+      "memoryRetrieval",
+      "memoryRouter",
+      "recall",
+      "conversationSummarization",
+      "commitMessage",
+      "conversationStarters",
+      "replySuggestion",
+      "conversationTitle",
+      "identityIntro",
+      "emptyStateGreeting",
+      "notificationDecision",
+      "interactionClassifier",
+      "inference",
     ];
 
     for (const cs of callSites) {
@@ -778,7 +796,10 @@ describe("resolveCallSiteConfig", () => {
         provider_connection: "anthropic-managed",
       },
       profiles: {
-        fireworks: { provider: "fireworks", model: "accounts/fireworks/models/kimi-k2p5" },
+        fireworks: {
+          provider: "fireworks",
+          model: "accounts/fireworks/models/kimi-k2p5",
+        },
       },
       activeProfile: "fireworks",
     });
@@ -871,6 +892,53 @@ describe("resolveDefaultProfileKey", () => {
     });
     expect(resolveDefaultProfileKey("filingAgent", llm)).toBe(
       "custom-cost-optimized",
+    );
+  });
+});
+
+describe("memory v3 call sites resolve through the standard resolver", () => {
+  const llm = LLMSchema.parse({
+    default: fullDefault,
+    profiles: {
+      balanced: { provider: "anthropic", model: "claude-sonnet-4-7" },
+      "cost-optimized": {
+        provider: "anthropic",
+        model: "claude-haiku-4-5-20251001",
+      },
+    },
+  });
+
+  test("memoryV3Filter and memoryV3Descent resolve to the cost-optimized profile", () => {
+    expect(resolveDefaultProfileKey("memoryV3Filter", llm)).toBe(
+      "cost-optimized",
+    );
+    expect(resolveDefaultProfileKey("memoryV3Descent", llm)).toBe(
+      "cost-optimized",
+    );
+    expect(resolveCallSiteConfig("memoryV3Filter", llm).model).toBe(
+      "claude-haiku-4-5-20251001",
+    );
+    expect(resolveCallSiteConfig("memoryV3Descent", llm).model).toBe(
+      "claude-haiku-4-5-20251001",
+    );
+  });
+
+  test("memoryV3Gate resolves to the balanced (capable) profile", () => {
+    expect(resolveDefaultProfileKey("memoryV3Gate", llm)).toBe("balanced");
+    expect(resolveCallSiteConfig("memoryV3Gate", llm).model).toBe(
+      "claude-sonnet-4-7",
+    );
+  });
+
+  test("v3 call sites are addressable as call-site override keys", () => {
+    const overridden = LLMSchema.parse({
+      default: fullDefault,
+      callSites: {
+        memoryV3Gate: { model: "claude-opus-4-7" },
+      },
+    });
+    expect(resolveCallSiteConfig("memoryV3Gate", overridden).model).toBe(
+      "claude-opus-4-7",
     );
   });
 });

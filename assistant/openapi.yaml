@@ -11704,6 +11704,48 @@ paths:
               type: object
               properties: {}
               additionalProperties: false
+  /v1/memory/v3/tree:
+    post:
+      operationId: memory_v3_tree_post
+      summary: Return a serializable view of the memory v3 tree DAG (read-only)
+      description:
+        Returns the v3 tree root id plus every node and its ordered child refs (page:/node:) as a JSON-serializable
+        projection of the in-memory TreeIndex. Read-only; the CLI uses it to print an indented tree with shared-DAG
+        re-entries marked.
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: {}
+              additionalProperties: false
+  /v1/memory/v3/validate:
+    post:
+      operationId: memory_v3_validate_post
+      summary: Validate the memory v3 tree structure (read-only)
+      description:
+        Read-only structural validation of the hand-authored v3 tree DAG. Reports dangling child refs, orphan
+        pages, cycles, stale compositional indexes, and unknown edge targets. Writes nothing and runs no LLM — operators
+        dry-run it while the v2 → v3 migration is in flight.
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: {}
+              additionalProperties: false
   /v1/messages:
     get:
       operationId: messages_get

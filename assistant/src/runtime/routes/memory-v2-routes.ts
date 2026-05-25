@@ -24,6 +24,7 @@ import {
   validateEdgeTargets,
 } from "../../memory/v2/edge-index.js";
 import { runComparisonOverHistory } from "../../memory/v2/harness/compare.js";
+import type { Retriever } from "../../memory/v2/harness/retriever.js";
 import { createRouterRetriever } from "../../memory/v2/harness/router-retriever.js";
 import type { ComparisonReport } from "../../memory/v2/harness/runner.js";
 import { computeInjectionScores } from "../../memory/v2/injection-events.js";
@@ -38,6 +39,7 @@ import {
 import { ROUTER_PROMPT } from "../../memory/v2/prompts/router.js";
 import { type RouterSource, runRouter } from "../../memory/v2/router.js";
 import { seedV2SkillEntries } from "../../memory/v2/skill-store.js";
+import { createV3Retriever } from "../../memory/v3/retriever.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { RouteError } from "./errors.js";
@@ -637,11 +639,20 @@ export async function handleCompareRetrievers({
   const pageIndex = await getPageIndex(workspaceDir);
   const db = getDb();
 
+  // The router is always comparand #1 (the harness self-test against its own
+  // logged ground truth). v3 joins as comparand #2 only when explicitly
+  // enabled, so the default compare surface is unchanged until v3 is switched
+  // on. v3 is offline-only here — the loop reads `db` but mutates nothing.
+  const retrievers: Retriever[] = [createRouterRetriever(db)];
+  if (config.memory.v3.enabled) {
+    retrievers.push(createV3Retriever(db));
+  }
+
   return runComparisonOverHistory({
     db,
     workspaceDir,
     config,
-    retrievers: [createRouterRetriever(db)],
+    retrievers,
     ks: ks ?? DEFAULT_COMPARE_KS,
     limit: limit ?? DEFAULT_COMPARE_LIMIT,
     pageExists: (slug) => pageIndex.bySlug.has(slug),
