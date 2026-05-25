@@ -15,6 +15,7 @@ let plannerCalls: Array<Record<string, unknown>>;
 let ttsResult: RadioDjBreak;
 let ttsError: Error | null;
 let ttsCalls: Array<{ text: string; signal?: AbortSignal }>;
+let ttsDelayQueue: Array<Promise<void>>;
 let failingReadFilePath: string | null;
 
 class MockRadioTtsSetupRequiredError extends Error {
@@ -43,8 +44,12 @@ mock.module("../../../radio/radio-tts.js", () => ({
   RADIO_TTS_SETTINGS_PATH: "/assistant/settings/ai",
   synthesizeRadioDjBreak: async (text: string, signal?: AbortSignal) => {
     ttsCalls.push({ text, signal });
-    if (ttsError) throw ttsError;
-    return ttsResult;
+    const result = ttsResult;
+    const error = ttsError;
+    const delay = ttsDelayQueue.shift();
+    if (delay) await delay;
+    if (error) throw error;
+    return result;
   },
   isRadioTtsSetupRequiredError: (error: unknown) =>
     error instanceof MockRadioTtsSetupRequiredError,
@@ -83,6 +88,25 @@ function expectClientTrackResponse(track: unknown, expectedAudioPath: string) {
   expect(String(record.audioPath).startsWith("/")).toBe(false);
 }
 
+function createDeferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve: () => void = () => {};
+  const promise = new Promise<void>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
+async function waitForTtsCallCount(count: number): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (ttsCalls.length >= count) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
+  expect(ttsCalls).toHaveLength(count);
+}
+
 const softLaunch = getRadioTrack("soft-launch")!;
 const bufferBloom = getRadioTrack("buffer-bloom")!;
 const neonPostcard = getRadioTrack("neon-postcard")!;
@@ -105,6 +129,7 @@ describe("radio routes", () => {
     };
     ttsError = null;
     ttsCalls = [];
+    ttsDelayQueue = [];
     failingReadFilePath = null;
   });
 
@@ -296,6 +321,78 @@ describe("radio routes", () => {
     });
     expect(plannerCalls).toHaveLength(1);
     expect(ttsCalls).toHaveLength(1);
+  });
+
+  test("older in-flight advances cannot commit after a newer request starts", async () => {
+    const route = getRoute("radio/advance", "POST");
+    const start = (await route.handler({
+      body: { reason: "start" },
+    })) as { segmentId: string };
+    const firstDelay = createDeferred();
+    ttsDelayQueue.push(firstDelay.promise);
+
+    const firstResponsePromise = route.handler({
+      body: {
+        reason: "song_ended",
+        segmentId: start.segmentId,
+        currentTrackId: softLaunch.id,
+        recentTrackIds: [softLaunch.id],
+      },
+    });
+    await waitForTtsCallCount(1);
+
+    plannerResult = {
+      nextTrackId: neonPostcard.id,
+      nextTrack: neonPostcard,
+      djText: "Neon Postcard is pulling into the tiny tower.",
+    };
+    ttsResult = {
+      text: "Neon Postcard is pulling into the tiny tower.",
+      audioId: "audio-456",
+      audioPath: "audio/audio-456",
+      contentType: "audio/mpeg",
+    };
+    const secondDelay = createDeferred();
+    ttsDelayQueue.push(secondDelay.promise);
+
+    const secondResponsePromise = route.handler({
+      body: {
+        reason: "skip",
+        segmentId: start.segmentId,
+        currentTrackId: softLaunch.id,
+        recentTrackIds: [softLaunch.id],
+      },
+    });
+    await waitForTtsCallCount(2);
+
+    firstDelay.resolve();
+    const firstResponse = await firstResponsePromise;
+    expect(firstResponse).toMatchObject({
+      segmentId: start.segmentId,
+      displayCue: "song",
+      track: { id: softLaunch.id },
+    });
+
+    secondDelay.resolve();
+    const secondResponse = await secondResponsePromise;
+    expect(secondResponse).toMatchObject({
+      displayCue: "transition",
+      track: { id: neonPostcard.id },
+      djBreak: {
+        audioPath: "audio/audio-456",
+      },
+    });
+
+    const staleResponse = await route.handler({
+      body: { reason: "retry", segmentId: start.segmentId },
+    });
+    expect(staleResponse).toMatchObject({
+      segmentId: (secondResponse as { segmentId: string }).segmentId,
+      displayCue: "song",
+      track: { id: neonPostcard.id },
+    });
+    expect(plannerCalls).toHaveLength(2);
+    expect(ttsCalls).toHaveLength(2);
   });
 
   test("track route returns WAV bytes and immutable cache headers", async () => {
