@@ -112,7 +112,6 @@ import type {
   DisplayAttachment,
   DisplayMessage,
 } from "@/domains/chat/utils/reconcile";
-import { RadioComposerPill } from "@/domains/radio/radio-composer-pill";
 
 import { buildTranscriptItems } from "@/domains/chat/transcript/build-items";
 import { sanitizeDisplayMessages } from "@/domains/chat/utils/sanitize-display-messages";
@@ -323,6 +322,7 @@ export interface ChatRouteContentProps {
   chatPullToRefreshEnabled: boolean;
   deployToVercel: boolean;
   doctor: boolean;
+  renderRadioSlot?: (assistantId: string) => ReactNode;
 
   // Platform
   isMobile: boolean;
@@ -456,6 +456,7 @@ export function ChatRouteContent({
   chatPullToRefreshEnabled,
   deployToVercel,
   doctor: doctorEnabled,
+  renderRadioSlot,
   isMobile,
   messages,
   setMessages: _setMessages,
@@ -1441,9 +1442,12 @@ export function ChatRouteContent({
       : undefined,
     textareaMaxHeightPx: isEmptyConversation ? 320 : undefined,
     radioSlot:
-      assistantRadio && assistantId && mainView !== "app-editing" ? (
-        <RadioComposerPill assistantId={assistantId} />
-      ) : undefined,
+      assistantRadio &&
+      assistantId &&
+      mainView !== "app-editing" &&
+      renderRadioSlot
+        ? renderRadioSlot(assistantId)
+        : undefined,
     thresholdPickerSlot: assistantId ? (
       <ComposerSettingsMenu
         assistantId={assistantId}

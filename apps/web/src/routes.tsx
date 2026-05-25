@@ -13,7 +13,24 @@ import { NotFound } from "@/components/not-found";
 import { RouteErrorBoundary } from "@/components/route-error-boundary";
 import { RootHydrateFallback } from "@/components/root-hydrate-fallback";
 import { ActiveAssistantGate } from "@/components/layout/active-assistant-gate";
+import { RadioComposerPill } from "@/domains/radio/radio-composer-pill";
 import { routes } from "@/utils/routes";
+
+function renderRadioSlot(assistantId: string) {
+  return <RadioComposerPill assistantId={assistantId} />;
+}
+
+function RadioConversationRedirect() {
+  return (
+    <ConversationRedirect
+      renderChatPage={() => <ChatPage renderRadioSlot={renderRadioSlot} />}
+    />
+  );
+}
+
+function RadioChatPage() {
+  return <ChatPage renderRadioSlot={renderRadioSlot} />;
+}
 
 /**
  * Redirects legacy `/account/oauth/desktop-complete` to the canonical
@@ -209,8 +226,8 @@ export const router = createBrowserRouter(
             // (loading screens, hatching, version-selection, errors) and
             // must render in every assistant state — they are NOT placed
             // under <ActiveAssistantGate>.
-            { index: true, Component: ConversationRedirect },
-            { path: "conversations/:conversationId", Component: ChatPage },
+            { index: true, Component: RadioConversationRedirect },
+            { path: "conversations/:conversationId", Component: RadioChatPage },
             { path: "documents/:surfaceId", lazy: { Component: () => import("@/domains/chat/document-viewer-page").then((m) => m.DocumentViewerPage) } },
             // Everything below requires a resolved assistantId AND an
             // active daemon. The gate defers child rendering until the
