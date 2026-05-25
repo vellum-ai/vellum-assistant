@@ -40,6 +40,7 @@ import { dirname, join, relative, sep } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 import { FRONTMATTER_REGEX } from "../../skills/frontmatter.js";
+import { invalidateTreeIndex } from "./tree-index.js";
 import { type TreeNode, TreeNodeFrontmatterSchema } from "./types.js";
 
 /** Filename suffix for tree nodes. */
@@ -296,6 +297,7 @@ export async function writeNode(
     await rm(tmpPath, { force: true }).catch(() => {});
     throw err;
   }
+  invalidateTreeIndex(workspaceDir);
 }
 
 /**
@@ -367,4 +369,5 @@ export async function deleteNode(
     }
     throw err;
   }
+  invalidateTreeIndex(workspaceDir);
 }
