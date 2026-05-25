@@ -39,7 +39,6 @@ import type {
 } from "@/domains/chat/types/chat-ui-types.js";
 import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics.js";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
-import { sanitizeDisplayMessages } from "@/domains/chat/utils/sanitize-display-messages.js";
 import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation.js";
 import {
   classifyScrollPosition,
@@ -302,6 +301,13 @@ const CHAT_NS = "chat";
 export interface ChatDebugRefs {
   messagesRef: MutableRefObject<DisplayMessage[]>;
   /**
+   * Post-`sanitizeDisplayMessages` snapshot — exactly what the transcript
+   * renders. Populated by `chat-route-content.tsx` right after the render
+   * boundary `useMemo`. `tail()` reads from this so DevTools mirrors the
+   * UI without re-running the sanitize pipeline.
+   */
+  sanitizedMessagesRef: MutableRefObject<DisplayMessage[]>;
+  /**
    * Ref to the mounted `<Transcript />` imperative handle. Used by
    * {@link ChatDebugApi.getScrollState} to read scroll geometry directly
    * from the DOM. `current` is null when no chat route is mounted.
@@ -380,13 +386,9 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
       Number.isFinite(limit) && limit > 0
         ? Math.floor(limit)
         : DEFAULT_TAIL_LIMIT;
-    // Sanitize so `tail()` returns the same array the UI ends up rendering
-    // (the chat-route render path also pipes `messages` through
-    // `sanitizeDisplayMessages`). Without this we'd surface trailing
-    // duplicates / blank rows that the UI is intentionally filtering out,
-    // which would be misleading when triaging "why does my chat look like X"
-    // reports.
-    const messages = sanitizeDisplayMessages(refs.messagesRef.current ?? []);
+    // Read straight from the post-sanitization snapshot the render path
+    // already wrote. `tail()` is now logic-free — same array the UI iterates.
+    const messages = refs.sanitizedMessagesRef.current ?? [];
     const startIndex = Math.max(0, messages.length - safeLimit);
     return messages.slice(startIndex);
   }
@@ -618,7 +620,7 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
     const lines = [
       "window._vellumDebug.chat — surgical chat debug API",
       "",
-      "  .tail(n?)                  last N DisplayMessage[] from messagesRef — raw UI shape",
+      "  .tail(n?)                  last N DisplayMessage[] the UI is rendering",
       "  .thinkingIndicator()       live evaluation of the `...` predicate + done signal",
       "                              .visible / .failingConditions tell you why dots are or aren't showing",
       "                              .done.terminal / .done.lastTerminalReason tell you if the turn is finished",
@@ -729,6 +731,7 @@ export function useChatDebugApi(refs: ChatDebugRefs): void {
   useEffect(() => {
     const stableRefs: ChatDebugRefs = {
       messagesRef: refs.messagesRef,
+      sanitizedMessagesRef: refs.sanitizedMessagesRef,
       transcriptRef: refs.transcriptRef,
       streamContextRef: refs.streamContextRef,
       streamRef: refs.streamRef,

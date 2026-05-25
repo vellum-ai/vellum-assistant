@@ -98,6 +98,7 @@ function makeRefs(
   };
   return {
     messagesRef: { current: [] } as MutableRefObject<DisplayMessage[]>,
+    sanitizedMessagesRef: { current: [] } as MutableRefObject<DisplayMessage[]>,
     transcriptRef: { current: null as TranscriptHandle | null },
     streamContextRef: { current: null } as MutableRefObject<{
       assistantId: string;
@@ -125,7 +126,7 @@ function makeRefs(
 // ---------------------------------------------------------------------------
 
 describe("createChatDebugApi.tail", () => {
-  test("empty messagesRef → empty tail", () => {
+  test("empty sanitizedMessagesRef → empty tail", () => {
     const api = createChatDebugApi(makeRefs());
     const result = api.tail();
     expect(result).toEqual([]);
@@ -133,10 +134,10 @@ describe("createChatDebugApi.tail", () => {
 
   test("returns the underlying DisplayMessage objects untouched", () => {
     const message = fakeDisplayMessage({ content: "hello world" });
-    const messagesRef = {
+    const sanitizedMessagesRef = {
       current: [message],
     } as MutableRefObject<DisplayMessage[]>;
-    const api = createChatDebugApi(makeRefs({ messagesRef }));
+    const api = createChatDebugApi(makeRefs({ sanitizedMessagesRef }));
     const result = api.tail();
     expect(result).toHaveLength(1);
     // Identity check — debug API must NOT project to a bespoke shape.
@@ -147,8 +148,10 @@ describe("createChatDebugApi.tail", () => {
     const items: DisplayMessage[] = Array.from({ length: 30 }, (_, i) =>
       fakeDisplayMessage({ stableId: `msg-${i}`, id: `id-${i}` }),
     );
-    const messagesRef = { current: items } as MutableRefObject<DisplayMessage[]>;
-    const api = createChatDebugApi(makeRefs({ messagesRef }));
+    const sanitizedMessagesRef = {
+      current: items,
+    } as MutableRefObject<DisplayMessage[]>;
+    const api = createChatDebugApi(makeRefs({ sanitizedMessagesRef }));
     const result = api.tail(5);
     expect(result).toHaveLength(5);
     expect(result[0]!.stableId).toBe("msg-25");
@@ -159,8 +162,10 @@ describe("createChatDebugApi.tail", () => {
     const items: DisplayMessage[] = Array.from({ length: 30 }, (_, i) =>
       fakeDisplayMessage({ stableId: `msg-${i}`, id: `id-${i}` }),
     );
-    const messagesRef = { current: items } as MutableRefObject<DisplayMessage[]>;
-    const api = createChatDebugApi(makeRefs({ messagesRef }));
+    const sanitizedMessagesRef = {
+      current: items,
+    } as MutableRefObject<DisplayMessage[]>;
+    const api = createChatDebugApi(makeRefs({ sanitizedMessagesRef }));
     const result = api.tail();
     expect(result).toHaveLength(20);
     expect(result[0]!.stableId).toBe("msg-10");
@@ -170,8 +175,10 @@ describe("createChatDebugApi.tail", () => {
     const items: DisplayMessage[] = Array.from({ length: 5 }, (_, i) =>
       fakeDisplayMessage({ stableId: `msg-${i}`, id: `id-${i}` }),
     );
-    const messagesRef = { current: items } as MutableRefObject<DisplayMessage[]>;
-    const api = createChatDebugApi(makeRefs({ messagesRef }));
+    const sanitizedMessagesRef = {
+      current: items,
+    } as MutableRefObject<DisplayMessage[]>;
+    const api = createChatDebugApi(makeRefs({ sanitizedMessagesRef }));
     const result = api.tail(20);
     expect(result).toHaveLength(5);
     expect(result[0]!.stableId).toBe("msg-0");
@@ -181,11 +188,32 @@ describe("createChatDebugApi.tail", () => {
     const items: DisplayMessage[] = Array.from({ length: 30 }, (_, i) =>
       fakeDisplayMessage({ stableId: `msg-${i}`, id: `id-${i}` }),
     );
-    const messagesRef = { current: items } as MutableRefObject<DisplayMessage[]>;
-    const api = createChatDebugApi(makeRefs({ messagesRef }));
+    const sanitizedMessagesRef = {
+      current: items,
+    } as MutableRefObject<DisplayMessage[]>;
+    const api = createChatDebugApi(makeRefs({ sanitizedMessagesRef }));
     expect(api.tail(-1)).toHaveLength(20);
     expect(api.tail(NaN)).toHaveLength(20);
     expect(api.tail(Infinity)).toHaveLength(20);
+  });
+
+  test("reads from sanitizedMessagesRef, NOT raw messagesRef", () => {
+    // tail() is logic-free — it surfaces whatever the render path
+    // already wrote to `sanitizedMessagesRef`. Raw `messagesRef` is
+    // intentionally ignored so DevTools always mirrors the UI.
+    const rawOnly = fakeDisplayMessage({ stableId: "raw-only" });
+    const sanitizedOnly = fakeDisplayMessage({ stableId: "sanitized-only" });
+    const api = createChatDebugApi(
+      makeRefs({
+        messagesRef: { current: [rawOnly] } as MutableRefObject<DisplayMessage[]>,
+        sanitizedMessagesRef: {
+          current: [sanitizedOnly],
+        } as MutableRefObject<DisplayMessage[]>,
+      }),
+    );
+    const result = api.tail();
+    expect(result).toHaveLength(1);
+    expect(result[0]!.stableId).toBe("sanitized-only");
   });
 });
 

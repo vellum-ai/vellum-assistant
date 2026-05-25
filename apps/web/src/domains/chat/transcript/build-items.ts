@@ -53,9 +53,6 @@ export interface BuildTranscriptItemsInput {
  *        d. `ErrorItem` when `errorNotice` is a non-empty string.
  *
  * Every returned item carries a non-empty, distinct `key`.
- *
- * `messages` must already be sanitized — phantom/blank row filtering and
- * trailing-duplicate drops happen upstream in `sanitizeDisplayMessages`.
  */
 export function buildTranscriptItems(
   input: BuildTranscriptItemsInput,
