@@ -1,12 +1,13 @@
 /**
  * POST /inbound/register — auto-verify the guardian's email channel when
- * a BYO email provider (Resend or Mailgun) webhook is registered.
+ * an email provider is registered.
  *
- * The platform provides `guardian_email` in the request body. For
+ * The platform provides `guardian_email` in the request body. For BYO
  * providers with an identity API (Mailgun), the gateway cross-verifies
- * the email against the API response. For providers without one
+ * the email against the API response. For BYO providers without one
  * (Resend), it validates that the stored API key is functional (proving
- * account ownership) and trusts the provided email.
+ * account ownership) and trusts the provided email. For platform-managed
+ * email (type "vellum"), the route's edge-scoped auth is sufficient.
  *
  * On success, creates a guardian email channel binding directly in both
  * the assistant and gateway databases (dual-write).
@@ -22,6 +23,7 @@ import { credentialKey } from "../../credential-key.js";
 import { getLogger } from "../../logger.js";
 import { validateMailgunEmail } from "./mailgun-identity.js";
 import { validateResendEmail } from "./resend-identity.js";
+import { validateVellumEmail } from "./vellum-identity.js";
 
 const log = getLogger("inbound-register");
 
@@ -53,7 +55,10 @@ type EmailValidator = (
 const providerValidators: Record<string, EmailValidator> = {
   resend: validateResendEmail,
   mailgun: validateMailgunEmail,
+  vellum: validateVellumEmail,
 };
+
+const selfAuthenticatedProviders = new Set(["vellum"]);
 
 // ---------------------------------------------------------------------------
 // Guardian lookup
@@ -120,18 +125,25 @@ export function createInboundRegisterHandler(
 
     // ── Resolve API key from credential cache ───────────────────
 
-    const apiKeyCredKey = credentialKey(providerType, "api_key");
-    const apiKey = await credentialCache.get(apiKeyCredKey, { force: true });
+    let apiKey = "";
 
-    if (!apiKey) {
-      log.warn(
-        { providerType },
-        "No API key configured for provider — cannot auto-verify guardian",
-      );
-      return Response.json(
-        { error: `No API key configured for ${providerType}` },
-        { status: 409 },
-      );
+    if (!selfAuthenticatedProviders.has(providerType)) {
+      const apiKeyCredKey = credentialKey(providerType, "api_key");
+      const resolvedKey = await credentialCache.get(apiKeyCredKey, {
+        force: true,
+      });
+
+      if (!resolvedKey) {
+        log.warn(
+          { providerType },
+          "No API key configured for provider — cannot auto-verify guardian",
+        );
+        return Response.json(
+          { error: `No API key configured for ${providerType}` },
+          { status: 409 },
+        );
+      }
+      apiKey = resolvedKey;
     }
 
     // ── Validate email with provider ────────────────────────────
