@@ -60,7 +60,11 @@ const webFetchDefinition: ToolDefinition = {
 };
 
 let configuredProviderCallSites: string[] = [];
-let currentProvider: Provider | null = null;
+type MockProvider = Provider & {
+  sendMessage: ReturnType<typeof mock>;
+};
+
+let currentProvider: MockProvider | null = null;
 let webSearchExecuteCalls: Array<{
   input: Record<string, unknown>;
   context: ToolContext;
@@ -132,9 +136,7 @@ function providerResponse(content: ContentBlock[]): ProviderResponse {
   };
 }
 
-function makeProvider(responses: ProviderResponse[]): Provider & {
-  sendMessage: ReturnType<typeof mock>;
-} {
+function makeProvider(responses: ProviderResponse[]): MockProvider {
   const sendMessage = mock(
     async (
       _messages: Message[],
@@ -151,6 +153,13 @@ function makeProvider(responses: ProviderResponse[]): Provider & {
   return { name: "mock-provider", sendMessage } as Provider & {
     sendMessage: typeof sendMessage;
   };
+}
+
+function inputSchemaProperties(tool: ToolDefinition): Record<string, unknown> {
+  return (
+    (tool.input_schema as { properties?: Record<string, unknown> })
+      .properties ?? {}
+  );
 }
 
 function baseParams(signal?: AbortSignal) {
@@ -356,11 +365,11 @@ describe("planRadioDjBreak", () => {
       (tool) => tool.name === "web_fetch",
     )!;
     expect(
-      Object.keys(djFacingFetchDefinition.input_schema.properties ?? {}),
+      Object.keys(inputSchemaProperties(djFacingFetchDefinition)),
     ).not.toContain("allow_private_network");
-    expect(
-      Object.keys(webFetchDefinition.input_schema.properties ?? {}),
-    ).toContain("allow_private_network");
+    expect(Object.keys(inputSchemaProperties(webFetchDefinition))).toContain(
+      "allow_private_network",
+    );
 
     const secondCall = currentProvider.sendMessage.mock.calls[1] as Parameters<
       Provider["sendMessage"]
