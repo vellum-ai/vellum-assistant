@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 
 import { getAcpSessionManager } from "../../acp/index.js";
+import { prepareAgentEnv } from "../../acp/prepare-agent-env.js";
 import { resolveAcpAgent } from "../../acp/resolve-agent.js";
 import { DEFAULT_AGENT_NPM_PACKAGES } from "../../config/acp-defaults.js";
 import { getLogger } from "../../util/logger.js";
@@ -159,8 +160,6 @@ export async function executeAcpSpawn(
       }
     }
   }
-  const agentConfig = resolved.agent;
-
   const sendToClient = context.sendToClient as
     | ((msg: { type: string; [key: string]: unknown }) => void)
     | undefined;
@@ -169,6 +168,20 @@ export async function executeAcpSpawn(
       content: "No client connected - cannot spawn ACP agent.",
       isError: true,
     };
+  }
+
+  // Inject required env vars and preflight via the shared helper. Mirrors
+  // the HTTP route at `runtime/routes/acp-routes.ts:spawnSession` — both
+  // call sites MUST go through `prepareAgentEnv` before `manager.spawn`,
+  // otherwise the spawned subprocess starts with no auth and dies as a
+  // zombie after the first prompt. See `acp/prepare-agent-env.ts` for
+  // the full rationale.
+  let agentConfig;
+  try {
+    agentConfig = await prepareAgentEnv(resolved.agent);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { content: msg, isError: true };
   }
 
   // Best-effort version check — never blocks the spawn. If outdated, we
