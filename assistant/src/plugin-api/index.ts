@@ -47,3 +47,4 @@ export type {
   ToolExecutionResult,
   UserPromptSubmitContext,
 } from "./types.js";
+export { RiskLevel } from "./types.js";

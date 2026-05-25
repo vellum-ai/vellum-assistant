@@ -321,13 +321,10 @@ describe("registerPluginTools / unregisterPluginTools helpers", () => {
     // stamped tool cannot leak across namespaces or spoof bundled-skill
     // auto-allow.
     //
-    // The narrow `LoadedPluginTool` shape no longer exposes these
-    // ownership fields, so TypeScript would prevent an honest author
-    // from setting them at compile time. The cast through `unknown` is
-    // deliberate: we're simulating a hostile or transpiled artifact that
-    // arrives at the registry with spoofed fields baked in. The
-    // bootstrap-side defense is the second layer that must hold even
-    // when the type-level defense is bypassed.
+    // The narrow `ToolDefinition` shape doesn't expose these ownership
+    // fields, so the cast through `unknown` simulates a hostile or
+    // transpiled artifact that arrives with spoofed fields baked in —
+    // the bootstrap-side defense is the second layer that must hold.
     const spoofed = {
       ...makeFakeTool("pt_spoof"),
       origin: "skill",

@@ -6,29 +6,22 @@
  * interface. If a later PR breaks a field name or signature in
  * `assistant/src/plugin-api/types.ts`, this file fails to type-check and
  * the regression is caught at `tsc --noEmit` / `bun test` time.
- *
- * The same shape lives internally as `PluginToolSpec` in
- * `assistant/src/tools/types.ts` — the public `ToolDefinition` is just
- * a re-export. This file asserts the public face stays stable; a sibling
- * test in the daemon-internal suite would assert the internal face stays
- * stable. (Today they're literally the same symbol, so one test covers
- * both — but the separation gives future-us room to diverge them
- * without losing test coverage.)
  */
 
 import { describe, expect, test } from "bun:test";
 
-import type {
-  ToolContext,
-  ToolDefinition,
-  ToolExecutionResult,
+import {
+  RiskLevel,
+  type ToolContext,
+  type ToolDefinition,
+  type ToolExecutionResult,
 } from "../plugin-api/index.js";
 
-describe("ToolDefinition (public author-facing tool spec)", () => {
+describe("ToolDefinition (public author-facing tool spec) ", () => {
   test("a fully-populated literal satisfies the interface", () => {
     const tool = {
       description: "Greet the model in a fixed language.",
-      defaultRiskLevel: "low",
+      defaultRiskLevel: RiskLevel.Low,
       input_schema: {
         type: "object",
         properties: {
@@ -52,7 +45,7 @@ describe("ToolDefinition (public author-facing tool spec)", () => {
     // but the runtime expectations below also smoke-check the structure
     // for anyone reading the test without TS folded in.
     expect(typeof tool.execute).toBe("function");
-    expect(tool.defaultRiskLevel).toBe("low");
+    expect(tool.defaultRiskLevel).toBe(RiskLevel.Low);
   });
 
   test("every field is optional — empty literal satisfies the interface", () => {
@@ -61,13 +54,13 @@ describe("ToolDefinition (public author-facing tool spec)", () => {
   });
 
   test("every author-facing risk level is permitted", () => {
-    const low: ToolDefinition = { defaultRiskLevel: "low" };
-    const medium: ToolDefinition = { defaultRiskLevel: "medium" };
-    const high: ToolDefinition = { defaultRiskLevel: "high" };
+    const low: ToolDefinition = { defaultRiskLevel: RiskLevel.Low };
+    const medium: ToolDefinition = { defaultRiskLevel: RiskLevel.Medium };
+    const high: ToolDefinition = { defaultRiskLevel: RiskLevel.High };
 
-    expect(low.defaultRiskLevel).toBe("low");
-    expect(medium.defaultRiskLevel).toBe("medium");
-    expect(high.defaultRiskLevel).toBe("high");
+    expect(low.defaultRiskLevel).toBe(RiskLevel.Low);
+    expect(medium.defaultRiskLevel).toBe(RiskLevel.Medium);
+    expect(high.defaultRiskLevel).toBe(RiskLevel.High);
   });
 
   test("execute receives the narrow public ToolContext", async () => {

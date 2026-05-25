@@ -40,13 +40,9 @@ export type {
 } from "../tools/types.js";
 
 // ─── Tool authoring surface (re-exported from daemon source-of-truth) ───────
-//
-// `ToolDefinition` is `PluginToolSpec` from `assistant/src/tools/types.ts`,
-// re-exported under its public name. The canonical docstring (covering
-// defaults, naming-collision with `@vellumai/skill-host-contracts`, etc.)
-// lives at the definition site and is preserved by LSP across the alias.
 
-export type { PluginToolSpec as ToolDefinition } from "../tools/types.js";
+export type { ToolDefinition } from "../tools/types.js";
+export { RiskLevel } from "../tools/types.js";
 
 // ─── Logger ──────────────────────────────────────────────────────────────────
 

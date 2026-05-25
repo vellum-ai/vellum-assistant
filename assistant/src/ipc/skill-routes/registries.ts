@@ -21,12 +21,12 @@ import { z } from "zod";
 
 import type { MeetHostSupervisor } from "../../daemon/meet-host-supervisor.js";
 import { registerShutdownHook } from "../../daemon/shutdown-registry.js";
+import type { ToolDefinition } from "../../providers/types.js";
 import { registerSkillRoute } from "../../runtime/skill-route-registry.js";
 import { registerSkillTools } from "../../tools/registry.js";
 import type {
   ExecutionTarget,
   Tool,
-  ToolDefinition,
 } from "../../tools/types.js";
 import { RiskLevel } from "../../tools/types.js";
 import { getLogger } from "../../util/logger.js";

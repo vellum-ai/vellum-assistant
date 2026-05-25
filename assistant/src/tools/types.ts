@@ -5,7 +5,9 @@ import type {
   ProxyApprovalCallback,
   RiskLevel,
   SensitiveOutputBinding,
-  ToolDefinition,
+  // The JSON-schema-bundle type sent to LLM providers; aliased locally so
+  // `ToolDefinition` is free for the author-facing tool spec defined below.
+  ToolDefinition as ProviderToolSchema,
   ToolExecutionErrorEvent,
   ToolExecutionStartEvent,
   ToolPermissionDeniedEvent,
@@ -64,7 +66,6 @@ export type {
   ProxyEnvVars,
   SensitiveOutputBinding,
   SensitiveOutputKind,
-  ToolDefinition,
   ToolExecutionErrorEvent,
   ToolExecutionStartEvent,
   ToolPermissionDeniedEvent,
@@ -371,7 +372,7 @@ export interface Tool {
   /** Declared execution target from the skill manifest. Used by resolveExecutionTarget
    * to accurately label lifecycle events for skill-provided tools. */
   executionTarget?: ExecutionTarget;
-  getDefinition(): ToolDefinition;
+  getDefinition(): ProviderToolSchema;
   execute(
     input: Record<string, unknown>,
     context: ToolContext,
@@ -379,76 +380,22 @@ export interface Tool {
 }
 
 /**
- * Strict author-facing tool spec. The narrow surface plugin and workspace
- * tool authors implement. This is the canonical source-of-truth definition
- * — `@vellumai/plugin-api` re-exports this type as `ToolDefinition` for
- * external authors.
+ * Author-facing tool spec — the narrow surface plugin and workspace tool
+ * authors implement. Re-exported from `@vellumai/plugin-api`. Differs
+ * from the internal {@link Tool} shape: authors declare `input_schema`
+ * as a top-level field (the registration boundary synthesizes
+ * `getDefinition()` from `{name, description, input_schema}`), `name` is
+ * derived from the tool file's basename by the host loader, and
+ * `category` / ownership stamps are set authoritatively by the
+ * bootstrap.
  *
- * Differs from the internal {@link Tool} shape in four ways:
- * - Authors declare `input_schema` as a top-level field instead of
- *   implementing `getDefinition()`. The registration boundary synthesizes
- *   `getDefinition()` from `{name, description, input_schema}` before the
- *   tool enters the internal registry.
- * - `name` is derived from the tool file's basename by the host loader.
- * - `category` is registry-owned and stamped to `"plugin"` /
- *   `"workspace"` when the tool is registered.
- * - All ownership stamps (`origin`, `ownerPluginId`, etc.) and host-level
- *   fields (`executionMode`, `executionTarget`, …) are NOT exposed on
- *   this shape. They are set authoritatively by the bootstrap and would
- *   otherwise tempt authors into trying to spoof ownership.
- *
- * Every field is optional. The loader fills the four normally-required
- * slots (`description`, `defaultRiskLevel`, `input_schema`, `execute`)
- * with documented defaults when an author omits them — see
- * `applyPluginToolDefaults` in `external-plugin-loader.ts` and
- * `WORKSPACE_TOOL_DEFAULTS` in `workspace-tools/loader.ts`. A nameless,
- * body-less `export default {}` is a valid (if useless) tool;
- * misconfigured tools surface at call time rather than blocking host
- * boot.
- *
- * Default `defaultRiskLevel` differs by origin:
- * - Plugin tools default to `"medium"`.
- * - Workspace tools default to `"high"` — they run arbitrary on-disk
- *   code under the operator's workspace, so the floor is higher than
- *   for in-tree-vetted plugin code.
- *
- * (Note: there's an internal type also called `ToolDefinition` in
- * `@vellumai/skill-host-contracts` that represents the JSON-schema
- * bundle sent to LLM providers. That's the runtime/provider-side shape;
- * this is the author-time shape. The names overlap but the imports are
- * disjoint — plugin and workspace authors should always import
- * `ToolDefinition` from `@vellumai/plugin-api`.)
+ * Every author-visible field is optional; the loader fills documented
+ * defaults — see `applyPluginToolDefaults` in `external-plugin-loader.ts`.
  */
-export interface PluginToolSpec {
-  /**
-   * Free-form description the model sees in its tool list. Defaults to
-   * an empty string when omitted.
-   */
+export interface ToolDefinition {
   description?: string;
-  /**
-   * Default risk level applied when no path-based escalation matches.
-   * Defaults to `"medium"` for plugin tools and `"high"` for workspace
-   * tools.
-   *
-   * Typed as a string union (not the `RiskLevel` enum) so external
-   * authors can write `defaultRiskLevel: "low"` without importing the
-   * host's enum. The values are identical at runtime
-   * (`RiskLevel.Low === "low"`); the loader casts to the enum at the
-   * registration boundary in `applyPluginToolDefaults`.
-   */
-  defaultRiskLevel?: "low" | "medium" | "high";
-  /**
-   * JSON-Schema describing the tool's input arguments. Defaults to
-   * `{ type: "object", properties: {}, additionalProperties: false }`
-   * when omitted.
-   */
+  defaultRiskLevel?: RiskLevel;
   input_schema?: object;
-  /**
-   * Execute handler. The host calls this with the model's input payload
-   * and a narrow `PluginToolContext`. Defaults to a stub that returns an
-   * error result when omitted (so the model sees a clear "not wired up"
-   * signal instead of the tool silently no-op'ing).
-   */
   execute?: (
     input: Record<string, unknown>,
     context: PluginToolContext,
@@ -456,27 +403,17 @@ export interface PluginToolSpec {
 }
 
 /**
- * Author-time tool spec after the host has derived its registry name and
- * filled defaults for any author-omitted fields. All four normally-required
- * slots are guaranteed present. The internal stamping (origin, ownerPluginId,
- * category, getDefinition) is added separately by `registerPluginTools`.
- *
- * Two fields are overridden from `Required<PluginToolSpec>` to use the
- * internal rich types instead of the narrow public ones:
- * - `defaultRiskLevel`: `RiskLevel` enum (vs `"low" | "medium" | "high"`),
- *   because downstream `Tool.defaultRiskLevel` is the enum.
- * - `execute`: receives the rich `ToolContext` and returns the rich
- *   `ToolExecutionResult`, because `Tool.execute` is the rich variant.
- *   The narrow author function is widened via cast in
- *   `applyPluginToolDefaults` — safe at runtime because the rich types
- *   extend the narrow ones (a function that only reads narrow fields
- *   works fine when called with a rich object).
+ * Plugin tool after the external loader has derived its registry name and
+ * filled defaults for any author-omitted fields. `execute` is widened to the
+ * rich daemon-internal {@link ToolContext} / {@link ToolExecutionResult} at
+ * the loader boundary; the author's narrow function is assignable via
+ * contravariance and the runtime ctx already carries the rich fields.
  */
-export type LoadedPluginTool = Required<
-  Omit<PluginToolSpec, "defaultRiskLevel" | "execute">
-> & {
+export type LoadedPluginTool = Omit<ToolDefinition, "execute"> & {
   name: string;
+  description: string;
   defaultRiskLevel: RiskLevel;
+  input_schema: object;
   execute: (
     input: Record<string, unknown>,
     context: ToolContext,

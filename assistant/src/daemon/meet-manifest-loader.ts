@@ -36,6 +36,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import type { ToolDefinition } from "../providers/types.js";
 import type { SkillRoute } from "../runtime/skill-route-registry.js";
 import { registerSkillRoute } from "../runtime/skill-route-registry.js";
 import { getRepoSkillsDir } from "../skills/catalog-install.js";
@@ -44,7 +45,6 @@ import type {
   ExecutionTarget,
   Tool,
   ToolContext,
-  ToolDefinition,
 } from "../tools/types.js";
 import { RiskLevel } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
