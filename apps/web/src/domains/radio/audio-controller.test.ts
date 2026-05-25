@@ -17,6 +17,7 @@ class FakeAudio {
   paused = true;
   playCalls = 0;
   pauseCalls = 0;
+  playResult: Promise<void> | null = null;
   private readonly listeners = new Map<AudioEventName, Set<() => void>>();
 
   constructor(src: string) {
@@ -26,6 +27,9 @@ class FakeAudio {
   async play(): Promise<void> {
     this.playCalls += 1;
     this.paused = false;
+    if (this.playResult) {
+      await this.playResult;
+    }
   }
 
   pause(): void {
@@ -68,6 +72,16 @@ function createFrameScheduler() {
       for (const item of batch) item.callback(time);
     },
   };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
 }
 
 const track: ResolvedRadioTrack = {
@@ -204,6 +218,67 @@ describe("RadioAudioController", () => {
     expect(outgoing.volume).toBeCloseTo(0.18, 2);
     expect(incoming.volume).toBeCloseTo(1, 2);
     expect(outgoing.pauseCalls).toBe(1);
+  });
+
+  it("pauses outgoing music during a transition", async () => {
+    const controller = createController();
+
+    await controller.playInitial(track);
+    const [outgoing] = createdAudio;
+    await controller.applyTransition({
+      outgoingTrack: track,
+      djBreak,
+      nextTrack,
+      playbackPlan,
+    });
+
+    const [, djAudio, incoming] = createdAudio;
+    controller.pause();
+
+    expect(outgoing.pauseCalls).toBe(1);
+    expect(djAudio.pauseCalls).toBeGreaterThanOrEqual(1);
+    expect(incoming.pauseCalls).toBe(1);
+  });
+
+  it("does not resurrect playback when disposed while DJ audio play is pending", async () => {
+    const progress: Array<{ positionMs: number; remainingMs: number }> = [];
+    const djPlay = deferred<void>();
+    const controller = createController({
+      onProgress: (event) => progress.push(event),
+      createAudio: (url) => {
+        const audio = new FakeAudio(url);
+        if (url === djBreak.audioUrl) {
+          audio.playResult = djPlay.promise;
+        }
+        createdAudio.push(audio);
+        return audio;
+      },
+    });
+
+    await controller.playInitial(track);
+    const transitionPromise = controller.applyTransition({
+      outgoingTrack: track,
+      djBreak,
+      nextTrack,
+      playbackPlan,
+    });
+    await Promise.resolve();
+
+    const [, djAudio, incoming] = createdAudio;
+    expect(djAudio.playCalls).toBe(1);
+    expect(incoming.playCalls).toBe(0);
+
+    controller.dispose();
+    djPlay.resolve();
+    await transitionPromise;
+
+    expect(djAudio.pauseCalls).toBeGreaterThanOrEqual(1);
+    expect(incoming.pauseCalls).toBe(1);
+    expect(incoming.playCalls).toBe(0);
+
+    incoming.currentTime = 14;
+    incoming.dispatch("timeupdate");
+    expect(progress).toEqual([]);
   });
 
   it("disposes audio, listeners, and pending volume ramps", async () => {
