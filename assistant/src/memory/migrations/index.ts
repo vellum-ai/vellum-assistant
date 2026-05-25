@@ -247,6 +247,10 @@ export {
   migrateMemoryV3Coactivation,
 } from "./262-memory-v3-coactivation.js";
 export {
+  downMemoryV3AutoEdges,
+  migrateMemoryV3AutoEdges,
+} from "./263-memory-v3-auto-edges.js";
+export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
   type MigrationValidationResult,

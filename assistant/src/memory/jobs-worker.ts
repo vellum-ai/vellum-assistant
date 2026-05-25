@@ -84,6 +84,7 @@ import {
 } from "./v2/consolidation-job.js";
 import { memoryV2SweepJob } from "./v2/sweep-job.js";
 import { memoryV3ConsolidateJob } from "./v3/consolidation-job.js";
+import { memoryV3EdgeLearningJob } from "./v3/edge-learning-job.js";
 import { memoryV3IndexMaintenanceJob } from "./v3/maintenance.js";
 
 const log = getLogger("memory-jobs-worker");
@@ -610,6 +611,10 @@ async function processJob(
       return;
     case "memory_v3_index_maintenance":
       await memoryV3IndexMaintenanceJob(job);
+      return;
+    case "memory_v3_edge_learning":
+      // Fast lane: bounded DB work (decay + reinforce + read), no LLM.
+      memoryV3EdgeLearningJob(job);
       return;
     case "memory_v2_migrate":
       await memoryV2MigrateJob(job, config);
