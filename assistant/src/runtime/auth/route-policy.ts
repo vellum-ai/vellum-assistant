@@ -195,6 +195,8 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "search", scopes: ["chat.read"] },
   { endpoint: "search/global", scopes: ["chat.read"] },
   { endpoint: "suggestion", scopes: ["chat.read"] },
+  { endpoint: "radio/advance", scopes: ["chat.write"] },
+  { endpoint: "radio/tracks", scopes: ["chat.read"] },
 
   // Approvals
   { endpoint: "confirm", scopes: ["approval.write"] },

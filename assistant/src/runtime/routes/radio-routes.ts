@@ -14,9 +14,10 @@ import {
   synthesizeRadioDjBreak,
 } from "../../radio/radio-tts.js";
 import {
+  beginRadioAdvance,
   commitRadioTransition,
   getRadioStationState,
-  isStaleRadioSegment,
+  isCurrentRadioAdvance,
   startRadioStation,
 } from "../../radio/station-state.js";
 import type {
@@ -100,14 +101,21 @@ async function handleRadioAdvance({
     });
   }
 
-  if (isStaleRadioSegment(request.segmentId, request.reason)) {
+  const advanceToken = beginRadioAdvance(request.segmentId, request.reason);
+  if (!advanceToken) {
     return responseForCurrentState(request.reason);
   }
 
   const { nextTrack, djText } = await chooseNextBreak(request, abortSignal);
+  if (!isCurrentRadioAdvance(advanceToken)) {
+    return responseForCurrentState(request.reason);
+  }
 
   try {
     const djBreak = await synthesizeRadioDjBreak(djText, abortSignal);
+    if (!isCurrentRadioAdvance(advanceToken)) {
+      return responseForCurrentState(request.reason);
+    }
     const state = commitRadioTransition(nextTrack, djBreak.text);
 
     return buildAdvanceResponse({
@@ -118,6 +126,9 @@ async function handleRadioAdvance({
       djBreak,
     });
   } catch (error) {
+    if (!isCurrentRadioAdvance(advanceToken)) {
+      return responseForCurrentState(request.reason);
+    }
     const setup = setupFromTtsError(error);
     const state = commitRadioTransition(nextTrack, djText);
 

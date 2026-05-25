@@ -9,13 +9,24 @@ export interface RadioStationState {
   lastGeneratedDjText?: string;
 }
 
+export interface RadioAdvanceToken {
+  sequence: number;
+  segmentId: string | null;
+}
+
 let stationState: RadioStationState | null = null;
+let advanceSequence = 0;
+let activeAdvanceToken: RadioAdvanceToken | null = null;
 
 export function resetRadioStationState(): void {
   stationState = null;
+  advanceSequence += 1;
+  activeAdvanceToken = null;
 }
 
 export function startRadioStation(track: RadioTrack): RadioStationState {
+  advanceSequence += 1;
+  activeAdvanceToken = null;
   stationState = {
     segmentId: createSegmentId(),
     currentTrackId: track.id,
@@ -39,6 +50,29 @@ export function isStaleRadioSegment(
   return segmentId !== stationState.segmentId;
 }
 
+export function beginRadioAdvance(
+  segmentId: string | undefined,
+  reason: RadioAdvanceReason,
+): RadioAdvanceToken | null {
+  if (isStaleRadioSegment(segmentId, reason)) {
+    return null;
+  }
+
+  const token = {
+    sequence: ++advanceSequence,
+    segmentId: stationState?.segmentId ?? null,
+  };
+  activeAdvanceToken = token;
+  return token;
+}
+
+export function isCurrentRadioAdvance(token: RadioAdvanceToken): boolean {
+  return (
+    activeAdvanceToken?.sequence === token.sequence &&
+    (stationState?.segmentId ?? null) === token.segmentId
+  );
+}
+
 export function commitRadioTransition(
   track: RadioTrack,
   lastGeneratedDjText?: string,
@@ -54,6 +88,7 @@ export function commitRadioTransition(
     recentTrackIds,
     ...(lastGeneratedDjText ? { lastGeneratedDjText } : {}),
   };
+  activeAdvanceToken = null;
   return stationState;
 }
 
