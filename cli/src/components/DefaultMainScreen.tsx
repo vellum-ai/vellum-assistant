@@ -82,7 +82,7 @@ const TIPS = [
   "Send a message to start chatting",
   "Use /help to see available commands",
 ];
-const RIGHT_PANEL_INFO_SECTIONS = 3; // Assistant ID, Species, Status — each with heading + value
+const RIGHT_PANEL_INFO_SECTIONS = 3; // Instance ID, Species, Status — each with heading + value
 const RIGHT_PANEL_SPACERS = 2; // top spacer + spacer between tips and info
 const RIGHT_PANEL_TIPS_HEADING = 1;
 const RIGHT_PANEL_LINE_COUNT =
@@ -163,6 +163,10 @@ interface HealthResponse {
   message?: string;
 }
 
+interface IdentityResponse {
+  name?: string;
+}
+
 /** Extract human-readable message from a daemon JSON error response. */
 function friendlyErrorMessage(status: number, body: string): string {
   try {
@@ -237,6 +241,28 @@ async function pollMessages(
     undefined,
     auth,
   );
+}
+
+function normalizeAssistantDisplayName(
+  value: string | null | undefined,
+): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+export async function fetchAssistantDisplayName(
+  baseUrl: string,
+  assistantId: string,
+  auth?: Record<string, string>,
+): Promise<string | undefined> {
+  const identity = await runtimeRequest<IdentityResponse>(
+    baseUrl,
+    assistantId,
+    "/identity",
+    undefined,
+    auth,
+  );
+  return normalizeAssistantDisplayName(identity.name);
 }
 
 async function sendMessage(
@@ -347,6 +373,19 @@ interface SseEvent {
   // sync_changed fields
   tags?: string[];
   [key: string]: unknown;
+}
+
+const ASSISTANT_IDENTITY_SYNC_TAG = "assistant:self:identity";
+
+export function shouldRefreshAssistantIdentity(event: SseEvent): boolean {
+  if (event.type === "identity_changed") {
+    return true;
+  }
+  return (
+    event.type === "sync_changed" &&
+    Array.isArray(event.tags) &&
+    event.tags.includes(ASSISTANT_IDENTITY_SYNC_TAG)
+  );
 }
 
 /**
@@ -969,7 +1008,7 @@ function DefaultMainScreen({
     { text: "Tips for getting started", style: "heading" },
     ...TIPS.map((t) => ({ text: t, style: "normal" as const })),
     { text: " ", style: "normal" },
-    { text: "Assistant ID", style: "heading" },
+    { text: "Instance ID", style: "heading" },
     { text: assistantId, style: "dim" },
     { text: "Species", style: "heading" },
     {
@@ -1424,6 +1463,9 @@ function ChatApp({
   const [connectionError, setConnectionError] = useState<string | undefined>(
     undefined,
   );
+  const [displayAssistantName, setDisplayAssistantName] = useState<
+    string | undefined
+  >(() => normalizeAssistantDisplayName(assistantName));
   const prevFeedLengthRef = useRef(0);
   const busyRef = useRef(false);
   const connectedRef = useRef(false);
@@ -1438,6 +1480,10 @@ function ChatApp({
   const terminalRows = stdout.rows || DEFAULT_TERMINAL_ROWS;
   const terminalColumns = stdout.columns || DEFAULT_TERMINAL_COLUMNS;
   const headerHeight = calculateHeaderHeight(species, terminalColumns);
+
+  useEffect(() => {
+    setDisplayAssistantName(normalizeAssistantDisplayName(assistantName));
+  }, [assistantName]);
 
   const isCompact = terminalColumns < COMPACT_THRESHOLD;
   const compactInputAreaHeight = 1; // input row only, no separators
@@ -1657,6 +1703,23 @@ function ChatApp({
     setHealthStatus(status);
   }, []);
 
+  const refreshAssistantName = useCallback(async () => {
+    try {
+      const name = await fetchAssistantDisplayName(
+        runtimeUrl,
+        assistantId,
+        auth,
+      );
+      if (name) {
+        setDisplayAssistantName(name);
+      }
+    } catch (err) {
+      tuiLog.warn("failed to refresh assistant identity", {
+        error: String(err),
+      });
+    }
+  }, [runtimeUrl, assistantId, auth]);
+
   const cleanup = useCallback(() => {
     if (sseAbortRef.current) {
       sseAbortRef.current.abort();
@@ -1702,6 +1765,8 @@ function ChatApp({
           "yellow",
         );
       }
+
+      await refreshAssistantName();
 
       h.showSpinner("Loading conversation history...");
 
@@ -1877,8 +1942,13 @@ function ChatApp({
                 break;
 
               case "sync_changed":
-                // The interactive CLI does not currently keep any sync-tagged
-                // caches, so generic invalidations are intentionally ignored.
+                if (shouldRefreshAssistantIdentity(event)) {
+                  void refreshAssistantName();
+                }
+                break;
+
+              case "identity_changed":
+                void refreshAssistantName();
                 break;
 
               default:
@@ -1921,7 +1991,7 @@ function ChatApp({
       );
       return false;
     }
-  }, [runtimeUrl, assistantId, auth]);
+  }, [runtimeUrl, assistantId, auth, refreshAssistantName]);
 
   const handleInput = useCallback(
     async (input: string): Promise<void> => {
@@ -2324,7 +2394,7 @@ function ChatApp({
       <DefaultMainScreen
         runtimeUrl={runtimeUrl}
         assistantId={assistantId}
-        assistantName={assistantName}
+        assistantName={displayAssistantName}
         species={species}
         healthStatus={healthStatus}
       />
