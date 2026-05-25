@@ -256,6 +256,19 @@ describe("persistence pipeline", () => {
             }
             return { op: "update" };
           }
+          case "update_content": {
+            const existing = mockStore.get(args.messageId);
+            if (existing) {
+              existing.content = args.content;
+              if (args.metadataUpdates) {
+                existing.metadata = {
+                  ...existing.metadata,
+                  ...args.metadataUpdates,
+                };
+              }
+            }
+            return { op: "update_content" };
+          }
           case "delete": {
             mockStore.delete(args.messageId);
             return { op: "delete", segmentIds: [], deletedSummaryIds: [] };

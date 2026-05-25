@@ -36,6 +36,8 @@
 import {
   addMessage,
   deleteMessageById,
+  updateMessageContent,
+  updateMessageContentAndMetadata,
   updateMessageMetadata,
 } from "../../memory/conversation-crud.js";
 import { syncMessageToDisk } from "../../memory/conversation-disk-view.js";
@@ -77,6 +79,24 @@ export async function defaultPersistenceTerminal(
     case "update": {
       updateMessageMetadata(args.messageId, args.updates);
       return { op: "update" };
+    }
+    case "update_content": {
+      // Finalize the content of a pre-allocated assistant anchor row at
+      // `message_complete`. When metadata is also supplied, both fields are
+      // written atomically so a partial write cannot leak. The metadata path
+      // takes a shallow merge against the existing row (matching the
+      // semantics of the `update` op) so callers can supply only the keys
+      // they want to set rather than re-stating the full envelope.
+      if (args.metadataUpdates) {
+        updateMessageContentAndMetadata(
+          args.messageId,
+          args.content,
+          args.metadataUpdates,
+        );
+      } else {
+        updateMessageContent(args.messageId, args.content);
+      }
+      return { op: "update_content" };
     }
     case "delete": {
       const deleted = deleteMessageById(args.messageId);

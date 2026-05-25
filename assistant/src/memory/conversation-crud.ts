@@ -975,10 +975,22 @@ export async function addMessage(
   role: string,
   content: string,
   metadata?: Record<string, unknown>,
-  opts?: { skipIndexing?: boolean },
+  opts?: {
+    skipIndexing?: boolean;
+    /**
+     * Pre-allocated message id. When provided, the row is inserted with this
+     * id instead of a freshly generated uuid. Used by the agent loop to
+     * pre-allocate an assistant turn's anchor id at turn start so SSE events
+     * can carry a stable id from the very first event (rather than waiting
+     * for persistence to assign one). Caller is responsible for ensuring the
+     * id is unique within the messages table — passing a duplicate id will
+     * trigger a SQLITE_CONSTRAINT_PRIMARYKEY error.
+     */
+    id?: string;
+  },
 ) {
   const db = getDb();
-  const messageId = uuid();
+  const messageId = opts?.id ?? uuid();
 
   if (metadata) {
     const result = messageMetadataSchema.safeParse(metadata);

@@ -462,7 +462,16 @@ export type PersistAddArgs = {
   readonly role: string;
   readonly content: string;
   readonly metadata?: Record<string, unknown>;
-  readonly addOptions?: { readonly skipIndexing?: boolean };
+  readonly addOptions?: {
+    readonly skipIndexing?: boolean;
+    /**
+     * Pre-allocated message id. The agent loop uses this to pre-allocate an
+     * assistant turn's anchor id at turn start so SSE events can carry a
+     * stable id from event #1. Plugins observing the persistence pipeline
+     * see the same id that downstream events reference.
+     */
+    readonly id?: string;
+  };
   /**
    * When `true`, the default plugin additionally invokes
    * {@link syncMessageToDisk} with the returned message's id. Requires
@@ -471,6 +480,20 @@ export type PersistAddArgs = {
   readonly syncToDisk?: boolean;
   /** Conversation creation timestamp — only read when `syncToDisk` is true. */
   readonly createdAtMs?: number;
+};
+
+/**
+ * Update the `content` and (shallow-merged) `metadata` of an existing message.
+ * Used by the agent loop to commit the canonical assistant content into the
+ * pre-allocated anchor row at `message_complete` time. Distinct from
+ * `update` (which is metadata-only) so plugins observing the persistence
+ * pipeline can distinguish a metadata patch from a content-finalization.
+ */
+export type PersistUpdateContentArgs = {
+  readonly op: "update_content";
+  readonly messageId: string;
+  readonly content: string;
+  readonly metadataUpdates?: Record<string, unknown>;
 };
 
 export type PersistUpdateArgs = {
@@ -487,6 +510,7 @@ export type PersistDeleteArgs = {
 export type PersistArgs =
   | PersistAddArgs
   | PersistUpdateArgs
+  | PersistUpdateContentArgs
   | PersistDeleteArgs;
 
 /**
@@ -508,6 +532,8 @@ export type PersistAddResult = {
 
 export type PersistUpdateResult = { readonly op: "update" };
 
+export type PersistUpdateContentResult = { readonly op: "update_content" };
+
 /** IDs of segments/summaries the caller must remove from Qdrant. */
 export type PersistDeleteResult = {
   readonly op: "delete";
@@ -518,6 +544,7 @@ export type PersistDeleteResult = {
 export type PersistResult =
   | PersistAddResult
   | PersistUpdateResult
+  | PersistUpdateContentResult
   | PersistDeleteResult;
 
 /**
