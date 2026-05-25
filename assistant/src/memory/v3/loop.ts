@@ -44,6 +44,7 @@
  * this composition layer) accumulates across every pass.
  */
 
+import { getLogger } from "../../util/logger.js";
 import type { DrizzleDb } from "../db-connection.js";
 import type {
   RetrievalCost,
@@ -56,6 +57,10 @@ import type {
   GateDecision,
 } from "../v2/harness/trace.js";
 import { getPageIndex } from "../v2/page-index.js";
+import {
+  type CoactivationRow,
+  recordCoactivations,
+} from "./coactivation-store.js";
 import { expandEdges } from "./edges.js";
 import { filterDenseHits } from "./filter.js";
 import { runGate } from "./gate.js";
@@ -66,9 +71,19 @@ import { runTreeWalk } from "./tree-walk.js";
 /** Lane label used to tag each selected slug's provenance in `sourceBySlug`. */
 type LaneSource = "hot" | "sparse" | "dense" | "tree" | "edge";
 
+const log = getLogger("memory-v3-loop");
+
 /** Injected dependencies — the SQLite handle the scout hot lane reads. */
 export interface RetrievalLoopDeps {
   db: DrizzleDb;
+  /**
+   * Conversation this retrieval is running for. Stamped on co-activation rows
+   * when `config.memory.v3.write.coactivation` is on. Empty string when the
+   * loop runs in the offline harness (no live conversation).
+   */
+  conversationId?: string;
+  /** Turn number within the conversation, for co-activation provenance. */
+  turn?: number;
 }
 
 /**
@@ -91,6 +106,9 @@ export async function runRetrievalLoop(
 
   // Cross-pass accumulators.
   const sourceBySlug = new Map<string, LaneSource>();
+  // The first pass each slug entered the candidate set. Drives co-activation
+  // emission below — pass-1 hits (gap source) vs. later-surfaced pages (target).
+  const firstPassBySlug = new Map<string, number>();
   const sticky = new Set<string>();
   const passes: DescentPass[] = [];
   // `ms` is the one cost dimension observable at this composition layer — the
@@ -190,6 +208,13 @@ export async function runRetrievalLoop(
       }
     }
 
+    // Record the first pass each candidate surfaced on. The candidate set is
+    // the union of every lane's contribution this pass; a slug keeps the
+    // earliest pass it appeared on (first write wins).
+    for (const slug of candidates) {
+      if (!firstPassBySlug.has(slug)) firstPassBySlug.set(slug, passNumber);
+    }
+
     // 5. Gate — one capable LLM call over the unioned candidate set.
     const gateResult = await runGate({
       input: passInput,
@@ -219,6 +244,21 @@ export async function runRetrievalLoop(
     passNowText = nextPassNowText(input.nowText, gateResult.decision);
   }
 
+  // Co-activation logging — off the critical path. Gated by
+  // `write.coactivation` (default off). Emits one pass-1 → pass-N pair per
+  // (pass-1 hit, later-surfaced page) in the final selection. Best-effort:
+  // wrapped so neither the computation nor the insert can delay or break the
+  // RetrievalOutput the caller depends on.
+  if (v3.write?.coactivation) {
+    emitCoactivations({
+      db: deps.db,
+      conversationId: deps.conversationId ?? "",
+      turn: deps.turn ?? 0,
+      selectedSlugs,
+      firstPassBySlug,
+    });
+  }
+
   const trace: DescentTrace = { passes };
   return {
     selectedSlugs,
@@ -227,6 +267,56 @@ export async function runRetrievalLoop(
     cost,
     failureReason,
   };
+}
+
+/**
+ * Emit pass-1 → pass-N co-activation rows for the final selection.
+ *
+ * For each selected page B first surfaced on pass ≥2, pair it with each
+ * selected page A first surfaced on pass 1 (`pass_gap = passOf(B) − 1`). Pages
+ * only surfaced on pass 1 (or never recorded) emit nothing — the gradient is
+ * the gap between an early hit and a later-surfaced association. `used` is 0:
+ * the loop cannot know whether B was load-bearing for the turn; edge-learning
+ * reconciles usefulness later.
+ *
+ * Best-effort and off the retrieval critical path — any failure is swallowed.
+ */
+function emitCoactivations(args: {
+  db: DrizzleDb;
+  conversationId: string;
+  turn: number;
+  selectedSlugs: readonly string[];
+  firstPassBySlug: ReadonlyMap<string, number>;
+}): void {
+  try {
+    const { db, conversationId, turn, selectedSlugs, firstPassBySlug } = args;
+    const pass1Hits = selectedSlugs.filter(
+      (slug) => firstPassBySlug.get(slug) === 1,
+    );
+    if (pass1Hits.length === 0) return;
+
+    const createdAt = Date.now();
+    const rows: CoactivationRow[] = [];
+    for (const target of selectedSlugs) {
+      const targetPass = firstPassBySlug.get(target);
+      if (targetPass === undefined || targetPass < 2) continue;
+      for (const source of pass1Hits) {
+        rows.push({
+          conversationId,
+          turn,
+          sourceSlug: source,
+          targetSlug: target,
+          passGap: targetPass - 1,
+          used: 0,
+          createdAt,
+        });
+      }
+    }
+
+    recordCoactivations(db, rows);
+  } catch (err) {
+    log.warn({ err }, "failed to emit co-activations; continuing");
+  }
 }
 
 /**
