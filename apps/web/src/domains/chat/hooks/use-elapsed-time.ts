@@ -1,6 +1,36 @@
 import { useEffect, useState } from "react";
 
 /**
+ * Format an absolute start time for display next to a duration. Shows
+ * `11:08:24 AM` when the start happened today, or `May 19, 11:08:24 AM`
+ * for other days. Uses the user's locale; seconds are included because
+ * per-step durations are often sub-second.
+ *
+ * Returns null when `epoch` is undefined so callers can omit the value
+ * (or skip the `title` attr when used as a tooltip).
+ */
+export function formatStartTime(epoch: number | undefined): string | null {
+  if (epoch === undefined) return null;
+  const date = new Date(epoch);
+  const now = new Date();
+  const isToday =
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate();
+  const timeStr = date.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  if (isToday) return timeStr;
+  const dayStr = date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+  return `${dayStr}, ${timeStr}`;
+}
+
+/**
  * Format seconds for per-tool duration display.
  * Matches macOS VCollapsibleStepRowDurationFormatter: always 1 decimal < 60s,
  * "Xm Ys" for >= 60s.
