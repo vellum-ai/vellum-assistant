@@ -1,0 +1,199 @@
+import { app, BrowserWindow, protocol, net } from "electron";
+import { spawn, type ChildProcess } from "node:child_process";
+import { pathToFileURL } from "node:url";
+import path from "node:path";
+
+const DEV_SERVER_URL = "http://localhost:5173";
+const APP_PROTOCOL = "app";
+const APP_HOST = "vellum.ai";
+
+const isDev = !app.isPackaged;
+
+// In prod, register `app://` as a "standard" + "secure" scheme so that fetch,
+// service workers, and same-origin policy treat it like https://.
+// Must be called before app.whenReady().
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: APP_PROTOCOL,
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+      corsEnabled: true,
+    },
+  },
+]);
+
+let mainWindow: BrowserWindow | null = null;
+
+const createWindow = (): void => {
+  mainWindow = new BrowserWindow({
+    width: 1280,
+    height: 800,
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, "../preload/index.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      experimentalFeatures: false,
+    },
+  });
+
+  mainWindow.once("ready-to-show", () => {
+    mainWindow?.show();
+  });
+
+  mainWindow.on("closed", () => {
+    mainWindow = null;
+  });
+
+  if (isDev) {
+    void mainWindow.loadURL(DEV_SERVER_URL);
+  } else {
+    void mainWindow.loadURL(`${APP_PROTOCOL}://${APP_HOST}/index.html`);
+  }
+};
+
+// Serve apps/web/dist/ as static files via `app://vellum.ai/...`.
+// Reference: https://www.electronjs.org/docs/latest/api/protocol#protocolhandlescheme-handler
+const registerAppProtocol = (): void => {
+  // The packaged renderer bundle lives next to the main bundle. When this app
+  // is built into an .asar/Resources/app/ tree, apps/web/dist/ is copied to
+  // ../renderer relative to the main process bundle.
+  const rendererRoot = path.join(__dirname, "../renderer");
+
+  protocol.handle(APP_PROTOCOL, (request) => {
+    const url = new URL(request.url);
+    // Strip the leading slash and resolve against the renderer root, taking
+    // care to prevent path-traversal escapes outside of rendererRoot.
+    const relativePath = decodeURIComponent(url.pathname).replace(/^\/+/, "");
+    const resolved = path.normalize(path.join(rendererRoot, relativePath));
+    if (!resolved.startsWith(rendererRoot)) {
+      return new Response("Forbidden", { status: 403 });
+    }
+    return net.fetch(pathToFileURL(resolved).toString());
+  });
+};
+
+// ---------------------------------------------------------------------------
+// Daemon supervisor
+// ---------------------------------------------------------------------------
+//
+// Spawns the bundled Bun daemon binary from Resources/bun. On exit, restarts
+// with exponential backoff (1s → 2s → 4s → … capped at 30s). ENOENT during
+// development (binary not yet bundled) is logged but does not retry — there
+// is nothing to retry to.
+
+const DAEMON_BACKOFF_INITIAL_MS = 1_000;
+const DAEMON_BACKOFF_MAX_MS = 30_000;
+
+let daemonProcess: ChildProcess | null = null;
+let daemonBackoffMs = DAEMON_BACKOFF_INITIAL_MS;
+let daemonRestartTimer: NodeJS.Timeout | null = null;
+let daemonShuttingDown = false;
+let daemonMissing = false;
+
+const spawnDaemon = (): void => {
+  if (daemonShuttingDown || daemonMissing) return;
+
+  const binaryPath = path.join(process.resourcesPath, "bun");
+  const child = spawn(binaryPath, ["daemon"], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  daemonProcess = child;
+
+  console.log(`[daemon] spawned: ${binaryPath} (pid=${child.pid ?? "?"})`);
+
+  child.stdout?.on("data", (chunk: Buffer) => {
+    process.stdout.write(`[daemon] ${chunk.toString()}`);
+  });
+  child.stderr?.on("data", (chunk: Buffer) => {
+    process.stderr.write(`[daemon] ${chunk.toString()}`);
+  });
+
+  child.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "ENOENT") {
+      console.warn(
+        `[daemon] binary not found at ${binaryPath} — skipping spawn (this is expected in development).`,
+      );
+      daemonMissing = true;
+      daemonProcess = null;
+      return;
+    }
+    console.error("[daemon] spawn error:", err);
+  });
+
+  child.on("exit", (code, signal) => {
+    daemonProcess = null;
+    console.warn(`[daemon] exited code=${code ?? "null"} signal=${signal ?? "null"}`);
+    if (daemonShuttingDown || daemonMissing) return;
+    scheduleDaemonRestart();
+  });
+};
+
+const scheduleDaemonRestart = (): void => {
+  if (daemonRestartTimer) return;
+  const delay = daemonBackoffMs;
+  console.log(`[daemon] restarting in ${delay}ms`);
+  daemonRestartTimer = setTimeout(() => {
+    daemonRestartTimer = null;
+    daemonBackoffMs = Math.min(daemonBackoffMs * 2, DAEMON_BACKOFF_MAX_MS);
+    spawnDaemon();
+  }, delay);
+};
+
+const stopDaemon = (): void => {
+  daemonShuttingDown = true;
+  if (daemonRestartTimer) {
+    clearTimeout(daemonRestartTimer);
+    daemonRestartTimer = null;
+  }
+  if (daemonProcess && !daemonProcess.killed) {
+    daemonProcess.kill();
+  }
+};
+
+// ---------------------------------------------------------------------------
+// App lifecycle
+// ---------------------------------------------------------------------------
+
+void app.whenReady().then(() => {
+  if (!isDev) {
+    registerAppProtocol();
+  }
+  spawnDaemon();
+  createWindow();
+
+  app.on("activate", () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow();
+    }
+  });
+});
+
+app.on("web-contents-created", (_event, contents) => {
+  contents.setWindowOpenHandler(() => ({ action: "deny" }));
+  contents.on("will-navigate", (event, url) => {
+    const target = new URL(url);
+    const allowed =
+      (isDev && url.startsWith(DEV_SERVER_URL)) ||
+      (!isDev && target.protocol === `${APP_PROTOCOL}:` && target.host === APP_HOST);
+    if (!allowed) {
+      event.preventDefault();
+    }
+  });
+});
+
+app.on("window-all-closed", () => {
+  if (process.platform !== "darwin") {
+    app.quit();
+  }
+});
+
+app.on("before-quit", () => {
+  stopDaemon();
+});

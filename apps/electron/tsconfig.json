@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "lib": ["ES2023"],
+    "outDir": "out",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "noEmit": true,
+    "allowJs": false,
+    "isolatedModules": true,
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts", "electron.vite.config.ts"],
+  "exclude": ["out/**", "dist/**", "node_modules/**"]
+}
