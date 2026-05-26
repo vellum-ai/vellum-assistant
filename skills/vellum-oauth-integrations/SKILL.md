@@ -65,7 +65,7 @@ Your-own mode is typically best if:
 **Default to managed mode whenever the provider supports it.** Check support with:
 
 ```bash
-assistant oauth providers get <provider-key> | jq -r '.managedServiceConfigKey'
+assistant oauth providers get <provider-key> --json | jq -r '.managedServiceConfigKey'
 ```
 
 If this returns a non-null value, managed mode is supported and should be your starting recommendation. Only fall back to your-own mode if:

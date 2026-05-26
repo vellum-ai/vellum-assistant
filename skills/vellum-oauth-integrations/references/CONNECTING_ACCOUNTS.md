@@ -12,7 +12,7 @@ Before the user can connect to a provider, they must have it in one of two state
 ### Step 1: Check whether managed mode is supported
 
 ```bash
-assistant oauth providers get <provider-key> | jq -r '.managedServiceConfigKey'
+assistant oauth providers get <provider-key> --json | jq -r '.managedServiceConfigKey'
 ```
 
 If this returns a non-null value, managed mode is supported. Unless the user has already chosen your-own mode for a deliberate reason, prefer managed mode.
