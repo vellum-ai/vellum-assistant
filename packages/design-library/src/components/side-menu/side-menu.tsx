@@ -82,7 +82,7 @@ function isCollapsedRail(ctx: SideMenuContextValue): boolean {
 
 export const SIDE_MENU_DEFAULT_WIDTH = 230;
 export const SIDE_MENU_COLLAPSED_WIDTH = 48;
-export const SIDE_MENU_MIN_WIDTH = 180;
+export const SIDE_MENU_MIN_WIDTH = 220;
 export const SIDE_MENU_MAX_WIDTH = 400;
 
 export interface SideMenuProps extends ComponentProps<"nav"> {
