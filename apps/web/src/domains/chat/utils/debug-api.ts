@@ -24,6 +24,7 @@
 import { useEffect, useRef } from "react";
 import type { MutableRefObject } from "react";
 
+import * as assistantApi from "@vellumai/assistant-api";
 import {
   type ChatDebugEventsApi,
   eventsDebugApi,
@@ -687,11 +688,12 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
 // ---------------------------------------------------------------------------
 
 const EVENTS_NS = "events";
+const API_NS = "api";
 
 interface VellumDebugRoot extends Record<string, unknown> {
   [EVENTS_NS]?: ChatDebugEventsApi;
   [CHAT_NS]?: ChatDebugApi;
-  api?: typeof import("@vellumai/assistant-api");
+  [API_NS]?: typeof assistantApi;
 }
 
 declare global {
@@ -701,19 +703,22 @@ declare global {
 }
 
 /**
- * Single entry point that attaches both halves of the debug API to
+ * Single entry point that attaches every half of the debug API to
  * `window._vellumDebug` in one shot:
  *
  *   - `events` — the SSE client + ring-buffer accessors from
  *     {@link eventsDebugApi}. Stable singleton; same surface every call.
  *   - `chat` — the per-page chat introspection API built from React refs.
  *     Component-scoped; rebuilt on each mount.
+ *   - `api` — the full `@vellumai/assistant-api` namespace, so a developer
+ *     can pull canonical SSE schemas (`RelationshipStateUpdatedSchema`, …)
+ *     out of the shipped bundle from the console.
  *
- * Consolidating both into a single installer guarantees they're set at
- * the same time and torn down together, so DevTools never sees one
- * namespace populated and the other missing.
+ * Consolidating these into one installer guarantees they're set at the
+ * same time and torn down together, so DevTools never sees one namespace
+ * populated and the others missing.
  *
- * Returns a cleanup function that removes both bindings (identity-
+ * Returns a cleanup function that removes all bindings (identity-
  * checking the chat API in case a newer mount replaced it) and the
  * root object if it's empty afterwards. Safe to call on the server —
  * no-op when `window` is undefined.
@@ -724,18 +729,20 @@ export function installVellumDebugApi(chatApi: ChatDebugApi): () => void {
   const existing: VellumDebugRoot = (win[ROOT_NS] ?? {}) as VellumDebugRoot;
   existing[EVENTS_NS] = eventsDebugApi;
   existing[CHAT_NS] = chatApi;
+  existing[API_NS] = assistantApi;
   win[ROOT_NS] = existing;
   return () => {
     const current = win[ROOT_NS];
     if (!current) return;
-    // Gate both deletions on the chat-API identity check. If a newer
+    // Gate every deletion on the chat-API identity check. If a newer
     // mount has already replaced our chatApi (strict-mode double-mount,
     // hot reload, etc.), our teardown is stale — leave the world alone.
-    // events lifecycle is paired with chat because eventsDebugApi is a
-    // stable singleton; identity-checking it would always pass.
+    // `events` and `api` lifecycles are paired with `chat` because they
+    // are stable singletons; identity-checking them would always pass.
     if (current[CHAT_NS] === chatApi) {
       delete current[CHAT_NS];
       delete current[EVENTS_NS];
+      delete current[API_NS];
     }
     // Only remove the root if we left it empty — other debug domains
     // may have attached siblings under the same namespace.

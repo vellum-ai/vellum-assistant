@@ -14,21 +14,6 @@ import type { SyncChangedEvent } from "@/lib/sync/types.js";
 
 export type { RelationshipStateUpdated };
 
-/**
- * Web-side envelope for `relationship_state_updated`. The wire payload
- * (canonical `RelationshipStateUpdated` schema in
- * `@vellumai/assistant-api`) is strict and intentionally has no
- * `conversationId`, but the SSE transport layer stamps the envelope's
- * `conversationId` onto every parsed event (see `apps/web/docs/EVENT_BUS.md`
- * — `sse.event` payload).  This augmentation tells TypeScript what the
- * runtime shape actually is at consumer sites, matching the existing
- * `AssistantSyncChangedEvent extends SyncChangedEvent` pattern below.
- */
-export interface AssistantRelationshipStateUpdatedEvent
-  extends RelationshipStateUpdated {
-  conversationId?: string;
-}
-
 /** Data needed to render an inline permission prompt inside a ToolCallChip. */
 export interface PendingToolConfirmation {
   requestId: string;
@@ -800,7 +785,7 @@ export type AssistantEvent =
   | MessageRequestCompleteEvent
   | AssistantSyncChangedEvent
   | HomeFeedUpdatedEvent
-  | AssistantRelationshipStateUpdatedEvent
+  | (RelationshipStateUpdated & { conversationId?: string })
   | SubagentSpawnedEvent
   | SubagentStatusChangedEvent
   | SubagentEventWrapperEvent
