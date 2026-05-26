@@ -1,5 +1,3 @@
-import { useSyncExternalStore } from "react";
-
 /**
  * Minimal ambient declaration of the `window.vellum` bridge exposed by the
  * Electron preload script (see `apps/macos/src/preload/index.ts`). Only the
@@ -27,15 +25,4 @@ declare global {
  */
 export function isElectron(): boolean {
   return typeof window !== "undefined" && window.vellum?.platform === "electron";
-}
-
-/**
- * Hydration-safe hook that returns `false` on the server and during the
- * initial client render, then the live value after mount. Matches the
- * `useIsNativePlatform` pattern in `native-auth.ts` so server / client
- * reconciliation doesn't trigger a flicker.
- */
-const noop = () => () => {};
-export function useIsElectron(): boolean {
-  return useSyncExternalStore(noop, isElectron, () => false);
 }
