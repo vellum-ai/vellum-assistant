@@ -11,11 +11,11 @@ import {
   resolveAssistantLifecycleState,
   shouldRecoverFromHatchFailure,
 } from "@/assistant/lifecycle.js";
-import { fetchCharacterTraits, saveCharacterTraits } from "@/domains/avatar/api.js";
-import { BUNDLED_COMPONENTS } from "@/domains/avatar/bundled-components.js";
-import { randomCharacterTraits } from "@/domains/avatar/random.js";
-import { composeSvg } from "@/domains/avatar/svg-compositor.js";
-import type { CharacterTraits } from "@/domains/avatar/types.js";
+import { fetchCharacterTraits, saveCharacterTraits } from "@/utils/avatar-api.js";
+import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components.js";
+import { randomCharacterTraits } from "@/utils/avatar-random.js";
+import { composeSvg } from "@/utils/avatar-svg-compositor.js";
+import type { CharacterTraits } from "@/types/avatar.js";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout.js";
 import { extractErrorMessage } from "@/lib/api-errors.js";
 import {

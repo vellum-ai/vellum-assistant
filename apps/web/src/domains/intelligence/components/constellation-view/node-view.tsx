@@ -2,7 +2,7 @@
 import { motion } from "motion/react";
 
 import { ChatAvatar } from "@/components/avatar/chat-avatar.js";
-import type { CharacterComponents, CharacterTraits } from "@/domains/avatar/types.js";
+import type { CharacterComponents, CharacterTraits } from "@/types/avatar.js";
 
 import {
   CATEGORY_CONFIGS,

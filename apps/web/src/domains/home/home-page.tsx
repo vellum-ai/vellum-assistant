@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 
 import { ResizablePanel } from "@vellum/design-library";
-import { useAssistantAvatar } from "@/domains/avatar/use-assistant-avatar.js";
+import { useAssistantAvatar } from "@/hooks/use-assistant-avatar.js";
 import { useIsMobile } from "@/hooks/use-is-mobile.js";
 import { HomeDetailPanel } from "./detail-panel/home-detail-panel.js";
 import { HomeFeedList } from "./home-feed-list.js";

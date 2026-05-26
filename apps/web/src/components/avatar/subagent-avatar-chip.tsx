@@ -11,8 +11,8 @@
  */
 
 import { AvatarRenderer } from "@/components/avatar-renderer.js";
-import { BUNDLED_COMPONENTS } from "@/domains/avatar/bundled-components.js";
-import { subagentTraits } from "@/domains/avatar/subagent-avatar.js";
+import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components.js";
+import { subagentTraits } from "@/utils/avatar-subagent.js";
 
 export interface SubagentAvatarChipProps {
   subagentId: string;

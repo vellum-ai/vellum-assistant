@@ -97,7 +97,7 @@ import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure.js";
 import type { DiskPressureStatusEventPayload } from "@/assistant/use-disk-pressure-monitor.js";
 import { type TurnState, useTurnStore } from "@/domains/messaging/turn-store.js";
 import type { QuestionResponseEntry, AllowlistOption, ScopeOption, DirectoryScopeOption, ConfirmationDecision } from "@/domains/chat/api/event-types.js";
-import type { CharacterComponents, CharacterTraits } from "@/domains/avatar/types.js";
+import type { CharacterComponents, CharacterTraits } from "@/types/avatar.js";
 import { DiskPressureBanner, type DiskPressureBannerMode } from "@/domains/chat/components/disk-pressure-banner.js";
 import type { VoiceInputButtonHandle } from "@/domains/chat/components/voice-input-button.js";
 import type { AssistantIdentity } from "@/assistant/identity.js";

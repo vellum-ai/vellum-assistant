@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 
-import { composeSvg } from "@/domains/avatar/svg-compositor.js";
-import type { CharacterComponents, CharacterTraits } from "@/domains/avatar/types.js";
+import { composeSvg } from "@/utils/avatar-svg-compositor.js";
+import type { CharacterComponents, CharacterTraits } from "@/types/avatar.js";
 
 const FAVICON_SIZE = 32;
 const DEFAULT_FAVICON = "/favicon.svg";

@@ -15,8 +15,8 @@ import { routes } from "@/utils/routes.js";
 import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile.js";
 import { useRootOutletContext } from "@/root-layout.js";
 import { useAssistantIdentityInit } from "@/hooks/use-assistant-identity-init.js";
-import { useAssistantAvatar } from "@/domains/avatar/use-assistant-avatar.js";
-import { useDynamicFavicon } from "@/domains/avatar/use-dynamic-favicon.js";
+import { useAssistantAvatar } from "@/hooks/use-assistant-avatar.js";
+import { useDynamicFavicon } from "@/hooks/use-dynamic-favicon.js";
 import { useHomeUnreadBadge } from "@/hooks/use-home-unread-badge.js";
 import type { AssistantContextValue } from "@/components/layout/assistant-context.js";
 

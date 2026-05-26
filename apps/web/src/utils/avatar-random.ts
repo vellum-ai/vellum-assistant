@@ -3,7 +3,7 @@
  * space is defined by the bundled character components: body shapes,
  * eye styles, and colors. Each axis is sampled uniformly at random.
  */
-import type { CharacterComponents, CharacterTraits } from "./types.js";
+import type { CharacterComponents, CharacterTraits } from "@/types/avatar.js";
 
 export function randomCharacterTraits(
   components: CharacterComponents,
