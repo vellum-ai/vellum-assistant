@@ -11806,6 +11806,40 @@ paths:
               type: object
               properties: {}
               additionalProperties: false
+  /v1/memory/v3/shadow-diff:
+    post:
+      operationId: memory_v3_shadowdiff_post
+      summary: Diff v3 shadow selections against live v2 router selections (read-only)
+      description:
+        Compares the v3 shadow-mode selections against the live v2 router selections turn-for-turn, from the memory
+        activation log. Pairs each v3_shadow row with the nearest v2 router row in the same conversation (by timestamp,
+        within a tolerance — the turn columns use different counters), then reports per-turn and aggregate overlap, what
+        v3 surfaced that v2 did not, and what v2 had that v3 dropped, broken down by v3 provenance lane. The v2
+        comparand is the router's fresh per-turn pick (status='injected'), not its accumulated in-context set. Requires
+        that v3 shadow mode has been running so v3_shadow rows exist; the route runs no LLM and writes nothing.
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sinceDays:
+                  type: number
+                  exclusiveMinimum: 0
+                toleranceSec:
+                  type: number
+                  exclusiveMinimum: 0
+                limit:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+              additionalProperties: false
   /v1/memory/v3/simulate:
     post:
       operationId: memory_v3_simulate_post

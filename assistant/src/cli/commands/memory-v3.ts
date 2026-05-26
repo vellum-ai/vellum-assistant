@@ -13,10 +13,13 @@
  *     marking shared-DAG re-entries.
  *   - `simulate` — dry-run the v3 retrieval loop against an ad-hoc query and
  *     print the per-pass descent trace plus the lane-grouped selection.
+ *   - `shadow-diff` — compare logged v3 shadow selections against the live v2
+ *     router selections, turn-for-turn, and print the overlap / v3-only /
+ *     v2-only breakdown by provenance lane.
  *
- * All are read-only: they mutate nothing. `validate`/`tree` run no LLM;
- * `simulate` invokes the loop (filter + gate LLM calls) but persists nothing.
- * `--json` emits the raw daemon payload for any subcommand.
+ * All are read-only: they mutate nothing. `validate`/`tree`/`shadow-diff` run
+ * no LLM; `simulate` invokes the loop (filter + gate LLM calls) but persists
+ * nothing. `--json` emits the raw daemon payload for any subcommand.
  */
 
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -29,16 +32,35 @@ import type {
   MemoryV3SimulateResult,
   MemoryV3TreeResult,
   MemoryV3ValidateResult,
+  ShadowDiffResult,
 } from "../../runtime/routes/memory-v3-routes.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 import {
   renderLlmCalls,
+  renderShadowDiff,
   renderSimulation,
   renderTree,
   renderValidationReport,
   reportHasDefects,
 } from "./memory-v3-render.js";
+
+/**
+ * Parse a positive numeric CLI flag. Returns `{ value }` when valid (or omitted,
+ * with `value` undefined) and `{ error: true }` when present but not a positive
+ * number — or not an integer when `int` is set.
+ */
+function parsePositiveFlag(
+  raw: string | undefined,
+  opts: { int: boolean },
+): { value?: number; error?: boolean } {
+  if (raw === undefined) return {};
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0 || (opts.int && !Number.isInteger(n))) {
+    return { error: true };
+  }
+  return { value: n };
+}
 
 /** Valid lane names accepted by `--lanes` (matches memory.v3.lanes keys). */
 const V3_LANE_NAMES = ["hot", "sparse", "dense", "tree", "edges"] as const;
@@ -72,7 +94,8 @@ Examples:
   $ assistant memory v3 validate
   $ assistant memory v3 tree
   $ assistant memory v3 tree --json | jq '.nodes | length'
-  $ assistant memory v3 simulate -q "what should we ship next"`,
+  $ assistant memory v3 simulate -q "what should we ship next"
+  $ assistant memory v3 shadow-diff`,
       );
 
       // ── validate ──────────────────────────────────────────────────────────
@@ -309,6 +332,113 @@ Examples:
                 `\nWrote ${payload.llmCalls.length} LLM-call file(s) to ${opts.dumpLlm}`,
               );
             }
+          },
+        );
+
+      // ── shadow-diff ─────────────────────────────────────────────────────────
+
+      v3.command("shadow-diff")
+        .description(
+          "Compare v3 shadow selections against live v2 router selections (read-only)",
+        )
+        .option(
+          "--since-days <n>",
+          "Only consider shadow rows newer than N days (default: all)",
+        )
+        .option(
+          "--tolerance-sec <n>",
+          "Max seconds between a shadow row and its paired router row (default: 10)",
+        )
+        .option(
+          "--limit <n>",
+          "Cap per-turn detail rows shown, newest first (default: 50)",
+        )
+        .option("--json", "Emit raw JSON instead of a formatted report")
+        .addHelpText(
+          "after",
+          `
+Pairs each v3 shadow-mode selection (mode='v3_shadow' rows) with the live v2
+router selection (mode='router') from the same turn and reports where they
+agree, what v3 surfaced that v2 missed, and what v2 had that v3 dropped — the
+v3-only / v2-only sets — broken down by v3 provenance lane.
+
+Pairing is by timestamp within --tolerance-sec, not by turn number (the shadow
+and router rows count turns with different counters). The v2 comparand is the
+router's fresh per-turn pick (status='injected'), not its accumulated
+in-context set, so it is comparable to v3's fresh per-turn selection.
+
+Requires that v3 shadow mode has been running (memory.v3.enabled +
+memory.v3.shadow) so v3_shadow rows exist. Read-only — runs no LLM, writes
+nothing.
+
+Examples:
+  $ assistant memory v3 shadow-diff
+  $ assistant memory v3 shadow-diff --since-days 2
+  $ assistant memory v3 shadow-diff --json | jq '.agg.v3OnlyByLane'`,
+        )
+        .action(
+          async (opts: {
+            sinceDays?: string;
+            toleranceSec?: string;
+            limit?: string;
+            json?: boolean;
+          }) => {
+            const sinceDays = parsePositiveFlag(opts.sinceDays, {
+              int: false,
+            });
+            if (sinceDays.error) {
+              log.error(
+                `--since-days must be a positive number (got "${opts.sinceDays}")`,
+              );
+              process.exitCode = 1;
+              return;
+            }
+            const toleranceSec = parsePositiveFlag(opts.toleranceSec, {
+              int: false,
+            });
+            if (toleranceSec.error) {
+              log.error(
+                `--tolerance-sec must be a positive number (got "${opts.toleranceSec}")`,
+              );
+              process.exitCode = 1;
+              return;
+            }
+            const limit = parsePositiveFlag(opts.limit, { int: true });
+            if (limit.error) {
+              log.error(
+                `--limit must be a positive integer (got "${opts.limit}")`,
+              );
+              process.exitCode = 1;
+              return;
+            }
+
+            const result = await cliIpcCall<ShadowDiffResult>(
+              "memory_v3_shadow_diff",
+              {
+                body: {
+                  ...(sinceDays.value !== undefined
+                    ? { sinceDays: sinceDays.value }
+                    : {}),
+                  ...(toleranceSec.value !== undefined
+                    ? { toleranceSec: toleranceSec.value }
+                    : {}),
+                  ...(limit.value !== undefined ? { limit: limit.value } : {}),
+                },
+              },
+            );
+
+            if (!result.ok) {
+              log.error(result.error ?? "Failed to diff v3 shadow selections");
+              process.exitCode = 1;
+              return;
+            }
+
+            const payload = result.result!;
+            if (opts.json === true) {
+              log.info(JSON.stringify(payload, null, 2));
+              return;
+            }
+            log.info(renderShadowDiff(payload));
           },
         );
     },

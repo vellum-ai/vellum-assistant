@@ -22,6 +22,7 @@ import { z } from "zod";
 import { loadConfig } from "../../config/loader.js";
 import type { AssistantConfig } from "../../config/types.js";
 import { getDb } from "../../memory/db-connection.js";
+import { readActivationLogsForShadowDiff } from "../../memory/memory-v2-activation-log-store.js";
 import type {
   RetrievalCost,
   RetrievalInput,
@@ -30,6 +31,13 @@ import type { DescentTrace } from "../../memory/v2/harness/trace.js";
 import { loadNowText } from "../../memory/v2/now-text.js";
 import type { LlmCallRecord } from "../../memory/v3/llm-capture.js";
 import { runRetrievalLoop } from "../../memory/v3/loop.js";
+import type {
+  ShadowDiffResult,
+  ShadowDiffTurn,
+  SlugFrequency,
+  UnpairedShadowTurn,
+} from "../../memory/v3/shadow-diff.js";
+import { computeShadowDiff } from "../../memory/v3/shadow-diff.js";
 import { getTreeIndex } from "../../memory/v3/tree-index.js";
 import type { TreeValidationReport } from "../../memory/v3/validate.js";
 import { validateTree } from "../../memory/v3/validate.js";
@@ -49,6 +57,12 @@ export type {
   TreeLevel,
 } from "../../memory/v2/harness/trace.js";
 export type { LlmCallRecord };
+export type {
+  ShadowDiffResult,
+  ShadowDiffTurn,
+  SlugFrequency,
+  UnpairedShadowTurn,
+};
 
 // ── Validate ────────────────────────────────────────────────────────────
 
@@ -276,6 +290,66 @@ async function handleSimulate({
   };
 }
 
+// ── Shadow-diff ─────────────────────────────────────────────────────────
+
+/** Default pairing tolerance: a shadow row + its router sibling land ~1-2s apart. */
+const DEFAULT_SHADOW_DIFF_TOLERANCE_SEC = 10;
+/** Default cap on per-turn detail rows returned (aggregates are unbounded). */
+const DEFAULT_SHADOW_DIFF_LIMIT = 50;
+/** Milliseconds per day, for the `sinceDays` read-window cutoff. */
+const MS_PER_DAY = 86_400_000;
+
+const MemoryV3ShadowDiffParams = z
+  .object({
+    /** Only consider shadow rows newer than this many days. Omit for all rows. */
+    sinceDays: z
+      .number()
+      .positive("memory.v3.shadow-diff sinceDays must be positive")
+      .optional(),
+    /** Max |Δt| (seconds) to pair a shadow row with a router row. */
+    toleranceSec: z
+      .number()
+      .positive("memory.v3.shadow-diff toleranceSec must be positive")
+      .optional(),
+    /** Cap on per-turn detail rows in the response (newest first). */
+    limit: z
+      .number()
+      .int("memory.v3.shadow-diff limit must be an integer")
+      .positive("memory.v3.shadow-diff limit must be positive")
+      .optional(),
+  })
+  .strict();
+
+/**
+ * Compare the v3 shadow selections against the live v2 router selections,
+ * turn-for-turn, from the activation log. Read-only: reads `v3_shadow` rows and
+ * the `router` rows they pair with (bounded to those conversations + time
+ * span), then diffs each pair. Requires v3 shadow mode to have been running
+ * (`memory.v3.enabled` + `.shadow`) so the `v3_shadow` rows exist; the route
+ * itself runs no LLM and writes nothing.
+ */
+async function handleShadowDiff({
+  body = {},
+}: RouteHandlerArgs): Promise<ShadowDiffResult> {
+  const { sinceDays, toleranceSec, limit } =
+    MemoryV3ShadowDiffParams.parse(body);
+
+  const sinceMs =
+    sinceDays !== undefined ? Date.now() - sinceDays * MS_PER_DAY : null;
+  const toleranceMs =
+    (toleranceSec ?? DEFAULT_SHADOW_DIFF_TOLERANCE_SEC) * 1000;
+
+  const { shadow, router } = readActivationLogsForShadowDiff({
+    sinceMs,
+    paddingMs: toleranceMs,
+  });
+
+  return computeShadowDiff(shadow, router, {
+    toleranceMs,
+    detailLimit: limit ?? DEFAULT_SHADOW_DIFF_LIMIT,
+  });
+}
+
 // ── Route definitions ───────────────────────────────────────────────────
 
 export const ROUTES: RouteDefinition[] = [
@@ -312,5 +386,17 @@ export const ROUTES: RouteDefinition[] = [
       "Runs the v3 multi-lane bounded-descent retrieval loop read-only against a single synthetic turn built from the supplied query plus the live (or supplied) NOW context. Returns the selected page slugs, per-lane provenance, the full multi-pass descent trace, and accumulated cost. Optional passCap / lane-allowlist overrides apply on top of live config. Invoked directly (not gated by memory.v3.enabled/shadow) so operators can probe v3 retrieval before flipping the flags; writes nothing (co-activation persistence is forced off), though each pass still spends the loop's filter + gate LLM calls.",
     tags: ["memory"],
     requestBody: MemoryV3SimulateParams,
+  },
+  {
+    operationId: "memory_v3_shadow_diff",
+    method: "POST",
+    endpoint: "memory/v3/shadow-diff",
+    handler: handleShadowDiff,
+    summary:
+      "Diff v3 shadow selections against live v2 router selections (read-only)",
+    description:
+      "Compares the v3 shadow-mode selections against the live v2 router selections turn-for-turn, from the memory activation log. Pairs each v3_shadow row with the nearest v2 router row in the same conversation (by timestamp, within a tolerance — the turn columns use different counters), then reports per-turn and aggregate overlap, what v3 surfaced that v2 did not, and what v2 had that v3 dropped, broken down by v3 provenance lane. The v2 comparand is the router's fresh per-turn pick (status='injected'), not its accumulated in-context set. Requires that v3 shadow mode has been running so v3_shadow rows exist; the route runs no LLM and writes nothing.",
+    tags: ["memory"],
+    requestBody: MemoryV3ShadowDiffParams,
   },
 ];

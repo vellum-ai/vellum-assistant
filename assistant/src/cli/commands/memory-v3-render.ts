@@ -14,6 +14,8 @@ import type {
   MemoryV3SimulateResult,
   MemoryV3TreeResult,
   MemoryV3ValidateResult,
+  ShadowDiffResult,
+  ShadowDiffTurn,
 } from "../../runtime/routes/memory-v3-routes.js";
 
 /**
@@ -247,6 +249,135 @@ export function renderSimulation(result: MemoryV3SimulateResult): string {
   }
   if (result.failureReason) {
     lines.push(`Failure: ${result.failureReason}`);
+  }
+
+  return lines.join("\n");
+}
+
+// ── Shadow-diff ───────────────────────────────────────────────────────────
+
+/** Max slugs to list per side of a per-turn detail block (full set in --json). */
+const SHADOW_DIFF_SLUG_CAP = 12;
+
+/** Format an epoch-ms timestamp as local `YYYY-MM-DD HH:MM:SS`. */
+function fmtTime(ms: number): string {
+  const d = new Date(ms);
+  const p = (n: number): string => String(n).padStart(2, "0");
+  return (
+    `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ` +
+    `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+  );
+}
+
+/** Render a lane/slug tally as `key: n` pairs, count-descending. */
+function renderTally(tally: Record<string, number>): string {
+  const entries = Object.entries(tally).sort(
+    (a, b) => b[1] - a[1] || a[0].localeCompare(b[0]),
+  );
+  if (entries.length === 0) return "none";
+  return entries.map(([k, v]) => `${k}: ${v}`).join("   ");
+}
+
+/** Render a capped slug list with an overflow note. */
+function renderSlugList(slugs: readonly string[]): string {
+  if (slugs.length === 0) return "—";
+  const shown = slugs.slice(0, SHADOW_DIFF_SLUG_CAP).join(", ");
+  const extra = slugs.length - SHADOW_DIFF_SLUG_CAP;
+  return extra > 0 ? `${shown}  (+${extra} more)` : shown;
+}
+
+/** Render one paired turn's sizes + the v3-only / v2-only slug lists. */
+function renderShadowDiffTurn(turn: ShadowDiffTurn, lines: string[]): void {
+  const dt = `${turn.deltaMs >= 0 ? "+" : ""}${(turn.deltaMs / 1000).toFixed(1)}s`;
+  lines.push(
+    `  [${turn.conversationId.slice(0, 12)}] ${fmtTime(turn.shadowAt)}  Δ${dt}`,
+  );
+  lines.push(
+    `    v2=${turn.v2Count}  v3=${turn.v3Count}  overlap=${turn.overlap.length}` +
+      `  jaccard=${turn.jaccard.toFixed(2)}  (v2 cached: ${turn.v2CachedCount})`,
+  );
+  lines.push(
+    `    v3-only (${turn.v3Only.length}): ${renderSlugList(turn.v3Only)}`,
+  );
+  lines.push(
+    `    v2-only (${turn.v2Only.length}): ${renderSlugList(turn.v2Only)}`,
+  );
+}
+
+/**
+ * Render a {@link ShadowDiffResult}: the read window, the aggregate v2-vs-v3
+ * comparison, the v3 lane breakdowns (extra recall + recovered overlap), the
+ * most-dropped / most-added slug lists, and the capped per-turn detail.
+ */
+export function renderShadowDiff(result: ShadowDiffResult): string {
+  const { agg } = result;
+  const lines: string[] = [
+    "Memory v3 Shadow Diff",
+    "=====================",
+    `Window: ${result.shadowRows} shadow row(s), ${result.turnsCompared} paired, ` +
+      `${result.unpaired.length} unpaired   (tolerance ${result.toleranceMs / 1000}s)`,
+  ];
+
+  if (result.turnsCompared === 0) {
+    lines.push(
+      "",
+      "No paired turns. Either v3 shadow mode has not run (no v3_shadow rows),",
+      "or no v2 router row landed within tolerance of a shadow row. Enable",
+      "memory.v3.enabled + memory.v3.shadow and let a few turns accrue.",
+    );
+    if (result.unpaired.length > 0) {
+      lines.push("", `Unpaired shadow rows (${result.unpaired.length}):`);
+      for (const u of result.unpaired) {
+        lines.push(
+          `  [${u.conversationId.slice(0, 12)}] ${fmtTime(u.shadowAt)}  v3=${u.v3Count}`,
+        );
+      }
+    }
+    return lines.join("\n");
+  }
+
+  lines.push(
+    "",
+    `Aggregate (${result.turnsCompared} turns):`,
+    `  v2 picked (injected):  mean ${agg.meanV2.toFixed(1)}   total ${agg.totalOverlap + agg.totalV2Only}`,
+    `  v3 selected:           mean ${agg.meanV3.toFixed(1)}   total ${agg.totalOverlap + agg.totalV3Only}`,
+    `  overlap:               mean ${agg.meanOverlap.toFixed(1)}   total ${agg.totalOverlap}   (mean Jaccard ${agg.meanJaccard.toFixed(2)})`,
+    `  v3-only (v3 added):    total ${agg.totalV3Only}`,
+    `  v2-only (v3 dropped):  total ${agg.totalV2Only}`,
+    "",
+    "v3 extra recall by lane (v3-only):",
+    `  ${renderTally(agg.v3OnlyByLane)}`,
+    "",
+    "overlap recovered by lane:",
+    `  ${renderTally(agg.overlapByLane)}`,
+  );
+
+  if (agg.v2OnlyTop.length > 0) {
+    lines.push("", "Most-dropped v2 pages (v2-only):");
+    for (const { slug, count } of agg.v2OnlyTop) {
+      lines.push(`  ${count}×  ${slug}`);
+    }
+  }
+  if (agg.v3OnlyTop.length > 0) {
+    lines.push("", "Most-frequent v3 extras (v3-only):");
+    for (const { slug, count } of agg.v3OnlyTop) {
+      lines.push(`  ${count}×  ${slug}`);
+    }
+  }
+
+  lines.push("", `Per-turn (newest first, showing ${result.turns.length}):`);
+  for (const turn of result.turns) {
+    lines.push("");
+    renderShadowDiffTurn(turn, lines);
+  }
+
+  if (result.unpaired.length > 0) {
+    lines.push("", `Unpaired shadow rows (${result.unpaired.length}):`);
+    for (const u of result.unpaired) {
+      lines.push(
+        `  [${u.conversationId.slice(0, 12)}] ${fmtTime(u.shadowAt)}  v3=${u.v3Count}`,
+      );
+    }
   }
 
   return lines.join("\n");
