@@ -7,7 +7,10 @@ import { useIsIOSWeb } from "@/domains/nudges/ios-app-platform.js";
 import { readIOSAppDownloaded } from "@/domains/nudges/ios-app-prefs.js";
 import { useIsMacOSWeb } from "@/domains/nudges/mac-app-platform.js";
 import { readMacOsAppDownloaded } from "@/domains/nudges/mac-app-prefs.js";
-import { persistContentAutomationPreChatHandoff } from "@/domains/onboarding/content-automation.js";
+import {
+  fetchOnboardingRecipe,
+  type OnboardingRecipe,
+} from "@/domains/onboarding/recipe-client.js";
 import { GetIOSAppScreen } from "@/domains/onboarding/screens/get-ios-app-screen.js";
 import { GetMacOSAppScreen } from "@/domains/onboarding/screens/get-macos-app-screen.js";
 import { GoogleConnectScreen } from "@/domains/onboarding/screens/google-connect-screen.js";
@@ -41,7 +44,6 @@ import {
   clearPrivacyConsent,
   hasRecentPrivacyConsent,
 } from "@/domains/onboarding/signals.js";
-import { resolveUserCohort } from "@/domains/onboarding/utm-cohort.js";
 import { useIsNativePlatform } from "@/runtime/native-auth.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 import { routes } from "@/utils/routes.js";
@@ -69,7 +71,7 @@ export function PreChatFlow() {
   const lastName = user?.lastName ?? "";
   const isNative = useIsNativePlatform();
   const [, setOnboardingCompleted] = useOnboardingCompleted();
-  const [cohort, setCohort] = useState<string | null>(null);
+  const [recipe, setRecipe] = useState<OnboardingRecipe | null>(null);
 
   const isMacOSWeb = useIsMacOSWeb();
   const isIOSWeb = useIsIOSWeb();
@@ -150,8 +152,8 @@ export function PreChatFlow() {
   useEffect(() => {
     if (isAuthLoading || !isLoggedIn) return;
     let cancelled = false;
-    void resolveUserCohort().then((resolved) => {
-      if (!cancelled && resolved) setCohort(resolved);
+    void fetchOnboardingRecipe().then((fetched) => {
+      if (!cancelled && fetched) setRecipe(fetched);
     });
     return () => { cancelled = true; };
   }, [isAuthLoading, isLoggedIn]);
@@ -181,26 +183,36 @@ export function PreChatFlow() {
     userId,
   ]);
 
-  // ── Content-automation cohort: skip all pre-chat screens (web only) ──
+  // ── Recipe-driven auto-skip: skip all pre-chat screens (web only) ──
   const autoSkippedRef = useRef(false);
   useEffect(() => {
-    if (cohort !== "content-automation" || isNative) return;
+    if (!recipe?.skipPrechat || isNative) return;
     if (isAuthLoading || !isLoggedIn || consentDecision !== "ok") return;
     if (readOnboardingCompleted()) return;
     if (autoSkippedRef.current) return;
     autoSkippedRef.current = true;
 
-    persistContentAutomationPreChatHandoff();
+    const context: PreChatOnboardingContext = {
+      tools: [],
+      tasks: recipe.tasks,
+      tone: recipe.tone,
+      googleConnected: false,
+      cohort: recipe.cohort,
+      initialMessage: recipe.initialMessage,
+      bootstrapTemplate: recipe.bootstrapTemplate,
+      skills: recipe.skills,
+    };
+    setPendingPreChatContext(context);
     try {
       setOnboardingCompleted(true);
     } catch (err) {
       Sentry.captureException(err, {
-        tags: { context: "prechat_auto_skip_content_automation" },
+        tags: { context: "prechat_auto_skip_recipe" },
       });
     }
     clearPrivacyConsent();
     void navigate(`${routes.assistant}?onboarding=1`, { replace: true });
-  }, [cohort, isNative, isAuthLoading, isLoggedIn, consentDecision, navigate, setOnboardingCompleted]);
+  }, [recipe, isNative, isAuthLoading, isLoggedIn, consentDecision, navigate, setOnboardingCompleted]);
 
   function finish(connectedScopes?: string[]): void {
     const context: PreChatOnboardingContext = {
@@ -249,7 +261,7 @@ export function PreChatFlow() {
     return null;
   }
 
-  if (cohort === "content-automation" && !isNative) {
+  if (recipe?.skipPrechat && !isNative) {
     return null;
   }
 
