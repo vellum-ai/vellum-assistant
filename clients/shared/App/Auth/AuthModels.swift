@@ -350,7 +350,12 @@ public struct SubscriptionResponse: Codable, Sendable {
 public struct PlanCatalogEntry: Codable, Sendable {
     public let id: String                // "base" | "pro"
     public let name: String              // "Base" | "Pro"
-    public let price_cents: Int
+    /// Flat monthly price, in cents. Only present on flat-priced plans (Base);
+    /// tiered plans (Pro) omit it and split pricing across `base_price_cents` +
+    /// per-tier arrays on the server. MUST stay optional — making it required
+    /// hard-fails decoding of the whole catalog on the Pro entry, surfacing as
+    /// "Unable to load plan information." on the Plan card.
+    public let price_cents: Int?
     public let billing_interval: String  // "month"
     public let included_features: [String]
 }
