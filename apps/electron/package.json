@@ -12,10 +12,10 @@
   },
   "devDependencies": {
     "@types/node": "22.10.5",
-    "electron": "33.3.1",
-    "electron-builder": "25.1.8",
-    "electron-vite": "2.3.0",
+    "electron": "42.2.0",
+    "electron-builder": "26.8.1",
+    "electron-vite": "5.0.0",
     "typescript": "5.9.3",
-    "vite": "5.4.11"
+    "vite": "7.3.3"
   }
 }

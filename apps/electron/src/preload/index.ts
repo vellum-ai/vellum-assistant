@@ -19,9 +19,8 @@ export interface VellumBridge {
   };
 }
 
-const notImplemented = (name: string) => (): never => {
-  throw new Error(`window.vellum.${name} is not implemented yet`);
-};
+const notImplemented = (name: string) => (): Promise<never> =>
+  Promise.reject(new Error(`window.vellum.${name} is not implemented yet`));
 
 const bridge: VellumBridge = {
   platform: "electron",
