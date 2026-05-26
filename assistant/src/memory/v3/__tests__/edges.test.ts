@@ -493,3 +493,71 @@ describe("expandEdges — bounds", () => {
     ]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Seed ranking by lane trust
+// ---------------------------------------------------------------------------
+
+describe("expandEdges — seed ranking", () => {
+  test("ranks tree/dense/sparse seeds ahead of hot before the seed cap", async () => {
+    // 200 seeds (> the 150 cap), each with a private 1-hop edge. In candidate
+    // order the first 150 are hot (recency) and the last 50 are tree (LLM-
+    // chosen). Without ranking the cap would expand all 150 hot and drop every
+    // tree seed; with laneBySlug the tree seeds must be expanded first.
+    const hotCount = 150;
+    const treeCount = 50;
+    const graph: Record<string, string[]> = {};
+    const seeds: string[] = [];
+    const laneBySlug = new Map<string, string>();
+    for (let i = 0; i < hotCount; i++) {
+      const seed = topicSlug("hot", i);
+      graph[seed] = [topicSlug("hot-targets", i)];
+      graph[topicSlug("hot-targets", i)] = [];
+      seeds.push(seed);
+      laneBySlug.set(seed, "hot");
+    }
+    for (let i = 0; i < treeCount; i++) {
+      const seed = topicSlug("tree", i);
+      graph[seed] = [topicSlug("tree-targets", i)];
+      graph[topicSlug("tree-targets", i)] = [];
+      seeds.push(seed);
+      laneBySlug.set(seed, "tree");
+    }
+    await writeGraph(graph);
+
+    const { expansions } = await expandEdges({
+      workspaceDir,
+      seeds,
+      hops: 1,
+      laneBySlug,
+    });
+
+    const expandedFrom = expansions.map((e) => e.from);
+    // The seed cap still holds.
+    expect(expandedFrom).toHaveLength(MAX_SEEDS_EXPANDED);
+    // Every tree seed survives the cap (ranked ahead of hot) and leads the
+    // order, keeping candidate order within the tier (stable sort).
+    const treeSeeds = seeds.slice(hotCount);
+    expect(expandedFrom.slice(0, treeCount)).toEqual(treeSeeds);
+    // The dropped seeds are the tail-end hot seeds, not any tree seed.
+    const droppedHot = seeds.slice(hotCount - treeCount, hotCount);
+    for (const h of droppedHot) expect(expandedFrom).not.toContain(h);
+  });
+
+  test("without laneBySlug, seeds keep candidate order", async () => {
+    const graph: Record<string, string[]> = {};
+    const seeds: string[] = [];
+    for (let i = 0; i < MAX_SEEDS_EXPANDED + 10; i++) {
+      const seed = topicSlug("people", i);
+      graph[seed] = [topicSlug("targets", i)];
+      graph[topicSlug("targets", i)] = [];
+      seeds.push(seed);
+    }
+    await writeGraph(graph);
+
+    const { expansions } = await expandEdges({ workspaceDir, seeds, hops: 1 });
+    expect(expansions.map((e) => e.from)).toEqual(
+      seeds.slice(0, MAX_SEEDS_EXPANDED),
+    );
+  });
+});

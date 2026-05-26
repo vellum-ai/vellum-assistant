@@ -200,6 +200,10 @@ export async function runRetrievalLoop(
       const expansion = await expandEdges({
         workspaceDir: passInput.workspaceDir,
         seeds: [...candidates],
+        // Rank seeds by the lane that surfaced them (tree/dense/sparse before
+        // hot) so the seed cap spends its budget on query-relevant seeds, not
+        // recency. `sourceBySlug` holds each candidate's first-seen lane.
+        laneBySlug: sourceBySlug,
       });
       edgeExpansions = expansion.expansions;
       for (const slug of expansion.pulled) {

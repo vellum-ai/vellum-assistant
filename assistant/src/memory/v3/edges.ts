@@ -68,10 +68,48 @@ const MAX_PULLS_PER_SEED = 32;
  */
 const MAX_TOTAL_PULLS = 400;
 
+// ---------------------------------------------------------------------------
+// Seed ranking
+// ---------------------------------------------------------------------------
+
+/**
+ * Lane-trust order used to rank seeds *before* the {@link MAX_SEEDS_EXPANDED}
+ * cap (lower = expanded first). The seed union arrives in lane order (hot
+ * first), so without reordering the seed budget is spent on the hot recency
+ * lane and the LLM-vetted tree/dense seeds — the most query-relevant — are the
+ * ones truncated. Ranking tree > dense > sparse > hot spends the budget on
+ * relevance first. A seed whose lane is unknown/absent (or edge-pulled) ranks
+ * last. Requires `laneBySlug`; without it the incoming order is kept.
+ */
+const SEED_LANE_RANK: Readonly<Record<string, number>> = {
+  tree: 0,
+  dense: 1,
+  sparse: 2,
+  hot: 3,
+};
+const SEED_LANE_RANK_LAST = 4;
+
+function seedRank(
+  slug: string,
+  laneBySlug: ReadonlyMap<string, string>,
+): number {
+  const lane = laneBySlug.get(slug);
+  return lane !== undefined
+    ? (SEED_LANE_RANK[lane] ?? SEED_LANE_RANK_LAST)
+    : SEED_LANE_RANK_LAST;
+}
+
 export interface ExpandEdgesArgs {
   workspaceDir: string;
   /** Confident seed slugs to expand from. */
   seeds: Iterable<string>;
+  /**
+   * Per-seed lane provenance (slug → first lane that surfaced it). When present,
+   * seeds are ranked by lane trust ({@link SEED_LANE_RANK}) before the seed cap,
+   * so the budget is spent on query-relevant seeds rather than recency. Typed as
+   * a plain string map to avoid importing the loop's `LaneSource` (circular).
+   */
+  laneBySlug?: ReadonlyMap<string, string>;
   /** Hop budget for the outgoing walk. Defaults to {@link DEFAULT_HOPS}. */
   hops?: number;
   /**
@@ -151,16 +189,34 @@ function reachableMerged(
 export async function expandEdges(
   args: ExpandEdgesArgs,
 ): Promise<ExpandEdgesResult> {
-  const { workspaceDir, seeds, hops = DEFAULT_HOPS, extraAdjacency } = args;
+  const {
+    workspaceDir,
+    seeds,
+    hops = DEFAULT_HOPS,
+    extraAdjacency,
+    laneBySlug,
+  } = args;
 
   const index = await getEdgeIndex(workspaceDir);
   const pulled = new Set<string>();
   const expansions: EdgeExpansion[] = [];
 
-  // De-dupe seeds while preserving first-seen order for a stable trace.
+  // Rank seeds by lane trust before the seed cap so the budget goes to the most
+  // query-relevant seeds (tree/dense/sparse) rather than recency (hot), which
+  // leads the incoming candidate order. `Array.prototype.sort` is stable, so
+  // seeds within a tier keep their candidate order. Without `laneBySlug` the
+  // incoming order is preserved.
+  const orderedSeeds = [...seeds];
+  if (laneBySlug) {
+    orderedSeeds.sort(
+      (a, b) => seedRank(a, laneBySlug) - seedRank(b, laneBySlug),
+    );
+  }
+
+  // De-dupe seeds while preserving (ranked) order for a stable trace.
   const seenSeeds = new Set<string>();
 
-  for (const seed of seeds) {
+  for (const seed of orderedSeeds) {
     if (seenSeeds.has(seed)) continue;
     seenSeeds.add(seed);
 
