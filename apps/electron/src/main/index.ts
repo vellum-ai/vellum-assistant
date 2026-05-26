@@ -1,5 +1,6 @@
 import { app, BrowserWindow, protocol, net } from "electron";
 import { spawn, type ChildProcess } from "node:child_process";
+import fs from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 
@@ -58,25 +59,42 @@ const createWindow = (): void => {
   }
 };
 
-// Serve apps/web/dist/ as static files via `app://vellum.ai/...`.
+// Serve apps/web/dist/ as static files via `app://vellum.ai/...`. Unknown
+// non-asset paths fall back to index.html so React Router can handle
+// client-side routes on reload / deep-link.
 // Reference: https://www.electronjs.org/docs/latest/api/protocol#protocolhandlescheme-handler
 const registerAppProtocol = (): void => {
   // The packaged renderer bundle lives next to the main bundle. When this app
   // is built into an .asar/Resources/app/ tree, apps/web/dist/ is copied to
   // ../renderer relative to the main process bundle.
   const rendererRoot = path.join(__dirname, "../renderer");
+  const rendererRootWithSep = rendererRoot + path.sep;
+  const indexHtml = path.join(rendererRoot, "index.html");
 
-  protocol.handle(APP_PROTOCOL, (request) => {
+  protocol.handle(APP_PROTOCOL, async (request) => {
     const url = new URL(request.url);
-    // Strip the leading slash and resolve against the renderer root, taking
-    // care to prevent path-traversal escapes outside of rendererRoot.
     const relativePath = decodeURIComponent(url.pathname).replace(/^\/+/, "");
     const resolved = path.normalize(path.join(rendererRoot, relativePath));
-    if (!resolved.startsWith(rendererRoot)) {
+    if (resolved !== rendererRoot && !resolved.startsWith(rendererRootWithSep)) {
       return new Response("Forbidden", { status: 403 });
     }
-    return net.fetch(pathToFileURL(resolved).toString());
+    const target = await firstExisting([resolved, indexHtml]);
+    return net.fetch(pathToFileURL(target).toString());
   });
+};
+
+// Returns the first path that resolves to an existing file. Used to fall back
+// from a missing route file (e.g. /settings) to index.html for the SPA.
+const firstExisting = async (candidates: string[]): Promise<string> => {
+  for (const candidate of candidates) {
+    try {
+      const stat = await fs.stat(candidate);
+      if (stat.isFile()) return candidate;
+    } catch {
+      // try next candidate
+    }
+  }
+  return candidates[candidates.length - 1]!;
 };
 
 // ---------------------------------------------------------------------------
@@ -90,9 +108,13 @@ const registerAppProtocol = (): void => {
 
 const DAEMON_BACKOFF_INITIAL_MS = 1_000;
 const DAEMON_BACKOFF_MAX_MS = 30_000;
+// If the daemon ran successfully for at least this long before crashing, treat
+// the crash as transient and reset the backoff to its initial value.
+const DAEMON_STABLE_RUN_MS = 60_000;
 
 let daemonProcess: ChildProcess | null = null;
 let daemonBackoffMs = DAEMON_BACKOFF_INITIAL_MS;
+let daemonStartedAt = 0;
 let daemonRestartTimer: NodeJS.Timeout | null = null;
 let daemonShuttingDown = false;
 let daemonMissing = false;
@@ -105,6 +127,7 @@ const spawnDaemon = (): void => {
     stdio: ["ignore", "pipe", "pipe"],
   });
   daemonProcess = child;
+  daemonStartedAt = Date.now();
 
   console.log(`[daemon] spawned: ${binaryPath} (pid=${child.pid ?? "?"})`);
 
@@ -128,9 +151,15 @@ const spawnDaemon = (): void => {
   });
 
   child.on("exit", (code, signal) => {
+    const ranFor = Date.now() - daemonStartedAt;
     daemonProcess = null;
-    console.warn(`[daemon] exited code=${code ?? "null"} signal=${signal ?? "null"}`);
+    console.warn(
+      `[daemon] exited code=${code ?? "null"} signal=${signal ?? "null"} after ${ranFor}ms`,
+    );
     if (daemonShuttingDown || daemonMissing) return;
+    if (ranFor >= DAEMON_STABLE_RUN_MS) {
+      daemonBackoffMs = DAEMON_BACKOFF_INITIAL_MS;
+    }
     scheduleDaemonRestart();
   });
 };
