@@ -60,9 +60,11 @@ const createWindow = (): void => {
   }
 };
 
-// Serve apps/web/dist/ as static files via `app://vellum.ai/...`. Unknown
-// non-asset paths fall back to index.html so React Router can handle
-// client-side routes on reload / deep-link.
+// Serve apps/web/dist/ as static files via `app://vellum.ai/...`. Route-like
+// paths (no file extension, or `.html`) fall back to index.html so React
+// Router can handle client-side routes on reload / deep-link; requests for
+// missing static assets return 404 so a stale or partial deploy surfaces as
+// a load error rather than silently serving HTML with a wrong Content-Type.
 // Reference: https://www.electronjs.org/docs/latest/api/protocol#protocolhandlescheme-handler
 const registerAppProtocol = (): void => {
   // The packaged renderer bundle lives next to the main bundle. When this app
@@ -79,23 +81,24 @@ const registerAppProtocol = (): void => {
     if (resolved !== rendererRoot && !resolved.startsWith(rendererRootWithSep)) {
       return new Response("Forbidden", { status: 403 });
     }
-    const target = await firstExisting([resolved, indexHtml]);
-    return net.fetch(pathToFileURL(target).toString());
+    if (await fileExists(resolved)) {
+      return net.fetch(pathToFileURL(resolved).toString());
+    }
+    const ext = path.extname(resolved);
+    if (ext === "" || ext === ".html") {
+      return net.fetch(pathToFileURL(indexHtml).toString());
+    }
+    return new Response("Not Found", { status: 404 });
   });
 };
 
-// Returns the first path that resolves to an existing file. Used to fall back
-// from a missing route file (e.g. /settings) to index.html for the SPA.
-const firstExisting = async (candidates: string[]): Promise<string> => {
-  for (const candidate of candidates) {
-    try {
-      const stat = await fs.stat(candidate);
-      if (stat.isFile()) return candidate;
-    } catch {
-      // try next candidate
-    }
+const fileExists = async (candidate: string): Promise<boolean> => {
+  try {
+    const stat = await fs.stat(candidate);
+    return stat.isFile();
+  } catch {
+    return false;
   }
-  return candidates[candidates.length - 1]!;
 };
 
 // ---------------------------------------------------------------------------

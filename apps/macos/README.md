@@ -1,7 +1,7 @@
 # Electron wrapper
 
 Desktop shell for the Vellum Assistant macOS app. Wraps [`apps/web/`](../web/)
-in an Electron `BrowserWindow` and supervises the bundled Bun daemon binaries
+in an Electron `BrowserWindow` and supervises the bundled assistant binary
 shipped under `Resources/`.
 
 This package is the macOS distribution surface (outside the App Store).
@@ -33,13 +33,14 @@ Code signing, notarization, and auto-update wiring live in follow-up tickets.
 - **Prod** — A custom `app://vellum.ai/` protocol serves the static
   `apps/web/dist/` bundle. Same-origin policy treats `app://` as a secure
   standard scheme.
-- **Daemons** — The main process spawns the Bun daemon binary from
-  `process.resourcesPath/bun` with `["daemon"]` args. If the binary exits, it
-  restarts with exponential backoff (1s → 2s → 4s, capped at 30s). The
-  backoff resets to 1s after any run that stayed up for at least 60s, so a
-  transient crash after a long stable run doesn't inherit the prior wait.
-  Missing binary (ENOENT) is logged but does not retry — expected in local
-  dev where the daemon isn't bundled yet.
+- **Assistant process** — The main process spawns the bundled assistant
+  binary at `process.resourcesPath/bun` (invoked with the `daemon` subcommand
+  the binary itself exposes). If it exits, it restarts with exponential
+  backoff (1s → 2s → 4s, capped at 30s). The backoff resets to 1s after any
+  run that stayed up for at least 60s, so a transient crash after a long
+  stable run doesn't inherit the prior wait. Missing binary (ENOENT) is
+  logged but does not retry — expected in local dev where the assistant
+  isn't bundled yet.
 
 ## Scripts
 
@@ -57,7 +58,7 @@ bun run typecheck  # tsc --noEmit
 apps/macos/
 ├── electron.vite.config.ts   # main + preload Vite entries (no renderer)
 ├── src/
-│   ├── main/index.ts         # window creation, app://, daemon supervisor
+│   ├── main/index.ts         # window creation, app://, assistant supervisor
 │   └── preload/index.ts      # contextBridge: window.vellum.*
 └── tsconfig.json
 ```
