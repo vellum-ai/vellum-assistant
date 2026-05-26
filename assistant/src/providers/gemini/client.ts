@@ -4,6 +4,7 @@ import { ApiError, GoogleGenAI, ThinkingLevel } from "@google/genai";
 import { isAbortReason } from "../../util/abort-reasons.js";
 import { ProviderError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
+import { PROVIDER_CATALOG } from "../model-catalog.js";
 import { createStreamTimeout } from "../stream-timeout.js";
 import type {
   ContentBlock,
@@ -72,6 +73,24 @@ function buildThinkingConfig(
     result.includeThoughts = thinking.streamThinking;
   }
   return Object.keys(result).length > 0 ? result : undefined;
+}
+
+/**
+ * Whether the active Gemini model accepts a `thinkingConfig`. Non-thinking
+ * models (e.g. `gemini-2.5-flash-lite`) reject thinking params, and gemini is
+ * in `THINKING_AWARE_PROVIDERS` so `providers/retry.ts` no longer strips them —
+ * so we gate on the catalog's `supportsThinking` capability here. Unknown or
+ * uncatalogued models default to allowing thinking config (preserving prior
+ * behavior); only an explicit `supportsThinking: false` suppresses it.
+ */
+function geminiModelSupportsThinking(model: string): boolean {
+  const normalized = model.startsWith("models/")
+    ? model.slice("models/".length)
+    : model;
+  const catalogModel = PROVIDER_CATALOG.find(
+    (provider) => provider.id === "gemini",
+  )?.models.find((m) => m.id === normalized);
+  return catalogModel?.supportsThinking !== false;
 }
 
 function stripGeminiHttpOptions(
@@ -215,10 +234,12 @@ export class GeminiProvider implements Provider {
     const usageAttributionHeaders = configObj?.usageAttributionHeaders as
       | Record<string, string>
       | undefined;
-    const thinkingConfig = buildThinkingConfig(
-      configObj?.thinking as Record<string, unknown> | undefined,
-    );
     const activeModel = modelOverride ?? this.model;
+    const thinkingConfig = geminiModelSupportsThinking(activeModel)
+      ? buildThinkingConfig(
+          configObj?.thinking as Record<string, unknown> | undefined,
+        )
+      : undefined;
 
     try {
       const geminiContents = this.toGeminiContents(messages, activeModel);
