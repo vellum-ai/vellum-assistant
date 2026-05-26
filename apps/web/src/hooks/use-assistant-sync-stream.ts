@@ -188,10 +188,10 @@ export function useAssistantSyncStream(
       .subscribe("sse.event", handleEvent);
 
     // After a transport reconnect we may have missed `sync_changed`
-    // events during the gap. Re-fetch both flag query families so the
-    // caches re-converge with the daemon. `cause: "fresh"` is the
-    // initial connection — useQuery already fetches on mount, so the
-    // extra invalidation would be redundant.
+    // events during the gap. Re-fetch flag query families and the
+    // conversation list so caches re-converge with the daemon.
+    // `cause: "fresh"` is the initial connection — useQuery already
+    // fetches on mount, so the extra invalidation would be redundant.
     const unsubscribeOpened = useEventBusStore
       .getState()
       .subscribe("sse.opened", ({ cause }) => {
@@ -202,6 +202,7 @@ export function useAssistantSyncStream(
         void queryClient.invalidateQueries({
           queryKey: [ASSISTANT_FLAG_VALUES_QUERY_KEY],
         });
+        scheduleConversationListRefetch();
       });
 
     return () => {
