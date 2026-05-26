@@ -1,5 +1,3 @@
-/* eslint-disable no-restricted-syntax -- LUM-1768: file contains dark: pairs pending semantic-token migration */
-
 import { ChevronLeft, ChevronRight, Loader2, Lock, Send, Shield } from "lucide-react";
 import { type FormEvent, useCallback, useMemo, useState } from "react";
 
@@ -63,9 +61,9 @@ function renderField(
 ) {
   const errorMsg = validationErrors[field.id];
   const inputClasses =
-    "w-full rounded-lg border border-stone-200 bg-white px-3 py-2 text-body-medium-lighter focus:border-forest-600 focus:outline-none focus:ring-1 focus:ring-forest-600 dark:border-moss-600 dark:bg-moss-800 dark:text-white";
+    "w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--field-bg)] px-3 py-2 text-body-medium-lighter text-[var(--content-default)] focus:border-forest-600 focus:outline-none focus:ring-1 focus:ring-forest-600";
   const errorClasses = errorMsg
-    ? " border-danger-400 dark:border-danger-500"
+    ? " border-[var(--system-negative-strong)]"
     : "";
 
   switch (field.type) {
@@ -171,7 +169,7 @@ function PageProgress({ current, total }: { current: number; total: number }) {
         <div
           key={i}
           className={`h-1.5 flex-1 rounded-full transition-colors ${
-            i <= current ? "bg-forest-500" : "bg-stone-200 dark:bg-moss-600"
+            i <= current ? "bg-forest-500" : "bg-[var(--border-subtle)]"
           }`}
         />
       ))}
@@ -285,7 +283,7 @@ export function FormSurface({ surface, onAction }: FormSurfaceProps) {
     : (formData.submitLabel ?? "Submit");
 
   return (
-    <div className="rounded-lg border border-stone-200 bg-[var(--surface-lift)] p-4 dark:border-moss-600">
+    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-lift)] p-4">
       {surface.title && (
         <div className="mb-3 flex items-center gap-2">
           <span className="text-title-small text-[var(--content-strong)]">
@@ -336,7 +334,7 @@ export function FormSurface({ surface, onAction }: FormSurfaceProps) {
                 type="button"
                 onClick={handleBack}
                 disabled={isSubmitting}
-                className="flex items-center gap-1 rounded-lg border border-stone-300 bg-[var(--surface-lift)] px-3 py-2 text-body-medium-default text-[var(--content-strong)] transition-colors hover:bg-stone-50 disabled:opacity-50 dark:border-moss-600 dark:hover:bg-moss-600"
+                className="flex items-center gap-1 rounded-lg border border-[var(--border-element)] bg-[var(--surface-lift)] px-3 py-2 text-body-medium-default text-[var(--content-strong)] transition-colors hover:bg-[var(--surface-hover)] disabled:opacity-50"
               >
                 <ChevronLeft className="h-4 w-4" />
                 {backLabel}

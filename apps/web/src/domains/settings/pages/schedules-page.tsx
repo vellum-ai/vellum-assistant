@@ -1,4 +1,3 @@
-/* eslint-disable no-restricted-syntax -- LUM-1768: file contains dark: pairs pending semantic-token migration */
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -122,11 +121,11 @@ function StatusDot({ status }: { status: string | null }) {
 
 function EmptyState({ onCreate }: { onCreate: () => void }) {
   return (
-    <div className="flex min-h-[400px] flex-col items-center justify-center rounded-lg border border-stone-200 bg-white px-6 py-16 text-center dark:border-moss-600 dark:bg-moss-700/50">
-      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-stone-100 dark:bg-moss-600">
-        <Calendar className="h-6 w-6 text-stone-400 dark:text-stone-300" />
+    <div className="flex min-h-[400px] flex-col items-center justify-center rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-lift)] px-6 py-16 text-center">
+      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--tag-bg-neutral)]">
+        <Calendar className="h-6 w-6 text-[var(--content-faint)]" />
       </div>
-      <h2 className="mt-4 text-title-small text-stone-900 dark:text-white">
+      <h2 className="mt-4 text-title-small text-[var(--content-default)]">
         No schedules
       </h2>
       <p className="mt-1 text-body-medium-lighter text-[var(--content-quiet)]">
@@ -181,7 +180,7 @@ function RunLogView({ run, onBack }: { run: ScheduleRun; onBack: () => void }) {
 
       {run.output && (
         <SettingsCard title="Output">
-          <pre className="max-h-80 overflow-auto rounded-md bg-stone-50 p-3 text-body-small-default font-mono text-stone-800 dark:bg-moss-800 dark:text-stone-200 whitespace-pre-wrap break-all">
+          <pre className="max-h-80 overflow-auto rounded-md bg-[var(--surface-sunken)] p-3 text-body-small-default font-mono text-[var(--content-default)] whitespace-pre-wrap break-all">
             {run.output}
           </pre>
         </SettingsCard>
@@ -189,7 +188,7 @@ function RunLogView({ run, onBack }: { run: ScheduleRun; onBack: () => void }) {
 
       {run.error && (
         <SettingsCard title="Error">
-          <pre className="max-h-80 overflow-auto rounded-md bg-red-50 p-3 text-body-small-default font-mono text-red-800 dark:bg-red-950/30 dark:text-red-300 whitespace-pre-wrap break-all">
+          <pre className="max-h-80 overflow-auto rounded-md bg-[var(--system-negative-weak)] p-3 text-body-small-default font-mono text-[var(--system-negative-strong)] whitespace-pre-wrap break-all">
             {run.error}
           </pre>
         </SettingsCard>
@@ -378,7 +377,7 @@ export function ScheduleDetailView({
               <span className="text-[var(--content-secondary)] text-body-small-default">
                 Command
               </span>
-              <pre className="mt-1 rounded-md bg-stone-50 p-2 text-body-small-default font-mono text-stone-800 dark:bg-moss-800 dark:text-stone-200 whitespace-pre-wrap break-all">
+              <pre className="mt-1 rounded-md bg-[var(--surface-sunken)] p-2 text-body-small-default font-mono text-[var(--content-default)] whitespace-pre-wrap break-all">
                 {schedule.script}
               </pre>
             </div>

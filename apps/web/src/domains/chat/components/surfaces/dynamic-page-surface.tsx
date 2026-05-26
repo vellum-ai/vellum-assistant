@@ -1,5 +1,3 @@
-/* eslint-disable no-restricted-syntax -- LUM-1768: file contains dark: pairs pending semantic-token migration */
-
 import { Minimize2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -175,7 +173,7 @@ function StatusPill({ text }: { text: string }) {
   if (state.hidden) return null;
 
   return (
-    <div className="absolute top-2 right-2 z-10 rounded-full bg-stone-800/80 px-3 py-1 text-body-small-default text-white shadow-sm backdrop-blur-sm transition-opacity duration-300 dark:bg-stone-200/80 dark:text-stone-900">
+    <div className="absolute top-2 right-2 z-10 rounded-full bg-[var(--primary-base)]/80 px-3 py-1 text-body-small-default text-[var(--content-inset)] shadow-sm backdrop-blur-sm transition-opacity duration-300">
       {text}
     </div>
   );
@@ -396,9 +394,9 @@ export function DynamicPageSurface({
   const height = data.height ? `${data.height}px` : "400px";
 
   return (
-    <div className="rounded-lg border border-stone-200 bg-[var(--surface-lift)] dark:border-moss-600">
+    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-lift)]">
       {(surface.title || expanded) && (
-        <div className="flex items-center justify-between border-b border-stone-200 px-4 py-2 dark:border-moss-600">
+        <div className="flex items-center justify-between border-b border-[var(--border-subtle)] px-4 py-2">
           <span className="text-title-small text-[var(--content-strong)]">
             {surface.title}
           </span>
@@ -406,7 +404,7 @@ export function DynamicPageSurface({
             <button
               type="button"
               onClick={handleCollapse}
-              className="flex items-center gap-1 rounded p-1 text-body-small-default text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-700 dark:text-stone-400 dark:hover:bg-moss-600 dark:hover:text-stone-200"
+              className="flex items-center gap-1 rounded p-1 text-body-small-default text-[var(--content-quiet)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-default)]"
             >
               <Minimize2 className="h-3.5 w-3.5" />
             </button>

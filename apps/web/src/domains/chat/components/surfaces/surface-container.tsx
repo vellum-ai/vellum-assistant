@@ -1,4 +1,3 @@
-/* eslint-disable no-restricted-syntax -- LUM-1768: file contains dark: pairs pending semantic-token migration */
 
 import { CheckCircle, Loader2 } from "lucide-react";
 import { type ReactNode, useState } from "react";
@@ -25,7 +24,7 @@ export function SurfaceContainer({ surface, onAction, children }: SurfaceContain
   };
 
   return (
-    <div className="rounded-lg border border-stone-200 bg-[var(--surface-lift)] p-4 dark:border-moss-600">
+    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-lift)] p-4">
       {surface.title && (
         <div className="mb-3 flex items-center gap-2">
           <span className="text-title-small text-[var(--content-strong)]">
@@ -57,7 +56,7 @@ export function SurfaceContainer({ surface, onAction, children }: SurfaceContain
                 className={
                   action.style === "primary"
                     ? "flex items-center gap-2 rounded-lg bg-forest-600 px-4 py-2 text-body-medium-default text-white transition-colors hover:bg-forest-700 disabled:opacity-50"
-                    : "flex items-center gap-2 rounded-lg border border-stone-300 bg-[var(--surface-lift)] px-4 py-2 text-body-medium-default text-[var(--content-strong)] transition-colors hover:bg-stone-50 disabled:opacity-50 dark:border-moss-600 dark:hover:bg-moss-600"
+                    : "flex items-center gap-2 rounded-lg border border-[var(--border-element)] bg-[var(--surface-lift)] px-4 py-2 text-body-medium-default text-[var(--content-strong)] transition-colors hover:bg-[var(--surface-hover)] disabled:opacity-50"
                 }
               >
                 {submittingAction === action.id && (

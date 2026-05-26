@@ -1,5 +1,3 @@
-/* eslint-disable no-restricted-syntax -- LUM-1768: file contains dark: pairs pending semantic-token migration */
-
 import { AlertTriangle, Clock, Loader2, RotateCcw, Save } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
@@ -133,7 +131,7 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
 
   if (error) {
     return (
-      <div className="flex items-center gap-2 text-body-medium-lighter text-red-600 dark:text-red-400">
+      <div className="flex items-center gap-2 text-body-medium-lighter text-[var(--system-negative-strong)]">
         <AlertTriangle className="h-4 w-4 shrink-0" />
         {error}
       </div>

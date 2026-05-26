@@ -1,4 +1,3 @@
-/* eslint-disable no-restricted-syntax -- LUM-1768: file contains dark: pairs pending semantic-token migration */
 import { ArrowUpRight, Info } from "lucide-react";
 import {
   useCallback,
@@ -61,7 +60,7 @@ type ConversationTimeoutValue =
 const DEFAULT_CONVERSATION_TIMEOUT: ConversationTimeoutValue = "30";
 
 const labelClasses =
-  "text-body-small-default text-stone-600 dark:text-stone-300";
+  "text-body-small-default text-[var(--content-tertiary)]";
 
 export function VoicePage() {
   return (
@@ -75,14 +74,14 @@ export function VoicePage() {
 
 function SpeechServicesBanner() {
   return (
-    <div className="flex items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-2 dark:border-moss-600 dark:bg-moss-800">
+    <div className="flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--field-bg)] px-3 py-2">
       <Info className="h-3.5 w-3.5 shrink-0 text-forest-700" />
-      <span className="text-body-medium-lighter text-stone-600 dark:text-stone-300">
+      <span className="text-body-medium-lighter text-[var(--content-tertiary)]">
         Looking to configure Speech-to-Text or Text-to-Speech models?
       </span>
       <Link
         to={routes.settings.ai}
-        className="inline-flex items-center gap-1 text-body-medium-lighter text-forest-700 underline hover:text-forest-800 dark:text-forest-500 dark:hover:text-forest-400"
+        className="inline-flex items-center gap-1 text-body-medium-lighter text-[var(--system-positive-strong)] underline hover:opacity-80"
       >
         Go to Models &amp; Services
         <ArrowUpRight className="h-3 w-3" />
@@ -310,8 +309,8 @@ function ActivationKeyOption({
     "inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-body-medium-lighter transition-colors",
     "border-[var(--border-subtle)]",
     selected
-      ? "bg-stone-100 dark:bg-moss-700"
-      : "bg-white hover:bg-[var(--surface-sunken)] dark:hover:bg-moss-700",
+      ? "bg-[var(--surface-active)]"
+      : "bg-[var(--surface-lift)] hover:bg-[var(--surface-hover)]",
     recording ? "animate-pulse" : "",
   ]
     .filter(Boolean)
@@ -324,10 +323,10 @@ function ActivationKeyOption({
           "inline-block h-2.5 w-2.5 rounded-full border",
           selected
             ? "border-forest-700 bg-forest-700"
-            : "border-stone-300 dark:border-moss-500",
+            : "border-[var(--border-element)]",
         ].join(" ")}
       />
-      <span className="text-stone-900 dark:text-white">{label}</span>
+      <span className="text-[var(--content-default)]">{label}</span>
     </button>
   );
 }
