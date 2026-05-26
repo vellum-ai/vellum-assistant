@@ -1,4 +1,4 @@
 export {
-  type RelationshipStateUpdated,
-  RelationshipStateUpdatedSchema,
+  type RelationshipStateUpdatedEvent,
+  RelationshipStateUpdatedEventSchema,
 } from "./events/relationship-state-updated.js";

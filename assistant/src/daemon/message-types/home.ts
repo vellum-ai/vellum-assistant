@@ -7,7 +7,7 @@
  * just enough metadata to invalidate a cache and trigger a refetch.
  */
 
-import type { RelationshipStateUpdated } from "../../api/events/relationship-state-updated.js";
+import type { RelationshipStateUpdatedEvent } from "../../api/events/relationship-state-updated.js";
 
 /**
  * Broadcast after the daemon successfully writes a fresh home activity
@@ -25,4 +25,4 @@ export interface HomeFeedUpdated {
   newItemCount: number;
 }
 
-export type _HomeServerMessages = RelationshipStateUpdated | HomeFeedUpdated;
+export type _HomeServerMessages = RelationshipStateUpdatedEvent | HomeFeedUpdated;
