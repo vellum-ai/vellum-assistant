@@ -24,7 +24,7 @@ assistant oauth mode google
 - If the result is `managed`, **stop reading this file** and follow [CONNECTING_ACCOUNTS.md](../CONNECTING_ACCOUNTS.md) instead.
 - If the result is `your-own`, ask the user whether they'd prefer the simpler managed flow before continuing:
   > "Google can connect through Vellum's managed integration — no Google Cloud Console setup needed, just a login. The custom-app path takes a few minutes and involves several developer console screens. Want to use the managed flow, or do you want to set up your own?"
-  If they prefer managed, run `assistant oauth mode google --set managed` and switch to the managed flow.
+  > If they prefer managed, run `assistant oauth mode google --set managed` and switch to the managed flow.
 - If the user already has an active Google connection (`assistant oauth status google` returns a live connection), do not switch modes — respect their existing setup.
 
 Only proceed with Path A or Path B below if the user has explicitly chosen `your-own` mode.
