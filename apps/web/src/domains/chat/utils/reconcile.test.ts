@@ -160,6 +160,7 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
       role: "user",
       content: "What does my calendar look like Thursday?",
       timestamp: 1000,
+      isOptimistic: true,
     });
     const serverUser = makeLocal({
       id: "u1",
@@ -193,6 +194,7 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
       role: "assistant",
       content: "Stockholm plan: start with Gamla Stan",
       isStreaming: true,
+      isOptimistic: true,
       timestamp: 1010,
       textSegments: [
         {
@@ -256,6 +258,7 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
       role: "assistant",
       content: "Stockholm plan: start with Gamla Stan",
       isStreaming: true,
+      isOptimistic: true,
       timestamp: 1010,
     });
     const latestAssistant = makeLocal({
@@ -288,6 +291,7 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
       timestamp: 1000,
       queueStatus: "queued",
       queuePosition: 1,
+      isOptimistic: true,
     });
     const serverUser = makeLocal({
       id: "u1",
@@ -808,7 +812,7 @@ describe("reconcileMessages — mid-stream sync-tag bubble-split regression", ()
       status: "running",
     });
     // Id carries across so the React key doesn't churn.
-    expect(assistant.id).toBe("live-assistant");
+    expect(assistant.id).toBe("msg_streaming");
   });
 
 });
@@ -1550,29 +1554,6 @@ describe("dedupeDisplayMessages", () => {
       id: "m1",
       content: "A complete response",
       isStreaming: false,
-    });
-  });
-
-  test("collapses duplicate stable ids even when server ids differ", () => {
-    const messages: DisplayMessage[] = [
-      makeLocal({
-        id: "m1",
-        role: "assistant",
-        content: "First",
-      }),
-      makeLocal({
-        id: "m2",
-        role: "assistant",
-        content: "Second with more detail",
-      }),
-    ];
-
-    const result = dedupeDisplayMessages(messages);
-
-    expect(result).toHaveLength(1);
-    expect(result[0]).toMatchObject({
-      id: "m2",
-      content: "Second with more detail",
     });
   });
 

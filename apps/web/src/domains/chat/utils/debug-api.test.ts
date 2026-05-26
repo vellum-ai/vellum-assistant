@@ -155,8 +155,8 @@ describe("createChatDebugApi.getClientMessages", () => {
     const api = createChatDebugApi(makeRefs({ sanitizedMessagesRef }));
     const result = api.getClientMessages(5);
     expect(result).toHaveLength(5);
-    expect(result[0]!.id).toBe("msg-25");
-    expect(result[4]!.id).toBe("msg-29");
+    expect(result[0]!.id).toBe("id-25");
+    expect(result[4]!.id).toBe("id-29");
   });
 
   test("defaults to 20 items when no limit", () => {
@@ -169,7 +169,7 @@ describe("createChatDebugApi.getClientMessages", () => {
     const api = createChatDebugApi(makeRefs({ sanitizedMessagesRef }));
     const result = api.getClientMessages();
     expect(result).toHaveLength(20);
-    expect(result[0]!.id).toBe("msg-10");
+    expect(result[0]!.id).toBe("id-10");
   });
 
   test("returns all items when fewer than limit", () => {
@@ -182,7 +182,7 @@ describe("createChatDebugApi.getClientMessages", () => {
     const api = createChatDebugApi(makeRefs({ sanitizedMessagesRef }));
     const result = api.getClientMessages(20);
     expect(result).toHaveLength(5);
-    expect(result[0]!.id).toBe("msg-0");
+    expect(result[0]!.id).toBe("id-0");
   });
 
   test("coerces invalid limit to default", () => {

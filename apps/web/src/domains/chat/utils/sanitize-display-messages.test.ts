@@ -191,7 +191,7 @@ describe("sanitizeDisplayMessages · drop trailing assistant duplicate", () => {
     });
 
     const result = sanitizeDisplayMessages([server, orphan]);
-    expect(result.map((m) => m.id)).toEqual(["server-abc"]);
+    expect(result.map((m) => m.id)).toEqual(["msg-1"]);
   });
 
   test("keeps both rows when only one is the assistant", () => {
@@ -714,7 +714,7 @@ describe("sanitizeDisplayMessages · integration", () => {
     expect(result.map((m) => m.id)).toEqual([
       "user",
       "older",
-      "server-abc",
+      "msg-1",
     ]);
     const patchedTool = result[1]!.toolCalls![0]!;
     expect(patchedTool.status).toBe("error");

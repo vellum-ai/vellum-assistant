@@ -56,7 +56,6 @@ import { Transcript } from "@/domains/chat/transcript/transcript.js";
 
 function userMessage(id: string, content: string): TranscriptItem {
   const msg: DisplayMessage = {
-    id: id,
     id,
     role: "user",
     content,
@@ -66,7 +65,6 @@ function userMessage(id: string, content: string): TranscriptItem {
 
 function assistantMessage(id: string, content: string): TranscriptItem {
   const msg: DisplayMessage = {
-    id: id,
     id,
     role: "assistant",
     content,

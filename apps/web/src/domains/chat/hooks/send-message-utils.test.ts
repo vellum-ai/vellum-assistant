@@ -18,7 +18,6 @@ import {
 
 function msg(overrides: Partial<DisplayMessage> = {}): DisplayMessage {
   return {
-    id: "msg-1",
     id: "stable-1",
     role: "assistant",
     content: "hello",

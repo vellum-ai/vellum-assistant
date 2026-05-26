@@ -52,7 +52,6 @@ import { LatestTurnRow } from "@/domains/chat/transcript/latest-turn-row.js";
 
 function userMessageItem(id: string, content: string): MessageItem {
   const msg: DisplayMessage = {
-    id: id,
     id,
     role: "user",
     content,
@@ -62,7 +61,6 @@ function userMessageItem(id: string, content: string): MessageItem {
 
 function assistantMessageItem(id: string, content: string): MessageItem {
   const msg: DisplayMessage = {
-    id: id,
     id,
     role: "assistant",
     content,

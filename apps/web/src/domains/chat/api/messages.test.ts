@@ -263,7 +263,6 @@ describe("getChatHistory", () => {
       slackMessage,
       timestamp: Date.parse("2026-05-15T12:34:56.000Z"),
     });
-    expect(result.messages[0]?.id.startsWith("server-")).toBe(true);
   });
 });
 

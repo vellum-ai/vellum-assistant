@@ -343,6 +343,7 @@ describe("useRefreshLatestMessages", () => {
       role: "user",
       content: "Plan a Stockholm trip",
       timestamp: 1000,
+      isOptimistic: true,
     });
     const confirmedUser = makeMsg({
       id: "u-server-1",
