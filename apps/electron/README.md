@@ -28,8 +28,11 @@ Code signing, notarization, and auto-update wiring live in follow-up tickets.
   standard scheme.
 - **Daemons** — The main process spawns the Bun daemon binary from
   `process.resourcesPath/bun` with `["daemon"]` args. If the binary exits, it
-  restarts with exponential backoff (1s → 2s → 4s, capped at 30s). Missing
-  binary (ENOENT) is logged but does not retry — expected in local dev.
+  restarts with exponential backoff (1s → 2s → 4s, capped at 30s). The
+  backoff resets to 1s after any run that stayed up for at least 60s, so a
+  transient crash after a long stable run doesn't inherit the prior wait.
+  Missing binary (ENOENT) is logged but does not retry — expected in local
+  dev where the daemon isn't bundled yet.
 
 ## Scripts
 

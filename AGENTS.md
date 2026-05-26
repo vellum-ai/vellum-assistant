@@ -4,7 +4,7 @@
 
 Bun + TypeScript monorepo with multiple packages:
 
-- `apps/` — End-user app surfaces. Currently hosts `apps/web/` (Vite + React Router v7 SPA, mid-migration from `vellum-assistant-platform/web/`) and `apps/ios/` (Capacitor iOS shell that loads the web app in a WKWebView). Future homes for macOS/Electron and the Chrome extension. See `apps/AGENTS.md`.
+- `apps/` — End-user app surfaces. Currently hosts `apps/web/` (Vite + React Router v7 SPA, mid-migration from `vellum-assistant-platform/web/`), `apps/ios/` (Capacitor iOS shell that loads the web app in a WKWebView), and `apps/electron/` (Electron desktop shell for macOS that wraps `apps/web/` and supervises the bundled Bun daemon; distribution and auto-update wiring still to come). Future home for the Chrome extension. See `apps/AGENTS.md`.
 - `assistant/` — Main backend service (Bun + TypeScript)
 - `cli/` — Multi-assistant management CLI (Bun + TypeScript). See `cli/AGENTS.md`.
 - `clients/` — Client apps (macOS, browser extension, etc). See `clients/AGENTS.md` and platform docs like `clients/macos/AGENTS.md`.

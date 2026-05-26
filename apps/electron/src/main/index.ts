@@ -102,9 +102,11 @@ const firstExisting = async (candidates: string[]): Promise<string> => {
 // ---------------------------------------------------------------------------
 //
 // Spawns the bundled Bun daemon binary from Resources/bun. On exit, restarts
-// with exponential backoff (1s → 2s → 4s → … capped at 30s). ENOENT during
-// development (binary not yet bundled) is logged but does not retry — there
-// is nothing to retry to.
+// with exponential backoff (1s → 2s → 4s → … capped at 30s), with the backoff
+// reset to its initial value after any run that stayed up for at least
+// DAEMON_STABLE_RUN_MS so a one-off crash after long uptime doesn't inherit a
+// 30s wait. ENOENT during development (binary not yet bundled) is logged but
+// does not retry — there is nothing to retry to.
 
 const DAEMON_BACKOFF_INITIAL_MS = 1_000;
 const DAEMON_BACKOFF_MAX_MS = 30_000;

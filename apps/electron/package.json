@@ -8,8 +8,7 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "dist": "electron-vite build && electron-builder",
-    "typecheck": "bunx tsc --noEmit",
-    "lint": "eslint"
+    "typecheck": "bunx tsc --noEmit"
   },
   "devDependencies": {
     "@types/node": "22.10.5",
