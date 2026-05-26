@@ -118,20 +118,16 @@ export function ProviderCallbackPage() {
             break;
           }
           case "error":
-            if (nativeParams) {
-              // TEMPORARY DEBUG (revert once iOS sign-in cache-miss is
-              // diagnosed): suppress the redirect-back-to-native so the
-              // Safari sheet stays open and the actual getSession()
-              // failure mode is inspectable. Without this, ASWebAuth
-              // catches the scheme:// redirect, closes the sheet, and
-              // destroys the Web Inspector window before anything can
-              // be read.
-              console.log("[debug native auth] getSession result:", result);
-              console.log("[debug native auth] classification outcome:", outcome);
-              console.log("[debug native auth] nativeParams:", nativeParams);
-              setFallbackError(
-                `[debug] ${outcome.message} :: result=${JSON.stringify(result).slice(0, 800)}`,
-              );
+            if (nativeParams && returnTo) {
+              // getSession() could not confirm authentication, but the
+              // session cookie may still be present (e.g. the allauth
+              // callback set it on a redirect that the browser processed
+              // correctly, but a timing or infrastructure issue caused
+              // the fetch to miss it). Navigate directly to the Django
+              // native callback — @login_required will verify the
+              // session server-side and either issue the authorization
+              // code or redirect to the login page.
+              window.location.href = returnTo;
               return;
             }
             setFallbackError(outcome.message);
