@@ -3,19 +3,19 @@ import Store, { type Schema } from "electron-store";
 /**
  * Persisted user preferences shape. The schema below validates writes; reads
  * are returned as `null` when a key has never been written and no default
- * applies. Top-level keys are the four named categories from LUM-1846 —
+ * applies. Top-level keys are the renderer-facing categories from LUM-1846 —
  * additional categories get added here as future tickets need them, with a
  * matching schema entry to keep validation honest.
+ *
+ * Note: window geometry (position, size) is intentionally NOT here. It's a
+ * main-process-managed concern in Electron (system-managed on iOS,
+ * browser-managed on web), and the renderer never reads or writes it. If
+ * window-state restore is wired in a future ticket, it lives in its own
+ * keyspace or via a dedicated library (e.g. `electron-window-state`).
  */
 export interface AppSettings {
   hotkeys: Record<string, string>;
   theme: "light" | "dark" | "system";
-  windowState: {
-    x?: number;
-    y?: number;
-    width?: number;
-    height?: number;
-  };
   featureFlags: Record<string, boolean>;
 }
 
@@ -29,16 +29,6 @@ const schema: Schema<AppSettings> = {
     type: "string",
     enum: ["light", "dark", "system"],
     default: "system",
-  },
-  windowState: {
-    type: "object",
-    properties: {
-      x: { type: "number" },
-      y: { type: "number" },
-      width: { type: "number" },
-      height: { type: "number" },
-    },
-    additionalProperties: false,
   },
   featureFlags: {
     type: "object",
