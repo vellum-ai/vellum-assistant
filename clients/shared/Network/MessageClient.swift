@@ -120,18 +120,9 @@ public struct MessageClient: MessageClientProtocol {
         if let clientTimezone, !clientTimezone.isEmpty {
             body["clientTimezone"] = clientTimezone
         }
-        if let onboarding {
-            var onboardingDict: [String: Any] = [
-                "tools": onboarding.tools,
-                "tasks": onboarding.tasks,
-                "tone": onboarding.tone
-            ]
-            if let userName = onboarding.userName {
-                onboardingDict["userName"] = userName
-            }
-            if let assistantName = onboarding.assistantName {
-                onboardingDict["assistantName"] = assistantName
-            }
+        if let onboarding,
+           let encodedData = try? JSONEncoder().encode(onboarding),
+           let onboardingDict = try? JSONSerialization.jsonObject(with: encodedData) as? [String: Any] {
             body["onboarding"] = onboardingDict
         }
 
