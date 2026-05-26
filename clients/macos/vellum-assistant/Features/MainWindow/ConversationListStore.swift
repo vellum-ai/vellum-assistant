@@ -921,8 +921,17 @@ final class ConversationListStore {
 
         // Snapshot-mutate to collapse N per-row didSets into one.
         var snapshot = conversations
+
+        // Index by daemon conversation ID for O(1) lookup per response row.
+        var snapshotIndexByDaemonId: [String: Int] = Dictionary(minimumCapacity: snapshot.count)
+        for (idx, conv) in snapshot.enumerated() {
+            if let cid = conv.conversationId {
+                snapshotIndexByDaemonId[cid] = idx
+            }
+        }
+
         for conversation in response.conversations {
-            if let existingIdx = snapshot.firstIndex(where: { $0.conversationId == conversation.id }) {
+            if let existingIdx = snapshotIndexByDaemonId[conversation.id] {
                 snapshot[existingIdx] = conversationModel(
                     from: conversation,
                     localId: snapshot[existingIdx].id,
@@ -934,6 +943,7 @@ final class ConversationListStore {
             }
 
             snapshot.append(conversationModel(from: conversation))
+            snapshotIndexByDaemonId[conversation.id] = snapshot.count - 1
         }
         conversations = snapshot
 
