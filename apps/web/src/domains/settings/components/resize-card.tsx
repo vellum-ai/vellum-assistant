@@ -99,17 +99,24 @@ export function ResizeCard({
 
   const resizeMutation = useMutation({
     ...assistantsResizeMutation(),
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       toast.success("Resize started. Changes will apply shortly.", {
         id: "assistant-resize",
       });
       setResizeError(null);
       setSelectedSize(null);
       setResizeModalOpen(false);
-      // The resize rolls the pod asynchronously, so a single immediate refetch
-      // would just re-read the pre-resize values. Poll against the current
-      // allocation as a baseline until the new size lands.
-      void refetchUntilResized(healthz);
+      if (variables.body?.machine_size != null) {
+        // A machine resize rolls the pod asynchronously, so a single immediate
+        // refetch would just re-read the pre-resize CPU/memory. Poll against the
+        // current allocation as a baseline until the new size lands.
+        void refetchUntilResized(healthz);
+      } else {
+        // Storage-only resize: CPU/memory don't change (and the disk ceiling is
+        // driven off the provisioned quota, not healthz), so the allocation poll
+        // would never resolve. A single refresh is enough.
+        void refetch();
+      }
     },
     onError: (error) => {
       setResizeError(
