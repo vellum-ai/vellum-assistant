@@ -78,7 +78,13 @@ export function migrateDeviceSettings(): void {
         if (localStorage.getItem(entry.key) === null) {
           setLocalSetting(entry.key, legacyValue);
         }
-        localStorage.removeItem(entry.legacy);
+        // Only remove the legacy key if the new key was persisted.
+        // setLocalSetting swallows QuotaExceededError, so without
+        // this guard a failed write would delete the legacy key and
+        // lose the user's preference.
+        if (localStorage.getItem(entry.key) !== null) {
+          localStorage.removeItem(entry.legacy);
+        }
       }
     }
   } catch {

@@ -98,6 +98,37 @@ describe("migrateDeviceSettings", () => {
     expect(localStorage.length).toBe(0);
   });
 
+  test("preserves legacy key when storage write fails", () => {
+    localStorage.setItem("vellum_theme", "dark");
+
+    // Bun's localStorage is native — prototype overrides don't intercept.
+    // Object.defineProperty on the instance works.
+    const originalSetItem = localStorage.setItem;
+    Object.defineProperty(localStorage, "setItem", {
+      value(key: string, value: string) {
+        if (key.startsWith("device:")) {
+          throw new DOMException("QuotaExceededError", "QuotaExceededError");
+        }
+        originalSetItem.call(localStorage, key, value);
+      },
+      configurable: true,
+    });
+
+    try {
+      migrateDeviceSettings();
+    } finally {
+      Object.defineProperty(localStorage, "setItem", {
+        value: originalSetItem,
+        configurable: true,
+      });
+    }
+
+    // Legacy key should still exist — the write failed so we must not delete it
+    expect(localStorage.getItem("vellum_theme")).toBe("dark");
+    // New key was never written
+    expect(localStorage.getItem("device:theme")).toBeNull();
+  });
+
   test("dispatches vellum:pref-changed for each migrated key", () => {
     localStorage.setItem("vellum_theme", "dark");
     localStorage.setItem("vellum_share_diagnostics", "true");
