@@ -107,7 +107,7 @@ export async function completeBackgroundWakeLease(args: {
     status: args.status,
   };
   if (args.error) body.error = args.error;
-  if (args.nextIntent) {
+  if (args.nextIntent != null) {
     body.next_intent = {
       reason: args.nextIntent.reason,
       source_generation: args.nextIntent.sourceGeneration,
