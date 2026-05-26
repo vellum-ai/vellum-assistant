@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
+import * as Sentry from "@sentry/react";
 
 import { AccountHeading } from "@/components/account/account-form.js";
 import { AccountShell } from "@/components/account/account-shell.js";
@@ -152,7 +153,10 @@ export function ProviderCallbackPage() {
             setFallbackError(outcome.message);
             break;
         }
-      } catch {
+      } catch (err) {
+        Sentry.captureException(err, {
+          tags: { context: "provider_callback" },
+        });
         setFallbackError("Something went wrong. Please try signing in again.");
       }
     })();
