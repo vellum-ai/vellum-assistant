@@ -29,6 +29,7 @@ import {
   fetchLatestStableVersion,
   resolveImageRefs,
 } from "./platform-releases.js";
+import { applyByokOnboarding } from "./byok-onboarding.js";
 import {
   configureHatchProviderApiKey,
   formatProviderName,
@@ -1164,12 +1165,6 @@ export async function hatchDocker(
       "chown 1001:1001 /workspace /run/assistant-ipc /run/gateway-ipc",
     ]);
 
-    // BYOK setup (API key, custom profiles, active-profile selection) is
-    // driven post-boot by the CLI calling the Assistant's public APIs
-    // (`POST /v1/secrets`, etc.) via `configureHatchProviderApiKey` below.
-    // The Assistant container comes up clean — no overlay file, no
-    // client-side workspace-config injection.
-
     const cesServiceToken = randomBytes(32).toString("hex");
     const signingKey = randomBytes(32).toString("hex");
 
@@ -1273,6 +1268,29 @@ export async function hatchDocker(
           env: process.env,
           log,
         });
+        // With the API key landed in CES, materialise the BYOK profiles +
+        // personal connection by walking the recipe served from the new
+        // `/v1/inference/onboarding-templates/:provider` endpoint. Errors
+        // here don't tear down the hatch — the assistant boots fine, the
+        // user just sees a "run `vellum setup ...`" hint if recovery is
+        // needed.
+        if (provider !== null) {
+          try {
+            await applyByokOnboarding({
+              gatewayUrl: runtimeUrl,
+              provider,
+              bearerToken: guardianAccessToken,
+              log,
+            });
+          } catch (error) {
+            const message =
+              error instanceof Error ? error.message : String(error);
+            log(
+              `⚠️  BYOK inference profile setup failed: ${message}\n` +
+                `   The assistant is still hatched. Run \`vellum setup --provider ${provider}\` after fixing the issue.`,
+            );
+          }
+        }
       }
       logHatchNextSteps(log, instanceName);
     }

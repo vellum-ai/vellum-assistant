@@ -161,11 +161,11 @@ function inferProviderFromModel(model: string): string | undefined {
   return undefined;
 }
 
-function gatewayUrlWithPath(gatewayUrl: string, path: string): string {
+export function gatewayUrlWithPath(gatewayUrl: string, path: string): string {
   return `${gatewayUrl.replace(/\/+$/, "")}${path}`;
 }
 
-function secretHeaders(bearerToken?: string): Record<string, string> {
+export function secretHeaders(bearerToken?: string): Record<string, string> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     Accept: "application/json",
@@ -176,7 +176,7 @@ function secretHeaders(bearerToken?: string): Record<string, string> {
   return headers;
 }
 
-async function parseErrorMessage(response: Response): Promise<string> {
+export async function parseErrorMessage(response: Response): Promise<string> {
   let text = "";
   try {
     text = await response.text();
