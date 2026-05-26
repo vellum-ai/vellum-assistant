@@ -3968,5 +3968,81 @@ describe("session-agent-loop", () => {
       );
       expect(stripCalls.length).toBeGreaterThanOrEqual(1);
     });
+
+    test("strip-site marker write is non-fatal when the helper throws", async () => {
+      setConversationHistoryStrippedAtMock.mockImplementation(() => {
+        throw new Error("db write failed");
+      });
+
+      mockReducerStepFn = (msgs: Message[]) => ({
+        messages: msgs,
+        tier: "forced_compaction",
+        state: {
+          appliedTiers: ["forced_compaction"],
+          injectionMode: "full",
+          exhausted: false,
+        },
+        estimatedTokens: 5000,
+      });
+
+      let callCount = 0;
+      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        callCount++;
+        if (callCount === 1) {
+          onEvent({
+            type: "error",
+            error: new Error("context_length_exceeded"),
+          });
+          onEvent({
+            type: "usage",
+            inputTokens: 100,
+            outputTokens: 0,
+            model: "test-model",
+            providerDurationMs: 50,
+          });
+          return [
+            ...messages,
+            {
+              role: "assistant" as const,
+              content: [{ type: "text", text: "partial" }] as ContentBlock[],
+            },
+          ];
+        }
+        onEvent({
+          type: "message_complete",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "recovered" }],
+          },
+        });
+        onEvent({
+          type: "usage",
+          inputTokens: 50,
+          outputTokens: 25,
+          model: "test-model",
+          providerDurationMs: 100,
+        });
+        return [
+          ...messages,
+          {
+            role: "assistant" as const,
+            content: [{ type: "text", text: "recovered" }] as ContentBlock[],
+          },
+        ];
+      };
+
+      const ctx = makeCtx({
+        agentLoopRun,
+        contextWindowManager: {
+          shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
+          maybeCompact: async () => ({ compacted: false }),
+        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+      });
+
+      // Must not throw — the strip-site marker write is wrapped in try/catch.
+      await expect(
+        runAgentLoopImpl(ctx, "hello", "msg-1", () => {}),
+      ).resolves.toBeUndefined();
+    });
   });
 });

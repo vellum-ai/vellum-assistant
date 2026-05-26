@@ -226,6 +226,30 @@ import type { TrustContext } from "./trust-context.js";
 import { stripHistoricalWebSearchResults } from "./web-search-history.js";
 
 const log = getLogger("conversation-agent-loop");
+
+/**
+ * Best-effort persistence of the history-stripped marker after an
+ * injection-strip event (compaction / overflow recovery). The marker is a
+ * durability hint, not turn-critical state — a transient SQLite write failure
+ * (SQLITE_BUSY, disk-full, read-only FS) must not abort the turn. Logs a
+ * warning and continues on failure, preserving the long-standing non-fatal
+ * contract for this metadata write.
+ */
+function markHistoryStrippedBestEffort(
+  conversationId: string,
+  strippedAt: number,
+  logger: ReturnType<typeof getLogger>,
+): void {
+  try {
+    setConversationHistoryStrippedAt(conversationId, strippedAt);
+  } catch (err) {
+    logger.warn(
+      { err },
+      "Failed to persist history-stripped marker after compaction strip (non-fatal)",
+    );
+  }
+}
+
 const DISK_PRESSURE_ERROR_CODE = "DISK_SPACE_CRITICAL" as const;
 const DISK_PRESSURE_ERROR_CATEGORY = "disk_pressure";
 
@@ -2312,7 +2336,7 @@ export async function runAgentLoopImpl(
       // so we compact the "raw" persistent messages.
       const rawHistory = stripInjectionsForCompaction(updatedHistory);
       ctx.messages = rawHistory;
-      setConversationHistoryStrippedAt(ctx.conversationId, Date.now());
+      markHistoryStrippedBestEffort(ctx.conversationId, Date.now(), rlog);
 
       ctx.emitActivityState(
         "thinking",
@@ -2596,7 +2620,7 @@ export async function runAgentLoopImpl(
 
       if (updatedHistory.length > preRunHistoryLength) {
         ctx.messages = stripInjectionsForCompaction(updatedHistory);
-        setConversationHistoryStrippedAt(ctx.conversationId, Date.now());
+        markHistoryStrippedBestEffort(ctx.conversationId, Date.now(), rlog);
         convergenceStripped = true;
         preRepairMessages = updatedHistory;
         preRunHistoryLength = updatedHistory.length;
@@ -2841,7 +2865,7 @@ export async function runAgentLoopImpl(
           // pre-rerun messages.
           if (updatedHistory.length > preRunHistoryLength) {
             ctx.messages = stripInjectionsForCompaction(updatedHistory);
-            setConversationHistoryStrippedAt(ctx.conversationId, Date.now());
+            markHistoryStrippedBestEffort(ctx.conversationId, Date.now(), rlog);
             convergenceStripped = true;
             preRepairMessages = updatedHistory;
             preRunHistoryLength = updatedHistory.length;
@@ -3694,7 +3718,7 @@ export async function applyCompactionResult(
     result.summaryText,
     ctx.contextCompactedMessageCount,
   );
-  setConversationHistoryStrippedAt(ctx.conversationId, compactedAt);
+  markHistoryStrippedBestEffort(ctx.conversationId, compactedAt, log);
   if (options.slackContextCompactionWatermarkTs) {
     updateConversationSlackContextWatermark(
       ctx.conversationId,
