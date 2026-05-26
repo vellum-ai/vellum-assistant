@@ -322,18 +322,15 @@ export interface ToolContext {
  * `applyPluginToolDefaults` in `external-plugin-loader.ts`.
  */
 export interface ToolDefinition {
+  /** Human-readable description shown to the model in the tool catalog. */
   description?: string;
+  /** Author-asserted risk band — low / medium / high. Drives default permission gating. */
   defaultRiskLevel?: RiskLevel;
+  /** JSON schema describing the tool's input arguments. */
   input_schema?: object;
-  /**
-   * Where the tool's code physically runs — sandbox (assistant container)
-   * or host (guardian's device via host-bridge proxy). Resolved once at
-   * load time by `resolveExecutionTarget` and stamped onto every loaded
-   * tool. Read by `requiresGuardianApprovalForActor` (the only behavioral
-   * gate) and surfaced to the client UI / guardian channels on approval
-   * prompts.
-   */
+  /** Where the tool runs — sandbox (assistant container) or host (guardian device via proxy). Resolved by `resolveExecutionTarget` if omitted. */
   executionTarget?: ExecutionTarget;
+  /** Implementation invoked when the model calls the tool. */
   execute?: (
     input: Record<string, unknown>,
     context: ToolContext,

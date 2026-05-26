@@ -1,4 +1,3 @@
-import { getTool } from "./registry.js";
 import type { ExecutionTarget } from "./types.js";
 
 export interface ManifestOverride {
@@ -7,39 +6,27 @@ export interface ManifestOverride {
 }
 
 /**
- * Pure compute used at tool construction / load time. Every `LoadedTool`
- * carries `executionTarget` as a required field; this function is the
- * single place where we decide what value to stamp.
+ * Decide a tool's execution target — sandbox (assistant container) or host
+ * (guardian's device via host-bridge proxy). Pure: same input → same output.
  *
- * - `declared` wins (skill manifest, factory, hand-written tool).
- * - `executionMode === "proxy"` => host (proxied tools run on the connected client).
- * - Prefix heuristic catches anything still unset (`host_*` / `computer_use_*`).
- * - Default: sandbox.
+ * Resolution order:
+ *   1. Declared `executionTarget` on the tool wins.
+ *   2. `executionMode === "proxy"` ⇒ host (proxied tools run on the client).
+ *   3. Name prefix heuristic — `host_*` / `computer_use_*` ⇒ host.
+ *   4. Default sandbox.
+ *
+ * Called once per tool at load/construction time. The returned value is
+ * stamped onto every `LoadedTool`, so runtime reads are just a field read.
  */
-export function computeExecutionTarget(
-  name: string,
-  declared?: ExecutionTarget,
-  executionMode?: "local" | "proxy",
-): ExecutionTarget {
-  if (declared) return declared;
-  if (executionMode === "proxy") return "host";
-  if (name.startsWith("host_") || name.startsWith("computer_use_")) {
+export function resolveExecutionTarget(tool: {
+  name: string;
+  executionTarget?: ExecutionTarget;
+  executionMode?: "local" | "proxy";
+}): ExecutionTarget {
+  if (tool.executionTarget) return tool.executionTarget;
+  if (tool.executionMode === "proxy") return "host";
+  if (tool.name.startsWith("host_") || tool.name.startsWith("computer_use_")) {
     return "host";
   }
   return "sandbox";
-}
-
-/**
- * Runtime reader. For registered tools, returns the value stamped at load
- * time. For unregistered tools (Permission Simulator's "what would this
- * tool do?" path), falls back to manifest metadata or `computeExecutionTarget`.
- */
-export function resolveExecutionTarget(
-  toolName: string,
-  manifestOverride?: ManifestOverride,
-): ExecutionTarget {
-  const tool = getTool(toolName);
-  if (tool) return tool.executionTarget;
-  if (manifestOverride) return manifestOverride.execution_target;
-  return computeExecutionTarget(toolName);
 }
