@@ -9,14 +9,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { memoryRouterCostOptimizedProfileMigration } from "../workspace/migrations/089-memory-router-cost-optimized-profile.js";
+import { memoryRouterCostOptimizedProfileMigration } from "../workspace/migrations/090-memory-router-cost-optimized-profile.js";
 
 let workspaceDir: string;
 
 function freshWorkspace(): void {
   workspaceDir = join(
     tmpdir(),
-    `vellum-migration-089-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    `vellum-migration-090-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
   mkdirSync(workspaceDir, { recursive: true });
 }
@@ -48,10 +48,10 @@ afterEach(() => {
   }
 });
 
-describe("089-memory-router-cost-optimized-profile migration", () => {
+describe("090-memory-router-cost-optimized-profile migration", () => {
   test("has correct migration id", () => {
     expect(memoryRouterCostOptimizedProfileMigration.id).toBe(
-      "089-memory-router-cost-optimized-profile",
+      "090-memory-router-cost-optimized-profile",
     );
   });
 

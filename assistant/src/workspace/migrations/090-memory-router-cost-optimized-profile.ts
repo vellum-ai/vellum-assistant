@@ -40,7 +40,7 @@ const MEMORY_ROUTER_COST_OPTIMIZED = {
 } as const;
 
 export const memoryRouterCostOptimizedProfileMigration: WorkspaceMigration = {
-  id: "089-memory-router-cost-optimized-profile",
+  id: "090-memory-router-cost-optimized-profile",
   description:
     "Set callSites.memoryRouter to the shipped cost-optimized default (with 1M context) for workspaces still carrying the 087-seeded balanced profile",
   run(workspaceDir: string): void {
