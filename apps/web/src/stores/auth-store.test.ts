@@ -81,7 +81,6 @@ beforeEach(() => {
   syncOnboardingUserMock.mockClear();
   clearOrganizationMock.mockClear();
   logoutMock.mockClear();
-<<<<<<< HEAD
   deleteBiometricTokenMock.mockClear();
   installSessionCookiesMock.mockClear();
   retrieveBiometricTokenMock.mockClear();
