@@ -486,10 +486,10 @@ export async function postChatMessage(
   attachmentIds: string[] = [],
   onboarding?: PreChatOnboardingContext,
 ): Promise<PostMessageResult> {
-  // Daemon 0.8.5+ accepts `conversationId` on this endpoint as a direct
-  // internal-id lookup; older daemons only understand the legacy
-  // `conversationKey` (external-key path). The gate that picks between
-  // them lives in `lib/backwards-compat/conversation-id-wire-field.ts`.
+  // The wire-field gate prefers `conversationId` on daemons that mint
+  // ids before the first client send, falling back to `conversationKey`
+  // (create-or-lookup) so locally-minted draft ids still resolve. See
+  // `lib/backwards-compat/conversation-id-wire-field.ts`.
   const body: Record<string, unknown> = {
     [pickConversationIdWireField()]: conversationId,
     content,

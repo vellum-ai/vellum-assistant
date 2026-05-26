@@ -310,10 +310,10 @@ export function subscribeChatEvents(
     dataFramesReceivedSinceConnect = 0;
     let streamError: Error | null = null;
     try {
-      // Daemon 0.8.5+ accepts `conversationId` on this endpoint as a
-      // direct internal-id lookup; older daemons only understand the
-      // legacy `conversationKey` (external-key path). The gate that
-      // picks between them lives in
+      // The wire-field gate prefers `conversationId` on daemons that
+      // mint ids before the first client send, falling back to
+      // `conversationKey` (create-or-lookup) so locally-minted draft
+      // ids still resolve. See
       // `lib/backwards-compat/conversation-id-wire-field.ts`.
       const { stream } = await client.sse.get<Record<string, unknown> | string>({
         ...SDK_BASE_OPTIONS,
