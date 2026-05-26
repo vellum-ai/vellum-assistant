@@ -35,6 +35,10 @@ const DEVICE_LEVEL_KEYS = new Set([
   "vellum_share_analytics",
   "vellum_share_diagnostics",
   "vellum_biometric_enabled",
+  "vellum_llm_log_retention",
+  "vellum_timezone",
+  "vellum_media_embeds_enabled",
+  "vellum_media_embed_domains",
   "onboarding.lastUserId",
 ]);
 

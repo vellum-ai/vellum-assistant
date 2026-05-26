@@ -141,6 +141,8 @@ matching app prefixes (`vellum`, `onboarding.`, `ff:client:`,
 `voice:`, `integrations.`) is removed unless it's in the device-level
 preserve set (`vellum_theme`, `vellum_share_analytics`,
 `vellum_share_diagnostics`, `vellum_biometric_enabled`,
+`vellum_llm_log_retention`, `vellum_timezone`,
+`vellum_media_embeds_enabled`, `vellum_media_embed_domains`,
 `onboarding.lastUserId`). New app keys
 are cleared by default without requiring updates to a removal list.
 

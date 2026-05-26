@@ -75,6 +75,10 @@ describe("clearUserScopedStorage", () => {
     localStorage.setItem("vellum_share_analytics", "true");
     localStorage.setItem("vellum_share_diagnostics", "false");
     localStorage.setItem("vellum_biometric_enabled", "true");
+    localStorage.setItem("vellum_llm_log_retention", "dontRetain");
+    localStorage.setItem("vellum_timezone", "America/New_York");
+    localStorage.setItem("vellum_media_embeds_enabled", "false");
+    localStorage.setItem("vellum_media_embed_domains", '["youtube.com"]');
     localStorage.setItem("onboarding.lastUserId", "user-123");
 
     clearUserScopedStorage();
@@ -83,6 +87,10 @@ describe("clearUserScopedStorage", () => {
     expect(localStorage.getItem("vellum_share_analytics")).toBe("true");
     expect(localStorage.getItem("vellum_share_diagnostics")).toBe("false");
     expect(localStorage.getItem("vellum_biometric_enabled")).toBe("true");
+    expect(localStorage.getItem("vellum_llm_log_retention")).toBe("dontRetain");
+    expect(localStorage.getItem("vellum_timezone")).toBe("America/New_York");
+    expect(localStorage.getItem("vellum_media_embeds_enabled")).toBe("false");
+    expect(localStorage.getItem("vellum_media_embed_domains")).toBe('["youtube.com"]');
     expect(localStorage.getItem("onboarding.lastUserId")).toBe("user-123");
   });
 
