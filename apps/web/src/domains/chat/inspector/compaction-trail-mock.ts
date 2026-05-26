@@ -3,7 +3,7 @@
  *
  * This module exists for one reason: validate the Compaction tab UX
  * before we lock the data model. Today the daemon doesn't expose a
- * `compaction-trail` route — when it does, the swap is one import in
+ * compaction route — when it does, the swap is one import in
  * `compaction-trail-api.ts`.
  *
  * The shape returned here is the **minimal** option from
@@ -13,6 +13,14 @@
  * `llm_request_logs`) earns its keep. If it feels sufficient, we ship
  * the API route against the existing column and save ourselves a
  * migration.
+ *
+ * **Call-scoped filtering.** The mock derives a deterministic event
+ * count from the callId (hashed → modulo `MOCK_EVENTS.length + 1`)
+ * and returns the first N events. The point: selecting different
+ * calls in the rail produces visibly different trails during dev,
+ * including the empty case. The real daemon route will scope by
+ * actual createdAt cutoff — this is just a stand-in so the UI
+ * exercise feels real.
  *
  * Mock latency (250ms) simulates the network so the loading state is
  * visible in dev.
@@ -105,6 +113,7 @@ const MOCK_EVENTS: CompactionTrailEvent[] = [
 
 export async function fetchCompactionTrailMock(
   conversationId: string,
+  callId: string,
   signal: AbortSignal | undefined,
 ): Promise<CompactionTrailResponse> {
   await new Promise<void>((resolve, reject) => {
@@ -116,8 +125,23 @@ export async function fetchCompactionTrailMock(
       });
     }
   });
+  const eventCount = mockEventCountForCallId(callId);
   return {
     conversationId,
-    events: MOCK_EVENTS,
+    events: MOCK_EVENTS.slice(0, eventCount),
   };
+}
+
+/**
+ * Deterministic 0-based count derived from the callId so each call
+ * in the rail shows a different (but reproducible) trail length.
+ * Range: `[0, MOCK_EVENTS.length]` inclusive — includes the empty
+ * case so the empty-state UI exercises in dev too.
+ */
+function mockEventCountForCallId(callId: string): number {
+  let hash = 0;
+  for (let i = 0; i < callId.length; i++) {
+    hash = (hash * 31 + callId.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash) % (MOCK_EVENTS.length + 1);
 }

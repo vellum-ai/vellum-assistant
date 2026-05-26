@@ -13,32 +13,44 @@ import {
   formattedCreatedAt,
   MISSING_VALUE,
 } from "@/domains/chat/inspector/inspector-formatters.js";
+import type { LLMRequestLogEntry } from "@/domains/chat/types/inspector-types.js";
 
 /**
- * Compaction tab — chronological trail of every compaction event in
- * the conversation. Lazy-loaded: the fetch only fires when this tab
- * mounts (i.e. is selected), so other tabs render at full speed.
+ * Compaction tab — the compaction events that led up to the **selected
+ * LLM call**, not the entire conversation. Mirrors the call-scoped
+ * model the rest of the inspector tabs follow (Overview / Prompt /
+ * Response / Raw all operate on the selected call too).
+ *
+ * Lazy-loaded: the fetch only fires when this tab mounts (i.e. is
+ * selected), so other tabs render at full speed. Picking a different
+ * call in the rail busts the query cache key, so the displayed trail
+ * tracks the selection.
  *
  * Today the data comes from `compaction-trail-mock.ts`. The real API
- * route (planned: `GET /v1/assistants/:id/conversations/:cid/compaction-trail`)
+ * route (planned: `GET /v1/assistants/:id/conversations/:cid/compaction?callId=…`)
  * will return the same `CompactionTrailResponse` shape, projected from
- * `llm_request_logs` filtered by `call_site = "compactionAgent"`.
- * Whether the existing column is sufficient or we need a richer
- * `compaction_logs` table is the question this UI is here to answer
- * — review feedback drives that data-model decision.
+ * `llm_request_logs` filtered by `call_site = "compactionAgent"` and
+ * a createdAt cutoff at the selected call. Whether the existing column
+ * is sufficient or we need a richer `compaction_logs` table is the
+ * question this UI is here to answer — review feedback drives that
+ * data-model decision.
  */
 interface CompactionTabProps {
   assistantId: string | undefined;
   conversationId: string | undefined;
+  /** The currently-selected LLM call from the rail. Scopes the trail. */
+  entry: LLMRequestLogEntry;
 }
 
 export function CompactionTab({
   assistantId,
   conversationId,
+  entry,
 }: CompactionTabProps): ReactNode {
   const { data, isLoading, isError, error, refetch } = useCompactionTrail(
     assistantId,
     conversationId,
+    entry.id,
   );
 
   if (isLoading) {
@@ -109,7 +121,7 @@ export function CompactionTab({
             className="text-body-medium-default"
             style={{ color: "var(--content-default)" }}
           >
-            No compaction events recorded for this conversation
+            No compaction ran before this call
           </p>
           <p
             className="mt-1 text-body-medium-lighter"
@@ -117,8 +129,8 @@ export function CompactionTab({
           >
             The compactor only runs when the conversation crosses its
             context budget. If you expect events here, check that the
-            conversation has actually been compacted (e.g. it's a long
-            session that crossed the auto-compaction threshold).
+            conversation actually crossed the auto-compaction threshold
+            prior to this call.
           </p>
         </Card>
       </div>
@@ -149,24 +161,15 @@ function SummaryCard({
   const errorCount = events.filter(
     (e) => e.stopReason && e.stopReason !== "end_turn",
   ).length;
-  const inputTokenSum = events.reduce(
-    (sum, e) => sum + (e.inputTokens ?? 0),
-    0,
-  );
-  const outputTokenSum = events.reduce(
-    (sum, e) => sum + (e.outputTokens ?? 0),
-    0,
-  );
-  const durations = events
-    .map((e) => e.durationMs)
-    .filter((d): d is number => d != null && Number.isFinite(d));
-  const avgDuration = durations.length
-    ? Math.round(durations.reduce((s, d) => s + d, 0) / durations.length)
-    : null;
-  const totalCost = events.reduce(
-    (sum, e) => sum + (e.estimatedCostUsd ?? 0),
-    0,
-  );
+  // Aggregates fall back to MISSING_VALUE when ANY contributing event
+  // is missing the field — otherwise partial data masquerades as an
+  // exact total. The compactionAgent call-site fills these reliably
+  // for healthy runs, but stamping is best-effort: a daemon crash
+  // mid-compaction can leave a row with null tokens/cost.
+  const inputTokenSum = sumOrNull(events.map((e) => e.inputTokens));
+  const outputTokenSum = sumOrNull(events.map((e) => e.outputTokens));
+  const avgDuration = avgOrNull(events.map((e) => e.durationMs));
+  const totalCost = sumOrNull(events.map((e) => e.estimatedCostUsd));
 
   return (
     <Card padding="md">
@@ -182,28 +185,63 @@ function SummaryCard({
             className="text-label-default"
             style={{ color: "var(--content-tertiary)" }}
           >
-            {total === 1 ? "1 compaction" : `${total} compactions`}
+            {total === 1
+              ? "1 compaction before this call"
+              : `${total} compactions before this call`}
             {errorCount > 0 ? ` · ${errorCount} failed` : ""}
           </span>
         </div>
         <div className="flex flex-col gap-2">
           <MetadataRow
             label="Total tokens compacted"
-            value={formatCount(inputTokenSum)}
+            value={inputTokenSum != null ? formatCount(inputTokenSum) : MISSING_VALUE}
           />
           <MetadataRow
             label="Total summary tokens"
-            value={formatCount(outputTokenSum)}
+            value={outputTokenSum != null ? formatCount(outputTokenSum) : MISSING_VALUE}
           />
           <MetadataRow
             label="Avg compaction latency"
             value={avgDuration != null ? `${formatCount(avgDuration)} ms` : MISSING_VALUE}
           />
-          <MetadataRow label="Total compaction cost" value={formatCost(totalCost)} />
+          <MetadataRow
+            label="Total compaction cost"
+            value={totalCost != null ? formatCost(totalCost) : MISSING_VALUE}
+          />
         </div>
       </div>
     </Card>
   );
+}
+
+/**
+ * Sum nullable numbers. Returns null if any value is null/undefined
+ * or non-finite, so partial data renders as `MISSING_VALUE` rather
+ * than masquerading as an exact total.
+ */
+function sumOrNull(values: Array<number | null | undefined>): number | null {
+  let sum = 0;
+  for (const v of values) {
+    if (v == null || !Number.isFinite(v)) return null;
+    sum += v;
+  }
+  return sum;
+}
+
+/**
+ * Mean of nullable numbers, rounded to the nearest integer. Returns
+ * null if there are no values, or if any value is null/non-finite —
+ * same contract as `sumOrNull`. Averaging over partial data would be
+ * just as misleading as a coerced sum.
+ */
+function avgOrNull(values: Array<number | null | undefined>): number | null {
+  if (values.length === 0) return null;
+  let sum = 0;
+  for (const v of values) {
+    if (v == null || !Number.isFinite(v)) return null;
+    sum += v;
+  }
+  return Math.round(sum / values.length);
 }
 
 function EventCard({
