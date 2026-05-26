@@ -5,9 +5,12 @@
  * Coverage matrix:
  *   - 1-hop and 2-hop outgoing expansion from a single seed.
  *   - Default hops (2) when omitted.
- *   - Seed excluded from its own `pulled`.
+ *   - Seed excluded from its own `pulled`, and from another seed's `pulled`
+ *     when one seed is reachable from another (seeds-excluded contract).
  *   - Multiple seeds: top-level `pulled` is the union; per-seed expansions
  *     attribute correctly; duplicate seeds collapse.
+ *   - Per-seed cap spends slots on unique neighbors, not duplicates an earlier
+ *     seed already pulled (recall at the cap).
  *   - `extraAdjacency` merges with the curated graph during traversal.
  *   - `extraAdjacency` bridges across hops (curated → extra → curated).
  *   - Cycles in the curated graph (and via extraAdjacency) terminate, bounded
@@ -491,6 +494,106 @@ describe("expandEdges — bounds", () => {
       { from: "people/alice", pulled: ["topics/alice-only", "topics/shared"] },
       { from: "people/bob", pulled: ["topics/bob-only", "topics/shared"] },
     ]);
+  });
+
+  test("a seed reachable from another seed is excluded from pulled", async () => {
+    // alice -> bob, and bob is itself a seed. bob is a confident hit in its own
+    // right, not a neighbor, so it must never appear in the pulled union — even
+    // though alice's outgoing walk reaches it. bob's own private neighbor is
+    // still pulled.
+    await writeGraph({
+      alice: ["bob"],
+      bob: ["carol"],
+      carol: [],
+    });
+
+    const { pulled, expansions } = await expandEdges({
+      workspaceDir,
+      seeds: ["alice", "bob"],
+      hops: 1,
+    });
+
+    expect(pulled.has("bob")).toBe(false);
+    expect([...pulled].sort()).toEqual(["carol"]);
+    // alice reaches only bob, which is a seed, so alice contributes nothing.
+    expect(expansions).toEqual([
+      { from: "alice", pulled: [] },
+      { from: "bob", pulled: ["carol"] },
+    ]);
+  });
+
+  test("a seed two hops from another seed is still excluded from pulled", async () => {
+    // alice -> mid -> bob. With a 2-hop walk alice reaches bob, but bob is a
+    // seed and must not leak into pulled; the intermediate `mid` is a genuine
+    // neighbor and is kept.
+    await writeGraph({
+      alice: ["mid"],
+      mid: ["bob"],
+      bob: [],
+    });
+
+    const { pulled } = await expandEdges({
+      workspaceDir,
+      seeds: ["alice", "bob"],
+      hops: 2,
+    });
+
+    expect(pulled.has("bob")).toBe(false);
+    expect([...pulled].sort()).toEqual(["mid"]);
+  });
+
+  test("per-seed cap is spent on unique neighbors, not duplicates", async () => {
+    // alice pulls 16 shared `dup/*` neighbors. bob reaches those same 16 dups
+    // plus 32 unique `fresh/*` neighbors. bob's per-seed budget is
+    // MAX_PULLS_PER_SEED (32) because the union is nowhere near the total cap.
+    //
+    // The old slice took bob's lexicographically-first 32 reached slugs — the
+    // 16 already-pulled dups plus only the first 16 fresh — wasting 16 budget
+    // slots on duplicates and dropping the other 16 unique neighbors. Filtering
+    // already-pulled slugs before the slice spends all 32 slots on fresh
+    // neighbors, so every unique one is retained (recall north star).
+    const dupCount = 16;
+    const freshCount = MAX_PULLS_PER_SEED; // 32, so old code drops 16 unique.
+    const dups: string[] = [];
+    const fresh: string[] = [];
+    const graph: Record<string, string[]> = {};
+    for (let i = 0; i < dupCount; i++) {
+      const slug = topicSlug("dup", i);
+      dups.push(slug);
+      graph[slug] = [];
+    }
+    for (let i = 0; i < freshCount; i++) {
+      const slug = topicSlug("fresh", i);
+      fresh.push(slug);
+      graph[slug] = [];
+    }
+    // "dup/*" sorts before "fresh/*", so the old front-of-list slice is exactly
+    // the 16 dups + first 16 fresh.
+    graph["alice"] = [...dups];
+    graph["bob"] = [...dups, ...fresh];
+    await writeGraph(graph);
+
+    const { pulled, expansions } = await expandEdges({
+      workspaceDir,
+      seeds: ["alice", "bob"],
+      hops: 1,
+    });
+
+    // All 32 unique fresh neighbors survive — none dropped to a duplicate slot.
+    for (const slug of fresh) expect(pulled.has(slug)).toBe(true);
+    // A unique neighbor the old code would have dropped (past the first 16) is
+    // now retained.
+    expect(pulled.has(topicSlug("fresh", freshCount - 1))).toBe(true);
+    // Union is the 16 dups + 32 fresh, all distinct.
+    expect(pulled.size).toBe(dupCount + freshCount);
+
+    // bob's budget (32 fresh slots) is fully spent on unique neighbors; the
+    // dups it also reaches stay in its trace for faithful attribution but did
+    // not consume the budget.
+    const bobExpansion = expansions.find((e) => e.from === "bob")!;
+    expect(bobExpansion.pulled).toEqual([...dups, ...fresh].sort());
+    // Every trace slug is genuinely in the union.
+    for (const slug of bobExpansion.pulled) expect(pulled.has(slug)).toBe(true);
   });
 });
 

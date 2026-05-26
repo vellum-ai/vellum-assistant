@@ -15,8 +15,9 @@
  * effective out-neighborhood of a node is `curated[node] ∪ extraAdjacency[node]`.
  *
  * The result is the union of every seed's reachable neighborhood (`pulled`,
- * with seeds themselves excluded) plus a per-seed `EdgeExpansion[]` trace so a
- * harness can attribute each pulled slug to the seed it came from.
+ * with the full seed set excluded — a seed reachable from another seed is still
+ * a seed, not a neighbor) plus a per-seed `EdgeExpansion[]` trace so a harness
+ * can attribute each pulled slug to the seed it came from.
  */
 
 import { getEdgeIndex, getReachable } from "../v2/edge-index.js";
@@ -171,10 +172,11 @@ function reachableMerged(
  * Expand a set of confident seed slugs to their 1–2 hop curated neighborhood.
  *
  * Each expanded seed produces one `EdgeExpansion { from, pulled }` entry (sorted
- * slugs for deterministic output); the seed itself is never in its own `pulled`.
- * The top-level `pulled` set is the union across all expanded seeds — a slug
- * pulled by more than one seed appears once there but in each contributing
- * seed's expansion.
+ * slugs for deterministic output); no seed ever appears in `pulled` — not its
+ * own entry and not another seed's, even when one seed is a neighbor of another
+ * (the seeds-excluded contract). The top-level `pulled` set is the union across
+ * all expanded seeds — a slug pulled by more than one seed appears once there
+ * but in each contributing seed's expansion.
  *
  * Bounded by {@link MAX_SEEDS_EXPANDED}, {@link MAX_PULLS_PER_SEED}, and
  * {@link MAX_TOTAL_PULLS} so a large seed union or a dense graph can't balloon
@@ -213,7 +215,14 @@ export async function expandEdges(
     );
   }
 
-  // De-dupe seeds while preserving (ranked) order for a stable trace.
+  // De-dupe seeds while preserving (ranked) order for a stable trace. The full
+  // de-duped seed set is also the exclusion set: a seed reachable from another
+  // seed is itself a confident hit, not a neighbor, so it must never land in
+  // `pulled` (the seeds-excluded contract) — `getReachable` only excludes the
+  // walk's own start node, so a B reachable from A would otherwise leak in.
+  const seedSet = new Set<string>();
+  for (const seed of orderedSeeds) seedSet.add(seed);
+
   const seenSeeds = new Set<string>();
 
   for (const seed of orderedSeeds) {
@@ -231,18 +240,30 @@ export async function expandEdges(
       ? reachableMerged(index.outgoing, extraAdjacency, seed, hops)
       : getReachable(index, seed, hops, "out");
 
-    // Per-seed fan-out cap, then trim to the union's remaining headroom so the
-    // total ceiling is hard (never overshot) and the trace entry lists exactly
-    // the slugs this seed contributed to the bounded union. Sorting first keeps
-    // truncation deterministic — a hub seed always yields the same slice. Slugs
-    // already pulled by an earlier seed don't consume headroom (the union Set
-    // de-dupes), so this is a conservative upper bound on what's admitted.
+    // Drop any other seed from this seed's neighborhood (seeds-excluded
+    // contract) and split the rest into slugs already in the union vs. fresh
+    // ones. The per-seed fan-out cap and the union's remaining headroom apply
+    // only to fresh slugs, so a slot is never spent on a duplicate an earlier
+    // seed already pulled — at the cap that would silently drop a unique
+    // neighbor. Sorting first keeps truncation deterministic. The trace lists
+    // every reached slug that made it into the bounded union (fresh admissions
+    // plus the duplicates this seed also reaches), so it stays a faithful
+    // attribution while the budget is reserved for new recall.
+    const sorted = [...reachable].sort();
+    const alreadyPulled = sorted.filter(
+      (slug) => !seedSet.has(slug) && pulled.has(slug),
+    );
+    const fresh = sorted.filter(
+      (slug) => !seedSet.has(slug) && !pulled.has(slug),
+    );
+
     const remaining = MAX_TOTAL_PULLS - pulled.size;
     const perSeedCap = Math.min(MAX_PULLS_PER_SEED, remaining);
-    const seedPulled = [...reachable].sort().slice(0, perSeedCap);
+    const admitted = fresh.slice(0, perSeedCap);
+    for (const slug of admitted) pulled.add(slug);
 
+    const seedPulled = [...alreadyPulled, ...admitted].sort();
     expansions.push({ from: seed, pulled: seedPulled });
-    for (const slug of seedPulled) pulled.add(slug);
   }
 
   return { pulled, expansions };
