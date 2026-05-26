@@ -33,6 +33,9 @@ let injectionScores = new Map<string, number>();
 let pageSlugs: string[] = [];
 let hybridHits: ConceptPageQueryResult[] = [];
 let embedCalls = 0;
+// Records the text the sparse lane keyed its BM25 query off, so tests can
+// assert it is the user turn only (not the NOW context).
+let lastBm25QueryText: string | null = null;
 
 mock.module("../../v2/injection-events.js", () => ({
   computeInjectionScores: () => injectionScores,
@@ -62,10 +65,12 @@ mock.module("../../v2/sparse-bm25.js", () => ({
   // Non-empty indices so the sparse/dense lanes don't short-circuit on an
   // "empty query embedding". The values are irrelevant — the stubbed Qdrant
   // query ignores them and returns `hybridHits` directly.
-  generateBm25QueryEmbedding: (text: string) =>
-    text.trim().length > 0
+  generateBm25QueryEmbedding: (text: string) => {
+    lastBm25QueryText = text;
+    return text.trim().length > 0
       ? { indices: [1], values: [1] }
-      : { indices: [], values: [] },
+      : { indices: [], values: [] };
+  },
 }));
 
 mock.module("../../embedding-backend.js", () => ({
@@ -235,6 +240,23 @@ describe("runScouts — sparse lane", () => {
     // Near-exact: readme (top) and api (>= 90% of top). Not misc/note.
     expect([...sticky].sort()).toEqual(["docs/api", "docs/readme"]);
     expect([...bypass].sort()).toEqual(["docs/api", "docs/readme"]);
+  });
+
+  test("keys the BM25 query off the user turn only, not the NOW context", async () => {
+    hybridHits = [hit("docs/readme", { sparseScore: 4.0 })];
+
+    await runScouts(
+      makeInput({
+        userMessage: "favorite foods",
+        nowText: "ongoing project alpha and journal beta",
+        lanes: { hot: false, dense: false },
+      }),
+      DEPS,
+    );
+
+    // The sparse lane must search the user's words alone — folding NOW in would
+    // make NOW-referenced pages near-exact (sticky) on every turn.
+    expect(lastBm25QueryText).toBe("favorite foods");
   });
 
   test("no sparse hits yields no sparse ScoutResult", async () => {
