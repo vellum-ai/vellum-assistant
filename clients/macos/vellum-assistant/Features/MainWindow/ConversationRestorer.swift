@@ -430,6 +430,17 @@ final class ConversationRestorer {
         // Snapshot existing conversations so that per-row merges accumulate
         // in-memory instead of triggering N × conversations.didSet.
         var snapshot = delegate.conversations
+
+        // Index by daemon conversation ID for O(1) lookup per server row.
+        // With ~1800 conversations, this eliminates ~3.24M string comparisons
+        // (O(n²) linear scan) in favor of ~3600 hash lookups (O(n)).
+        var snapshotIndexByDaemonId: [String: Int] = Dictionary(minimumCapacity: snapshot.count)
+        for (idx, conv) in snapshot.enumerated() {
+            if let cid = conv.conversationId {
+                snapshotIndexByDaemonId[cid] = idx
+            }
+        }
+
         var restoredConversations: [ConversationModel] = []
         for session in response.conversations {
             let isPinned = session.isPinned ?? false
@@ -445,7 +456,7 @@ final class ConversationRestorer {
             // If a local conversation already exists (e.g. created by
             // createNotificationConversation before the session list response arrived),
             // merge server pin/order metadata into it instead of creating a duplicate.
-            if let existingIdx = snapshot.firstIndex(where: { $0.conversationId == session.id }) {
+            if let existingIdx = snapshotIndexByDaemonId[session.id] {
                 var existing = snapshot[existingIdx]
                 existing.groupId = groupId
                 existing.displayOrder = session.displayOrder.map { Int($0) }
@@ -474,17 +485,9 @@ final class ConversationRestorer {
                 continue
             }
 
-            // Preserve user-set titles: if a conversation with this session already
-            // exists locally and has a non-default title, keep it instead of
-            // overwriting with the daemon's auto-generated title.
-            let existingTitle = snapshot
-                .first(where: { $0.conversationId == session.id && $0.title != "New Conversation" })?
-                .title
-            let title = existingTitle ?? session.title
-
             let effectiveCreatedAt = session.createdAt ?? session.updatedAt
             let conversation = ConversationModel(
-                title: title,
+                title: session.title,
                 createdAt: Date(timeIntervalSince1970: TimeInterval(effectiveCreatedAt) / 1000.0),
                 conversationId: session.id,
                 isArchived: delegate.isConversationArchived(session.id),
