@@ -134,58 +134,81 @@ function nodeChildrenOf(tree: TreeIndex, nodeId: string): string[] {
 }
 
 /**
- * Full DFS over `node:` adjacency from `tree.root`. Returns the set of
- * reachable node ids (for orphan-page reachability) and the back-edges that
- * close a cycle. A back-edge is an edge into a node still on the active
- * recursion stack (classic gray-node cycle detection); `visited` (black)
- * prevents re-walking shared DAG sub-nodes.
+ * Full DFS over `node:` adjacency. Returns the set of nodes reachable from
+ * `tree.root` (for orphan-page reachability) and the back-edges that close a
+ * cycle. A back-edge is an edge into a node still on the active recursion stack
+ * (classic gray-node cycle detection); `visited` (black) prevents re-walking
+ * shared DAG sub-nodes.
+ *
+ * The walk runs in two phases. The first seeds from the root and records every
+ * node it reaches in `reachableNodes`. The second sweeps any node still
+ * unvisited — a disconnected component that the root cannot reach — so cycles
+ * living entirely outside the root's reach are still reported. Sweep-only nodes
+ * are deliberately kept out of `reachableNodes`: they are *not* reachable from
+ * the root, and pages hanging off them must still surface as orphans.
  */
 function descend(tree: TreeIndex): {
   reachableNodes: Set<string>;
   cycles: Array<{ from: string; to: string }>;
 } {
   const reachableNodes = new Set<string>();
-  const onStack = new Set<string>();
+  const visited = new Set<string>();
   const cycles: Array<{ from: string; to: string }> = [];
 
   // Iterative DFS with an explicit stack so deep trees don't blow the call
   // stack. Each frame tracks its child cursor; we push a child frame, and on
   // exhaustion pop the parent off the recursion stack (`onStack`).
   type Frame = { node: string; children: string[]; cursor: number };
-  const stack: Frame[] = [];
 
-  function enter(nodeId: string): void {
-    reachableNodes.add(nodeId);
-    onStack.add(nodeId);
-    stack.push({
-      node: nodeId,
-      children: nodeChildrenOf(tree, nodeId),
-      cursor: 0,
-    });
+  function walkFrom(start: string, trackReachable: boolean): void {
+    const onStack = new Set<string>();
+    const stack: Frame[] = [];
+
+    function enter(nodeId: string): void {
+      visited.add(nodeId);
+      if (trackReachable) reachableNodes.add(nodeId);
+      onStack.add(nodeId);
+      stack.push({
+        node: nodeId,
+        children: nodeChildrenOf(tree, nodeId),
+        cursor: 0,
+      });
+    }
+
+    enter(start);
+
+    while (stack.length > 0) {
+      const frame = stack[stack.length - 1];
+      if (frame.cursor >= frame.children.length) {
+        onStack.delete(frame.node);
+        stack.pop();
+        continue;
+      }
+      const child = frame.children[frame.cursor++];
+      if (onStack.has(child)) {
+        // Edge into an ancestor still on the stack → cycle-closing back-edge.
+        cycles.push({ from: frame.node, to: child });
+        continue;
+      }
+      if (visited.has(child)) {
+        // Already fully explored (shared DAG sub-node or an earlier sweep).
+        continue;
+      }
+      enter(child);
+    }
   }
 
   if (tree.nodes.has(tree.root)) {
-    enter(tree.root);
+    walkFrom(tree.root, true);
   }
 
-  while (stack.length > 0) {
-    const frame = stack[stack.length - 1];
-    if (frame.cursor >= frame.children.length) {
-      onStack.delete(frame.node);
-      stack.pop();
-      continue;
+  // Cover nodes the root never reached (disconnected components) so a cycle
+  // among them is not silently missed. These are not root-reachable, so their
+  // pages stay eligible for the orphan-page report.
+  for (const nodeId of tree.nodes.keys()) {
+    if (!visited.has(nodeId)) {
+      walkFrom(nodeId, false);
     }
-    const child = frame.children[frame.cursor++];
-    if (onStack.has(child)) {
-      // Edge into an ancestor still on the stack → cycle-closing back-edge.
-      cycles.push({ from: frame.node, to: child });
-      continue;
-    }
-    if (reachableNodes.has(child)) {
-      // Already fully explored via another parent (shared DAG sub-node).
-      continue;
-    }
-    enter(child);
   }
 
   cycles.sort(
