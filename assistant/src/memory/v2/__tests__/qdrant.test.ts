@@ -887,4 +887,40 @@ describe("memory v2 qdrant — hybrid query", () => {
     );
     expect(results).toEqual([]);
   });
+
+  test("an empty dense vector runs a sparse-only query (skips the dense channels)", async () => {
+    state.collectionExistsBeforeCreate = true;
+    // Only the two sparse channels should fire. Queue body + summary sparse hits.
+    state.queryResponses.sparse.push({
+      points: [{ score: 7, payload: { slug: "people/alice" } }],
+    });
+    state.queryResponses.sparse.push({
+      points: [{ score: 5, payload: { slug: "people/alice" } }],
+    });
+
+    const results = await hybridQueryConceptPages(
+      [],
+      { indices: [1, 2], values: [0.5, 0.5] },
+      5,
+    );
+
+    // Regression: a 0-dimension dense vector used to be forwarded verbatim,
+    // drawing a Qdrant "Vector dimension error: expected dim N, got 0" 400.
+    // It must now skip the dense channels entirely — only sparse runs.
+    const usings = state.queryCalls.map((c) => c.using).sort();
+    expect(usings).toEqual(["sparse", "summary_sparse"]);
+    expect(state.queryCalls.some((c) => c.using === "dense")).toBe(false);
+    expect(state.queryCalls.some((c) => c.using === "summary_dense")).toBe(
+      false,
+    );
+
+    // The sparse hits still come back; the dense score stays undefined.
+    const alice = results.find((r) => r.slug === "people/alice");
+    expect(alice).toEqual({
+      slug: "people/alice",
+      sparseScore: 7,
+      summarySparseScore: 5,
+    });
+    expect(alice?.denseScore).toBeUndefined();
+  });
 });
