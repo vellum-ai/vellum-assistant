@@ -59,6 +59,11 @@ const config: CapacitorConfig = {
     contentInset: "never",
     scheme: SCHEME_NAMES[env] ?? "App",
   },
+  plugins: {
+    CapacitorCookies: {
+      enabled: true,
+    },
+  },
 };
 
 export default config;
