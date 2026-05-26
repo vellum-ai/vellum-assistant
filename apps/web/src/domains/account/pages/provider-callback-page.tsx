@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import * as Sentry from "@sentry/react";
 
@@ -10,57 +10,18 @@ import { classifyCallbackFlows } from "@/domains/account/social-auth.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 import { routes } from "@/utils/routes.js";
 
-const NATIVE_CALLBACK_PREFIX = "/accounts/native/callback";
-
-/** Mirrors NATIVE_AUTH_ALLOWED_SCHEMES in django/config/settings/base.py. */
-const ALLOWED_SCHEMES = new Set([
-  "vellum",
-  "vellum-assistant",
-  "vellum-assistant-dev",
-  "vellum-assistant-staging",
-  "vellum-assistant-local",
-]);
-
 /**
- * When the provider callback is reached via the native iOS/macOS auth flow
- * (returnTo points to the native callback endpoint), extract the custom
- * URL scheme and state so we can redirect back to the app — even on error.
- */
-function parseNativeReturnTo(
-  returnTo: string | null,
-): { scheme: string; state: string } | null {
-  if (!returnTo?.startsWith(NATIVE_CALLBACK_PREFIX)) return null;
-  try {
-    const params = new URL(returnTo, "https://placeholder").searchParams;
-    const scheme = params.get("scheme");
-    const state = params.get("state");
-    if (scheme && state && ALLOWED_SCHEMES.has(scheme)) {
-      return { scheme, state };
-    }
-  } catch {
-    // Malformed returnTo — fall through
-  }
-  return null;
-}
-
-/**
- * Bounce back to the native app via its custom URL scheme. The macOS/iOS
- * client treats any `?error=…` query param as a failed login.
- */
-function redirectToNativeApp(
-  nativeParams: { scheme: string; state: string },
-  error: string,
-): void {
-  const { scheme, state } = nativeParams;
-  window.location.href = `${scheme}://auth/callback?error=${encodeURIComponent(error)}&state=${encodeURIComponent(state)}`;
-}
-
-/**
- * OAuth provider callback handler. Probes the allauth session after the
- * IdP redirect and routes the user to the correct next step:
+ * OAuth provider callback handler for the **web** login flow.
+ *
+ * After the IdP redirect, probes the allauth session and routes the user
+ * to the correct next step:
  * - Authenticated → navigate to returnTo or home
  * - Provider signup needed → redirect to provider signup page
  * - Error → display inline error with back-to-login link
+ *
+ * Native auth flows (iOS / macOS) no longer route through this page.
+ * The server-side native auth flow redirects directly from the allauth
+ * callback to `/accounts/native/callback` without loading any SPA.
  */
 export function ProviderCallbackPage() {
   const [searchParams] = useSearchParams();
@@ -71,17 +32,9 @@ export function ProviderCallbackPage() {
   const didRun = useRef(false);
 
   const returnTo = searchParams.get("returnTo");
-  const nativeParams = useMemo(() => parseNativeReturnTo(returnTo), [returnTo]);
 
   useEffect(() => {
     if (didRun.current) return;
-
-    if (error && nativeParams) {
-      didRun.current = true;
-      redirectToNativeApp(nativeParams, error);
-      return;
-    }
-
     if (error) return;
     didRun.current = true;
 
@@ -107,10 +60,6 @@ export function ProviderCallbackPage() {
             break;
           }
           case "provider_signup": {
-            if (nativeParams) {
-              redirectToNativeApp(nativeParams, "provider_signup_required");
-              return;
-            }
             const returnToParam = searchParams.get("returnTo");
             const signupUrl = returnToParam
               ? `${routes.account.providerSignup}?returnTo=${encodeURIComponent(returnToParam)}`
@@ -119,10 +68,6 @@ export function ProviderCallbackPage() {
             break;
           }
           case "error":
-            if (nativeParams && returnTo) {
-              window.location.href = returnTo;
-              return;
-            }
             setFallbackError(outcome.message);
             break;
         }
@@ -133,7 +78,7 @@ export function ProviderCallbackPage() {
         setFallbackError("Something went wrong. Please try signing in again.");
       }
     })();
-  }, [error, nativeParams, refreshSession, returnTo, navigate, searchParams]);
+  }, [error, refreshSession, returnTo, navigate, searchParams]);
 
   if (error === "signup_closed") {
     return (
