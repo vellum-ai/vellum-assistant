@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { getWorkspaceDirOverride } from "../config/env-registry.js";
-import { assertNotLiveDbInTests } from "./db-path-guard.js";
+import { assertTestWorkspaceIsTempDir } from "./test-workspace-guard.js";
 
 /**
  * The daemon's root data directory (`~/.vellum`).
@@ -156,9 +156,7 @@ export function getPidPath(): string {
 }
 
 export function getDbPath(): string {
-  const path = join(getDataDir(), "db", "assistant.db");
-  assertNotLiveDbInTests(path);
-  return path;
+  return join(getDataDir(), "db", "assistant.db");
 }
 
 /**
@@ -234,6 +232,7 @@ export function getEmbedWorkerPidPath(): string {
  * Otherwise falls back to ~/.vellum/workspace.
  */
 export function getWorkspaceDir(): string {
+  assertTestWorkspaceIsTempDir();
   const override = getWorkspaceDirOverride();
   if (override) return override;
   return join(VELLUM_ROOT, "workspace");
