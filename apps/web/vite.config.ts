@@ -9,9 +9,10 @@ export default defineConfig(({ mode }) => {
   // loadEnv with empty prefix loads all .env variables, not just VITE_-prefixed ones.
   const env = { ...process.env, ...loadEnv(mode, process.cwd(), "") };
 
-  // Server-only proxy target — never embedded in the client bundle.
+  // Server-only proxy targets — never embedded in the client bundle.
   // Reference: https://vite.dev/config/server-options#server-proxy
   const apiProxyTarget = env.API_PROXY_TARGET || "http://localhost:8000";
+  const gatewayProxyTarget = env.GATEWAY_PROXY_TARGET || "http://localhost:7830";
 
   // Only enable Sentry source map upload for deploy builds.
   // Reference: https://docs.sentry.io/platforms/javascript/guides/react/sourcemaps/uploading/vite/
@@ -61,6 +62,7 @@ export default defineConfig(({ mode }) => {
         "/v1": { target: apiProxyTarget, changeOrigin: true },
         "/_allauth": { target: apiProxyTarget, changeOrigin: true },
         "/accounts": { target: apiProxyTarget, changeOrigin: true },
+        "/auth": { target: gatewayProxyTarget, changeOrigin: true },
       },
     },
     build: {

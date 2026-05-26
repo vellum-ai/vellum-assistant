@@ -147,10 +147,18 @@ import {
   resolveExtensionOrigin,
   handleExtensionPreflight,
   withExtensionCorsHeaders,
+  resolveWebOrigin,
+  handleWebPreflight,
+  withWebCorsHeaders,
   resolveWebviewOrigin,
   handlePreflight,
   withCorsHeaders,
 } from "./http/middleware/cors.js";
+import { handleAuthState } from "./http/routes/auth-state.js";
+import {
+  handleCreateSession,
+  handleDeleteSession,
+} from "./http/routes/auth-session.js";
 import {
   createRouter,
   type RouteDefinition,
@@ -1414,6 +1422,28 @@ async function main() {
     },
   ];
 
+  // ── Web session auth ──
+  routes.push(
+    {
+      path: "/auth/state",
+      method: "GET",
+      auth: "none",
+      handler: handleAuthState,
+    },
+    {
+      path: "/auth/session",
+      method: "POST",
+      auth: "custom",
+      handler: (req) => handleCreateSession(req, server),
+    },
+    {
+      path: "/auth/session",
+      method: "DELETE",
+      auth: "none",
+      handler: handleDeleteSession,
+    },
+  );
+
   // Runtime proxy catch-all — must be last so specific routes are checked first.
   routes.push({
     path: /^\//, // match everything
@@ -1529,6 +1559,11 @@ async function main() {
       return handleExtensionPreflight(extensionOrigin);
     }
 
+    const webOrigin = resolveWebOrigin(req);
+    if (webOrigin && req.method === "OPTIONS") {
+      return handleWebPreflight(webOrigin);
+    }
+
     const webviewOrigin = resolveWebviewOrigin(req);
     if (webviewOrigin && req.method === "OPTIONS") {
       return handlePreflight(webviewOrigin);
@@ -1614,6 +1649,8 @@ async function main() {
     if (rateLimitResponse) {
       if (extensionOrigin)
         return withExtensionCorsHeaders(rateLimitResponse, extensionOrigin);
+      if (webOrigin)
+        return withWebCorsHeaders(rateLimitResponse, webOrigin);
       if (webviewOrigin)
         return withCorsHeaders(rateLimitResponse, webviewOrigin);
       return rateLimitResponse;
@@ -1662,6 +1699,9 @@ async function main() {
         if (extensionOrigin) {
           return withExtensionCorsHeaders(response, extensionOrigin);
         }
+        if (webOrigin) {
+          return withWebCorsHeaders(response, webOrigin);
+        }
         if (webviewOrigin) {
           return withCorsHeaders(response, webviewOrigin);
         }
@@ -1671,7 +1711,7 @@ async function main() {
       // Mirror the error() handler logic while retaining CORS context.
       // Bun's error() callback doesn't receive the request, so thrown
       // errors during webview/extension requests would otherwise lose CORS headers.
-      if (!webviewOrigin && !extensionOrigin) throw err;
+      if (!webviewOrigin && !extensionOrigin && !webOrigin) throw err;
       if (err instanceof CircuitBreakerOpenError) {
         const body = Response.json(
           {
@@ -1685,6 +1725,7 @@ async function main() {
         );
         if (extensionOrigin)
           return withExtensionCorsHeaders(body, extensionOrigin);
+        if (webOrigin) return withWebCorsHeaders(body, webOrigin);
         return withCorsHeaders(body, webviewOrigin!);
       }
       log.error({ err }, "Unhandled gateway error");
@@ -1694,6 +1735,7 @@ async function main() {
       );
       if (extensionOrigin)
         return withExtensionCorsHeaders(errBody, extensionOrigin);
+      if (webOrigin) return withWebCorsHeaders(errBody, webOrigin);
       return withCorsHeaders(errBody, webviewOrigin!);
     }
 
@@ -1703,6 +1745,7 @@ async function main() {
     );
     if (extensionOrigin)
       return withExtensionCorsHeaders(notFound, extensionOrigin);
+    if (webOrigin) return withWebCorsHeaders(notFound, webOrigin);
     if (webviewOrigin) return withCorsHeaders(notFound, webviewOrigin);
     return notFound;
   }

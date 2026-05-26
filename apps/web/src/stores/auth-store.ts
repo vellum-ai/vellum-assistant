@@ -19,6 +19,8 @@ import {
   getSession,
   logout as allauthLogout,
 } from "@/lib/auth/allauth-client.js";
+import { probeGatewayAuthState } from "@/lib/auth/gateway-session.js";
+import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
 import { deleteBiometricToken } from "@/runtime/native-biometric.js";
 import { syncOnboardingUser } from "@/domains/onboarding/prefs.js";
 import { clearOrganization } from "@/stores/organization-store.js";
@@ -134,6 +136,14 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
 
     syncUserScopedState(null);
     set({ isLoggedIn: false, isLoading: false, user: null });
+
+    if (useClientFeatureFlagStore.getState().gatewayWebAuth) {
+      probeGatewayAuthState()
+        .then((s) => console.debug("[gateway-auth] state:", s))
+        .catch((e: unknown) =>
+          console.debug("[gateway-auth] probe failed:", e),
+        );
+    }
   },
 
   refreshSession: async () => {

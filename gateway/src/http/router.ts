@@ -34,6 +34,7 @@ type AuthStrategy =
   | "edge"
   | "edge-scoped"
   | "edge-guardian"
+  | "edge-or-session"
   | "track-failures"
   | "custom";
 
@@ -146,6 +147,16 @@ export function createRouter(
             getClientIp,
           );
           const authError = await requireEdgeGuardianAuth(req, server);
+          if (authError) return authError;
+          return route.handler(req, matchResult.params, getClientIp);
+        }
+
+        case "edge-or-session": {
+          const { requireEdgeOrSessionAuth } = createAuthMiddleware(
+            authRateLimiter,
+            getClientIp,
+          );
+          const authError = await requireEdgeOrSessionAuth(req, server);
           if (authError) return authError;
           return route.handler(req, matchResult.params, getClientIp);
         }

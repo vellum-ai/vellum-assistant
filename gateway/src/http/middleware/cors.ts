@@ -115,6 +115,64 @@ export function withExtensionCorsHeaders(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Web SPA CORS (localhost origins, credentials mode)
+// ---------------------------------------------------------------------------
+
+const WEB_ORIGIN_RE = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+
+export function resolveWebOrigin(req: Request): string | null {
+  const origin = req.headers.get("origin");
+  if (!origin) return null;
+  if (!WEB_ORIGIN_RE.test(origin)) return null;
+  return origin;
+}
+
+export function webCorsHeaders(origin: string): Record<string, string> {
+  return {
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Methods": ALLOWED_METHODS,
+    "Access-Control-Allow-Headers": ALLOWED_HEADERS,
+    "Access-Control-Allow-Credentials": "true",
+    "Access-Control-Max-Age": "86400",
+  };
+}
+
+export function handleWebPreflight(origin: string): Response {
+  log.debug({ origin }, "Web SPA CORS preflight response");
+  return new Response(null, {
+    status: 204,
+    headers: webCorsHeaders(origin),
+  });
+}
+
+export function withWebCorsHeaders(
+  response: Response,
+  origin: string,
+): Response {
+  const headers = webCorsHeaders(origin);
+  try {
+    for (const [key, value] of Object.entries(headers)) {
+      response.headers.set(key, value);
+    }
+    return response;
+  } catch {
+    const merged = new Headers(response.headers);
+    for (const [key, value] of Object.entries(headers)) {
+      merged.set(key, value);
+    }
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: merged,
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// WKWebView CORS
+// ---------------------------------------------------------------------------
+
 /**
  * Check whether the request `Origin` header matches a known webview origin.
  * Returns the validated origin string, or null if CORS headers should not be
