@@ -1317,6 +1317,15 @@ interface PaginatedMessagesResult {
 const PAGINATION_CHUNK_MIN = 50;
 const PAGINATION_SCAN_CAP = 10_000;
 
+// Test-only override for PAGINATION_SCAN_CAP so tests can exercise the
+// cap-truncation branch with a small cap instead of seeding >10k rows (which
+// makes the suite slow and the post-test DELETE flaky under parallel CI load).
+// `undefined` restores the production cap.
+let paginationScanCapOverride: number | undefined;
+export function _setPaginationScanCapForTesting(cap: number | undefined): void {
+  paginationScanCapOverride = cap;
+}
+
 export function getMessagesPaginated(
   conversationId: string,
   limit: number | undefined,
@@ -1363,9 +1372,10 @@ export function getMessagesPaginated(
   // scanned position as a resume cursor (the visible page may be empty).
   let scanCapTruncated = false;
   let lastScanned: { createdAt: number; id: string } | undefined;
+  const scanCap = paginationScanCapOverride ?? PAGINATION_SCAN_CAP;
 
   while (visible.length < limit + 1) {
-    if (rowsScanned >= PAGINATION_SCAN_CAP) {
+    if (rowsScanned >= scanCap) {
       scanCapTruncated = true;
       break;
     }
