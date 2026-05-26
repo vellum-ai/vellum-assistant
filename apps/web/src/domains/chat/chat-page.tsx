@@ -19,6 +19,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router";
 import { ChevronDown } from "lucide-react";
 
 import { useIsMobile } from "@/hooks/use-is-mobile.js";
+import { useVisibleViewport } from "@/hooks/use-visible-viewport.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 import { useAssistantContext } from "@/components/layout/assistant-context.js";
 import { useShallow } from "zustand/shallow";
@@ -118,6 +119,9 @@ export function ChatPage() {
   const authUser = useAuthStore.use.user();
   const showLlmInspector = canUseLlmInspector(authUser);
   const isMobile = useIsMobile();
+  const visibleViewport = useVisibleViewport();
+  const keyboardOpen =
+    isMobile && visibleViewport !== null && visibleViewport.keyboardHeight > 100;
   const isNative = useIsNativePlatform();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -1392,7 +1396,7 @@ export function ChatPage() {
     deployToVercel,
     doctor,
     isMobile,
-    isKeyboardOpen: false,
+    isKeyboardOpen: keyboardOpen,
     messages,
     setMessages,
     input,
