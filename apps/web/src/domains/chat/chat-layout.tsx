@@ -49,6 +49,8 @@ import { ChatLayoutHeader } from "./chat-layout-header.js";
  * across reloads.
  */
 export const SIDEBAR_COLLAPSED_STORAGE_KEY = "assistantSidebarCollapsed";
+export const SIDEBAR_WIDTH_STORAGE_KEY = "assistantSidebarWidth";
+const DEFAULT_SIDEBAR_WIDTH = 230;
 
 const FOCUSABLE_SELECTOR = [
   "a[href]",
@@ -67,6 +69,19 @@ export function readPersistedCollapsed(): boolean {
   } catch {
     return false;
   }
+}
+
+export function readPersistedWidth(): number {
+  try {
+    const stored = window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY);
+    if (stored != null) {
+      const parsed = Number(stored);
+      if (Number.isFinite(parsed) && parsed > 0) return parsed;
+    }
+  } catch {
+    // Storage unavailable
+  }
+  return DEFAULT_SIDEBAR_WIDTH;
 }
 
 export function shouldCloseDrawerOnViewportChange(isMobile: boolean): boolean {
@@ -108,6 +123,8 @@ export type SideMenuVariant = "rail" | "overlay";
 interface SideMenuRenderArgs {
   collapsed: boolean;
   variant: SideMenuVariant;
+  width?: number;
+  onWidthChange?: (width: number) => void;
   onClose?: () => void;
   onSearch?: () => void;
 }
@@ -278,6 +295,7 @@ export function ChatLayout() {
 
   // --- Sidebar collapsed / drawer state ---
   const [collapsed, setCollapsed] = useState<boolean>(readPersistedCollapsed);
+  const [sidebarWidth, setSidebarWidth] = useState<number>(readPersistedWidth);
 
   useEffect(() => {
     try {
@@ -289,6 +307,15 @@ export function ChatLayout() {
       // Storage unavailable (private mode, quota, etc.)
     }
   }, [collapsed]);
+
+  const handleSidebarWidthChange = useCallback((width: number) => {
+    setSidebarWidth(width);
+    try {
+      window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(Math.round(width)));
+    } catch {
+      // Storage unavailable
+    }
+  }, []);
 
   const isMobile = useIsMobile();
   const [drawerOpen, setDrawerOpen] = useState<boolean>(false);
@@ -503,6 +530,8 @@ export function ChatLayout() {
         assistantName={assistantName}
         collapsed={args.collapsed}
         variant={args.variant}
+        width={args.width}
+        onWidthChange={args.onWidthChange}
         conversations={conversations}
         conversationGroups={conversationGroups}
         activeConversationId={activeConversationId ?? undefined}
@@ -572,6 +601,7 @@ export function ChatLayout() {
         isMobile={isMobile}
         drawerOpen={drawerOpen}
         collapsed={collapsed}
+        sidebarWidth={sidebarWidth}
         toggleSidebar={toggleSidebar}
         topBarCenter={topBarCenter}
         topBarRightSlot={topBarRightSlot}
@@ -631,7 +661,7 @@ export function ChatLayout() {
             className="shrink-0"
             aria-label="Navigation"
           >
-            {renderSideMenu({ collapsed, variant: "rail", onSearch: () => onSearchClickRef.current?.() })}
+            {renderSideMenu({ collapsed, variant: "rail", width: sidebarWidth, onWidthChange: handleSidebarWidthChange, onSearch: () => onSearchClickRef.current?.() })}
           </aside>
           <main className="flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden">
             <Outlet context={assistantContext} />
