@@ -33,7 +33,6 @@ describe("clearUserScopedStorage", () => {
     localStorage.setItem("vellum:ctxwindow:asst-1", "4096");
     localStorage.setItem("vellum:dismissed-surfaces:asst-1", "[]");
     localStorage.setItem("ff:client:some-flag", "true");
-    localStorage.setItem("vellum_biometric_enabled", "true");
     localStorage.setItem("onboarding.tosAccepted", "true");
     localStorage.setItem("onboarding.aiDataConsent", "true");
     localStorage.setItem("onboarding.completed", "true");
@@ -48,6 +47,14 @@ describe("clearUserScopedStorage", () => {
     clearUserScopedStorage();
 
     expect(localStorage.length).toBe(0);
+  });
+
+  test("preserves biometric opt-out preference", () => {
+    localStorage.setItem("vellum_biometric_enabled", "false");
+
+    clearUserScopedStorage();
+
+    expect(localStorage.getItem("vellum_biometric_enabled")).toBe("false");
   });
 
   test("automatically clears future app keys without needing explicit registration", () => {
@@ -67,6 +74,7 @@ describe("clearUserScopedStorage", () => {
     localStorage.setItem("vellum_theme", "dark");
     localStorage.setItem("vellum_share_analytics", "true");
     localStorage.setItem("vellum_share_diagnostics", "false");
+    localStorage.setItem("vellum_biometric_enabled", "true");
     localStorage.setItem("onboarding.lastUserId", "user-123");
 
     clearUserScopedStorage();
@@ -74,6 +82,7 @@ describe("clearUserScopedStorage", () => {
     expect(localStorage.getItem("vellum_theme")).toBe("dark");
     expect(localStorage.getItem("vellum_share_analytics")).toBe("true");
     expect(localStorage.getItem("vellum_share_diagnostics")).toBe("false");
+    expect(localStorage.getItem("vellum_biometric_enabled")).toBe("true");
     expect(localStorage.getItem("onboarding.lastUserId")).toBe("user-123");
   });
 
