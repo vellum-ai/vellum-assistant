@@ -57,7 +57,9 @@ async function runRefresh(reason: string): Promise<void> {
     }
 
     const result = await clearBackgroundWakeIntent(lastIntentSnapshot);
-    lastIntentSnapshot = null;
+    if (result.status === "cleared") {
+      lastIntentSnapshot = null;
+    }
     log.debug({ reason, result }, "Background wake intent cleared");
   } catch (err) {
     log.warn({ err, reason }, "Failed to refresh background wake intent");

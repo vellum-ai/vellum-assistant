@@ -2,13 +2,18 @@ import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { BackgroundWakeIntent } from "./next-wake.js";
+import type { BackgroundWakeIntentClientResult } from "./platform-client.js";
 
-const mockPublishBackgroundWakeIntent = mock(async () => ({
-  status: "published" as const,
-}));
-const mockClearBackgroundWakeIntent = mock(async () => ({
-  status: "cleared" as const,
-}));
+const mockPublishBackgroundWakeIntent = mock(
+  async (): Promise<BackgroundWakeIntentClientResult> => ({
+    status: "published",
+  }),
+);
+const mockClearBackgroundWakeIntent = mock(
+  async (): Promise<BackgroundWakeIntentClientResult> => ({
+    status: "cleared",
+  }),
+);
 let computedIntent: BackgroundWakeIntent | null = intentFixture();
 
 mock.module("./next-wake.js", () => ({
@@ -103,6 +108,38 @@ describe("background wake intent publisher hooks", () => {
 
     expect(mockClearBackgroundWakeIntent).toHaveBeenCalledTimes(1);
     expect(mockClearBackgroundWakeIntent).toHaveBeenCalledWith(null);
+  });
+
+  test("keeps last intent snapshot when clear is skipped so it can retry", async () => {
+    const publishedIntent = intentFixture({
+      computedAt: 1_800_000_000_000,
+      sourceGeneration: "bw1:stable-source",
+    });
+    computedIntent = publishedIntent;
+
+    refreshBackgroundWakeIntent("publish");
+    await flushBackgroundWakeIntentRefreshForTest();
+
+    computedIntent = null;
+    mockClearBackgroundWakeIntent.mockImplementationOnce(async () => ({
+      status: "skipped" as const,
+      reason: "missing_platform_client" as const,
+    }));
+
+    refreshBackgroundWakeIntent("clear-skipped");
+    await flushBackgroundWakeIntentRefreshForTest();
+    refreshBackgroundWakeIntent("clear-retry");
+    await flushBackgroundWakeIntentRefreshForTest();
+
+    expect(mockClearBackgroundWakeIntent).toHaveBeenCalledTimes(2);
+    expect(mockClearBackgroundWakeIntent).toHaveBeenNthCalledWith(
+      1,
+      publishedIntent,
+    );
+    expect(mockClearBackgroundWakeIntent).toHaveBeenNthCalledWith(
+      2,
+      publishedIntent,
+    );
   });
 
   test("does not throw into callers when platform publish fails", async () => {
