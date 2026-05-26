@@ -9,38 +9,29 @@
  * Per visited node the driver makes one cheap LLM call (`memoryV3Descent`) over
  * the node's *composed* index — `composeNodeIndex` renders one line per child
  * (sub-node summary or leaf page summary) plus the node's routing hints — and
- * asks which child *nodes* to descend into. The prompt also carries the
- * conversation context (the just-arrived turn + NOW) and the surviving scout
- * hits, so descent is **scout-seeded but not scout-bound**: the model sees where
- * the cheap lanes already landed, yet still feels pressure to descend branches
- * the scouts missed. A driver that only ratified the scouts would re-introduce
- * the recall cliff the tree walk exists to avoid.
+ * asks two things: which child *nodes* to descend into, and which leaf *pages*
+ * offered at this node to keep for the answer. Selecting pages at every level is
+ * what makes the walk a curated retrieval rather than a bulk dump: only pages
+ * the model keeps reach the candidate set.
  *
- * Scout seeding works at two layers:
- *   1. **Start set** — `runTreeWalk` derives seed *node* ids from scout-surfaced
- *      *page* slugs via the tree's `pageParents` reverse edges (a scout hit on
- *      `page:foo` seeds every node that lists `page:foo` as a child), unioned
- *      with any explicit `seeds`. `walkTree` fans out from `tree.root` + seeds.
- *   2. **Descend pressure** — the surviving scout slugs are rendered into every
- *      descend prompt so the model can prefer (but is not forced onto) branches
- *      that contain them.
+ * The walk descends from `tree.root` only — it is not seeded mid-tree. Scout
+ * hits steer it solely as **descend pressure**: the surviving scout slugs are
+ * rendered into every descend prompt so the model prefers (but is not forced
+ * onto) branches that contain them. The scout-surfaced pages themselves already
+ * reach the gate directly via the loop, so the walk's job is to find the
+ * relevant pages the scouts missed and to keep only what bears on the turn.
  *
- * Reasoning capture. The `createDescender` signature returns plain `ChildRef[]`
- * (the chosen node children) to match the driver contract; the model's stated
- * rationale is written into a side map keyed by node id. `runTreeWalk` adapts
- * the descender into `walkTree`'s `DescendResult`-returning hook by pairing each
- * node's chosen children with its recorded reasoning, so every emitted
- * `TreeLevel` carries the model's reason for its descend/skip split — making a
- * wrong high-level skip observable rather than silent.
+ * The decision returned per node — `{ descend, keep, reasoning }` — is handed
+ * straight to `walkTree`, so every emitted `TreeLevel` carries the model's
+ * reason for its descend/skip split, making a wrong high-level skip observable
+ * rather than silent.
  *
  * Fail-safe. When no provider is configured (or a per-node call errors / returns
- * an unusable response) the descender descends *nothing* for that node and
- * records the reason. The walk still terminates and still collects every leaf
- * page it reached before the failure; it just stops exploring deeper from the
- * affected node. Failing closed (descend nothing) rather than open (descend all)
- * keeps a broken provider from blowing the breadth budget across the whole tree.
- *
- * This module is currently unwired — a later PR composes it into the loop.
+ * an unusable response) the descender descends *nothing* and keeps *nothing* for
+ * that node, recording the reason. The walk still terminates; it just stops
+ * exploring and collecting from the affected node. Failing closed keeps a broken
+ * provider from blowing the breadth budget, and the scout hits already in the
+ * candidate set keep the turn from going memory-blind.
  */
 
 import { z } from "zod";
@@ -65,7 +56,11 @@ import {
   DESCENT_SYSTEM_PROMPT,
   resolveV3SystemPrompt,
 } from "./prompts/system-prompts.js";
-import type { WalkResult } from "./traversal.js";
+import type {
+  DescendDecision,
+  DescendResult,
+  WalkResult,
+} from "./traversal.js";
 import { walkTree } from "./traversal.js";
 import type { ChildRef, TreeIndex } from "./tree-index.js";
 
@@ -74,18 +69,6 @@ const log = getLogger("memory-v3-tree-walk");
 /** Tool name forced via `tool_choice`. Shared constant so tests can match it. */
 const DESCEND_TOOL_NAME = "choose_branches";
 
-/**
- * The descend decision the driver hands to `walkTree`. Returns the subset of
- * `children` (node refs only) to recurse into. Matches the PR contract: a plain
- * `ChildRef[]` promise. The model's reasoning is threaded out-of-band via the
- * side map populated by {@link createDescender}, not the return value, so this
- * signature stays small.
- */
-export type Descender = (
-  nodeId: string,
-  children: ChildRef[],
-) => Promise<ChildRef[]>;
-
 /** Arguments to {@link createDescender}. */
 export interface CreateDescenderArgs {
   input: RetrievalInput;
@@ -93,8 +76,6 @@ export interface CreateDescenderArgs {
   pages: PageIndex;
   /** Surviving scout hits — rendered into the prompt as descend pressure. */
   scouts: ScoutResult[];
-  /** Explicit seed node ids (folded into the prompt's seed context). */
-  seeds: string[];
   /** Optional debug sink — emits one record per descender LLM call (per node). */
   capture?: LlmCallSink;
   /**
@@ -111,30 +92,36 @@ export type RunTreeWalkArgs = CreateDescenderArgs;
 
 /**
  * The forced-tool input schema. `descend` lists the bare node ids the model
- * chose to recurse into; `reasoning` is its stated rationale for the
- * descend/skip split. Mirrors v2's `select_pages_to_inject` forced-tool shape.
+ * chose to recurse into; `keep_pages` lists the leaf page slugs it chose to keep
+ * for the answer; `reasoning` is its stated rationale. Mirrors v2's
+ * `select_pages_to_inject` forced-tool shape.
  */
 const DescendToolResultSchema = z.object({
   descend: z.array(z.string()),
+  keep_pages: z.array(z.string()).optional(),
   reasoning: z.string().optional(),
 });
 
 /**
- * Build the forced tool definition for one node. `descend` is constrained to
- * the node ids actually offered as `node:` children so the model can only pick
- * from genuine branches (the walk filters anyway, but constraining the schema
- * keeps the model honest and the trace clean).
+ * Build the forced tool definition for one node. `descend` is constrained to the
+ * offered `node:` child ids and `keep_pages` to the offered `page:` child slugs,
+ * so the model can only pick from genuine children (the walk filters anyway, but
+ * constraining the schema keeps the model honest and the trace clean).
  */
-function buildDescendTool(offeredNodeIds: readonly string[]): ToolDefinition {
+function buildDescendTool(
+  offeredNodeIds: readonly string[],
+  offeredPageSlugs: readonly string[],
+): ToolDefinition {
   return {
     name: DESCEND_TOOL_NAME,
     description:
-      "Choose which child nodes of the current memory-tree node to descend " +
-      "into for the current turn. Prefer branches likely to contain pages " +
-      "that bear on the turn; you may favor branches the scout hits point at, " +
-      "but descend other promising branches too — missing a relevant subtree " +
-      "is worse than descending an extra one. Return an empty list only when " +
-      "no child node plausibly bears on the turn.",
+      "At the current memory-tree node, decide two things for the current " +
+      "turn: which child NODES to descend into to find more relevant pages, " +
+      "and which leaf PAGES offered here to keep for the answer. Prefer " +
+      "branches and pages likely to bear on the turn; lean toward keeping a " +
+      "plausibly-relevant page over dropping it — missing a relevant page or " +
+      "subtree is worse than including an extra one. Return empty lists only " +
+      "when nothing here plausibly bears on the turn.",
     input_schema: {
       type: "object",
       properties: {
@@ -145,14 +132,24 @@ function buildDescendTool(offeredNodeIds: readonly string[]): ToolDefinition {
               ? { type: "string", enum: [...offeredNodeIds] }
               : { type: "string" },
           description:
-            "Bare ids of the child nodes to descend into. Choose only from " +
+            "Bare ids of the child NODES to descend into. Choose only from " +
             "the offered node children.",
+        },
+        keep_pages: {
+          type: "array",
+          items:
+            offeredPageSlugs.length > 0
+              ? { type: "string", enum: [...offeredPageSlugs] }
+              : { type: "string" },
+          description:
+            "Slugs of the leaf PAGES offered at this node to keep for the " +
+            "answer. Choose only from the offered page children.",
         },
         reasoning: {
           type: "string",
           description:
-            "One short sentence: why these branches were descended and the " +
-            "rest skipped.",
+            "One short sentence: why these branches and pages were chosen " +
+            "and the rest skipped.",
         },
       },
       required: ["descend"],
@@ -175,34 +172,42 @@ function renderScoutHits(scouts: readonly ScoutResult[]): string {
   return `<scout_hits>\n${lines.join("\n")}\n</scout_hits>`;
 }
 
-/** Fail-safe descend result: descend nothing, recording why on the side map. */
-function failClosed(
-  nodeId: string,
-  reasoning: string,
-  reasoningByNode: Map<string, string>,
-): ChildRef[] {
-  reasoningByNode.set(nodeId, reasoning);
-  return [];
+/** Fail-safe decision: descend nothing and keep nothing, recording why. */
+function failClosed(reasoning: string): DescendResult {
+  return { descend: [], keep: [], reasoning };
 }
 
 /**
- * Create the per-node descend decision driving {@link walkTree}.
+ * Resolve the bare ids/slugs the model returned back to the `ChildRef`s the node
+ * actually offered, dropping anything not offered. The walk filters again, but
+ * resolving here keeps the returned refs canonical.
+ */
+function resolveOffered(
+  refs: readonly string[],
+  offered: Map<string, ChildRef>,
+): ChildRef[] {
+  const out: ChildRef[] = [];
+  for (const ref of refs) {
+    const child = offered.get(ref);
+    if (child) out.push(child);
+  }
+  return out;
+}
+
+/**
+ * Create the per-node decision driving {@link walkTree}.
  *
- * The returned function makes one forced-tool `memoryV3Descent` call per node
- * over its composed index, returning the chosen `node:` children. The model's
- * reasoning for each node is written into `reasoningByNode` (keyed by node id)
- * rather than the return value, so the small `Descender` signature is preserved
- * and {@link runTreeWalk} can merge the reasoning into each `TreeLevel`.
+ * The returned {@link DescendDecision} makes one forced-tool `memoryV3Descent`
+ * call per node that has any children, over its composed index, and returns the
+ * `node:` children to descend plus the `page:` children to keep — with the
+ * model's reasoning inline. A node with no children at all skips the call.
  *
  * Provider resolution honors the `provider` arg (including explicit `null` for
  * the fail-safe path) and otherwise resolves the configured call site once per
  * call. Any failure — no provider, provider throw, missing/mismatched tool_use
- * — fails closed (descend nothing) with the reason recorded.
+ * — fails closed (descend and keep nothing) with the reason recorded.
  */
-export function createDescender(
-  args: CreateDescenderArgs,
-  reasoningByNode: Map<string, string>,
-): Descender {
+export function createDescender(args: CreateDescenderArgs): DescendDecision {
   const { input, tree, pages, scouts } = args;
   const conversationContext = renderConversationContext(input);
   const scoutHits = renderScoutHits(scouts);
@@ -215,13 +220,15 @@ export function createDescender(
     input.workspaceDir,
   );
 
-  return async (nodeId: string, children: ChildRef[]): Promise<ChildRef[]> => {
+  return async (
+    nodeId: string,
+    children: ReadonlyArray<ChildRef>,
+  ): Promise<DescendResult> => {
     const offeredNodes = children.filter((c) => c.kind === "node");
-    // No node children to descend — nothing to ask the model. Record an empty
-    // reasoning so the level still reflects the (trivial) decision.
-    if (offeredNodes.length === 0) {
-      reasoningByNode.set(nodeId, "");
-      return [];
+    const offeredPages = children.filter((c) => c.kind === "page");
+    // No children at all — nothing to ask the model.
+    if (offeredNodes.length === 0 && offeredPages.length === 0) {
+      return { descend: [], keep: [], reasoning: "" };
     }
 
     const provider =
@@ -231,17 +238,14 @@ export function createDescender(
     if (!provider) {
       log.warn(
         { nodeId },
-        "memoryV3Descent provider unavailable; descending nothing",
+        "memoryV3Descent provider unavailable; descending and keeping nothing",
       );
-      return failClosed(
-        nodeId,
-        "no provider configured — descended nothing",
-        reasoningByNode,
-      );
+      return failClosed("no provider configured — descended and kept nothing");
     }
 
     const indexBlock = composeNodeIndex(nodeId, tree, pages);
     const offeredNodeIds = offeredNodes.map((c) => c.ref);
+    const offeredPageSlugs = offeredPages.map((c) => c.ref);
 
     const userMsg: Message = {
       role: "user",
@@ -256,7 +260,7 @@ export function createDescender(
       ],
     };
 
-    const descendTool = buildDescendTool(offeredNodeIds);
+    const descendTool = buildDescendTool(offeredNodeIds, offeredPageSlugs);
 
     const startedAt = Date.now();
     let response;
@@ -276,13 +280,9 @@ export function createDescender(
     } catch (err) {
       log.warn(
         { err, nodeId },
-        "Descent provider call threw; descending nothing",
+        "Descent provider call threw; descending and keeping nothing",
       );
-      return failClosed(
-        nodeId,
-        "descent call failed — descended nothing",
-        reasoningByNode,
-      );
+      return failClosed("descent call failed — descended and kept nothing");
     }
 
     args.capture?.({
@@ -298,12 +298,10 @@ export function createDescender(
     if (!toolBlock || toolBlock.name !== DESCEND_TOOL_NAME) {
       log.warn(
         { stopReason: response.stopReason, nodeId },
-        "Descent model returned no choose_branches tool_use; descending nothing",
+        "Descent model returned no choose_branches tool_use; descending and keeping nothing",
       );
       return failClosed(
-        nodeId,
-        "model returned no descend decision — descended nothing",
-        reasoningByNode,
+        "model returned no descend decision — descended and kept nothing",
       );
     }
 
@@ -311,95 +309,43 @@ export function createDescender(
     if (!parsed.success) {
       log.warn(
         { error: parsed.error.message, nodeId },
-        "Descent tool input did not match schema; descending nothing",
+        "Descent tool input did not match schema; descending and keeping nothing",
       );
       return failClosed(
-        nodeId,
-        "descend decision failed validation — descended nothing",
-        reasoningByNode,
+        "descend decision failed validation — descended and kept nothing",
       );
     }
 
-    reasoningByNode.set(nodeId, parsed.data.reasoning ?? "");
-
-    // Map the chosen bare ids back to the offered ChildRefs. The walk filters
-    // bogus / unoffered refs anyway, but resolving against the offered set here
-    // keeps the returned ChildRefs canonical.
-    const offeredById = new Map(offeredNodes.map((c) => [c.ref, c]));
-    const chosen: ChildRef[] = [];
-    for (const id of parsed.data.descend) {
-      const ref = offeredById.get(id);
-      if (ref) chosen.push(ref);
-    }
-    return chosen;
+    const descend = resolveOffered(
+      parsed.data.descend,
+      new Map(offeredNodes.map((c) => [c.ref, c])),
+    );
+    const keep = resolveOffered(
+      parsed.data.keep_pages ?? [],
+      new Map(offeredPages.map((c) => [c.ref, c])),
+    );
+    return { descend, keep, reasoning: parsed.data.reasoning ?? "" };
   };
 }
 
 /**
- * Derive the seed *node* ids for the walk from the surviving scout *page* hits.
- *
- * Scouts surface concept-page slugs; the tree's `pageParents` reverse edges map
- * each page slug to the node(s) that list it as a child. Seeding the walk at
- * those parent nodes drops the model in near where the cheap lanes already
- * landed (layer 1 of scout seeding), while the walk still fans out from the
- * root and the descend pressure (layer 2) keeps it from collapsing onto the
- * scouts. Explicit `seeds` are unioned in. Order is deterministic: explicit
- * seeds first (in given order), then scout-derived parents in scout/slug order.
- */
-export function deriveSeedNodes(
-  tree: TreeIndex,
-  scouts: readonly ScoutResult[],
-  seeds: readonly string[],
-): string[] {
-  const out: string[] = [];
-  const seen = new Set<string>();
-  const push = (id: string): void => {
-    if (seen.has(id)) return;
-    seen.add(id);
-    out.push(id);
-  };
-  for (const id of seeds) push(id);
-  for (const scout of scouts) {
-    for (const slug of scout.slugs) {
-      const parents = tree.pageParents.get(slug);
-      if (!parents) continue;
-      for (const parent of parents) push(parent);
-    }
-  }
-  return out;
-}
-
-/**
- * Drive a full scout-seeded tree walk for one retrieval pass.
+ * Drive a full tree walk for one retrieval pass.
  *
  * Wires {@link createDescender} into {@link walkTree} with `breadthBudget` /
- * `maxDepth` drawn from `config.memory.v3` (on `input.config`) and the start set
- * seeded by {@link deriveSeedNodes}. Returns the collected leaf pages and the
- * per-node `TreeLevel[]`, each level carrying the model's recorded reasoning.
- *
- * The descender records reasoning into a node-keyed side map; this function
- * adapts it into `walkTree`'s `DescendResult`-returning hook by pairing each
- * node's chosen children with its recorded reason, so the walk threads the
- * reasoning onto every emitted level.
+ * `maxDepth` drawn from `config.memory.v3` (on `input.config`). The walk starts
+ * at `tree.root` only — scout hits steer it as descend pressure in the prompt,
+ * not as mid-tree start points. Returns the kept leaf pages and the per-node
+ * `TreeLevel[]`, each level carrying the model's recorded reasoning.
  */
 export async function runTreeWalk(args: RunTreeWalkArgs): Promise<WalkResult> {
-  const { input, tree, scouts, seeds } = args;
+  const { input, tree } = args;
   const v3 = input.config.memory?.v3;
   const breadthBudget = v3?.breadthBudget ?? 6;
   const maxDepth = v3?.maxDepth ?? 6;
 
-  const reasoningByNode = new Map<string, string>();
-  const descender = createDescender(args, reasoningByNode);
-
-  const seedNodes = deriveSeedNodes(tree, scouts, seeds);
-
   return walkTree(tree, {
-    seeds: seedNodes,
     breadthBudget,
     maxDepth,
-    descend: async (nodeId, children) => {
-      const descend = await descender(nodeId, [...children]);
-      return { descend, reasoning: reasoningByNode.get(nodeId) ?? "" };
-    },
+    descend: createDescender(args),
   });
 }

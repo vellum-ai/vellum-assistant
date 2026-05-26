@@ -52,12 +52,18 @@ function makeTree(
   };
 }
 
-/** Descend into every node child offered (mechanical "descend all" stub). */
+/**
+ * Descend into every node child offered and keep every page child offered
+ * (mechanical "descend all + keep all" stub — the old bulk-collect behavior).
+ */
 function descendAll(
   _nodeId: string,
   children: ReadonlyArray<ChildRef>,
 ): DescendResult {
-  return { descend: children.filter((c) => c.kind === "node") };
+  return {
+    descend: children.filter((c) => c.kind === "node"),
+    keep: children.filter((c) => c.kind === "page"),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -326,8 +332,9 @@ describe("walkTree — descend decision", () => {
       _nodeId: string,
       children: ReadonlyArray<ChildRef>,
     ): DescendResult => ({
-      // Pick only "a".
+      // Pick only "a"; keep every page child encountered.
       descend: children.filter((c) => c.kind === "node" && c.ref === "a"),
+      keep: children.filter((c) => c.kind === "page"),
       reasoning: "a is more relevant",
     });
 
@@ -350,9 +357,13 @@ describe("walkTree — descend decision", () => {
       a: [page("pa")],
     });
 
-    const descend = (): DescendResult => ({
+    const descend = (
+      _nodeId: string,
+      children: ReadonlyArray<ChildRef>,
+    ): DescendResult => ({
       // "ghost" was never offered; "pr" is a page, not a node child.
       descend: [node("ghost"), page("pr")],
+      keep: children.filter((c) => c.kind === "page"),
     });
 
     const { pages, levels } = await walkTree(tree, {
@@ -380,6 +391,7 @@ describe("walkTree — descend decision", () => {
     const descend = (): DescendResult => ({
       // "a" repeated should count once; budget of 2 then still admits "b".
       descend: [node("a"), node("a"), node("b")],
+      keep: [],
     });
 
     const { levels } = await walkTree(tree, {
@@ -391,5 +403,67 @@ describe("walkTree — descend decision", () => {
     const rootLevel = levels.find((l) => l.node === "_root")!;
     expect(rootLevel.descended).toEqual(["a", "b"]);
     expect(rootLevel.skipped).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Page keeping
+// ---------------------------------------------------------------------------
+
+describe("walkTree — page keeping", () => {
+  test("collects only the kept page children, dropping the rest", async () => {
+    const tree = makeTree("_root", {
+      _root: [page("pr-keep"), page("pr-drop"), node("a")],
+      a: [page("pa-keep"), page("pa-drop")],
+    });
+
+    // Descend every node; keep only the pages whose slug ends in "-keep".
+    const descend = (
+      _nodeId: string,
+      children: ReadonlyArray<ChildRef>,
+    ): DescendResult => ({
+      descend: children.filter((c) => c.kind === "node"),
+      keep: children.filter(
+        (c) => c.kind === "page" && c.ref.endsWith("-keep"),
+      ),
+    });
+
+    const { pages } = await walkTree(tree, {
+      breadthBudget: 8,
+      maxDepth: 8,
+      descend,
+    });
+
+    // The "-drop" pages were offered but not kept, so they never reach `pages`.
+    expect([...pages].sort()).toEqual(["pa-keep", "pr-keep"]);
+  });
+
+  test("ignores kept refs that were not offered page children of the node", async () => {
+    const tree = makeTree("_root", {
+      _root: [page("real"), node("a")],
+      a: [page("pa")],
+    });
+
+    const descend = (
+      _nodeId: string,
+      children: ReadonlyArray<ChildRef>,
+    ): DescendResult => ({
+      descend: children.filter((c) => c.kind === "node"),
+      // "ghost" was never offered; node("a") is a node, not a page — both are
+      // ignored. Only the genuinely-offered page children survive.
+      keep: [
+        page("ghost"),
+        node("a"),
+        ...children.filter((c) => c.kind === "page"),
+      ],
+    });
+
+    const { pages } = await walkTree(tree, {
+      breadthBudget: 8,
+      maxDepth: 8,
+      descend,
+    });
+
+    expect([...pages].sort()).toEqual(["pa", "real"]);
   });
 });

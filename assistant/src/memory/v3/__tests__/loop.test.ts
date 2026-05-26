@@ -89,7 +89,6 @@ const laneCalls = {
   filter: [] as Array<{ nowText: string; dense: ScoutResult }>,
   walk: [] as Array<{
     nowText: string;
-    seeds: string[];
     scouts: ScoutResult[];
   }>,
   edges: [] as Array<{ seeds: string[] }>,
@@ -132,12 +131,10 @@ mock.module("../filter.js", () => ({
 mock.module("../tree-walk.js", () => ({
   runTreeWalk: async (args: {
     input: RetrievalInput;
-    seeds: string[];
     scouts: ScoutResult[];
   }): Promise<WalkResult> => {
     laneCalls.walk.push({
       nowText: args.input.nowText,
-      seeds: args.seeds,
       scouts: args.scouts,
     });
     return nextOf(lane.walk, walkCallCount++);
@@ -351,9 +348,7 @@ describe("runRetrievalLoop — single pass", () => {
 
     // The filter saw the full dense lane.
     expect(laneCalls.filter[0].dense.slugs).toEqual(["keep", "drop"]);
-    // Only the kept dense slug seeds the tree walk; `drop` never reaches it.
-    expect(laneCalls.walk[0].seeds).toEqual(["keep"]);
-    // Gate's candidate set excludes the dropped dense slug.
+    // The dropped dense slug never reaches the gate's candidate set.
     expect(laneCalls.gate[0].candidates).toEqual(["keep"]);
     expect(out.selectedSlugs).toEqual(["keep"]);
   });

@@ -12,10 +12,10 @@
  *                               sticky/bypass and are never judged; the dense
  *                               near-neighbors are filtered down to meaningful
  *                               associations.
- *   3. {@link runTreeWalk}    — scout-seeded hierarchical descent. Seeded by the
- *                               surviving scout slugs (their tree parents) so
- *                               descent starts near where the lanes landed but
- *                               still fans out from the root.
+ *   3. {@link runTreeWalk}    — root-only hierarchical descent that selects
+ *                               pages per node. Scout hits steer it as descend
+ *                               pressure in the prompt; the descender keeps only
+ *                               the relevant leaf pages it finds.
  *   4. {@link expandEdges}    — provider-free 1–2 hop curated-graph expansion
  *                               over every accumulated confident seed.
  *   5. {@link runGate}        — one capable LLM call over the unioned candidate
@@ -184,10 +184,9 @@ export async function runRetrievalLoop(
       }
     }
 
-    // The surviving scout slugs (kept dense + hot + sparse) seed the tree walk.
-    const survivingSeeds = [...candidates];
-
-    // 3. Tree walk — scout-seeded hierarchical descent. Gated by `lanes.tree`.
+    // 3. Tree walk — root-only hierarchical descent that selects pages per
+    // node. Scout hits steer it as descend pressure in the prompt (the scout
+    // pages themselves already entered `candidates` above). Gated by `lanes.tree`.
     let treeLevels: DescentPass["treeLevels"];
     if (lanes.tree) {
       const [tree, pages] = await Promise.all([
@@ -199,7 +198,6 @@ export async function runRetrievalLoop(
         tree,
         pages,
         scouts: scoutResult.scouts,
-        seeds: survivingSeeds,
         capture: passSink,
       });
       treeLevels = walk.levels;
