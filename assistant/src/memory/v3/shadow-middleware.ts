@@ -34,6 +34,7 @@ import {
   PluginExecutionError,
 } from "../../plugins/types.js";
 import type { ContentBlock } from "../../providers/types.js";
+import { isUntrustedTrustClass } from "../../runtime/actor-trust-resolver.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import type { DrizzleDb } from "../db-connection.js";
@@ -283,12 +284,23 @@ async function runShadowAndLog(
  * Flag-gated INSIDE the middleware (per-turn, live-toggle): when v3 shadow is
  * off it is a pure pass-through. When on, it fires the v3 loop detached and
  * returns the unchanged downstream (v2) result immediately.
+ *
+ * The shadow loop spends filter + gate LLM calls, so — like the other
+ * guardian-trust background memory loops (`enqueueAutoAnalysisOnCompaction`,
+ * `enqueueMemoryRetrospectiveOnCompaction`) — it is gated on actor trust: an
+ * untrusted turn passes through without kicking off the v3 loop.
  */
 export const memoryV3ShadowMiddleware: Middleware<MemoryArgs, MemoryResult> =
   async function memoryV3Shadow(args, next) {
     const v3 = getConfig().memory.v3;
     if (!v3?.enabled || !v3?.shadow) {
       // Inert: byte-for-byte pass-through, zero extra work.
+      return next(args);
+    }
+
+    if (isUntrustedTrustClass(args.trustContext?.trustClass)) {
+      // Untrusted actor: don't spend shadow retrieval LLM calls — mirrors the
+      // live path's trust gate. Pure pass-through, no detached work.
       return next(args);
     }
 

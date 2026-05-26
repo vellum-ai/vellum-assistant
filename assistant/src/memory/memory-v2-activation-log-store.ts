@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, isNull, lte } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lte, ne } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "./db-connection.js";
@@ -166,12 +166,16 @@ export function backfillMemoryV2ActivationMessageId(
   messageId: string,
 ): void {
   const db = getDb();
+  // `v3_shadow` rows are detached telemetry written outside the live turn with
+  // a null messageId; they are not tied to any specific message. Excluding them
+  // keeps their messageId null instead of stamping them with a later turn's id.
   db.update(memoryV2ActivationLogs)
     .set({ messageId })
     .where(
       and(
         eq(memoryV2ActivationLogs.conversationId, conversationId),
         isNull(memoryV2ActivationLogs.messageId),
+        ne(memoryV2ActivationLogs.mode, "v3_shadow"),
       ),
     )
     .run();

@@ -35,6 +35,16 @@ mock.module("../../../util/logger.js", () => ({
   getLogger: () => makeMockLogger(),
 }));
 
+// Mirror the real `isUntrustedTrustClass` predicate (anything that is not the
+// guardian is untrusted) without pulling the resolver's contact-store graph
+// into the test module set.
+mock.module("../../../runtime/actor-trust-resolver.js", () => ({
+  isUntrustedTrustClass: (trustClass: string | undefined) =>
+    trustClass === "trusted_contact" ||
+    trustClass === "unknown" ||
+    trustClass === undefined,
+}));
+
 // ── Mutable test doubles, rewired per test ───────────────────────────────
 
 /** Drives `config.memory.v3.{enabled,shadow}` and `historical_pairs`. */
@@ -131,10 +141,13 @@ function makeCtx(): TurnContext {
   };
 }
 
-function makeArgs(signal?: AbortSignal): MemoryArgs {
+function makeArgs(
+  signal?: AbortSignal,
+  trustContext: TrustContext | undefined = trust,
+): MemoryArgs {
   return {
     conversationId: "conv-shadow",
-    trustContext: trust,
+    trustContext,
     turnIndex: 3,
     signal: signal ?? new AbortController().signal,
   };
@@ -314,5 +327,72 @@ describe("memory-v3 shadow middleware", () => {
     await flush();
     expect(loopCalls.length).toBe(0);
     expect(logCalls.length).toBe(0);
+  });
+
+  test("untrusted actor → no v3 work, even with shadow on", async () => {
+    v3Enabled = true;
+    v3Shadow = true;
+
+    for (const trustClass of ["trusted_contact", "unknown"] as const) {
+      loopCalls.length = 0;
+      logCalls.length = 0;
+      const untrusted: TrustContext = { sourceChannel: "vellum", trustClass };
+      const result = await memoryV3ShadowMiddleware(
+        makeArgs(undefined, untrusted),
+        async () => DOWNSTREAM_RESULT,
+        makeCtx(),
+      );
+      expect(result).toBe(DOWNSTREAM_RESULT);
+
+      await flush();
+      // Untrusted turn never spends shadow retrieval LLM calls.
+      expect(loopCalls.length).toBe(0);
+      expect(logCalls.length).toBe(0);
+    }
+  });
+
+  test("absent trust context → treated as untrusted, no v3 work", async () => {
+    v3Enabled = true;
+    v3Shadow = true;
+
+    // Build args with an explicitly-undefined trustContext (the `makeArgs`
+    // default would substitute the guardian fixture, so construct directly).
+    const args: MemoryArgs = {
+      conversationId: "conv-shadow",
+      trustContext: undefined,
+      turnIndex: 3,
+      signal: new AbortController().signal,
+    };
+    const result = await memoryV3ShadowMiddleware(
+      args,
+      async () => DOWNSTREAM_RESULT,
+      makeCtx(),
+    );
+    expect(result).toBe(DOWNSTREAM_RESULT);
+
+    await flush();
+    expect(loopCalls.length).toBe(0);
+    expect(logCalls.length).toBe(0);
+  });
+
+  test("guardian actor → shadow runs (trust gate lets trusted turns through)", async () => {
+    v3Enabled = true;
+    v3Shadow = true;
+    const guardian: TrustContext = {
+      sourceChannel: "vellum",
+      trustClass: "guardian",
+    };
+
+    const result = await memoryV3ShadowMiddleware(
+      makeArgs(undefined, guardian),
+      async () => DOWNSTREAM_RESULT,
+      makeCtx(),
+    );
+    expect(result).toBe(DOWNSTREAM_RESULT);
+
+    await flush();
+    // Trusted turn fires the v3 loop and logs its selection.
+    expect(loopCalls.length).toBe(1);
+    expect(logCalls.length).toBe(1);
   });
 });

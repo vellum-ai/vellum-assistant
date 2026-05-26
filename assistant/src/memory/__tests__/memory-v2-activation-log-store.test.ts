@@ -187,4 +187,35 @@ describe("memory-v2-activation-log-store", () => {
     expect(byTurn.get(2)!.messageId).toBe("msg-a");
     expect(byTurn.get(3)!.messageId).toBe("msg-b");
   });
+
+  test("backfill skips v3_shadow rows, leaving their messageId null", () => {
+    const conversationId = "conv-shadow-backfill";
+
+    // A live router row (null messageId) and a detached v3_shadow row (null
+    // messageId) coexist in the same conversation.
+    recordMemoryV2ActivationLog({
+      conversationId,
+      turn: 5,
+      mode: "router",
+      concepts: sampleConcepts,
+      config: sampleConfig,
+    });
+    recordMemoryV2ActivationLog({
+      conversationId,
+      turn: 5,
+      mode: "v3_shadow",
+      concepts: sampleConcepts,
+      config: sampleConfig,
+    });
+
+    backfillMemoryV2ActivationMessageId(conversationId, "msg-live");
+
+    const db = getDb();
+    const rows = db.select().from(memoryV2ActivationLogs).all();
+    const byMode = new Map(rows.map((r) => [r.mode, r]));
+    // The live router row got stamped; the shadow row stayed null (not
+    // mis-attributed to the live message).
+    expect(byMode.get("router")!.messageId).toBe("msg-live");
+    expect(byMode.get("v3_shadow")!.messageId).toBeNull();
+  });
 });
