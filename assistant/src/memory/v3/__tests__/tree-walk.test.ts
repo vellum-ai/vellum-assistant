@@ -36,6 +36,7 @@ import type {
 import type { RetrievalInput } from "../../v2/harness/retriever.js";
 import type { ScoutResult } from "../../v2/harness/trace.js";
 import type { PageIndex } from "../../v2/page-index.js";
+import type { LlmCallRecord } from "../llm-capture.js";
 import { DESCENT_SYSTEM_PROMPT } from "../prompts/system-prompts.js";
 import type { ChildRef, TreeIndex } from "../tree-index.js";
 import { createDescender, deriveSeedNodes, runTreeWalk } from "../tree-walk.js";
@@ -650,5 +651,38 @@ describe("runTreeWalk — descent system prompt", () => {
     const rootCall = calls.find((c) => nodeIdFromCall(c) === "_root")!;
     expect(rootCall.systemPrompt).toBe(override);
     expect(rootCall.systemPrompt).not.toBe(DESCENT_SYSTEM_PROMPT);
+  });
+});
+
+describe("runTreeWalk — capture", () => {
+  test("emits one record per descender LLM call, tagged with the node", async () => {
+    // Only _root offers node-children, so exactly one descender call fires.
+    const tree = makeTree("_root", {
+      _root: [node("a"), node("b")],
+      a: [page("pa")],
+      b: [page("pb")],
+    });
+    const pages = makePages(["pa", "pb"]);
+    const calls: ProviderCall[] = [];
+    const provider = makeProvider({ _root: { descend: ["a"] } }, calls);
+    const captured: Omit<LlmCallRecord, "pass">[] = [];
+
+    await runTreeWalk({
+      input: makeInput(),
+      tree,
+      pages,
+      scouts: [],
+      seeds: [],
+      provider,
+      capture: (record) => captured.push(record),
+    });
+
+    expect(captured).toHaveLength(1);
+    const rec = captured[0]!;
+    expect(rec.lane).toBe("descent");
+    expect(rec.callSite).toBe("memoryV3Descent");
+    expect(rec.node).toBe("_root");
+    expect(rec.request.tools[0]!.name).toBe("choose_branches");
+    expect(rec.response.stopReason).toBe("tool_use");
   });
 });

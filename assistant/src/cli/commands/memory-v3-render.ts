@@ -10,6 +10,7 @@
 
 import type {
   DescentPass,
+  LlmCallRecord,
   MemoryV3SimulateResult,
   MemoryV3TreeResult,
   MemoryV3ValidateResult,
@@ -248,5 +249,96 @@ export function renderSimulation(result: MemoryV3SimulateResult): string {
     lines.push(`Failure: ${result.failureReason}`);
   }
 
+  return lines.join("\n");
+}
+
+// ── LLM-call capture ────────────────────────────────────────────────────────
+
+type CapturedMessage = LlmCallRecord["request"]["messages"][number];
+type CapturedBlock = LlmCallRecord["response"]["content"][number];
+
+/** Concatenate the text blocks of a message (non-text blocks are ignored). */
+function messageText(message: CapturedMessage): string {
+  return message.content
+    .filter(
+      (b): b is Extract<CapturedBlock, { type: "text" }> => b.type === "text",
+    )
+    .map((b) => b.text)
+    .join("\n");
+}
+
+/** The forced-tool block from a response, if the model returned one. */
+function toolUseOf(
+  call: LlmCallRecord,
+): Extract<CapturedBlock, { type: "tool_use" }> | undefined {
+  return call.response.content.find(
+    (b): b is Extract<CapturedBlock, { type: "tool_use" }> =>
+      b.type === "tool_use",
+  );
+}
+
+function truncate(s: string, max: number): string {
+  const oneLine = s.replace(/\s+/g, " ").trim();
+  return oneLine.length > max ? `${oneLine.slice(0, max - 1)}…` : oneLine;
+}
+
+function indent(s: string, by = "    "): string {
+  return s
+    .split("\n")
+    .map((line) => by + line)
+    .join("\n");
+}
+
+/**
+ * Render the captured v3 LLM calls. Compact (default): one line per call —
+ * pass/lane/node, input size, round-trip ms, and the forced-tool summary. Full
+ * (`--show-llm`): the system prompt, every message, the tool names, and the
+ * tool_use input for each call. Grouped in call order (which is pass order).
+ */
+export function renderLlmCalls(
+  calls: readonly LlmCallRecord[],
+  opts: { full: boolean },
+): string {
+  if (calls.length === 0) return "LLM calls: none";
+
+  const lines: string[] = [`LLM calls (${calls.length}):`];
+  for (const call of calls) {
+    const label =
+      `pass${call.pass} · ${call.lane}` +
+      (call.node ? ` · node=${call.node}` : "");
+    const inputChars =
+      call.request.systemPrompt.length +
+      call.request.messages.reduce((n, m) => n + messageText(m).length, 0);
+    const tool = toolUseOf(call);
+    const toolSummary = tool
+      ? `${tool.name}(${truncate(JSON.stringify(tool.input), 80)})`
+      : `no tool_use (stop=${call.response.stopReason})`;
+
+    if (!opts.full) {
+      lines.push(
+        `  ${label} · in ${inputChars}c · ${call.ms}ms · ${truncate(toolSummary, 100)}`,
+      );
+      continue;
+    }
+
+    lines.push("", `── ${label}  (${call.callSite}, ${call.ms}ms) ──`);
+    lines.push("system:", indent(call.request.systemPrompt));
+    lines.push("messages:");
+    for (const message of call.request.messages) {
+      lines.push(
+        indent(`[${message.role}]`),
+        indent(messageText(message), "      "),
+      );
+    }
+    lines.push(`tools: ${call.request.tools.map((t) => t.name).join(", ")}`);
+    lines.push("output:");
+    lines.push(
+      indent(
+        tool
+          ? `${tool.name} ${JSON.stringify(tool.input, null, 2)}`
+          : `(no tool_use, stop=${call.response.stopReason})`,
+      ),
+    );
+  }
   return lines.join("\n");
 }

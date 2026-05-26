@@ -1,11 +1,13 @@
 import { describe, expect, test } from "bun:test";
 
 import type {
+  LlmCallRecord,
   MemoryV3SimulateResult,
   MemoryV3TreeResult,
   MemoryV3ValidateResult,
 } from "../../../runtime/routes/memory-v3-routes.js";
 import {
+  renderLlmCalls,
   renderSimulation,
   renderTree,
   renderValidationReport,
@@ -204,6 +206,7 @@ function simResult(): MemoryV3SimulateResult {
     },
     cost: { ms: 1234 },
     failureReason: null,
+    llmCalls: [],
     effectiveConfig: {
       passCap: 3,
       lanes: { hot: true, sparse: true, dense: true, tree: true, edges: false },
@@ -262,5 +265,76 @@ describe("memory v3 — renderSimulation", () => {
     result.failureReason = "dense filter failed open";
     const out = renderSimulation(result);
     expect(out).toContain("Failure: dense filter failed open");
+  });
+});
+
+function llmCall(over: Partial<LlmCallRecord> = {}): LlmCallRecord {
+  return {
+    pass: 1,
+    lane: "gate",
+    callSite: "memoryV3Gate",
+    request: {
+      systemPrompt: "SYS-PROMPT",
+      messages: [
+        { role: "user", content: [{ type: "text", text: "USER-MSG" }] },
+      ],
+      tools: [
+        {
+          name: "decide_selection",
+          description: "decide",
+          input_schema: { type: "object", properties: {} },
+        },
+      ],
+    },
+    response: {
+      model: "stub-model",
+      stopReason: "tool_use",
+      usage: { inputTokens: 0, outputTokens: 0 },
+      content: [
+        {
+          type: "tool_use",
+          id: "tu-1",
+          name: "decide_selection",
+          input: { decision: "ready", selected_slugs: ["a"] },
+        },
+      ],
+    },
+    ms: 42,
+    ...over,
+  };
+}
+
+describe("memory v3 — renderLlmCalls", () => {
+  test("compact: one line per call with lane, node, and tool summary", () => {
+    const out = renderLlmCalls(
+      [
+        llmCall(),
+        llmCall({
+          lane: "descent",
+          callSite: "memoryV3Descent",
+          node: "people",
+        }),
+      ],
+      { full: false },
+    );
+    expect(out).toContain("LLM calls (2):");
+    expect(out).toContain("pass1 · gate");
+    expect(out).toContain("pass1 · descent · node=people");
+    expect(out).toContain("decide_selection");
+    expect(out).toContain("42ms");
+    // Compact mode must not dump the full system prompt.
+    expect(out).not.toContain("SYS-PROMPT");
+  });
+
+  test("full: includes system prompt, messages, tools, and tool_use input", () => {
+    const out = renderLlmCalls([llmCall()], { full: true });
+    expect(out).toContain("SYS-PROMPT");
+    expect(out).toContain("USER-MSG");
+    expect(out).toContain("decide_selection");
+    expect(out).toContain('"decision"');
+  });
+
+  test("renders 'none' when there are no calls", () => {
+    expect(renderLlmCalls([], { full: false })).toBe("LLM calls: none");
   });
 });

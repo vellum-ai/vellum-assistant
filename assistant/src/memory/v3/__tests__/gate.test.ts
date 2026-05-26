@@ -31,6 +31,7 @@ import type {
 } from "../../../providers/types.js";
 import type { RetrievalInput } from "../../v2/harness/retriever.js";
 import { runGate } from "../gate.js";
+import type { LlmCallRecord } from "../llm-capture.js";
 import { GATE_SYSTEM_PROMPT } from "../prompts/system-prompts.js";
 
 // ---------------------------------------------------------------------------
@@ -423,5 +424,48 @@ describe("runGate — fail-safe", () => {
 
     expect(result.decision).toEqual({ decision: "ready" });
     expect([...result.selectedSlugs].sort()).toEqual(["a", "b"]);
+  });
+});
+
+describe("runGate — capture", () => {
+  test("emits one record with the gate's input + raw response", async () => {
+    const calls: ProviderCall[] = [];
+    const captured: Omit<LlmCallRecord, "pass">[] = [];
+    const provider = makeProvider(
+      gateToolResponse({ decision: "ready", selected_slugs: ["a"] }),
+      calls,
+    );
+
+    await runGate({
+      input: makeInput(),
+      candidates: new Set(["a", "b"]),
+      sticky: new Set(),
+      passNumber: 1,
+      provider,
+      capture: (record) => captured.push(record),
+    });
+
+    expect(captured).toHaveLength(1);
+    const rec = captured[0]!;
+    expect(rec.lane).toBe("gate");
+    expect(rec.callSite).toBe("memoryV3Gate");
+    expect(rec.request.tools[0]!.name).toBe("decide_selection");
+    expect(rec.request.systemPrompt.length).toBeGreaterThan(0);
+    expect(rec.request.messages).toHaveLength(1);
+    expect(rec.response.stopReason).toBe("tool_use");
+    expect(rec.ms).toBeGreaterThanOrEqual(0);
+  });
+
+  test("emits nothing when the provider is unavailable (fail-safe path)", async () => {
+    const captured: Omit<LlmCallRecord, "pass">[] = [];
+    await runGate({
+      input: makeInput(),
+      candidates: new Set(["a"]),
+      sticky: new Set(),
+      passNumber: 1,
+      provider: null,
+      capture: (record) => captured.push(record),
+    });
+    expect(captured).toHaveLength(0);
   });
 });

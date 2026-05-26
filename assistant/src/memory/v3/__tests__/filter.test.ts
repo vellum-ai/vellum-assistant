@@ -31,6 +31,7 @@ import type {
 import type { RetrievalInput } from "../../v2/harness/retriever.js";
 import type { ScoutResult } from "../../v2/harness/trace.js";
 import { filterDenseHits } from "../filter.js";
+import type { LlmCallRecord } from "../llm-capture.js";
 import { FILTER_SYSTEM_PROMPT } from "../prompts/system-prompts.js";
 
 // ---------------------------------------------------------------------------
@@ -417,5 +418,44 @@ describe("filterDenseHits — fail-open", () => {
 
     expect([...result.kept].sort()).toEqual(["a", "b"]);
     expect(result.failureReason).toBe("schema_mismatch");
+  });
+});
+
+describe("filterDenseHits — capture", () => {
+  test("emits one record with the filter's input + raw response", async () => {
+    const calls: ProviderCall[] = [];
+    const captured: Omit<LlmCallRecord, "pass">[] = [];
+    const provider = makeProvider(
+      filterToolResponse({ keep_slugs: ["a"] }),
+      calls,
+    );
+
+    await filterDenseHits({
+      input: makeInput(),
+      dense: denseResult(["a", "b"]),
+      sticky: new Set(),
+      bypass: new Set(),
+      provider,
+      capture: (record) => captured.push(record),
+    });
+
+    expect(captured).toHaveLength(1);
+    const rec = captured[0]!;
+    expect(rec.lane).toBe("filter");
+    expect(rec.callSite).toBe("memoryV3Filter");
+    expect(rec.request.tools[0]!.name).toBe("filter_dense_hits");
+    expect(rec.response.stopReason).toBe("tool_use");
+  });
+
+  test("emits nothing when there is nothing to judge (no LLM call)", async () => {
+    const captured: Omit<LlmCallRecord, "pass">[] = [];
+    await filterDenseHits({
+      input: makeInput(),
+      dense: denseResult([]),
+      sticky: new Set(),
+      bypass: new Set(),
+      capture: (record) => captured.push(record),
+    });
+    expect(captured).toHaveLength(0);
   });
 });

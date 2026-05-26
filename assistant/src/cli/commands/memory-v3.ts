@@ -19,6 +19,9 @@
  * `--json` emits the raw daemon payload for any subcommand.
  */
 
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
 import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
@@ -30,6 +33,7 @@ import type {
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 import {
+  renderLlmCalls,
   renderSimulation,
   renderTree,
   renderValidationReport,
@@ -185,6 +189,14 @@ Examples:
           `Restrict to a comma-separated allowlist of lanes (others off): ${V3_LANE_NAMES.join(", ")}`,
         )
         .option("--json", "Emit raw JSON instead of a formatted report")
+        .option(
+          "--show-llm",
+          "Print the full input + output of every v3 LLM call (filter / descender / gate)",
+        )
+        .option(
+          "--dump-llm <dir>",
+          "Write one JSON file per v3 LLM call into <dir> (full request + raw response)",
+        )
         .addHelpText(
           "after",
           `
@@ -201,7 +213,9 @@ the loop's dense-filter + gate LLM calls, so pass-cap is the cost knob.
 Examples:
   $ assistant memory v3 simulate -q "what should we ship next"
   $ assistant memory v3 simulate -q "..." --lanes tree,edges
-  $ assistant memory v3 simulate -q "..." --pass-cap 1 --json | jq '.selectedSlugs'`,
+  $ assistant memory v3 simulate -q "..." --pass-cap 1 --json | jq '.selectedSlugs'
+  $ assistant memory v3 simulate -q "..." --show-llm
+  $ assistant memory v3 simulate -q "..." --dump-llm /tmp/v3-calls`,
         )
         .action(
           async (opts: {
@@ -209,6 +223,8 @@ Examples:
             passCap?: string;
             lanes?: string;
             json?: boolean;
+            showLlm?: boolean;
+            dumpLlm?: string;
           }) => {
             let passCap: number | undefined;
             if (opts.passCap !== undefined) {
@@ -271,6 +287,28 @@ Examples:
               return;
             }
             log.info(renderSimulation(payload));
+
+            log.info("");
+            log.info(
+              renderLlmCalls(payload.llmCalls, { full: opts.showLlm === true }),
+            );
+
+            if (opts.dumpLlm !== undefined) {
+              mkdirSync(opts.dumpLlm, { recursive: true });
+              for (const call of payload.llmCalls) {
+                const nodePart = call.node
+                  ? `-${call.node.replace(/\//g, "_")}`
+                  : "";
+                const file = join(
+                  opts.dumpLlm,
+                  `pass${call.pass}-${call.lane}${nodePart}.json`,
+                );
+                writeFileSync(file, JSON.stringify(call, null, 2));
+              }
+              log.info(
+                `\nWrote ${payload.llmCalls.length} LLM-call file(s) to ${opts.dumpLlm}`,
+              );
+            }
           },
         );
     },
