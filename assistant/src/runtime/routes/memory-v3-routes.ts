@@ -19,11 +19,34 @@
 
 import { z } from "zod";
 
+import { loadConfig } from "../../config/loader.js";
+import type { AssistantConfig } from "../../config/types.js";
+import { getDb } from "../../memory/db-connection.js";
+import type {
+  RetrievalCost,
+  RetrievalInput,
+} from "../../memory/v2/harness/retriever.js";
+import type { DescentTrace } from "../../memory/v2/harness/trace.js";
+import { loadNowText } from "../../memory/v2/now-text.js";
+import { runRetrievalLoop } from "../../memory/v3/loop.js";
 import { getTreeIndex } from "../../memory/v3/tree-index.js";
 import type { TreeValidationReport } from "../../memory/v3/validate.js";
 import { validateTree } from "../../memory/v3/validate.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+
+// Re-export the loop trace/cost shapes so the CLI renderer can import them from
+// this route module (type-only) without reaching across the
+// `cli/no-daemon-internals` boundary into `memory/v2/harness/*`.
+export type { RetrievalCost } from "../../memory/v2/harness/retriever.js";
+export type {
+  DescentPass,
+  DescentTrace,
+  EdgeExpansion,
+  GateDecision,
+  ScoutResult,
+  TreeLevel,
+} from "../../memory/v2/harness/trace.js";
 
 // ── Validate ────────────────────────────────────────────────────────────
 
@@ -89,6 +112,157 @@ async function handleTree({
   return { root: tree.root, nodes };
 }
 
+// ── Simulate ──────────────────────────────────────────────────────────────
+
+/** The five v3 retrieval lanes, in fanout order. */
+const V3_LANE_NAMES = ["hot", "sparse", "dense", "tree", "edges"] as const;
+
+const MemoryV3SimulateParams = z
+  .object({
+    /** The ad-hoc user query to route a single synthetic turn against. */
+    query: z.string().min(1, "memory.v3.simulate query must be non-empty"),
+    /**
+     * Optional `<now>` override. When omitted the live workspace NOW.md is
+     * loaded so the run exercises production-like standing context.
+     */
+    nowText: z.string().optional(),
+    /** Override `memory.v3.passCap` for this run only. */
+    passCap: z
+      .number()
+      .int("memory.v3.simulate passCap must be an integer")
+      .positive("memory.v3.simulate passCap must be positive")
+      .optional(),
+    /**
+     * Restrict the run to this allowlist of lanes (others forced off). Omit to
+     * inherit the live `memory.v3.lanes` toggles.
+     */
+    lanes: z.array(z.enum(V3_LANE_NAMES)).optional(),
+  })
+  .strict();
+
+/** The v3 lane toggle block, echoed back so the caller sees what actually ran. */
+export interface MemoryV3SimulateLanes {
+  hot: boolean;
+  sparse: boolean;
+  dense: boolean;
+  tree: boolean;
+  edges: boolean;
+}
+
+/**
+ * Wire shape for `memory_v3_simulate`. The loop's `sourceBySlug` Map is
+ * flattened to a plain object (lane label per slug); `trace`/`cost` are already
+ * JSON-serializable. `effectiveConfig` echoes the passCap + lane toggles the
+ * run actually used after overrides were applied.
+ */
+export interface MemoryV3SimulateResult {
+  query: string;
+  selectedSlugs: string[];
+  /** Per-slug provenance lane: `hot` | `sparse` | `dense` | `tree` | `edge`. */
+  sourceBySlug: Record<string, string>;
+  trace: DescentTrace;
+  cost: RetrievalCost;
+  /** Non-null when the dense filter failed open on any pass. */
+  failureReason: string | null;
+  effectiveConfig: {
+    passCap: number;
+    lanes: MemoryV3SimulateLanes;
+  };
+}
+
+/**
+ * Overlay the simulate overrides on the live config. Only the v3 passCap + lane
+ * toggles are exposed; everything else (providers, prompts, scout quotas) stays
+ * exactly as a live turn would see it. `write.coactivation` is forced off so the
+ * simulate stays strictly read-only — the loop's only persistence path is the
+ * co-activation insert, which this guarantees never fires.
+ */
+function applyV3SimulateOverrides(
+  live: AssistantConfig,
+  overrides: { passCap?: number; lanes?: ReadonlyArray<string> },
+): AssistantConfig {
+  const liveV3 = live.memory.v3;
+  const lanes = overrides.lanes
+    ? {
+        hot: overrides.lanes.includes("hot"),
+        sparse: overrides.lanes.includes("sparse"),
+        dense: overrides.lanes.includes("dense"),
+        tree: overrides.lanes.includes("tree"),
+        edges: overrides.lanes.includes("edges"),
+      }
+    : liveV3.lanes;
+  return {
+    ...live,
+    memory: {
+      ...live.memory,
+      v3: {
+        ...liveV3,
+        ...(overrides.passCap !== undefined
+          ? { passCap: overrides.passCap }
+          : {}),
+        lanes,
+        write: { ...liveV3.write, coactivation: false },
+      },
+    },
+  };
+}
+
+/**
+ * Run the v3 retrieval loop read-only against a single ad-hoc query and return
+ * its selection, per-lane provenance, and full descent trace. Mirrors the
+ * single-turn semantics of `memory_v2_simulate_router` (the query becomes the
+ * just-arrived `userMessage` of one synthetic turn) and the input-build of the
+ * v3 shadow middleware, but persists nothing.
+ *
+ * The loop is invoked directly — it is NOT gated by `memory.v3.enabled` /
+ * `.shadow` (those gates live in the shadow middleware), so operators can probe
+ * v3 retrieval while the flags are still off.
+ */
+async function handleSimulate({
+  body = {},
+}: RouteHandlerArgs): Promise<MemoryV3SimulateResult> {
+  const {
+    query,
+    nowText: rawNowText,
+    passCap,
+    lanes,
+  } = MemoryV3SimulateParams.parse(body);
+
+  const config = applyV3SimulateOverrides(loadConfig(), { passCap, lanes });
+
+  const workspaceDir = getWorkspaceDir();
+  const nowText =
+    rawNowText !== undefined ? rawNowText : await loadNowText(workspaceDir);
+
+  const input: RetrievalInput = {
+    workspaceDir,
+    recentTurnPairs: [{ assistantMessage: "", userMessage: query }],
+    nowText,
+    priorEverInjected: [],
+    config,
+  };
+
+  const output = await runRetrievalLoop(input, { db: getDb() });
+
+  const sourceBySlug: Record<string, string> = {};
+  for (const [slug, lane] of output.sourceBySlug.entries()) {
+    sourceBySlug[slug] = lane;
+  }
+
+  return {
+    query,
+    selectedSlugs: output.selectedSlugs,
+    sourceBySlug,
+    trace: output.trace ?? { passes: [] },
+    cost: output.cost ?? {},
+    failureReason: output.failureReason ?? null,
+    effectiveConfig: {
+      passCap: config.memory.v3.passCap,
+      lanes: config.memory.v3.lanes,
+    },
+  };
+}
+
 // ── Route definitions ───────────────────────────────────────────────────
 
 export const ROUTES: RouteDefinition[] = [
@@ -113,5 +287,17 @@ export const ROUTES: RouteDefinition[] = [
       "Returns the v3 tree root id plus every node and its ordered child refs (page:/node:) as a JSON-serializable projection of the in-memory TreeIndex. Read-only; the CLI uses it to print an indented tree with shared-DAG re-entries marked.",
     tags: ["memory"],
     requestBody: MemoryV3TreeParams,
+  },
+  {
+    operationId: "memory_v3_simulate",
+    method: "POST",
+    endpoint: "memory/v3/simulate",
+    handler: handleSimulate,
+    summary:
+      "Dry-run the v3 retrieval loop against an ad-hoc query (read-only)",
+    description:
+      "Runs the v3 multi-lane bounded-descent retrieval loop read-only against a single synthetic turn built from the supplied query plus the live (or supplied) NOW context. Returns the selected page slugs, per-lane provenance, the full multi-pass descent trace, and accumulated cost. Optional passCap / lane-allowlist overrides apply on top of live config. Invoked directly (not gated by memory.v3.enabled/shadow) so operators can probe v3 retrieval before flipping the flags; writes nothing (co-activation persistence is forced off), though each pass still spends the loop's filter + gate LLM calls.",
+    tags: ["memory"],
+    requestBody: MemoryV3SimulateParams,
   },
 ];

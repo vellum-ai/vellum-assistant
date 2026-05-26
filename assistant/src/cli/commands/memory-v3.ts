@@ -11,25 +11,33 @@
  *     any defect is found so it is scriptable as a check.
  *   - `tree` — print the tree as an indented outline rooted at the tree root,
  *     marking shared-DAG re-entries.
+ *   - `simulate` — dry-run the v3 retrieval loop against an ad-hoc query and
+ *     print the per-pass descent trace plus the lane-grouped selection.
  *
- * Both are read-only: they mutate nothing and run no LLM. `--json` emits the
- * raw daemon payload for either subcommand.
+ * All are read-only: they mutate nothing. `validate`/`tree` run no LLM;
+ * `simulate` invokes the loop (filter + gate LLM calls) but persists nothing.
+ * `--json` emits the raw daemon payload for any subcommand.
  */
 
 import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
 import type {
+  MemoryV3SimulateResult,
   MemoryV3TreeResult,
   MemoryV3ValidateResult,
 } from "../../runtime/routes/memory-v3-routes.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 import {
+  renderSimulation,
   renderTree,
   renderValidationReport,
   reportHasDefects,
 } from "./memory-v3-render.js";
+
+/** Valid lane names accepted by `--lanes` (matches memory.v3.lanes keys). */
+const V3_LANE_NAMES = ["hot", "sparse", "dense", "tree", "edges"] as const;
 
 export function registerMemoryV3Command(program: Command): void {
   // Reuse an existing `memory` parent if a sibling registrar (e.g. v2)
@@ -59,7 +67,8 @@ mutate nothing and run no LLM.
 Examples:
   $ assistant memory v3 validate
   $ assistant memory v3 tree
-  $ assistant memory v3 tree --json | jq '.nodes | length'`,
+  $ assistant memory v3 tree --json | jq '.nodes | length'
+  $ assistant memory v3 simulate -q "what should we ship next"`,
       );
 
       // ── validate ──────────────────────────────────────────────────────────
@@ -156,6 +165,114 @@ Examples:
 
           log.info(renderTree(view));
         });
+
+      // ── simulate ────────────────────────────────────────────────────────────
+
+      v3.command("simulate")
+        .description(
+          "Dry-run the v3 retrieval loop against an ad-hoc query (read-only)",
+        )
+        .requiredOption(
+          "-q, --query <text>",
+          "User query to run a single synthetic retrieval turn against",
+        )
+        .option(
+          "--pass-cap <n>",
+          "Override memory.v3.passCap for this run (positive integer)",
+        )
+        .option(
+          "--lanes <list>",
+          `Restrict to a comma-separated allowlist of lanes (others off): ${V3_LANE_NAMES.join(", ")}`,
+        )
+        .option("--json", "Emit raw JSON instead of a formatted report")
+        .addHelpText(
+          "after",
+          `
+Runs the v3 multi-lane bounded-descent loop read-only against the live page
+index + tree DAG, building a single synthetic turn from the query plus the live
+NOW context. Prints the per-pass descent trace (scouts / tree levels / edge
+expansions / gate verdict) and the final selection grouped by provenance lane.
+
+The loop is invoked directly — it does NOT require memory.v3.enabled or
+memory.v3.shadow, so you can probe v3 retrieval before the flags flip. Writes
+nothing (co-activation persistence is forced off), but each pass still spends
+the loop's dense-filter + gate LLM calls, so pass-cap is the cost knob.
+
+Examples:
+  $ assistant memory v3 simulate -q "what should we ship next"
+  $ assistant memory v3 simulate -q "..." --lanes tree,edges
+  $ assistant memory v3 simulate -q "..." --pass-cap 1 --json | jq '.selectedSlugs'`,
+        )
+        .action(
+          async (opts: {
+            query: string;
+            passCap?: string;
+            lanes?: string;
+            json?: boolean;
+          }) => {
+            let passCap: number | undefined;
+            if (opts.passCap !== undefined) {
+              const parsed = Number(opts.passCap);
+              if (!Number.isInteger(parsed) || parsed < 1) {
+                log.error(
+                  `--pass-cap must be a positive integer (got "${opts.passCap}")`,
+                );
+                process.exitCode = 1;
+                return;
+              }
+              passCap = parsed;
+            }
+
+            let lanes: string[] | undefined;
+            if (opts.lanes !== undefined) {
+              const requested = opts.lanes
+                .split(",")
+                .map((s) => s.trim())
+                .filter((s) => s.length > 0);
+              const invalid = requested.filter(
+                (l) =>
+                  !V3_LANE_NAMES.includes(l as (typeof V3_LANE_NAMES)[number]),
+              );
+              if (invalid.length > 0) {
+                log.error(
+                  `--lanes contains unknown lane(s): ${invalid.join(", ")}. Valid: ${V3_LANE_NAMES.join(", ")}`,
+                );
+                process.exitCode = 1;
+                return;
+              }
+              if (requested.length === 0) {
+                log.error("--lanes must list at least one lane");
+                process.exitCode = 1;
+                return;
+              }
+              lanes = requested;
+            }
+
+            const result = await cliIpcCall<MemoryV3SimulateResult>(
+              "memory_v3_simulate",
+              {
+                body: {
+                  query: opts.query,
+                  ...(passCap !== undefined ? { passCap } : {}),
+                  ...(lanes !== undefined ? { lanes } : {}),
+                },
+              },
+            );
+
+            if (!result.ok) {
+              log.error(result.error ?? "Failed to simulate v3 retrieval");
+              process.exitCode = 1;
+              return;
+            }
+
+            const payload = result.result!;
+            if (opts.json === true) {
+              log.info(JSON.stringify(payload, null, 2));
+              return;
+            }
+            log.info(renderSimulation(payload));
+          },
+        );
     },
   });
 }
