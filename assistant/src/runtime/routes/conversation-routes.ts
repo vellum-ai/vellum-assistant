@@ -151,6 +151,34 @@ function isValidRiskThreshold(value: unknown): value is RiskThreshold {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Temporary fix — remove when #31994 lands
+// ---------------------------------------------------------------------------
+//
+// The canned-response paths in this file (canned greeting, inline approval
+// reply, slash command, /compact, /clean) bypass the agent loop and so don't
+// pick up the per-turn anchor id allocated in conversation-agent-loop.ts.
+// Their `message_complete` events therefore went out without `messageId`,
+// and the macOS client filter at ChatActionHandler.swift:507 dropped those
+// events when they raced past the 50 ms streaming-buffer flush — leaving
+// `isSending` stuck for the full 60 s watchdog window.
+//
+// Centralized so the patch surface is one helper + N one-line callers rather
+// than N duplicated literals. When #31994 lands and stamps these sites with
+// `state.assistantTurnId` directly, grep for `emitCannedMessageComplete` to
+// find every call site and inline-then-delete.
+function emitCannedMessageComplete(
+  send: (msg: ServerMessage) => void,
+  conversationId: string,
+  persistedAssistantId: string,
+): void {
+  send({
+    type: "message_complete",
+    conversationId,
+    messageId: persistedAssistantId,
+  });
+}
+
 /**
  * True when a message's persisted metadata explicitly flags it as hidden.
  * Used to suppress internal scaffolding messages from UI history while
@@ -404,7 +432,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
         ? "Decision applied."
         : "Request already resolved.");
     const assistantMessage = createAssistantMessage(replyText);
-    await addMessage(
+    const persistedAssistant = await addMessage(
       conversationId,
       "assistant",
       JSON.stringify(assistantMessage.content),
@@ -419,7 +447,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
         text: replyText,
         conversationId: conversationId,
       });
-      onEvent({ type: "message_complete", conversationId: conversationId });
+      emitCannedMessageComplete(onEvent, conversationId, persistedAssistant.id);
     }
     publishConversationMessagesChanged(conversationId, originClientId);
   } catch (err) {
@@ -1404,7 +1432,7 @@ export async function handleSendMessage(
       const conversationId = mapping.conversationId;
 
       const assistantMsg = createAssistantMessage(cannedGreeting);
-      await addMessage(
+      const persistedAssistant = await addMessage(
         mapping.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
@@ -1448,7 +1476,11 @@ export async function handleSendMessage(
           text: cannedGreeting,
           conversationId,
         });
-        broadcastMessage({ type: "message_complete", conversationId });
+        emitCannedMessageComplete(
+          broadcastMessage,
+          conversationId,
+          persistedAssistant.id,
+        );
         publishConversationMessagesChanged(conversationId, originClientId);
         conversation.processing = false;
         silentlyWithLog(
@@ -1716,7 +1748,7 @@ export async function handleSendMessage(
       conversation.getMessages().push(llmMsg);
 
       const assistantMsg = createAssistantMessage(slashResult.message);
-      await addMessage(
+      const persistedAssistant = await addMessage(
         mapping.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
@@ -1771,10 +1803,11 @@ export async function handleSendMessage(
           text: message,
           conversationId,
         });
-        broadcastMessage({
-          type: "message_complete",
-          conversationId: conversationId,
-        });
+        emitCannedMessageComplete(
+          broadcastMessage,
+          conversationId,
+          persistedAssistant.id,
+        );
         publishConversationMessagesChanged(conversationId, originClientId);
         conversation.processing = false;
         silentlyWithLog(conversation.drainQueue(), "slash-command queue drain");
@@ -1838,7 +1871,7 @@ export async function handleSendMessage(
         const responseText = formatCompactResult(result);
 
         const assistantMsg = createAssistantMessage(responseText);
-        await addMessage(
+        const persistedAssistant = await addMessage(
           conversationId,
           "assistant",
           JSON.stringify(assistantMsg.content),
@@ -1852,7 +1885,11 @@ export async function handleSendMessage(
           text: responseText,
           conversationId,
         });
-        broadcastMessage({ type: "message_complete", conversationId });
+        emitCannedMessageComplete(
+          broadcastMessage,
+          conversationId,
+          persistedAssistant.id,
+        );
         publishConversationMessagesChanged(conversationId, originClientId);
       } catch (err) {
         if (assistantMessagePersisted) {
@@ -1918,7 +1955,7 @@ export async function handleSendMessage(
       const responseText = formatCleanResult(result);
 
       const assistantMsg = createAssistantMessage(responseText);
-      await addMessage(
+      const persistedAssistant = await addMessage(
         conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
@@ -1932,7 +1969,11 @@ export async function handleSendMessage(
         text: responseText,
         conversationId,
       });
-      broadcastMessage({ type: "message_complete", conversationId });
+      emitCannedMessageComplete(
+        broadcastMessage,
+        conversationId,
+        persistedAssistant.id,
+      );
       publishConversationMessagesChanged(conversationId, originClientId);
     } catch (err) {
       if (assistantMessagePersisted) {
