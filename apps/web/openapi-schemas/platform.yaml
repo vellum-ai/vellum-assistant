@@ -4389,6 +4389,14 @@ paths:
           * `stable` - Stable
           * `preview` - Preview
       - in: query
+        name: limit
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 10
+        description: Maximum number of releases to return. Defaults to 10.
+      - in: query
         name: since_version
         schema:
           type: string
@@ -6702,11 +6710,20 @@ components:
           type: string
           nullable: true
           readOnly: true
+        description:
+          type: string
+          nullable: true
+          readOnly: true
+        url:
+          type: string
+          readOnly: true
       required:
       - assistant_image_ref
       - credential_executor_image_ref
+      - description
       - gateway_image_ref
       - released_at
+      - url
       - version
     RollbackRequestRequest:
       type: object
