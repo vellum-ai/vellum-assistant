@@ -7,15 +7,12 @@ import { Command } from "commander";
 // ---------------------------------------------------------------------------
 
 let mockCalls: Array<[string, Record<string, unknown> | undefined]> = [];
-let mockResponse: unknown = {
-  ok: true,
-  result: { success: true, snapshots: [] },
-};
+let mockResponses: unknown[] = [];
 
 mock.module("../../../../ipc/cli-client.js", () => ({
   cliIpcCall: async (method: string, params?: Record<string, unknown>) => {
     mockCalls.push([method, params]);
-    return mockResponse;
+    return mockResponses.shift() ?? { ok: true, result: { success: true } };
   },
   exitFromIpcResult: (_r: unknown, _cmd: unknown) => {
     throw new Error("exitFromIpcResult called");
@@ -46,6 +43,19 @@ async function runCli(...argv: string[]): Promise<string> {
   return stdoutChunks.join("");
 }
 
+function emptySnapshot(channel: string, overrides: Record<string, unknown> = {}) {
+  return {
+    channel,
+    ready: false,
+    setupStatus: "not_configured",
+    checkedAt: 0,
+    stale: false,
+    reasons: [],
+    localChecks: [],
+    ...overrides,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -53,15 +63,15 @@ async function runCli(...argv: string[]): Promise<string> {
 describe("assistant channels", () => {
   beforeEach(() => {
     mockCalls = [];
-    mockResponse = {
-      ok: true,
-      result: { success: true, snapshots: [] },
-    };
+    mockResponses = [];
     process.exitCode = 0;
   });
 
   describe("list", () => {
     test("calls channels_readiness_get with includeRemote=false by default", async () => {
+      mockResponses = [
+        { ok: true, result: { success: true, snapshots: [] } },
+      ];
       await runCli("channels", "list", "--json");
       expect(mockCalls).toHaveLength(1);
       expect(mockCalls[0][0]).toBe("channels_readiness_get");
@@ -70,156 +80,82 @@ describe("assistant channels", () => {
       });
     });
 
-    test("--remote flips includeRemote to true", async () => {
+    test("--remote flips includeRemote to true (still GET, still cached)", async () => {
+      mockResponses = [
+        { ok: true, result: { success: true, snapshots: [] } },
+      ];
       await runCli("channels", "list", "--remote", "--json");
+      expect(mockCalls[0][0]).toBe("channels_readiness_get");
       expect(mockCalls[0][1]).toEqual({
         queryParams: { includeRemote: "true" },
       });
     });
-
-    test("emits JSON snapshots when --json is set", async () => {
-      mockResponse = {
-        ok: true,
-        result: {
-          success: true,
-          snapshots: [
-            {
-              channel: "slack",
-              ready: true,
-              setupStatus: "ready",
-              checkedAt: 0,
-              stale: false,
-              reasons: [],
-              localChecks: [],
-            },
-          ],
-        },
-      };
-      const out = await runCli("channels", "list", "--json");
-      const parsed = JSON.parse(out);
-      expect(parsed.snapshots[0].channel).toBe("slack");
-    });
   });
 
-  describe("status", () => {
-    test("default reads cached snapshot via GET", async () => {
-      mockResponse = {
-        ok: true,
-        result: {
-          success: true,
-          snapshots: [
-            {
-              channel: "slack",
-              ready: false,
-              setupStatus: "not_configured",
-              checkedAt: 0,
-              stale: false,
-              reasons: [],
-              localChecks: [],
-            },
-          ],
+  describe("get", () => {
+    test("always re-probes via the refresh route (live, never cached)", async () => {
+      mockResponses = [
+        {
+          ok: true,
+          result: {
+            success: true,
+            snapshots: [emptySnapshot("slack")],
+          },
         },
-      };
-      await runCli("channels", "status", "slack", "--json");
-      expect(mockCalls[0][0]).toBe("channels_readiness_get");
-      expect(mockCalls[0][1]).toEqual({
-        queryParams: { channel: "slack", includeRemote: "true" },
-      });
-    });
-
-    test("--refresh invalidates cache via POST", async () => {
-      mockResponse = {
-        ok: true,
-        result: {
-          success: true,
-          snapshots: [
-            {
-              channel: "slack",
-              ready: true,
-              setupStatus: "ready",
-              checkedAt: 0,
-              stale: false,
-              reasons: [],
-              localChecks: [],
-            },
-          ],
-        },
-      };
-      await runCli("channels", "status", "slack", "--refresh", "--json");
+      ];
+      await runCli("channels", "get", "slack", "--json");
       expect(mockCalls[0][0]).toBe("channels_readiness_refresh_post");
       expect(mockCalls[0][1]).toEqual({
         body: { channel: "slack", includeRemote: true },
       });
     });
 
-    test("exits non-zero when channel is unknown", async () => {
-      mockResponse = {
-        ok: true,
-        result: { success: true, snapshots: [] },
-      };
-      await runCli("channels", "status", "nope", "--json");
-      expect(process.exitCode).toBe(1);
-    });
-  });
-
-  describe("refresh", () => {
-    test("refreshes all channels when no argument is passed", async () => {
-      await runCli("channels", "refresh", "--json");
-      expect(mockCalls[0][0]).toBe("channels_readiness_refresh_post");
-      expect(mockCalls[0][1]).toEqual({
-        body: { includeRemote: true },
-      });
-    });
-
-    test("refreshes a single channel when argument is passed", async () => {
-      await runCli("channels", "refresh", "slack", "--json");
-      expect(mockCalls[0][1]).toEqual({
-        body: { includeRemote: true, channel: "slack" },
-      });
-    });
-  });
-
-  describe("slack status", () => {
-    test("calls the slack config GET handler", async () => {
-      mockResponse = {
-        ok: true,
-        result: {
-          success: true,
-          hasBotToken: true,
-          hasAppToken: true,
-          hasUserToken: false,
-          connected: true,
-          teamId: "T123",
-          teamName: "acme",
-        },
-      };
-      await runCli("channels", "slack", "status", "--json");
-      expect(mockCalls[0][0]).toBe("integrations_slack_channel_config_get");
-    });
-  });
-
-  describe("slack reconnect", () => {
-    test("requires at least one token", async () => {
-      await runCli("channels", "slack", "reconnect", "--json");
-      expect(process.exitCode).toBe(1);
+    test("requires a channel argument", async () => {
+      // commander throws via exitOverride when arg is missing
+      await expect(runCli("channels", "get")).rejects.toThrow();
       expect(mockCalls).toHaveLength(0);
     });
 
-    test("passes provided tokens through to the POST handler", async () => {
-      mockResponse = {
-        ok: true,
-        result: {
-          success: true,
-          hasBotToken: true,
-          hasAppToken: true,
-          hasUserToken: false,
-          connected: true,
+    test("exits non-zero when channel has no registered probe", async () => {
+      mockResponses = [
+        { ok: true, result: { success: true, snapshots: [] } },
+      ];
+      await runCli("channels", "get", "nope", "--json");
+      expect(process.exitCode).toBe(1);
+    });
+
+    test("does NOT accept --refresh flag (every get is live)", async () => {
+      // commander rejects unknown options via exitOverride
+      await expect(
+        runCli("channels", "get", "slack", "--refresh"),
+      ).rejects.toThrow();
+    });
+  });
+
+  describe("refresh slack", () => {
+    test("requires at least one token flag", async () => {
+      await runCli("channels", "refresh", "slack", "--json");
+      expect(process.exitCode).toBe(1);
+      // No IPC call when validation fails up front
+      expect(mockCalls).toHaveLength(0);
+    });
+
+    test("passes provided tokens to the slack config POST handler", async () => {
+      mockResponses = [
+        {
+          ok: true,
+          result: {
+            success: true,
+            teamName: "acme",
+            teamId: "T123",
+            botUsername: "apollobot",
+          },
         },
-      };
+      ];
       await runCli(
         "channels",
+        "refresh",
         "slack",
-        "reconnect",
         "--bot-token",
         "xoxb-test",
         "--app-token",
@@ -232,21 +168,14 @@ describe("assistant channels", () => {
       });
     });
 
-    test("includes user_token when provided", async () => {
-      mockResponse = {
-        ok: true,
-        result: {
-          success: true,
-          hasBotToken: true,
-          hasAppToken: false,
-          hasUserToken: true,
-          connected: true,
-        },
-      };
+    test("includes --user-token when provided", async () => {
+      mockResponses = [
+        { ok: true, result: { success: true } },
+      ];
       await runCli(
         "channels",
+        "refresh",
         "slack",
-        "reconnect",
         "--bot-token",
         "xoxb-test",
         "--user-token",
@@ -257,22 +186,54 @@ describe("assistant channels", () => {
         body: { botToken: "xoxb-test", userToken: "xoxp-test" },
       });
     });
+
+    test("exits non-zero when Slack rejects the credentials", async () => {
+      mockResponses = [
+        {
+          ok: true,
+          result: { success: false, error: "invalid_auth" },
+        },
+      ];
+      await runCli(
+        "channels",
+        "refresh",
+        "slack",
+        "--bot-token",
+        "xoxb-bad",
+        "--json",
+      );
+      expect(process.exitCode).toBe(1);
+    });
   });
 
-  describe("slack clear", () => {
-    test("calls the slack config DELETE handler", async () => {
-      mockResponse = {
-        ok: true,
-        result: {
-          success: true,
-          hasBotToken: false,
-          hasAppToken: false,
-          hasUserToken: false,
-          connected: false,
-        },
-      };
-      await runCli("channels", "slack", "clear", "--json");
-      expect(mockCalls[0][0]).toBe("integrations_slack_channel_config_delete");
+  describe("refresh <unsupported>", () => {
+    test("exits non-zero with a helpful message when channel has no reconnect handler", async () => {
+      await runCli("channels", "refresh", "telegram", "--json");
+      expect(process.exitCode).toBe(1);
+      expect(mockCalls).toHaveLength(0);
+    });
+  });
+
+  describe("refresh (no channel)", () => {
+    test("walks every known channel; reports per-channel outcome", async () => {
+      // Slack alone has a reconnect handler; without --bot-token it should
+      // be marked attempted=false. No IPC calls should happen since slack
+      // requires tokens and no other handler exists.
+      const out = await runCli("channels", "refresh", "--json");
+      expect(mockCalls).toHaveLength(0);
+      const parsed = JSON.parse(out);
+      expect(Array.isArray(parsed.results)).toBe(true);
+      const slack = parsed.results.find(
+        (r: { channel: string }) => r.channel === "slack",
+      );
+      expect(slack.attempted).toBe(false);
+      expect(slack.message).toMatch(/--bot-token/);
+      // Other channels report "no CLI reconnect handler yet"
+      const telegram = parsed.results.find(
+        (r: { channel: string }) => r.channel === "telegram",
+      );
+      expect(telegram.attempted).toBe(false);
+      expect(telegram.message).toMatch(/no CLI reconnect handler/);
     });
   });
 });

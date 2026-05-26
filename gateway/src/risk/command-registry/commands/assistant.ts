@@ -72,6 +72,10 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "channel-verification-sessions resend",
   "channel-verification-sessions cancel",
   "channel-verification-sessions revoke",
+  "channels",
+  "channels list",
+  "channels get",
+  "channels refresh",
   "clients",
   "clients disconnect",
   "clients list",
@@ -397,6 +401,12 @@ const riskOverrides: AssistantRiskOverride[] = [
   { path: "channel-verification-sessions resend", risk: "high" },
   { path: "channel-verification-sessions cancel", risk: "low" },
   { path: "channel-verification-sessions revoke", risk: "low" },
+  {
+    path: "channels refresh",
+    risk: "high",
+    reason:
+      "Stores or updates channel credentials (e.g. Slack bot/app/user tokens) and revalidates against the provider",
+  },
   { path: "config set", risk: "low" },
   { path: "contacts prompt", risk: "medium" },
   { path: "contacts channels update-status", risk: "medium" },
