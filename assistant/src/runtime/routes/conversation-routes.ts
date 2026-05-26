@@ -510,6 +510,10 @@ export function handleListMessages({
 
   let rawMessages: MessageRow[];
   let hasMore = false;
+  // Resume cursor surfaced when the paginated scan stops on its row cap with a
+  // (possibly empty) page — lets us still emit an oldest cursor so the client
+  // can request the next window instead of stalling.
+  let scanResumeCursor: { createdAt: number; id: string } | undefined;
 
   // Drop messages flagged as hidden in metadata (e.g. internal scaffolding
   // like retrospective instructions). The LLM-side history loader
@@ -533,6 +537,7 @@ export function handleListMessages({
     );
     rawMessages = result.messages;
     hasMore = result.hasMore;
+    scanResumeCursor = result.nextCursor;
   } else {
     rawMessages = getMessages(resolvedConversationId).filter(visibleFilter);
   }
@@ -834,10 +839,16 @@ export function handleListMessages({
   });
 
   if (isPaginated) {
+    // Prefer the page's oldest visible row (the documented cursor semantic).
+    // When a scan-cap-truncated page comes back empty there's no visible row
+    // to anchor on, so fall back to the resume cursor so the client still gets
+    // a `(timestamp, id)` to continue paginating from instead of stalling.
     const oldestTimestamp =
-      rawMessages.length > 0 ? rawMessages[0].createdAt : undefined;
+      rawMessages.length > 0
+        ? rawMessages[0].createdAt
+        : scanResumeCursor?.createdAt;
     const oldestMessageId =
-      rawMessages.length > 0 ? rawMessages[0].id : undefined;
+      rawMessages.length > 0 ? rawMessages[0].id : scanResumeCursor?.id;
     // `page=latest` always emits both metadata fields so the web client has
     // a stable contract; emit `null` when the conversation is empty.
     // The existing `beforeTimestamp` branch keeps its conditional shape to

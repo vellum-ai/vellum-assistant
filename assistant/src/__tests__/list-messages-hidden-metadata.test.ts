@@ -32,6 +32,7 @@ import {
 } from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
+import { messages } from "../memory/schema.js";
 import { handleListMessages } from "../runtime/routes/conversation-routes.js";
 
 initializeDb();
@@ -175,6 +176,77 @@ describe("handleListMessages metadata.hidden filtering", () => {
       "old visible 3",
     ]);
     expect(older.hasMore).toBe(true);
+  });
+
+  test("pagination keeps hasMore + a cursor when a >cap hidden block truncates the scan", () => {
+    // PAGINATION_SCAN_CAP is 10_000. Seed a contiguous block of hidden rows
+    // longer than the cap on top of a couple of older visible rows. The first
+    // page scans the cap's worth of (all hidden) rows without filling the page;
+    // the buggy implementation returned `hasMore: false` with no cursor here,
+    // stalling the client before it ever reached the visible rows below.
+    const conv = createConversation();
+    const db = getDb();
+    const HIDDEN_COUNT = 10_050; // > PAGINATION_SCAN_CAP
+    const VISIBLE_COUNT = 2;
+    let createdAt = 0;
+    // Older visible rows first (lowest createdAt), then the hidden block.
+    db.transaction((tx) => {
+      for (let i = 0; i < VISIBLE_COUNT; i++) {
+        createdAt += 1;
+        tx.insert(messages)
+          .values({
+            id: `visible-${i}`,
+            conversationId: conv.id,
+            role: "user",
+            content: JSON.stringify([{ type: "text", text: `visible ${i}` }]),
+            createdAt,
+          })
+          .run();
+      }
+      for (let i = 0; i < HIDDEN_COUNT; i++) {
+        createdAt += 1;
+        tx.insert(messages)
+          .values({
+            id: `hidden-${i}`,
+            conversationId: conv.id,
+            role: "assistant",
+            content: JSON.stringify([{ type: "text", text: `hidden ${i}` }]),
+            createdAt,
+            metadata: JSON.stringify({ hidden: true }),
+          })
+          .run();
+      }
+    });
+
+    const latest = handleListMessages({
+      queryParams: { conversationId: conv.id, page: "latest", limit: "2" },
+    }) as {
+      messages: MessagePayload[];
+      hasMore: boolean;
+      oldestTimestamp: number | null;
+    };
+
+    // Page is empty (the cap was consumed entirely by hidden rows) but the
+    // client must still be told to keep paginating and given a cursor.
+    expect(latest.messages).toHaveLength(0);
+    expect(latest.hasMore).toBe(true);
+    expect(latest.oldestTimestamp).not.toBeNull();
+
+    // Resuming from the surfaced cursor drains the remaining hidden rows and
+    // surfaces the visible ones below the cap.
+    const older = handleListMessages({
+      queryParams: {
+        conversationId: conv.id,
+        beforeTimestamp: String(latest.oldestTimestamp),
+        limit: "2",
+      },
+    }) as { messages: MessagePayload[]; hasMore: boolean };
+
+    expect(older.messages.map((m) => m.content)).toEqual([
+      "visible 0",
+      "visible 1",
+    ]);
+    expect(older.hasMore).toBe(false);
   });
 
   test("pagination drains DB when every row in a page is hidden", async () => {
