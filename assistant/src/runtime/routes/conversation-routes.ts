@@ -1921,82 +1921,87 @@ export async function handleSendMessage(
 
   if (slashResult.kind === "clean") {
     conversation.processing = true;
-    const provenance = provenanceFromTrustContext(conversation.trustContext);
-    const channelMeta = {
-      ...provenance,
-      userMessageChannel: sourceChannel,
-      assistantMessageChannel: sourceChannel,
-      userMessageInterface: sourceInterface,
-      assistantMessageInterface: sourceInterface,
-    };
-    const cleanMsg = createUserMessage(rawContent, attachments);
-    const persisted = await addMessage(
-      mapping.conversationId,
-      "user",
-      JSON.stringify(cleanMsg.content),
-      channelMeta,
-    );
-    conversation.getMessages().push(cleanMsg);
-
     const conversationId = mapping.conversationId;
-
-    let assistantMessagePersisted = false;
+    // Outer try/finally guarantees the processing flag is cleared (and the
+    // queue drained) on every failure path — including a throw from the
+    // initial user-message persist below, which would otherwise leave the
+    // conversation stuck in queued mode indefinitely.
     try {
-      broadcastMessage({
-        type: "user_message_echo",
-        text: rawContent,
-        conversationId,
-        messageId: persisted.id,
-        clientMessageId,
-      });
-      publishConversationMessagesChanged(conversationId, originClientId);
-
-      const result = await conversation.forceClean();
-      const responseText = formatCleanResult(result);
-
-      const assistantMsg = createAssistantMessage(responseText);
-      const persistedAssistant = await addMessage(
-        conversationId,
-        "assistant",
-        JSON.stringify(assistantMsg.content),
+      const provenance = provenanceFromTrustContext(conversation.trustContext);
+      const channelMeta = {
+        ...provenance,
+        userMessageChannel: sourceChannel,
+        assistantMessageChannel: sourceChannel,
+        userMessageInterface: sourceInterface,
+        assistantMessageInterface: sourceInterface,
+      };
+      const cleanMsg = createUserMessage(rawContent, attachments);
+      const persisted = await addMessage(
+        mapping.conversationId,
+        "user",
+        JSON.stringify(cleanMsg.content),
         channelMeta,
       );
-      assistantMessagePersisted = true;
-      conversation.getMessages().push(assistantMsg);
+      conversation.getMessages().push(cleanMsg);
 
-      broadcastMessage({
-        type: "assistant_text_delta",
-        text: responseText,
-        conversationId,
-      });
-      emitCannedMessageComplete(
-        broadcastMessage,
-        conversationId,
-        persistedAssistant.id,
-      );
-      publishConversationMessagesChanged(conversationId, originClientId);
-    } catch (err) {
-      if (assistantMessagePersisted) {
+      let assistantMessagePersisted = false;
+      try {
+        broadcastMessage({
+          type: "user_message_echo",
+          text: rawContent,
+          conversationId,
+          messageId: persisted.id,
+          clientMessageId,
+        });
         publishConversationMessagesChanged(conversationId, originClientId);
+
+        const result = await conversation.forceClean();
+        const responseText = formatCleanResult(result);
+
+        const assistantMsg = createAssistantMessage(responseText);
+        const persistedAssistant = await addMessage(
+          conversationId,
+          "assistant",
+          JSON.stringify(assistantMsg.content),
+          channelMeta,
+        );
+        assistantMessagePersisted = true;
+        conversation.getMessages().push(assistantMsg);
+
+        broadcastMessage({
+          type: "assistant_text_delta",
+          text: responseText,
+          conversationId,
+        });
+        emitCannedMessageComplete(
+          broadcastMessage,
+          conversationId,
+          persistedAssistant.id,
+        );
+        publishConversationMessagesChanged(conversationId, originClientId);
+      } catch (err) {
+        if (assistantMessagePersisted) {
+          publishConversationMessagesChanged(conversationId, originClientId);
+        }
+        log.error({ err, conversationId }, "Clean command failed");
+        broadcastMessage({
+          type: "conversation_error",
+          conversationId,
+          code: "UNKNOWN",
+          userMessage: `Clean failed: ${err instanceof Error ? err.message : String(err)}`,
+          retryable: true,
+        });
       }
-      log.error({ err, conversationId }, "Clean command failed");
-      broadcastMessage({
-        type: "conversation_error",
+
+      return {
+        accepted: true,
+        messageId: persisted.id,
         conversationId,
-        code: "UNKNOWN",
-        userMessage: `Clean failed: ${err instanceof Error ? err.message : String(err)}`,
-        retryable: true,
-      });
+      };
     } finally {
       conversation.processing = false;
       silentlyWithLog(conversation.drainQueue(), "clean-command queue drain");
     }
-
-    return {
-      accepted: true,
-      messageId: persisted.id,
-      conversationId,
-    };
   }
 
   const resolvedContent = slashResult.content;
