@@ -458,7 +458,7 @@ function ServiceCard({ id, title, subtitle, mode, onModeChange, children }: Serv
       subtitle={subtitle}
       accessory={<ModeToggle mode={mode} onChange={onModeChange} />}
     >
-      <div className="h-px bg-[var(--surface-active)] dark:bg-[var(--surface-lift)]" />
+      <div className="h-px bg-[var(--surface-active)]" />
       <div className="mt-4">{children}</div>
     </SettingsCard>
   );
@@ -501,7 +501,7 @@ interface ByoServiceCardProps {
 function ByoServiceCard({ title, subtitle, children }: ByoServiceCardProps) {
   return (
     <SettingsCard title={title} subtitle={subtitle}>
-      <div className="h-px bg-[var(--surface-active)] dark:bg-[var(--surface-lift)]" />
+      <div className="h-px bg-[var(--surface-active)]" />
       <div className="mt-4">{children}</div>
     </SettingsCard>
   );
@@ -1957,7 +1957,7 @@ export function AiPage() {
           alongside 3 lines of body text, which read as two competing
           blocks. `items-start` plus a small mt-0.5 on the Info icon
           keep the icon aligned with the first line of wrapping text. */}
-      <div className="flex items-start gap-2 rounded-lg border border-[var(--border-base)] bg-[var(--surface-base)] px-4 py-2.5 dark:border-[var(--border-base)] dark:bg-[var(--surface-lift)]">
+      <div className="flex items-start gap-2 rounded-lg border border-[var(--border-base)] bg-[var(--surface-base)] px-4 py-2.5">
         <Info className="mt-0.5 h-4 w-4 shrink-0 text-[var(--content-tertiary)]" />
         <p className="text-body-medium-lighter text-[var(--content-secondary)]">
           Managed services are metered and deducted from your Vellum account
