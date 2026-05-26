@@ -1,5 +1,5 @@
 {
-  "name": "@vellumai/electron",
+  "name": "@vellumai/macos",
   "version": "0.0.1",
   "private": true,
   "description": "Electron wrapper for the Vellum Assistant macOS app.",

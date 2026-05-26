@@ -36,10 +36,10 @@ follow-up PRs.
   `apps/chrome-extension/` (preserving its name) in a follow-up PR. Scoped
   separately so its impact on Chrome Web Store release workflows can be
   reviewed in isolation.
-- **macOS Electron** — `apps/electron/` will be renamed `apps/macos/` to match
-  the platform-named convention used by `apps/ios/`. Held until the legacy
-  native Swift app at `clients/macos/` retires (the two would otherwise both
-  want the `macos/` name, and `.github/workflows/ci-main-macos.yaml` already
-  targets the Swift app). Tracked at
-  [LUM-1908](https://linear.app/vellum/issue/LUM-1908), blocked on Phase 5
-  cutover.
+- **macOS workflow filenames** — `apps/macos/` is the canonical platform-named
+  directory, but its CI workflow files are still named
+  `pr-electron.yaml` / `ci-main-electron.yaml` because
+  `.github/workflows/ci-main-macos.yaml` is taken by the legacy native Swift
+  app at `clients/macos/`. The workflow filenames will be renamed to
+  `-macos.yaml` once `clients/macos/` retires. Tracked at
+  [LUM-1908](https://linear.app/vellum/issue/LUM-1908).

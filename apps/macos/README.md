@@ -7,14 +7,13 @@ shipped under `Resources/`.
 This package is the macOS distribution surface (outside the App Store).
 Code signing, notarization, and auto-update wiring live in follow-up tickets.
 
-> **Planned rename.** This directory will be renamed `apps/macos/` to match
-> the platform-named convention used by `apps/ios/`. The rename is held until
-> the legacy native Swift app at [`clients/macos/`](../../clients/macos/) is
-> retired, since the two would otherwise both want the `macos/` name and the
-> existing `.github/workflows/ci-main-macos.yaml` already targets the Swift
-> app. Tracked at
-> [LUM-1908](https://linear.app/vellum/issue/LUM-1908), blocked on Phase 5
-> cutover.
+> **Note on workflow filenames.** This directory is `apps/macos/` to match the
+> platform-named convention used by `apps/ios/`, but the CI workflows are
+> still named `pr-electron.yaml` / `ci-main-electron.yaml` because
+> `.github/workflows/ci-main-macos.yaml` is already taken by the legacy
+> native Swift app at [`clients/macos/`](../../clients/macos/). The workflow
+> filenames will be renamed to `-macos.yaml` once `clients/macos/` retires —
+> tracked at [LUM-1908](https://linear.app/vellum/issue/LUM-1908).
 
 ## Prerequisites
 
@@ -56,7 +55,7 @@ bun run typecheck  # tsc --noEmit
 ## Layout
 
 ```
-apps/electron/
+apps/macos/
 ├── electron.vite.config.ts   # main + preload Vite entries (no renderer)
 ├── src/
 │   ├── main/index.ts         # window creation, app://, daemon supervisor

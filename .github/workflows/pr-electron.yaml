@@ -4,7 +4,7 @@ on:
   pull_request:
     types: [synchronize, opened, reopened]
     paths:
-      - 'apps/electron/**'
+      - 'apps/macos/**'
       - '.github/workflows/pr-electron.yaml'
 
 concurrency:
@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: apps/electron
+        working-directory: apps/macos
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -38,7 +38,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: apps/electron
+        working-directory: apps/macos
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
