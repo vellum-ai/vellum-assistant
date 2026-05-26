@@ -61,15 +61,23 @@ struct ProvidersSheet: View {
     @State private var chatgptOAuthStoredState = ""
 
     /// True when the ChatGPT subscription OAuth section should be visible:
-    /// feature flag enabled, provider is "openai", and we're in create mode.
+    /// feature flag enabled, provider is "openai", and either we're in create
+    /// mode (new connection) or editing an existing oauth_subscription
+    /// connection (so the user can re-authenticate if needed).
     private var isChatgptSubscriptionVisible: Bool {
         guard let flagStore = assistantFeatureFlagStore,
               flagStore.isEnabled("chatgpt-subscription-auth"),
-              editorDraft.provider == "openai",
-              case .create = editorState else {
+              editorDraft.provider == "openai" else {
             return false
         }
-        return true
+        switch editorState {
+        case .create:
+            return true
+        case .edit, .managedEdit:
+            return editorDraft.authType == "oauth_subscription"
+        case .none:
+            return false
+        }
     }
 
     // MARK: - Nested Types
@@ -1295,10 +1303,12 @@ struct ProvidersSheet: View {
 
         // OAuth subscription connections are created by the OAuth sign-in
         // flow (handleChatgptUrlSubmit), not the Create/Save button. Block
-        // commitEditor so a user who selects "ChatGPT Subscription" and
-        // clicks Create without completing the OAuth flow doesn't end up
-        // with a broken connection missing OAuth tokens.
-        if draft.authType == "oauth_subscription" {
+        // commitEditor in create mode so a user who selects "ChatGPT
+        // Subscription" and clicks Create without completing the OAuth flow
+        // doesn't end up with a broken connection missing OAuth tokens.
+        // In edit mode the OAuth tokens are already set up, so allow saves
+        // for display name / status changes.
+        if draft.authType == "oauth_subscription" && editorState == .create {
             actionError = "Use the \"Sign in with ChatGPT\" button to connect your subscription."
             return
         }

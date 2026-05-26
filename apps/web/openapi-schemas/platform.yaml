@@ -3464,6 +3464,33 @@ paths:
           description: ''
       x-vellum-api-clients:
       - platform
+  /v1/organizations/billing/invoices/:
+    get:
+      operationId: organizations_billing_invoices_retrieve
+      description: Return the org's Stripe invoices, newest first.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvoiceListResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
   /v1/organizations/billing/plans/:
     get:
       operationId: organizations_billing_plans_retrieve
@@ -5622,6 +5649,68 @@ components:
           type: string
           nullable: true
           minLength: 1
+    Invoice:
+      type: object
+      description: A single Stripe invoice, trimmed to fields a billing-history UI
+        needs.
+      properties:
+        id:
+          type: string
+          description: Stripe Invoice ID (e.g. in_xxx).
+        number:
+          type: string
+          nullable: true
+          description: Human-readable invoice number (e.g. INV-0001); null for drafts.
+        status:
+          type: string
+          nullable: true
+          description: 'Invoice status: draft, open, paid, uncollectible, or void.'
+        currency:
+          type: string
+          description: Three-letter ISO currency code (e.g. usd).
+        amount_due:
+          type: integer
+          description: Amount owed in the currency's minor units (e.g. cents).
+        amount_paid:
+          type: integer
+          description: Amount paid in the currency's minor units (e.g. cents).
+        amount_remaining:
+          type: integer
+          description: Amount still owed in the currency's minor units (e.g. cents).
+        created:
+          type: integer
+          description: Invoice creation time as a Unix timestamp (seconds).
+        hosted_invoice_url:
+          type: string
+          format: uri
+          nullable: true
+          description: Stripe-hosted invoice page URL; null if not yet finalized.
+        invoice_pdf:
+          type: string
+          format: uri
+          nullable: true
+          description: URL to download the invoice PDF; null if not yet finalized.
+      required:
+      - amount_due
+      - amount_paid
+      - amount_remaining
+      - created
+      - currency
+      - hosted_invoice_url
+      - id
+      - invoice_pdf
+      - number
+      - status
+    InvoiceListResponse:
+      type: object
+      description: Response body for listing a customer's invoices.
+      properties:
+        invoices:
+          type: array
+          items:
+            $ref: '#/components/schemas/Invoice'
+      required:
+      - invoices
     MachineSizeEnum:
       enum:
       - small

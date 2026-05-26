@@ -314,7 +314,23 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
       statusText: null,
     })),
 
-  acceptSend: (turnId) => set({ activeTurnId: turnId }),
+  acceptSend: (turnId) =>
+    set((s) => {
+      // The send POST has resolved — we are now waiting for the first
+      // assistant text delta. Phase must be "thinking" for that window
+      // (see `isThinking` doc comment). If a stale terminal event from
+      // a previous turn slipped in between `requestSend` and here during
+      // the POST await, phase was clobbered to "idle"/"errored" with
+      // `lastTerminalReason` populated. Restore the in-flight shape so
+      // the thinking indicator stays visible until the first delta.
+      const phaseIsTerminal = s.phase === "idle" || s.phase === "errored";
+      return {
+        activeTurnId: turnId,
+        ...(phaseIsTerminal
+          ? { phase: "thinking" as const, lastTerminalReason: null }
+          : null),
+      };
+    }),
 
   // ----- Streaming -----
 
@@ -603,8 +619,18 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
         statusText: null,
       };
 
-    case "USER_SEND_ACCEPTED":
-      return { ...state, activeTurnId: event.turnId };
+    case "USER_SEND_ACCEPTED": {
+      // See `acceptSend` action for rationale.
+      const phaseIsTerminal =
+        state.phase === "idle" || state.phase === "errored";
+      return {
+        ...state,
+        activeTurnId: event.turnId,
+        ...(phaseIsTerminal
+          ? { phase: "thinking" as const, lastTerminalReason: null }
+          : null),
+      };
+    }
 
     case "ASSISTANT_TEXT_DELTA":
       if (state.phase === "idle" || state.phase === "errored") {

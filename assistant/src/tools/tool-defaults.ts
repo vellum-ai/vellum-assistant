@@ -1,0 +1,94 @@
+/**
+ * Single source of truth for the defaults applied when a `ToolDefinition`
+ * omits one of the normally-required fields, plus the `finalizeTool`
+ * helper that lifts a `ToolDefinition` into a `LoadedTool`.
+ *
+ * Plugins, external loaders, and any other registration boundary that
+ * accepts loose `ToolDefinition` objects from authors must run them
+ * through `finalizeTool` before handing the result to a `registerXxxTools`
+ * call. The registry types make this a hard rule: every registered tool
+ * is a `LoadedTool` (`Required<ToolDefinition> & { name }`).
+ */
+
+import type {
+  LoadedTool,
+  RiskLevel,
+  ToolDefinition,
+  ToolExecutionResult,
+} from "./types.js";
+
+/**
+ * Default values applied by `finalizeTool` when the author omits a field.
+ *
+ * - `description` defaults to empty — the model sees the tool name only
+ *   for un-documented tools, which is the correct minimal-info signal.
+ * - `defaultRiskLevel` defaults to `medium` — the safe middle band that
+ *   forces explicit approval for risky calls without spamming approval
+ *   prompts on no-op tools.
+ * - `input_schema` defaults to an empty closed object — the model is
+ *   allowed to call the tool with no arguments, and unknown arguments
+ *   are rejected at the JSON-schema layer.
+ * - `executionTarget` defaults to `sandbox` — author-supplied tool code
+ *   runs in the assistant container by default; opt in to `host` when
+ *   the tool proxies work to the connected client.
+ *
+ * `execute` has no constant default because the default closure needs to
+ * close over the tool's name to produce a useful error message; see
+ * `finalizeTool` below.
+ */
+export const TOOL_DEFAULTS = Object.freeze({
+  description: "",
+  defaultRiskLevel: "medium" as RiskLevel,
+  input_schema: Object.freeze({
+    type: "object",
+    properties: {},
+    additionalProperties: false,
+  }) as object,
+  executionTarget: "sandbox" as const,
+});
+
+/**
+ * Fill the four normally-required `ToolDefinition` fields with documented
+ * defaults when the author omitted them, attach the registration-time
+ * `name`, and return a `LoadedTool` that is safe to hand to a
+ * `registerXxxTools` call.
+ *
+ * The default `execute` returns an error result so the model sees a clear
+ * "this tool isn't wired up" signal at call time. The owning loader still
+ * registers the tool cleanly — a broken individual tool must never block
+ * the registration batch.
+ */
+export function finalizeTool(
+  tool: ToolDefinition,
+  name: string,
+): LoadedTool {
+  const description =
+    typeof tool.description === "string"
+      ? tool.description
+      : TOOL_DEFAULTS.description;
+  const defaultRiskLevel =
+    typeof tool.defaultRiskLevel === "string"
+      ? tool.defaultRiskLevel
+      : TOOL_DEFAULTS.defaultRiskLevel;
+  const input_schema =
+    tool.input_schema !== null && typeof tool.input_schema === "object"
+      ? tool.input_schema
+      : TOOL_DEFAULTS.input_schema;
+  const execute =
+    typeof tool.execute === "function"
+      ? tool.execute
+      : async (): Promise<ToolExecutionResult> => ({
+          content: `tool ${name} has no execute implementation`,
+          isError: true,
+        });
+  const executionTarget = tool.executionTarget ?? TOOL_DEFAULTS.executionTarget;
+  return {
+    ...tool,
+    name,
+    description,
+    defaultRiskLevel,
+    input_schema,
+    executionTarget,
+    execute,
+  };
+}

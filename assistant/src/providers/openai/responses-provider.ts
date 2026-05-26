@@ -438,21 +438,6 @@ export class OpenAIResponsesProvider implements Provider {
           ? signal.reason
           : undefined;
       if (error instanceof OpenAI.APIError) {
-        // Temporary diagnostic: log the raw error shape for Codex 400 debugging
-        if (this.codexSubscription) {
-          log.warn(
-            {
-              status: error.status,
-              message: error.message,
-              code: error.code,
-              type: error.type,
-              param: error.param,
-              errorBody: error.error,
-              headers: Object.fromEntries(error.headers?.entries?.() ?? []),
-            },
-            "Codex subscription API error — raw details",
-          );
-        }
         const overflow = detectOpenAICompatibleContextOverflow(error);
         if (overflow) {
           throw new ContextOverflowError(
