@@ -5,10 +5,24 @@
  * all workspace-derived helpers (getDataDir, getDbPath, getConversationsDir, …)
  * resolve under the temp dir instead of the real ~/.vellum/workspace.
  *
- * Individual test files can retrieve the workspace dir via getWorkspaceDir()
- * from platform.ts, or directly from process.env.VELLUM_WORKSPACE_DIR.
- *
  * Cleanup: the temp dir is removed after all tests in the file complete.
+ *
+ * Ordering invariant
+ * ------------------
+ * The env override at line ~30 MUST run before any source-module import
+ * resolves. ES module imports are hoisted and executed top-to-bottom at
+ * module load, so any top-level `import` of a source module would run
+ * before the env override line — and if that import threw (e.g. broken
+ * `node_modules` symlink in a worktree), the env override would never
+ * run, leaving `VELLUM_WORKSPACE_DIR=/workspace` inherited from the
+ * parent daemon. Migration tests then call `rmSync(getDbPath())`
+ * targeting the live production DB.
+ *
+ * To preserve that ordering, only node stdlib + `bun:test` are imported
+ * at the top. All source-module setup uses dynamic `await import()`
+ * calls below the env override. See
+ * /workspace/journal/2026-05-25-db-ghost-3-recovery.md for the incident
+ * this ordering prevents.
  */
 
 import { mkdtempSync, realpathSync, rmSync } from "node:fs";
@@ -16,10 +30,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll } from "bun:test";
 
-import { installGatewayIpcMock } from "../__tests__/mock-gateway-ipc.js";
-import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
-import { resetDb } from "../memory/db-connection.js";
-import { _setStorePath } from "../security/encrypted-store.js";
+// --- Phase 1: env override (zero source imports above this point) -----------
 
 const testDir = realpathSync(
   mkdtempSync(join(tmpdir(), "vellum-test-workspace-")),
@@ -27,6 +38,26 @@ const testDir = realpathSync(
 process.env.VELLUM_WORKSPACE_DIR = testDir;
 process.env.VELLUM_PLATFORM_URL = "https://test-platform.vellum.ai";
 process.exitCode = 0;
+
+// Prevent tests from routing credential writes through the real CES
+// (Credential Execution Service). Without this, setSecureKeyAsync() in
+// containerized environments writes to the live credential store.
+const savedIsContainerized = process.env.IS_CONTAINERIZED;
+const savedCesCredentialUrl = process.env.CES_CREDENTIAL_URL;
+delete process.env.IS_CONTAINERIZED;
+delete process.env.CES_CREDENTIAL_URL;
+
+// --- Phase 2: source-module setup (dynamic imports, post-env override) ------
+//
+// Any failure below this line surfaces with VELLUM_WORKSPACE_DIR already
+// redirected to the temp dir.
+
+const { installGatewayIpcMock } = await import("./mock-gateway-ipc.js");
+const { _setOverridesForTesting } = await import(
+  "../config/assistant-feature-flags.js"
+);
+const { resetDb } = await import("../memory/db-connection.js");
+const { _setStorePath } = await import("../security/encrypted-store.js");
 
 // Isolate the encrypted credential store per test file. Without this,
 // parallel test processes all read/write the same ~/.vellum/protected/keys.enc,
@@ -50,14 +81,6 @@ _setOverridesForTesting({});
 // real ~/.vellum/workspace database, and test cleanup (DELETE FROM …) would
 // wipe production data — contacts, channels, credentials, etc.
 resetDb();
-
-// Prevent tests from routing credential writes through the real CES
-// (Credential Execution Service). Without this, setSecureKeyAsync() in
-// containerized environments writes to the live credential store.
-const savedIsContainerized = process.env.IS_CONTAINERIZED;
-const savedCesCredentialUrl = process.env.CES_CREDENTIAL_URL;
-delete process.env.IS_CONTAINERIZED;
-delete process.env.CES_CREDENTIAL_URL;
 
 afterAll(() => {
   resetDb();
