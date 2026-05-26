@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
 import type {
+  MemoryV3SimulateResult,
   MemoryV3TreeResult,
   MemoryV3ValidateResult,
 } from "../../../runtime/routes/memory-v3-routes.js";
 import {
+  renderSimulation,
   renderTree,
   renderValidationReport,
   reportHasDefects,
@@ -160,5 +162,105 @@ describe("memory v3 — renderTree", () => {
     const out = renderTree(view);
     expect(out).toContain("Unreachable nodes (1):");
     expect(out).toContain("- node:floating");
+  });
+});
+
+function simResult(): MemoryV3SimulateResult {
+  return {
+    query: "what should we ship next",
+    selectedSlugs: ["page-tree", "page-hot", "page-edge"],
+    sourceBySlug: {
+      "page-hot": "hot",
+      "page-tree": "tree",
+      "page-edge": "edge",
+    },
+    trace: {
+      passes: [
+        {
+          passNumber: 1,
+          scouts: [
+            { lane: "hot", slugs: ["page-hot"] },
+            { lane: "sparse", slugs: [] },
+            { lane: "dense", slugs: ["d1", "d2"] },
+          ],
+          treeLevels: [
+            {
+              node: "",
+              considered: ["people", "frames", "objects"],
+              descended: ["people", "frames"],
+              skipped: ["objects"],
+              reasoning: "query is about planning",
+            },
+          ],
+          edgeExpansions: [{ from: "page-tree", pulled: ["page-edge"] }],
+          gate: { decision: "more", questions: ["narrow to roadmap?"] },
+        },
+        {
+          passNumber: 2,
+          scouts: [{ lane: "hot", slugs: [] }],
+          gate: { decision: "ready" },
+        },
+      ],
+    },
+    cost: { ms: 1234 },
+    failureReason: null,
+    effectiveConfig: {
+      passCap: 3,
+      lanes: { hot: true, sparse: true, dense: true, tree: true, edges: false },
+    },
+  };
+}
+
+describe("memory v3 — renderSimulation", () => {
+  test("renders query, effective config, per-pass trace, and grouped selection", () => {
+    const out = renderSimulation(simResult());
+    expect(out).toContain("Memory v3 Retrieval Simulation");
+    expect(out).toContain('Query: "what should we ship next"');
+    expect(out).toContain("passCap: 3");
+    // A disabled lane is surfaced in an `(off: …)` suffix.
+    expect(out).toContain("lanes: hot, sparse, dense, tree  (off: edges)");
+
+    expect(out).toContain("Passes: 2");
+    expect(out).toContain("Pass 1");
+    expect(out).toContain("scouts: hot=1  sparse=0  dense=2");
+    // The root tree level ("" node) prints as [root] with branch counts.
+    expect(out).toContain("[root]: considered 3, descended 2, skipped 1");
+    expect(out).toContain("→ people, frames");
+    expect(out).toContain("reason: query is about planning");
+    expect(out).toContain("edges: 1 seed(s) expanded, 1 pulled");
+    expect(out).toContain("gate: more");
+    expect(out).toContain("? narrow to roadmap?");
+    expect(out).toContain("gate: ready");
+
+    expect(out).toContain("Selected: 3 page(s)");
+    expect(out).toContain("Cost: 1234 ms");
+  });
+
+  test("groups selected slugs by provenance lane in fanout order", () => {
+    const out = renderSimulation(simResult());
+    const hotAt = out.indexOf("hot (1)");
+    const treeAt = out.indexOf("tree (1)");
+    const edgeAt = out.indexOf("edge (1)");
+    expect(hotAt).toBeGreaterThan(-1);
+    expect(treeAt).toBeGreaterThan(-1);
+    expect(edgeAt).toBeGreaterThan(-1);
+    // hot precedes tree precedes edge in SIMULATE_LANE_ORDER.
+    expect(hotAt).toBeLessThan(treeAt);
+    expect(treeAt).toBeLessThan(edgeAt);
+  });
+
+  test("renders all lanes inline when none are disabled", () => {
+    const result = simResult();
+    result.effectiveConfig.lanes.edges = true;
+    const out = renderSimulation(result);
+    expect(out).toContain("lanes: hot, sparse, dense, tree, edges");
+    expect(out).not.toContain("(off:");
+  });
+
+  test("surfaces a failure reason when the loop degraded", () => {
+    const result = simResult();
+    result.failureReason = "dense filter failed open";
+    const out = renderSimulation(result);
+    expect(out).toContain("Failure: dense filter failed open");
   });
 });
