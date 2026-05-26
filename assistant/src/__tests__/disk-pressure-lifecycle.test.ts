@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { createMockLoggerModule } from "./helpers/mock-logger.js";
+
 const warnCalls: unknown[] = [];
 let guardEnabled = true;
 let startCalls = 0;
@@ -81,17 +83,18 @@ mock.module("../daemon/disk-pressure-guard.js", () => ({
   DISK_PRESSURE_OVERRIDE_CONFIRMATION: "I understand the risks",
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () => ({
-    debug: () => {},
-    error: () => {},
-    info: () => {},
-    warn: (...args: unknown[]) => {
-      warnCalls.push(args);
-    },
+mock.module("../util/logger.js", () =>
+  createMockLoggerModule({
+    getLogger: () => ({
+      debug: () => {},
+      error: () => {},
+      info: () => {},
+      warn: (...args: unknown[]) => {
+        warnCalls.push(args);
+      },
+    }),
   }),
-  initLogger: () => {},
-}));
+);
 
 const {
   startDiskPressureGuardForLifecycle,

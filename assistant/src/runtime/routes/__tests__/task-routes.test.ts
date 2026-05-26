@@ -195,9 +195,54 @@ mock.module("../../../tools/tasks/work-item-run.js", () => ({
 }));
 
 // Also mock getWorkspaceDir so handlers don't hit the real filesystem
-mock.module("../../../util/platform.js", () => ({
-  getWorkspaceDir: () => "/mock/workspace",
-}));
+mock.module("../../../util/platform.js", () => {
+  const stub = () => "/mock/workspace";
+  return {
+    getWorkspaceDir: () => "/mock/workspace",
+    vellumRoot: stub,
+    isMacOS: () => false,
+    isLinux: () => true,
+    isWindows: () => false,
+    getPlatformName: () => "linux",
+    normalizeAssistantId: (id: string) => id,
+    getDataDir: stub,
+    getEmbeddingModelsDir: stub,
+    getSandboxRootDir: stub,
+    getSandboxWorkingDir: stub,
+    getSoundsDir: stub,
+    getAvatarDir: stub,
+    AVATAR_IMAGE_FILENAME: "avatar-image.png",
+    getAvatarImagePath: stub,
+    getXdgVellumConfigDirName: () => ".vellum",
+    getPidPath: stub,
+    getDbPath: stub,
+    getLogsDir: stub,
+    getHistoryPath: stub,
+    getProtectedDir: stub,
+    getSignalsDir: stub,
+    getDaemonStderrLogPath: stub,
+    getDaemonStartupLockPath: stub,
+    getExternalDir: stub,
+    getBinDir: stub,
+    getDotEnvPath: stub,
+    getEmbedWorkerPidPath: stub,
+    getWorkspaceDirDisplay: stub,
+    getWorkspaceConfigPath: stub,
+    getWorkspaceSkillsDir: stub,
+    getWorkspaceHooksDir: stub,
+    getWorkspacePluginsDir: stub,
+    getWorkspaceRoutesDir: stub,
+    getDeprecatedDir: stub,
+    getConversationsDir: stub,
+    getWorkspacePromptPath: stub,
+    getProfilerRootDir: stub,
+    getProfilerRunsDir: stub,
+    getProfilerRunDir: stub,
+    getSkillRuntimePath: stub,
+    getBundledBunPath: () => undefined,
+    ensureDataDir: () => {},
+  };
+});
 
 // ---------------------------------------------------------------------------
 // Import route definitions after mocking

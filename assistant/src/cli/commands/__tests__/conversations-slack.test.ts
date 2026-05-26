@@ -77,6 +77,18 @@ mock.module("../../../ipc/gateway-client.js", () => ({
     gatewayCalls.push({ method, params, timeoutMs });
     return gatewayResponse;
   },
+  ipcCallPersistent: async (
+    method: string,
+    params?: Record<string, unknown>,
+    timeoutMs?: number,
+  ) => {
+    gatewayCalls.push({ method, params, timeoutMs });
+    return gatewayResponse;
+  },
+  resetPersistentClient: () => {},
+  ipcGetFeatureFlags: async () => ({}),
+  ipcGetVelayStatus: async () => null,
+  ipcClassifyRisk: async () => ({ risk: "low" }),
 }));
 
 mock.module("../../../messaging/providers/slack/send.js", () => ({
@@ -126,6 +138,10 @@ mock.module("../../../util/logger.js", () => ({
     error: () => {},
     debug: () => {},
   }),
+  initLogger: () => {},
+  truncateForLog: (value: string) => value,
+  pruneOldLogFiles: () => 0,
+  LOG_FILE_PATTERN: /^assistant-(\d{4}-\d{2}-\d{2})\.log$/,
 }));
 
 const { registerConversationsCommand } = await import("../conversations.js");

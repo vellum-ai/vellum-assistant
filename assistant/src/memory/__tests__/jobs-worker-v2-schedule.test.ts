@@ -34,11 +34,9 @@ import {
 
 import { eq } from "drizzle-orm";
 
-import { makeMockLogger } from "../../__tests__/helpers/mock-logger.js";
+import { createMockLoggerModule } from "../../__tests__/helpers/mock-logger.js";
 
-mock.module("../../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
+mock.module("../../util/logger.js", () => createMockLoggerModule());
 
 // Workspace pin must precede the `db` import below — the DB singleton
 // resolves its path at first call, so we need the env var set before

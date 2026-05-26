@@ -34,3 +34,29 @@ export function makeMockLogger(): unknown {
     get: (_target, prop) => (prop === "child" ? makeMockLogger : () => {}),
   });
 }
+
+/**
+ * Returns a complete mock module object for `util/logger.js`. Use this when
+ * the consumer of `mock.module("../util/logger.js", ...)` needs full export
+ * coverage — i.e. when the transitive import graph reaches `getCliLogger`,
+ * `initLogger`, or other helpers in addition to `getLogger`.
+ *
+ *   mock.module("../util/logger.js", () => createMockLoggerModule());
+ *
+ * Pass `overrides` to swap any specific export for a custom stub (e.g. an
+ * observable spy). Anything not overridden falls back to the recursive
+ * proxy logger / no-op defaults.
+ */
+export function createMockLoggerModule(
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    getLogger: () => makeMockLogger(),
+    getCliLogger: () => makeMockLogger(),
+    initLogger: () => {},
+    truncateForLog: (value: string) => value,
+    pruneOldLogFiles: () => 0,
+    LOG_FILE_PATTERN: /^assistant-(\d{4}-\d{2}-\d{2})\.log$/,
+    ...overrides,
+  };
+}

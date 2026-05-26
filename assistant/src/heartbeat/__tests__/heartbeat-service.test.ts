@@ -43,6 +43,35 @@ mock.module("../../util/platform.js", () => ({
     join(workspaceDir ?? fallbackDir, "avatar/avatar-image.png"),
 
   getXdgVellumConfigDirName: () => ".vellum",
+  getPidPath: () => join(workspaceDir ?? fallbackDir, "assistant.pid"),
+  getDbPath: () => join(workspaceDir ?? fallbackDir, "db/assistant.db"),
+  getLogsDir: () => join(workspaceDir ?? fallbackDir, "logs"),
+  getHistoryPath: () => join(workspaceDir ?? fallbackDir, "history.json"),
+  getProtectedDir: () => join(workspaceDir ?? fallbackDir, "protected"),
+  getSignalsDir: () => join(workspaceDir ?? fallbackDir, "signals"),
+  getDaemonStderrLogPath: () =>
+    join(workspaceDir ?? fallbackDir, "logs/assistant.err.log"),
+  getDaemonStartupLockPath: () =>
+    join(workspaceDir ?? fallbackDir, "assistant.lock"),
+  getExternalDir: () => join(workspaceDir ?? fallbackDir, "external"),
+  getBinDir: () => join(workspaceDir ?? fallbackDir, "bin"),
+  getDotEnvPath: () => join(workspaceDir ?? fallbackDir, ".env"),
+  getEmbedWorkerPidPath: () =>
+    join(workspaceDir ?? fallbackDir, "embed-worker.pid"),
+  getWorkspaceDirDisplay: () => workspaceDir ?? fallbackDir,
+  getWorkspaceConfigPath: () => join(workspaceDir ?? fallbackDir, "config.json"),
+  getWorkspaceSkillsDir: () => join(workspaceDir ?? fallbackDir, "skills"),
+  getWorkspaceHooksDir: () => join(workspaceDir ?? fallbackDir, ".githooks"),
+  getWorkspacePluginsDir: () => join(workspaceDir ?? fallbackDir, "plugins"),
+  getWorkspaceRoutesDir: () => join(workspaceDir ?? fallbackDir, "routes"),
+  getDeprecatedDir: () => join(workspaceDir ?? fallbackDir, "deprecated"),
+  getProfilerRootDir: () => join(workspaceDir ?? fallbackDir, "profiler"),
+  getProfilerRunsDir: () => join(workspaceDir ?? fallbackDir, "profiler/runs"),
+  getProfilerRunDir: (runId: string) =>
+    join(workspaceDir ?? fallbackDir, "profiler/runs", runId),
+  getSkillRuntimePath: () => join(workspaceDir ?? fallbackDir, "skill-runtime"),
+  getBundledBunPath: () => undefined,
+  ensureDataDir: () => {},
 }));
 
 // Stub config so heartbeat is enabled. Must export every symbol from

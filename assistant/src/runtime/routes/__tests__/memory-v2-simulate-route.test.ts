@@ -78,6 +78,9 @@ mock.module("../../../memory/v2/injection-events.js", () => ({
 // sentinel object is sufficient.
 mock.module("../../../memory/db-connection.js", () => ({
   getDb: () => ({ __stub: true }),
+  getSqlite: () => ({ __stub: true }),
+  getSqliteFrom: () => ({ __stub: true }),
+  closeAssistantDb: () => {},
 }));
 
 // Config loader. The simulate route reads `memory.v2.enabled` (must be
@@ -124,9 +127,54 @@ mock.module("../../../providers/provider-send-message.js", () => ({
 // Platform helpers. `getWorkspaceDir` must return the per-test tmp dir so
 // the route's page index points at the test workspace.
 let workspaceDir = "";
-mock.module("../../../util/platform.js", () => ({
-  getWorkspaceDir: () => workspaceDir,
-}));
+mock.module("../../../util/platform.js", () => {
+  const stub = () => workspaceDir;
+  return {
+    getWorkspaceDir: () => workspaceDir,
+    vellumRoot: stub,
+    isMacOS: () => false,
+    isLinux: () => true,
+    isWindows: () => false,
+    getPlatformName: () => "linux",
+    normalizeAssistantId: (id: string) => id,
+    getDataDir: stub,
+    getEmbeddingModelsDir: stub,
+    getSandboxRootDir: stub,
+    getSandboxWorkingDir: stub,
+    getSoundsDir: stub,
+    getAvatarDir: stub,
+    AVATAR_IMAGE_FILENAME: "avatar-image.png",
+    getAvatarImagePath: stub,
+    getXdgVellumConfigDirName: () => ".vellum",
+    getPidPath: stub,
+    getDbPath: stub,
+    getLogsDir: stub,
+    getHistoryPath: stub,
+    getProtectedDir: stub,
+    getSignalsDir: stub,
+    getDaemonStderrLogPath: stub,
+    getDaemonStartupLockPath: stub,
+    getExternalDir: stub,
+    getBinDir: stub,
+    getDotEnvPath: stub,
+    getEmbedWorkerPidPath: stub,
+    getWorkspaceDirDisplay: stub,
+    getWorkspaceConfigPath: stub,
+    getWorkspaceSkillsDir: stub,
+    getWorkspaceHooksDir: stub,
+    getWorkspacePluginsDir: stub,
+    getWorkspaceRoutesDir: stub,
+    getDeprecatedDir: stub,
+    getConversationsDir: stub,
+    getWorkspacePromptPath: stub,
+    getProfilerRootDir: stub,
+    getProfilerRunsDir: stub,
+    getProfilerRunDir: stub,
+    getSkillRuntimePath: stub,
+    getBundledBunPath: () => undefined,
+    ensureDataDir: () => {},
+  };
+});
 
 // ---------------------------------------------------------------------------
 // Import under test (after all mocks above)

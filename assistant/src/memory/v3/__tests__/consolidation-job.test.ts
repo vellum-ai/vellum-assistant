@@ -38,11 +38,9 @@ import {
 
 import { eq } from "drizzle-orm";
 
-import { makeMockLogger } from "../../../__tests__/helpers/mock-logger.js";
+import { createMockLoggerModule } from "../../../__tests__/helpers/mock-logger.js";
 
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
+mock.module("../../../util/logger.js", () => createMockLoggerModule());
 
 // ── runBackgroundJob mock ───────────────────────────────────────────
 //

@@ -156,9 +156,54 @@ mock.module("../daemon/skill-memory-refresh.js", () => ({
   refreshSkillCapabilityMemories: mockRefreshSkillCapabilityMemories,
 }));
 
-mock.module("../util/platform.js", () => ({
-  getWorkspaceSkillsDir: () => "/tmp/test-skills",
-}));
+mock.module("../util/platform.js", () => {
+  const stub = () => "/tmp/test-stub";
+  return {
+    getWorkspaceSkillsDir: () => "/tmp/test-skills",
+    vellumRoot: stub,
+    isMacOS: () => false,
+    isLinux: () => true,
+    isWindows: () => false,
+    getPlatformName: () => "linux",
+    normalizeAssistantId: (id: string) => id,
+    getDataDir: stub,
+    getEmbeddingModelsDir: stub,
+    getSandboxRootDir: stub,
+    getSandboxWorkingDir: stub,
+    getSoundsDir: stub,
+    getAvatarDir: stub,
+    AVATAR_IMAGE_FILENAME: "avatar-image.png",
+    getAvatarImagePath: stub,
+    getXdgVellumConfigDirName: () => ".vellum",
+    getPidPath: stub,
+    getDbPath: stub,
+    getLogsDir: stub,
+    getHistoryPath: stub,
+    getProtectedDir: stub,
+    getSignalsDir: stub,
+    getDaemonStderrLogPath: stub,
+    getDaemonStartupLockPath: stub,
+    getExternalDir: stub,
+    getBinDir: stub,
+    getDotEnvPath: stub,
+    getEmbedWorkerPidPath: stub,
+    getWorkspaceDir: stub,
+    getWorkspaceDirDisplay: stub,
+    getWorkspaceConfigPath: stub,
+    getWorkspaceHooksDir: stub,
+    getWorkspacePluginsDir: stub,
+    getWorkspaceRoutesDir: stub,
+    getDeprecatedDir: stub,
+    getConversationsDir: stub,
+    getWorkspacePromptPath: stub,
+    getProfilerRootDir: stub,
+    getProfilerRunsDir: stub,
+    getProfilerRunDir: stub,
+    getSkillRuntimePath: stub,
+    getBundledBunPath: () => undefined,
+    ensureDataDir: () => {},
+  };
+});
 
 mock.module("../daemon/handlers/shared.js", () => ({
   CONFIG_RELOAD_DEBOUNCE_MS: 100,
