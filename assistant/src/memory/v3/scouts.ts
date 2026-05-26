@@ -10,8 +10,9 @@
 //   - hot:    corpus-global access-frequency EMA via `computeInjectionScores`.
 //             Retriever-agnostic — v2 keeps writing `memory_v2_injection_events`,
 //             so a page the user has been touching is "hot" regardless of which
-//             retriever surfaced it. Hits are marked **sticky** so the downstream
-//             gate keeps them in the running.
+//             retriever surfaced it. Hits are seeded as ordinary **candidates**
+//             (not sticky) so the query-aware downstream gate can still drop a
+//             recency page that doesn't bear on the turn.
 //   - sparse: BM25 keyword match. Near-exact (high-score) hits are both
 //             **sticky** and **tree-bypass** — a literal keyword hit is a strong
 //             enough signal that we shouldn't make the slug earn its place by
@@ -41,7 +42,8 @@ export interface RunScoutsResult {
   scouts: ScoutResult[];
   /**
    * Slugs the downstream gate should keep in the running regardless of later
-   * scoring — hot hits and near-exact sparse hits.
+   * scoring — near-exact sparse hits. Hot-lane hits are deliberately excluded:
+   * they contribute candidates but must earn their place through the gate.
    */
   sticky: Set<string>;
   /**
@@ -113,14 +115,15 @@ export async function runScouts(
   const bypass = new Set<string>();
 
   // Hot lane — corpus-global EMA over the full slug universe. Cheap (single
-  // SQL pass) so it runs first and seeds sticky.
+  // SQL pass) so it runs first. Hot hits are seeded as ordinary candidates but
+  // NOT sticky: the EMA ranks recency/frequency, not query relevance, so
+  // force-keeping the top-N recency pages would dominate every turn with
+  // operationally-frequent pages instead of the pages that bear on the query.
+  // Letting them pass through the query-aware gate lets irrelevant ones drop.
   if (lanes.hot) {
     signal?.throwIfAborted();
     const hot = await runHotLane(input, deps);
-    if (hot) {
-      scouts.push(hot);
-      for (const slug of hot.slugs) sticky.add(slug);
-    }
+    if (hot) scouts.push(hot);
   }
 
   // Sparse lane — BM25 keyword match. Near-exact hits seed sticky + bypass.
@@ -183,9 +186,9 @@ async function runHotLane(
 
   // Slugs with no events in the read window are omitted by
   // `computeInjectionScores`, so every entry here has score > 0. Cap to the
-  // top `hotLimit` by EMA: hot hits are sticky (forced past the gate), so an
-  // uncapped lane on a mature corpus — where nearly every page has been
-  // injected at some point — would force the entire corpus into the selection.
+  // top `hotLimit` by EMA: on a mature corpus — where nearly every page has
+  // been injected at some point — an uncapped lane would flood the candidate
+  // set with the entire corpus, so keep only the strongest recency signals.
   const ranked = [...scores.entries()]
     .sort((a, b) => sortByScoreDesc(a, b))
     .slice(0, input.config.memory.v3.hotLimit);
