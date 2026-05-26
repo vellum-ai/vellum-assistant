@@ -8,7 +8,8 @@
  * map, so the injected `db` is an opaque sentinel the lane never dereferences.
  *
  * Coverage:
- *   - hot lane: ranks the EMA score map desc, marks every hit sticky.
+ *   - hot lane: ranks the EMA score map desc; hits are candidates but NOT
+ *     sticky (the query-aware gate may drop them).
  *   - sparse lane: reads sparseScore, ranks desc, flags near-exact hits
  *     sticky + tree-bypass.
  *   - dense lane: per-subtree quota caps off-domain hits; MMR diversifies.
@@ -147,7 +148,7 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("runScouts — hot lane", () => {
-  test("ranks EMA scores desc and marks every hit sticky", async () => {
+  test("ranks EMA scores desc and seeds candidates without marking them sticky", async () => {
     pageSlugs = ["people/alice", "work/proj", "essentials"];
     injectionScores = new Map([
       ["work/proj", 0.2],
@@ -162,7 +163,9 @@ describe("runScouts — hot lane", () => {
     const hot = scouts.find((s) => s.lane === "hot");
     expect(hot?.slugs).toEqual(["people/alice", "work/proj"]);
     expect(hot?.scoreBySlug).toEqual({ "people/alice": 0.9, "work/proj": 0.2 });
-    expect([...sticky].sort()).toEqual(["people/alice", "work/proj"]);
+    // Hot hits are candidates only — the query-aware gate may still drop them,
+    // so they must NOT be force-kept via sticky.
+    expect(sticky.size).toBe(0);
   });
 
   test("caps the hot lane to the top hotLimit by EMA", async () => {
@@ -180,11 +183,12 @@ describe("runScouts — hot lane", () => {
     );
 
     // Only the top-2 by EMA survive the cap; the long tail is dropped so it
-    // can't flood the (sticky) candidate set on a mature corpus.
+    // can't flood the candidate set on a mature corpus.
     const hot = scouts.find((s) => s.lane === "hot");
     expect(hot?.slugs).toEqual(["a", "b"]);
     expect(hot?.scoreBySlug).toEqual({ a: 0.9, b: 0.7 });
-    expect([...sticky].sort()).toEqual(["a", "b"]);
+    // Even the capped hot hits are not sticky.
+    expect(sticky.size).toBe(0);
   });
 
   test("empty corpus yields no hot ScoutResult", async () => {
