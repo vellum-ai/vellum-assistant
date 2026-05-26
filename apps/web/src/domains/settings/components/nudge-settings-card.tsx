@@ -1,7 +1,7 @@
 import type { ComponentType, CSSProperties, ReactNode } from "react";
 
 import { Button } from "@vellum/design-library/components/button";
-import { SettingsCard } from "@/domains/settings/components/settings-card.js";
+import { DetailCard } from "@/components/detail-card.js";
 
 export interface NudgeBenefit {
   icon: ComponentType<{
@@ -30,7 +30,7 @@ export function NudgeSettingsCard({
   onAction,
 }: NudgeSettingsCardProps) {
   return (
-    <SettingsCard title={title} subtitle={subtitle}>
+    <DetailCard title={title} subtitle={subtitle}>
       <div className="flex flex-col gap-4">
         <ul className="space-y-3">
           {benefits.map(({ icon: Icon, text }) => (
@@ -61,6 +61,6 @@ export function NudgeSettingsCard({
           {ctaLabel}
         </Button>
       </div>
-    </SettingsCard>
+    </DetailCard>
   );
 }

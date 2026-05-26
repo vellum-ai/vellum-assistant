@@ -67,7 +67,7 @@ mock.module("@/stores/auth-store.js", () => {
 });
 
 // Toast mock needs to satisfy the design-library barrel's re-exports too —
-// `settings-card.tsx` pulls `Card`/`cn` from the barrel index, which itself
+// `detail-card.tsx` pulls `Card`/`cn` from the barrel index, which itself
 // re-exports `Toaster`/`ToastContent` from this module. Missing exports
 // here surface as parse-time "export not found" errors during barrel
 // resolution, not as runtime failures, so stub them with no-op components.

@@ -10,7 +10,7 @@ import { Notice } from "@vellum/design-library/components/notice";
 import { Tag } from "@vellum/design-library/components/tag";
 import { toast } from "@vellum/design-library/components/toast";
 import { CapacityBar } from "@/domains/settings/components/capacity-bar.js";
-import { SettingsCard } from "@/domains/settings/components/settings-card.js";
+import { DetailCard } from "@/components/detail-card.js";
 import { extractResizeError } from "@/domains/settings/components/resize-errors.js";
 import { formatResourceMb } from "@/domains/settings/components/assistant-status-panel.js";
 import {
@@ -130,7 +130,7 @@ export function ResizeCard({
 
   if (subscriptionQuery.isError && subscription == null) {
     return (
-      <SettingsCard
+      <DetailCard
         id="storage-resources"
         title="Compute & Resources"
         subtitle="Monitor resource usage and manage your assistant's compute profile."
@@ -138,7 +138,7 @@ export function ResizeCard({
         <Notice tone="error">
           Could not load your subscription. Please try again.
         </Notice>
-      </SettingsCard>
+      </DetailCard>
     );
   }
 
@@ -236,7 +236,7 @@ export function ResizeCard({
 
   return (
     <>
-      <SettingsCard
+      <DetailCard
         id="storage-resources"
         title="Compute & Resources"
         subtitle="Monitor resource usage and manage your assistant's compute profile."
@@ -353,7 +353,7 @@ export function ResizeCard({
             </div>
           </div>
         </div>
-      </SettingsCard>
+      </DetailCard>
 
       {/* Upgrade modal (free plan) */}
       <Modal.Root

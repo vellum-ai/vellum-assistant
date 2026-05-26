@@ -27,7 +27,7 @@ import { Input } from "@vellum/design-library/components/input";
 import { Notice } from "@vellum/design-library/components/notice";
 import { SegmentControl } from "@vellum/design-library/components/segment-control";
 import { DomainField } from "@/domains/settings/components/domain-field.js";
-import { SettingsCard } from "@/domains/settings/components/settings-card.js";
+import { DetailCard } from "@/components/detail-card.js";
 import { Typography } from "@vellum/design-library/components/typography";
 
 import { toast } from "@vellum/design-library/components/toast";
@@ -452,7 +452,7 @@ interface ServiceCardProps {
 
 function ServiceCard({ id, title, subtitle, mode, onModeChange, children }: ServiceCardProps) {
   return (
-    <SettingsCard
+    <DetailCard
       id={id}
       title={title}
       subtitle={subtitle}
@@ -460,7 +460,7 @@ function ServiceCard({ id, title, subtitle, mode, onModeChange, children }: Serv
     >
       <div className="h-px bg-[var(--surface-active)]" />
       <div className="mt-4">{children}</div>
-    </SettingsCard>
+    </DetailCard>
   );
 }
 
@@ -500,10 +500,10 @@ interface ByoServiceCardProps {
 // own key" services that don't offer a managed mode (TTS / STT).
 function ByoServiceCard({ title, subtitle, children }: ByoServiceCardProps) {
   return (
-    <SettingsCard title={title} subtitle={subtitle}>
+    <DetailCard title={title} subtitle={subtitle}>
       <div className="h-px bg-[var(--surface-active)]" />
       <div className="mt-4">{children}</div>
-    </SettingsCard>
+    </DetailCard>
   );
 }
 

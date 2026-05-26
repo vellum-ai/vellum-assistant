@@ -11,7 +11,7 @@ import { Link } from "react-router";
 import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { Toggle } from "@vellum/design-library/components/toggle";
 
-import { SettingsCard } from "@/domains/settings/components/settings-card.js";
+import { DetailCard } from "@/components/detail-card.js";
 import {
   getLocalSetting,
   setLocalSetting,
@@ -216,7 +216,7 @@ function PushToTalkCard() {
     !PTT_PRESETS.some((p) => activatorsEqual(p.activator, activator));
 
   return (
-    <SettingsCard
+    <DetailCard
       title="Push to Talk"
       subtitle="Hold the activation key to dictate text or start a voice conversation."
     >
@@ -290,7 +290,7 @@ function PushToTalkCard() {
           </div>
         )}
       </div>
-    </SettingsCard>
+    </DetailCard>
   );
 }
 
@@ -347,7 +347,7 @@ function ConversationTimeoutCard() {
   }, []);
 
   return (
-    <SettingsCard
+    <DetailCard
       title="Conversation Timeout"
       subtitle="How long the assistant waits for you to start speaking before ending a voice conversation turn."
     >
@@ -359,6 +359,6 @@ function ConversationTimeoutCard() {
           aria-label="Conversation timeout"
         />
       </div>
-    </SettingsCard>
+    </DetailCard>
   );
 }

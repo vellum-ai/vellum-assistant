@@ -5,14 +5,14 @@ import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-fl
 import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
 import { routes } from "@/utils/routes.js";
 import { SETTINGS_SIDEBAR } from "@/domains/settings/navigation.js";
-import { SettingsShell } from "@/domains/settings/components/settings-shell.js";
-import { SettingsSidebarTree } from "@/domains/settings/components/settings-sidebar-tree.js";
+import { SidebarShell } from "@/components/sidebar-shell.js";
+import { SidebarTree } from "@/components/sidebar-tree.js";
 import { useSettingsSync } from "@/domains/settings/hooks/use-settings-sync.js";
 
 /**
  * React Router layout route for `/assistant/settings/*`.
  *
- * Renders the SettingsShell (responsive overlay panel with sidebar
+ * Renders the SidebarShell (responsive overlay panel with sidebar
  * navigation) and an `<Outlet />` for the active settings tab page.
  * Also mounts the settings sync bridge to keep TanStack Query caches
  * fresh while the user is on any settings page.
@@ -61,14 +61,14 @@ export function SettingsLayout() {
   useSettingsSync();
 
   return (
-    <SettingsShell
+    <SidebarShell
       backHref={routes.assistant}
       sidebar={
-        <SettingsSidebarTree items={filteredItems} bottomItems={bottomItems} />
+        <SidebarTree items={filteredItems} bottomItems={bottomItems} />
       }
       title={pageTitle}
     >
       <Outlet />
-    </SettingsShell>
+    </SidebarShell>
   );
 }

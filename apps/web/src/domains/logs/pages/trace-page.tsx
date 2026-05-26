@@ -1,4 +1,4 @@
-import { useCurrentPlatformAssistant } from "@/domains/settings/hooks/use-current-platform-assistant.js";
+import { useCurrentPlatformAssistant } from "@/hooks/use-current-platform-assistant.js";
 import { LogsTab } from "@/domains/logs/components/logs-tab.js";
 
 export function TracePage() {

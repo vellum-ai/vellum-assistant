@@ -3,7 +3,7 @@ import { useCallback, useEffect } from "react";
 
 import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen.js";
 import type { Assistant } from "@/generated/api/types.gen.js";
-import { useCurrentPlatformAssistantStore } from "@/domains/settings/current-platform-assistant-store.js";
+import { useCurrentPlatformAssistantStore } from "@/stores/current-platform-assistant-store.js";
 import { useOrganizationStore } from "@/stores/organization-store.js";
 
 const PLATFORM_LIST_OPTIONS = assistantsListOptions({

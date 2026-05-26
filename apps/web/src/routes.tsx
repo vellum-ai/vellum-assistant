@@ -71,7 +71,7 @@ export const router = createBrowserRouter(
         },
 
         // Settings routes — full-screen overlay panel (no ChatLayout sidebar).
-        // SettingsShell provides its own layout with back-arrow, sidebar nav,
+        // SidebarShell provides its own layout with back-arrow, sidebar nav,
         // and content area — the main app sidebar is intentionally hidden.
         // Lazy-loaded: visited occasionally, heavy deps (Stripe, schedules, voice).
         {
@@ -102,7 +102,7 @@ export const router = createBrowserRouter(
         },
 
         // Logs routes — full-screen overlay panel (like SettingsLayout).
-        // LogsLayout reuses SettingsShell for visual consistency.
+        // LogsLayout reuses SidebarShell for visual consistency.
         // Lazy-loaded: analytics-only, pulls in recharts.
         {
           path: "logs",

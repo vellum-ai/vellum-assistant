@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { Button } from "@vellum/design-library/components/button";
 import { Input } from "@vellum/design-library/components/input";
 import { Toggle } from "@vellum/design-library/components/toggle";
-import { SettingsCard } from "@/domains/settings/components/settings-card.js";
+import { DetailCard } from "@/components/detail-card.js";
 import { SettingsDivider } from "@/domains/settings/components/settings-divider.js";
 import {
   getLocalSetting,
@@ -87,7 +87,7 @@ export function MediaEmbedsCard() {
     domains.every((d, i) => d === DEFAULT_VIDEO_ALLOWLIST[i]);
 
   return (
-    <SettingsCard
+    <DetailCard
       title="Media Embeds"
       subtitle="Automatically embed images, videos, and other media shared in chat messages."
     >
@@ -192,6 +192,6 @@ export function MediaEmbedsCard() {
           )}
         </>
       )}
-    </SettingsCard>
+    </DetailCard>
   );
 }

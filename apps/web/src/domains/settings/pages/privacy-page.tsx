@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { Toggle } from "@vellum/design-library/components/toggle";
-import { SettingsCard } from "@/domains/settings/components/settings-card.js";
+import { DetailCard } from "@/components/detail-card.js";
 import { BiometricSettingsCard } from "@/domains/settings/components/biometric-settings-card.js";
 import { AccessConsentSetting } from "@/domains/settings/components/access-consent-setting.js";
 import { RiskToleranceSettings } from "@/domains/settings/components/risk-tolerance-settings.js";
@@ -93,7 +93,7 @@ export function PrivacyPage() {
       <BiometricSettingsCard />
       <TrustRules />
       <RiskToleranceSettings />
-      <SettingsCard title="Privacy">
+      <DetailCard title="Privacy">
         <div className="space-y-4">
           <SettingRow
             label="Share Analytics"
@@ -133,7 +133,7 @@ export function PrivacyPage() {
             </p>
           </div>
         </div>
-      </SettingsCard>
+      </DetailCard>
     </div>
   );
 }

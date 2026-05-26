@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { Card } from "@vellum/design-library";
 import { cn } from "@vellum/design-library";
 
-export interface SettingsCardProps {
+export interface DetailCardProps {
   id?: string;
   title?: string;
   subtitle?: string;
@@ -15,7 +15,7 @@ export interface SettingsCardProps {
   className?: string;
 }
 
-export function SettingsCard({
+export function DetailCard({
   id,
   title,
   subtitle,
@@ -25,7 +25,7 @@ export function SettingsCard({
   showBorder = true,
   variant = "default",
   className,
-}: SettingsCardProps) {
+}: DetailCardProps) {
   const hasHeader = Boolean(title || subtitle || accessory);
   const body = (
     <>

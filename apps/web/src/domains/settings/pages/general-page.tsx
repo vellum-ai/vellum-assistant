@@ -11,7 +11,7 @@ import { IOSAppCard } from "@/domains/settings/components/ios-app-card.js";
 import { MediaEmbedsCard } from "@/domains/settings/components/media-embeds-card.js";
 import { PreviewReleaseChannel } from "@/domains/settings/components/preview-release-channel.js";
 import { RetireAssistant } from "@/domains/settings/components/retire-assistant.js";
-import { SettingsCard } from "@/domains/settings/components/settings-card.js";
+import { DetailCard } from "@/components/detail-card.js";
 import { TimezonePicker } from "@/domains/settings/components/timezone-picker.js";
 import { ProfileCard } from "@/domains/settings/components/profile-card.js";
 import { AssistantOutOfStorageBanner } from "@/domains/settings/components/assistant-out-of-storage-banner.js";
@@ -101,7 +101,7 @@ function ThemeCard() {
   ];
 
   return (
-    <SettingsCard title="Theme">
+    <DetailCard title="Theme">
       <div className="max-w-[360px]">
         <SegmentControl<ThemePreference>
           ariaLabel="Theme"
@@ -110,7 +110,7 @@ function ThemeCard() {
           items={themeItems}
         />
       </div>
-    </SettingsCard>
+    </DetailCard>
   );
 }
 
@@ -125,12 +125,12 @@ function TimezoneCard() {
   };
 
   return (
-    <SettingsCard
+    <DetailCard
       title="Timezone"
       subtitle="Used when displaying times and scheduling reminders."
     >
       <TimezonePicker value={timezone} onChange={handleChange} />
-    </SettingsCard>
+    </DetailCard>
   );
 }
 
@@ -168,14 +168,14 @@ export function GeneralPage() {
       {platformAssistant && (
         <AssistantOutOfStorageBanner assistantId={platformAssistant.id} />
       )}
-      <SettingsCard title="General">
+      <DetailCard title="General">
         <AssistantStatusPanel
           assistant={platformAssistant}
           assistantLoading={assistantLoading}
           healthz={healthz}
           healthzLoading={healthzLoading}
         />
-      </SettingsCard>
+      </DetailCard>
 
       {isLoggedIn && <ProfileCard assistant={platformAssistant} />}
 
@@ -193,7 +193,7 @@ export function GeneralPage() {
       <ThemeCard />
 
       {platformAssistant && (
-        <SettingsCard title="Software Updates">
+        <DetailCard title="Software Updates">
           <AssistantUpgrades
             assistantId={platformAssistant.id}
             currentVersion={
@@ -212,18 +212,18 @@ export function GeneralPage() {
               void refetch();
             }}
           />
-        </SettingsCard>
+        </DetailCard>
       )}
 
       <IOSAppCard />
 
       {platformAssistant && settingsSleepPolicy && (
-        <SettingsCard
+        <DetailCard
           title="Sleep Policy"
           subtitle="Control how long this assistant stays awake when idle."
         >
           <AssistantSleepPolicy assistantId={platformAssistant.id} />
-        </SettingsCard>
+        </DetailCard>
       )}
 
       <TimezoneCard />
@@ -233,13 +233,13 @@ export function GeneralPage() {
       {multiPlatformAssistant && <AssistantPicker />}
 
       {platformAssistant && (
-        <SettingsCard
+        <DetailCard
           variant="danger"
           title="Retire Assistant"
           subtitle="Permanently retire this assistant and delete all associated data."
         >
           <RetireAssistant assistantId={platformAssistant.id} />
-        </SettingsCard>
+        </DetailCard>
       )}
 
       {accountDeletion && <DeleteAccountSection />}

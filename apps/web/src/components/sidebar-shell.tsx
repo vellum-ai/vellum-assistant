@@ -5,7 +5,7 @@ import { Link, useLocation, useNavigate } from "react-router";
 import { Button, Typography } from "@vellum/design-library";
 import { routes } from "@/utils/routes.js";
 
-interface SettingsShellProps {
+interface SidebarShellProps {
   sidebar: ReactNode;
   children: ReactNode;
   actions?: ReactNode;
@@ -15,20 +15,20 @@ interface SettingsShellProps {
 }
 
 /**
- * Settings shell — overlay panel treatment.
+ * Sidebar shell — overlay panel treatment.
  *
  * Desktop: one outer card containing sidebar + content side-by-side.
  * Mobile: two-page flow — root shows sidebar, sub-pages show content
  * with a back arrow returning to the root.
  */
-export function SettingsShell({
+export function SidebarShell({
   sidebar,
   children,
   actions,
   backHref,
   title = "Settings",
   menuRoute = routes.settings.root,
-}: SettingsShellProps) {
+}: SidebarShellProps) {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const isMenuRoute = pathname === menuRoute;
@@ -36,7 +36,7 @@ export function SettingsShell({
   const mobileBackHref = isMenuRoute ? backHref : menuRoute;
   const mobileBackLabel = isMenuRoute
     ? `Back from ${title}`
-    : "Back to settings menu";
+    : `Back to ${title} menu`;
 
   const mobileBackButton = (
     <Button
@@ -112,7 +112,7 @@ export function SettingsShell({
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <aside
             className="hidden w-64 shrink-0 overflow-y-auto md:block"
-            aria-label="Settings navigation"
+            aria-label={`${title} navigation`}
           >
             {sidebar}
           </aside>
