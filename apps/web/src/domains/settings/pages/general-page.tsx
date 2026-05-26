@@ -135,8 +135,15 @@ function TimezoneCard() {
 }
 
 export function GeneralPage() {
-  const { assistant, assistantLoading, healthz, healthzLoading, refetch } =
-    useAssistantWithHealthz();
+  const {
+    assistant,
+    assistantLoading,
+    healthz,
+    healthzLoading,
+    healthzPolling,
+    refetch,
+    refetchUntilResized,
+  } = useAssistantWithHealthz();
   const accountDeletion = useAssistantFeatureFlagStore.use.accountDeletion();
   const multiPlatformAssistant = useAssistantFeatureFlagStore.use.multiPlatformAssistant();
   const settingsSleepPolicy = useAssistantFeatureFlagStore.use.settingsSleepPolicy();
@@ -177,7 +184,9 @@ export function GeneralPage() {
           assistant={assistant}
           healthz={healthz}
           healthzLoading={healthzLoading}
+          healthzPolling={healthzPolling}
           refetch={refetch}
+          refetchUntilResized={refetchUntilResized}
         />
       )}
 

@@ -359,8 +359,8 @@ describe("subscribeChatEvents idle watchdog", () => {
     }
   });
 
-  test("uses conversationId query when daemon version >= 0.8.5", async () => {
-    useAssistantIdentityStore.getState().setIdentity("Vel", "0.8.5");
+  test("uses conversationId query when daemon version >= 0.8.6", async () => {
+    useAssistantIdentityStore.getState().setIdentity("Vel", "0.8.6");
 
     const requestedUrls: string[] = [];
     globalThis.fetch = mock(
@@ -396,8 +396,8 @@ describe("subscribeChatEvents idle watchdog", () => {
     }
   });
 
-  test("uses conversationKey query when daemon version is older than 0.8.5", async () => {
-    useAssistantIdentityStore.getState().setIdentity("Vel", "0.8.4");
+  test("uses conversationKey query when daemon version is older than 0.8.6", async () => {
+    useAssistantIdentityStore.getState().setIdentity("Vel", "0.8.5");
 
     const requestedUrls: string[] = [];
     globalThis.fetch = mock(

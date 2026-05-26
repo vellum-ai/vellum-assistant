@@ -65,6 +65,39 @@ References:
 - [React — Thinking in React](https://react.dev/learn/thinking-in-react)
 - [React Router — Layout Routes](https://reactrouter.com/start/framework/routing#layout-routes)
 
+### Route-level code splitting
+
+Routes use `Component` (not `element`) and the object-based `lazy`
+property for code splitting. Vite creates a separate chunk per dynamic
+`import()`, so each lazy route loads only when navigated to.
+
+**Eager routes** (critical path — always in the initial bundle):
+`RootLayout`, `ChatLayout`, `ChatPage`, `DocumentViewerPage`,
+`ConversationRedirect`, `ActiveAssistantGate`, `NotFound`.
+
+**Lazy routes** (everything else): settings, logs, account/auth,
+onboarding, intelligence pages, library, inspector, home, connect.
+
+```ts
+// Lazy route — object syntax (preferred)
+{ path: "settings", lazy: { Component: () => import("./settings-layout.js").then((m) => m.SettingsLayout) } }
+
+// Eager route — direct Component reference
+{ path: "conversations/:conversationId", Component: ChatPage }
+```
+
+When adding a new route, default to `lazy` unless it's on the primary
+landing path. Use `Component`, not `element` — they are mutually
+exclusive and `lazy` returns `Component`.
+
+The `RouterProvider.onError` handler in `main.tsx` catches chunk load
+failures (stale deploys, network errors) and triggers a page reload.
+
+References:
+- [React Router — Route Object (`Component`)](https://reactrouter.com/start/data/route-object#component)
+- [React Router — Lazy Loading (Data Mode)](https://reactrouter.com/start/data/custom#3-lazy-loading)
+- [React Router — `lazy` property](https://reactrouter.com/start/data/route-object#lazy)
+
 ---
 
 ## Code organization

@@ -429,8 +429,6 @@ export interface Tool {
   ownerMcpServerId?: string;
   /** If origin is 'plugin', the name of the owning plugin. */
   ownerPluginId?: string;
-  /** Content-hash of the owning skill's source at registration time. */
-  ownerSkillVersionHash?: string;
   /** Declared execution target from the skill manifest. Used by resolveExecutionTarget
    * to accurately label lifecycle events for skill-provided tools. */
   executionTarget?: ExecutionTarget;

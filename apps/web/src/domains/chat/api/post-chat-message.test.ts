@@ -188,7 +188,7 @@ describe("postChatMessage wire-field bilingual cutover", () => {
   // Verifies the daemon-version gate selects the right wire field on
   // `POST /v1/messages`. See `apps/web/src/assistant/version-compat.ts`
   // for the cutover policy (legacy `conversationKey` for daemons older
-  // than 0.8.5, canonical `conversationId` for 0.8.5+).
+  // than 0.8.6, canonical `conversationId` for 0.8.6+).
   let originalFetch: typeof fetch;
   let originalDocument: unknown;
   let capturedRequests: Array<{ url: string; body: string }> = [];
@@ -231,8 +231,8 @@ describe("postChatMessage wire-field bilingual cutover", () => {
     return JSON.parse(requests[0]!.body) as Record<string, unknown>;
   }
 
-  test("uses conversationId wire field when daemon version >= 0.8.5", async () => {
-    useAssistantIdentityStore.getState().setIdentity("Vel", "0.8.5");
+  test("uses conversationId wire field when daemon version >= 0.8.6", async () => {
+    useAssistantIdentityStore.getState().setIdentity("Vel", "0.8.6");
 
     await postChatMessage("asst-1", "conv-internal-1", "hi");
 
@@ -251,8 +251,8 @@ describe("postChatMessage wire-field bilingual cutover", () => {
     expect(body).not.toHaveProperty("conversationKey");
   });
 
-  test("uses conversationKey wire field for daemons older than 0.8.5", async () => {
-    useAssistantIdentityStore.getState().setIdentity("Vel", "0.8.4");
+  test("uses conversationKey wire field for daemons older than 0.8.6", async () => {
+    useAssistantIdentityStore.getState().setIdentity("Vel", "0.8.5");
 
     await postChatMessage("asst-1", "conv-internal-3", "hi");
 

@@ -1,6 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { RouterProvider } from "react-router";
+import * as Sentry from "@sentry/react";
 
 import { useAuthStore, setupAuthListeners } from "@/stores/auth-store.js";
 import { setupOrganizationStore } from "@/stores/organization-store.js";
@@ -26,7 +27,14 @@ async function boot() {
   createRoot(rootEl).render(
     <StrictMode>
       <AppProviders>
-        <RouterProvider router={router} />
+        <RouterProvider
+          router={router}
+          onError={(error) => {
+            Sentry.captureException(error, {
+              tags: { context: "RouterProvider" },
+            });
+          }}
+        />
       </AppProviders>
     </StrictMode>,
   );
