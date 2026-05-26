@@ -102,7 +102,7 @@ mock.module("../tools/skills/skill-tool-factory.js", () => ({
     entries: Array<{ name: string; description: string; input_schema: object }>,
     skillId: string,
     _skillDir: string,
-    versionHash: string,
+    _versionHash: string,
     _bundled?: boolean,
   ) =>
     entries.map((e) => ({
@@ -112,7 +112,6 @@ mock.module("../tools/skills/skill-tool-factory.js", () => ({
       defaultRiskLevel: "low",
       origin: "skill" as const,
       ownerSkillId: skillId,
-      ownerSkillVersionHash: versionHash,
       input_schema: e.input_schema,
       execute: async () => ({ content: "", isError: false }),
     })),

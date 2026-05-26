@@ -181,7 +181,6 @@ describe("loadMeetManifestProxies", () => {
     expect(t.executionMode).toBe("proxy");
     expect(t.origin).toBe("skill");
     expect(t.ownerSkillId).toBe("meet-join");
-    expect(t.ownerSkillVersionHash).toBe(FIXTURE_MANIFEST.sourceHash);
     expect(t.input_schema).toEqual(
       FIXTURE_MANIFEST.tools[0]!.input_schema,
     );

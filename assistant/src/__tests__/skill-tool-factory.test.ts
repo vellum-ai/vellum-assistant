@@ -97,18 +97,6 @@ describe("createSkillTool", () => {
     expect(tool.ownerSkillId).toBe("weather-skill");
   });
 
-  test("sets ownerSkillVersionHash from versionHash", () => {
-    const hash = "v1:abc123def456";
-    const tool = createSkillTool(
-      makeEntry(),
-      "my-skill",
-      "/skills/my-skill",
-      hash,
-    );
-
-    expect(tool.ownerSkillVersionHash).toBe(hash);
-  });
-
   test.each([
     ["low", RiskLevel.Low],
     ["medium", RiskLevel.Medium],
@@ -249,24 +237,6 @@ describe("createSkillToolsFromManifest", () => {
     expect(tools).toEqual([]);
   });
 
-  test("passes versionHash through to all created tools", () => {
-    const hash = "v1:deadbeef";
-    const entries: SkillToolEntry[] = [
-      makeEntry({ name: "alpha" }),
-      makeEntry({ name: "beta" }),
-    ];
-
-    const tools = createSkillToolsFromManifest(
-      entries,
-      "versioned-skill",
-      "/skills/versioned",
-      hash,
-    );
-
-    for (const tool of tools) {
-      expect(tool.ownerSkillVersionHash).toBe(hash);
-    }
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -389,7 +359,5 @@ describe("createSkillTool — version hash plumbing to runner", () => {
     const parsed = JSON.parse(result.content);
     expect(parsed.input).toEqual({ query: "test" });
     expect(parsed.workingDir).toBe("/my/project");
-    // Confirm the tool still has the hash stored
-    expect(tool.ownerSkillVersionHash).toBe(hash);
   });
 });

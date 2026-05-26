@@ -367,7 +367,7 @@
           "display-name": "LLM Cost Optimizer"
         }
       },
-      "updatedAt": "2026-05-26T13:03:52-05:00"
+      "updatedAt": "2026-05-26T14:11:54-04:00"
     },
     {
       "id": "macos-automation",
@@ -426,7 +426,7 @@
           "feature-flag": "meet"
         }
       },
-      "updatedAt": "2026-05-24T10:49:52-04:00"
+      "updatedAt": "2026-05-26T18:33:11Z"
     },
     {
       "id": "meme-generator",

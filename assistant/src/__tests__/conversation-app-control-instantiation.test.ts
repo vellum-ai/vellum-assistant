@@ -102,7 +102,7 @@ mock.module("../tools/skills/skill-tool-factory.js", () => ({
     entries: SkillToolManifest["tools"],
     skillId: string,
     _skillDir: string,
-    versionHash: string,
+    _versionHash: string,
     _bundled?: boolean,
   ): Tool[] =>
     entries.map((entry) => ({
@@ -113,7 +113,6 @@ mock.module("../tools/skills/skill-tool-factory.js", () => ({
       executionTarget: "sandbox" as const,
       origin: "skill" as const,
       ownerSkillId: skillId,
-      ownerSkillVersionHash: versionHash,
       input_schema: entry.input_schema as object,
       execute: async () => ({ content: "", isError: false }),
     })),

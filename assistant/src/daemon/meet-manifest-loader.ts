@@ -129,7 +129,6 @@ function serializeToolContext(context: ToolContext): Record<string, unknown> {
 function buildProxyTool(
   entry: ManifestToolEntry,
   supervisor: MeetHostSupervisor,
-  manifestHash: string,
 ): Tool {
   const risk = coerceRiskLevel(entry.risk, entry.name);
   return {
@@ -142,7 +141,6 @@ function buildProxyTool(
     executionTarget: "host" as ExecutionTarget,
     origin: "skill",
     ownerSkillId: MEET_SKILL_ID,
-    ownerSkillVersionHash: manifestHash,
     execute: async (input, context) => {
       // `dispatchTool` ensures the meet-host child is up + connected
       // before sending the frame, so callers don't need a separate
@@ -363,7 +361,7 @@ export async function loadMeetManifestProxies(
   // contract as the in-process skill's provider closure.
   registerTools(() =>
     manifest.tools.map((entry) =>
-      buildProxyTool(entry, supervisor, manifest.sourceHash),
+      buildProxyTool(entry, supervisor),
     ),
   );
 

@@ -197,7 +197,6 @@ export function registerPluginTools(
       ownerPluginId: pluginName,
       ownerSkillId: undefined,
       ownerMcpServerId: undefined,
-      ownerSkillVersionHash: undefined,
     };
     return withProviderSafeToolName(tool);
   });

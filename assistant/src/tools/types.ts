@@ -352,6 +352,4 @@ export interface Tool extends LoadedTool {
   ownerMcpServerId?: string;
   /** If origin is 'plugin', the name of the owning plugin. */
   ownerPluginId?: string;
-  /** Content-hash of the owning skill's source at registration time. */
-  ownerSkillVersionHash?: string;
 }
