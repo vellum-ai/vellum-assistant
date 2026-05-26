@@ -1,4 +1,5 @@
 import type { ProfileEntry } from "../config/schemas/llm.js";
+import { AUTO_PROFILE_KEY } from "../config/seed-inference-profiles.js";
 import type { ToolDefinition } from "../providers/types.js";
 
 export const SWITCH_INFERENCE_PROFILE_TOOL_NAME = "switch_inference_profile";
@@ -16,7 +17,7 @@ export function buildSwitchInferenceProfileToolDef(
   currentProfile?: string,
 ): ToolDefinition | null {
   const entries = Object.entries(profiles).filter(
-    ([, entry]) => entry.status !== "disabled",
+    ([key, entry]) => entry.status !== "disabled" && key !== AUTO_PROFILE_KEY,
   );
   if (entries.length < 2) return null;
 
@@ -32,7 +33,10 @@ export function buildSwitchInferenceProfileToolDef(
     .join("\n");
 
   const currentEntry = currentProfile ? profiles[currentProfile] : undefined;
-  const currentLabel = currentEntry?.label ?? currentProfile ?? "current";
+  const currentLabel =
+    currentProfile === AUTO_PROFILE_KEY
+      ? "Auto (starting on Balanced)"
+      : (currentEntry?.label ?? currentProfile ?? "current");
 
   return {
     name: SWITCH_INFERENCE_PROFILE_TOOL_NAME,
