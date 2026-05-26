@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { getWorkspaceDirOverride } from "../config/env-registry.js";
+import { assertNotLiveDbInTests } from "./db-path-guard.js";
 
 /**
  * The daemon's root data directory (`~/.vellum`).
@@ -155,7 +156,9 @@ export function getPidPath(): string {
 }
 
 export function getDbPath(): string {
-  return join(getDataDir(), "db", "assistant.db");
+  const path = join(getDataDir(), "db", "assistant.db");
+  assertNotLiveDbInTests(path);
+  return path;
 }
 
 /**
