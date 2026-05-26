@@ -152,6 +152,8 @@ export function HomePage({
         onSelectItem={handleSelectItem}
         onDismissItem={handleDismissItem}
         onRestoreItem={handleRestoreItem}
+        onToggleRead={handleUpdateStatus}
+        onGoToThread={handleGoToThread}
       />
     </>
   );
