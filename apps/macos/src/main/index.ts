@@ -251,31 +251,67 @@ app.on("second-instance", () => {
 });
 
 app.on("web-contents-created", (_event, contents) => {
-  contents.setWindowOpenHandler(({ url }) => {
-    // Route http(s) links to the system browser so users can click external
-    // links in the renderer without the click silently disappearing. Other
-    // schemes (file:, javascript:, custom) stay denied with no fallback.
+  contents.setWindowOpenHandler(({ url, disposition }) => {
+    // Only http(s) is ever opened — file:, javascript:, custom schemes are
+    // denied with no fallback.
+    let parsed: URL;
     try {
-      const parsed = new URL(url);
-      if (parsed.protocol === "https:" || parsed.protocol === "http:") {
-        void shell.openExternal(url);
-      }
+      parsed = new URL(url);
     } catch {
-      // Malformed URL — fall through to deny.
+      return { action: "deny" };
     }
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      return { action: "deny" };
+    }
+
+    // Programmatic popups (`window.open(url, name, features)` with size
+    // hints) come through as `new-window` disposition. The web app's OAuth /
+    // connect flows rely on the returned popup handle for postMessage
+    // callbacks, so allow these as in-app child windows that inherit the
+    // hardened webPreferences from the parent.
+    if (disposition === "new-window") {
+      return {
+        action: "allow",
+        overrideBrowserWindowOptions: {
+          webPreferences: {
+            contextIsolation: true,
+            nodeIntegration: false,
+            sandbox: true,
+            webSecurity: true,
+            allowRunningInsecureContent: false,
+            experimentalFeatures: false,
+          },
+        },
+      };
+    }
+
+    // Plain target=_blank link clicks → system browser.
+    void shell.openExternal(url);
     return { action: "deny" };
   });
 
   contents.on("will-navigate", (event, url) => {
+    let target: URL;
+    try {
+      target = new URL(url);
+    } catch {
+      event.preventDefault();
+      return;
+    }
     // Compare by parsed origin / protocol+host rather than string prefix:
     // `url.startsWith("http://localhost:5173")` also matches
     // `http://localhost:5173.attacker.com/...`.
-    const target = new URL(url);
     const allowed =
       (isDev && target.origin === DEV_SERVER_ORIGIN) ||
       (!isDev && target.protocol === `${APP_PROTOCOL}:` && target.host === APP_HOST);
-    if (!allowed) {
-      event.preventDefault();
+    if (allowed) return;
+
+    event.preventDefault();
+    // External http(s) top-level navigations (e.g. `window.location.href =
+    // "https://billing.stripe.com/..."`) route to the system browser instead
+    // of silently failing. Other schemes stay blocked.
+    if (target.protocol === "https:" || target.protocol === "http:") {
+      void shell.openExternal(url);
     }
   });
 });
