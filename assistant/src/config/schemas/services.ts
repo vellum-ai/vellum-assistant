@@ -52,7 +52,7 @@ const WebSearchServiceSchema = BaseServiceSchema.extend({
 });
 
 const GoogleOAuthServiceSchema = BaseServiceSchema.extend({
-  mode: ServiceModeSchema.default("your-own"),
+  mode: ServiceModeSchema.default("managed"),
 });
 
 const OutlookOAuthServiceSchema = BaseServiceSchema.extend({
@@ -68,7 +68,7 @@ const GitHubOAuthServiceSchema = BaseServiceSchema.extend({
 });
 
 const NotionOAuthServiceSchema = BaseServiceSchema.extend({
-  mode: ServiceModeSchema.default("your-own"),
+  mode: ServiceModeSchema.default("managed"),
 });
 
 const TwitterOAuthServiceSchema = BaseServiceSchema.extend({
