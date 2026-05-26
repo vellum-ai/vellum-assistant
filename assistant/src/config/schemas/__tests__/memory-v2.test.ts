@@ -230,6 +230,11 @@ describe("MemoryV3ConfigSchema", () => {
         consolidateIntervalMs: 3600000,
         coactivation: false,
       },
+      prompts: {
+        filter: { override: null, path: null },
+        descent: { override: null, path: null },
+        gate: { override: null, path: null },
+      },
     });
   });
 
@@ -334,6 +339,50 @@ describe("MemoryV3ConfigSchema", () => {
       write: { consolidateIntervalMs: 1800000 },
     });
     expect(parsed.write.consolidateIntervalMs).toBe(1800000);
+  });
+
+  test("parses the prompts subtree to null overrides when omitted", () => {
+    const parsed = MemoryV3ConfigSchema.parse({});
+    expect(parsed.prompts).toEqual({
+      filter: { override: null, path: null },
+      descent: { override: null, path: null },
+      gate: { override: null, path: null },
+    });
+  });
+
+  test("accepts a partial prompts override and defaults the rest", () => {
+    const parsed = MemoryV3ConfigSchema.parse({
+      prompts: { filter: { override: "custom filter prompt" } },
+    });
+    expect(parsed.prompts.filter).toEqual({
+      override: "custom filter prompt",
+      path: null,
+    });
+    // Lanes not mentioned keep their null defaults.
+    expect(parsed.prompts.descent).toEqual({ override: null, path: null });
+    expect(parsed.prompts.gate).toEqual({ override: null, path: null });
+  });
+
+  test("accepts a file path override for a prompt lane", () => {
+    const parsed = MemoryV3ConfigSchema.parse({
+      prompts: { gate: { path: "~/prompts/v3-gate.md" } },
+    });
+    expect(parsed.prompts.gate).toEqual({
+      override: null,
+      path: "~/prompts/v3-gate.md",
+    });
+  });
+
+  test("rejects a non-string prompts override", () => {
+    expect(() =>
+      MemoryV3ConfigSchema.parse({ prompts: { filter: { override: 42 } } }),
+    ).toThrow();
+  });
+
+  test("rejects a non-string prompts path", () => {
+    expect(() =>
+      MemoryV3ConfigSchema.parse({ prompts: { descent: { path: 7 } } }),
+    ).toThrow();
   });
 });
 

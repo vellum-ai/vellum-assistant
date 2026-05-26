@@ -31,6 +31,7 @@ import type {
 import type { RetrievalInput } from "../../v2/harness/retriever.js";
 import type { ScoutResult } from "../../v2/harness/trace.js";
 import { filterDenseHits } from "../filter.js";
+import { FILTER_SYSTEM_PROMPT } from "../prompts/system-prompts.js";
 
 // ---------------------------------------------------------------------------
 // Helpers.
@@ -121,6 +122,17 @@ function makeInput(overrides?: Partial<RetrievalInput>): RetrievalInput {
 
 function denseResult(slugs: string[]): ScoutResult {
   return { lane: "dense", slugs };
+}
+
+/**
+ * Build a `RetrievalInput["config"]` carrying a `memory.v3.prompts.filter`
+ * inline override. The cast mirrors `makeInput`'s — the filter only reads the
+ * prompts path on config.
+ */
+function configWithFilterOverride(override: string): RetrievalInput["config"] {
+  return {
+    memory: { v3: { prompts: { filter: { override, path: null } } } },
+  } as unknown as RetrievalInput["config"];
 }
 
 // ---------------------------------------------------------------------------
@@ -292,6 +304,46 @@ describe("filterDenseHits — no LLM call", () => {
 
     expect([...result.kept].sort()).toEqual(["x", "y"]);
     expect(result.trace).toEqual({ judged: [], dropped: [] });
+  });
+});
+
+describe("filterDenseHits — system prompt", () => {
+  test("uses the bundled default when no override is configured", async () => {
+    const calls: ProviderCall[] = [];
+    const provider = makeProvider(
+      filterToolResponse({ keep_slugs: ["a"] }),
+      calls,
+    );
+
+    await filterDenseHits({
+      input: makeInput(),
+      dense: denseResult(["a", "b"]),
+      sticky: new Set(),
+      bypass: new Set(),
+      provider,
+    });
+
+    expect(calls[0].systemPrompt).toBe(FILTER_SYSTEM_PROMPT);
+  });
+
+  test("uses the configured inline override as the system prompt", async () => {
+    const calls: ProviderCall[] = [];
+    const provider = makeProvider(
+      filterToolResponse({ keep_slugs: ["a"] }),
+      calls,
+    );
+
+    const override = "CUSTOM FILTER PROMPT — keep only the obvious matches.";
+    await filterDenseHits({
+      input: makeInput({ config: configWithFilterOverride(override) }),
+      dense: denseResult(["a", "b"]),
+      sticky: new Set(),
+      bypass: new Set(),
+      provider,
+    });
+
+    expect(calls[0].systemPrompt).toBe(override);
+    expect(calls[0].systemPrompt).not.toBe(FILTER_SYSTEM_PROMPT);
   });
 });
 

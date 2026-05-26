@@ -50,6 +50,10 @@ import { getLogger } from "../../util/logger.js";
 import type { RetrievalInput } from "../v2/harness/retriever.js";
 import type { GateDecision } from "../v2/harness/trace.js";
 import { renderConversationContext } from "./prompt-context.js";
+import {
+  GATE_SYSTEM_PROMPT,
+  resolveV3SystemPrompt,
+} from "./prompts/system-prompts.js";
 
 const log = getLogger("memory-v3-gate");
 
@@ -198,15 +202,11 @@ export async function runGate(args: RunGateArgs): Promise<RunGateResult> {
     return failSafe(candidates, sticky);
   }
 
-  const systemPrompt =
-    "You are the final selection gate for a memory-retrieval loop. You are " +
-    "given the candidate concept pages gathered so far for the current turn. " +
-    "Decide whether they are sufficient to answer the next reply. Lean toward " +
-    "recall: keep a candidate whenever it plausibly bears on the turn rather " +
-    "than dropping it. When the turn asks for a list, for 'all of' something, " +
-    "or for a broad answer, select every candidate that plausibly belongs — " +
-    "do not trim to only the most prominent ones. Drop a candidate only when it " +
-    "is clearly irrelevant to the turn.";
+  const systemPrompt = resolveV3SystemPrompt(
+    GATE_SYSTEM_PROMPT,
+    input.config.memory?.v3?.prompts?.gate,
+    input.workspaceDir,
+  );
 
   const stickySlugs = [...sticky];
   const userMsg: Message = {

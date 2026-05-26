@@ -43,6 +43,10 @@ import { getLogger } from "../../util/logger.js";
 import type { RetrievalInput } from "../v2/harness/retriever.js";
 import type { ScoutResult } from "../v2/harness/trace.js";
 import { renderConversationContext } from "./prompt-context.js";
+import {
+  FILTER_SYSTEM_PROMPT,
+  resolveV3SystemPrompt,
+} from "./prompts/system-prompts.js";
 
 const log = getLogger("memory-v3-filter");
 
@@ -184,11 +188,11 @@ export async function filterDenseHits(
     return buildResult(bypass, judged, judged, "no_provider");
   }
 
-  const systemPrompt =
-    "You are a fast relevance filter for a memory-retrieval loop. You are given " +
-    "candidate concept pages surfaced by embedding similarity for the current " +
-    "turn. Keep the pages that are meaningful associations and drop the " +
-    "spurious near-neighbors. When in doubt, keep.";
+  const systemPrompt = resolveV3SystemPrompt(
+    FILTER_SYSTEM_PROMPT,
+    input.config.memory?.v3?.prompts?.filter,
+    input.workspaceDir,
+  );
 
   const userMsg: Message = {
     role: "user",

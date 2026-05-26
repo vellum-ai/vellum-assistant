@@ -31,6 +31,7 @@ import type {
 } from "../../../providers/types.js";
 import type { RetrievalInput } from "../../v2/harness/retriever.js";
 import { runGate } from "../gate.js";
+import { GATE_SYSTEM_PROMPT } from "../prompts/system-prompts.js";
 
 // ---------------------------------------------------------------------------
 // Helpers.
@@ -107,6 +108,17 @@ function makeInput(overrides?: Partial<RetrievalInput>): RetrievalInput {
     config: {} as unknown as RetrievalInput["config"],
     ...overrides,
   };
+}
+
+/**
+ * Build a `RetrievalInput["config"]` carrying a `memory.v3.prompts.gate`
+ * inline override. The cast mirrors `makeInput`'s — the gate only reads the
+ * prompts path on config.
+ */
+function configWithGateOverride(override: string): RetrievalInput["config"] {
+  return {
+    memory: { v3: { prompts: { gate: { override, path: null } } } },
+  } as unknown as RetrievalInput["config"];
 }
 
 // ---------------------------------------------------------------------------
@@ -310,6 +322,46 @@ describe("runGate — more decision", () => {
     });
 
     expect(result.selectedSlugs).toContain("sticky-page");
+  });
+});
+
+describe("runGate — system prompt", () => {
+  test("uses the bundled default when no override is configured", async () => {
+    const calls: ProviderCall[] = [];
+    const provider = makeProvider(
+      gateToolResponse({ decision: "ready", selected_slugs: ["a"] }),
+      calls,
+    );
+
+    await runGate({
+      input: makeInput(),
+      candidates: new Set(["a", "b"]),
+      sticky: new Set(),
+      passNumber: 1,
+      provider,
+    });
+
+    expect(calls[0].systemPrompt).toBe(GATE_SYSTEM_PROMPT);
+  });
+
+  test("uses the configured inline override as the system prompt", async () => {
+    const calls: ProviderCall[] = [];
+    const provider = makeProvider(
+      gateToolResponse({ decision: "ready", selected_slugs: ["a"] }),
+      calls,
+    );
+
+    const override = "CUSTOM GATE PROMPT — finalize aggressively.";
+    await runGate({
+      input: makeInput({ config: configWithGateOverride(override) }),
+      candidates: new Set(["a", "b"]),
+      sticky: new Set(),
+      passNumber: 1,
+      provider,
+    });
+
+    expect(calls[0].systemPrompt).toBe(override);
+    expect(calls[0].systemPrompt).not.toBe(GATE_SYSTEM_PROMPT);
   });
 });
 
