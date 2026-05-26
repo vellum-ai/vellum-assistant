@@ -55,7 +55,7 @@ describe("089-memory-router-cost-optimized-profile migration", () => {
     );
   });
 
-  test("flips the 087-seeded balanced profile to cost-optimized", () => {
+  test("flips the 087-seeded balanced profile to cost-optimized with 1M context", () => {
     writeConfig({
       llm: {
         default: { provider: "anthropic" },
@@ -70,8 +70,12 @@ describe("089-memory-router-cost-optimized-profile migration", () => {
     const config = readConfig() as {
       llm: { callSites: Record<string, Record<string, unknown>> };
     };
+    // Must mirror the shipped default in call-site-defaults.ts: dropping the
+    // contextWindow would regress migrated users to the profile's ~200k window
+    // because the resolver prefers an explicit callSites entry.
     expect(config.llm.callSites.memoryRouter).toEqual({
       profile: "cost-optimized",
+      contextWindow: { maxInputTokens: 1_000_000 },
     });
   });
 
@@ -91,6 +95,31 @@ describe("089-memory-router-cost-optimized-profile migration", () => {
     };
     expect(config.llm.callSites.memoryRouter).toEqual({
       profile: "cost-optimized",
+      contextWindow: { maxInputTokens: 1_000_000 },
+    });
+  });
+
+  test("upgrades a bare cost-optimized entry left by a pre-fix run to add 1M context", () => {
+    // An earlier (pre-fix) run of this migration wrote a bare
+    // { profile: "cost-optimized" } with no contextWindow. Re-running must
+    // recover the 1M window for those users.
+    writeConfig({
+      llm: {
+        default: { provider: "anthropic" },
+        callSites: {
+          memoryRouter: { profile: "cost-optimized" },
+        },
+      },
+    });
+
+    memoryRouterCostOptimizedProfileMigration.run(workspaceDir);
+
+    const config = readConfig() as {
+      llm: { callSites: Record<string, Record<string, unknown>> };
+    };
+    expect(config.llm.callSites.memoryRouter).toEqual({
+      profile: "cost-optimized",
+      contextWindow: { maxInputTokens: 1_000_000 },
     });
   });
 
@@ -291,6 +320,7 @@ describe("089-memory-router-cost-optimized-profile migration", () => {
     });
     expect(config.llm.callSites.memoryRouter).toEqual({
       profile: "cost-optimized",
+      contextWindow: { maxInputTokens: 1_000_000 },
     });
   });
 });
