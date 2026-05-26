@@ -318,8 +318,8 @@ export interface ToolContext {
 
 /**
  * Author-facing tool spec — re-exported from `@vellumai/plugin-api`.
- * The loader fills documented defaults for omitted fields; see
- * `applyPluginToolDefaults` in `external-plugin-loader.ts`.
+ * Loaders fill documented defaults for omitted fields via `finalizeTool`
+ * in `tool-defaults.ts`.
  */
 export interface ToolDefinition {
   /** Human-readable description shown to the model in the tool catalog. */
