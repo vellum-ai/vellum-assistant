@@ -36,12 +36,13 @@
  * {@link runScouts}. Toggling a lane off removes its contribution from the
  * candidate set so the offline harness can measure each lane's marginal recall.
  *
- * Cross-pass accumulation. A `visited` candidate accumulator deduplicates slugs
- * across passes by canonical slug, tagging each with the first lane that
- * surfaced it (`sourceBySlug`). The full {@link DescentTrace} carries one
- * {@link DescentPass} per pass (scouts / treeLevels / edgeExpansions / gate),
- * and {@link RetrievalCost} (wall-clock `ms`, the one dimension observable at
- * this composition layer) accumulates across every pass.
+ * Cross-pass accumulation. The `candidates` pool is unioned across every pass
+ * and the gate judges that cumulative pool, so a multi-pass `more` never drops
+ * the non-sticky hits earlier passes surfaced. Each slug is tagged with the
+ * first lane that surfaced it (`sourceBySlug`). The full {@link DescentTrace}
+ * carries one {@link DescentPass} per pass (scouts / treeLevels /
+ * edgeExpansions / gate), and {@link RetrievalCost} (wall-clock `ms`, the one
+ * dimension observable at this composition layer) accumulates across every pass.
  */
 
 import { getLogger } from "../../util/logger.js";
@@ -113,6 +114,11 @@ export async function runRetrievalLoop(
 
   // Cross-pass accumulators.
   const sourceBySlug = new Map<string, LaneSource>();
+  // Candidate pool unioned across every pass. Each pass adds its own surfaced
+  // slugs (hot/sparse, dense-filter survivors, tree, edge) and the gate judges
+  // the cumulative pool, so a multi-pass `more` never discards earlier passes'
+  // non-sticky hits.
+  const candidates = new Set<string>();
   // The first pass each slug entered the candidate set. Drives co-activation
   // emission below — pass-1 hits (gap source) vs. later-surfaced pages (target).
   const firstPassBySlug = new Map<string, number>();
@@ -156,10 +162,10 @@ export async function runRetrievalLoop(
       for (const slug of scout.slugs) tagSlug(sourceBySlug, slug, scout.lane);
     }
 
-    // 2. Dense filter — judges only the dense lane (hot/sparse bypass it). The
-    // surviving dense slugs replace the raw dense candidates in the running set.
+    // 2. Dense filter — judges only the dense lane (hot/sparse bypass it). Only
+    // the surviving dense slugs enter the candidate pool; a dropped dense
+    // near-neighbor never joins it (and so never reaches the gate).
     const denseScout = scoutResult.scouts.find((s) => s.lane === "dense");
-    const candidates = new Set<string>();
 
     // Hot + sparse lane hits enter the candidate set directly.
     for (const scout of scoutResult.scouts) {

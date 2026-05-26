@@ -211,6 +211,53 @@ describe("runGate — ready decision", () => {
     expect(userText).toContain("an earlier reply");
   });
 
+  test("omitted selected_slugs falls back to all candidates (recall-safe)", async () => {
+    const calls: ProviderCall[] = [];
+    // `ready` verdict with no `selected_slugs` field at all. A silent omission
+    // must keep everything surfaced, not drop all non-sticky context.
+    const provider = makeProvider(
+      gateToolResponse({ decision: "ready" }),
+      calls,
+    );
+
+    const result = await runGate({
+      input: makeInput(),
+      candidates: new Set(["frames/example-a", "people/alice", "people/bob"]),
+      sticky: new Set(["people/bob"]),
+      passNumber: 1,
+      provider,
+    });
+
+    expect(result.decision).toEqual({ decision: "ready" });
+    expect([...result.selectedSlugs].sort()).toEqual([
+      "frames/example-a",
+      "people/alice",
+      "people/bob",
+    ]);
+  });
+
+  test("explicit empty selected_slugs selects nothing but sticky", async () => {
+    const calls: ProviderCall[] = [];
+    // An *explicit* `[]` is the model genuinely choosing nothing — honored as-is
+    // (only sticky survives), unlike an omitted field.
+    const provider = makeProvider(
+      gateToolResponse({ decision: "ready", selected_slugs: [] }),
+      calls,
+    );
+
+    const result = await runGate({
+      input: makeInput(),
+      candidates: new Set(["frames/example-a", "people/alice", "people/bob"]),
+      sticky: new Set(["people/bob"]),
+      passNumber: 1,
+      provider,
+    });
+
+    expect(result.decision).toEqual({ decision: "ready" });
+    // Only sticky carries over; the model dropped everything else.
+    expect(result.selectedSlugs).toEqual(["people/bob"]);
+  });
+
   test("drops a model-selected slug outside the candidate set", async () => {
     const calls: ProviderCall[] = [];
     const provider = makeProvider(

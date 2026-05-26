@@ -320,8 +320,13 @@ export function createDescender(args: CreateDescenderArgs): DescendDecision {
       parsed.data.descend,
       new Map(offeredNodes.map((c) => [c.ref, c])),
     );
+    // Recall-safe fallback: an *omitted* `keep_pages` means the model gave no
+    // instruction at this node, so keep every offered page — dropping all pages
+    // a node presented on a silent omission is the worse failure. An *explicit*
+    // `[]` is the model genuinely keeping nothing here and is honored as-is.
+    const keepSlugs = parsed.data.keep_pages ?? offeredPageSlugs;
     const keep = resolveOffered(
-      parsed.data.keep_pages ?? [],
+      keepSlugs,
       new Map(offeredPages.map((c) => [c.ref, c])),
     );
     return { descend, keep, reasoning: parsed.data.reasoning ?? "" };

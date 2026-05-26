@@ -279,6 +279,83 @@ describe("runTreeWalk — scripted descent", () => {
     expect(levels.map((l) => l.node).sort()).toEqual(["_root", "a"]);
   });
 
+  test("omitted keep_pages keeps every offered page at the node (recall-safe)", async () => {
+    // _root → a, a leaf bucket of two pages. The model descends but returns NO
+    // keep_pages field at all — a silent omission must keep every offered page,
+    // not drop them all.
+    const tree = makeTree("_root", {
+      _root: [node("a")],
+      a: [page("frames/example-a"), page("people/alice")],
+    });
+    const pages = makePages(["frames/example-a", "people/alice"]);
+    const calls: ProviderCall[] = [];
+    // Bespoke stub: emits tool input WITHOUT a `keep_pages` key for node "a".
+    const provider: Provider = {
+      name: "omit-keep-pages",
+      sendMessage: async (messages, tools, systemPrompt, options) => {
+        calls.push({ messages, tools, systemPrompt, options });
+        const nodeId =
+          nodeIdFromCall({ messages, tools, systemPrompt, options }) ?? "";
+        const input: Record<string, unknown> =
+          nodeId === "_root"
+            ? { descend: ["a"], keep_pages: [] }
+            : { descend: [] }; // node "a": keep_pages omitted entirely
+        return {
+          model: "stub-model",
+          stopReason: "tool_use",
+          usage: { inputTokens: 0, outputTokens: 0 },
+          content: [
+            {
+              type: "tool_use",
+              id: `tu-${nodeId}`,
+              name: "choose_branches",
+              input,
+            },
+          ],
+        };
+      },
+    };
+
+    const { pages: collected } = await runTreeWalk({
+      input: makeInput(),
+      tree,
+      pages,
+      scouts: [],
+      provider,
+    });
+
+    // Both offered pages survive the omission.
+    expect([...collected].sort()).toEqual(["frames/example-a", "people/alice"]);
+  });
+
+  test("explicit empty keep_pages keeps no pages at the node", async () => {
+    // Same tree, but node "a" returns an *explicit* empty keep_pages — honored
+    // as the model genuinely keeping nothing here.
+    const tree = makeTree("_root", {
+      _root: [node("a")],
+      a: [page("frames/example-a"), page("people/alice")],
+    });
+    const pages = makePages(["frames/example-a", "people/alice"]);
+    const calls: ProviderCall[] = [];
+    const provider = makeProvider(
+      {
+        _root: { descend: ["a"], keep: [] },
+        a: { descend: [], keep: [] },
+      },
+      calls,
+    );
+
+    const { pages: collected } = await runTreeWalk({
+      input: makeInput(),
+      tree,
+      pages,
+      scouts: [],
+      provider,
+    });
+
+    expect([...collected]).toEqual([]);
+  });
+
   test("keeps only the pages the model selects at a node", async () => {
     // _root → a, a leaf bucket of two pages. The model keeps only one.
     const tree = makeTree("_root", {

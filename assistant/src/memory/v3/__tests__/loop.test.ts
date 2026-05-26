@@ -405,6 +405,46 @@ describe("runRetrievalLoop — multi pass", () => {
     expect(out.selectedSlugs).toEqual(["p1", "p2"]);
   });
 
+  test("candidates accumulate across passes so the final gate sees pass-1 hits", async () => {
+    // Each pass surfaces a distinct dense hit. Without cross-pass accumulation
+    // the pass-2 gate would only see "p2"; with it, the cumulative pool carries
+    // pass-1's "p1" into the final gate input.
+    lane.scouts = [
+      {
+        scouts: [scout("dense", ["p1"])],
+        sticky: new Set(),
+        bypass: new Set(),
+      },
+      {
+        scouts: [scout("dense", ["p2"])],
+        sticky: new Set(),
+        bypass: new Set(),
+      },
+    ];
+    lane.filter = [
+      { kept: ["p1"], trace: { judged: ["p1"], dropped: [] } },
+      { kept: ["p2"], trace: { judged: ["p2"], dropped: [] } },
+    ];
+    lane.walk = [
+      { pages: new Set(), levels: [] },
+      { pages: new Set(), levels: [] },
+    ];
+    lane.edges = [
+      { pulled: new Set(), expansions: [] },
+      { pulled: new Set(), expansions: [] },
+    ];
+    lane.gate = [moreGate(["p1"], ["more?"]), readyGate(["p1", "p2"])];
+
+    const out = await runRetrievalLoop(makeInput({ passCap: 3 }), { db });
+
+    // Pass 1's gate saw only p1; pass 2's gate saw the cumulative pool.
+    expect(laneCalls.gate[0].candidates).toEqual(["p1"]);
+    expect(laneCalls.gate[1].candidates).toEqual(
+      expect.arrayContaining(["p1", "p2"]),
+    );
+    expect(out.selectedSlugs).toEqual(["p1", "p2"]);
+  });
+
   test("passCap force-exits with the current selection when the gate keeps asking for more", async () => {
     lane.scouts = [
       { scouts: [scout("dense", ["p"])], sticky: new Set(), bypass: new Set() },

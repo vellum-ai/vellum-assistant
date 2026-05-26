@@ -144,7 +144,7 @@ function buildGateTool(candidateSlugs: readonly string[]): ToolDefinition {
             "candidates were kept or dropped.",
         },
       },
-      required: ["decision"],
+      required: ["decision", "selected_slugs"],
     },
   };
 }
@@ -310,11 +310,12 @@ export async function runGate(args: RunGateArgs): Promise<RunGateResult> {
     return failSafe(candidates, sticky);
   }
 
-  const selectedSlugs = orderSelection(
-    parsed.data.selected_slugs ?? [],
-    candidates,
-    sticky,
-  );
+  // Recall-safe fallback: an *omitted* `selected_slugs` means the model gave no
+  // instruction, so keep everything that was surfaced — dropping all non-sticky
+  // context on a silent omission is the worse failure. An *explicit* `[]` is the
+  // model genuinely choosing nothing and is honored as-is.
+  const modelSlugs = parsed.data.selected_slugs ?? [...candidates];
+  const selectedSlugs = orderSelection(modelSlugs, candidates, sticky);
 
   const reasoning = parsed.data.reasoning?.trim() || undefined;
 
