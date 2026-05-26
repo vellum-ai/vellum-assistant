@@ -8,7 +8,7 @@ function makeMessage(
   textSegments: Array<{ type: string; content: string }> = [],
 ): DisplayMessage {
   return {
-    stableId: "stable-1",
+    id: "stable-1",
     role: "assistant",
     content: "",
     contentOrder,

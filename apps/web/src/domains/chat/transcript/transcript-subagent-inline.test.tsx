@@ -69,7 +69,6 @@ afterAll(() => {
 
 function userMessage(id: string, content: string): TranscriptItem {
   const msg: DisplayMessage = {
-    stableId: id,
     id,
     role: "user",
     content,
@@ -82,7 +81,6 @@ function assistantMessageWithSpawn(
   spawnedIds: string[],
 ): TranscriptItem {
   const msg: DisplayMessage = {
-    stableId: id,
     id,
     role: "assistant",
     content: "spawning",
@@ -111,7 +109,6 @@ function assistantMessageWithRunningSpawns(
   count: number,
 ): TranscriptItem {
   const msg: DisplayMessage = {
-    stableId: id,
     id,
     role: "assistant",
     content: "spawning",
@@ -140,7 +137,6 @@ function assistantMessageWithMixedSpawns(
   entries: Array<{ status: "running" } | { subagentId: string }>,
 ): TranscriptItem {
   const msg: DisplayMessage = {
-    stableId: id,
     id,
     role: "assistant",
     content: "spawning",
@@ -311,9 +307,10 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
     ]);
   });
 
-  test("renders inline card after reload via parentMessageId (daemonMessageId) match", () => {
+  test("renders inline card after reload via parentMessageId match", () => {
     // Simulates `use-conversation-history.ts` reconstructing the store from
-    // history notifications, where only `parentMessageId` is known.
+    // history notifications, where the entry is keyed by `parentMessageId`.
+    // Under single-id semantics that parent id is just the message's `id`.
     useSubagentStore.getState().spawnSubagent({
       subagentId: "sa-reloaded",
       label: "agent-0",
@@ -324,9 +321,7 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
     });
 
     const msg: DisplayMessage = {
-      stableId: "different-stable-id",
-      id: "server-id",
-      daemonMessageId: "daemon-uuid-123",
+      id: "daemon-uuid-123",
       role: "assistant",
       content: "spawning",
       contentOrder: [{ type: "toolCall", id: "tc-0" }],
@@ -407,7 +402,6 @@ describe("Transcript — cross-group claimed-set (fix-r1-c)", () => {
     // contentOrder) — each group holds a single running `subagent_spawn`
     // call with no `result`.
     const msg: DisplayMessage = {
-      stableId: "a1",
       id: "a1",
       role: "assistant",
       content: "spawning",

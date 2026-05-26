@@ -138,55 +138,25 @@ function extractSubagentIdFromResult(
 
 /**
  * Look up the subagent-store entries spawned by `message` via the indexed
- * `byParent` map. Returns the union (deduped, sorted by `spawnedAt`) of the
- * buckets keyed by the message's `stableId`, `daemonMessageId`, and `id` so
- * both live-streaming (`parentMessageStableId`) and history-reconstructed
- * (`parentMessageId`) entries are found.
+ * `byParent` map. Under single-id semantics the message's `id` is its only
+ * identity, and both live-streaming (`parentMessageStableId`) and
+ * history-reconstructed (`parentMessageId`) entries are keyed by that same
+ * parent id — so a single bucket lookup finds them all.
  *
- * In the common case where the message matches via a single key (live OR
- * history, not both), the matching bucket is returned by reference — so
- * unrelated subagent mutations do not change the selector output. The
- * union path only allocates when more than one bucket has hits.
+ * The matching bucket is returned by reference so unrelated subagent
+ * mutations do not change the selector output.
  */
 function lookupSubagentEntriesForMessage(
   byParent: Map<string, SubagentEntry[]>,
   message: DisplayMessage,
 ): readonly SubagentEntry[] {
-  // Fast path for messages with no spawned subagents — avoids the per-key
-  // lookups and the union-path bookkeeping in the hot per-render selector.
+  // Fast path for messages with no spawned subagents — avoids the lookup in
+  // the hot per-render selector.
   if (byParent.size === 0) return EMPTY_SUBAGENT_ENTRIES;
 
-  const stableId = message.stableId;
-  const daemonId = message.daemonMessageId;
-  const messageId = message.id;
-  const byStable = stableId != null ? byParent.get(stableId) : undefined;
-  const byDaemon = daemonId != null ? byParent.get(daemonId) : undefined;
-  const byMessage =
-    messageId != null && messageId !== daemonId
-      ? byParent.get(messageId)
-      : undefined;
-
-  // Common case — at most one bucket has entries; return it by reference so
-  // the selector result identity is preserved across unrelated store updates.
-  // `byParent` never stores empty buckets, so `!= null` is sufficient.
-  const hits = [byStable, byDaemon, byMessage].filter(
-    (b): b is SubagentEntry[] => b != null,
-  );
-  if (hits.length === 0) return EMPTY_SUBAGENT_ENTRIES;
-  if (hits.length === 1) return hits[0]!;
-
-  // Multi-bucket union path: dedupe by `subagentId` and resort.
-  const seen = new Set<string>();
-  const merged: SubagentEntry[] = [];
-  for (const bucket of hits) {
-    for (const entry of bucket) {
-      if (seen.has(entry.subagentId)) continue;
-      seen.add(entry.subagentId);
-      merged.push(entry);
-    }
-  }
-  merged.sort((a, b) => a.spawnedAt - b.spawnedAt);
-  return merged;
+  // `byParent` never stores empty buckets, so a present bucket always has
+  // entries and can be returned by reference.
+  return byParent.get(message.id) ?? EMPTY_SUBAGENT_ENTRIES;
 }
 
 /**
