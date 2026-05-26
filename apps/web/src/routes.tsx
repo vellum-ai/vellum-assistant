@@ -7,6 +7,7 @@ import { ChatPage } from "@/domains/chat/chat-page.js";
 import { ConversationRedirect } from "@/domains/chat/conversation-redirect.js";
 import { DocumentViewerPage } from "@/domains/chat/document-viewer-page.js";
 import { NotFound } from "@/components/not-found.js";
+import { RootErrorBoundary } from "@/components/root-error-boundary.js";
 import { ActiveAssistantGate } from "@/components/layout/active-assistant-gate.js";
 
 // Route tree — no basename, routes are absolute browser paths.
@@ -22,6 +23,7 @@ import { ActiveAssistantGate } from "@/components/layout/active-assistant-gate.j
 // - React Router data mode routing: https://reactrouter.com/start/data/routing
 // - React Router route object: https://reactrouter.com/start/data/route-object
 // - React Router lazy (data mode): https://reactrouter.com/start/data/custom#3-lazy-loading
+// - React Router error boundaries: https://reactrouter.com/how-to/error-boundary
 // - React Router middleware: https://reactrouter.com/how-to/middleware
 export const router = createBrowserRouter(
   [
@@ -29,6 +31,7 @@ export const router = createBrowserRouter(
     // Lazy-loaded: only needed for unauthenticated flows.
     {
       path: "/account",
+      ErrorBoundary: RootErrorBoundary,
       children: [
         { index: true, lazy: { Component: () => import("@/domains/account/pages/account-page.js").then((m) => m.AccountPage) } },
         { path: "login", lazy: { Component: () => import("@/domains/account/pages/login-page.js").then((m) => m.LoginPage) } },
@@ -43,12 +46,13 @@ export const router = createBrowserRouter(
     },
 
     // Logout — standalone page, no app chrome
-    { path: "/logout", lazy: { Component: () => import("@/domains/account/pages/logout-page.js").then((m) => m.LogoutPage) } },
+    { path: "/logout", ErrorBoundary: RootErrorBoundary, lazy: { Component: () => import("@/domains/account/pages/logout-page.js").then((m) => m.LogoutPage) } },
 
     // Assistant routes — auth-protected app with layout
     {
       path: "/assistant",
       middleware: [authMiddleware],
+      ErrorBoundary: RootErrorBoundary,
       Component: RootLayout,
       children: [
         // Onboarding routes — full-screen (no ChatLayout sidebar).
@@ -165,7 +169,7 @@ export const router = createBrowserRouter(
     },
 
     // Top-level catch-all
-    { path: "*", Component: NotFound },
+    { path: "*", ErrorBoundary: RootErrorBoundary, Component: NotFound },
   ],
   {
     future: { v8_middleware: true },
