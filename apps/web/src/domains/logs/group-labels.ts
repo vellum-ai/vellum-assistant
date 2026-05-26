@@ -41,6 +41,10 @@ export function decorateUsageBreakdownGroups(
   groupBy: UsageGroupBy,
   metadata: UsageGroupLabelMetadata,
 ): UsageGroupBreakdown[] {
+  if (!groups || groups.length === 0) {
+    return [];
+  }
+
   return groups.map((group) => {
     const resolvedGroup = resolveUsageGroupLabel(groupBy, group, metadata);
     if (resolvedGroup === group.group) {
