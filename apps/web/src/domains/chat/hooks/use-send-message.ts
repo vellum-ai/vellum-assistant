@@ -64,6 +64,7 @@ import { type Conversation, cancelGeneration } from "@/domains/chat/api/conversa
 import { getPendingInteractions } from "@/domains/chat/api/interactions";
 import { type RuntimeMessage, fetchConversationMessages, postChatMessage, pollForResponse } from "@/domains/chat/api/messages";
 import type { ChatEventStream } from "@/domains/chat/api/stream";
+import { supportsServerMintedConversation } from "@/lib/backwards-compat/server-minted-conversation";
 
 // Re-export pure utilities so existing consumers don't break.
 export {
@@ -233,7 +234,7 @@ export function useSendMessage({
   // sendMessageViaStream — low-level POST + polling fallback
   // -------------------------------------------------------------------------
   const sendMessageViaStream = useCallback(
-    async (content: string, epoch: number, turnId: string, attachmentIds: string[] = []): Promise<SendStreamResult> => {
+    async (content: string, epoch: number, turnId: string, attachmentIds: string[] = [], isDraft = false): Promise<SendStreamResult> => {
       if (!activeConversationId || !assistantId) {
         return {
           status: "failed",
@@ -256,9 +257,19 @@ export function useSendMessage({
       if (onboardingContext && !pendingOnboardingContextRef.current) {
         pendingOnboardingContextRef.current = onboardingContext;
       }
+      // Server-minted flow: when the conversation is a fresh client-side
+      // draft AND the assistant supports server-side minting, send the
+      // POST without any conversation id wire field. The assistant mints
+      // a row and echoes its id back as `resolvedConversationId`; the
+      // existing draft-key-resolution code path below swaps the
+      // optimistic state and navigates the URL. Falling back to the
+      // assistant-known `requestConversationId` for non-drafts or
+      // pre-0.8.6 assistants preserves the legacy `conversationKey`
+      // create-or-lookup behavior through `pickConversationIdWireField()`.
+      const useServerMint = isDraft && supportsServerMintedConversation();
       const postResult = await postChatMessage(
         requestAssistantId,
-        requestConversationId,
+        useServerMint ? null : requestConversationId,
         content,
         attachmentIds,
         onboardingContext ?? undefined,
@@ -299,6 +310,16 @@ export function useSendMessage({
 
       const effectiveConversationId =
         postResult.resolvedConversationId ?? postResult.conversationId;
+      // postChatMessage's success contract guarantees at least one of these
+      // is non-null — the server-mint path explicitly fails when the
+      // assistant accepts the message without echoing a conversation id
+      // back. Surface as a runtime error if the invariant ever breaks
+      // so it lands in Sentry rather than propagating null downstream.
+      if (!effectiveConversationId) {
+        throw new Error(
+          "postChatMessage returned success without a conversation id",
+        );
+      }
 
       if (!isCurrentSendScope(effectiveConversationId)) {
         recordChatDiagnostic("send_result_ignored_inactive_conversation", {
@@ -604,6 +625,7 @@ export function useSendMessage({
           streamEpochRef.current,
           turnId,
           attachments.map((att) => att.id),
+          isDraft,
         );
 
         if (result.status === "failed") {

@@ -371,7 +371,9 @@ export type PostMessageResult =
       ok: true;
       queued?: false;
       assistantId: string;
-      conversationId: string;
+      /** Caller's input id, echoed back. `null` when the caller asked the
+       *  assistant to mint a fresh conversation (server-minted flow). */
+      conversationId: string | null;
       messageId: string;
       resolvedConversationId?: string;
     }
@@ -379,7 +381,9 @@ export type PostMessageResult =
       ok: true;
       queued: true;
       assistantId: string;
-      conversationId: string;
+      /** Caller's input id, echoed back. `null` when the caller asked the
+       *  assistant to mint a fresh conversation (server-minted flow). */
+      conversationId: string | null;
       resolvedConversationId?: string;
       requestId?: string;
     }
@@ -480,21 +484,34 @@ export async function uploadChatAttachment(
  */
 export async function postChatMessage(
   assistantId: string,
-  conversationId: string,
+  conversationId: string | null,
   content: string,
   attachmentIds: string[] = [],
   onboarding?: PreChatOnboardingContext,
 ): Promise<PostMessageResult> {
-  // The wire-field gate prefers `conversationId` on daemons that mint
-  // ids before the first client send, falling back to `conversationKey`
-  // (create-or-lookup) so locally-minted draft ids still resolve. See
-  // `lib/backwards-compat/conversation-id-wire-field.ts`.
+  // Two id-wire shapes:
+  //   - `conversationId === null` — server-minted flow. Caller has no
+  //     client-side id and is asking the assistant to mint one and echo
+  //     it back in the response. Both wire fields are omitted; the
+  //     assistant mints a fresh row on a `sourceChannel: "vellum"`
+  //     empty-handed send (see
+  //     `assistant/src/runtime/routes/conversation-routes.ts`
+  //     `handleSendMessage`). Callers must gate this on
+  //     `supportsServerMintedConversation()` — older assistant builds
+  //     fall through to the shared `default:vellum:<interface>` thread.
+  //   - non-null — `pickConversationIdWireField()` decides whether the
+  //     value is sent as `conversationId` (strict lookup on 0.8.6+
+  //     assistants that mint server-side) or `conversationKey`
+  //     (create-or-lookup on older assistants). See
+  //     `lib/backwards-compat/conversation-id-wire-field.ts`.
   const body: Record<string, unknown> = {
-    [pickConversationIdWireField()]: conversationId,
     content,
     sourceChannel: "vellum",
     interface: "vellum",
   };
+  if (conversationId !== null) {
+    body[pickConversationIdWireField()] = conversationId;
+  }
   if (attachmentIds.length > 0) {
     body.attachmentIds = attachmentIds;
   }
@@ -599,6 +616,23 @@ export async function postChatMessage(
     typeof sendData.conversationId === "string"
       ? sendData.conversationId
       : undefined;
+
+  // Server-minted flow contract: when the caller omits both wire fields,
+  // the assistant MUST echo the freshly minted id back so the caller
+  // can navigate to its URL. An assistant that returns 202 + accepted
+  // without an id is broken; surface as a failure rather than letting
+  // the caller try to thread a `null` conversation id through downstream
+  // code.
+  if (conversationId === null && resolvedConversationId === undefined) {
+    return {
+      ok: false,
+      status: 422,
+      error: {
+        detail:
+          "Assistant accepted the message but did not return a conversation id.",
+      },
+    };
+  }
 
   if (sendData.queued) {
     return {

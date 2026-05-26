@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { supportsServerMintedConversation } from "@/lib/backwards-compat/server-minted-conversation.js";
-import { useAssistantIdentityStore } from "@/stores/assistant-identity-store.js";
+import { supportsServerMintedConversation } from "@/lib/backwards-compat/server-minted-conversation";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 function setVersion(version: string | null) {
   useAssistantIdentityStore.getState().setIdentity("test-asst", version);

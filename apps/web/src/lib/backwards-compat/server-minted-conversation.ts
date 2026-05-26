@@ -23,8 +23,8 @@
  * React-render paths that should re-render when the version flips,
  * use `useAssistantSupports(MIN_VERSION)` from `./utils.ts` directly.
  */
-import { useAssistantIdentityStore } from "@/stores/assistant-identity-store.js";
-import { compareParsed, parseSemver } from "@/utils/semver.js";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { compareParsed, parseSemver } from "@/utils/semver";
 
 export const MIN_VERSION = "0.8.6";
 
