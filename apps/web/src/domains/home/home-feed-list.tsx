@@ -26,6 +26,7 @@ const TIME_GROUP_LABELS: Record<FeedTimeGroup, string> = {
 
 export interface HomeFeedListProps {
   items: FeedItem[];
+  validConversationIds?: Set<string>;
   onSelectItem: (item: FeedItem) => void;
   onDismissItem: (itemId: string) => void;
   onRestoreItem: (itemId: string) => void;
@@ -35,6 +36,7 @@ export interface HomeFeedListProps {
 
 export function HomeFeedList({
   items,
+  validConversationIds,
   onSelectItem,
   onDismissItem,
   onRestoreItem,
@@ -111,6 +113,7 @@ export function HomeFeedList({
                 <HomeRecapRow
                   key={item.id}
                   item={item}
+                  validConversationIds={validConversationIds}
                   onSelect={onSelectItem}
                   onDismiss={onDismissItem}
                   onToggleRead={onToggleRead}
