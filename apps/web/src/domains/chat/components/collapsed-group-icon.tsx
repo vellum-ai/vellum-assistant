@@ -85,6 +85,7 @@ export function CollapsedGroupIcon({
     return (
       <div
         aria-label={label}
+        title="No conversations"
         className="relative flex h-8 w-8 items-center justify-center rounded-[6px] text-[var(--content-disabled)]"
       >
         <Icon size={18} />
