@@ -16,7 +16,7 @@ import { PanelItem } from "@vellum/design-library/components/panel-item";
 import { Tag } from "@vellum/design-library/components/tag";
 import { Toggle } from "@vellum/design-library/components/toggle";
 import { toast } from "@vellum/design-library/components/toast";
-import { SettingsCard } from "@/domains/settings/components/settings-card.js";
+import { SettingsCard } from "@/components/settings-card.js";
 import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen.js";
 import {
   deleteSchedule,

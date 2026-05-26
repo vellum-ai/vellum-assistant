@@ -11,7 +11,7 @@ import { type ReactNode, useCallback } from "react";
 
 import { Button } from "@vellum/design-library/components/button";
 import { toast } from "@vellum/design-library/components/toast";
-import { SettingsCard } from "@/domains/settings/components/settings-card.js";
+import { SettingsCard } from "@/components/settings-card.js";
 
 export function SentryTestingPanel() {
   const handleCaptureError = useCallback(() => {

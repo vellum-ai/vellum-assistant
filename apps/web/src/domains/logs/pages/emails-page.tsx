@@ -1,4 +1,4 @@
-import { useCurrentPlatformAssistant } from "@/domains/settings/hooks/use-current-platform-assistant.js";
+import { useCurrentPlatformAssistant } from "@/hooks/use-current-platform-assistant.js";
 import { EmailsTab } from "@/domains/logs/components/emails-tab.js";
 
 export function EmailsPage() {

@@ -141,15 +141,6 @@
   "src/domains/chat/utils/stream-handlers/types.ts": [
     "messaging"
   ],
-  "src/domains/contacts/components/assistant-channels-detail.tsx": [
-    "settings"
-  ],
-  "src/domains/contacts/components/contact-detail-view.tsx": [
-    "settings"
-  ],
-  "src/domains/contacts/components/guardian-detail-view.tsx": [
-    "settings"
-  ],
   "src/domains/conversations/conversation-queries.test.ts": [
     "chat"
   ],
@@ -198,21 +189,6 @@
   ],
   "src/domains/logs/components/usage-tab.tsx": [
     "chat"
-  ],
-  "src/domains/logs/logs-layout.tsx": [
-    "settings"
-  ],
-  "src/domains/logs/pages/emails-page.tsx": [
-    "settings"
-  ],
-  "src/domains/logs/pages/system-events-page.tsx": [
-    "settings"
-  ],
-  "src/domains/logs/pages/trace-page.tsx": [
-    "settings"
-  ],
-  "src/domains/logs/pages/usage-page.tsx": [
-    "settings"
   ],
   "src/domains/onboarding/pages/pre-chat-flow.tsx": [
     "nudges"

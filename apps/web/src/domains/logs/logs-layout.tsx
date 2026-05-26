@@ -3,8 +3,8 @@ import { Outlet, useLocation } from "react-router";
 
 import { routes } from "@/utils/routes.js";
 import { LOGS_SIDEBAR } from "@/domains/logs/navigation.js";
-import { SettingsShell } from "@/domains/settings/components/settings-shell.js";
-import { SettingsSidebarTree } from "@/domains/settings/components/settings-sidebar-tree.js";
+import { SettingsShell } from "@/components/settings-shell.js";
+import { SettingsSidebarTree } from "@/components/settings-sidebar-tree.js";
 
 /**
  * React Router layout route for `/assistant/logs/*`.

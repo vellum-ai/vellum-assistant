@@ -5,8 +5,8 @@ import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-fl
 import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
 import { routes } from "@/utils/routes.js";
 import { SETTINGS_SIDEBAR } from "@/domains/settings/navigation.js";
-import { SettingsShell } from "@/domains/settings/components/settings-shell.js";
-import { SettingsSidebarTree } from "@/domains/settings/components/settings-sidebar-tree.js";
+import { SettingsShell } from "@/components/settings-shell.js";
+import { SettingsSidebarTree } from "@/components/settings-sidebar-tree.js";
 import { useSettingsSync } from "@/domains/settings/hooks/use-settings-sync.js";
 
 /**

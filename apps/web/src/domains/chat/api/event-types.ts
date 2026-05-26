@@ -6,7 +6,7 @@
  * consumed by event-parser.ts and the stream handler domain modules.
  */
 
-import type { RelationshipStateUpdatedEvent } from "@vellumai/assistant-api";
+import type { RelationshipStateUpdated } from "@vellumai/assistant-api";
 import type { DiskPressureStatus } from "@/assistant/types.js";
 import type { Surface } from "@/domains/chat/types/types.js";
 import type { ToolActivityMetadata } from "@/assistant/web-activity-types.js";
@@ -791,7 +791,7 @@ export type AssistantEvent =
   | MessageRequestCompleteEvent
   | AssistantSyncChangedEvent
   | HomeFeedUpdatedEvent
-  | RelationshipStateUpdatedEvent
+  | RelationshipStateUpdated
   | SubagentSpawnedEvent
   | SubagentStatusChangedEvent
   | SubagentEventWrapperEvent

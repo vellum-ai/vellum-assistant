@@ -1,4 +1,4 @@
-import { useCurrentPlatformAssistant } from "@/domains/settings/hooks/use-current-platform-assistant.js";
+import { useCurrentPlatformAssistant } from "@/hooks/use-current-platform-assistant.js";
 import { UsageTab } from "@/domains/logs/components/usage-tab.js";
 
 export function UsagePage() {

@@ -10,7 +10,7 @@ import { Notice } from "@vellum/design-library/components/notice";
 import { Tag } from "@vellum/design-library/components/tag";
 import { toast } from "@vellum/design-library/components/toast";
 import { CapacityBar } from "@/domains/settings/components/capacity-bar.js";
-import { SettingsCard } from "@/domains/settings/components/settings-card.js";
+import { SettingsCard } from "@/components/settings-card.js";
 import { extractResizeError } from "@/domains/settings/components/resize-errors.js";
 import { formatResourceMb } from "@/domains/settings/components/assistant-status-panel.js";
 import {

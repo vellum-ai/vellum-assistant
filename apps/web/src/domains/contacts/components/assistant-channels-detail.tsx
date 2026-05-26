@@ -7,7 +7,7 @@ import { Input } from "@vellum/design-library/components/input";
 
 import { ContactTypeBadge } from "@/domains/contacts/components/contact-type-badge.js";
 import { ShareConnectionLinkButton } from "@/domains/contacts/components/share-connection-link-button.js";
-import { SettingsCard } from "@/domains/settings/components/settings-card.js";
+import { SettingsCard } from "@/components/settings-card.js";
 import type { AssistantChannelState } from "@/domains/contacts/types.js";
 
 type ChannelKey = AssistantChannelState["key"];

@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { Button } from "@vellum/design-library/components/button";
 import { Input } from "@vellum/design-library/components/input";
 import { Toggle } from "@vellum/design-library/components/toggle";
-import { SettingsCard } from "@/domains/settings/components/settings-card.js";
+import { SettingsCard } from "@/components/settings-card.js";
 import { SettingsDivider } from "@/domains/settings/components/settings-divider.js";
 import {
   getLocalSetting,

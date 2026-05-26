@@ -11,7 +11,7 @@ import { IOSAppCard } from "@/domains/settings/components/ios-app-card.js";
 import { MediaEmbedsCard } from "@/domains/settings/components/media-embeds-card.js";
 import { PreviewReleaseChannel } from "@/domains/settings/components/preview-release-channel.js";
 import { RetireAssistant } from "@/domains/settings/components/retire-assistant.js";
-import { SettingsCard } from "@/domains/settings/components/settings-card.js";
+import { SettingsCard } from "@/components/settings-card.js";
 import { TimezonePicker } from "@/domains/settings/components/timezone-picker.js";
 import { ProfileCard } from "@/domains/settings/components/profile-card.js";
 import { AssistantOutOfStorageBanner } from "@/domains/settings/components/assistant-out-of-storage-banner.js";

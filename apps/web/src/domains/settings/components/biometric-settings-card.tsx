@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { Toggle } from "@vellum/design-library/components/toggle";
-import { SettingsCard } from "@/domains/settings/components/settings-card.js";
+import { SettingsCard } from "@/components/settings-card.js";
 import { useIsNativePlatform, getSessionTokenFromCookies } from "@/runtime/native-auth.js";
 import {
   deleteBiometricToken,

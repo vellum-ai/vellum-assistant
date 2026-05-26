@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 
 import { Tag, type TagTone } from "@vellum/design-library/components/tag";
 import { Toggle } from "@vellum/design-library/components/toggle";
-import { SettingsCard } from "@/domains/settings/components/settings-card.js";
+import { SettingsCard } from "@/components/settings-card.js";
 import { assistantsActiveRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen.js";
 import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
 import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";

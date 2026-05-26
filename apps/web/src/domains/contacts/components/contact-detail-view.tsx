@@ -6,7 +6,7 @@ import { Input } from "@vellum/design-library/components/input";
 
 import { ContactChannelsSection } from "@/domains/contacts/components/contact-channels-section.js";
 import { ContactTypeBadge } from "@/domains/contacts/components/contact-type-badge.js";
-import { SettingsCard } from "@/domains/settings/components/settings-card.js";
+import { SettingsCard } from "@/components/settings-card.js";
 import type { ChannelInfo, ContactPayload } from "@/domains/contacts/types.js";
 
 interface ContactDetailViewProps {

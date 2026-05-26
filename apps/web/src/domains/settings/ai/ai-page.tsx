@@ -27,7 +27,7 @@ import { Input } from "@vellum/design-library/components/input";
 import { Notice } from "@vellum/design-library/components/notice";
 import { SegmentControl } from "@vellum/design-library/components/segment-control";
 import { DomainField } from "@/domains/settings/components/domain-field.js";
-import { SettingsCard } from "@/domains/settings/components/settings-card.js";
+import { SettingsCard } from "@/components/settings-card.js";
 import { Typography } from "@vellum/design-library/components/typography";
 
 import { toast } from "@vellum/design-library/components/toast";

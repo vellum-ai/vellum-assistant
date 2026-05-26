@@ -1,6 +1,6 @@
 import { Tag } from "@vellum/design-library/components/tag";
 import { Toggle } from "@vellum/design-library/components/toggle";
-import { SettingsCard } from "@/domains/settings/components/settings-card.js";
+import { SettingsCard } from "@/components/settings-card.js";
 import { useEnvironmentStore } from "@/lib/environment/environment-store.js";
 
 export function EnvironmentConfigPanel() {

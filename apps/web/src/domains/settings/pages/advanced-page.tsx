@@ -1,4 +1,4 @@
-import { SettingsCard } from "@/domains/settings/components/settings-card.js";
+import { SettingsCard } from "@/components/settings-card.js";
 import { UpdateWindowPolicy } from "@/domains/settings/components/update-window-policy.js";
 import { useAssistantWithHealthz } from "@/domains/settings/components/assistant-status-panel.js";
 

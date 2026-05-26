@@ -11,7 +11,7 @@ import { Link } from "react-router";
 import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { Toggle } from "@vellum/design-library/components/toggle";
 
-import { SettingsCard } from "@/domains/settings/components/settings-card.js";
+import { SettingsCard } from "@/components/settings-card.js";
 import {
   getLocalSetting,
   setLocalSetting,
