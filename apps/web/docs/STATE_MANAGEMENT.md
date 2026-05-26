@@ -140,7 +140,8 @@ The cleanup uses a preserve-list strategy: any localStorage key
 matching app prefixes (`vellum`, `onboarding.`, `ff:client:`,
 `voice:`, `integrations.`) is removed unless it's in the device-level
 preserve set (`vellum_theme`, `vellum_share_analytics`,
-`vellum_share_diagnostics`, `onboarding.lastUserId`). New app keys
+`vellum_share_diagnostics`, `vellum_biometric_enabled`,
+`onboarding.lastUserId`). New app keys
 are cleared by default without requiring updates to a removal list.
 
 Cross-tab logout uses `BroadcastChannel` → `clearUserScopedStorage()`
