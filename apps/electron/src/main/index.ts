@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 import path from "node:path";
 
 const DEV_SERVER_URL = "http://localhost:5173";
+const DEV_SERVER_ORIGIN = new URL(DEV_SERVER_URL).origin;
 const APP_PROTOCOL = "app";
 const APP_HOST = "vellum.ai";
 
@@ -209,9 +210,12 @@ void app.whenReady().then(() => {
 app.on("web-contents-created", (_event, contents) => {
   contents.setWindowOpenHandler(() => ({ action: "deny" }));
   contents.on("will-navigate", (event, url) => {
+    // Compare by parsed origin / protocol+host rather than string prefix:
+    // `url.startsWith("http://localhost:5173")` also matches
+    // `http://localhost:5173.attacker.com/...`.
     const target = new URL(url);
     const allowed =
-      (isDev && url.startsWith(DEV_SERVER_URL)) ||
+      (isDev && target.origin === DEV_SERVER_ORIGIN) ||
       (!isDev && target.protocol === `${APP_PROTOCOL}:` && target.host === APP_HOST);
     if (!allowed) {
       event.preventDefault();
