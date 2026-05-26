@@ -317,7 +317,7 @@ struct AssistantUpgradeSection: View {
             HStack(spacing: VSpacing.md) {
                 if topology == .local {
                     VButton(
-                        label: isCheckingLocal ? "Checking..." : "Check for Updates",
+                        label: isCheckingLocal ? "Checking..." : "Check for updates",
                         style: .outlined,
                         isDisabled: isCheckingLocal
                     ) {
@@ -335,7 +335,7 @@ struct AssistantUpgradeSection: View {
                     .frame(minWidth: 160)
                 } else if topology != .remote {
                     VButton(
-                        label: isLoadingReleases ? "Checking..." : "Check for Updates",
+                        label: isLoadingReleases ? "Checking..." : "Check for updates",
                         style: .outlined
                     ) {
                         Task {
