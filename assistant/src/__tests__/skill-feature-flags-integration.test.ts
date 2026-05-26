@@ -7,17 +7,15 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import {
-  _setOverridesForTesting,
-  isAssistantFeatureFlagEnabled,
-} from "../config/assistant-feature-flags.js";
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
 beforeEach(() => {
-  _setOverridesForTesting({});
+  setOverridesForTesting({});
 });
 
 afterEach(() => {
-  _setOverridesForTesting({});
+  setOverridesForTesting({});
 });
 import type { AssistantConfig } from "../config/schema.js";
 import { resolveSkillStates, skillFlagKey } from "../config/skill-state.js";
@@ -150,7 +148,7 @@ describe("frontmatter feature-flag integration", () => {
   });
 
   test("resolveSkillStates includes skill with featureFlag when flag is ON", () => {
-    _setOverridesForTesting({
+    setOverridesForTesting({
       "email-channel": true,
     });
     const skill = buildSkillSummary("email-setup", SKILL_MD_WITH_FLAG)!;
@@ -174,7 +172,7 @@ describe("frontmatter feature-flag integration", () => {
   test("resolveSkillStates never gates skill without featureFlag", () => {
     const skill = buildSkillSummary("plain-skill", SKILL_MD_WITHOUT_FLAG)!;
     // Even with an explicit false override for this skill ID, it should pass through
-    _setOverridesForTesting({
+    setOverridesForTesting({
       "plain-skill": false,
     });
     const config = makeConfig();
@@ -210,7 +208,7 @@ describe("frontmatter feature-flag integration", () => {
     expect(resolvedDefault.length).toBe(0);
 
     // Step 6: With override enabled, skill passes through
-    _setOverridesForTesting({ [key!]: true });
+    setOverridesForTesting({ [key!]: true });
     const configOn = makeConfig();
     expect(isAssistantFeatureFlagEnabled(key!, configOn)).toBe(true);
 
@@ -219,7 +217,7 @@ describe("frontmatter feature-flag integration", () => {
     expect(resolvedOn[0].summary.id).toBe("email-setup");
 
     // Step 7: With override disabled, skill is filtered out
-    _setOverridesForTesting({ [key!]: false });
+    setOverridesForTesting({ [key!]: false });
     const configOff = makeConfig();
     expect(isAssistantFeatureFlagEnabled(key!, configOff)).toBe(false);
 

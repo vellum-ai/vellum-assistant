@@ -8,7 +8,7 @@
  *
  * Note: `commitImport` itself does NOT reset the SQLite singleton or
  * invalidate caches — those are the caller's responsibility. The HTTP and
- * CLI restore handlers wrap this module with the appropriate `resetDb()` /
+ * CLI restore handlers wrap this module with the appropriate `closeAssistantDb()` /
  * `invalidateConfigCache()` / `clearTrustCache()` calls; the tests for that
  * recovery sequence live in `backup-routes.test.ts` and `backup.test.ts`.
  *

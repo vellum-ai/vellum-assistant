@@ -28,7 +28,7 @@ mock.module("../util/logger.js", () => ({
 // Use encrypted backend with a temp store path
 // ---------------------------------------------------------------------------
 
-import { _setStorePath } from "../security/encrypted-store.js";
+import { setStorePathForTesting } from "./encrypted-store-test-helpers.js";
 import { _resetBackend } from "../security/secure-keys.js";
 
 const TEST_DIR = join(
@@ -282,7 +282,7 @@ describe("credential_store tool", () => {
     for (const entry of readdirSync(TEST_DIR)) {
       rmSync(join(TEST_DIR, entry), { recursive: true, force: true });
     }
-    _setStorePath(STORE_PATH);
+    setStorePathForTesting(STORE_PATH);
     _setMetadataPath(join(TEST_DIR, "metadata.json"));
     mockDisconnectOAuthProvider.mockClear();
     mockConnections.clear();
@@ -290,7 +290,7 @@ describe("credential_store tool", () => {
 
   afterEach(() => {
     _setMetadataPath(null);
-    _setStorePath(null);
+    setStorePathForTesting(null);
     _resetBackend();
     mockConnections.clear();
   });
@@ -1282,7 +1282,7 @@ describe("withValidToken refresh deduplication", () => {
     for (const entry of readdirSync(TEST_DIR)) {
       rmSync(join(TEST_DIR, entry), { recursive: true, force: true });
     }
-    _setStorePath(STORE_PATH);
+    setStorePathForTesting(STORE_PATH);
     _setMetadataPath(join(TEST_DIR, "metadata.json"));
     _resetRefreshBreakers();
     _resetInflightRefreshes();
@@ -1295,7 +1295,7 @@ describe("withValidToken refresh deduplication", () => {
 
   afterEach(() => {
     _setMetadataPath(null);
-    _setStorePath(null);
+    setStorePathForTesting(null);
     _resetBackend();
     _resetRefreshBreakers();
     _resetInflightRefreshes();

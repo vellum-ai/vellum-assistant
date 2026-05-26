@@ -25,7 +25,7 @@ mock.module("../util/logger.js", () => ({
 
 import type { CesClient } from "../credential-execution/client.js";
 import * as encryptedStore from "../security/encrypted-store.js";
-import { _setStorePath } from "../security/encrypted-store.js";
+import { setStorePathForTesting } from "./encrypted-store-test-helpers.js";
 import {
   _resetBackend,
   deleteSecureKeyAsync,
@@ -59,11 +59,11 @@ describe("secure-keys", () => {
       rmSync(TEST_DIR, { recursive: true });
     }
     mkdirSync(TEST_DIR, { recursive: true });
-    _setStorePath(STORE_PATH);
+    setStorePathForTesting(STORE_PATH);
   });
 
   afterEach(() => {
-    _setStorePath(null);
+    setStorePathForTesting(null);
     _resetBackend();
     delete process.env.VELLUM_DEV;
     delete process.env.VELLUM_DESKTOP_APP;

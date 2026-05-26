@@ -9,7 +9,8 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "bun:test";
 
-import { getDb, resetDb } from "../memory/db-connection.js";
+import { getDb } from "../memory/db-connection.js";
+import { resetDbForTesting } from "./db-test-helpers.js";
 
 const originalWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
 const originalAllowRealWorkspace =
@@ -18,7 +19,7 @@ const originalTestRealWorkspace = process.env.VELLUM_TEST_REAL_WORKSPACE_DIR;
 const originalHome = process.env.HOME;
 
 afterEach(() => {
-  resetDb();
+  resetDbForTesting();
   if (originalWorkspaceDir === undefined) {
     delete process.env.VELLUM_WORKSPACE_DIR;
   } else {
@@ -46,7 +47,7 @@ afterEach(() => {
 });
 
 test("getDb refuses test runs without an isolated workspace", () => {
-  resetDb();
+  resetDbForTesting();
   delete process.env.VELLUM_WORKSPACE_DIR;
   delete process.env.VELLUM_ALLOW_REAL_WORKSPACE_IN_TESTS;
 
@@ -56,7 +57,7 @@ test("getDb refuses test runs without an isolated workspace", () => {
 });
 
 test("getDb refuses the real workspace during tests even when explicitly set", () => {
-  resetDb();
+  resetDbForTesting();
   process.env.VELLUM_WORKSPACE_DIR = join(homedir(), ".vellum", "workspace");
   delete process.env.VELLUM_ALLOW_REAL_WORKSPACE_IN_TESTS;
 
@@ -66,7 +67,7 @@ test("getDb refuses the real workspace during tests even when explicitly set", (
 });
 
 test("getDb refuses symlink aliases to the real workspace during tests", () => {
-  resetDb();
+  resetDbForTesting();
   const testRoot = realpathSync(
     mkdtempSync(join(tmpdir(), "vellum-db-isolation-")),
   );
@@ -95,7 +96,7 @@ test("getDb refuses symlink aliases to the real workspace during tests", () => {
 });
 
 test("getDb refuses missing children under symlink aliases to the real workspace", () => {
-  resetDb();
+  resetDbForTesting();
   const testRoot = realpathSync(
     mkdtempSync(join(tmpdir(), "vellum-db-isolation-")),
   );

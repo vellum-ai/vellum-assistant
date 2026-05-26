@@ -24,7 +24,7 @@ import { getPlatformAssistantId } from "../../config/env.js";
 import { invalidateConfigCache } from "../../config/loader.js";
 import { getAssistantName } from "../../daemon/identity-helpers.js";
 import { runAsyncSqlite } from "../../memory/db-async-query.js";
-import { getDb, resetDb } from "../../memory/db-connection.js";
+import { closeAssistantDb, getDb } from "../../memory/db-connection.js";
 import { validateMigrationState } from "../../memory/migrations/validate-migration-state.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
@@ -872,7 +872,7 @@ export async function handleMigrationImport(
     // Pre-check runtime-version compat before the DB close/reopen cycle.
     // commitImport runs the same gate as defense-in-depth for callers that
     // don't pre-check; we run it here too so an incompatible bundle short-
-    // circuits before resetDb().
+    // circuits before closeAssistantDb().
     const compatResult = evaluateRuntimeCompatibility(
       validation.manifest!.compatibility,
       APP_VERSION,
@@ -893,7 +893,7 @@ export async function handleMigrationImport(
 
     // Close the live SQLite connection before overwriting assistant.db on disk.
     // The singleton will be lazily reopened on the next getDb() call.
-    resetDb();
+    closeAssistantDb();
 
     const result = commitImport({
       archiveData: fileData,
@@ -1285,7 +1285,7 @@ async function runGcsImport(
     getWorkspaceHooksDir(),
   );
 
-  // streamCommitImport does its own resetDb() internally before the atomic
+  // streamCommitImport does its own closeAssistantDb() internally before the atomic
   // swap, so we don't need to call it here.
   let result: ImportCommitResult;
   // Track credential-import outcome for inclusion in the success response.

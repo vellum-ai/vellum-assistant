@@ -59,7 +59,7 @@ afterAll(() => {
 
 import { invalidateConfigCache, loadConfig } from "../config/loader.js";
 import { applyContextDefaultsToRawConfig } from "../runtime/routes/conversation-query-routes.js";
-import { _setStorePath } from "../security/encrypted-store.js";
+import { setStorePathForTesting } from "./encrypted-store-test-helpers.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -110,12 +110,12 @@ describe("platform-managed config defaults", () => {
 
   beforeEach(() => {
     resetWorkspace();
-    _setStorePath(join(WORKSPACE_DIR, "keys.enc"));
+    setStorePathForTesting(join(WORKSPACE_DIR, "keys.enc"));
     invalidateConfigCache();
   });
 
   afterEach(() => {
-    _setStorePath(null);
+    setStorePathForTesting(null);
     invalidateConfigCache();
     // Restore env to its original value
     if (originalIsPlatform === undefined) {

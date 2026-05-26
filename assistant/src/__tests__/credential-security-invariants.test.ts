@@ -41,7 +41,7 @@ afterAll(() => {
   mock.restore();
 });
 
-import { _setStorePath } from "../security/encrypted-store.js";
+import { setStorePathForTesting } from "./encrypted-store-test-helpers.js";
 import { _resetBackend } from "../security/secure-keys.js";
 
 const TEST_DIR = join(
@@ -409,7 +409,7 @@ describe("Invariant 4: credentials only used for allowed purpose", () => {
 
   beforeEach(() => {
     mkdirSync(TEST_DIR, { recursive: true });
-    _setStorePath(STORE_PATH);
+    setStorePathForTesting(STORE_PATH);
     _resetBackend();
     _setMetadataPath(join(TEST_DIR, "metadata.json"));
     broker = new CredentialBroker();
@@ -417,7 +417,7 @@ describe("Invariant 4: credentials only used for allowed purpose", () => {
 
   afterEach(() => {
     _setMetadataPath(null);
-    _setStorePath(null);
+    setStorePathForTesting(null);
     _resetBackend();
     rmSync(TEST_DIR, { recursive: true, force: true });
   });
@@ -497,14 +497,14 @@ describe("Invariant 4: credentials only used for allowed purpose", () => {
 describe("Invariant 6: oauth2ClientSecret not in metadata, only in secure store", () => {
   beforeEach(() => {
     mkdirSync(TEST_DIR, { recursive: true });
-    _setStorePath(STORE_PATH);
+    setStorePathForTesting(STORE_PATH);
     _resetBackend();
     _setMetadataPath(join(TEST_DIR, "metadata.json"));
   });
 
   afterEach(() => {
     _setMetadataPath(null);
-    _setStorePath(null);
+    setStorePathForTesting(null);
     _resetBackend();
     rmSync(TEST_DIR, { recursive: true, force: true });
   });

@@ -31,10 +31,8 @@ mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: getSecureKeyAsyncMock,
 }));
 
-import {
-  _setOverridesForTesting,
-  clearFeatureFlagOverridesCache,
-} from "../config/assistant-feature-flags.js";
+import { clearFeatureFlagOverridesCache } from "../config/assistant-feature-flags.js";
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 import type { AssistantConfig } from "../config/schema.js";
 import {
   bootstrapPlugins,
@@ -125,7 +123,7 @@ describe("plugin bootstrap", () => {
     getSecureKeyAsyncMock.mockReset();
     getSecureKeyAsyncMock.mockImplementation(async () => undefined);
     // Reset feature-flag cache so tests start from a known state. Individual
-    // tests that exercise `requiresFlag` use `_setOverridesForTesting(...)`
+    // tests that exercise `requiresFlag` use `setOverridesForTesting(...)`
     // to install their own overrides.
     clearFeatureFlagOverridesCache();
     // Clean storage directory between runs so nothing leaks across cases.
@@ -335,11 +333,11 @@ describe("plugin bootstrap", () => {
   //   - no shutdown hook entry is installed (nothing to tear down later).
   // Plugins without `requiresFlag` are unaffected.
   //
-  // Uses `_setOverridesForTesting` to control the resolver deterministically
+  // Uses `setOverridesForTesting` to control the resolver deterministically
   // — no disk writes, no gateway IPC, no reliance on registry defaults.
 
   test("requiresFlag enabled: plugin inits normally", async () => {
-    _setOverridesForTesting({ "plugin-gated-enabled": true });
+    setOverridesForTesting({ "plugin-gated-enabled": true });
 
     let initFired = false;
     const plugin = buildPlugin(
@@ -359,7 +357,7 @@ describe("plugin bootstrap", () => {
   });
 
   test("requiresFlag disabled: init does not fire and no tools/routes/skills are registered", async () => {
-    _setOverridesForTesting({ "plugin-gated-disabled": false });
+    setOverridesForTesting({ "plugin-gated-disabled": false });
 
     let initFired = false;
     // Attach tool/route/skill contributions alongside init. If gating works,
@@ -440,7 +438,7 @@ describe("plugin bootstrap", () => {
   test("requiresFlag: one disabled flag out of several skips the plugin", async () => {
     // When ANY listed flag is disabled, the plugin is skipped wholesale —
     // this prevents sneaky partial activation on AND semantics.
-    _setOverridesForTesting({
+    setOverridesForTesting({
       "plugin-multi-a": true,
       "plugin-multi-b": false,
     });
@@ -469,7 +467,7 @@ describe("plugin bootstrap", () => {
     // injectors still ran on every pipeline invocation and system-prompt
     // assembly even though `init()` had never fired to set up the state they
     // depended on.
-    _setOverridesForTesting({ "plugin-middleware-disabled": false });
+    setOverridesForTesting({ "plugin-middleware-disabled": false });
 
     const gatedMiddleware: PipelineMiddlewareMap["llmCall"] = async (
       args,
@@ -506,7 +504,7 @@ describe("plugin bootstrap", () => {
   });
 
   test("requiresFlag disabled: no shutdown hook entry installed for the skipped plugin", async () => {
-    _setOverridesForTesting({ "plugin-shutdown-flag": false });
+    setOverridesForTesting({ "plugin-shutdown-flag": false });
 
     let shutdownFired = false;
     const plugin = buildPlugin(

@@ -225,7 +225,8 @@ import {
   createVerificationSession,
 } from "../memory/channel-verification-sessions.js";
 import { addMessage, getMessages } from "../memory/conversation-crud.js";
-import { getDb, resetDb } from "../memory/db-connection.js";
+import { getDb } from "../memory/db-connection.js";
+import { resetDbForTesting } from "./db-test-helpers.js";
 import { initializeDb } from "../memory/db-init.js";
 import { createInvite } from "../memory/invite-store.js";
 import { resetTestTables } from "../memory/raw-query.js";
@@ -240,7 +241,7 @@ import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 initializeDb();
 
 afterAll(() => {
-  resetDb();
+  resetDbForTesting();
 });
 
 // ── Mock WebSocket factory ──────────────────────────────────────────

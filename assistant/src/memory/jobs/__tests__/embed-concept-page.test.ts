@@ -142,7 +142,10 @@ afterAll(() => {
 // Imports are deferred to after the env var is set so any internal use of
 // `getWorkspaceDir()` resolves to the tmpdir.
 const { DEFAULT_CONFIG } = await import("../../../config/defaults.js");
-const { getDb, resetDb } = await import("../../db-connection.js");
+const { getDb } = await import("../../db-connection.js");
+const { resetDbForTesting } = await import(
+  "../../../__tests__/db-test-helpers.js"
+);
 const { initializeDb } = await import("../../db-init.js");
 const { memoryEmbeddings, memoryJobs } = await import("../../schema.js");
 const { claimMemoryJobs } = await import("../../jobs-store.js");
@@ -183,7 +186,7 @@ function makeJob(payload: Record<string, unknown>): MemoryJob {
 }
 
 beforeEach(() => {
-  resetDb();
+  resetDbForTesting();
   initializeDb();
   embedWithBackendCalls.length = 0;
   upsertCalls.length = 0;

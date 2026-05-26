@@ -69,7 +69,7 @@ mockIpcResponse("get_global_thresholds", {
 
 // ── Imports (after mocks) ─────────────────────────────────────────────────
 
-import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 import { check, generateAllowlistOptions } from "../permissions/checker.js";
 import { clearRiskCache } from "../permissions/checker.js";
 import { _clearGlobalCacheForTesting } from "../permissions/gateway-threshold-reader.js";
@@ -115,7 +115,7 @@ describe("inline-command skill_load permissions", () => {
   beforeEach(() => {
     clearRiskCache();
     _clearGlobalCacheForTesting();
-    _setOverridesForTesting({});
+    setOverridesForTesting({});
     mockIpcResponse("get_global_thresholds", {
       interactive: "low",
       autonomous: "medium",
@@ -135,7 +135,7 @@ describe("inline-command skill_load permissions", () => {
   });
 
   afterEach(() => {
-    _setOverridesForTesting({});
+    setOverridesForTesting({});
   });
 
   // ── Default behavior ─────────────────────────────────────────────────
@@ -197,7 +197,7 @@ describe("inline-command skill_load permissions", () => {
       writeDynamicSkill("dynamic-flag-off", "Dynamic Flag Off Skill");
 
       // Disable the feature flag
-      _setOverridesForTesting({
+      setOverridesForTesting({
         "inline-skill-commands": false,
       });
 

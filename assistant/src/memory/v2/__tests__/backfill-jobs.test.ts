@@ -202,7 +202,10 @@ afterAll(() => {
   rmSync(tmpWorkspace, { recursive: true, force: true });
 });
 
-const { getDb, resetDb } = await import("../../db-connection.js");
+const { getDb } = await import("../../db-connection.js");
+const { resetDbForTesting } = await import(
+  "../../../__tests__/db-test-helpers.js"
+);
 const { initializeDb } = await import("../../db-init.js");
 const { rawExec } = await import("../../raw-query.js");
 const { conversations, memoryJobs, messages } = await import("../../schema.js");
@@ -247,7 +250,7 @@ function makeJob(
 }
 
 beforeEach(() => {
-  resetDb();
+  resetDbForTesting();
   initializeDb();
   // The shared template-DB caching does not clear WAL state between tests,
   // so explicitly truncate every table this suite writes to. Without this,

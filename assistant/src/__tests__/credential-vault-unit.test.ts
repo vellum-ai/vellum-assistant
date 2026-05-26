@@ -27,7 +27,7 @@ mock.module("../util/logger.js", () => ({
 // Use encrypted backend with a temp store path
 // ---------------------------------------------------------------------------
 
-import { _setStorePath } from "../security/encrypted-store.js";
+import { setStorePathForTesting } from "./encrypted-store-test-helpers.js";
 import { _resetBackend } from "../security/secure-keys.js";
 
 const TEST_DIR = join(
@@ -280,7 +280,7 @@ describe("CredentialBroker transient credentials", () => {
   beforeEach(() => {
     if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });
     mkdirSync(TEST_DIR, { recursive: true });
-    _setStorePath(STORE_PATH);
+    setStorePathForTesting(STORE_PATH);
     _resetBackend();
     _setMetadataPath(join(TEST_DIR, "metadata.json"));
     broker = new CredentialBroker();
@@ -288,7 +288,7 @@ describe("CredentialBroker transient credentials", () => {
 
   afterEach(() => {
     _setMetadataPath(null);
-    _setStorePath(null);
+    setStorePathForTesting(null);
     _resetBackend();
   });
 
@@ -504,14 +504,14 @@ describe("credential_store tool — unknown action", () => {
   beforeEach(() => {
     if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });
     mkdirSync(TEST_DIR, { recursive: true });
-    _setStorePath(STORE_PATH);
+    setStorePathForTesting(STORE_PATH);
     _resetBackend();
     _setMetadataPath(join(TEST_DIR, "metadata.json"));
   });
 
   afterEach(() => {
     _setMetadataPath(null);
-    _setStorePath(null);
+    setStorePathForTesting(null);
     _resetBackend();
   });
 
@@ -534,14 +534,14 @@ describe("credential_store tool — prompt action", () => {
   beforeEach(() => {
     if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });
     mkdirSync(TEST_DIR, { recursive: true });
-    _setStorePath(STORE_PATH);
+    setStorePathForTesting(STORE_PATH);
     _resetBackend();
     _setMetadataPath(join(TEST_DIR, "metadata.json"));
   });
 
   afterEach(() => {
     _setMetadataPath(null);
-    _setStorePath(null);
+    setStorePathForTesting(null);
     _resetBackend();
   });
 
@@ -845,14 +845,14 @@ describe("credential_store tool — slack_channel store routing", () => {
   beforeEach(() => {
     if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });
     mkdirSync(TEST_DIR, { recursive: true });
-    _setStorePath(STORE_PATH);
+    setStorePathForTesting(STORE_PATH);
     _resetBackend();
     _setMetadataPath(join(TEST_DIR, "metadata.json"));
   });
 
   afterEach(() => {
     _setMetadataPath(null);
-    _setStorePath(null);
+    setStorePathForTesting(null);
     _resetBackend();
   });
 
@@ -956,14 +956,14 @@ describe("credential_store tool — store validation edge cases", () => {
   beforeEach(() => {
     if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });
     mkdirSync(TEST_DIR, { recursive: true });
-    _setStorePath(STORE_PATH);
+    setStorePathForTesting(STORE_PATH);
     _resetBackend();
     _setMetadataPath(join(TEST_DIR, "metadata.json"));
   });
 
   afterEach(() => {
     _setMetadataPath(null);
-    _setStorePath(null);
+    setStorePathForTesting(null);
     _resetBackend();
   });
 
@@ -1124,14 +1124,14 @@ describe("credential_store tool — slack_channel delete routing", () => {
   beforeEach(() => {
     if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });
     mkdirSync(TEST_DIR, { recursive: true });
-    _setStorePath(STORE_PATH);
+    setStorePathForTesting(STORE_PATH);
     _resetBackend();
     _setMetadataPath(join(TEST_DIR, "metadata.json"));
   });
 
   afterEach(() => {
     _setMetadataPath(null);
-    _setStorePath(null);
+    setStorePathForTesting(null);
     _resetBackend();
   });
 
@@ -1304,7 +1304,7 @@ describe("CredentialBroker — serverUseById edge cases", () => {
   beforeEach(() => {
     if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });
     mkdirSync(TEST_DIR, { recursive: true });
-    _setStorePath(STORE_PATH);
+    setStorePathForTesting(STORE_PATH);
     _resetBackend();
     _setMetadataPath(join(TEST_DIR, "metadata.json"));
     broker = new CredentialBroker();
@@ -1312,7 +1312,7 @@ describe("CredentialBroker — serverUseById edge cases", () => {
 
   afterEach(() => {
     _setMetadataPath(null);
-    _setStorePath(null);
+    setStorePathForTesting(null);
     _resetBackend();
   });
 
@@ -1376,7 +1376,7 @@ describe("CredentialBroker — revokeAll", () => {
   beforeEach(() => {
     if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });
     mkdirSync(TEST_DIR, { recursive: true });
-    _setStorePath(STORE_PATH);
+    setStorePathForTesting(STORE_PATH);
     _resetBackend();
     _setMetadataPath(join(TEST_DIR, "metadata.json"));
     broker = new CredentialBroker();
@@ -1384,7 +1384,7 @@ describe("CredentialBroker — revokeAll", () => {
 
   afterEach(() => {
     _setMetadataPath(null);
-    _setStorePath(null);
+    setStorePathForTesting(null);
     _resetBackend();
   });
 
@@ -1432,7 +1432,7 @@ describe("CredentialBroker — canonical capability key", () => {
   beforeEach(() => {
     if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });
     mkdirSync(TEST_DIR, { recursive: true });
-    _setStorePath(STORE_PATH);
+    setStorePathForTesting(STORE_PATH);
     _resetBackend();
     _setMetadataPath(join(TEST_DIR, "metadata.json"));
     broker = new CredentialBroker();
@@ -1440,7 +1440,7 @@ describe("CredentialBroker — canonical capability key", () => {
 
   afterEach(() => {
     _setMetadataPath(null);
-    _setStorePath(null);
+    setStorePathForTesting(null);
     _resetBackend();
   });
 

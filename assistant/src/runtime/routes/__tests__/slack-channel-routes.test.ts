@@ -29,7 +29,8 @@ import {
   SYNC_TAGS,
 } from "../../../daemon/message-types/sync.js";
 import { createConversation } from "../../../memory/conversation-crud.js";
-import { getDb, resetDb } from "../../../memory/db-connection.js";
+import { getDb } from "../../../memory/db-connection.js";
+import { resetDbForTesting } from "../../../__tests__/db-test-helpers.js";
 import { initializeDb } from "../../../memory/db-init.js";
 import {
   getBindingByConversation,
@@ -130,7 +131,7 @@ beforeEach(() => {
 
 afterAll(() => {
   globalThis.fetch = originalFetch;
-  resetDb();
+  resetDbForTesting();
   mock.restore();
 });
 

@@ -6,7 +6,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
 const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 
@@ -89,11 +89,11 @@ describe("skill_load feature flag enforcement", () => {
   beforeEach(() => {
     mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
     currentConfig = {};
-    _setOverridesForTesting({});
+    setOverridesForTesting({});
   });
 
   afterEach(() => {
-    _setOverridesForTesting({});
+    setOverridesForTesting({});
   });
 
   test("returns deterministic error for flag OFF skill", async () => {
@@ -104,7 +104,7 @@ describe("skill_load feature flag enforcement", () => {
       "Use the feature.",
     );
 
-    _setOverridesForTesting({ [DECLARED_FLAG_KEY]: false });
+    setOverridesForTesting({ [DECLARED_FLAG_KEY]: false });
 
     const result = await executeSkillLoad({ skill: DECLARED_SKILL_ID });
 
@@ -121,7 +121,7 @@ describe("skill_load feature flag enforcement", () => {
       "Use the feature.",
     );
 
-    _setOverridesForTesting({ [DECLARED_FLAG_KEY]: true });
+    setOverridesForTesting({ [DECLARED_FLAG_KEY]: true });
 
     const result = await executeSkillLoad({ skill: DECLARED_SKILL_ID });
 

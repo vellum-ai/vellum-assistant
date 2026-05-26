@@ -81,7 +81,8 @@ import {
   updateSessionDelivery as storeUpdateSessionDelivery,
   updateSessionStatus as _storeUpdateSessionStatus,
 } from "../memory/channel-verification-sessions.js";
-import { getDb, resetDb } from "../memory/db-connection.js";
+import { getDb } from "../memory/db-connection.js";
+import { resetDbForTesting } from "./db-test-helpers.js";
 import { initializeDb } from "../memory/db-init.js";
 import { upsertBinding as upsertExternalBinding } from "../memory/external-conversation-store.js";
 import {
@@ -126,7 +127,7 @@ import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 initializeDb();
 
 afterAll(() => {
-  resetDb();
+  resetDbForTesting();
 });
 
 function resetTables(): void {

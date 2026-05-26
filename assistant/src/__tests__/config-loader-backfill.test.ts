@@ -82,7 +82,7 @@ import { migrateProviderConnectionStatusLabel } from "../memory/migrations/244-p
 import { migrateProviderConnectionBaseUrlAndModels } from "../memory/migrations/250-provider-connection-base-url-and-models.js";
 import * as schema from "../memory/schema.js";
 import { getConnection } from "../providers/inference/connections.js";
-import { _setStorePath } from "../security/encrypted-store.js";
+import { setStorePathForTesting } from "./encrypted-store-test-helpers.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -328,14 +328,14 @@ describe("loadConfig startup behavior", () => {
     const updatesPath = join(WORKSPACE_DIR, "UPDATES.md");
     if (existsSync(updatesPath)) rmSync(updatesPath, { force: true });
     ensureTestDir();
-    _setStorePath(join(WORKSPACE_DIR, "keys.enc"));
+    setStorePathForTesting(join(WORKSPACE_DIR, "keys.enc"));
     delete process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH;
     delete process.env.IS_PLATFORM;
     invalidateConfigCache();
   });
 
   afterEach(() => {
-    _setStorePath(null);
+    setStorePathForTesting(null);
     delete process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH;
     delete process.env.IS_PLATFORM;
     invalidateConfigCache();
@@ -943,14 +943,14 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
       }
     }
     ensureTestDir();
-    _setStorePath(join(WORKSPACE_DIR, "keys.enc"));
+    setStorePathForTesting(join(WORKSPACE_DIR, "keys.enc"));
     delete process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH;
     delete process.env.IS_PLATFORM;
     invalidateConfigCache();
   });
 
   afterEach(() => {
-    _setStorePath(null);
+    setStorePathForTesting(null);
     delete process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH;
     delete process.env.IS_PLATFORM;
     invalidateConfigCache();

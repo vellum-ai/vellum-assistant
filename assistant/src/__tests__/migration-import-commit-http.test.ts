@@ -729,13 +729,13 @@ describe("handleMigrationImport — version_incompatible", () => {
   });
 
   // Regression: the route handler pre-checks runtime-version compat using
-  // `validation.manifest.compatibility` before calling `resetDb()` and
+  // `validation.manifest.compatibility` before calling `closeAssistantDb()` and
   // `commitImport()`. If a future refactor reorders the close to come
   // before the gate, an incompatible bundle would still 422 (commitImport
   // has its own defense-in-depth gate) but it would unnecessarily close
   // and reopen the live SQLite singleton on every rejected import.
   //
-  // We can't easily spy on `resetDb` here without mocking `db-connection.js`
+  // We can't easily spy on `closeAssistantDb` here without mocking `db-connection.js`
   // module-wide (which other tests in this file rely on for real). The
   // semantic regression — disk unchanged + 422 — is covered by the two
   // tests above. This test is a marker so future readers know the pre-
@@ -743,7 +743,7 @@ describe("handleMigrationImport — version_incompatible", () => {
   // ordering against the comment at line 861-862 ("Validate the bundle
   // before closing the DB to avoid an unnecessary close/reopen cycle when
   // the bundle is invalid").
-  test("incompatible bundle short-circuits before resetDb (intent marker)", async () => {
+  test("incompatible bundle short-circuits before closeAssistantDb (intent marker)", async () => {
     const vbundle = createValidVBundle(undefined, {
       min_runtime_version: "99.0.0",
     });

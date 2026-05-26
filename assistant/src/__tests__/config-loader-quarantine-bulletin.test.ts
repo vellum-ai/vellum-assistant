@@ -28,7 +28,7 @@ import {
   invalidateConfigCache,
   loadConfig,
 } from "../config/loader.js";
-import { _setStorePath } from "../security/encrypted-store.js";
+import { setStorePathForTesting } from "./encrypted-store-test-helpers.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -71,12 +71,12 @@ function listQuarantinedFiles(): string[] {
 describe("config-quarantine UPDATES.md bulletin", () => {
   beforeEach(() => {
     resetWorkspace();
-    _setStorePath(join(WORKSPACE_DIR, "keys.enc"));
+    setStorePathForTesting(join(WORKSPACE_DIR, "keys.enc"));
     invalidateConfigCache();
   });
 
   afterEach(() => {
-    _setStorePath(null);
+    setStorePathForTesting(null);
     invalidateConfigCache();
   });
 

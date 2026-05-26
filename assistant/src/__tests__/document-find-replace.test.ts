@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import { getDocumentById } from "../documents/document-store.js";
-import { getSqlite, resetDb } from "../memory/db-connection.js";
+import { getSqlite } from "../memory/db-connection.js";
+import { resetDbForTesting } from "./db-test-helpers.js";
 import {
   executeDocumentFind,
   executeDocumentReplaceText,
@@ -23,7 +24,7 @@ function parseResult<T>(result: ToolExecutionResult): T {
 }
 
 function bootstrapDocumentTables(): void {
-  resetDb();
+  resetDbForTesting();
   const raw = getSqlite();
   raw.exec(/*sql*/ `
     DROP TABLE IF EXISTS document_conversations;

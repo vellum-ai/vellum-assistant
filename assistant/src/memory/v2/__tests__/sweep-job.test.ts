@@ -99,7 +99,10 @@ afterAll(() => {
   rmSync(tmpWorkspace, { recursive: true, force: true });
 });
 
-const { resetDb, getDb } = await import("../../db-connection.js");
+const { getDb } = await import("../../db-connection.js");
+const { resetDbForTesting } = await import(
+  "../../../__tests__/db-test-helpers.js"
+);
 const { initializeDb } = await import("../../db-init.js");
 const { messages, conversations } = await import("../../schema.js");
 const { memoryV2SweepJob } = await import("../sweep-job.js");
@@ -212,7 +215,7 @@ function seedMessages(
 }
 
 beforeEach(() => {
-  resetDb();
+  resetDbForTesting();
   initializeDb();
   // Fresh memory dir per test — keeps assertions on file contents independent.
   rmSync(join(tmpWorkspace, "memory"), { recursive: true, force: true });
@@ -275,7 +278,7 @@ describe("memoryV2SweepJob — no recent messages", () => {
 });
 
 // Per-test conversation id ensures each test seeds a row that doesn't
-// collide with the previous test's row in the (shared) test DB. `resetDb`
+// collide with the previous test's row in the (shared) test DB. `resetDbForTesting`
 // is called in the outer beforeEach, but bun's mock module flow keeps the
 // DB intact long enough for the SQL inserts here to clash.
 let convCounter = 0;

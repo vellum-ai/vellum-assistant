@@ -45,6 +45,10 @@ mock.module("../config/skill-state.js", () => ({
 
 // Mock assistant-feature-flags to avoid loading the real module (which
 // triggers file I/O and env-registry imports that hang in test context).
+// The seed-state backdoor is the test-only helper module — we mirror
+// production's design: tests reach into `feature-flag-cache.ts` (or its
+// test-helper wrapper) to seed cached overrides, never through the
+// resolver module itself.
 let _mockOverrides: Record<string, boolean> = {};
 mock.module("../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: (key: string, _config: unknown): boolean => {
@@ -55,10 +59,12 @@ mock.module("../config/assistant-feature-flags.js", () => ({
   clearFeatureFlagOverridesCache: () => {
     _mockOverrides = {};
   },
-  _setOverridesForTesting: (overrides: Record<string, boolean>) => {
+  getAssistantFeatureFlagDefaults: () => ({}),
+}));
+mock.module("./feature-flag-test-helpers.js", () => ({
+  setOverridesForTesting: (overrides: Record<string, boolean>) => {
     _mockOverrides = { ...overrides };
   },
-  getAssistantFeatureFlagDefaults: () => ({}),
 }));
 
 mock.module("../skills/active-skill-tools.js", () => {
@@ -212,10 +218,9 @@ mock.module("../util/logger.js", () => ({
 
 const { projectSkillTools, resetSkillToolProjection } =
   await import("../daemon/conversation-skill-tools.js");
-const { _setOverridesForTesting } =
-  (await import("../config/assistant-feature-flags.js")) as {
-    _setOverridesForTesting: (o: Record<string, boolean>) => void;
-  };
+const { setOverridesForTesting } = await import(
+  "./feature-flag-test-helpers.js"
+);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -289,12 +294,12 @@ describe("projectSkillTools feature flag enforcement", () => {
     mockUnregisteredSkillIds = [];
     mockSkillRefCount = new Map();
     currentConfig = {};
-    _setOverridesForTesting({});
+    setOverridesForTesting({});
     resetSkillToolProjection();
   });
 
   afterEach(() => {
-    _setOverridesForTesting({});
+    setOverridesForTesting({});
   });
 
   test("no skill tools projected for flag OFF skill even with old markers", () => {
@@ -308,7 +313,7 @@ describe("projectSkillTools feature flag enforcement", () => {
     const prevActive = new Map<string, string>();
 
     // Feature flag is OFF — use protected directory override
-    _setOverridesForTesting({ [DECLARED_FLAG_KEY]: false });
+    setOverridesForTesting({ [DECLARED_FLAG_KEY]: false });
 
     const result = projectSkillTools(history, {
       previouslyActiveSkillIds: prevActive,
@@ -329,7 +334,7 @@ describe("projectSkillTools feature flag enforcement", () => {
     const prevActive = new Map<string, string>();
 
     // Feature flag is ON — use protected directory override
-    _setOverridesForTesting({ [DECLARED_FLAG_KEY]: true });
+    setOverridesForTesting({ [DECLARED_FLAG_KEY]: true });
 
     const result = projectSkillTools(history, {
       previouslyActiveSkillIds: prevActive,
@@ -420,7 +425,7 @@ describe("projectSkillTools feature flag enforcement", () => {
     const prevActive = new Map<string, string>();
 
     // Declared skill is OFF; plain-skill has no featureFlag so remains ON.
-    _setOverridesForTesting({ [DECLARED_FLAG_KEY]: false });
+    setOverridesForTesting({ [DECLARED_FLAG_KEY]: false });
 
     const result = projectSkillTools(history, {
       previouslyActiveSkillIds: prevActive,

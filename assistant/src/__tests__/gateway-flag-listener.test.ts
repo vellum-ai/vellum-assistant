@@ -33,7 +33,6 @@ mock.module("../config/assistant-feature-flags.js", () => ({
   initFeatureFlagOverrides: async () => {},
   clearFeatureFlagOverridesCache: () => {},
   isAssistantFeatureFlagEnabled: () => true,
-  _setOverridesForTesting: () => {},
 }));
 
 // ---------------------------------------------------------------------------

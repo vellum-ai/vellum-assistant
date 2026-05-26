@@ -88,7 +88,8 @@ globalThis.fetch = (async (
 // Now import modules under test (after mocks are in place)
 // ---------------------------------------------------------------------------
 
-import { getDb, resetDb } from "../memory/db-connection.js";
+import { getDb } from "../memory/db-connection.js";
+import { resetDbForTesting } from "./db-test-helpers.js";
 import { initializeDb } from "../memory/db-init.js";
 import { updateSessionDelivery } from "../runtime/channel-verification-service.js";
 import {
@@ -108,7 +109,7 @@ initializeDb();
 
 afterAll(() => {
   globalThis.fetch = originalFetch;
-  resetDb();
+  resetDbForTesting();
 });
 
 function resetTables(): void {

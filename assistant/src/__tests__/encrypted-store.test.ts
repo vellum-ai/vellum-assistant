@@ -24,7 +24,7 @@ import {
 } from "bun:test";
 
 // ---------------------------------------------------------------------------
-// Mock only the logger (not platform -- we use _setStorePath instead)
+// Mock only the logger (not platform -- we use setStorePathForTesting instead)
 // ---------------------------------------------------------------------------
 
 mock.module("../util/logger.js", () => ({
@@ -35,13 +35,15 @@ mock.module("../util/logger.js", () => ({
 }));
 
 import {
-  _setStoreKeyPath,
-  _setStorePath,
   deleteKey,
   getKey,
   listKeys,
   setKey,
 } from "../security/encrypted-store.js";
+import {
+  setStoreKeyPathForTesting,
+  setStorePathForTesting,
+} from "./encrypted-store-test-helpers.js";
 
 // ---------------------------------------------------------------------------
 // Use a temp directory so tests don't touch the real ~/.vellum
@@ -141,13 +143,13 @@ describe("encrypted-store", () => {
     for (const entry of readdirSync(TEST_DIR)) {
       rmSync(join(TEST_DIR, entry), { recursive: true, force: true });
     }
-    _setStorePath(STORE_PATH);
-    _setStoreKeyPath(STORE_KEY_PATH);
+    setStorePathForTesting(STORE_PATH);
+    setStoreKeyPathForTesting(STORE_KEY_PATH);
   });
 
   afterEach(() => {
-    _setStorePath(null);
-    _setStoreKeyPath(null);
+    setStorePathForTesting(null);
+    setStoreKeyPathForTesting(null);
   });
 
   afterAll(() => {
@@ -508,8 +510,8 @@ describe("encrypted-store", () => {
       // Point to a path in a non-existent subdirectory
       const nestedPath = join(TEST_DIR, "sub", "dir", "keys.enc");
       const nestedKeyPath = join(TEST_DIR, "sub", "dir", "store.key");
-      _setStorePath(nestedPath);
-      _setStoreKeyPath(nestedKeyPath);
+      setStorePathForTesting(nestedPath);
+      setStoreKeyPathForTesting(nestedKeyPath);
       const result = setKey("test", "value");
       expect(result).toBe(true);
       expect(getKey("test")).toBe("value");

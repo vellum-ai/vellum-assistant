@@ -12,7 +12,7 @@ mock.module("../config/loader.js", () => ({
 
 import { BROWSER_OPERATION_META } from "../browser/operations.js";
 import { BROWSER_OPERATIONS } from "../browser/types.js";
-import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 import {
   projectSkillTools,
   resetSkillToolProjection,
@@ -30,13 +30,13 @@ import {
 
 afterAll(() => {
   __resetRegistryForTesting();
-  _setOverridesForTesting({});
+  setOverridesForTesting({});
 });
 
 describe("browser CLI-only architecture end-state", () => {
   beforeAll(async () => {
     __resetRegistryForTesting();
-    _setOverridesForTesting({
+    setOverridesForTesting({
       browser: true,
     });
     await initializeTools();

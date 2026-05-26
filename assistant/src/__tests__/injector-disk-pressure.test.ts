@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 import {
   applyRuntimeInjections,
   stripInjectionsForCompaction,
@@ -54,7 +54,7 @@ describe("disk-pressure-warning injector", () => {
   beforeEach(() => {
     resetPluginRegistryForTests();
     registerPlugin(defaultInjectorsPlugin);
-    _setOverridesForTesting({ "safe-storage-limits": true });
+    setOverridesForTesting({ "safe-storage-limits": true });
   });
 
   test("emits the exact cleanup prompt while safe storage limits are enabled", async () => {
@@ -102,7 +102,7 @@ Do not work on unrelated tasks until disk usage drops below the critical thresho
   });
 
   test("omits the prompt when safe storage limits are disabled", async () => {
-    _setOverridesForTesting({ "safe-storage-limits": false });
+    setOverridesForTesting({ "safe-storage-limits": false });
 
     await expect(
       diskPressureInjector.produce(

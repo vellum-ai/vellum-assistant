@@ -3,7 +3,7 @@ import * as Sentry from "@sentry/node";
 import type { FilingService } from "../filing/filing-service.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import type { McpServerManager } from "../mcp/manager.js";
-import { getSqlite, resetDb } from "../memory/db-connection.js";
+import { closeAssistantDb, getSqlite } from "../memory/db-connection.js";
 import type { QdrantManager } from "../memory/qdrant-manager.js";
 import type { RuntimeHttpServer } from "../runtime/http-server.js";
 import { browserManager } from "../tools/browser/browser-manager.js";
@@ -144,7 +144,7 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
       log.warn({ err }, "WAL checkpoint failed (non-fatal)");
     }
     try {
-      resetDb();
+      closeAssistantDb();
     } catch (err) {
       log.warn({ err }, "Database close failed (non-fatal)");
     }

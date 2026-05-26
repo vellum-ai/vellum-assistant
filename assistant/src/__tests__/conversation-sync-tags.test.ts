@@ -9,7 +9,8 @@ import {
   recordConversationSeenSignal,
 } from "../memory/conversation-attention-store.js";
 import { createConversation } from "../memory/conversation-crud.js";
-import { getDb, resetDb } from "../memory/db-connection.js";
+import { getDb } from "../memory/db-connection.js";
+import { resetDbForTesting } from "./db-test-helpers.js";
 import { initializeDb } from "../memory/db-init.js";
 import type { AssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
@@ -70,7 +71,7 @@ describe("conversation sync tags", () => {
   });
 
   afterAll(() => {
-    resetDb();
+    resetDbForTesting();
   });
 
   test("rename emits the typed title event and a metadata-only sync tag (no list umbrella)", async () => {

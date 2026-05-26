@@ -20,7 +20,7 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { resetDb } from "../memory/db-connection.js";
+import { resetDbForTesting } from "./db-test-helpers.js";
 import { getSqliteFrom } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { migrateLlmRequestLogProvider } from "../memory/migrations/184-llm-request-log-provider.js";
@@ -66,12 +66,12 @@ function removeTestDbFiles(): void {
 describe("llm_request_logs provider migration", () => {
   beforeEach(() => {
     process.env.BUN_TEST = "0";
-    resetDb();
+    resetDbForTesting();
     removeTestDbFiles();
   });
 
   afterEach(() => {
-    resetDb();
+    resetDbForTesting();
     removeTestDbFiles();
   });
 
@@ -81,7 +81,7 @@ describe("llm_request_logs provider migration", () => {
     } else {
       process.env.BUN_TEST = originalBunTest;
     }
-    resetDb();
+    resetDbForTesting();
     removeTestDbFiles();
   });
 

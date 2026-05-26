@@ -8,8 +8,8 @@
  *
  * Cleanup: the temp dir is removed after all tests in the file complete.
  *
- * Zero source-module imports
- * --------------------------
+ * No source-module imports
+ * ------------------------
  * The only static imports in this file are node stdlib (`node:fs`,
  * `node:os`, `node:path`), `bun:test`, and `./mock-gateway-ipc.js` — which
  * itself imports only node stdlib + `bun:test`. No source-module import
@@ -18,25 +18,28 @@
  * /workspace/journal/2026-05-25-db-ghost-3-recovery.md) cannot prevent
  * the env override below from running.
  *
- * Three prior preload-side setup calls were replaced with node-module-free
- * alternatives:
+ * No setup helpers in the production hot path
+ * -------------------------------------------
+ * Three formerly-source-side test helpers were lifted out of production
+ * modules into `__tests__/` so the preload (and test files) can use
+ * them without dragging the production modules' heavy dependencies
+ * (pino, drizzle) through the preload's import chain:
  *
- * 1. `_setOverridesForTesting({})` — the gateway IPC mock now returns a
- *    sentinel for `get_feature_flags` so `initFeatureFlagOverrides()`
- *    doesn't hit the 7.75 s empty-result retry loop. Tests that need
- *    specific flag state still call `mockGatewayIpc()` or
- *    `_setOverridesForTesting()` directly from their own setup.
+ *   - `setOverridesForTesting` — `__tests__/feature-flag-test-helpers.ts`
+ *     (writes to `config/feature-flag-cache.ts`, stdlib-only).
+ *     Not called here: the gateway IPC mock below returns a sentinel
+ *     for `get_feature_flags` so `initFeatureFlagOverrides()` short-
+ *     circuits the 7.75 s retry loop without preseed.
  *
- * 2. `resetDb()` — was a no-op at preload time: bun test processes start
- *    with a fresh JS heap, so the `db-connection.ts` singleton is `null`.
- *    The first test to call `getDb()` lazily opens a connection pointing
- *    at the already-set `VELLUM_WORKSPACE_DIR`.
+ *   - `resetDbForTesting` — `__tests__/db-test-helpers.ts`
+ *     (calls `clearStoredDb` from `memory/db-singleton.ts`, stdlib-only).
+ *     Not called here: a fresh bun-test process starts with an empty JS
+ *     heap, so the singleton is `null` until a test calls `getDb()`.
  *
- * 3. `_setStorePath(join(testDir, "keys.enc"))` — the testDir layout is
- *    now `<tmpRoot>/workspace`, so `vellumRoot()` (which derives from
- *    `dirname(VELLUM_WORKSPACE_DIR)`) resolves to `<tmpRoot>` per
- *    process. `getProtectedDir()` resolves to `<tmpRoot>/protected`,
- *    naturally isolated.
+ *   - `setStorePathForTesting` — `__tests__/encrypted-store-test-helpers.ts`
+ *     (writes to `security/store-path-override.ts`, stdlib-only).
+ *     Not called here: the testDir layout `<tmpRoot>/workspace` makes
+ *     `getProtectedDir()` resolve per-process naturally.
  */
 
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
@@ -51,7 +54,7 @@ import { installGatewayIpcMock } from "./mock-gateway-ipc.js";
 // Layout: <tmpRoot>/workspace as VELLUM_WORKSPACE_DIR. The parent of
 // VELLUM_WORKSPACE_DIR is what `vellumRoot()` resolves to, so a separate
 // tmpRoot per process gives `getProtectedDir()` and friends per-process
-// isolation without needing `_setStorePath()`.
+// isolation without needing an explicit `setStorePathForTesting()`.
 const tmpRoot = realpathSync(mkdtempSync(join(tmpdir(), "vellum-test-")));
 const testDir = join(tmpRoot, "workspace");
 mkdirSync(testDir);
@@ -74,36 +77,6 @@ delete process.env.CES_CREDENTIAL_URL;
 // retry loop in `initFeatureFlagOverrides()`. Tests that need specific IPC
 // responses use `mockGatewayIpc()` / `resetMockGatewayIpc()`.
 installGatewayIpcMock();
-
-// --- Phase 3: warm up shared modules (dynamic — runs after env override) ---
-//
-// Bun's `mock.module()` only redirects FUTURE module loads — modules already in
-// the cache keep their original exports. Many test files partially mock shared
-// modules (e.g. `mock.module("../util/logger.js", () => ({ getLogger }))`) and
-// rely on the real exports remaining available for unmocked named imports made
-// by other modules in the test's dep tree. The old preload provided this
-// warm-up implicitly via its static source imports (db-connection,
-// encrypted-store, assistant-feature-flags) which transitively loaded the
-// common shared modules.
-//
-// To preserve that behavior without re-introducing static source imports
-// above the env override, we warm up the same set here via dynamic imports.
-// Critically:
-//   1. The env override above has ALREADY applied — so even if these warm-up
-//      imports throw (e.g. broken node_modules symlink, drizzle-orm/bun-sqlite
-//      missing, the DB ghost #3 failure shape), VELLUM_WORKSPACE_DIR points at
-//      the temp dir and the production DB is safe.
-//   2. If warm-up fails, individual test files will also fail their own
-//      imports — bun will exit with a test failure, not silently corrupt data.
-try {
-  await Promise.all([
-    import("../config/assistant-feature-flags.js"),
-    import("../memory/db-connection.js"),
-    import("../security/encrypted-store.js"),
-  ]);
-} catch {
-  // Best-effort. See block comment above.
-}
 
 afterAll(() => {
   process.exitCode = 0;

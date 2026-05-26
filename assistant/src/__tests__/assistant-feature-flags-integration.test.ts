@@ -16,8 +16,11 @@ const DECLARED_FLAG_ID = "email-channel";
 const DECLARED_FLAG_KEY = DECLARED_FLAG_ID;
 const SAFE_STORAGE_LIMITS_FLAG = "safe-storage-limits";
 
-const { isAssistantFeatureFlagEnabled, _setOverridesForTesting } =
+const { isAssistantFeatureFlagEnabled } =
   await import("../config/assistant-feature-flags.js");
+const { setOverridesForTesting } = await import(
+  "./feature-flag-test-helpers.js"
+);
 const { skillFlagKey } = await import("../config/skill-state.js");
 
 // ---------------------------------------------------------------------------
@@ -25,11 +28,11 @@ const { skillFlagKey } = await import("../config/skill-state.js");
 // ---------------------------------------------------------------------------
 
 beforeEach(() => {
-  _setOverridesForTesting({});
+  setOverridesForTesting({});
 });
 
 afterEach(() => {
-  _setOverridesForTesting({});
+  setOverridesForTesting({});
 });
 
 // ---------------------------------------------------------------------------
@@ -38,14 +41,14 @@ afterEach(() => {
 
 describe("isAssistantFeatureFlagEnabled", () => {
   test("reads from file-based overrides", () => {
-    _setOverridesForTesting({ [DECLARED_FLAG_KEY]: true });
+    setOverridesForTesting({ [DECLARED_FLAG_KEY]: true });
     const config = {} as any;
 
     expect(isAssistantFeatureFlagEnabled(DECLARED_FLAG_KEY, config)).toBe(true);
   });
 
   test("explicit false override in file-based overrides", () => {
-    _setOverridesForTesting({ [DECLARED_FLAG_KEY]: false });
+    setOverridesForTesting({ [DECLARED_FLAG_KEY]: false });
     const config = {} as any;
 
     expect(isAssistantFeatureFlagEnabled(DECLARED_FLAG_KEY, config)).toBe(
@@ -72,7 +75,7 @@ describe("isAssistantFeatureFlagEnabled", () => {
   });
 
   test("safe-storage-limits respects explicit override", () => {
-    _setOverridesForTesting({ [SAFE_STORAGE_LIMITS_FLAG]: true });
+    setOverridesForTesting({ [SAFE_STORAGE_LIMITS_FLAG]: true });
     const config = {} as any;
 
     expect(
@@ -87,7 +90,7 @@ describe("isAssistantFeatureFlagEnabled", () => {
   });
 
   test("undeclared flag respects persisted override", () => {
-    _setOverridesForTesting({ "some-undeclared-flag": false });
+    setOverridesForTesting({ "some-undeclared-flag": false });
     const config = {} as any;
 
     expect(isAssistantFeatureFlagEnabled("some-undeclared-flag", config)).toBe(
@@ -98,7 +101,7 @@ describe("isAssistantFeatureFlagEnabled", () => {
 
 describe("isAssistantFeatureFlagEnabled with skillFlagKey", () => {
   test("resolves skill flag via canonical path", () => {
-    _setOverridesForTesting({ [DECLARED_FLAG_KEY]: false });
+    setOverridesForTesting({ [DECLARED_FLAG_KEY]: false });
     const config = {} as any;
 
     expect(

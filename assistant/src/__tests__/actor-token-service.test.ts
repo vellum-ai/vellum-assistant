@@ -29,7 +29,8 @@ mock.module("../config/env.js", () => ({
   checkUnrecognizedEnvVars: () => {},
 }));
 
-import { getDb, resetDb } from "../memory/db-connection.js";
+import { getDb } from "../memory/db-connection.js";
+import { resetDbForTesting } from "./db-test-helpers.js";
 import { initializeDb } from "../memory/db-init.js";
 import { resetExternalAssistantIdCache } from "../runtime/auth/external-assistant-id.js";
 import { initAuthSigningKey } from "../runtime/auth/token-service.js";
@@ -50,7 +51,7 @@ initializeDb();
 beforeEach(() => {
   initAuthSigningKey(TEST_KEY);
   resetExternalAssistantIdCache();
-  resetDb();
+  resetDbForTesting();
   initializeDb();
 });
 

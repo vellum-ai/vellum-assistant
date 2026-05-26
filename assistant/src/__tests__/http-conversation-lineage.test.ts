@@ -35,7 +35,8 @@ import {
   createConversation,
   updateConversationTitle,
 } from "../memory/conversation-crud.js";
-import { getDb, resetDb } from "../memory/db-connection.js";
+import { getDb } from "../memory/db-connection.js";
+import { resetDbForTesting } from "./db-test-helpers.js";
 import { initializeDb } from "../memory/db-init.js";
 import { rawRun } from "../memory/raw-query.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
@@ -65,7 +66,7 @@ describe("conversation lineage in HTTP reads", () => {
 
   afterAll(async () => {
     await server?.stop();
-    resetDb();
+    resetDbForTesting();
   });
 
   test("GET /v1/conversations returns forkParent for surviving parents", async () => {
