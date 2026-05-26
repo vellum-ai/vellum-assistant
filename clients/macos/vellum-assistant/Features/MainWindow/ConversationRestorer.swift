@@ -546,7 +546,7 @@ final class ConversationRestorer {
         }
 
         // serverOffset is set by fetchConversationList before merging foreground +
-        // background, so it reflects foreground-only count for correct pagination.
+        // background, so it reflects the foreground-only DB cursor for correct pagination.
         log.info("Restored \(restoredConversations.count) conversations from daemon (hasMore: \(response.hasMore ?? false))")
         delegate.restoreLastActiveConversation()
     }
@@ -692,10 +692,12 @@ final class ConversationRestorer {
                     let uniqueBackground = (background?.conversations ?? []).filter {
                         seenIds.insert($0.id).inserted
                     }
-                    // Set serverOffset from foreground count BEFORE merging.
-                    // loadMoreConversations pages the foreground endpoint only,
-                    // so the offset must not include merged background rows.
-                    self.delegate?.serverOffset = foreground.conversations.count
+                    // Set serverOffset to the foreground DB cursor BEFORE
+                    // merging. loadMoreConversations pages the foreground
+                    // endpoint only, so the offset must not include merged
+                    // background rows; nextOffset is the DB cursor (see
+                    // fetchAllConversationPages), not the inflated row count.
+                    self.delegate?.serverOffset = foreground.nextOffset ?? foreground.conversations.count
                     let merged = ConversationListResponse(
                         type: foreground.type,
                         conversations: foreground.conversations + uniqueBackground,
@@ -735,6 +737,7 @@ final class ConversationRestorer {
         let pageSize = Self.conversationListPageSize
         var accumulated: [ConversationListResponseItem] = []
         var firstPage: ConversationListResponse?
+        var nextOffset = 0
 
         for page in 0..<Self.conversationListMaxPages {
             let offset = page * pageSize
@@ -745,6 +748,13 @@ final class ConversationRestorer {
             }
             if firstPage == nil { firstPage = response }
             accumulated.append(contentsOf: response.conversations)
+            // Track the DB cursor the server actually reached. On page 1
+            // (offset 0) the endpoint appends injected pinned rows, so the
+            // accumulated count overshoots the DB offset; prefer the
+            // server-provided nextOffset so incremental "load more" resumes at
+            // the right cursor instead of skipping rows. Fall back to advancing
+            // by one full page when the daemon omits nextOffset.
+            nextOffset = response.nextOffset ?? (offset + pageSize)
             let hasMore = response.hasMore ?? false
             if !hasMore || response.conversations.isEmpty { break }
         }
@@ -752,12 +762,13 @@ final class ConversationRestorer {
         guard let first = firstPage else { return nil }
         // Groups are sent with the first page only; preserve them on the
         // synthesized response. `hasMore` is forced to false because we've
-        // already exhausted the server (or hit the safety cap).
+        // already exhausted the server (or hit the safety cap). `nextOffset`
+        // carries the DB cursor reached (tracked above).
         return ConversationListResponse(
             type: first.type,
             conversations: accumulated,
             hasMore: false,
-            nextOffset: nil,
+            nextOffset: nextOffset,
             groups: first.groups
         )
     }
