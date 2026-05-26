@@ -997,23 +997,38 @@ export function buildUnifiedTurnContextBlock(
 // ---------------------------------------------------------------------------
 
 /**
- * Remove text blocks from user messages whose text starts with any of the
- * given prefixes.  If stripping removes all content blocks from a message,
- * the message itself is dropped.
+ * A matcher for an injected text block. A plain string matches by prefix
+ * (`startsWith`). A `{ prefix, suffix }` wrapper requires BOTH the opening
+ * prefix and the closing suffix, so user-authored content that merely begins
+ * with an injection-like opening tag (e.g. a message discussing `<info>`
+ * markup) is not mistaken for an injected block and dropped. This mirrors
+ * `countMemoryPrefixBlocks`, which only treats `<memory>…</memory>` /
+ * `<info>…</info>` blocks as injected when the full wrapper is present.
+ */
+type InjectionMatcher = string | { prefix: string; suffix: string };
+
+/**
+ * Remove text blocks from user messages that match any of the given matchers.
+ * If stripping removes all content blocks from a message, the message itself
+ * is dropped.
  *
  * This is the shared primitive behind the individual strip* functions and
  * the `stripInjectionsForCompaction` pipeline.
  */
 function stripUserTextBlocksByPrefix(
   messages: Message[],
-  prefixes: string[],
+  matchers: InjectionMatcher[],
 ): Message[] {
   return messages
     .map((message) => {
       if (message.role !== "user") return message;
       const nextContent = message.content.filter((block) => {
         if (block.type !== "text") return true;
-        return !prefixes.some((p) => block.text.startsWith(p));
+        return !matchers.some((m) =>
+          typeof m === "string"
+            ? block.text.startsWith(m)
+            : block.text.startsWith(m.prefix) && block.text.endsWith(m.suffix),
+        );
       });
       if (nextContent.length === message.content.length) return message;
       if (nextContent.length === 0) return null;
@@ -1720,8 +1735,8 @@ export function loadSlackActiveThreadFocusBlock(
   return assembleSlackActiveThreadFocusBlock(rows, capabilities);
 }
 
-/** Prefixes stripped by the pipeline (order doesn't matter — single pass). */
-const RUNTIME_INJECTION_PREFIXES = [
+/** Matchers stripped by the pipeline (order doesn't matter — single pass). */
+const RUNTIME_INJECTION_PREFIXES: InjectionMatcher[] = [
   "<channel_capabilities>",
   "<channel_command_context>",
   "<disk_pressure_warning>",
@@ -1742,8 +1757,13 @@ const RUNTIME_INJECTION_PREFIXES = [
   // cadence. The activation pipeline dedupes via `everInjected`, and
   // compaction handles aggregate growth, so accumulation does not cause
   // unbounded context growth. Both wrappers may appear in persisted rows.
-  "<memory>\n",
-  "<info>\n",
+  //
+  // These two use the full `{ prefix, suffix }` wrapper shape (not a bare
+  // prefix) so that user-authored text merely starting with `<memory>\n` or
+  // `<info>\n` is never silently dropped during compaction/`/clean`. This
+  // matches the full-wrapper requirement in `countMemoryPrefixBlocks`.
+  { prefix: "<memory>\n", suffix: "\n</memory>" },
+  { prefix: "<info>\n", suffix: "\n</info>" },
   "<voice_call_control>",
   "<workspace_top_level>", // backward-compat: strip legacy workspace blocks
   // NOTE: <workspace> is intentionally NOT stripped — workspace context

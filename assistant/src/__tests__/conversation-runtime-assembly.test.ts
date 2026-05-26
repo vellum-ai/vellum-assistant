@@ -1103,6 +1103,84 @@ describe("stripInjectionsForCompaction preserves persistent blocks", () => {
 });
 
 // ---------------------------------------------------------------------------
+// stripInjectionsForCompaction — memory/info wrapper shape
+// ---------------------------------------------------------------------------
+
+describe("stripInjectionsForCompaction memory/info wrapper matching", () => {
+  test("injected <info>…</info> static-memory block IS stripped", () => {
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "<info>\nessentials and threads\n</info>" },
+          { type: "text", text: "Hello" },
+        ],
+      },
+    ];
+
+    const result = stripInjectionsForCompaction(messages);
+    expect(result.length).toBe(1);
+    expect(result[0].content.length).toBe(1);
+    expect((result[0].content[0] as { type: "text"; text: string }).text).toBe(
+      "Hello",
+    );
+  });
+
+  test("injected <memory>…</memory> activation block IS stripped", () => {
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "<memory>\nactivated slugs\n</memory>" },
+          { type: "text", text: "Hello" },
+        ],
+      },
+    ];
+
+    const result = stripInjectionsForCompaction(messages);
+    expect(result.length).toBe(1);
+    expect(result[0].content.length).toBe(1);
+    expect((result[0].content[0] as { type: "text"; text: string }).text).toBe(
+      "Hello",
+    );
+  });
+
+  test("user text merely starting with <info>\\n (no closing tag) is NOT stripped", () => {
+    const userText = "<info>\nHere is what I want to discuss about the markup";
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: userText }],
+      },
+    ];
+
+    const result = stripInjectionsForCompaction(messages);
+    expect(result.length).toBe(1);
+    expect(result[0].content.length).toBe(1);
+    expect((result[0].content[0] as { type: "text"; text: string }).text).toBe(
+      userText,
+    );
+  });
+
+  test("user text merely starting with <memory>\\n (no closing tag) is NOT stripped", () => {
+    const userText = "<memory>\nplease remember to buy milk";
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: userText }],
+      },
+    ];
+
+    const result = stripInjectionsForCompaction(messages);
+    expect(result.length).toBe(1);
+    expect(result[0].content.length).toBe(1);
+    expect((result[0].content[0] as { type: "text"; text: string }).text).toBe(
+      userText,
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // applyRuntimeInjections with nowScratchpad
 // ---------------------------------------------------------------------------
 
