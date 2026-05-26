@@ -95,10 +95,12 @@ const DENSE_MMR_LAMBDA = 0.7;
 /**
  * Run the always-on scout lanes for one retrieval pass.
  *
- * `queryText` is derived from the last user turn in `input.recentTurnPairs`
- * joined with `input.nowText` — the same shape the v2 router/activation path
- * embeds. Disabled lanes (per `config.memory.v3.lanes`) are skipped entirely:
- * no substrate call, no `ScoutResult` entry.
+ * The dense lane embeds `queryText` (the last user turn joined with
+ * `input.nowText`, the same shape the v2 router/activation path embeds). The
+ * sparse lane keys off `userText` (the user turn alone) so NOW context can't
+ * make whatever it mentions a near-exact sticky hit on every turn. Disabled
+ * lanes (per `config.memory.v3.lanes`) are skipped entirely: no substrate call,
+ * no `ScoutResult` entry.
  *
  * Honors `input.signal` — aborts between lanes and around the dense embed.
  */
@@ -109,6 +111,7 @@ export async function runScouts(
   const { config, signal } = input;
   const lanes = config.memory.v3.lanes;
   const queryText = deriveQueryText(input);
+  const userText = deriveUserText(input);
 
   const scouts: ScoutResult[] = [];
   const sticky = new Set<string>();
@@ -126,10 +129,17 @@ export async function runScouts(
     if (hot) scouts.push(hot);
   }
 
-  // Sparse lane — BM25 keyword match. Near-exact hits seed sticky + bypass.
-  if (lanes.sparse && queryText.length > 0) {
+  // Sparse lane — BM25 keyword match on the user's words ONLY (not the NOW
+  // context). NOW is ambient standing text; folding it into a keyword query
+  // makes whatever pages NOW happens to mention score near-exact on every
+  // turn, and near-exact hits become sticky + tree-bypass — so NOW-referenced
+  // pages would be force-injected into every selection regardless of the
+  // query. Keying sparse off the user turn keeps lexical match, sticky, and
+  // bypass tied to what the user actually asked. (Dense still embeds NOW below;
+  // semantic context legitimately helps there.)
+  if (lanes.sparse && userText.length > 0) {
     signal?.throwIfAborted();
-    const sparse = await runSparseLane(queryText, signal);
+    const sparse = await runSparseLane(userText, signal);
     if (sparse) {
       scouts.push(sparse.result);
       for (const slug of sparse.nearExact) {
@@ -154,15 +164,25 @@ export async function runScouts(
 // ---------------------------------------------------------------------------
 
 /**
- * Build the scout query text from the just-arrived user turn plus the NOW
+ * The just-arrived user turn's text — the last `recentTurnPairs` entry's
+ * `userMessage`. This is the keyword target for the sparse lane and the basis
+ * for near-exact sticky/bypass, which must reflect what the user actually
+ * asked rather than the ambient NOW context.
+ */
+function deriveUserText(input: RetrievalInput): string {
+  const lastPair = input.recentTurnPairs[input.recentTurnPairs.length - 1];
+  return (lastPair?.userMessage ?? "").trim();
+}
+
+/**
+ * Build the dense-lane query text from the just-arrived user turn plus the NOW
  * context. Mirrors the v2 activation path (`selectCandidates`): join the
- * non-empty channels with a newline. The last `recentTurnPairs` entry's
- * `userMessage` is the turn being routed.
+ * non-empty channels with a newline. NOW is included here because semantic
+ * embedding benefits from standing context; the sparse lane deliberately omits
+ * it (see {@link deriveUserText}).
  */
 function deriveQueryText(input: RetrievalInput): string {
-  const lastPair = input.recentTurnPairs[input.recentTurnPairs.length - 1];
-  const userText = lastPair?.userMessage ?? "";
-  return [userText, input.nowText]
+  return [deriveUserText(input), input.nowText]
     .filter((s) => s.trim().length > 0)
     .join("\n")
     .trim();
