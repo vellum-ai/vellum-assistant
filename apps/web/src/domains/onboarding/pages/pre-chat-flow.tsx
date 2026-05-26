@@ -6,18 +6,21 @@ import { useNavigate } from "react-router";
 import { useIsIOSWeb, useIsMacOSWeb } from "@/utils/platform-detection";
 import { readIOSAppDownloaded } from "@/hooks/use-ios-app-nudge";
 import { readMacOsAppDownloaded } from "@/hooks/use-macos-app-nudge";
-import { persistContentAutomationPreChatHandoff } from "@/domains/onboarding/content-automation";
-import { GetIOSAppScreen } from "@/domains/onboarding/screens/get-ios-app-screen";
-import { GetMacOSAppScreen } from "@/domains/onboarding/screens/get-macos-app-screen";
-import { GoogleConnectScreen } from "@/domains/onboarding/screens/google-connect-screen";
-import { NameExchangeScreen } from "@/domains/onboarding/screens/name-exchange-screen";
-import { PriorAssistantSelectionScreen } from "@/domains/onboarding/screens/prior-assistant-selection-screen";
-import { NameStepScreen } from "@/domains/onboarding/screens/name-step-screen";
-import { TaskToneSelectionScreen } from "@/domains/onboarding/screens/task-tone-selection-screen";
-import { ToolSelectionScreen } from "@/domains/onboarding/screens/tool-selection-screen";
-import { VibeStepScreen } from "@/domains/onboarding/screens/vibe-step-screen";
-import { assistantsActiveRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
-import { usePrefilledInput } from "@/hooks/use-prefilled-input";
+import {
+  fetchOnboardingRecipe,
+  type OnboardingRecipe,
+} from "@/domains/onboarding/recipe-client.js";
+import { GetIOSAppScreen } from "@/domains/onboarding/screens/get-ios-app-screen.js";
+import { GetMacOSAppScreen } from "@/domains/onboarding/screens/get-macos-app-screen.js";
+import { GoogleConnectScreen } from "@/domains/onboarding/screens/google-connect-screen.js";
+import { NameExchangeScreen } from "@/domains/onboarding/screens/name-exchange-screen.js";
+import { PriorAssistantSelectionScreen } from "@/domains/onboarding/screens/prior-assistant-selection-screen.js";
+import { NameStepScreen } from "@/domains/onboarding/screens/name-step-screen.js";
+import { TaskToneSelectionScreen } from "@/domains/onboarding/screens/task-tone-selection-screen.js";
+import { ToolSelectionScreen } from "@/domains/onboarding/screens/tool-selection-screen.js";
+import { VibeStepScreen } from "@/domains/onboarding/screens/vibe-step-screen.js";
+import { assistantsActiveRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen.js";
+import { usePrefilledInput } from "@/hooks/use-prefilled-input.js";
 import {
   setPendingAssistantName,
   setPendingPreChatContext,
@@ -39,12 +42,11 @@ import {
 import {
   clearPrivacyConsent,
   hasRecentPrivacyConsent,
-} from "@/domains/onboarding/signals";
-import { resolveUserCohort } from "@/domains/onboarding/utm-cohort";
-import { useIsNativePlatform } from "@/runtime/native-auth";
-import { useAuthStore } from "@/stores/auth-store";
+} from "@/domains/onboarding/signals.js";
+import { useIsNativePlatform } from "@/runtime/native-auth.js";
+import { useAuthStore } from "@/stores/auth-store.js";
 import { useRootOutletContext } from "@/root-layout";
-import { routes } from "@/utils/routes";
+import { routes } from "@/utils/routes.js";
 
 /**
  * Screen indices for the PreChat flow:
@@ -72,7 +74,7 @@ export function PreChatFlow() {
     lifecycle: { checkAssistant },
   } = useRootOutletContext();
   const [, setOnboardingCompleted] = useOnboardingCompleted();
-  const [cohort, setCohort] = useState<string | null>(null);
+  const [recipe, setRecipe] = useState<OnboardingRecipe | null>(null);
 
   const isMacOSWeb = useIsMacOSWeb();
   const isIOSWeb = useIsIOSWeb();
@@ -158,8 +160,8 @@ export function PreChatFlow() {
   useEffect(() => {
     if (isAuthLoading || !isLoggedIn) return;
     let cancelled = false;
-    void resolveUserCohort().then((resolved) => {
-      if (!cancelled && resolved) setCohort(resolved);
+    void fetchOnboardingRecipe().then((fetched) => {
+      if (!cancelled && fetched) setRecipe(fetched);
     });
     return () => { cancelled = true; };
   }, [isAuthLoading, isLoggedIn]);
@@ -190,34 +192,36 @@ export function PreChatFlow() {
     userId,
   ]);
 
-  // ── Content-automation cohort: skip all pre-chat screens (web only) ──
+  // ── Recipe-driven auto-skip: skip all pre-chat screens (web only) ──
   const autoSkippedRef = useRef(false);
   useEffect(() => {
-    if (cohort !== "content-automation" || isNative) return;
+    if (!recipe?.skipPrechat || isNative) return;
     if (isAuthLoading || !isLoggedIn || consentDecision !== "ok") return;
     if (readOnboardingCompleted()) return;
     if (autoSkippedRef.current) return;
     autoSkippedRef.current = true;
 
-    persistContentAutomationPreChatHandoff();
+    const context: PreChatOnboardingContext = {
+      tools: [],
+      tasks: recipe.tasks,
+      tone: recipe.tone,
+      googleConnected: false,
+      cohort: recipe.cohort,
+      initialMessage: recipe.initialMessage,
+      bootstrapTemplate: recipe.bootstrapTemplate,
+      skills: recipe.skills,
+    };
+    setPendingPreChatContext(context);
     try {
       setOnboardingCompleted(true);
     } catch (err) {
       Sentry.captureException(err, {
-        tags: { context: "prechat_auto_skip_content_automation" },
+        tags: { context: "prechat_auto_skip_recipe" },
       });
     }
     clearPrivacyConsent();
     void navigateToChatAfterLifecycleRefresh();
-  }, [
-    cohort,
-    isNative,
-    isAuthLoading,
-    isLoggedIn,
-    consentDecision,
-    navigateToChatAfterLifecycleRefresh,
-    setOnboardingCompleted,
-  ]);
+  }, [recipe, isNative, isAuthLoading, isLoggedIn, consentDecision, navigateToChatAfterLifecycleRefresh, setOnboardingCompleted]);
 
   async function finish(connectedScopes?: string[]): Promise<void> {
     const context: PreChatOnboardingContext = {
@@ -266,7 +270,7 @@ export function PreChatFlow() {
     return null;
   }
 
-  if (cohort === "content-automation" && !isNative) {
+  if (recipe?.skipPrechat && !isNative) {
     return null;
   }
 
