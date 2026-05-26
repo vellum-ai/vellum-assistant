@@ -31,7 +31,6 @@ import type { UIContext } from "@/domains/messaging/turn-selectors.js";
 
 function fakeDisplayMessage(overrides: Partial<DisplayMessage> = {}): DisplayMessage {
   return {
-    stableId: "stable-1",
     id: "msg-1",
     role: "assistant",
     content: "hello",
@@ -148,7 +147,7 @@ describe("createChatDebugApi.getClientMessages", () => {
 
   test("respects limit parameter (slices from the end)", () => {
     const items: DisplayMessage[] = Array.from({ length: 30 }, (_, i) =>
-      fakeDisplayMessage({ stableId: `msg-${i}`, id: `id-${i}` }),
+      fakeDisplayMessage({ id: `id-${i}` }),
     );
     const sanitizedMessagesRef = {
       current: items,
@@ -156,13 +155,13 @@ describe("createChatDebugApi.getClientMessages", () => {
     const api = createChatDebugApi(makeRefs({ sanitizedMessagesRef }));
     const result = api.getClientMessages(5);
     expect(result).toHaveLength(5);
-    expect(result[0]!.stableId).toBe("msg-25");
-    expect(result[4]!.stableId).toBe("msg-29");
+    expect(result[0]!.id).toBe("msg-25");
+    expect(result[4]!.id).toBe("msg-29");
   });
 
   test("defaults to 20 items when no limit", () => {
     const items: DisplayMessage[] = Array.from({ length: 30 }, (_, i) =>
-      fakeDisplayMessage({ stableId: `msg-${i}`, id: `id-${i}` }),
+      fakeDisplayMessage({ id: `id-${i}` }),
     );
     const sanitizedMessagesRef = {
       current: items,
@@ -170,12 +169,12 @@ describe("createChatDebugApi.getClientMessages", () => {
     const api = createChatDebugApi(makeRefs({ sanitizedMessagesRef }));
     const result = api.getClientMessages();
     expect(result).toHaveLength(20);
-    expect(result[0]!.stableId).toBe("msg-10");
+    expect(result[0]!.id).toBe("msg-10");
   });
 
   test("returns all items when fewer than limit", () => {
     const items: DisplayMessage[] = Array.from({ length: 5 }, (_, i) =>
-      fakeDisplayMessage({ stableId: `msg-${i}`, id: `id-${i}` }),
+      fakeDisplayMessage({ id: `id-${i}` }),
     );
     const sanitizedMessagesRef = {
       current: items,
@@ -183,12 +182,12 @@ describe("createChatDebugApi.getClientMessages", () => {
     const api = createChatDebugApi(makeRefs({ sanitizedMessagesRef }));
     const result = api.getClientMessages(20);
     expect(result).toHaveLength(5);
-    expect(result[0]!.stableId).toBe("msg-0");
+    expect(result[0]!.id).toBe("msg-0");
   });
 
   test("coerces invalid limit to default", () => {
     const items: DisplayMessage[] = Array.from({ length: 30 }, (_, i) =>
-      fakeDisplayMessage({ stableId: `msg-${i}`, id: `id-${i}` }),
+      fakeDisplayMessage({ id: `id-${i}` }),
     );
     const sanitizedMessagesRef = {
       current: items,
@@ -203,8 +202,8 @@ describe("createChatDebugApi.getClientMessages", () => {
     // getClientMessages() is logic-free — it surfaces whatever the render path
     // already wrote to `sanitizedMessagesRef`. Raw `messagesRef` is
     // intentionally ignored so DevTools always mirrors the UI.
-    const rawOnly = fakeDisplayMessage({ stableId: "raw-only" });
-    const sanitizedOnly = fakeDisplayMessage({ stableId: "sanitized-only" });
+    const rawOnly = fakeDisplayMessage({ id: "raw-only" });
+    const sanitizedOnly = fakeDisplayMessage({ id: "sanitized-only" });
     const api = createChatDebugApi(
       makeRefs({
         messagesRef: { current: [rawOnly] } as MutableRefObject<DisplayMessage[]>,
@@ -215,7 +214,7 @@ describe("createChatDebugApi.getClientMessages", () => {
     );
     const result = api.getClientMessages();
     expect(result).toHaveLength(1);
-    expect(result[0]!.stableId).toBe("sanitized-only");
+    expect(result[0]!.id).toBe("sanitized-only");
   });
 });
 
@@ -237,7 +236,7 @@ describe("createChatDebugApi.getTranscriptItems", () => {
       {
         kind: "message",
         key: "msg-a",
-        message: fakeDisplayMessage({ stableId: "msg-a" }),
+        message: fakeDisplayMessage({ id: "msg-a" }),
       },
       { kind: "thinking", key: "thinking", label: "Processing" },
       { kind: "queuedMarker", key: "queued", count: 2 },
@@ -260,7 +259,7 @@ describe("createChatDebugApi.getTranscriptItems", () => {
       {
         kind: "message",
         key: "msg-a",
-        message: fakeDisplayMessage({ stableId: "msg-a" }),
+        message: fakeDisplayMessage({ id: "msg-a" }),
       },
       { kind: "pendingSecret", key: "ps-1", requestId: "req-1" },
       {
@@ -291,7 +290,7 @@ describe("createChatDebugApi.getTranscriptItems", () => {
     // DisplayMessages — that would re-run buildTranscriptItems logic
     // and drift from what the UI is actually rendering. The render path
     // owns the projection; this method just exposes its output.
-    const msg = fakeDisplayMessage({ stableId: "from-sanitized" });
+    const msg = fakeDisplayMessage({ id: "from-sanitized" });
     const api = createChatDebugApi(
       makeRefs({
         sanitizedMessagesRef: {
@@ -911,9 +910,9 @@ describe("createChatDebugApi.getScrollState", () => {
     });
     const messagesRef = {
       current: [
-        fakeDisplayMessage({ stableId: "a" }),
-        fakeDisplayMessage({ stableId: "b" }),
-        fakeDisplayMessage({ stableId: "c" }),
+        fakeDisplayMessage({ id: "a" }),
+        fakeDisplayMessage({ id: "b" }),
+        fakeDisplayMessage({ id: "c" }),
       ],
     } as MutableRefObject<DisplayMessage[]>;
     const api = createChatDebugApi(

@@ -60,7 +60,6 @@ function renderMessage(
 describe("TranscriptMessageBody", () => {
   test("uses the latest tool completion as the message activity timestamp", () => {
     const html = renderMessage({
-      stableId: "m1",
       id: "m1",
       role: "assistant",
       content: "",
@@ -83,7 +82,6 @@ describe("TranscriptMessageBody", () => {
 
   test("falls back to the tool start time for active tool-only messages", () => {
     const html = renderMessage({
-      stableId: "m1",
       id: "m1",
       role: "assistant",
       content: "",
@@ -106,7 +104,6 @@ describe("TranscriptMessageBody", () => {
   test("uses the assistant identity name for Slack assistant attribution fallback", () => {
     const html = renderMessage(
       {
-        stableId: "m1",
         id: "m1",
         role: "assistant",
         content: "hello from Slack",
@@ -130,7 +127,6 @@ describe("TranscriptMessageBody", () => {
     const { getByTitle } = render(
       <TranscriptMessageBody
         message={{
-          stableId: "stable-1",
           id: "local-1",
           role: "assistant",
           content: "hello",
@@ -151,7 +147,6 @@ describe("TranscriptMessageBody", () => {
     const { getByTitle } = render(
       <TranscriptMessageBody
         message={{
-          stableId: "stable-1",
           id: "message-1",
           role: "user",
           content: "hello",

@@ -16,14 +16,13 @@ function makeMessage(
   const { stableId, id, ...rest } = overrides;
   const sid = stableId ?? newStableId("test");
   return {
-    stableId: sid,
     id: id ?? sid,
     ...rest,
   };
 }
 
 function messageItem(message: DisplayMessage): MessageItem {
-  return { kind: "message", key: message.stableId, message };
+  return { kind: "message", key: message.id, message };
 }
 
 function thinkingItem(): ThinkingItem {
@@ -45,8 +44,8 @@ describe("partitionLatestTurn", () => {
   });
 
   test("no user messages at all → anchor null, history = full items, response = []", () => {
-    const a1 = makeMessage({ id: "m1", role: "assistant", content: "A", stableId: "s-a1" });
-    const a2 = makeMessage({ id: "m2", role: "assistant", content: "B", stableId: "s-a2" });
+    const a1 = makeMessage({ id: "m1", role: "assistant", content: "A",  });
+    const a2 = makeMessage({ id: "m2", role: "assistant", content: "B",  });
     const items: TranscriptItem[] = [messageItem(a1), messageItem(a2), thinkingItem()];
 
     const partition = partitionLatestTurn(items);
@@ -58,7 +57,7 @@ describe("partitionLatestTurn", () => {
   });
 
   test("single user message, no response → anchor matches, response empty", () => {
-    const user = makeMessage({ id: "m1", role: "user", content: "Hi", stableId: "s-u1" });
+    const user = makeMessage({ id: "m1", role: "user", content: "Hi",  });
     const userItem = messageItem(user);
     const items: TranscriptItem[] = [userItem];
 
@@ -69,10 +68,10 @@ describe("partitionLatestTurn", () => {
   });
 
   test("multi-turn history with trailing assistant + thinking/surface/error all end up in responseItems", () => {
-    const u1 = makeMessage({ id: "m1", role: "user", content: "Hi", stableId: "s-u1" });
-    const a1 = makeMessage({ id: "m2", role: "assistant", content: "Hello", stableId: "s-a1" });
-    const u2 = makeMessage({ id: "m3", role: "user", content: "More", stableId: "s-u2" });
-    const a2 = makeMessage({ id: "m4", role: "assistant", content: "Sure", stableId: "s-a2" });
+    const u1 = makeMessage({ id: "m1", role: "user", content: "Hi",  });
+    const a1 = makeMessage({ id: "m2", role: "assistant", content: "Hello",  });
+    const u2 = makeMessage({ id: "m3", role: "user", content: "More",  });
+    const a2 = makeMessage({ id: "m4", role: "assistant", content: "Sure",  });
 
     const u1Item = messageItem(u1);
     const a1Item = messageItem(a1);
@@ -90,8 +89,8 @@ describe("partitionLatestTurn", () => {
   });
 
   test("picks the LAST user message when multiple user messages exist", () => {
-    const u1 = makeMessage({ id: "m1", role: "user", content: "First", stableId: "s-u1" });
-    const u2 = makeMessage({ id: "m2", role: "user", content: "Second", stableId: "s-u2" });
+    const u1 = makeMessage({ id: "m1", role: "user", content: "First",  });
+    const u2 = makeMessage({ id: "m2", role: "user", content: "Second",  });
     const u1Item = messageItem(u1);
     const u2Item = messageItem(u2);
 
@@ -112,8 +111,8 @@ describe("partitionLatestTurn", () => {
   });
 
   test("assistant-only MessageItems never anchor", () => {
-    const a1 = makeMessage({ id: "m1", role: "assistant", content: "A", stableId: "s-a1" });
-    const a2 = makeMessage({ id: "m2", role: "assistant", content: "B", stableId: "s-a2" });
+    const a1 = makeMessage({ id: "m1", role: "assistant", content: "A",  });
+    const a2 = makeMessage({ id: "m2", role: "assistant", content: "B",  });
     const items: TranscriptItem[] = [messageItem(a1), messageItem(a2)];
 
     const partition = partitionLatestTurn(items);

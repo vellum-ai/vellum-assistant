@@ -33,7 +33,7 @@ import {
 // Fixtures
 // ---------------------------------------------------------------------------
 
-function makeMessage(stableId: string): TranscriptItem {
+function makeMessage(id: string): TranscriptItem {
   // Build a minimal MessageItem. The hook never inspects `message` fields;
   // only `key`/`kind` identity matters for the scroll coordinator. `id`
   // mirrors `stableId` to satisfy the post-2c.1 type-level requirement
@@ -52,7 +52,7 @@ function makeMessage(stableId: string): TranscriptItem {
 
 /** Like `makeMessage` but with `role: "user"`, used by tests that exercise
  *  the latest-user-anchor lookup. */
-function makeUserMessage(stableId: string): TranscriptItem {
+function makeUserMessage(id: string): TranscriptItem {
   return {
     kind: "message",
     key: stableId,

@@ -126,7 +126,6 @@ describe("SlackChannelFooter lazy channel name resolution", () => {
         }}
         messages={[
           {
-            stableId: "msg-1",
             id: "msg-1",
             role: "user",
             content: "Hello",

@@ -166,7 +166,7 @@ function makeMessage(
 ): DisplayMessage {
   const { stableId, id, ...rest } = overrides;
   const sid = stableId ?? newStableId("test");
-  return { stableId: sid, id: id ?? sid, ...rest };
+  return { id: id ?? sid, ...rest };
 }
 
 function createHarness(overrides?: {

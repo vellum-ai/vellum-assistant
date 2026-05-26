@@ -2,11 +2,9 @@ import { describe, expect, test } from "bun:test";
 
 import { sortByTimestamp, sortedByTimestamp } from "@/domains/chat/utils/message-sorting.js";
 import type { DisplayMessage } from "@/domains/chat/types/types.js";
-import { newStableId } from "@/domains/chat/utils/stable-id.js";
-
 function make(overrides: Partial<DisplayMessage> & { timestamp?: number }): DisplayMessage {
   return {
-    stableId: newStableId("test"),
+    id: crypto.randomUUID(),
     role: "assistant",
     content: "",
     ...overrides,
@@ -16,25 +14,25 @@ function make(overrides: Partial<DisplayMessage> & { timestamp?: number }): Disp
 describe("sortByTimestamp", () => {
   test("orders timestamped messages ascending", () => {
     const messages: DisplayMessage[] = [
-      make({ stableId: "c", timestamp: 300 }),
-      make({ stableId: "a", timestamp: 100 }),
-      make({ stableId: "b", timestamp: 200 }),
+      make({ id: "c", timestamp: 300 }),
+      make({ id: "a", timestamp: 100 }),
+      make({ id: "b", timestamp: 200 }),
     ];
     sortByTimestamp(messages);
-    expect(messages.map((m) => m.stableId)).toEqual(["a", "b", "c"]);
+    expect(messages.map((m) => m.id)).toEqual(["a", "b", "c"]);
   });
 
   test("reverse-ordered input becomes ascending (the bug we're patching)", () => {
     // Mirrors the production failure mode: a multi-row server cluster
     // delivered with bubbles in reverse insertion order.
     const messages: DisplayMessage[] = [
-      make({ stableId: "13", timestamp: 1000 }),
-      make({ stableId: "12", timestamp: 900 }),
-      make({ stableId: "11", timestamp: 800 }),
-      make({ stableId: "10", timestamp: 700 }),
+      make({ id: "13", timestamp: 1000 }),
+      make({ id: "12", timestamp: 900 }),
+      make({ id: "11", timestamp: 800 }),
+      make({ id: "10", timestamp: 700 }),
     ];
     sortByTimestamp(messages);
-    expect(messages.map((m) => m.stableId)).toEqual(["10", "11", "12", "13"]);
+    expect(messages.map((m) => m.id)).toEqual(["10", "11", "12", "13"]);
   });
 
   test("equal timestamps preserve original insertion order (stable sort)", () => {
@@ -42,12 +40,12 @@ describe("sortByTimestamp", () => {
     // in the same tick. The stable sort preserves whatever order the
     // upstream mutator put them in.
     const messages: DisplayMessage[] = [
-      make({ stableId: "first", timestamp: 500 }),
-      make({ stableId: "second", timestamp: 500 }),
-      make({ stableId: "third", timestamp: 500 }),
+      make({ id: "first", timestamp: 500 }),
+      make({ id: "second", timestamp: 500 }),
+      make({ id: "third", timestamp: 500 }),
     ];
     sortByTimestamp(messages);
-    expect(messages.map((m) => m.stableId)).toEqual(["first", "second", "third"]);
+    expect(messages.map((m) => m.id)).toEqual(["first", "second", "third"]);
   });
 
   test("messages without a timestamp keep their original slot", () => {
@@ -55,13 +53,13 @@ describe("sortByTimestamp", () => {
     // shuffled around. Only the timestamped subset is reordered, and the
     // reordered values are written back into the slots that had timestamps.
     const messages: DisplayMessage[] = [
-      make({ stableId: "later-ts", timestamp: 200 }),
-      make({ stableId: "no-ts-1", timestamp: undefined }),
-      make({ stableId: "earlier-ts", timestamp: 100 }),
-      make({ stableId: "no-ts-2", timestamp: undefined }),
+      make({ id: "later-ts", timestamp: 200 }),
+      make({ id: "no-ts-1", timestamp: undefined }),
+      make({ id: "earlier-ts", timestamp: 100 }),
+      make({ id: "no-ts-2", timestamp: undefined }),
     ];
     sortByTimestamp(messages);
-    expect(messages.map((m) => m.stableId)).toEqual([
+    expect(messages.map((m) => m.id)).toEqual([
       "earlier-ts", // slot 0 (was timestamped)
       "no-ts-1", // slot 1 (untouched)
       "later-ts", // slot 2 (was timestamped)
@@ -71,11 +69,11 @@ describe("sortByTimestamp", () => {
 
   test("no-op when fewer than 2 timestamped messages", () => {
     const messages: DisplayMessage[] = [
-      make({ stableId: "a", timestamp: 100 }),
-      make({ stableId: "b", timestamp: undefined }),
+      make({ id: "a", timestamp: 100 }),
+      make({ id: "b", timestamp: undefined }),
     ];
     sortByTimestamp(messages);
-    expect(messages.map((m) => m.stableId)).toEqual(["a", "b"]);
+    expect(messages.map((m) => m.id)).toEqual(["a", "b"]);
   });
 });
 
@@ -92,7 +90,7 @@ describe("sortByTimestamp · tool-call tiebreaker", () => {
       // Array order is reversed relative to execution order — mirrors the
       // "11 / 12 / 13 inverted" bug screenshot.
       make({
-        stableId: "row-c",
+        id: "row-c",
         timestamp: sharedTs,
         toolCalls: [
           {
@@ -106,7 +104,7 @@ describe("sortByTimestamp · tool-call tiebreaker", () => {
         ],
       }),
       make({
-        stableId: "row-b",
+        id: "row-b",
         timestamp: sharedTs,
         toolCalls: [
           {
@@ -120,7 +118,7 @@ describe("sortByTimestamp · tool-call tiebreaker", () => {
         ],
       }),
       make({
-        stableId: "row-a",
+        id: "row-a",
         timestamp: sharedTs,
         toolCalls: [
           {
@@ -135,14 +133,14 @@ describe("sortByTimestamp · tool-call tiebreaker", () => {
       }),
     ];
     sortByTimestamp(messages);
-    expect(messages.map((m) => m.stableId)).toEqual(["row-a", "row-b", "row-c"]);
+    expect(messages.map((m) => m.id)).toEqual(["row-a", "row-b", "row-c"]);
   });
 
   test("uses startedAt when completedAt is absent (running tool call)", () => {
     const sharedTs = 500;
     const messages: DisplayMessage[] = [
       make({
-        stableId: "later",
+        id: "later",
         timestamp: sharedTs,
         toolCalls: [
           {
@@ -155,7 +153,7 @@ describe("sortByTimestamp · tool-call tiebreaker", () => {
         ],
       }),
       make({
-        stableId: "earlier",
+        id: "earlier",
         timestamp: sharedTs,
         toolCalls: [
           {
@@ -169,14 +167,14 @@ describe("sortByTimestamp · tool-call tiebreaker", () => {
       }),
     ];
     sortByTimestamp(messages);
-    expect(messages.map((m) => m.stableId)).toEqual(["earlier", "later"]);
+    expect(messages.map((m) => m.id)).toEqual(["earlier", "later"]);
   });
 
   test("uses lastProgressAt for long-running tools without completedAt", () => {
     const sharedTs = 100;
     const messages: DisplayMessage[] = [
       make({
-        stableId: "later-progress",
+        id: "later-progress",
         timestamp: sharedTs,
         toolCalls: [
           {
@@ -190,7 +188,7 @@ describe("sortByTimestamp · tool-call tiebreaker", () => {
         ],
       }),
       make({
-        stableId: "earlier-progress",
+        id: "earlier-progress",
         timestamp: sharedTs,
         toolCalls: [
           {
@@ -205,7 +203,7 @@ describe("sortByTimestamp · tool-call tiebreaker", () => {
       }),
     ];
     sortByTimestamp(messages);
-    expect(messages.map((m) => m.stableId)).toEqual([
+    expect(messages.map((m) => m.id)).toEqual([
       "earlier-progress",
       "later-progress",
     ]);
@@ -217,7 +215,7 @@ describe("sortByTimestamp · tool-call tiebreaker", () => {
     const sharedTs = 100;
     const messages: DisplayMessage[] = [
       make({
-        stableId: "B",
+        id: "B",
         timestamp: sharedTs,
         toolCalls: [
           { id: "b1", toolName: "x", input: {}, status: "completed", completedAt: 700 },
@@ -225,7 +223,7 @@ describe("sortByTimestamp · tool-call tiebreaker", () => {
         ],
       }),
       make({
-        stableId: "A",
+        id: "A",
         timestamp: sharedTs,
         toolCalls: [
           { id: "a1", toolName: "x", input: {}, status: "completed", completedAt: 200 },
@@ -235,7 +233,7 @@ describe("sortByTimestamp · tool-call tiebreaker", () => {
     ];
     sortByTimestamp(messages);
     // A's max activity = 600, B's max activity = 700 → A before B.
-    expect(messages.map((m) => m.stableId)).toEqual(["A", "B"]);
+    expect(messages.map((m) => m.id)).toEqual(["A", "B"]);
   });
 
   test("falls back to insertion order when timestamps AND tool activity tie", () => {
@@ -243,12 +241,12 @@ describe("sortByTimestamp · tool-call tiebreaker", () => {
     // order so streaming bubbles don't flicker.
     const sharedTs = 100;
     const messages: DisplayMessage[] = [
-      make({ stableId: "first", timestamp: sharedTs }),
-      make({ stableId: "second", timestamp: sharedTs }),
-      make({ stableId: "third", timestamp: sharedTs }),
+      make({ id: "first", timestamp: sharedTs }),
+      make({ id: "second", timestamp: sharedTs }),
+      make({ id: "third", timestamp: sharedTs }),
     ];
     sortByTimestamp(messages);
-    expect(messages.map((m) => m.stableId)).toEqual(["first", "second", "third"]);
+    expect(messages.map((m) => m.id)).toEqual(["first", "second", "third"]);
   });
 
   test("messages without tool calls don't disturb messages with them", () => {
@@ -258,30 +256,30 @@ describe("sortByTimestamp · tool-call tiebreaker", () => {
     const sharedTs = 100;
     const messages: DisplayMessage[] = [
       make({
-        stableId: "with-tool",
+        id: "with-tool",
         timestamp: sharedTs,
         toolCalls: [
           { id: "t", toolName: "x", input: {}, status: "completed", completedAt: 5000 },
         ],
       }),
-      make({ stableId: "plain", timestamp: sharedTs }),
+      make({ id: "plain", timestamp: sharedTs }),
     ];
     sortByTimestamp(messages);
-    expect(messages.map((m) => m.stableId)).toEqual(["plain", "with-tool"]);
+    expect(messages.map((m) => m.id)).toEqual(["plain", "with-tool"]);
   });
 });
 
 describe("sortedByTimestamp", () => {
   test("returns a new sorted array without mutating the input", () => {
     const original: DisplayMessage[] = [
-      make({ stableId: "b", timestamp: 200 }),
-      make({ stableId: "a", timestamp: 100 }),
+      make({ id: "b", timestamp: 200 }),
+      make({ id: "a", timestamp: 100 }),
     ];
-    const snapshot = original.map((m) => m.stableId);
+    const snapshot = original.map((m) => m.id);
     const sorted = sortedByTimestamp(original);
-    expect(sorted.map((m) => m.stableId)).toEqual(["a", "b"]);
+    expect(sorted.map((m) => m.id)).toEqual(["a", "b"]);
     // Original untouched
-    expect(original.map((m) => m.stableId)).toEqual(snapshot);
+    expect(original.map((m) => m.id)).toEqual(snapshot);
     // Distinct array instance
     expect(sorted).not.toBe(original);
   });

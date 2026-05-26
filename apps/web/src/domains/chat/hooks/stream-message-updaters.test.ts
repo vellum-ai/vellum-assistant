@@ -20,7 +20,6 @@ function makeAssistantMsg(
   overrides: Partial<DisplayMessage> = {},
 ): DisplayMessage {
   return {
-    stableId: "stable-1",
     id: "stable-1",
     role: "assistant",
     content: "hello",
@@ -33,7 +32,6 @@ function makeAssistantMsg(
 }
 
 const userMsg: DisplayMessage = {
-  stableId: "user-1",
   id: "user-1",
   role: "user",
   content: "hi",
@@ -57,7 +55,7 @@ describe("createStreamingBubble", () => {
     expect(bubble.isStreaming).toBe(true);
     expect(bubble.content).toBe("Hello");
     expect(bubble.id).toBe("msg-1");
-    expect(bubble.stableId).toBeDefined();
+    expect(bubble.id).toBeDefined();
   });
 
   it("works on an empty array", () => {
@@ -68,7 +66,7 @@ describe("createStreamingBubble", () => {
   });
 
   it("preserves existing messages", () => {
-    const existing = [userMsg, makeAssistantMsg({ stableId: "a1" })];
+    const existing = [userMsg, makeAssistantMsg({ id: "a1" })];
     const result = createStreamingBubble(existing, "new");
     expect(result).toHaveLength(3);
     expect(result[0]).toBe(userMsg);
@@ -528,7 +526,7 @@ describe("applyToolProgress", () => {
 describe("finalizeOnIdle", () => {
   it("finalizes running tool calls across ALL streaming assistant messages", () => {
     const msg1 = makeAssistantMsg({
-      stableId: "a1",
+      id: "a1",
       content: "",
       toolCalls: [
         { id: "tc-1", toolName: "web_search", input: {}, status: "running" },
@@ -536,7 +534,7 @@ describe("finalizeOnIdle", () => {
       contentOrder: [{ type: "toolCall", id: "tc-1" }],
     });
     const msg2 = makeAssistantMsg({
-      stableId: "a2",
+      id: "a2",
       content: "some text",
       toolCalls: [
         { id: "tc-2", toolName: "web_fetch", input: {}, status: "running" },
@@ -585,14 +583,14 @@ describe("finalizeOnIdle", () => {
 
   it("does not modify non-streaming assistant messages", () => {
     const finishedMsg = makeAssistantMsg({
-      stableId: "a-done",
+      id: "a-done",
       isStreaming: false,
       toolCalls: [
         { id: "tc-old", toolName: "bash", input: {}, status: "running" },
       ],
     });
     const streamingMsg = makeAssistantMsg({
-      stableId: "a-stream",
+      id: "a-stream",
       toolCalls: [
         { id: "tc-new", toolName: "web_search", input: {}, status: "running" },
       ],
@@ -615,7 +613,7 @@ describe("applyToolResult — cross-message matching", () => {
     // Simulate: tool_use_start on msg1, then a new bubble was created (msg2),
     // then tool_result arrives with toolUseId pointing to msg1's tool call.
     const msg1 = makeAssistantMsg({
-      stableId: "a1",
+      id: "a1",
       content: "",
       toolCalls: [
         { id: "tc-early", toolName: "web_search", input: {}, status: "running" },
@@ -623,7 +621,7 @@ describe("applyToolResult — cross-message matching", () => {
       contentOrder: [{ type: "toolCall", id: "tc-early" }],
     });
     const msg2 = makeAssistantMsg({
-      stableId: "a2",
+      id: "a2",
       content: "some later text",
       toolCalls: [
         { id: "tc-later", toolName: "bash", input: {}, status: "running" },
@@ -644,14 +642,14 @@ describe("applyToolResult — cross-message matching", () => {
 
   it("falls back to last assistant message when toolUseId is not provided", () => {
     const msg1 = makeAssistantMsg({
-      stableId: "a1",
+      id: "a1",
       content: "",
       toolCalls: [
         { id: "tc-1", toolName: "web_search", input: {}, status: "running" },
       ],
     });
     const msg2 = makeAssistantMsg({
-      stableId: "a2",
+      id: "a2",
       content: "",
       toolCalls: [
         { id: "tc-2", toolName: "bash", input: {}, status: "running" },

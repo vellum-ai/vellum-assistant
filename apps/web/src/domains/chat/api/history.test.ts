@@ -152,11 +152,11 @@ describe("response parsing", () => {
     expect(result.oldestMessageId).toBe("m1");
     expect(result.messages).toHaveLength(2);
     for (const msg of result.messages) {
-      expect(typeof msg.stableId).toBe("string");
-      expect(msg.stableId!.length).toBeGreaterThan(0);
+      expect(typeof msg.id).toBe("string");
+      expect(msg.id!.length).toBeGreaterThan(0);
     }
     // stableIds are unique across messages in the same page
-    const ids = result.messages.map((m) => m.stableId);
+    const ids = result.messages.map((m) => m.id);
     expect(new Set(ids).size).toBe(ids.length);
 
     expect(result.messages[0]!.role).toBe("user");
@@ -179,7 +179,7 @@ describe("response parsing", () => {
     expect(result.oldestTimestamp).toBe(0);
     expect(result.oldestMessageId).toBe("m0");
     expect(result.messages).toHaveLength(1);
-    expect(result.messages[0]!.stableId).toBeTruthy();
+    expect(result.messages[0]!.id).toBeTruthy();
   });
 
   test("falls back to null when oldestTimestamp/oldestMessageId are omitted", async () => {
