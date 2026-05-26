@@ -747,8 +747,12 @@ export function TranscriptMessageBody({
         {(contentElements.some((el) => !!el) ||
           (!message.toolCalls?.length &&
             !(message.attachments && message.attachments.length > 0))) && (
+          // Layout-only column: the bubble styling (textBubbleClass) is applied
+          // per text segment inside renderTextWithInlineSurfaces, mirroring the
+          // interleaved path above. Applying textBubbleClass here too would
+          // double-wrap text in two nested bubbles (doubled padding/background).
           <div
-            className={`text-[15px] break-words ${textBubbleClass}`}
+            className={`flex w-full flex-col gap-2 ${message.role === "user" ? "items-end" : "items-start"}`}
           >
             {contentElements}
           </div>
