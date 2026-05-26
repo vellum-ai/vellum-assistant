@@ -1008,20 +1008,6 @@ export interface Injector {
 // catalog-discoverable skills today.
 
 /**
- * Tool registration contributed by a plugin. Uses the narrow
- * {@link LoadedTool} shape. External plugin authors declare the
- * nameless `ToolDefinition` (from `@vellumai/plugin-api`) file shape;
- * the loader derives `name` from the `tools/<name>.ts` basename before
- * storing it on `plugin.tools`. Authors also leave category / ownership
- * metadata to the bootstrap, which stamps
- * `category: "plugin"`, `origin: "plugin"`, and
- * `ownerPluginId: <plugin.name>` before handing the batch to
- * `registerPluginTools`. The registration boundary spreads the loaded
- * definition into the canonical {@link Tool} shape used by the registry,
- * which now extends {@link LoadedTool} directly.
- */
-export type PluginToolRegistration = LoadedTool;
-/**
  * HTTP route registration contributed by a plugin. Plugins express routes as
  * {@link SkillRoute} values — the same shape the skill-route registry
  * consumes — so `registerSkillRoute` can accept them directly. Bootstrap
@@ -1121,8 +1107,16 @@ export interface Plugin {
   manifest: PluginManifest;
   /** Lifecycle hooks (init, shutdown). See {@link PluginHooks}. */
   hooks?: PluginHooks;
-  /** Tool registrations visible to the model. */
-  tools?: PluginToolRegistration[];
+  /**
+   * Tool registrations visible to the model. External plugin authors
+   * declare the nameless `ToolDefinition` file shape (from
+   * `@vellumai/plugin-api`); the loader derives `name` from the
+   * `tools/<name>.ts` basename and runs the definition through
+   * `finalizeTool` to fill omitted required fields, producing the
+   * `LoadedTool` values stored here. Category / ownership metadata is
+   * stamped by `registerPluginTools` at registration time.
+   */
+  tools?: LoadedTool[];
   /** HTTP route registrations served by the assistant. */
   routes?: PluginRouteRegistration[];
   /** Skill registrations loaded at startup. */
