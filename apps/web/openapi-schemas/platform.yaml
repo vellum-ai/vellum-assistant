@@ -6835,6 +6835,22 @@ components:
         * `l` - l
         * `xl` - xl
         * `xxl` - xxl
+    SubscriptionEntitlements:
+      type: object
+      description: |-
+        Plan-gated feature entitlements for the current org.
+
+        Mirrors app.billing.entitlements.has_entitlement(), so admin
+        EntitlementOverride grants are reflected here regardless of plan.
+        Scope matches ADMIN_GRANTABLE_FEATURES.
+      properties:
+        managed_email:
+          type: boolean
+        phone_number:
+          type: boolean
+      required:
+      - managed_email
+      - phone_number
     SubscriptionResponse:
       type: object
       properties:
@@ -6859,10 +6875,13 @@ components:
           type: string
           format: date-time
           nullable: true
+        entitlements:
+          $ref: '#/components/schemas/SubscriptionEntitlements'
       required:
       - cancel_at
       - cancel_at_period_end
       - current_period_end
+      - entitlements
       - plan_id
       - renewal_date
       - status
