@@ -41,5 +41,4 @@ follow-up PRs.
   `pr-electron.yaml` / `ci-main-electron.yaml` because
   `.github/workflows/ci-main-macos.yaml` is taken by the legacy native Swift
   app at `clients/macos/`. The workflow filenames will be renamed to
-  `-macos.yaml` once `clients/macos/` retires. Tracked at
-  [LUM-1908](https://linear.app/vellum/issue/LUM-1908).
+  `-macos.yaml` once `clients/macos/` retires.

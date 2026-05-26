@@ -8,12 +8,11 @@ This package is the macOS distribution surface (outside the App Store).
 Code signing, notarization, and auto-update wiring live in follow-up tickets.
 
 > **Note on workflow filenames.** This directory is `apps/macos/` to match the
-> platform-named convention used by `apps/ios/`, but the CI workflows are
+> platform-named convention used by `apps/ios/`, but the CI workflow files are
 > still named `pr-electron.yaml` / `ci-main-electron.yaml` because
 > `.github/workflows/ci-main-macos.yaml` is already taken by the legacy
 > native Swift app at [`clients/macos/`](../../clients/macos/). The workflow
-> filenames will be renamed to `-macos.yaml` once `clients/macos/` retires —
-> tracked at [LUM-1908](https://linear.app/vellum/issue/LUM-1908).
+> filenames will be renamed to `-macos.yaml` once `clients/macos/` retires.
 
 ## Prerequisites
 
