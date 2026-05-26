@@ -18,6 +18,7 @@ import { registerBrowserCommand } from "./commands/browser.js";
 import { registerCacheCommand } from "./commands/cache.js";
 import { registerChangelogCommand } from "./commands/changelog.js";
 import { registerChannelVerificationSessionsCommand } from "./commands/channel-verification-sessions.js";
+import { registerChannelsCommand } from "./commands/channels/index.js";
 import { registerClientsCommand } from "./commands/clients.js";
 import { registerCompletionsCommand } from "./commands/completions.js";
 import { registerConfigCommand } from "./commands/config.js";
@@ -113,6 +114,7 @@ Examples:
   registerCacheCommand(program);
   registerChangelogCommand(program);
   registerChannelVerificationSessionsCommand(program);
+  registerChannelsCommand(program);
   registerClientsCommand(program);
   registerCompletionsCommand(program);
   registerConfigCommand(program);
