@@ -23,7 +23,7 @@ import { deleteBiometricToken } from "@/runtime/native-biometric.js";
 import { syncOnboardingUser } from "@/domains/onboarding/prefs.js";
 import { clearOrganization } from "@/stores/organization-store.js";
 import { useEventBusStore } from "@/stores/event-bus-store.js";
-import { isNativePlatform, installSessionCookies } from "@/runtime/native-auth.js";
+import { isNativePlatform, installSessionCookies, waitForNativeSessionCookie } from "@/runtime/native-auth.js";
 import { isBiometricEnabled, retrieveBiometricToken } from "@/runtime/native-biometric.js";
 
 export interface AuthUser {
@@ -118,6 +118,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
         const token = await retrieveBiometricToken();
         if (token) {
           installSessionCookies(token);
+          await waitForNativeSessionCookie();
           const retryResult = await getSession();
           if (retryResult.ok && retryResult.data.user) {
             const user = toAuthUser(retryResult.data.user);

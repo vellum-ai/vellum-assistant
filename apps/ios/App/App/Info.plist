@@ -77,11 +77,5 @@
 	<true/>
 	<key>VellumAssociatedDomain</key>
 	<string>$(ASSOCIATED_DOMAIN)</string>
-	<key>WKAppBoundDomains</key>
-	<array>
-		<string>www.vellum.ai</string>
-		<string>dev-assistant.vellum.ai</string>
-		<string>staging-assistant.vellum.ai</string>
-	</array>
 </dict>
 </plist>
