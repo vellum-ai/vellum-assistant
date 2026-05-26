@@ -81,18 +81,24 @@ export async function searchGlobal(
     }
 
     // Validate the shape minimally — the daemon may evolve its response.
+    // The daemon wraps category arrays inside a `results` object:
+    //   { query: string, results: { conversations, schedules, contacts } }
     if (data && typeof data === "object") {
-      return {
-        conversations: Array.isArray((data as GlobalSearchResponse).conversations)
-          ? (data as GlobalSearchResponse).conversations
-          : [],
-        schedules: Array.isArray((data as GlobalSearchResponse).schedules)
-          ? (data as GlobalSearchResponse).schedules
-          : [],
-        contacts: Array.isArray((data as GlobalSearchResponse).contacts)
-          ? (data as GlobalSearchResponse).contacts
-          : [],
-      };
+      const results =
+        (data as unknown as Record<string, unknown>).results ?? data;
+      if (results && typeof results === "object") {
+        return {
+          conversations: Array.isArray((results as GlobalSearchResponse).conversations)
+            ? (results as GlobalSearchResponse).conversations
+            : [],
+          schedules: Array.isArray((results as GlobalSearchResponse).schedules)
+            ? (results as GlobalSearchResponse).schedules
+            : [],
+          contacts: Array.isArray((results as GlobalSearchResponse).contacts)
+            ? (results as GlobalSearchResponse).contacts
+            : [],
+        };
+      }
     }
 
     return EMPTY_RESULTS;
