@@ -61,6 +61,11 @@ export function setDeviceSetting(name: DeviceSettingName, value: string): void {
  * One-time migration: reads values from legacy (non-prefixed) keys,
  * writes them to the new `device:`-prefixed keys, and removes the
  * legacy keys. Idempotent — safe to re-run on every app startup.
+ *
+ * Uses `setLocalSetting` (not raw `localStorage.setItem`) so the
+ * `vellum:pref-changed` custom event fires for each migrated key.
+ * Same-tab observers (Sentry consent gate, onboarding store) pick
+ * up the new values without needing a full page reload.
  */
 export function migrateDeviceSettings(): void {
   if (typeof window === "undefined") return;
@@ -71,7 +76,7 @@ export function migrateDeviceSettings(): void {
         // Only write if the new key doesn't already exist — avoids
         // overwriting a value that was set by new code between loads.
         if (localStorage.getItem(entry.key) === null) {
-          localStorage.setItem(entry.key, legacyValue);
+          setLocalSetting(entry.key, legacyValue);
         }
         localStorage.removeItem(entry.legacy);
       }

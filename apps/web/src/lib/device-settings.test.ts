@@ -97,4 +97,25 @@ describe("migrateDeviceSettings", () => {
     expect(localStorage.getItem("device:theme")).toBeNull();
     expect(localStorage.length).toBe(0);
   });
+
+  test("dispatches vellum:pref-changed for each migrated key", () => {
+    localStorage.setItem("vellum_theme", "dark");
+    localStorage.setItem("vellum_share_diagnostics", "true");
+
+    const dispatched: Array<{ key: string; value: string }> = [];
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ key: string; value: string }>).detail;
+      dispatched.push(detail);
+    };
+    window.addEventListener("vellum:pref-changed", handler);
+
+    migrateDeviceSettings();
+
+    window.removeEventListener("vellum:pref-changed", handler);
+
+    expect(dispatched).toEqual([
+      { key: "device:theme", value: "dark" },
+      { key: "device:share_diagnostics", value: "true" },
+    ]);
+  });
 });
