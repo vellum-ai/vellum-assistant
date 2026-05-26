@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lt, lte, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import type { LLMCallSite } from "../config/schemas/llm.js";
@@ -307,6 +307,50 @@ function selectUnlinkedLogsInRange(
       ),
     )
     .orderBy(llmRequestLogs.createdAt)
+    .all();
+}
+
+/**
+ * Fetch every `compactionAgent` log row in the conversation that ran
+ * **before** the given cutoff timestamp, ordered chronologically.
+ *
+ * Drives the Inspector's Compaction tab: caller looks up the selected
+ * LLM call's `createdAt`, passes it as `beforeCreatedAt`, and gets back
+ * the compaction events that contributed to the context that call ran
+ * against. Using strict `<` (not `<=`) here means the selected call
+ * itself never appears in its own trail — even if it were a compaction
+ * call somehow.
+ *
+ * NULL `callSite` rows (pre-migration-264) are excluded by the explicit
+ * `callSite = 'compactionAgent'` predicate without a separate IS NOT
+ * NULL clause.
+ */
+export function getCompactionLogsBeforeCall(
+  conversationId: string,
+  beforeCreatedAt: number,
+): LogRow[] {
+  const db = getDb();
+  return db
+    .select({
+      id: llmRequestLogs.id,
+      conversationId: llmRequestLogs.conversationId,
+      messageId: llmRequestLogs.messageId,
+      provider: llmRequestLogs.provider,
+      requestPayload: llmRequestLogs.requestPayload,
+      responsePayload: llmRequestLogs.responsePayload,
+      createdAt: llmRequestLogs.createdAt,
+      agentLoopExitReason: llmRequestLogs.agentLoopExitReason,
+      callSite: llmRequestLogs.callSite,
+    })
+    .from(llmRequestLogs)
+    .where(
+      and(
+        eq(llmRequestLogs.conversationId, conversationId),
+        eq(llmRequestLogs.callSite, "compactionAgent"),
+        lt(llmRequestLogs.createdAt, beforeCreatedAt),
+      ),
+    )
+    .orderBy(asc(llmRequestLogs.createdAt), asc(llmRequestLogs.id))
     .all();
 }
 

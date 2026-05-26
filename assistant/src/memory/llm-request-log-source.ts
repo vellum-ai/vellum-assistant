@@ -38,6 +38,20 @@ export interface LlmRequestLogSource {
    * and orphaned logs are all included because they share conversation_id.
    */
   getRequestLogsByConversationId(conversationId: string): Promise<LogRow[]>;
+
+  /**
+   * Fetch every `callSite = "compactionAgent"` log row in the conversation
+   * that ran **before** the given cutoff timestamp, ordered chronologically.
+   *
+   * Drives the Inspector's Compaction tab: the route handler looks up the
+   * selected LLM call's `createdAt`, passes it as `beforeCreatedAt`, and
+   * gets back the compaction events that contributed to the context that
+   * call ran against.
+   */
+  getCompactionLogsBeforeCall(
+    conversationId: string,
+    beforeCreatedAt: number,
+  ): Promise<LogRow[]>;
 }
 
 /**

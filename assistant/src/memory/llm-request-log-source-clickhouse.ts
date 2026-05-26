@@ -209,6 +209,43 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
     return rows.map((r) => this.toLogRow(r));
   }
 
+  async getCompactionLogsBeforeCall(
+    conversationId: string,
+    beforeCreatedAt: number,
+  ): Promise<LogRow[]> {
+    const aid = await this.assistantId();
+    // `call_site` is bound as a literal via type-bound parameter (not
+    // string interpolation) for parity with the rest of this class —
+    // even though "compactionAgent" is a hard-coded identifier today,
+    // future call sites should plug into the same parameter slot
+    // without re-templating the query string.
+    const sql = `SELECT
+        id,
+        conversation_id,
+        message_id,
+        provider,
+        request_payload,
+        response_payload,
+        toUnixTimestamp64Milli(created_at) AS created_at,
+        agent_loop_exit_reason,
+        call_site
+      FROM ${this.tableRef()}
+      WHERE assistant_id = {assistant_id:String}
+        AND conversation_id = {conversation_id:String}
+        AND call_site = {call_site:String}
+        AND created_at < fromUnixTimestamp64Milli({before_created_at:Int64})
+      ORDER BY created_at ASC, id ASC
+      LIMIT 1 BY id
+      FORMAT JSONEachRow`;
+    const rows = await this.exec(sql, {
+      assistant_id: aid,
+      conversation_id: conversationId,
+      call_site: "compactionAgent",
+      before_created_at: String(beforeCreatedAt),
+    });
+    return rows.map((r) => this.toLogRow(r));
+  }
+
   private async selectByMessageIds(ids: string[]): Promise<LogRow[]> {
     if (ids.length === 0) return [];
     const aid = await this.assistantId();

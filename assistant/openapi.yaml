@@ -4867,6 +4867,104 @@ paths:
           required: true
           schema:
             type: string
+  /v1/conversations/{id}/compaction:
+    get:
+      operationId: conversations_by_id_compaction_get
+      summary: Get the compaction trail leading up to an LLM call
+      description:
+        Return the chronological list of compaction events that ran in this conversation before the LLM call
+        identified by `callId`. Projected from `llm_request_logs` rows where `call_site = "compactionAgent"` and
+        `created_at < callRow.createdAt`. Drives the Inspector's Compaction tab.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversationId:
+                    type: string
+                  events:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        createdAt:
+                          type: number
+                        model:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        provider:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        inputTokens:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        outputTokens:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        durationMs:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        responsePreview:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        requestMessageCount:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        stopReason:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        estimatedCostUsd:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                      required:
+                        - id
+                        - createdAt
+                        - model
+                        - provider
+                        - inputTokens
+                        - outputTokens
+                        - durationMs
+                        - responsePreview
+                        - requestMessageCount
+                        - stopReason
+                        - estimatedCostUsd
+                      additionalProperties: false
+                required:
+                  - conversationId
+                  - events
+                additionalProperties: false
+        "400":
+          description: Returned when the callId is missing or refers to a call in a different conversation.
+        "404":
+          description: Returned when the conversation or the referenced LLM call does not exist.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: callId
+          in: query
+          required: true
+          schema:
+            type: string
+          description: ID of the selected LLM call from the rail. Defines the chronological cutoff for the trail.
   /v1/conversations/{id}/inference-profile:
     put:
       operationId: conversations_by_id_inferenceprofile_put

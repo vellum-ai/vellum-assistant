@@ -40,6 +40,7 @@ import { ROUTES as CONTENT_SOURCE_ROUTES } from "./content-source-routes.js";
 import { ROUTES as CONVERSATION_ANALYSIS_ROUTES } from "./conversation-analysis-routes.js";
 import { ROUTES as CONVERSATION_ATTENTION_ROUTES } from "./conversation-attention-routes.js";
 import { ROUTES as CONVERSATION_CLI_ROUTES } from "./conversation-cli-routes.js";
+import { ROUTES as CONVERSATION_COMPACTION_ROUTES } from "./conversation-compaction-routes.js";
 import { ROUTES as CONVERSATION_LIST_ROUTES } from "./conversation-list-routes.js";
 import { ROUTES as CONVERSATION_MANAGEMENT_ROUTES } from "./conversation-management-routes.js";
 import { ROUTES as CONVERSATION_QUERY_ROUTES } from "./conversation-query-routes.js";
@@ -179,6 +180,7 @@ export const ROUTES: RouteDefinition[] = [
   ...CREDENTIAL_PROMPT_ROUTES,
   ...CREDENTIAL_ROUTES,
   ...DEFER_ROUTES,
+  ...CONVERSATION_COMPACTION_ROUTES,
   ...CONVERSATION_QUERY_ROUTES,
   ...CONVERSATION_STARTER_ROUTES,
   ...DEBUG_BASH_ROUTES,

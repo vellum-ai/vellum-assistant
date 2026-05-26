@@ -442,6 +442,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "messages/content", scopes: ["chat.read"] },
   { endpoint: "messages/llm-context", scopes: ["chat.read"] },
   { endpoint: "conversations/llm-context", scopes: ["chat.read"] },
+  { endpoint: "conversations/compaction", scopes: ["chat.read"] },
   { endpoint: "llm-request-logs/payload", scopes: ["chat.read"] },
   { endpoint: "messages/tts", scopes: ["chat.read"] },
   { endpoint: "tts/synthesize", scopes: ["chat.read"] },
