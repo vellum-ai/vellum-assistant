@@ -134,6 +134,15 @@ export type SeedInferenceProfilesOptions = {
    */
   preserveProfileNames?: Iterable<string>;
   preserveActiveProfile?: boolean;
+  /**
+   * True when a workspace config overlay was consumed this startup. Used
+   * only by the platform-side active-profile reset: a platform overlay
+   * update that changes `llm.default.provider` (without explicitly setting
+   * `activeProfile`) implicitly resets `activeProfile` to the managed
+   * default. Has no effect on BYOK onboarding, which is gated state-wise
+   * by `isByokOnboarding` inside the seeder.
+   */
+  hadOverlay?: boolean;
   /** DB handle for creating user provider connections at hatch time. */
   db?: DrizzleDb;
 };
@@ -346,6 +355,11 @@ export function seedInferenceProfiles(
     if (isByokOnboarding) {
       // BYOK onboarding: default to the personal profile.
       llm.activeProfile = userConnectionName ? "custom-balanced" : "balanced";
+    } else if (isPlatform && options.hadOverlay === true) {
+      // Platform overlay change (e.g. re-hatch from openai to anthropic):
+      // implicitly reset activeProfile to the managed default. Preserves
+      // pre-#32025 behavior for platform-pushed overlay updates.
+      llm.activeProfile = "balanced";
     } else if (!requestedActiveExists) {
       llm.activeProfile = "balanced";
     }

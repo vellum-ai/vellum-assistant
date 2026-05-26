@@ -579,6 +579,7 @@ export async function runDaemon(): Promise<void> {
       seedInferenceProfiles({
         preserveProfileNames: defaultConfigMerge.providedLlmProfileNames,
         preserveActiveProfile: defaultConfigMerge.providedLlmActiveProfile,
+        hadOverlay: defaultConfigMerge.hadOverlay,
         db: dbReady ? getDb() : undefined,
       });
       log.info("Inference profile seeding complete");
