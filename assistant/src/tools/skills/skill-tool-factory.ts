@@ -60,7 +60,6 @@ export function createSkillTool(
     ownerSkillId: skillId,
     executionTarget: entry.execution_target as ExecutionTarget,
     ownerSkillVersionHash: versionHash,
-    ownerSkillBundled: bundled,
 
     input_schema: entry.input_schema as object,
 

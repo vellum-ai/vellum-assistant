@@ -1083,7 +1083,6 @@ export class SkillHostClient implements SkillHost {
             executionTarget: t.executionTarget,
             executionMode: t.executionMode ?? "proxy",
             ownerSkillId: t.ownerSkillId ?? this.options.skillId,
-            ownerSkillBundled: t.ownerSkillBundled,
             ownerSkillVersionHash: t.ownerSkillVersionHash,
           };
         });

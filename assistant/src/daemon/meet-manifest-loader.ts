@@ -142,7 +142,6 @@ function buildProxyTool(
     executionTarget: "host" as ExecutionTarget,
     origin: "skill",
     ownerSkillId: MEET_SKILL_ID,
-    ownerSkillBundled: true,
     ownerSkillVersionHash: manifestHash,
     execute: async (input, context) => {
       // `dispatchTool` ensures the meet-host child is up + connected

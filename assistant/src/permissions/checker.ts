@@ -16,6 +16,7 @@ import {
   looksLikePathOnlyInput,
 } from "../tools/network/url-safety.js";
 import { getTool } from "../tools/registry.js";
+import type { Tool } from "../tools/types.js";
 import {
   getDeprecatedDir,
   getProtectedDir,
@@ -148,6 +149,19 @@ function resolveSkillIdAndHash(
   } catch {
     return { id: resolved.skill.id };
   }
+}
+
+/**
+ * Resolve whether the skill that owns this tool is bundled (first-party).
+ * Returns false when the tool has no owning skill or the skill is not in
+ * the catalog. Derived from `loadSkillCatalog()` at check time so the
+ * answer reflects current catalog truth (managed overrides flip the bit
+ * without needing to re-register tools).
+ */
+function isToolOwnerSkillBundled(tool: Tool | undefined): boolean {
+  if (!tool?.ownerSkillId) return false;
+  const skill = loadSkillCatalog().find((s) => s.id === tool.ownerSkillId);
+  return skill?.bundled ?? false;
 }
 
 /**
@@ -535,7 +549,7 @@ export async function check(
         : tool
           ? "builtin"
           : undefined,
-    isSkillBundled: tool?.ownerSkillBundled ?? false,
+    isSkillBundled: isToolOwnerSkillBundled(tool),
     hasManifestOverride: !!manifestOverride,
     autoApproveUpTo: threshold,
     hasSandboxAutoApprove,
