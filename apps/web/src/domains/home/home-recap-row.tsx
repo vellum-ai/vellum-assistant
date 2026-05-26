@@ -97,7 +97,7 @@ export function HomeRecapRow({
             "text-[var(--content-disabled)]",
           )}
         >
-          <TrailingIcon width={7} height={7} aria-hidden="true" />
+          <TrailingIcon width={14} height={14} aria-hidden="true" />
           <span className="text-body-small-default">{trailingLabel}</span>
         </span>
       ) : null}
