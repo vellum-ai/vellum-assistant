@@ -339,10 +339,10 @@ export function AssistantUpgrades({
         open={showConfirmation}
         title={
           isRollback
-            ? "Rollback assistant"
+            ? "Rollback Assistant"
             : isPreviewReleaseChannel
               ? "Update preview release"
-              : "Update assistant"
+              : "Update Assistant"
         }
         message={
           isRollback
