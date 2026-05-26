@@ -13,6 +13,14 @@ import "./index.css";
 
 import { initSafeAreaBridge } from "@/runtime/native-safe-area.js";
 
+function isChunkLoadError(error: unknown): boolean {
+  if (error instanceof TypeError && /dynamically imported module|importing a module script/i.test(error.message)) {
+    return true;
+  }
+  const name = (error as { name?: string }).name;
+  return name === "ChunkLoadError" || name === "DynamicImportError";
+}
+
 async function boot() {
   await initSafeAreaBridge();
 
@@ -26,7 +34,16 @@ async function boot() {
   createRoot(rootEl).render(
     <StrictMode>
       <AppProviders>
-        <RouterProvider router={router} />
+        <RouterProvider
+          router={router}
+          onError={(error) => {
+            if (isChunkLoadError(error)) {
+              window.location.reload();
+              return;
+            }
+            console.error("[RouterProvider]", error);
+          }}
+        />
       </AppProviders>
     </StrictMode>,
   );

@@ -6,86 +6,44 @@ import { ChatLayout } from "@/domains/chat/chat-layout.js";
 import { ChatPage } from "@/domains/chat/chat-page.js";
 import { ConversationRedirect } from "@/domains/chat/conversation-redirect.js";
 import { DocumentViewerPage } from "@/domains/chat/document-viewer-page.js";
-import { HomePageRoute } from "@/home-page-route.js";
-import { LibraryPage } from "@/domains/library/library-page.js";
-import { LibraryDetailPage } from "@/domains/library/library-detail-page.js";
-import { IdentityPage } from "@/domains/intelligence/identity-page.js";
-import { IntelligenceLayout } from "@/domains/intelligence/intelligence-layout.js";
-import { PluginsPage } from "@/domains/intelligence/plugins-page.js";
-import { SkillsPage } from "@/domains/intelligence/skills-page.js";
-import { ConnectPage } from "@/domains/contacts/connect-page.js";
-import { ContactsPage } from "@/domains/contacts/contacts-page.js";
-import { WorkspacePage } from "@/domains/workspace/workspace-page.js";
-import { InspectPage } from "@/domains/chat/inspector/inspect-page.js";
-import { MemoryRouterPlaygroundPage } from "@/domains/chat/inspector/memory-router-playground-page.js";
 import { NotFound } from "@/components/not-found.js";
-import { SettingsLayout } from "@/domains/settings/settings-layout.js";
-import { GeneralPage } from "@/domains/settings/pages/general-page.js";
-import { AiPage } from "@/domains/settings/ai/ai-page.js";
-import { IntegrationsPage } from "@/domains/settings/pages/integrations-page.js";
-import { SchedulesPage } from "@/domains/settings/pages/schedules-page.js";
-import { NotificationsPage } from "@/domains/settings/pages/notifications-page.js";
-import { SoundsPage } from "@/domains/settings/pages/sounds-page.js";
-import { VoicePage } from "@/domains/settings/pages/voice-page.js";
-import { DevicesPage } from "@/domains/settings/pages/devices-page.js";
-import { PrivacyPage } from "@/domains/settings/pages/privacy-page.js";
-import { ArchivePage } from "@/domains/settings/pages/archive-page.js";
-import { CommunityPage } from "@/domains/settings/pages/community-page.js";
-import { DebugPage } from "@/domains/settings/pages/debug-page.js";
-import { DeveloperPage } from "@/domains/settings/pages/developer-page.js";
-import { AdvancedPage } from "@/domains/settings/pages/advanced-page.js";
-import { BillingPage } from "@/domains/settings/billing/billing-page.js";
-import { UpgradeCancelPage } from "@/domains/settings/billing/upgrade-cancel-page.js";
-import { UpgradeSuccessPage } from "@/domains/settings/billing/upgrade-success-page.js";
-import { DangerZoneRedirectPage } from "@/domains/settings/pages/danger-zone-redirect-page.js";
-import { SystemEventsRedirectPage } from "@/domains/settings/pages/system-events-redirect-page.js";
-import { AccountPage } from "@/domains/account/pages/account-page.js";
-import { LoginPage } from "@/domains/account/pages/login-page.js";
-import { SignupPage } from "@/domains/account/pages/signup-page.js";
-import { ProviderCallbackPage } from "@/domains/account/pages/provider-callback-page.js";
-import { ProviderSignupPage } from "@/domains/account/pages/provider-signup-page.js";
-import { DesktopOAuthCompletePage } from "@/domains/account/pages/desktop-oauth-complete-page.js";
-import { LogoutPage } from "@/domains/account/pages/logout-page.js";
-import { OAuthPopupCompletePage } from "@/domains/account/pages/oauth-popup-complete-page.js";
-import { PasswordResetPage } from "@/domains/account/pages/password-reset-page.js";
 import { ActiveAssistantGate } from "@/components/layout/active-assistant-gate.js";
-import { HatchingScreen } from "@/domains/onboarding/pages/hatching-screen.js";
-import { PreChatFlow } from "@/domains/onboarding/pages/pre-chat-flow.js";
-import { PrivacyScreen } from "@/domains/onboarding/pages/privacy-screen.js";
-import { LogsLayout } from "@/domains/logs/logs-layout.js";
-import { TracePage } from "@/domains/logs/pages/trace-page.js";
-import { UsagePage } from "@/domains/logs/pages/usage-page.js";
-import { SystemEventsPage } from "@/domains/logs/pages/system-events-page.js";
-import { EmailsPage } from "@/domains/logs/pages/emails-page.js";
 
 // Route tree — no basename, routes are absolute browser paths.
 // To view the full hierarchy at a glance:
 //   grep -n 'path:' apps/web/src/routes.tsx
 //
+// Non-critical route groups use the object-based `lazy` property so Vite
+// splits them into separate chunks that are fetched on first navigation.
+// The router resolves each lazy property before transitioning, so the
+// previous route stays visible while the new chunk downloads — no flash.
+//
 // References:
 // - React Router data mode routing: https://reactrouter.com/start/data/routing
 // - React Router route object: https://reactrouter.com/start/data/route-object
+// - React Router lazy (data mode): https://reactrouter.com/start/data/custom#3-lazy-loading
 // - React Router middleware: https://reactrouter.com/how-to/middleware
 export const router = createBrowserRouter(
   [
-    // Account routes — standalone auth pages, no app chrome
+    // Account routes — standalone auth pages, no app chrome.
+    // Lazy-loaded: only needed for unauthenticated flows.
     {
       path: "/account",
       children: [
-        { index: true, Component: AccountPage },
-        { path: "login", Component: LoginPage },
-        { path: "signup", Component: SignupPage },
-        { path: "provider/callback", Component: ProviderCallbackPage },
-        { path: "provider/signup", Component: ProviderSignupPage },
-        { path: "oauth/popup-complete", Component: OAuthPopupCompletePage },
-        { path: "oauth/desktop-complete", Component: DesktopOAuthCompletePage },
-        { path: "password/reset", Component: PasswordResetPage },
-        { path: "password/reset/key/:key", Component: PasswordResetPage },
+        { index: true, lazy: { Component: () => import("@/domains/account/pages/account-page.js").then((m) => m.AccountPage) } },
+        { path: "login", lazy: { Component: () => import("@/domains/account/pages/login-page.js").then((m) => m.LoginPage) } },
+        { path: "signup", lazy: { Component: () => import("@/domains/account/pages/signup-page.js").then((m) => m.SignupPage) } },
+        { path: "provider/callback", lazy: { Component: () => import("@/domains/account/pages/provider-callback-page.js").then((m) => m.ProviderCallbackPage) } },
+        { path: "provider/signup", lazy: { Component: () => import("@/domains/account/pages/provider-signup-page.js").then((m) => m.ProviderSignupPage) } },
+        { path: "oauth/popup-complete", lazy: { Component: () => import("@/domains/account/pages/oauth-popup-complete-page.js").then((m) => m.OAuthPopupCompletePage) } },
+        { path: "oauth/desktop-complete", lazy: { Component: () => import("@/domains/account/pages/desktop-oauth-complete-page.js").then((m) => m.DesktopOAuthCompletePage) } },
+        { path: "password/reset", lazy: { Component: () => import("@/domains/account/pages/password-reset-page.js").then((m) => m.PasswordResetPage) } },
+        { path: "password/reset/key/:key", lazy: { Component: () => import("@/domains/account/pages/password-reset-page.js").then((m) => m.PasswordResetPage) } },
       ],
     },
 
     // Logout — standalone page, no app chrome
-    { path: "/logout", Component: LogoutPage },
+    { path: "/logout", lazy: { Component: () => import("@/domains/account/pages/logout-page.js").then((m) => m.LogoutPage) } },
 
     // Assistant routes — auth-protected app with layout
     {
@@ -93,52 +51,64 @@ export const router = createBrowserRouter(
       middleware: [authMiddleware],
       Component: RootLayout,
       children: [
-        // Onboarding routes — full-screen (no ChatLayout sidebar)
-        { path: "onboarding/privacy", Component: PrivacyScreen },
-        { path: "onboarding/prechat", Component: PreChatFlow },
-        { path: "onboarding/hatching", Component: HatchingScreen },
+        // Onboarding routes — full-screen (no ChatLayout sidebar).
+        // Lazy-loaded: one-time flow, not revisited.
+        {
+          path: "onboarding/privacy",
+          lazy: { Component: () => import("@/domains/onboarding/pages/privacy-screen.js").then((m) => m.PrivacyScreen) },
+        },
+        {
+          path: "onboarding/prechat",
+          lazy: { Component: () => import("@/domains/onboarding/pages/pre-chat-flow.js").then((m) => m.PreChatFlow) },
+        },
+        {
+          path: "onboarding/hatching",
+          lazy: { Component: () => import("@/domains/onboarding/pages/hatching-screen.js").then((m) => m.HatchingScreen) },
+        },
 
         // Settings routes — full-screen overlay panel (no ChatLayout sidebar).
         // SettingsShell provides its own layout with back-arrow, sidebar nav,
         // and content area — the main app sidebar is intentionally hidden.
+        // Lazy-loaded: visited occasionally, heavy deps (Stripe, schedules, voice).
         {
           path: "settings",
-          Component: SettingsLayout,
+          lazy: { Component: () => import("@/domains/settings/settings-layout.js").then((m) => m.SettingsLayout) },
           children: [
-            { index: true, Component: GeneralPage },
-            { path: "general", Component: GeneralPage },
-            { path: "ai", Component: AiPage },
-            { path: "integrations", Component: IntegrationsPage },
-            { path: "schedules", Component: SchedulesPage },
-            { path: "notifications", Component: NotificationsPage },
-            { path: "sounds", Component: SoundsPage },
-            { path: "voice", Component: VoicePage },
-            { path: "devices", Component: DevicesPage },
-            { path: "privacy", Component: PrivacyPage },
-            { path: "archive", Component: ArchivePage },
-            { path: "billing", Component: BillingPage },
-            { path: "billing/upgrade/cancel", Component: UpgradeCancelPage },
-            { path: "billing/upgrade/success", Component: UpgradeSuccessPage },
-            { path: "community", Component: CommunityPage },
-            { path: "debug", Component: DebugPage },
-            { path: "developer", Component: DeveloperPage },
-            { path: "advanced", Component: AdvancedPage },
-            { path: "danger-zone", Component: DangerZoneRedirectPage },
-            { path: "system-events", Component: SystemEventsRedirectPage },
+            { index: true, lazy: { Component: () => import("@/domains/settings/pages/general-page.js").then((m) => m.GeneralPage) } },
+            { path: "general", lazy: { Component: () => import("@/domains/settings/pages/general-page.js").then((m) => m.GeneralPage) } },
+            { path: "ai", lazy: { Component: () => import("@/domains/settings/ai/ai-page.js").then((m) => m.AiPage) } },
+            { path: "integrations", lazy: { Component: () => import("@/domains/settings/pages/integrations-page.js").then((m) => m.IntegrationsPage) } },
+            { path: "schedules", lazy: { Component: () => import("@/domains/settings/pages/schedules-page.js").then((m) => m.SchedulesPage) } },
+            { path: "notifications", lazy: { Component: () => import("@/domains/settings/pages/notifications-page.js").then((m) => m.NotificationsPage) } },
+            { path: "sounds", lazy: { Component: () => import("@/domains/settings/pages/sounds-page.js").then((m) => m.SoundsPage) } },
+            { path: "voice", lazy: { Component: () => import("@/domains/settings/pages/voice-page.js").then((m) => m.VoicePage) } },
+            { path: "devices", lazy: { Component: () => import("@/domains/settings/pages/devices-page.js").then((m) => m.DevicesPage) } },
+            { path: "privacy", lazy: { Component: () => import("@/domains/settings/pages/privacy-page.js").then((m) => m.PrivacyPage) } },
+            { path: "archive", lazy: { Component: () => import("@/domains/settings/pages/archive-page.js").then((m) => m.ArchivePage) } },
+            { path: "billing", lazy: { Component: () => import("@/domains/settings/billing/billing-page.js").then((m) => m.BillingPage) } },
+            { path: "billing/upgrade/cancel", lazy: { Component: () => import("@/domains/settings/billing/upgrade-cancel-page.js").then((m) => m.UpgradeCancelPage) } },
+            { path: "billing/upgrade/success", lazy: { Component: () => import("@/domains/settings/billing/upgrade-success-page.js").then((m) => m.UpgradeSuccessPage) } },
+            { path: "community", lazy: { Component: () => import("@/domains/settings/pages/community-page.js").then((m) => m.CommunityPage) } },
+            { path: "debug", lazy: { Component: () => import("@/domains/settings/pages/debug-page.js").then((m) => m.DebugPage) } },
+            { path: "developer", lazy: { Component: () => import("@/domains/settings/pages/developer-page.js").then((m) => m.DeveloperPage) } },
+            { path: "advanced", lazy: { Component: () => import("@/domains/settings/pages/advanced-page.js").then((m) => m.AdvancedPage) } },
+            { path: "danger-zone", lazy: { Component: () => import("@/domains/settings/pages/danger-zone-redirect-page.js").then((m) => m.DangerZoneRedirectPage) } },
+            { path: "system-events", lazy: { Component: () => import("@/domains/settings/pages/system-events-redirect-page.js").then((m) => m.SystemEventsRedirectPage) } },
           ],
         },
 
         // Logs routes — full-screen overlay panel (like SettingsLayout).
         // LogsLayout reuses SettingsShell for visual consistency.
+        // Lazy-loaded: analytics-only, pulls in recharts.
         {
           path: "logs",
-          Component: LogsLayout,
+          lazy: { Component: () => import("@/domains/logs/logs-layout.js").then((m) => m.LogsLayout) },
           children: [
-            { index: true, Component: UsagePage },
-            { path: "trace", Component: TracePage },
-            { path: "usage", Component: UsagePage },
-            { path: "system-events", Component: SystemEventsPage },
-            { path: "emails", Component: EmailsPage },
+            { index: true, lazy: { Component: () => import("@/domains/logs/pages/usage-page.js").then((m) => m.UsagePage) } },
+            { path: "trace", lazy: { Component: () => import("@/domains/logs/pages/trace-page.js").then((m) => m.TracePage) } },
+            { path: "usage", lazy: { Component: () => import("@/domains/logs/pages/usage-page.js").then((m) => m.UsagePage) } },
+            { path: "system-events", lazy: { Component: () => import("@/domains/logs/pages/system-events-page.js").then((m) => m.SystemEventsPage) } },
+            { path: "emails", lazy: { Component: () => import("@/domains/logs/pages/emails-page.js").then((m) => m.EmailsPage) } },
           ],
         },
 
@@ -159,27 +129,30 @@ export const router = createBrowserRouter(
             {
               Component: ActiveAssistantGate,
               children: [
-                { path: "home", Component: HomePageRoute },
                 {
-                  Component: IntelligenceLayout,
+                  path: "home",
+                  lazy: { Component: () => import("@/home-page-route.js").then((m) => m.HomePageRoute) },
+                },
+                {
+                  lazy: { Component: () => import("@/domains/intelligence/intelligence-layout.js").then((m) => m.IntelligenceLayout) },
                   children: [
-                    { path: "identity", Component: IdentityPage },
-                    { path: "plugins", Component: PluginsPage },
-                    { path: "skills", Component: SkillsPage },
-                    { path: "workspace", Component: WorkspacePage },
-                    { path: "contacts", Component: ContactsPage },
+                    { path: "identity", lazy: { Component: () => import("@/domains/intelligence/identity-page.js").then((m) => m.IdentityPage) } },
+                    { path: "plugins", lazy: { Component: () => import("@/domains/intelligence/plugins-page.js").then((m) => m.PluginsPage) } },
+                    { path: "skills", lazy: { Component: () => import("@/domains/intelligence/skills-page.js").then((m) => m.SkillsPage) } },
+                    { path: "workspace", lazy: { Component: () => import("@/domains/workspace/workspace-page.js").then((m) => m.WorkspacePage) } },
+                    { path: "contacts", lazy: { Component: () => import("@/domains/contacts/contacts-page.js").then((m) => m.ContactsPage) } },
                   ],
                 },
-                { path: "library", Component: LibraryPage },
-                { path: "library/:appId", Component: LibraryDetailPage },
-                { path: "connect", Component: ConnectPage },
+                { path: "library", lazy: { Component: () => import("@/domains/library/library-page.js").then((m) => m.LibraryPage) } },
+                { path: "library/:appId", lazy: { Component: () => import("@/domains/library/library-detail-page.js").then((m) => m.LibraryDetailPage) } },
+                { path: "connect", lazy: { Component: () => import("@/domains/contacts/connect-page.js").then((m) => m.ConnectPage) } },
                 {
                   path: "conversations/:conversationId/inspect",
-                  Component: InspectPage,
+                  lazy: { Component: () => import("@/domains/chat/inspector/inspect-page.js").then((m) => m.InspectPage) },
                 },
                 {
                   path: "memory-router-playground",
-                  Component: MemoryRouterPlaygroundPage,
+                  lazy: { Component: () => import("@/domains/chat/inspector/memory-router-playground-page.js").then((m) => m.MemoryRouterPlaygroundPage) },
                 },
               ],
             },
