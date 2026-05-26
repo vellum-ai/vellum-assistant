@@ -632,6 +632,12 @@ export async function wakeAgentForOpportunity(
     // so the latest-row lookup in `setAgentLoopExitReasonOnLatestLog`
     // can see the freshly-persisted final usage row.
     let pendingExitReason: string | null = null;
+    // Preserve the caller-provided call site (e.g. `memoryRetrospective`)
+    // for analytics — `opts.callSite` defaults to `"mainAgent"` below at
+    // the resolveEffectiveContextWindow site, but at this point we want
+    // the explicit caller intent. Hardcoding `"mainAgent"` here would
+    // misattribute every non-main wake on `llm_request_logs.call_site`.
+    const logCallSite: LLMCallSite = opts.callSite ?? "mainAgent";
     const persistLog = (record: PendingLog): void => {
       try {
         recordRequestLog(
@@ -640,7 +646,7 @@ export async function wakeAgentForOpportunity(
           JSON.stringify(record.rawResponse),
           undefined,
           record.provider,
-          "mainAgent",
+          logCallSite,
         );
       } catch (err) {
         log.warn(

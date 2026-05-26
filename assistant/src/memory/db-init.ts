@@ -117,6 +117,7 @@ import {
   migrateHeartbeatRuns,
   migrateInviteCodeHashColumn,
   migrateInviteContactId,
+  migrateCompactionLogs,
   migrateLlmRequestLogAgentLoopExitReason,
   migrateLlmRequestLogCallSite,
   migrateLlmRequestLogMessageId,
@@ -462,6 +463,7 @@ export function initializeDb(): void {
     migrateMemoryV3Coactivation,
     migrateMemoryV3AutoEdges,
     migrateLlmRequestLogCallSite,
+    migrateCompactionLogs,
   ];
 
   // Run each migration step, catching and logging individual failures so one

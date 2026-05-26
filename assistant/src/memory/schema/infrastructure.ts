@@ -155,6 +155,63 @@ export const llmRequestLogs = sqliteTable(
   ],
 );
 
+/**
+ * Structured per-event record of compaction passes. One row per attempt
+ * where `context/compactor.ts` actually invoked `provider.sendMessage`.
+ * No-op early returns (compaction disabled, below auto threshold, no
+ * messages, no tool pair) do NOT produce a row — they're not events
+ * worth observing.
+ *
+ * Pairs with `llm_request_logs.call_site = 'compactionAgent'` rows:
+ * `llmRequestLogId` is the FK that links a compaction event to the
+ * underlying LLM call. Nullable because the call's raw req/resp can be
+ * missing (provider didn't return them), in which case
+ * `recordCompactionRequestLog` skips persisting a log row.
+ *
+ * Surfaced in the Inspector's Compaction Trail tab (PR 4).
+ */
+export const compactionLogs = sqliteTable(
+  "compaction_logs",
+  {
+    id: text("id").primaryKey(),
+    conversationId: text("conversation_id").notNull(),
+    llmRequestLogId: text("llm_request_log_id"),
+    /** `'normal'` (runAssistantDrivenCompaction) | `'emergency'`. */
+    mode: text("mode").notNull(),
+    /**
+     * `'compacted'`         — success, applied to the live history.
+     * `'no_change'`         — model returned tail_start at head, nothing to compact.
+     * `'unparseable'`       — model output didn't contain a valid `<compaction_result>` block.
+     * `'tail_unresolved'`   — `<tail_start>` timestamp didn't match any live message.
+     * `'provider_error'`    — `provider.sendMessage` threw.
+     */
+    outcome: text("outcome").notNull(),
+    beforeMessageCount: integer("before_message_count").notNull(),
+    afterMessageCount: integer("after_message_count").notNull(),
+    beforeEstimatedTokens: integer("before_estimated_tokens").notNull(),
+    afterEstimatedTokens: integer("after_estimated_tokens").notNull(),
+    maxInputTokens: integer("max_input_tokens").notNull(),
+    thresholdTokens: integer("threshold_tokens").notNull(),
+    summaryInputTokens: integer("summary_input_tokens").notNull(),
+    summaryOutputTokens: integer("summary_output_tokens").notNull(),
+    /** Provider-reported model id; null only when no response landed. */
+    model: text("model"),
+    latencyMs: integer("latency_ms").notNull(),
+    /** Populated when `outcome = 'provider_error'`; null otherwise. */
+    errorMessage: text("error_message"),
+    /** Capped excerpt (up to ~1000 chars) of the produced summary. */
+    summaryExcerpt: text("summary_excerpt"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    index("idx_compaction_logs_conversation").on(
+      table.conversationId,
+      table.createdAt,
+    ),
+    index("idx_compaction_logs_created_at").on(table.createdAt),
+  ],
+);
+
 export const memoryRecallLogs = sqliteTable(
   "memory_recall_logs",
   {

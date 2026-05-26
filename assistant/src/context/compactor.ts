@@ -26,6 +26,10 @@ import {
   getAttachmentContent,
   getAttachmentMetadataForMessage,
 } from "../memory/attachments-store.js";
+import {
+  type CompactionLogOutcome,
+  recordCompactionLog,
+} from "../memory/compaction-log-store.js";
 import { getMessages } from "../memory/conversation-crud.js";
 import { recordRequestLog } from "../memory/llm-request-log-store.js";
 import type {
@@ -71,14 +75,23 @@ const COMPACTION_LOG_CALL_SITE: LLMCallSite = "compactionAgent";
  * dispatcher. Failures are swallowed (warn-logged) so a DB hiccup never
  * escalates compaction into a failure.
  */
+/**
+ * Persist the compaction call's request/response into `llm_request_logs`
+ * with `call_site = 'compactionAgent'` and return the inserted id so
+ * the caller can link a `compaction_logs` row to it.
+ *
+ * Returns `null` when raw req/resp are missing on the provider response
+ * (some provider stacks don't return them) or when the DB insert throws.
+ * Either way is non-fatal — compaction itself doesn't depend on the log.
+ */
 function recordCompactionRequestLog(
   conversationId: string,
   response: ProviderResponse,
   provider: Provider,
-): void {
-  if (!response.rawRequest || !response.rawResponse) return;
+): string | null {
+  if (!response.rawRequest || !response.rawResponse) return null;
   try {
-    recordRequestLog(
+    return recordRequestLog(
       conversationId,
       JSON.stringify(response.rawRequest),
       JSON.stringify(response.rawResponse),
@@ -90,6 +103,61 @@ function recordCompactionRequestLog(
     log.warn(
       { err, conversationId },
       "Failed to persist compaction LLM request log (non-fatal)",
+    );
+    return null;
+  }
+}
+
+/**
+ * Persist a `compaction_logs` row describing the outcome of one
+ * compaction pass. Called from `runAssistantDrivenCompaction` and
+ * `runEmergencyCompaction` at every post-provider-call exit point.
+ *
+ * Non-fatal on DB error — compaction itself doesn't depend on the log.
+ *
+ * `mode` defaults to `'normal'`. The emergency path passes `'emergency'`.
+ * `outcome` distinguishes success (`'compacted'`) from the various
+ * failure modes that still consumed a provider call. See the
+ * `CompactionLogOutcome` type for the full set.
+ */
+function recordCompactionOutcome(params: {
+  args: CompactionRunArgs;
+  thresholdTokens: number;
+  outcome: CompactionLogOutcome;
+  latencyMs: number;
+  llmRequestLogId: string | null;
+  model: string | null;
+  summaryInputTokens: number;
+  summaryOutputTokens: number;
+  summaryExcerpt: string | null;
+  errorMessage: string | null;
+  afterMessageCount: number;
+  afterEstimatedTokens: number;
+  mode?: "normal" | "emergency";
+}): void {
+  try {
+    recordCompactionLog({
+      conversationId: params.args.conversationId,
+      llmRequestLogId: params.llmRequestLogId,
+      mode: params.mode ?? "normal",
+      outcome: params.outcome,
+      beforeMessageCount: params.args.messages.length,
+      afterMessageCount: params.afterMessageCount,
+      beforeEstimatedTokens: params.args.previousEstimatedInputTokens,
+      afterEstimatedTokens: params.afterEstimatedTokens,
+      maxInputTokens: params.args.maxInputTokens,
+      thresholdTokens: params.thresholdTokens,
+      summaryInputTokens: params.summaryInputTokens,
+      summaryOutputTokens: params.summaryOutputTokens,
+      model: params.model,
+      latencyMs: params.latencyMs,
+      errorMessage: params.errorMessage,
+      summaryExcerpt: params.summaryExcerpt,
+    });
+  } catch (err) {
+    log.warn(
+      { err, conversationId: params.args.conversationId },
+      "Failed to persist compaction event (non-fatal)",
     );
   }
 }
@@ -668,6 +736,10 @@ export async function runAssistantDrivenCompaction(
     args.maxInputTokens * args.compaction.autoThreshold,
   );
 
+  // Early no-op exits — compactor was invoked but never reached
+  // `provider.sendMessage`. These don't produce `compaction_logs` rows
+  // by design (see schema comment): they're not events worth observing,
+  // they're decisions not to act.
   if (!args.compaction.enabled) {
     return emptyResult(args, thresholdTokens, "compaction disabled");
   }
@@ -693,6 +765,13 @@ export async function runAssistantDrivenCompaction(
   // stays warm.
   const requestMessages = [...args.messages, instruction];
 
+  // From here on every exit path persists a `compaction_logs` row via
+  // `recordOutcome`. Defaults assume "we tried but didn't apply" — the
+  // success branch overrides afterMessageCount + summary excerpt.
+  let llmRequestLogId: string | null = null;
+  const callStart = Date.now();
+  let latencyMs = 0;
+
   let response: ProviderResponse;
   try {
     response = await args.provider.sendMessage(
@@ -710,8 +789,24 @@ export async function runAssistantDrivenCompaction(
         },
       },
     );
+    latencyMs = Date.now() - callStart;
   } catch (err) {
+    latencyMs = Date.now() - callStart;
     log.warn({ err }, "Compaction provider call failed");
+    recordCompactionOutcome({
+      args,
+      thresholdTokens,
+      outcome: "provider_error",
+      latencyMs,
+      llmRequestLogId: null,
+      model: null,
+      summaryInputTokens: 0,
+      summaryOutputTokens: 0,
+      summaryExcerpt: null,
+      errorMessage: err instanceof Error ? err.message : String(err),
+      afterMessageCount: args.messages.length,
+      afterEstimatedTokens: args.previousEstimatedInputTokens,
+    });
     return {
       ...emptyResult(args, thresholdTokens, "provider error"),
       summaryFailed: true,
@@ -720,7 +815,11 @@ export async function runAssistantDrivenCompaction(
 
   // Persist the compaction LLM call into `llm_request_logs` with
   // `call_site = "compactionAgent"`. Non-fatal on DB error — see helper.
-  recordCompactionRequestLog(args.conversationId, response, args.provider);
+  llmRequestLogId = recordCompactionRequestLog(
+    args.conversationId,
+    response,
+    args.provider,
+  );
 
   const rawText = extractTextFromResponse(response.content);
   const parsed = parseCompactionResult(rawText);
@@ -729,6 +828,20 @@ export async function runAssistantDrivenCompaction(
       { rawPreview: rawText.slice(0, 200) },
       "Compaction response did not contain a valid <compaction_result> block",
     );
+    recordCompactionOutcome({
+      args,
+      thresholdTokens,
+      outcome: "unparseable",
+      latencyMs,
+      llmRequestLogId,
+      model: response.model,
+      summaryInputTokens: response.usage.inputTokens,
+      summaryOutputTokens: response.usage.outputTokens,
+      summaryExcerpt: null,
+      errorMessage: null,
+      afterMessageCount: args.messages.length,
+      afterEstimatedTokens: args.previousEstimatedInputTokens,
+    });
     return {
       ...emptyResult(args, thresholdTokens, "unparseable response"),
       summaryFailed: false,
@@ -759,6 +872,20 @@ export async function runAssistantDrivenCompaction(
       },
       "Compaction tail_start did not match any message — aborting compaction",
     );
+    recordCompactionOutcome({
+      args,
+      thresholdTokens,
+      outcome: "tail_unresolved",
+      latencyMs,
+      llmRequestLogId,
+      model: response.model,
+      summaryInputTokens: response.usage.inputTokens,
+      summaryOutputTokens: response.usage.outputTokens,
+      summaryExcerpt: parsed.summary,
+      errorMessage: null,
+      afterMessageCount: args.messages.length,
+      afterEstimatedTokens: args.previousEstimatedInputTokens,
+    });
     return {
       ...emptyResult(args, thresholdTokens, "tail_start unresolved"),
       summaryFailed: false,
@@ -792,6 +919,20 @@ export async function runAssistantDrivenCompaction(
   }
 
   if (tailIndex === 0) {
+    recordCompactionOutcome({
+      args,
+      thresholdTokens,
+      outcome: "no_change",
+      latencyMs,
+      llmRequestLogId,
+      model: response.model,
+      summaryInputTokens: response.usage.inputTokens,
+      summaryOutputTokens: response.usage.outputTokens,
+      summaryExcerpt: parsed.summary,
+      errorMessage: null,
+      afterMessageCount: args.messages.length,
+      afterEstimatedTokens: args.previousEstimatedInputTokens,
+    });
     return {
       ...emptyResult(
         args,
@@ -881,6 +1022,23 @@ export async function runAssistantDrivenCompaction(
     },
     "Applied assistant-driven compaction",
   );
+
+  recordCompactionOutcome({
+    args,
+    thresholdTokens,
+    outcome: "compacted",
+    latencyMs,
+    llmRequestLogId,
+    model: response.model,
+    summaryInputTokens: response.usage.inputTokens,
+    summaryOutputTokens: response.usage.outputTokens,
+    summaryExcerpt: summaryText,
+    errorMessage: null,
+    afterMessageCount: compactedMessages.length,
+    // Caller recomputes the actual estimate after applying compaction;
+    // mirror the conservative placeholder used in the return value below.
+    afterEstimatedTokens: args.previousEstimatedInputTokens,
+  });
 
   return {
     messages: compactedMessages,
@@ -1066,6 +1224,11 @@ export async function runEmergencyCompaction(
   };
   const requestMessages = [...prefix, instruction];
 
+  // Same timing + logging pattern as `runAssistantDrivenCompaction`.
+  let llmRequestLogId: string | null = null;
+  const callStart = Date.now();
+  let latencyMs = 0;
+
   let response: ProviderResponse;
   try {
     response = await args.provider.sendMessage(
@@ -1083,8 +1246,25 @@ export async function runEmergencyCompaction(
         },
       },
     );
+    latencyMs = Date.now() - callStart;
   } catch (err) {
+    latencyMs = Date.now() - callStart;
     log.warn({ err }, "Emergency compaction provider call failed");
+    recordCompactionOutcome({
+      args,
+      thresholdTokens,
+      outcome: "provider_error",
+      latencyMs,
+      llmRequestLogId: null,
+      model: null,
+      summaryInputTokens: 0,
+      summaryOutputTokens: 0,
+      summaryExcerpt: null,
+      errorMessage: err instanceof Error ? err.message : String(err),
+      afterMessageCount: args.messages.length,
+      afterEstimatedTokens: args.previousEstimatedInputTokens,
+      mode: "emergency",
+    });
     return {
       ...emptyResult(args, thresholdTokens, "emergency provider error"),
       summaryFailed: true,
@@ -1093,7 +1273,11 @@ export async function runEmergencyCompaction(
 
   // Persist the emergency compaction LLM call into `llm_request_logs` with
   // `call_site = "compactionAgent"`. Non-fatal on DB error — see helper.
-  recordCompactionRequestLog(args.conversationId, response, args.provider);
+  llmRequestLogId = recordCompactionRequestLog(
+    args.conversationId,
+    response,
+    args.provider,
+  );
 
   const rawText = extractTextFromResponse(response.content);
   const parsed = parseCompactionResult(rawText);
@@ -1102,6 +1286,21 @@ export async function runEmergencyCompaction(
       { rawPreview: rawText.slice(0, 200) },
       "Emergency compaction response did not contain a valid <compaction_result>",
     );
+    recordCompactionOutcome({
+      args,
+      thresholdTokens,
+      outcome: "unparseable",
+      latencyMs,
+      llmRequestLogId,
+      model: response.model,
+      summaryInputTokens: response.usage.inputTokens,
+      summaryOutputTokens: response.usage.outputTokens,
+      summaryExcerpt: null,
+      errorMessage: null,
+      afterMessageCount: args.messages.length,
+      afterEstimatedTokens: args.previousEstimatedInputTokens,
+      mode: "emergency",
+    });
     return {
       ...emptyResult(args, thresholdTokens, "emergency unparseable response"),
       summaryFailed: false,
@@ -1138,6 +1337,22 @@ export async function runEmergencyCompaction(
     },
     "Applied emergency mid-turn compaction",
   );
+
+  recordCompactionOutcome({
+    args,
+    thresholdTokens,
+    outcome: "compacted",
+    latencyMs,
+    llmRequestLogId,
+    model: response.model,
+    summaryInputTokens: response.usage.inputTokens,
+    summaryOutputTokens: response.usage.outputTokens,
+    summaryExcerpt: summaryText,
+    errorMessage: null,
+    afterMessageCount: compactedMessages.length,
+    afterEstimatedTokens: args.previousEstimatedInputTokens,
+    mode: "emergency",
+  });
 
   return {
     messages: compactedMessages,
