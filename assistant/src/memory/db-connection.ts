@@ -113,14 +113,14 @@ export function getSqliteFrom(drizzleDb: DrizzleDb): Database {
 }
 
 /**
- * Close the active assistant DB connection (if any) and drop the singleton.
+ * Reset the db singleton. Used by production callers that need to close
+ * the live connection so the file can be replaced (post-migration,
+ * post-restore, post-vbundle-import) and on graceful shutdown.
  *
- * Used by production callers that need to reopen against a modified file —
- * post-migration, post-restore, post-vbundle-import, on graceful shutdown.
  * Tests should use `resetDbForTesting()` from
  * `__tests__/db-test-helpers.ts` instead so they don't depend on this
  * module's heavy import chain (`drizzle-orm/bun-sqlite`).
  */
-export function closeAssistantDb(): void {
+export function resetDb(): void {
   clearStoredDb();
 }

@@ -46,7 +46,7 @@ mock.module("../../memory/db-connection.js", () => {
     getDb: () => builder,
     getSqlite: () => ({ __stub: true }),
     getSqliteFrom: () => ({ __stub: true }),
-    closeAssistantDb: () => {},
+    resetDb: () => {},
   };
 });
 

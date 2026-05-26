@@ -80,7 +80,7 @@ mock.module("../../../memory/db-connection.js", () => ({
   getDb: () => ({ __stub: true }),
   getSqlite: () => ({ __stub: true }),
   getSqliteFrom: () => ({ __stub: true }),
-  closeAssistantDb: () => {},
+  resetDb: () => {},
 }));
 
 // Config loader. The simulate route reads `memory.v2.enabled` (must be

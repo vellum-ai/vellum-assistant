@@ -9,7 +9,7 @@
  * `runtime/migrations/vbundle-importer.ts`, which handles bundle validation,
  * workspace clearing, per-file backup-before-overwrite, and writing files.
  *
- * `restoreFromSnapshot` closes the live SQLite singleton via `closeAssistantDb()`
+ * `restoreFromSnapshot` closes the live SQLite singleton via `resetDb()`
  * before the commit step so the daemon's DB handle is released before
  * `assistant.db` is overwritten on disk.
  *
@@ -19,7 +19,7 @@
 
 import { readFile } from "node:fs/promises";
 
-import { closeAssistantDb } from "../memory/db-connection.js";
+import { resetDb } from "../memory/db-connection.js";
 import type { PathResolver } from "../runtime/migrations/vbundle-import-analyzer.js";
 import {
   evaluateRuntimeCompatibility,
@@ -87,7 +87,7 @@ export async function restoreFromSnapshot(
     pathResolver,
     workspaceDir,
     commitImpl = commitImport,
-    resetDbImpl = closeAssistantDb,
+    resetDbImpl = resetDb,
   } = opts;
 
   const fileData = await readFile(snapshotPath);

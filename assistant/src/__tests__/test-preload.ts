@@ -4,42 +4,17 @@
  * Creates a per-process temporary directory and sets VELLUM_WORKSPACE_DIR so
  * that all workspace-derived helpers (getDataDir, getDbPath,
  * getConversationsDir, getProtectedDir, …) resolve under the temp dir
- * instead of the real ~/.vellum/workspace.
+ * instead of the real $VELLUM_WORKSPACE_DIR.
  *
  * Cleanup: the temp dir is removed after all tests in the file complete.
  *
  * No source-module imports
  * ------------------------
  * The only static imports in this file are node stdlib (`node:fs`,
- * `node:os`, `node:path`), `bun:test`, and `./mock-gateway-ipc.js` — which
- * itself imports only node stdlib + `bun:test`. No source-module import
- * runs at preload-load time, so a broken `node_modules` symlink (the
- * DB ghost #3 failure shape — see
- * /workspace/journal/2026-05-25-db-ghost-3-recovery.md) cannot prevent
- * the env override below from running.
- *
- * No setup helpers in the production hot path
- * -------------------------------------------
- * Three formerly-source-side test helpers were lifted out of production
- * modules into `__tests__/` so the preload (and test files) can use
- * them without dragging the production modules' heavy dependencies
- * (pino, drizzle) through the preload's import chain:
- *
- *   - `setOverridesForTesting` — `__tests__/feature-flag-test-helpers.ts`
- *     (writes to `config/feature-flag-cache.ts`, stdlib-only).
- *     Not called here: the gateway IPC mock below returns a sentinel
- *     for `get_feature_flags` so `initFeatureFlagOverrides()` short-
- *     circuits the 7.75 s retry loop without preseed.
- *
- *   - `resetDbForTesting` — `__tests__/db-test-helpers.ts`
- *     (calls `clearStoredDb` from `memory/db-singleton.ts`, stdlib-only).
- *     Not called here: a fresh bun-test process starts with an empty JS
- *     heap, so the singleton is `null` until a test calls `getDb()`.
- *
- *   - `setStorePathForTesting` — `__tests__/encrypted-store-test-helpers.ts`
- *     (writes to `security/store-path-override.ts`, stdlib-only).
- *     Not called here: the testDir layout `<tmpRoot>/workspace` makes
- *     `getProtectedDir()` resolve per-process naturally.
+ * `node:os`, `node:path`), `bun:test`, and helpers in this same directory.
+ * Importing from the assistant directly runs the risk of triggering import
+ * time side effects and import from node modules that may not exist in
+ * some environments.
  */
 
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";

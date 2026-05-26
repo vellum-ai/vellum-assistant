@@ -14,7 +14,7 @@
  *      byte verified against the manifest's declared sha256/size before it
  *      reaches disk.
  *   2. After every declared entry is accounted for, the live DB connection
- *      is closed (`closeAssistantDb`) and the real workspace is swapped:
+ *      is closed (`resetDb`) and the real workspace is swapped:
  *        `rename(workspaceDir, backupDir)`
  *        `rename(tempWorkspaceDir, workspaceDir)`
  *      — atomic on POSIX. If the second rename fails we restore the backup.
@@ -49,7 +49,7 @@ import { pipeline } from "node:stream/promises";
 
 import { invalidateConfigCache } from "../../config/loader.js";
 import { sanitizeConfigForTransfer } from "../../config/sanitize-for-transfer.js";
-import { closeAssistantDb } from "../../memory/db-connection.js";
+import { resetDb } from "../../memory/db-connection.js";
 import { isGuardianPersonaCustomized } from "../../prompts/persona-resolver.js";
 import { getLogger } from "../../util/logger.js";
 import { APP_VERSION } from "../../version.js";
@@ -986,11 +986,11 @@ export async function streamCommitImport(
     // the process reset the connection. The singleton lazily reopens on next
     // use, so closing here is safe even if no DB entry is in the bundle.
     try {
-      closeAssistantDb();
+      resetDb();
     } catch (err) {
       log.warn(
         { err },
-        "closeAssistantDb threw before legacy-format import promotion; continuing",
+        "resetDb threw before legacy-format import promotion; continuing",
       );
     }
 
@@ -1046,11 +1046,11 @@ export async function streamCommitImport(
   // Close the live SQLite connection so the DB file inside the real
   // workspace can be replaced. The singleton lazily reopens on next use.
   try {
-    closeAssistantDb();
+    resetDb();
   } catch (err) {
-    // closeAssistantDb close failure is extremely unlikely but not worth aborting
+    // resetDb close failure is extremely unlikely but not worth aborting
     // over — log and continue.
-    log.warn({ err }, "closeAssistantDb threw before swap; continuing");
+    log.warn({ err }, "resetDb threw before swap; continuing");
   }
 
   // Preserve the target's `vellum:*` credential metadata entries across
@@ -1826,7 +1826,7 @@ async function restoreCarriedPaths(
  *
  * This function is NOT atomic — a reader that opens `realWorkspaceDir`
  * mid-swap will see a half-emptied state. The daemon's SQLite connection is
- * already closed (`closeAssistantDb()` ran before this), and the async import is
+ * already closed (`resetDb()` ran before this), and the async import is
  * running in a background job from the external caller's perspective, so
  * transient readers aren't expected. `recoverInterruptedImport` uses the
  * `backupDir` recorded in the marker to finish the rollback if a crash hits
