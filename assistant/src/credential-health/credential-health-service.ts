@@ -7,8 +7,10 @@
  * - Scope coverage (grantedScopes vs provider defaultScopes)
  * - Liveness ping (for providers with a pingUrl)
  *
- * Designed to run during the heartbeat cycle. All checks are diagnostic —
- * no token refresh or recovery is attempted.
+ * Designed to run during the heartbeat cycle. The BYO liveness ping is
+ * routed through `withValidToken`, so a stale-but-refreshable access token
+ * is refreshed transparently before the ping fires — this prevents the
+ * heartbeat from misreporting a refreshable connection as `"revoked"`.
  */
 
 import { isTokenExpired } from "@vellumai/credential-storage";
@@ -22,6 +24,10 @@ import {
   type OAuthConnectionRow,
   type OAuthProviderRow,
 } from "../oauth/oauth-store.js";
+import {
+  TokenExpiredError,
+  withValidToken,
+} from "../security/token-manager.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("credential-health");
@@ -125,6 +131,45 @@ async function pingProvider(
   }
 }
 
+/**
+ * Map a pingProvider result onto a CredentialHealthResult, or null when the
+ * ping succeeded. `authErrorContext` distinguishes whether a 401/403 came
+ * after a refresh attempt (refreshable connection) or directly from the
+ * stored token (manual-token / no-refresh connection) — the latter is the
+ * historical message wording.
+ */
+type PingFailureContext = "after_refresh" | "no_refresh";
+
+function pingResultToHealthFailure(
+  base: Omit<CredentialHealthResult, "status" | "details" | "canAutoRecover">,
+  provider: string,
+  connectionId: string,
+  pingResult: { ok: boolean; authError: boolean },
+  authErrorContext: PingFailureContext,
+): CredentialHealthResult | null {
+  if (pingResult.ok) return null;
+  if (pingResult.authError) {
+    const suffix =
+      authErrorContext === "after_refresh" ? " after a refresh attempt" : "";
+    return {
+      ...base,
+      status: "revoked",
+      details: `${provider} token was rejected (401/403)${suffix}. The token may have been revoked. Re-authorization required.`,
+      canAutoRecover: false,
+    };
+  }
+  log.debug(
+    { provider, connectionId },
+    "Credential ping failed with non-auth error",
+  );
+  return {
+    ...base,
+    status: "ping_failed",
+    details: `${provider} liveness check failed (non-auth error). This may be transient.`,
+    canAutoRecover: false,
+  };
+}
+
 // ── Core check ────────────────────────────────────────────────────────
 
 interface CheckConnectionOpts {
@@ -192,14 +237,18 @@ async function checkConnection(
   const token = tokenResult.value;
 
   // 2. Check token expiry
-  if (isTokenExpired(expiresAt)) {
+  //
+  // When the token is expired AND there is no refresh token, we have no path
+  // to recovery — short-circuit to "expired". When there IS a refresh token,
+  // we fall through so the ping (via withValidToken) can attempt a refresh
+  // and confirm whether the refresh token still works. Without that, we'd
+  // return "expiring" speculatively even when the refresh token was revoked.
+  if (isTokenExpired(expiresAt) && !hasRefreshToken) {
     return {
       ...base,
-      status: hasRefreshToken ? "expiring" : "expired",
-      details: hasRefreshToken
-        ? `Token for ${provider} is expired but has a refresh token — auto-recovery may work.`
-        : `Token for ${provider} is expired with no refresh token. Re-authorization required.`,
-      canAutoRecover: hasRefreshToken,
+      status: "expired",
+      details: `Token for ${provider} is expired with no refresh token. Re-authorization required.`,
+      canAutoRecover: false,
     };
   }
 
@@ -234,36 +283,51 @@ async function checkConnection(
   }
 
   // 4. Liveness ping
+  //
+  // For refreshable connections we route through withValidToken so an
+  // expired-but-refreshable token gets refreshed before the ping fires.
+  // Without this wrapping, the ping would hit 401 on a stale token and the
+  // connection would be misreported as "revoked" — even though the next real
+  // API call (which goes through BYOOAuthConnection.request → withValidToken)
+  // would have refreshed and succeeded.
   if (pingUrl) {
-    const pingResult = await pingProvider(
-      token,
-      pingUrl,
-      pingMethod,
-      pingHeaders,
-      pingBody,
-    );
-    if (!pingResult.ok) {
-      if (pingResult.authError) {
-        return {
-          ...base,
-          status: "revoked",
-          details: `${provider} token was rejected (401/403). The token may have been revoked. Re-authorization required.`,
-          canAutoRecover: false,
-        };
+    const runPing = (t: string) =>
+      pingProvider(t, pingUrl, pingMethod, pingHeaders, pingBody);
+
+    let pingResult: { ok: boolean; authError: boolean };
+    let authContext: PingFailureContext;
+
+    if (hasRefreshToken) {
+      try {
+        pingResult = await withValidToken(provider, runPing, { connectionId });
+      } catch (err) {
+        if (err instanceof TokenExpiredError) {
+          // Refresh itself failed (revoked refresh token, invalid_grant, etc.)
+          return {
+            ...base,
+            status: "revoked",
+            details: `${provider} token refresh failed. The refresh token may have been revoked. Re-authorization required.`,
+            canAutoRecover: false,
+          };
+        }
+        throw err;
       }
-      // Non-auth ping failure — log but don't mark as critical.
-      // Could be a transient API issue.
-      log.debug(
-        { provider, connectionId },
-        "Credential ping failed with non-auth error",
-      );
-      return {
-        ...base,
-        status: "ping_failed",
-        details: `${provider} liveness check failed (non-auth error). This may be transient.`,
-        canAutoRecover: false,
-      };
+      authContext = "after_refresh";
+    } else {
+      // Manual-token provider or an OAuth provider whose initial flow
+      // didn't return a refresh_token — nothing to refresh, ping directly.
+      pingResult = await runPing(token);
+      authContext = "no_refresh";
     }
+
+    const failure = pingResultToHealthFailure(
+      base,
+      provider,
+      connectionId,
+      pingResult,
+      authContext,
+    );
+    if (failure) return failure;
   }
 
   return {
@@ -434,10 +498,28 @@ async function checkManagedProvider(
             canAutoRecover: true,
           });
         } else if (pingResp.status === 401 || pingResp.status === 403) {
+          // 401/403 from the upstream provider after the platform proxy
+          // forwarded the request. From the daemon side we can't tell
+          // whether the proxy attempted (and failed) a refresh-before-
+          // forward or skipped refresh entirely and forwarded a stale token.
+          // Either way it's not definitively unrecoverable — the next ping
+          // cycle may succeed if the platform re-refreshes. Demote to
+          // ping_failed so we don't fire a user-facing reconnect alert on
+          // what may be a transient platform-side miss. Only platform-
+          // attested 424 (CredentialRequiredError below) signals genuine
+          // unrecoverable failure.
+          log.debug(
+            {
+              provider: providerRow.provider,
+              connectionId: conn.id,
+              status: pingResp.status,
+            },
+            "Managed credential ping returned 401/403 — treating as potentially transient",
+          );
           results.push({
             ...base,
-            status: "revoked",
-            details: `${providerRow.provider} managed token was rejected (${pingResp.status}). Reconnect on the Vellum platform.`,
+            status: "ping_failed",
+            details: `${providerRow.provider} managed liveness check returned ${pingResp.status} from the upstream provider. The Vellum platform may not have refreshed the token before forwarding; will retry next cycle.`,
             canAutoRecover: false,
           });
         } else {
@@ -450,8 +532,11 @@ async function checkManagedProvider(
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        // CredentialRequiredError means the platform can't materialize
-        // the token — treat as revoked.
+        // CredentialRequiredError corresponds to a 424 from the platform
+        // proxy — the platform attempted (and gave up on) refresh and is
+        // telling us the credential is genuinely unrecoverable. This is
+        // the only managed-path signal we trust enough to fire a user-
+        // facing reconnect alert.
         if (
           err &&
           typeof err === "object" &&
@@ -461,7 +546,7 @@ async function checkManagedProvider(
           results.push({
             ...base,
             status: "revoked",
-            details: `${providerRow.provider} managed connection is no longer valid. Reconnect on the Vellum platform.`,
+            details: `${providerRow.provider} managed connection cannot be refreshed by the Vellum platform. Reconnect on the Vellum platform.`,
             canAutoRecover: false,
           });
         } else {
