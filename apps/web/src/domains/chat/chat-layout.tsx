@@ -29,6 +29,7 @@ import {
 import { useAttentionTracking } from "@/domains/conversations/use-attention-tracking";
 import { useConversationActions } from "@/domains/conversations/use-conversation-actions";
 import { useConversationGroupActions } from "@/domains/conversations/use-conversation-group-actions";
+import { RenameConversationDialog } from "@/domains/conversations/rename-conversation-dialog";
 import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
 import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
 import { useViewerStore } from "@/stores/viewer-store";
@@ -497,6 +498,9 @@ export function ChatLayout() {
     handleMoveToGroup,
     handleRemoveFromGroup,
     handleRenameConversation,
+    renameRequest,
+    submitRenameConversation,
+    cancelRenameConversation,
   } = useConversationActions({
     assistantId: lifecycle.assistantId,
     activeConversationId,
@@ -673,6 +677,13 @@ export function ChatLayout() {
           </main>
         </div>
       )}
+
+      <RenameConversationDialog
+        open={renameRequest !== null}
+        currentTitle={renameRequest?.currentTitle ?? ""}
+        onSubmit={submitRenameConversation}
+        onCancel={cancelRenameConversation}
+      />
     </>
   );
 }
