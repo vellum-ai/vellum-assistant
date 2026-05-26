@@ -38,7 +38,7 @@ assistant oauth providers list --provider-key google
 
 All providers support "your-own" mode and some support "managed" mode.
 
-### Managed Mode
+### Default: Managed Mode
 
 "managed" mode relies on a first-class integration with the Vellum Platform. Managed mode is typically easier to set up and get going, often only requiring the user to log in with no additional configuration needed before they can begin using the integration. Managed mode is the recommended method for most users, especially those that are less technical or newer to their Vellum assistant.
 
@@ -59,6 +59,22 @@ Your-own mode is typically best if:
 - The user does not want to create an account with the Vellum Platform
 - The user is more sensitive to potential billing implications
 - The user is sensitive to their data going to the Vellum Platform
+
+### How to Choose
+
+**Default to managed mode whenever the provider supports it.** Check support with:
+
+```bash
+assistant oauth providers get <provider-key> --json | jq -r '.managedServiceConfigKey'
+```
+
+If this returns a non-null value, managed mode is supported and should be your starting recommendation. Only fall back to your-own mode if:
+
+- The provider does not support managed mode (`managedServiceConfigKey` is null), OR
+- The user explicitly wants their own OAuth app (e.g. they're running self-hosted, they're privacy-sensitive, they're configuring a per-assistant Slack app), OR
+- The user already has a working your-own connection — don't re-recommend managed mid-flow for already-connected providers.
+
+Do not present managed and your-own as equivalent choices to a fresh user. Lead with managed, then offer your-own as an alternative if they push back.
 
 ### Differentiating & Setting a Provider's Mode
 
