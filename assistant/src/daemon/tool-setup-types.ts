@@ -64,10 +64,4 @@ export interface ToolSetupContext extends SurfaceConversationContext {
    * turn start.
    */
   toolRoutedProfile?: string;
-  /**
-   * True when the user has explicitly selected an inference profile for this
-   * conversation (via the composer profile picker). When set, tool-based
-   * auto-routing is suppressed — the user's explicit choice takes precedence.
-   */
-  hasExplicitProfileOverride?: boolean;
 }

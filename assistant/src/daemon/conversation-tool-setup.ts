@@ -75,6 +75,7 @@ export function resolveTrustClass(
 }
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import { AUTO_PROFILE_KEY } from "../config/seed-inference-profiles.js";
 import {
   buildSwitchInferenceProfileToolDef,
   SWITCH_INFERENCE_PROFILE_TOOL_NAME,
@@ -360,12 +361,6 @@ export interface SkillProjectionContext {
   readonly transportInterface?: InterfaceId;
   /** Per-turn override profile, read by the switch_inference_profile tool injection. */
   currentTurnOverrideProfile?: string;
-  /**
-   * True when the user has explicitly selected an inference profile for this
-   * conversation (via the composer profile picker). When set, tool-based
-   * auto-routing is suppressed — the user's explicit choice takes precedence.
-   */
-  hasExplicitProfileOverride?: boolean;
 }
 
 // ── Conditional tool sets ────────────────────────────────────────────
@@ -658,18 +653,19 @@ export function createResolveToolsCallback(
     const config = getConfig();
     if (
       isAssistantFeatureFlagEnabled("query-complexity-routing", config) &&
-      config.llm &&
-      !ctx.hasExplicitProfileOverride
+      config.llm
     ) {
-      const currentProfile =
+      const effectiveProfile =
         ctx.currentTurnOverrideProfile ?? config.llm.activeProfile;
-      const toolDef = buildSwitchInferenceProfileToolDef(
-        config.llm.profiles ?? {},
-        currentProfile,
-      );
-      if (toolDef) {
-        turnAllowed.add(SWITCH_INFERENCE_PROFILE_TOOL_NAME);
-        return [...baseDefs, toolDef];
+      if (effectiveProfile === AUTO_PROFILE_KEY) {
+        const toolDef = buildSwitchInferenceProfileToolDef(
+          config.llm.profiles ?? {},
+          effectiveProfile,
+        );
+        if (toolDef) {
+          turnAllowed.add(SWITCH_INFERENCE_PROFILE_TOOL_NAME);
+          return [...baseDefs, toolDef];
+        }
       }
     }
 
