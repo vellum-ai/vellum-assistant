@@ -91,7 +91,16 @@ export {
  * conversation from the sidebar.
  */
 type SendStreamResult =
-  | { status: "ok"; resolvedConversationId?: string }
+  | {
+      status: "ok";
+      resolvedConversationId?: string;
+      /** Server-assigned user message id from the active POST resolve.
+       *  Absent for the queued path (POST returns only `requestId`) and
+       *  for scope-changed-mid-flight results. Used by `sendMessage` to
+       *  swap the optimistic user row's client id for the server id and
+       *  clear `isOptimistic`. */
+      userMessageId?: string;
+    }
   | { status: "ignored" }
   | { status: "failed"; error: ChatError };
 
@@ -330,6 +339,7 @@ export function useSendMessage({
       if (hasMatchingActiveStream) {
         return {
           status: "ok",
+          userMessageId: postResult.messageId,
           ...(postResult.resolvedConversationId
             ? { resolvedConversationId: postResult.resolvedConversationId }
             : {}),
@@ -439,6 +449,7 @@ export function useSendMessage({
 
       return {
         status: "ok",
+        userMessageId: postResult.messageId,
         ...(postResult.resolvedConversationId
           ? { resolvedConversationId: postResult.resolvedConversationId }
           : {}),
@@ -490,8 +501,15 @@ export function useSendMessage({
       }
 
       const willQueue = isSending(useTurnStore.getState());
+      const optimisticUserId = newStableId("user");
       const userMessage: DisplayMessage = {
-        stableId: newStableId("user"),
+        stableId: optimisticUserId,
+        // Client-generated identifier during the optimistic phase. The
+        // active POST resolves below swaps this to the server's
+        // `messageId` and clears `isOptimistic`; the queued path stays
+        // optimistic until a later reconcile content-matches and swaps.
+        id: optimisticUserId,
+        isOptimistic: true,
         role: "user",
         content,
         timestamp: Date.now(),
@@ -628,6 +646,24 @@ export function useSendMessage({
         }
 
         resolvedId = result.resolvedConversationId;
+
+        // POST resolve — swap the optimistic user row's client id for the
+        // server's. Match by stableId (immutable) and gate on
+        // `isOptimistic` so a reconcile that already swapped this row
+        // doesn't get clobbered. The row's `stableId` stays put so the
+        // virtualized transcript doesn't remount; only `id` and the
+        // `isOptimistic` flag change. Queued sends skip this — they keep
+        // their optimistic id until a later reconcile content-matches.
+        if (result.userMessageId) {
+          const serverUserMessageId = result.userMessageId;
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.isOptimistic && m.stableId === optimisticUserId
+                ? { ...m, id: serverUserMessageId, isOptimistic: false }
+                : m,
+            ),
+          );
+        }
 
         // Resolve draft key -> server-assigned conversation ID.
         if (resolvedId && resolvedId !== activeConversationId) {

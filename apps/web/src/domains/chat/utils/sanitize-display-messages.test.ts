@@ -6,10 +6,12 @@ import type { ChatMessageToolCall } from "@/domains/chat/api/event-types.js";
 import { newStableId } from "@/domains/chat/utils/stable-id.js";
 
 function makeMessage(
-  overrides: Partial<DisplayMessage> & { stableId?: string },
+  overrides: Partial<DisplayMessage> & { stableId?: string; id?: string },
 ): DisplayMessage {
+  const sid = overrides.stableId ?? newStableId("test");
   return {
-    stableId: overrides.stableId ?? newStableId("test"),
+    stableId: sid,
+    id: overrides.id ?? sid,
     role: "assistant",
     content: "",
     ...overrides,

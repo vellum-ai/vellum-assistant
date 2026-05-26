@@ -21,6 +21,7 @@ function makeAssistantMsg(
 ): DisplayMessage {
   return {
     stableId: "stable-1",
+    id: "stable-1",
     role: "assistant",
     content: "hello",
     isStreaming: true,
@@ -33,6 +34,7 @@ function makeAssistantMsg(
 
 const userMsg: DisplayMessage = {
   stableId: "user-1",
+  id: "user-1",
   role: "user",
   content: "hi",
   timestamp: 999,
@@ -138,12 +140,11 @@ describe("appendTextDelta", () => {
     expect(result[1]!.content).toBe("Hello world");
   });
 
-  it("backfills bubble.id when initial bubble had no id", () => {
-    const start = createStreamingBubble([userMsg], "Hello");
-    expect(start[1]!.id).toBeUndefined();
-    const result = appendTextDelta(start, " world", "row-A");
-    expect(result[1]!.id).toBe("row-A");
-  });
+  // Test deleted in PR 2c.1: `id` is mandatory on DisplayMessage and is
+  // stamped at bubble birth (mirrored from stableId when the wire
+  // `messageId` is absent). There's no "no id yet" phase to backfill, so
+  // appendTextDelta has nothing to do here. First-id-wins is covered by
+  // the test above.
 });
 
 // ---------------------------------------------------------------------------
