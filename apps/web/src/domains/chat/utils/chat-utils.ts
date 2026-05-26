@@ -10,7 +10,7 @@ export const ERROR_MESSAGES: Record<string, string> = {
     "The API key for this provider is invalid or expired. Please check your settings.",
 };
 
-const GLOBAL_STREAM_EVENT_TYPES: ReadonlySet<string> = new Set([
+const GLOBAL_STREAM_EVENT_TYPE_NAMES = [
   "conversation_list_invalidated",
   "conversation_title_updated",
   "notification_intent",
@@ -20,9 +20,24 @@ const GLOBAL_STREAM_EVENT_TYPES: ReadonlySet<string> = new Set([
   "disk_pressure_status_changed",
   "home_feed_updated",
   "relationship_state_updated",
-]);
+] as const;
 
-export function isConversationScopedStreamEvent(event: AssistantEvent): boolean {
+const GLOBAL_STREAM_EVENT_TYPES: ReadonlySet<string> = new Set(
+  GLOBAL_STREAM_EVENT_TYPE_NAMES,
+);
+
+type GlobalAssistantEvent = Extract<
+  AssistantEvent,
+  { type: (typeof GLOBAL_STREAM_EVENT_TYPE_NAMES)[number] }
+>;
+export type ConversationScopedAssistantEvent = Exclude<
+  AssistantEvent,
+  GlobalAssistantEvent
+>;
+
+export function isConversationScopedStreamEvent(
+  event: AssistantEvent,
+): event is ConversationScopedAssistantEvent {
   return !GLOBAL_STREAM_EVENT_TYPES.has(event.type);
 }
 

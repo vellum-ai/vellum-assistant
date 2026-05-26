@@ -12,8 +12,6 @@ import type { Surface } from "@/domains/chat/types/types.js";
 import type { ToolActivityMetadata } from "@/assistant/web-activity-types.js";
 import type { SyncChangedEvent } from "@/lib/sync/types.js";
 
-export type { RelationshipStateUpdated };
-
 /** Data needed to render an inline permission prompt inside a ToolCallChip. */
 export interface PendingToolConfirmation {
   requestId: string;
@@ -785,7 +783,7 @@ export type AssistantEvent =
   | MessageRequestCompleteEvent
   | AssistantSyncChangedEvent
   | HomeFeedUpdatedEvent
-  | (RelationshipStateUpdated & { conversationId?: string })
+  | RelationshipStateUpdated
   | SubagentSpawnedEvent
   | SubagentStatusChangedEvent
   | SubagentEventWrapperEvent

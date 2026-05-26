@@ -12,6 +12,7 @@ import { client, SDK_BASE_OPTIONS } from "@/domains/chat/api/client.js";
 import { recordChatDiagnostic, resolvePlatformTag } from "@/domains/chat/utils/diagnostics.js";
 import { parseAssistantEvent, readEventConversationId } from "@/domains/chat/api/event-parser.js";
 import type { AssistantEvent } from "@/domains/chat/api/event-types.js";
+import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat-utils.js";
 import { pickConversationIdWireField } from "@/lib/backwards-compat/conversation-id-wire-field.js";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity.js";
 import {
@@ -444,11 +445,17 @@ export function subscribeChatEvents(
           // Coerce conversationId onto the parsed event from (in order): the
           // event payload itself, the AssistantEvent envelope's
           // `conversationId` field, and finally the requestedConversationId
-          // passed into this subscription.
-          parsed.conversationId =
-            parsed.conversationId ??
-            envelopeConversationId ??
-            requestedConversationId;
+          // passed into this subscription. Skipped for global events whose
+          // wire schemas do not declare the field (e.g.
+          // `relationship_state_updated`) — broadcasting an envelope-derived
+          // conversationId onto those would falsely scope a global event
+          // to whatever subscription happened to receive it.
+          if (isConversationScopedStreamEvent(parsed)) {
+            parsed.conversationId =
+              parsed.conversationId ??
+              envelopeConversationId ??
+              requestedConversationId;
+          }
           pushSseEvent(sseDebugClientId, parsed);
           try {
             onEvent(parsed);

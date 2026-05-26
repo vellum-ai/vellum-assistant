@@ -29,6 +29,7 @@ import type {
 } from "@/domains/chat/api/event-types.js";
 import { RelationshipStateUpdatedSchema } from "@vellumai/assistant-api";
 import type { DisplayAttachment } from "@/domains/chat/types/types.js";
+import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat-utils.js";
 import type { ToolActivityMetadata } from "@/assistant/web-activity-types.js";
 import type { SyncInvalidationTag } from "@/lib/sync/types.js";
 
@@ -44,14 +45,19 @@ export function readEventConversationId(
   return undefined;
 }
 
-function withParsedConversationId<T extends AssistantEvent>(
-  event: T,
+function withParsedConversationId(
+  event: AssistantEvent,
   data: Record<string, unknown>,
-): T {
+): AssistantEvent {
+  // Skip for global events whose wire schemas don't declare conversationId
+  // (e.g. `relationship_state_updated`). Stamping the envelope-derived
+  // conversationId onto a strict wire type is the exact drift this package
+  // is meant to eliminate.
+  if (!isConversationScopedStreamEvent(event)) return event;
   const conversationId = readEventConversationId(data);
   if (!conversationId) return event;
-  if ("conversationId" in event && event.conversationId) return event;
-  return { ...event, conversationId } as T;
+  if (event.conversationId) return event;
+  return { ...event, conversationId };
 }
 
 /**
