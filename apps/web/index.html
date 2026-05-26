@@ -11,7 +11,7 @@
   <script>
     (function() {
       try {
-        var theme = window.localStorage.getItem("vellum_theme") || "system";
+        var theme = window.localStorage.getItem("device:theme") || window.localStorage.getItem("vellum_theme") || "system";
         var prefersDark =
           window.matchMedia &&
           window.matchMedia("(prefers-color-scheme: dark)").matches;
