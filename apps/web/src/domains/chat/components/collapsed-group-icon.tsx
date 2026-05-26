@@ -62,21 +62,35 @@ export interface CollapsedGroupIconProps {
   label: string;
   /** Drives the indicator dot overlay. */
   indicatorState: GroupIndicatorState;
+  /** When true, the group has no conversations — renders a muted icon with no popover. */
+  disabled?: boolean;
   /**
    * Popover content. Accepts a render function that receives a `close` callback
    * to programmatically dismiss the popover (e.g. after selecting a conversation).
    */
-  children: ReactNode | ((close: () => void) => ReactNode);
+  children?: ReactNode | ((close: () => void) => ReactNode);
 }
 
 export function CollapsedGroupIcon({
   icon: Icon,
   label,
   indicatorState,
+  disabled = false,
   children,
 }: CollapsedGroupIconProps) {
   const [open, setOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
+
+  if (disabled) {
+    return (
+      <div
+        aria-label={label}
+        className="relative flex h-8 w-8 items-center justify-center rounded-[6px] text-[var(--content-disabled)]"
+      >
+        <Icon size={18} />
+      </div>
+    );
+  }
 
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
@@ -100,6 +114,7 @@ export function CollapsedGroupIcon({
         side="right"
         align="start"
         sideOffset={8}
+        onOpenAutoFocus={(e) => e.preventDefault()}
         className="max-h-[500px] w-72 overflow-y-auto rounded-lg py-2 px-0"
       >
         {typeof children === "function" ? children(close) : children}

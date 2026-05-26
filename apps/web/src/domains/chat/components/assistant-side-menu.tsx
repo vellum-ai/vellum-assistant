@@ -397,33 +397,30 @@ export function AssistantSideMenu({
         {collapsed && variant === "rail" ? (
           <div className="flex flex-col items-center gap-1">
             {headerActions}
-            {sidebar.pinned.length > 0 ? (
-              <CollapsedGroupIcon
-                icon={Pin}
-                label="Pinned"
-                indicatorState={getGroupIndicatorState(sidebar.pinned, processingConversationIds, attentionConversationIds)}
-              >
-                {(close) => renderCollapsedGroupContent("Pinned", sidebar.pinned, close)}
-              </CollapsedGroupIcon>
-            ) : null}
-            {sidebar.recents.all.length > 0 ? (
-              <CollapsedGroupIcon
-                icon={Clock}
-                label="Recents"
-                indicatorState={getGroupIndicatorState(sidebar.recents.all, processingConversationIds, attentionConversationIds)}
-              >
-                {(close) => renderCollapsedGroupContent("Recents", sidebar.recents.all, close)}
-              </CollapsedGroupIcon>
-            ) : null}
-            {sidebar.scheduled.length > 0 ? (
-              <CollapsedGroupIcon
-                icon={Calendar}
-                label="Scheduled"
-                indicatorState={getGroupIndicatorState(sidebar.scheduled, processingConversationIds, attentionConversationIds)}
-              >
-                {(close) => renderCollapsedGroupContent("Scheduled", sidebar.scheduled, close)}
-              </CollapsedGroupIcon>
-            ) : null}
+            <CollapsedGroupIcon
+              icon={Pin}
+              label="Pinned"
+              disabled={sidebar.pinned.length === 0}
+              indicatorState={getGroupIndicatorState(sidebar.pinned, processingConversationIds, attentionConversationIds)}
+            >
+              {(close) => renderCollapsedGroupContent("Pinned", sidebar.pinned, close)}
+            </CollapsedGroupIcon>
+            <CollapsedGroupIcon
+              icon={Clock}
+              label="Recents"
+              disabled={sidebar.recents.all.length === 0}
+              indicatorState={getGroupIndicatorState(sidebar.recents.all, processingConversationIds, attentionConversationIds)}
+            >
+              {(close) => renderCollapsedGroupContent("Recents", sidebar.recents.all, close)}
+            </CollapsedGroupIcon>
+            <CollapsedGroupIcon
+              icon={Calendar}
+              label="Scheduled"
+              disabled={sidebar.scheduled.length === 0}
+              indicatorState={getGroupIndicatorState(sidebar.scheduled, processingConversationIds, attentionConversationIds)}
+            >
+              {(close) => renderCollapsedGroupContent("Scheduled", sidebar.scheduled, close)}
+            </CollapsedGroupIcon>
             {sidebar.background.length > 0 ? (
               <CollapsedBackgroundGroup
                 conversations={sidebar.background}
@@ -434,16 +431,22 @@ export function AssistantSideMenu({
                 processingConversationIds={processingConversationIds}
                 attentionConversationIds={attentionConversationIds}
               />
-            ) : null}
-            {sidebar.slack.totalCount > 0 ? (
+            ) : (
               <CollapsedGroupIcon
-                icon={Hash}
-                label="Slack"
-                indicatorState={getGroupIndicatorState(sidebar.slack.all, processingConversationIds, attentionConversationIds)}
-              >
-                {(close) => renderCollapsedGroupContent("Slack", sidebar.slack.all, close)}
-              </CollapsedGroupIcon>
-            ) : null}
+                icon={Layers}
+                label="Background"
+                disabled
+                indicatorState={null}
+              />
+            )}
+            <CollapsedGroupIcon
+              icon={Hash}
+              label="Slack"
+              disabled={sidebar.slack.totalCount === 0}
+              indicatorState={getGroupIndicatorState(sidebar.slack.all, processingConversationIds, attentionConversationIds)}
+            >
+              {(close) => renderCollapsedGroupContent("Slack", sidebar.slack.all, close)}
+            </CollapsedGroupIcon>
           </div>
         ) : (
           <SideMenu.Section
