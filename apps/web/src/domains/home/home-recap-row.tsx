@@ -54,6 +54,7 @@ export type HomeRecapRowTrailingAction = "dismiss" | "restore";
 
 export interface HomeRecapRowProps {
   item: FeedItem;
+  validConversationIds?: Set<string>;
   onSelect: (item: FeedItem) => void;
   onDismiss: (itemId: string) => void;
   onToggleRead?: (itemId: string, newStatus: FeedItemStatus) => void;
@@ -63,6 +64,7 @@ export interface HomeRecapRowProps {
 
 export function HomeRecapRow({
   item,
+  validConversationIds,
   onSelect,
   onDismiss,
   onToggleRead,
@@ -126,7 +128,7 @@ export function HomeRecapRow({
               {isUnread ? <MailOpen width={14} height={14} /> : <Mail width={14} height={14} />}
             </HoverIconButton>
           )}
-          {onGoToThread && item.conversationId && (
+          {onGoToThread && item.conversationId && (!validConversationIds || validConversationIds.has(item.conversationId)) && (
             <HoverIconButton
               title="Go to thread"
               onClick={() => {

@@ -151,6 +151,7 @@ export function HomePage({
       />
       <HomeFeedList
         items={feedQuery.data?.items ?? []}
+        validConversationIds={validConversationIds}
         onSelectItem={handleSelectItem}
         onDismissItem={handleDismissItem}
         onRestoreItem={handleRestoreItem}
