@@ -95,6 +95,17 @@ describe("parseInlineSurfaces", () => {
     }
   });
 
+  test("handles tag with no attributes", () => {
+    const input = '<ui_show>{"title":"T","steps":[]}</ui_show>';
+    const result = parseInlineSurfaces(input);
+    expect(result).not.toBeNull();
+    expect(result!.length).toBe(1);
+    if (result![0].type === "surface") {
+      expect(result![0].surface.surfaceType).toBe("card");
+      expect(result![0].surface.title).toBe("T");
+    }
+  });
+
   test("generates unique surfaceIds across calls", () => {
     const input = '<ui_show surface_type="card" template="t"> {"title":"T"} </ui_show>';
     const r1 = parseInlineSurfaces(input);
