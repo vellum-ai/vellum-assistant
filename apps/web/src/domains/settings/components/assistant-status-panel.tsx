@@ -26,16 +26,15 @@ const HEALTHZ_POLL_TIMEOUT_MS = 90_000;
 
 /**
  * True when the reported CPU/memory allocation differs from `baseline` — i.e.
- * a resize has actually landed. Treats a missing reading on either side as a
- * change so the poll resolves once real data returns after the restart.
+ * a resize has actually landed.
  */
 function allocationChanged(
   next: AssistantHealthz,
-  baseline: AssistantHealthz | null,
+  baseline: AssistantHealthz,
 ): boolean {
   return (
-    (next.memory?.maxMb ?? null) !== (baseline?.memory?.maxMb ?? null) ||
-    (next.cpu?.maxCores ?? null) !== (baseline?.cpu?.maxCores ?? null)
+    (next.memory?.maxMb ?? null) !== (baseline.memory?.maxMb ?? null) ||
+    (next.cpu?.maxCores ?? null) !== (baseline.cpu?.maxCores ?? null)
   );
 }
 
@@ -150,6 +149,11 @@ export function useAssistantWithHealthz(): AssistantWithHealthz {
       const pollId = ++pollIdRef.current;
       const deadline = Date.now() + HEALTHZ_POLL_TIMEOUT_MS;
       setHealthzPolling(true);
+      // `baseline` is null when metrics weren't loaded yet at resize time. In
+      // that case the first reading could still be pre-resize values, so we
+      // can't treat it as the resized allocation — adopt it as the baseline and
+      // keep polling until it changes instead.
+      let reference = baseline;
       try {
         // The machine-size tag comes from the assistant record, which the
         // platform updates synchronously during resize — refresh it up front.
@@ -161,7 +165,12 @@ export function useAssistantWithHealthz(): AssistantWithHealthz {
           if (pollId !== pollIdRef.current) return;
           const data = await fetchHealthz({ keepStaleOnError: true });
           if (pollId !== pollIdRef.current) return;
-          if (data && allocationChanged(data, baseline)) return;
+          if (!data) continue;
+          if (reference == null) {
+            reference = data;
+            continue;
+          }
+          if (allocationChanged(data, reference)) return;
         }
       } finally {
         if (pollId === pollIdRef.current) setHealthzPolling(false);
