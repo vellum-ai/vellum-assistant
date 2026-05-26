@@ -119,6 +119,14 @@ export function withExtensionCorsHeaders(
 // Web SPA CORS (localhost origins, credentials mode)
 // ---------------------------------------------------------------------------
 
+/**
+ * Matches any localhost / 127.0.0.1 origin on any port. This is intentionally
+ * broad because all auth guards already bypass JWT validation for loopback
+ * peers via `isLoopbackPeer()` — any local process can call the gateway
+ * unauthenticated. CORS is a browser-only restriction; the session cookie's
+ * `SameSite=Strict` attribute prevents cross-site credential leakage. The
+ * meaningful trust boundary is the loopback bind, not the CORS origin.
+ */
 const WEB_ORIGIN_RE = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 
 export function resolveWebOrigin(req: Request): string | null {
