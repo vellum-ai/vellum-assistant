@@ -63,54 +63,6 @@ describe("INITIAL_TURN_STATE", () => {
 });
 
 // ---------------------------------------------------------------------------
-// isSending — illegal-state robustness
-// ---------------------------------------------------------------------------
-
-describe("isSending", () => {
-  test("returns true whenever activeTurnId is set, even if phase is idle", () => {
-    // Repro of the state observed in the wild:
-    //   `requestSend(turn-NEW)` runs (phase=thinking, activeTurnId=turn-NEW)
-    //   → stale `completeTurn` from the previous turn fires during the
-    //     `await sendMessageViaStream(...)` window
-    //     (phase=idle, activeTurnId=null, lastTerminalReason=complete)
-    //   → `acceptSend(turn-NEW)` re-sets activeTurnId
-    //     (phase=idle, activeTurnId=turn-NEW, lastTerminalReason=complete)
-    // Before the fix, isSending returned false here and the thinking
-    // indicator stayed hidden until the first assistant delta arrived.
-    const illegalAfterStaleTerminal: TurnState = {
-      ...INITIAL_TURN_STATE,
-      phase: "idle",
-      activeTurnId: "turn-1",
-      lastTerminalReason: "complete",
-    };
-    expect(isSending(illegalAfterStaleTerminal)).toBe(true);
-  });
-
-  test("returns false for terminal idle with no active turn", () => {
-    const idle: TurnState = {
-      ...INITIAL_TURN_STATE,
-      phase: "idle",
-      activeTurnId: null,
-      lastTerminalReason: "complete",
-    };
-    expect(isSending(idle)).toBe(false);
-  });
-
-  test("returns true for queued waiting state (post-complete, pendingQueuedCount>0)", () => {
-    // After `completeTurn` with queued messages remaining: phase=queued
-    // and activeTurnId=null until the next turn starts.
-    const queuedWaiting: TurnState = {
-      ...INITIAL_TURN_STATE,
-      phase: "queued",
-      activeTurnId: null,
-      pendingQueuedCount: 1,
-      lastTerminalReason: "complete",
-    };
-    expect(isSending(queuedWaiting)).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // USER_SEND_REQUESTED
 // ---------------------------------------------------------------------------
 
@@ -156,7 +108,7 @@ describe("USER_SEND_REQUESTED", () => {
 // ---------------------------------------------------------------------------
 
 describe("USER_SEND_ACCEPTED", () => {
-  test("sets turnId without changing phase", () => {
+  test("sets turnId without changing phase when already thinking", () => {
     const thinking = turnReducer(INITIAL_TURN_STATE, {
       type: "USER_SEND_REQUESTED",
       turnId: "temp",
@@ -167,6 +119,65 @@ describe("USER_SEND_ACCEPTED", () => {
     });
     expect(state.phase).toBe("thinking");
     expect(state.activeTurnId).toBe("real-turn-id");
+  });
+
+  test("restores thinking phase when a stale terminal landed between request and accept", () => {
+    // Wild repro:
+    //   USER_SEND_REQUESTED(turn-NEW)
+    //     → phase=thinking, activeTurnId=turn-NEW, lastTerminalReason=null
+    //   ← stale MESSAGE_COMPLETE from a previous turn arrives during
+    //     the POST await
+    //     → phase=idle, activeTurnId=null, lastTerminalReason=complete
+    //   USER_SEND_ACCEPTED(turn-NEW)
+    //     → must restore the in-flight shape (phase=thinking,
+    //       lastTerminalReason=null) so the thinking indicator stays
+    //       visible until the first assistant delta arrives.
+    const clobbered: TurnState = {
+      ...INITIAL_TURN_STATE,
+      phase: "idle",
+      activeTurnId: null,
+      lastTerminalReason: "complete",
+    };
+    const state = turnReducer(clobbered, {
+      type: "USER_SEND_ACCEPTED",
+      turnId: "turn-NEW",
+    });
+    expect(state.phase).toBe("thinking");
+    expect(state.activeTurnId).toBe("turn-NEW");
+    expect(state.lastTerminalReason).toBeNull();
+    expect(isSending(state)).toBe(true);
+    expect(isThinking(state)).toBe(true);
+  });
+
+  test("restores thinking phase from errored as well", () => {
+    const erroredState: TurnState = {
+      ...INITIAL_TURN_STATE,
+      phase: "errored",
+      activeTurnId: null,
+      lastTerminalReason: "error",
+    };
+    const state = turnReducer(erroredState, {
+      type: "USER_SEND_ACCEPTED",
+      turnId: "turn-NEW",
+    });
+    expect(state.phase).toBe("thinking");
+    expect(state.lastTerminalReason).toBeNull();
+  });
+
+  test("leaves non-terminal phases alone (e.g. awaiting_user_input from a surface)", () => {
+    // If the user already replied to a prompt that put us in awaiting_user_input
+    // and the next send is being accepted, do not regress the phase to "thinking".
+    const awaiting: TurnState = {
+      ...INITIAL_TURN_STATE,
+      phase: "awaiting_user_input",
+      activeTurnId: "turn-OLD",
+    };
+    const state = turnReducer(awaiting, {
+      type: "USER_SEND_ACCEPTED",
+      turnId: "turn-NEW",
+    });
+    expect(state.phase).toBe("awaiting_user_input");
+    expect(state.activeTurnId).toBe("turn-NEW");
   });
 });
 

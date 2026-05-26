@@ -84,23 +84,9 @@ export const INITIAL_TURN_STATE: TurnState = {
 // Derived helpers
 // ---------------------------------------------------------------------------
 
-/** True when a turn is in flight.
- *
- * `activeTurnId` is the authoritative signal: it is set synchronously by
- * `requestSend` / `acceptSend` and cleared by every terminal handler. The
- * phase checks remain so that the post-complete "queued waiting" state
- * (phase=`queued`, activeTurnId=`null`, pendingQueuedCount>0) still
- * reports as sending.
- *
- * Including `activeTurnId !== null` also makes the predicate robust to a
- * stale terminal event slipping in between `requestSend` and `acceptSend`
- * (which would otherwise leave the store in an illegal phase=`idle` +
- * activeTurnId=non-null shape until the first assistant delta arrived,
- * suppressing the thinking indicator).
- */
+/** True when the turn is actively processing (not idle/errored). */
 export function isSending(state: TurnState): boolean {
   return (
-    state.activeTurnId !== null ||
     state.phase === "queued" ||
     state.phase === "thinking" ||
     state.phase === "streaming" ||
@@ -328,7 +314,23 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
       statusText: null,
     })),
 
-  acceptSend: (turnId) => set({ activeTurnId: turnId }),
+  acceptSend: (turnId) =>
+    set((s) => {
+      // The send POST has resolved — we are now waiting for the first
+      // assistant text delta. Phase must be "thinking" for that window
+      // (see `isThinking` doc comment). If a stale terminal event from
+      // a previous turn slipped in between `requestSend` and here during
+      // the POST await, phase was clobbered to "idle"/"errored" with
+      // `lastTerminalReason` populated. Restore the in-flight shape so
+      // the thinking indicator stays visible until the first delta.
+      const phaseIsTerminal = s.phase === "idle" || s.phase === "errored";
+      return {
+        activeTurnId: turnId,
+        ...(phaseIsTerminal
+          ? { phase: "thinking" as const, lastTerminalReason: null }
+          : null),
+      };
+    }),
 
   // ----- Streaming -----
 
@@ -617,8 +619,18 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
         statusText: null,
       };
 
-    case "USER_SEND_ACCEPTED":
-      return { ...state, activeTurnId: event.turnId };
+    case "USER_SEND_ACCEPTED": {
+      // See `acceptSend` action for rationale.
+      const phaseIsTerminal =
+        state.phase === "idle" || state.phase === "errored";
+      return {
+        ...state,
+        activeTurnId: event.turnId,
+        ...(phaseIsTerminal
+          ? { phase: "thinking" as const, lastTerminalReason: null }
+          : null),
+      };
+    }
 
     case "ASSISTANT_TEXT_DELTA":
       if (state.phase === "idle" || state.phase === "errored") {

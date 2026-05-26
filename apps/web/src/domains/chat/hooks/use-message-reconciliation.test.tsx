@@ -393,17 +393,12 @@ describe("reconcileActiveConversation", () => {
       { id: "m1", role: "user", content: "Hello" },
       { id: "m2", role: "assistant", content: "Response" },
     ];
-    // Genuinely-terminal idle: phase=idle AND activeTurnId=null. The rescue
-    // path must stay quiet here. (A `phase: "idle"` state with a non-null
-    // activeTurnId is the illegal post-stale-terminal shape that
-    // `isSending` now treats as in-flight — covered by the dedicated
-    // "stuck sending" tests above.)
     const idleTurnState: TurnState = {
       phase: "idle",
       pendingQueuedCount: 0,
       activeToolCallCount: 0,
-      activeTurnId: null,
-      lastTerminalReason: "complete",
+      activeTurnId: "turn-42",
+      lastTerminalReason: null,
       statusText: null,
       liveWebActivity: {},
       autoRoutedProfileLabel: null,
