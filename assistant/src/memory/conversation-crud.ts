@@ -1302,6 +1302,16 @@ export function hasMessages(conversationId: string): boolean {
 interface PaginatedMessagesResult {
   messages: MessageRow[];
   hasMore: boolean;
+  /**
+   * Position of the last row scanned when the loop stops on
+   * `PAGINATION_SCAN_CAP` rather than DB exhaustion. Callers derive their
+   * client cursor from the visible page's oldest row, but a cap-truncated
+   * page can be empty (a contiguous block of filtered-out rows longer than
+   * the cap), leaving nothing to resume from. Surfacing the last scanned
+   * `(createdAt, id)` lets the caller hand the client a cursor so it can
+   * request the next window and keep draining instead of stalling.
+   */
+  nextCursor?: { createdAt: number; id: string };
 }
 
 const PAGINATION_CHUNK_MIN = 50;
@@ -1347,8 +1357,18 @@ export function getMessagesPaginated(
   // row — otherwise a pathological filter against a huge conversation would
   // tie up a connection for thousands of roundtrips.
   let rowsScanned = 0;
+  // Distinguish "stopped because we hit the scan cap" from "stopped because the
+  // DB ran out of rows". On a cap-truncated stop there may be more visible rows
+  // past the scanned window, so `hasMore` must stay true and we record the last
+  // scanned position as a resume cursor (the visible page may be empty).
+  let scanCapTruncated = false;
+  let lastScanned: { createdAt: number; id: string } | undefined;
 
-  while (visible.length < limit + 1 && rowsScanned < PAGINATION_SCAN_CAP) {
+  while (visible.length < limit + 1) {
+    if (rowsScanned >= PAGINATION_SCAN_CAP) {
+      scanCapTruncated = true;
+      break;
+    }
     const cursorPredicate =
       cursorCreatedAt === undefined
         ? undefined
@@ -1381,15 +1401,25 @@ export function getMessagesPaginated(
 
     if (chunk.length < chunkSize) break;
     const lastRow = chunk[chunk.length - 1];
+    lastScanned = { createdAt: lastRow.createdAt, id: lastRow.id };
     cursorCreatedAt = lastRow.createdAt;
     cursorMessageId = lastRow.id;
   }
 
-  const hasMore = visible.length > limit;
-  if (hasMore) visible.splice(limit);
+  const filledPage = visible.length > limit;
+  // A cap-truncated stop means the DB may still hold older visible rows past
+  // the scanned window, so report `hasMore: true` to keep the client draining
+  // — returning `false` here is the stall this loop exists to prevent.
+  const hasMore = filledPage || scanCapTruncated;
+  if (filledPage) visible.splice(limit);
   visible.reverse();
 
-  return { messages: visible, hasMore };
+  // Only hand back a resume cursor when the cap (not DB exhaustion) cut the
+  // search short; callers fall back to it when the visible page came back
+  // empty and has no oldest row to anchor the next request.
+  const nextCursor = scanCapTruncated ? lastScanned : undefined;
+
+  return { messages: visible, hasMore, nextCursor };
 }
 
 export function getLastUserTimestampBefore(
