@@ -19,9 +19,12 @@ import {
   getSession,
   logout as allauthLogout,
 } from "@/lib/auth/allauth-client.js";
+import { deleteBiometricToken } from "@/runtime/native-biometric.js";
 import { syncOnboardingUser } from "@/domains/onboarding/prefs.js";
 import { clearOrganization } from "@/stores/organization-store.js";
 import { useEventBusStore } from "@/stores/event-bus-store.js";
+import { isNativePlatform, installSessionCookies } from "@/runtime/native-auth.js";
+import { isBiometricEnabled, retrieveBiometricToken } from "@/runtime/native-biometric.js";
 
 export interface AuthUser {
   id: string | null;
@@ -107,6 +110,27 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
     } catch (err) {
       console.error("auth.initSession failed", err);
     }
+
+    // Biometric recovery: on iOS, the session cookie may have been lost
+    // when WKWebView was killed. Try to restore from Keychain via Face ID.
+    if (isNativePlatform() && isBiometricEnabled()) {
+      try {
+        const token = await retrieveBiometricToken();
+        if (token) {
+          installSessionCookies(token);
+          const retryResult = await getSession();
+          if (retryResult.ok && retryResult.data.user) {
+            const user = toAuthUser(retryResult.data.user);
+            syncUserScopedState(user?.id ?? null);
+            set({ isLoggedIn: true, isLoading: false, user });
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn("auth.initSession biometric recovery failed", err);
+      }
+    }
+
     syncUserScopedState(null);
     set({ isLoggedIn: false, isLoading: false, user: null });
   },
@@ -132,6 +156,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
     try {
       await allauthLogout();
     } finally {
+      void deleteBiometricToken();
       syncUserScopedState(null);
       set({ isLoggedIn: false, user: null });
       broadcastAuthChange();
