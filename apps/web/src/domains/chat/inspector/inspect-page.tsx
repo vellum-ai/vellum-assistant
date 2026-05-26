@@ -29,6 +29,7 @@ import { routes } from "@/utils/routes.js";
 
 import { CallRail } from "./components/call-rail.js";
 import { TabBar, type InspectorTab } from "./components/tab-bar.js";
+import { CompactionTab } from "./components/tabs/compaction-tab.js";
 import { MemoryTab } from "./components/tabs/memory-tab.js";
 import { SkillsTab } from "./components/tabs/skills-tab.js";
 import { OverviewTab } from "./components/tabs/overview-tab.js";
@@ -161,6 +162,7 @@ function Inspector({ conversationId, messageId }: InspectorProps): ReactNode {
             selectedLogId={selectedLogId}
             buildCallHref={buildCallHref}
             assistantId={assistantId}
+            conversationId={conversationId}
           />
         )}
       </div>
@@ -448,6 +450,7 @@ interface LoadedProps {
   selectedLogId: string | undefined;
   buildCallHref: (logId: string) => string;
   assistantId: string | undefined;
+  conversationId: string;
 }
 
 function Loaded({
@@ -457,6 +460,7 @@ function Loaded({
   selectedLogId,
   buildCallHref,
   assistantId,
+  conversationId,
 }: LoadedProps): ReactNode {
   const [tab, setTab] = useState<InspectorTab>("overview");
 
@@ -485,6 +489,7 @@ function Loaded({
               logs={logs}
               buildCallHref={buildCallHref}
               assistantId={assistantId}
+              conversationId={conversationId}
               context={context}
               conversationTotalEstimatedCostUsd={
                 context?.conversationTotalEstimatedCostUsd
@@ -507,6 +512,7 @@ interface TabContentProps {
   logs: LLMRequestLogEntry[];
   buildCallHref: (logId: string) => string;
   assistantId: string | undefined;
+  conversationId: string;
   context: LlmContextResponse | undefined;
   conversationTotalEstimatedCostUsd: number | null | undefined;
 }
@@ -517,6 +523,7 @@ function TabContent({
   logs,
   buildCallHref,
   assistantId,
+  conversationId,
   context,
   conversationTotalEstimatedCostUsd,
 }: TabContentProps): ReactNode {
@@ -534,6 +541,13 @@ function TabContent({
       return <ResponseTab entry={entry} />;
     case "raw":
       return <RawTab entry={entry} assistantId={assistantId} />;
+    case "compaction":
+      return (
+        <CompactionTab
+          assistantId={assistantId}
+          conversationId={conversationId}
+        />
+      );
     case "skills":
       return <SkillsTab logs={logs} buildCallHref={buildCallHref} />;
     case "memory":
