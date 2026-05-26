@@ -132,108 +132,12 @@ describe("assistant channels", () => {
     });
   });
 
-  describe("refresh slack", () => {
-    test("requires at least one token flag", async () => {
-      await runCli("channels", "refresh", "slack", "--json");
-      expect(process.exitCode).toBe(1);
-      // No IPC call when validation fails up front
-      expect(mockCalls).toHaveLength(0);
-    });
-
-    test("passes provided tokens to the slack config POST handler", async () => {
-      mockResponses = [
-        {
-          ok: true,
-          result: {
-            success: true,
-            teamName: "acme",
-            teamId: "T123",
-            botUsername: "apollobot",
-          },
-        },
-      ];
-      await runCli(
-        "channels",
-        "refresh",
-        "slack",
-        "--bot-token",
-        "xoxb-test",
-        "--app-token",
-        "xapp-test",
-        "--json",
-      );
-      expect(mockCalls[0][0]).toBe("integrations_slack_channel_config_post");
-      expect(mockCalls[0][1]).toEqual({
-        body: { botToken: "xoxb-test", appToken: "xapp-test" },
-      });
-    });
-
-    test("includes --user-token when provided", async () => {
-      mockResponses = [
-        { ok: true, result: { success: true } },
-      ];
-      await runCli(
-        "channels",
-        "refresh",
-        "slack",
-        "--bot-token",
-        "xoxb-test",
-        "--user-token",
-        "xoxp-test",
-        "--json",
-      );
-      expect(mockCalls[0][1]).toEqual({
-        body: { botToken: "xoxb-test", userToken: "xoxp-test" },
-      });
-    });
-
-    test("exits non-zero when Slack rejects the credentials", async () => {
-      mockResponses = [
-        {
-          ok: true,
-          result: { success: false, error: "invalid_auth" },
-        },
-      ];
-      await runCli(
-        "channels",
-        "refresh",
-        "slack",
-        "--bot-token",
-        "xoxb-bad",
-        "--json",
-      );
-      expect(process.exitCode).toBe(1);
-    });
-  });
-
-  describe("refresh <unsupported>", () => {
-    test("exits non-zero with a helpful message when channel has no reconnect handler", async () => {
-      await runCli("channels", "refresh", "telegram", "--json");
-      expect(process.exitCode).toBe(1);
-      expect(mockCalls).toHaveLength(0);
-    });
-  });
-
-  describe("refresh (no channel)", () => {
-    test("walks every known channel; reports per-channel outcome", async () => {
-      // Slack alone has a reconnect handler; without --bot-token it should
-      // be marked attempted=false. No IPC calls should happen since slack
-      // requires tokens and no other handler exists.
-      const out = await runCli("channels", "refresh", "--json");
-      expect(mockCalls).toHaveLength(0);
-      const parsed = JSON.parse(out);
-      expect(Array.isArray(parsed.results)).toBe(true);
-      const slack = parsed.results.find(
-        (r: { channel: string }) => r.channel === "slack",
-      );
-      expect(slack.attempted).toBe(false);
-      expect(slack.message).toMatch(/--bot-token/);
-      // Other channels report "no CLI reconnect handler yet"
-      const telegram = parsed.results.find(
-        (r: { channel: string }) => r.channel === "telegram",
-      );
-      expect(telegram.attempted).toBe(false);
-      expect(telegram.message).toMatch(/no CLI reconnect handler/);
+  describe("refresh", () => {
+    test("is not registered (mutating verb deferred to its own PR)", async () => {
+      // commander throws via exitOverride for unknown subcommands
+      await expect(
+        runCli("channels", "refresh", "slack"),
+      ).rejects.toThrow();
     });
   });
 });
