@@ -85,7 +85,7 @@ export function CollapsedGroupIcon({
           type="button"
           aria-label={label}
           aria-haspopup="dialog"
-          className="relative flex h-8 w-8 items-center justify-center rounded-[6px] bg-[var(--surface-base)] text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)] aria-[expanded=true]:bg-[var(--surface-active)] aria-[expanded=true]:text-[var(--content-emphasised)]"
+          className="relative flex h-8 w-8 items-center justify-center rounded-[6px] text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)] aria-[expanded=true]:bg-[var(--surface-active)] aria-[expanded=true]:text-[var(--content-emphasised)]"
         >
           <Icon size={18} />
           {indicatorState != null ? (
