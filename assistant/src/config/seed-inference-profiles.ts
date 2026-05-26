@@ -24,7 +24,7 @@ const log = getLogger("seed-inference-profiles");
  * resolved at seed time from `PROVIDER_MODEL_INTENTS` so the catalog stays the
  * single source of truth for "which model does this intent map to?".
  */
-type ManagedProfileTemplate = Omit<
+export type ManagedProfileTemplate = Omit<
   ProfileEntry,
   "provider" | "model" | "provider_connection"
 > & {
@@ -83,8 +83,13 @@ const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
  * (backed by their API key in CES). The `provider` and `connectionName`
  * fields are placeholders — they are overridden at hatch time with the
  * user's chosen provider and personal connection name.
+ *
+ * Exported so the read-only `GET /v1/inference/onboarding-templates/:provider`
+ * endpoint can hand the same canonical recipe to non-overlay hatch clients
+ * (e.g. the Docker hatch CLI) for client-side application via the regular
+ * profile/connection write endpoints.
  */
-const USER_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
+export const USER_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
   "custom-balanced": {
     intent: "balanced",
     provider: "anthropic",
@@ -371,7 +376,7 @@ export function seedInferenceProfiles(
   saveRawConfig(config);
 }
 
-function materializeProfile(
+export function materializeProfile(
   template: ManagedProfileTemplate,
   provider: NonNullable<ProfileEntry["provider"]>,
   connectionName: string,
@@ -437,7 +442,7 @@ function getHatchSelectedManagedConnection(
  * from `PROVIDER_CATALOG` so it tracks the canonical provider directory; an
  * unrecognised provider id falls back to the raw id with the suffix.
  */
-function personalConnectionLabel(providerId: string): string {
+export function personalConnectionLabel(providerId: string): string {
   const displayName =
     PROVIDER_CATALOG.find((p) => p.id === providerId)?.displayName ??
     providerId;

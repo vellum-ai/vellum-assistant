@@ -596,6 +596,10 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "stt/transcribe", scopes: ["chat.write"] },
 
   // Inference provider connections
+  {
+    endpoint: "inference/onboarding-templates:GET",
+    scopes: ["settings.read"],
+  },
   { endpoint: "inference/provider-connections:GET", scopes: ["settings.read"] },
   {
     endpoint: "inference/provider-connections:POST",
