@@ -74,6 +74,8 @@ describe("content automation onboarding handoff", () => {
       googleConnected: false,
       cohort: "content-automation",
       initialMessage: CONTENT_AUTOMATION_INITIAL_MESSAGE,
+      bootstrapTemplate: "BOOTSTRAP-CONTENT-AUTOMATION.md",
+      skills: ["geo-writing", "document-editor"],
     });
   });
 
