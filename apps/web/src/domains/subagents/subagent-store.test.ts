@@ -833,3 +833,97 @@ describe("byParent index", () => {
     ).toEqual(["sa-b", "sa-c"]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// byToolUseId index — lets the transcript anchor the inline card to its exact
+// spawn tool call (toolUseId → subagentId), surviving optimistic message-id
+// reconciliation.
+// ---------------------------------------------------------------------------
+
+describe("byToolUseId index", () => {
+  it("indexes the subagent by parentToolUseId and sets the entry field", () => {
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "agent",
+      objective: "",
+      timestamp: NOW,
+      parentToolUseId: "tool-use-1",
+    });
+
+    expect(getState().byToolUseId.get("tool-use-1")).toBe("sa-1");
+    expect(getState().byId["sa-1"]!.parentToolUseId).toBe("tool-use-1");
+  });
+
+  it("leaves byToolUseId reference-equal when parentToolUseId is omitted", () => {
+    const before = getState().byToolUseId;
+
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "agent",
+      objective: "",
+      timestamp: NOW,
+    });
+
+    expect(getState().byToolUseId).toBe(before);
+    expect(getState().byToolUseId.size).toBe(0);
+    expect(getState().byId["sa-1"]!.parentToolUseId).toBeUndefined();
+  });
+
+  it("does not touch the index when a duplicate spawn is replayed", () => {
+    getState().spawnSubagent({
+      subagentId: "sa-dup",
+      label: "agent",
+      objective: "",
+      timestamp: NOW,
+      parentToolUseId: "tool-use-dup",
+    });
+    const afterFirst = getState().byToolUseId;
+
+    // Replay with a different toolUseId — guard short-circuits, index unchanged.
+    getState().spawnSubagent({
+      subagentId: "sa-dup",
+      label: "agent",
+      objective: "",
+      timestamp: NOW + 5000,
+      parentToolUseId: "tool-use-other",
+    });
+
+    expect(getState().byToolUseId).toBe(afterFirst);
+    expect(getState().byToolUseId.get("tool-use-dup")).toBe("sa-dup");
+    expect(getState().byToolUseId.has("tool-use-other")).toBe(false);
+  });
+
+  it("keeps the index reference stable across changeStatus and receiveEvent", () => {
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "agent",
+      objective: "",
+      timestamp: NOW,
+      parentToolUseId: "tool-use-1",
+    });
+    const before = getState().byToolUseId;
+
+    getState().changeStatus({ subagentId: "sa-1", status: "running" });
+    getState().receiveEvent({
+      subagentId: "sa-1",
+      event: { type: "assistant_text_delta", content: "Hello" },
+      timestamp: NOW + 100,
+    });
+
+    expect(getState().byToolUseId).toBe(before);
+  });
+
+  it("clears byToolUseId on reset()", () => {
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "agent",
+      objective: "",
+      timestamp: NOW,
+      parentToolUseId: "tool-use-1",
+    });
+    expect(getState().byToolUseId.size).toBe(1);
+
+    getState().reset();
+    expect(getState().byToolUseId.size).toBe(0);
+  });
+});
