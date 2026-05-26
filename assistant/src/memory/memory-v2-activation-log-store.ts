@@ -94,6 +94,14 @@ export interface MemoryV2ConceptRowRecord {
     | "not_injected"
     | "page_missing"
     | "corrupt";
+  /**
+   * v3 shadow only: the retrieval lane that surfaced this slug
+   * (`hot` | `sparse` | `dense` | `tree` | `edge`). Lets a shadow run be
+   * analyzed by provenance — which lane each v3 pick came from. Undefined on
+   * `router`/`per-turn`/etc. v2 rows; stored in the JSON concept blob, so older
+   * rows decode with `undefined`.
+   */
+  lane?: string;
 }
 
 export interface MemoryV2ConfigSnapshot {

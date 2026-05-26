@@ -268,6 +268,12 @@ describe("memory-v3 shadow middleware", () => {
     expect(logged.conversationId).toBe("conv-shadow");
     expect(logged.turn).toBe(3);
     expect(logged.concepts.map((c) => c.slug)).toEqual(["topic/a", "topic/b"]);
+
+    // Per-slug lane provenance is carried from sourceBySlug; a slug absent from
+    // the map (topic/b) gets no lane rather than a bogus one.
+    const bySlug = new Map(logged.concepts.map((c) => [c.slug, c]));
+    expect(bySlug.get("topic/a")?.lane).toBe("dense");
+    expect(bySlug.get("topic/b")?.lane).toBeUndefined();
   });
 
   test("v3 error → logged/swallowed, turn result unaffected, no log row", async () => {

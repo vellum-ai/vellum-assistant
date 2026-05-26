@@ -151,10 +151,13 @@ const SHADOW_CONFIG_SNAPSHOT: MemoryV2ConfigSnapshot = {
  * becomes a zeroed concept row tagged `source: "router"` and
  * `status: "injected"` — the shadow has no activation scores to record, and the
  * `mode='v3_shadow'` row tag (not the concept source) is what distinguishes
- * shadow telemetry from live router selections.
+ * shadow telemetry from live router selections. Each row also carries the
+ * `lane` that surfaced the slug (from `sourceBySlug`) so a shadow run can be
+ * analyzed by provenance.
  */
 function buildShadowConceptRows(
   selectedSlugs: readonly string[],
+  sourceBySlug: ReadonlyMap<string, string>,
 ): MemoryV2ConceptRowRecord[] {
   return selectedSlugs.map((slug) => ({
     slug,
@@ -170,6 +173,7 @@ function buildShadowConceptRows(
     spreadContribution: 0,
     source: "router",
     status: "injected",
+    ...(sourceBySlug.get(slug) ? { lane: sourceBySlug.get(slug) } : {}),
   }));
 }
 
@@ -232,11 +236,37 @@ async function runShadowAndLog(
 
     if (signal.aborted) return;
 
+    // Per-turn summary so a shadow run is analyzable from the logs — the pool
+    // shape, how many passes ran, and the gate's verdict + rationale. The
+    // selection set + per-slug lane land in the activation log below.
+    const passes = output.trace?.passes ?? [];
+    const lastGate = passes[passes.length - 1]?.gate;
+    const laneTally: Record<string, number> = {};
+    for (const lane of output.sourceBySlug.values()) {
+      laneTally[lane] = (laneTally[lane] ?? 0) + 1;
+    }
+    log.info(
+      {
+        conversationId: args.conversationId,
+        turn: args.turnIndex,
+        selected: output.selectedSlugs.length,
+        poolSize: output.sourceBySlug.size,
+        laneTally,
+        passes: passes.length,
+        gateDecision: lastGate?.decision,
+        gateReasoning: lastGate?.reasoning,
+      },
+      "v3 shadow selection",
+    );
+
     recordMemoryV2ActivationLog({
       conversationId: args.conversationId,
       turn: args.turnIndex,
       mode: "v3_shadow",
-      concepts: buildShadowConceptRows(output.selectedSlugs),
+      concepts: buildShadowConceptRows(
+        output.selectedSlugs,
+        output.sourceBySlug,
+      ),
       config: SHADOW_CONFIG_SNAPSHOT,
     });
   } catch (err) {

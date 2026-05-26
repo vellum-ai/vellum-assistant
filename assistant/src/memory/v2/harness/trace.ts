@@ -41,6 +41,12 @@ export interface GateDecision {
   decision: "ready" | "more";
   /** When "more", the generated follow-up queries seeding the next pass. */
   questions?: string[];
+  /**
+   * The gate's one-line rationale for this verdict, when it supplied one.
+   * Surfaced in the descent trace and the live-shadow telemetry so a run can be
+   * analyzed after the fact ("why did the gate keep this set?").
+   */
+  reasoning?: string;
 }
 
 /** Everything that happened on one pass of the loop. */

@@ -547,7 +547,7 @@ describe("runGate — reasoning field", () => {
     expect(schema.required ?? []).not.toContain("reasoning");
   });
 
-  test("accepts model-supplied reasoning without altering the decision", async () => {
+  test("surfaces model-supplied reasoning on the decision without altering the verdict", async () => {
     const calls: ProviderCall[] = [];
     const provider = makeProvider(
       gateToolResponse({
@@ -566,9 +566,13 @@ describe("runGate — reasoning field", () => {
       provider,
     });
 
-    // Reasoning is ignored by control flow: decision + ordered selection
-    // (model order, omitted sticky appended) are unchanged.
-    expect(result.decision).toEqual({ decision: "ready" });
+    // Reasoning does not alter control flow — the verdict and ordered selection
+    // (model order, omitted sticky appended) are unchanged — but it IS carried
+    // on the decision so a run can be analyzed (trace + shadow telemetry).
+    expect(result.decision).toEqual({
+      decision: "ready",
+      reasoning: "kept the two query-relevant pages, dropped the rest",
+    });
     expect(result.selectedSlugs).toEqual(["b", "a", "c"]);
   });
 });

@@ -316,19 +316,25 @@ export async function runGate(args: RunGateArgs): Promise<RunGateResult> {
     sticky,
   );
 
+  const reasoning = parsed.data.reasoning?.trim() || undefined;
+
   if (parsed.data.decision === "more") {
     const questions = (parsed.data.questions ?? []).filter(
       (q) => q.trim().length > 0,
     );
-    const decision: GateDecision =
-      questions.length > 0
-        ? { decision: "more", questions }
-        : { decision: "more" };
+    const decision: GateDecision = {
+      decision: "more",
+      ...(questions.length > 0 ? { questions } : {}),
+      ...(reasoning ? { reasoning } : {}),
+    };
     return { decision, selectedSlugs };
   }
 
   // brief generation lands at cutover (P5) — shadow mode injects v2, so this
   // gate produces only the selection + decision. Do NOT synthesize a voice
   // brief here.
-  return { decision: { decision: "ready" }, selectedSlugs };
+  return {
+    decision: { decision: "ready", ...(reasoning ? { reasoning } : {}) },
+    selectedSlugs,
+  };
 }
