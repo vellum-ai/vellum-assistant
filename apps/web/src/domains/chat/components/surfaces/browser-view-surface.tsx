@@ -1,5 +1,3 @@
-/* eslint-disable no-restricted-syntax -- LUM-1768: file contains dark: pairs pending semantic-token migration */
-
 import { ExternalLink } from "lucide-react";
 
 import type { Surface } from "@/domains/chat/types/types.js";
@@ -35,7 +33,7 @@ export function BrowserViewSurface({ surface, onAction }: BrowserViewSurfaceProp
               href={data.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="mt-1 inline-flex items-center gap-1.5 text-body-medium-lighter text-forest-600 underline decoration-forest-600/30 transition-colors hover:text-forest-700 hover:decoration-forest-700/50 dark:text-forest-400 dark:decoration-forest-400/30 dark:hover:text-forest-300"
+              className="mt-1 inline-flex items-center gap-1.5 text-body-medium-lighter text-[var(--system-positive-strong)] underline decoration-[var(--system-positive-strong)]/30 transition-colors hover:opacity-80"
             >
               <ExternalLink className="h-3.5 w-3.5 shrink-0" />
               <span className="break-all">{data.url}</span>

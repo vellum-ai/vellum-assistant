@@ -1,4 +1,3 @@
-/* eslint-disable no-restricted-syntax -- LUM-1768: file contains dark: pairs pending semantic-token migration */
 import {
   AlertCircle,
   Check,
@@ -459,7 +458,7 @@ function ServiceCard({ id, title, subtitle, mode, onModeChange, children }: Serv
       subtitle={subtitle}
       accessory={<ModeToggle mode={mode} onChange={onModeChange} />}
     >
-      <div className="h-px bg-[var(--surface-active)] dark:bg-[var(--surface-lift)]" />
+      <div className="h-px bg-[var(--surface-active)]" />
       <div className="mt-4">{children}</div>
     </SettingsCard>
   );
@@ -502,7 +501,7 @@ interface ByoServiceCardProps {
 function ByoServiceCard({ title, subtitle, children }: ByoServiceCardProps) {
   return (
     <SettingsCard title={title} subtitle={subtitle}>
-      <div className="h-px bg-[var(--surface-active)] dark:bg-[var(--surface-lift)]" />
+      <div className="h-px bg-[var(--surface-active)]" />
       <div className="mt-4">{children}</div>
     </SettingsCard>
   );
@@ -514,15 +513,15 @@ interface CredentialsGuideProps {
 
 function CredentialsGuide({ guide }: CredentialsGuideProps) {
   return (
-    <div className="flex items-start gap-2 rounded-lg border border-stone-200 bg-stone-50 p-3 text-body-small-default text-stone-600 dark:border-moss-600 dark:bg-moss-800 dark:text-stone-300">
-      <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-forest-700 dark:text-forest-400" />
+    <div className="flex items-start gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-sunken)] p-3 text-body-small-default text-[var(--content-tertiary)]">
+      <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--system-positive-strong)]" />
       <div className="flex flex-col gap-1">
         <span>{guide.description}</span>
         <a
           href={guide.url}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-forest-700 underline hover:text-forest-800 dark:text-forest-400"
+          className="inline-flex items-center gap-1 text-[var(--system-positive-strong)] underline hover:opacity-80"
         >
           {guide.linkLabel}
           <ExternalLink className="h-3 w-3" />
@@ -872,7 +871,7 @@ function DomainVerificationChip({
 }) {
   if (isLoading) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-stone-100 px-2.5 py-0.5 text-body-small-default text-stone-500 dark:bg-moss-800 dark:text-stone-400">
+      <span className="inline-flex items-center gap-1 rounded-full bg-[var(--tag-bg-neutral)] px-2.5 py-0.5 text-body-small-default text-[var(--content-quiet)]">
         <Loader2 className="h-3 w-3 animate-spin" />
         Checking domain…
       </span>
@@ -882,7 +881,7 @@ function DomainVerificationChip({
   if (!status) {
     return (
       <span
-        className="inline-flex items-center gap-1 rounded-full bg-stone-100 px-2.5 py-0.5 text-body-small-default text-stone-500 dark:bg-moss-800 dark:text-stone-400"
+        className="inline-flex items-center gap-1 rounded-full bg-[var(--tag-bg-neutral)] px-2.5 py-0.5 text-body-small-default text-[var(--content-quiet)]"
         title="Unable to retrieve domain verification status."
       >
         Unknown status
@@ -905,7 +904,7 @@ function DomainVerificationChip({
   if (status === "pending" || status === "not_started") {
     return (
       <span
-        className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-0.5 text-body-small-default text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+        className="inline-flex items-center gap-1 rounded-full bg-[var(--system-mid-weak)] px-2.5 py-0.5 text-body-small-default text-[var(--system-mid-strong)]"
         title="DNS records have been provisioned. Waiting for the email provider to verify them — this usually takes a few minutes."
       >
         <Clock className="h-3 w-3" />
@@ -916,7 +915,7 @@ function DomainVerificationChip({
 
   return (
     <span
-      className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2.5 py-0.5 text-body-small-default text-red-700 dark:bg-red-900/30 dark:text-red-400"
+      className="inline-flex items-center gap-1 rounded-full bg-[var(--system-negative-weak)] px-2.5 py-0.5 text-body-small-default text-[var(--system-negative-strong)]"
       title="Domain verification failed. DNS records may not have propagated correctly. You could try releasing and re-registering the domain."
     >
       <AlertCircle className="h-3 w-3" />
@@ -1407,8 +1406,8 @@ function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceCardProp
             />
           </div>
 
-          <div className="flex items-start gap-2 rounded-lg border border-stone-200 bg-stone-50 p-3 text-body-small-default text-stone-600 dark:border-moss-600 dark:bg-moss-800 dark:text-stone-300">
-            <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-forest-700 dark:text-forest-400" />
+          <div className="flex items-start gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-sunken)] p-3 text-body-small-default text-[var(--content-tertiary)]">
+            <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--system-positive-strong)]" />
             <div className="flex flex-col gap-1">
               <span>
                 Configure {selectedByoProvider.displayName} via the assistant
@@ -1423,7 +1422,7 @@ function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceCardProp
                 href={selectedByoProvider.docsUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-forest-700 underline hover:text-forest-800 dark:text-forest-400"
+                className="inline-flex items-center gap-1 text-[var(--system-positive-strong)] underline hover:opacity-80"
               >
                 Open {selectedByoProvider.displayName}
                 <ExternalLink className="h-3 w-3" />
@@ -1958,7 +1957,7 @@ export function AiPage() {
           alongside 3 lines of body text, which read as two competing
           blocks. `items-start` plus a small mt-0.5 on the Info icon
           keep the icon aligned with the first line of wrapping text. */}
-      <div className="flex items-start gap-2 rounded-lg border border-[var(--border-base)] bg-[var(--surface-base)] px-4 py-2.5 dark:border-[var(--border-base)] dark:bg-[var(--surface-lift)]">
+      <div className="flex items-start gap-2 rounded-lg border border-[var(--border-base)] bg-[var(--surface-base)] px-4 py-2.5">
         <Info className="mt-0.5 h-4 w-4 shrink-0 text-[var(--content-tertiary)]" />
         <p className="text-body-medium-lighter text-[var(--content-secondary)]">
           Managed services are metered and deducted from your Vellum account

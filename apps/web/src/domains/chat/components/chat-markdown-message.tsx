@@ -1,4 +1,3 @@
-/* eslint-disable no-restricted-syntax -- LUM-1768: file contains dark: pairs pending semantic-token migration */
 /**
  * Chat-domain MarkdownMessage that composes the design-library primitive
  * with OAuth-aware link handling for authorization URLs in chat responses.
@@ -31,7 +30,7 @@ function OAuthAwareLink({
           event.preventDefault();
         }
       }}
-      className="text-forest-600 underline hover:text-forest-700 dark:text-forest-400 dark:hover:text-forest-300"
+      className="text-[var(--system-positive-strong)] underline hover:opacity-80"
     >
       {children}
     </a>

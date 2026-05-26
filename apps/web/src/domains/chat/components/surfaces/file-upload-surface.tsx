@@ -1,5 +1,3 @@
-/* eslint-disable no-restricted-syntax -- LUM-1768: file contains dark: pairs pending semantic-token migration */
-
 import { AlertTriangle, File, Loader2, Upload, X } from "lucide-react";
 import { type ChangeEvent, type DragEvent, useCallback, useRef, useState } from "react";
 
@@ -257,7 +255,7 @@ export function FileUploadSurface({ surface, onAction }: FileUploadSurfaceProps)
   }, [selectedFiles, onAction, surface.surfaceId]);
 
   return (
-    <div className="rounded-lg border border-stone-200 bg-[var(--surface-lift)] p-4 dark:border-moss-600">
+    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-lift)] p-4">
       {surface.title && (
         <div className="mb-3 flex items-center gap-2">
           <span className="text-title-small text-[var(--content-strong)]">
@@ -279,14 +277,14 @@ export function FileUploadSurface({ surface, onAction }: FileUploadSurfaceProps)
         onClick={() => fileInputRef.current?.click()}
         className={`flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed p-6 transition-colors ${
           isDragOver
-            ? "border-forest-500 bg-forest-50 dark:border-forest-400 dark:bg-forest-950"
-            : "border-stone-300 bg-stone-50 hover:border-stone-400 dark:border-moss-500 dark:bg-moss-800 dark:hover:border-moss-400"
+            ? "border-[var(--system-positive-strong)] bg-[var(--system-positive-weak)]"
+            : "border-[var(--border-element)] bg-[var(--surface-sunken)] hover:border-[var(--content-faint)]"
         }`}
       >
         <Upload
           className={`h-8 w-8 ${
             isDragOver
-              ? "text-forest-500 dark:text-forest-400"
+              ? "text-[var(--system-positive-strong)]"
               : "text-[var(--content-faint)]"
           }`}
         />
@@ -320,7 +318,7 @@ export function FileUploadSurface({ surface, onAction }: FileUploadSurfaceProps)
           {selectedFiles.map((sf) => (
             <li
               key={sf.id}
-              className="flex items-center gap-2 rounded-md bg-stone-50 px-3 py-2 text-body-medium-lighter dark:bg-moss-800"
+              className="flex items-center gap-2 rounded-md bg-[var(--surface-sunken)] px-3 py-2 text-body-medium-lighter"
             >
               <File className="h-4 w-4 shrink-0 text-[var(--content-faint)]" />
               <span className="min-w-0 flex-1 truncate text-[var(--content-strong)]">
@@ -336,7 +334,7 @@ export function FileUploadSurface({ surface, onAction }: FileUploadSurfaceProps)
                   e.stopPropagation();
                   removeFile(sf.id);
                 }}
-                className="shrink-0 rounded p-0.5 text-stone-400 transition-colors hover:bg-stone-200 hover:text-stone-600 disabled:opacity-50 dark:text-stone-500 dark:hover:bg-moss-600 dark:hover:text-stone-300"
+                className="shrink-0 rounded p-0.5 text-[var(--content-faint)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-secondary)] disabled:opacity-50"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -350,7 +348,7 @@ export function FileUploadSurface({ surface, onAction }: FileUploadSurfaceProps)
 
       {/* Suspicious extension warning */}
       {extensionWarning && (
-        <div className="mt-2 flex items-center gap-1.5 text-body-small-default text-amber-600 dark:text-amber-400">
+        <div className="mt-2 flex items-center gap-1.5 text-body-small-default text-[var(--system-mid-strong)]">
           <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
           {extensionWarning}
         </div>

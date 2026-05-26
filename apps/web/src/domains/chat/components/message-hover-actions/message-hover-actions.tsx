@@ -1,4 +1,3 @@
-/* eslint-disable no-restricted-syntax -- LUM-1768: file contains dark: pairs pending semantic-token migration */
 
 import { Check, Copy, FileCode, GitBranch } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -113,7 +112,7 @@ export function MessageHoverActions({
           type="button"
           onClick={handleCopy}
           title={showCopied ? "Copied" : "Copy"}
-          className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-[var(--content-tertiary)] transition-colors hover:bg-stone-200 hover:text-[var(--content-secondary)] dark:hover:bg-moss-600 dark:hover:text-stone-200"
+          className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-default)]"
         >
           {showCopied ? (
             <Check className="h-3.5 w-3.5 text-[var(--system-positive-strong)]" />
@@ -128,7 +127,7 @@ export function MessageHoverActions({
           type="button"
           onClick={onFork}
           title="Fork from here"
-          className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-[var(--content-tertiary)] transition-colors hover:bg-stone-200 hover:text-[var(--content-secondary)] dark:hover:bg-moss-600 dark:hover:text-stone-200"
+          className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-default)]"
         >
           <GitBranch className="h-3.5 w-3.5" />
         </button>
@@ -139,7 +138,7 @@ export function MessageHoverActions({
           type="button"
           onClick={onInspect}
           title="Inspect"
-          className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-[var(--content-tertiary)] transition-colors hover:bg-stone-200 hover:text-[var(--content-secondary)] dark:hover:bg-moss-600 dark:hover:text-stone-200"
+          className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-default)]"
         >
           <FileCode className="h-3.5 w-3.5" />
         </button>

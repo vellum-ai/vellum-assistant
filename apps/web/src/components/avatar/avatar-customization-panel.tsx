@@ -1,4 +1,3 @@
-/* eslint-disable no-restricted-syntax -- LUM-1768: file contains dark: pairs pending semantic-token migration */
 import { ChevronLeft, ChevronRight, Dices, Save, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -101,7 +100,7 @@ export function AvatarCustomizationPanel({
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-stone-300 border-t-stone-600 dark:border-stone-600 dark:border-t-stone-300" />
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-[var(--border-element)] border-t-[var(--content-tertiary)]" />
       </div>
     );
   }
@@ -121,7 +120,7 @@ export function AvatarCustomizationPanel({
   return (
     <div className="space-y-6">
       <div className="flex justify-center">
-        <div className="rounded-2xl bg-stone-100 p-6 dark:bg-moss-700">
+        <div className="rounded-2xl bg-[var(--surface-sunken)] p-6">
           <AvatarRenderer
             components={components}
             bodyShapeId={currentBody.id}
@@ -158,7 +157,7 @@ export function AvatarCustomizationPanel({
         <button
           type="button"
           onClick={handleRandomize}
-          className="flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-lg border border-stone-200 bg-[var(--surface-lift)] px-3 py-2 text-body-medium-default text-[var(--content-strong)] transition-colors hover:bg-stone-50 dark:border-moss-600 dark:hover:bg-moss-600"
+          className="flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-lg border border-[var(--border-element)] bg-[var(--surface-lift)] px-3 py-2 text-body-medium-default text-[var(--content-strong)] transition-colors hover:bg-[var(--surface-hover)]"
         >
           <Dices className="h-4 w-4" />
           Randomize
@@ -167,7 +166,7 @@ export function AvatarCustomizationPanel({
           type="button"
           onClick={handleSave}
           disabled={isSaving}
-          className="flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-lg border border-forest-600 bg-forest-100 px-3 py-2 text-body-medium-default text-forest-700 transition-colors hover:bg-forest-200 disabled:opacity-50 dark:border-forest-400 dark:bg-forest-950 dark:text-forest-300 dark:hover:bg-forest-900"
+          className="flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-lg border border-[var(--system-positive-strong)] bg-[var(--system-positive-weak)] px-3 py-2 text-body-medium-default text-[var(--system-positive-strong)] transition-colors hover:opacity-90 disabled:opacity-50"
         >
           <Save className="h-4 w-4" />
           {isSaving ? "Saving..." : "Save Avatar"}
@@ -176,7 +175,7 @@ export function AvatarCustomizationPanel({
           <button
             type="button"
             onClick={onCancel}
-            className="flex cursor-pointer items-center justify-center rounded-lg border border-stone-200 bg-[var(--surface-lift)] px-3 py-2 text-body-medium-default text-[var(--content-strong)] transition-colors hover:bg-stone-50 dark:border-moss-600 dark:hover:bg-moss-600"
+            className="flex cursor-pointer items-center justify-center rounded-lg border border-[var(--border-element)] bg-[var(--surface-lift)] px-3 py-2 text-body-medium-default text-[var(--content-strong)] transition-colors hover:bg-[var(--surface-hover)]"
           >
             <X className="h-4 w-4" />
           </button>
@@ -196,7 +195,7 @@ interface CycleRowProps {
 
 function CycleRow({ label, value, colorHex, onPrev, onNext }: CycleRowProps) {
   return (
-    <div className="flex items-center justify-between rounded-lg border border-stone-200 bg-[var(--surface-lift)] px-3 py-2 dark:border-moss-600">
+    <div className="flex items-center justify-between rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-lift)] px-3 py-2">
       <span className="text-body-small-default uppercase tracking-wider text-[var(--content-quiet)]">
         {label}
       </span>
@@ -204,14 +203,14 @@ function CycleRow({ label, value, colorHex, onPrev, onNext }: CycleRowProps) {
         <button
           type="button"
           onClick={onPrev}
-          className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-stone-500 transition-colors hover:bg-stone-100 dark:text-stone-400 dark:hover:bg-moss-600"
+          className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-[var(--content-quiet)] transition-colors hover:bg-[var(--surface-active)]"
         >
           <ChevronLeft className="h-4 w-4" />
         </button>
         <div className="flex min-w-[80px] items-center justify-center gap-2">
           {colorHex && (
             <div
-              className="h-4 w-4 rounded-full border border-stone-300 dark:border-stone-500"
+              className="h-4 w-4 rounded-full border border-[var(--border-element)]"
               style={{ backgroundColor: colorHex }}
             />
           )}
@@ -222,7 +221,7 @@ function CycleRow({ label, value, colorHex, onPrev, onNext }: CycleRowProps) {
         <button
           type="button"
           onClick={onNext}
-          className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-stone-500 transition-colors hover:bg-stone-100 dark:text-stone-400 dark:hover:bg-moss-600"
+          className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-[var(--content-quiet)] transition-colors hover:bg-[var(--surface-active)]"
         >
           <ChevronRight className="h-4 w-4" />
         </button>

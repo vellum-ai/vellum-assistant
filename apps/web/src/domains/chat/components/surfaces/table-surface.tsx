@@ -1,5 +1,3 @@
-/* eslint-disable no-restricted-syntax -- LUM-1768: file contains dark: pairs pending semantic-token migration */
-
 import { Check, Copy, icons } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -164,7 +162,7 @@ export function TableSurface({ surface, onAction }: TableSurfaceProps) {
           <button
             type="button"
             onClick={handleCopy}
-            className="flex items-center gap-1 rounded p-1 text-body-small-default text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-700 dark:text-stone-400 dark:hover:bg-moss-600 dark:hover:text-stone-200"
+            className="flex items-center gap-1 rounded p-1 text-body-small-default text-[var(--content-quiet)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-default)]"
             aria-label="Copy table as markdown"
           >
             {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
@@ -188,7 +186,7 @@ export function TableSurface({ surface, onAction }: TableSurfaceProps) {
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-stone-100 dark:divide-moss-600">
+          <tbody className="divide-y divide-[var(--border-base)]">
             {data.rows.map((row) => {
               const isSelected = selectedIds.includes(row.id);
               const rowSelectable = isSelectable && row.selectable !== false;
@@ -199,11 +197,11 @@ export function TableSurface({ surface, onAction }: TableSurfaceProps) {
                   onClick={() => rowSelectable && handleToggle(row.id)}
                   className={`transition-colors ${
                     rowSelectable
-                      ? "cursor-pointer hover:bg-stone-50 dark:hover:bg-moss-600"
+                      ? "cursor-pointer hover:bg-[var(--surface-hover)]"
                       : ""
                   } ${
                     isSelected
-                      ? "bg-forest-50 dark:bg-forest-950"
+                      ? "bg-[var(--system-positive-weak)]"
                       : ""
                   }`}
                 >
@@ -214,7 +212,7 @@ export function TableSurface({ surface, onAction }: TableSurfaceProps) {
                           className={`flex h-5 w-5 items-center justify-center rounded border transition-colors ${
                             isSelected
                               ? "border-forest-600 bg-forest-600 text-white"
-                              : "border-stone-300 dark:border-moss-500"
+                              : "border-[var(--border-element)]"
                           } ${selectionMode === "single" ? "rounded-full" : "rounded"}`}
                         >
                           {isSelected && <Check className="h-3 w-3" />}
@@ -227,7 +225,7 @@ export function TableSurface({ surface, onAction }: TableSurfaceProps) {
                     return (
                       <td
                         key={col.id}
-                        className="px-3 py-2 text-stone-700 dark:text-stone-300"
+                        className="px-3 py-2 text-[var(--content-default)]"
                         style={col.width ? { width: `${col.width}px` } : undefined}
                       >
                         {isRichCell(cell) ? (
