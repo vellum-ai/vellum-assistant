@@ -126,13 +126,15 @@ References:
 
 Logout uses `hardNavigate()` from `lib/auth/hard-navigate.ts`, not
 React Router's `navigate()`. `hardNavigate()` calls
-`window.location.href`, which destroys the entire JavaScript
+`window.location.replace()`, which destroys the entire JavaScript
 execution context — every Zustand module-level singleton, every
 closure, every in-flight timer — guaranteeing no in-memory state
-leaks across auth boundaries. React Router intentionally does not
-provide a "destroy everything" helper because SPA routers are
-designed to *preserve* state across navigations; for logout,
-preservation is the problem.
+leaks across auth boundaries. Using `replace` instead of assigning
+`location.href` removes the pre-logout page from session history,
+preventing back-navigation and bfcache restoration of stale state.
+React Router intentionally does not provide a "destroy everything"
+helper because SPA routers are designed to *preserve* state across
+navigations; for logout, preservation is the problem.
 
 Before the hard navigation, the auth store's `logout()` action
 clears user-scoped browser storage (`lib/auth/session-cleanup.ts`).
