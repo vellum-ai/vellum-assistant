@@ -147,6 +147,83 @@ describe("conversation-attention-store", () => {
       const state = states.get("conv-1")!;
       expect(state.latestAssistantMessageId).toBe("msg-1");
     });
+
+    test("returns true when creating new attention state (no prior state)", () => {
+      ensureConversation("conv-1");
+      const result = projectAssistantMessage({
+        conversationId: "conv-1",
+        messageId: "msg-1",
+        messageAt: 1000,
+      });
+      expect(result).toBe(true);
+    });
+
+    test("returns true when advancing cursor past seen position (seen→unseen)", () => {
+      ensureConversation("conv-1");
+      projectAssistantMessage({
+        conversationId: "conv-1",
+        messageId: "msg-1",
+        messageAt: 1000,
+      });
+      recordConversationSeenSignal({
+        conversationId: "conv-1",
+        sourceChannel: "vellum",
+        signalType: "macos_conversation_opened",
+        confidence: "explicit",
+        source: "test",
+      });
+      const result = projectAssistantMessage({
+        conversationId: "conv-1",
+        messageId: "msg-2",
+        messageAt: 2000,
+      });
+      expect(result).toBe(true);
+    });
+
+    test("returns false when conversation is already unseen", () => {
+      ensureConversation("conv-1");
+      projectAssistantMessage({
+        conversationId: "conv-1",
+        messageId: "msg-1",
+        messageAt: 1000,
+      });
+      const result = projectAssistantMessage({
+        conversationId: "conv-1",
+        messageId: "msg-2",
+        messageAt: 2000,
+      });
+      expect(result).toBe(false);
+    });
+
+    test("returns false when cursor does not advance (older message)", () => {
+      ensureConversation("conv-1");
+      projectAssistantMessage({
+        conversationId: "conv-1",
+        messageId: "msg-2",
+        messageAt: 2000,
+      });
+      const result = projectAssistantMessage({
+        conversationId: "conv-1",
+        messageId: "msg-1",
+        messageAt: 1000,
+      });
+      expect(result).toBe(false);
+    });
+
+    test("returns false when cursor does not advance (equal timestamp)", () => {
+      ensureConversation("conv-1");
+      projectAssistantMessage({
+        conversationId: "conv-1",
+        messageId: "msg-1",
+        messageAt: 1000,
+      });
+      const result = projectAssistantMessage({
+        conversationId: "conv-1",
+        messageId: "msg-1-dup",
+        messageAt: 1000,
+      });
+      expect(result).toBe(false);
+    });
   });
 
   // ── recordConversationSeenSignal ────────────────────────────────

@@ -109,7 +109,7 @@ export function projectAssistantMessage(params: {
   conversationId: string;
   messageId: string;
   messageAt: number;
-}): void {
+}): boolean {
   const { conversationId, messageId, messageAt } = params;
   const db = getDb();
   const now = Date.now();
@@ -140,7 +140,7 @@ export function projectAssistantMessage(params: {
         updatedAt: now,
       })
       .run();
-    return;
+    return true;
   }
 
   // Monotonic: only advance if the new message is strictly later
@@ -148,8 +148,13 @@ export function projectAssistantMessage(params: {
     existing.latestAssistantMessageAt != null &&
     messageAt <= existing.latestAssistantMessageAt
   ) {
-    return;
+    return false;
   }
+
+  const wasSeen =
+    existing.lastSeenAssistantMessageAt != null &&
+    existing.latestAssistantMessageAt != null &&
+    existing.lastSeenAssistantMessageAt >= existing.latestAssistantMessageAt;
 
   db.update(conversationAssistantAttentionState)
     .set({
@@ -161,6 +166,8 @@ export function projectAssistantMessage(params: {
       eq(conversationAssistantAttentionState.conversationId, conversationId),
     )
     .run();
+
+  return wasSeen;
 }
 
 /**
