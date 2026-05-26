@@ -71,12 +71,17 @@ export function readPersistedCollapsed(): boolean {
   }
 }
 
+const MIN_SIDEBAR_WIDTH = 220;
+const MAX_SIDEBAR_WIDTH = 400;
+
 export function readPersistedWidth(): number {
   try {
     const stored = window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY);
     if (stored != null) {
       const parsed = Number(stored);
-      if (Number.isFinite(parsed) && parsed > 0) return parsed;
+      if (Number.isFinite(parsed) && parsed > 0) {
+        return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, parsed));
+      }
     }
   } catch {
     // Storage unavailable

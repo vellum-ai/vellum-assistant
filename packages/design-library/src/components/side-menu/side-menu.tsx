@@ -224,6 +224,16 @@ function SideMenuRoot({
     [onWidthChange, minWidth, maxWidth],
   );
 
+  useEffect(() => {
+    return () => {
+      if (dragRef.current) {
+        dragRef.current = null;
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+      }
+    };
+  }, []);
+
   const widthStyle =
     resizable && !effectiveCollapsed && width != null
       ? { ...style, width }
