@@ -1,13 +1,6 @@
 /**
- * Handles the `/assistant` index route. If a legacy `?conversationId=` or
- * `?conversationKey=` search param is present, redirects to the canonical
- * path-based conversation URL. `conversationId` wins when both are present.
- *
- * Sanctioned exclusion from the `conversationKey` → `conversationId`
- * cutover: the redirect itself stays bilingual so that ancient saved/shared
- * URLs (which only knew the `conversationKey` query-param shape) continue
- * to land on the right conversation rather than the new-chat page.
- *
+ * Handles the `/assistant` index route. Redirects legacy `?conversationId=`
+ * / `?conversationKey=` search params to canonical path-based URLs.
  * Otherwise renders `ChatPage` (new/default conversation).
  */
 import { Navigate, useSearchParams } from "react-router";
@@ -20,6 +13,13 @@ export function ConversationRedirect() {
   const target =
     searchParams.get("conversationId") ?? searchParams.get("conversationKey");
   if (target) {
+    const param = searchParams.has("conversationId")
+      ? "conversationId"
+      : "conversationKey";
+    console.warn(
+      `[ConversationRedirect] Legacy search param redirect: ?${param}=${target}`,
+    );
+
     const remaining = new URLSearchParams(searchParams);
     remaining.delete("conversationId");
     remaining.delete("conversationKey");
