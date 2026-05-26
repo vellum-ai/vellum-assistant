@@ -108,7 +108,10 @@ function buildGateTool(candidateSlugs: readonly string[]): ToolDefinition {
           type: "array",
           items: { type: "string", enum: [...candidateSlugs] },
           description:
-            "Final ordered page slugs to inject. Choose only from the candidate set.",
+            "Final ordered page slugs to inject. Choose only from the candidate " +
+            "set. Prefer keeping a plausibly-relevant page over dropping it; for a " +
+            "list / 'all of X' / breadth request, include every candidate that " +
+            "plausibly applies rather than trimming to the most prominent few.",
         },
         questions: {
           type: "array",
@@ -198,7 +201,12 @@ export async function runGate(args: RunGateArgs): Promise<RunGateResult> {
   const systemPrompt =
     "You are the final selection gate for a memory-retrieval loop. You are " +
     "given the candidate concept pages gathered so far for the current turn. " +
-    "Decide whether they are sufficient to answer the next reply.";
+    "Decide whether they are sufficient to answer the next reply. Lean toward " +
+    "recall: keep a candidate whenever it plausibly bears on the turn rather " +
+    "than dropping it. When the turn asks for a list, for 'all of' something, " +
+    "or for a broad answer, select every candidate that plausibly belongs — " +
+    "do not trim to only the most prominent ones. Drop a candidate only when it " +
+    "is clearly irrelevant to the turn.";
 
   const stickySlugs = [...sticky];
   const userMsg: Message = {
