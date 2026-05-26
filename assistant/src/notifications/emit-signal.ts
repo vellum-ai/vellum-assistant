@@ -14,8 +14,9 @@ import { v4 as uuid } from "uuid";
 import { getDeliverableChannels } from "../channels/config.js";
 import { findGuardianForChannel } from "../contacts/contact-store.js";
 import type { ConversationCreateType } from "../memory/conversation-crud.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { getLogger } from "../util/logger.js";
-import { type BroadcastFn, VellumAdapter } from "./adapters/macos.js";
+import { VellumAdapter } from "./adapters/macos.js";
 import { PlatformPushAdapter } from "./adapters/platform.js";
 import { SlackAdapter } from "./adapters/slack.js";
 import { TelegramAdapter } from "./adapters/telegram.js";
@@ -49,56 +50,38 @@ const log = getLogger("emit-signal");
 // ── Broadcaster singleton ──────────────────────────────────────────────
 
 let broadcasterInstance: NotificationBroadcaster | null = null;
-let registeredBroadcastFn: BroadcastFn | null = null;
-
-/**
- * Register the broadcast function so the vellum adapter can deliver
- * notifications to connected clients. Must be called once during
- * daemon startup (before any signals are emitted).
- */
-export function registerBroadcastFn(fn: BroadcastFn): void {
-  registeredBroadcastFn = fn;
-  // Reset the broadcaster so it picks up the new broadcast function
-  broadcasterInstance = null;
-}
 
 function getBroadcaster(): NotificationBroadcaster {
   if (!broadcasterInstance) {
-    const adapters = [
+    broadcasterInstance = new NotificationBroadcaster([
+      new VellumAdapter(broadcastMessage),
       new TelegramAdapter(),
       new SlackAdapter(),
       new PlatformPushAdapter(),
-    ];
-    if (registeredBroadcastFn) {
-      adapters.unshift(new VellumAdapter(registeredBroadcastFn));
-    }
-    broadcasterInstance = new NotificationBroadcaster(adapters);
+    ]);
 
     // Wire the conversation-created callback so the macOS client is notified
     // immediately when a vellum notification conversation is paired — before
     // slower channel deliveries (e.g. Telegram) delay the push.
-    if (registeredBroadcastFn) {
-      const broadcastFn = registeredBroadcastFn;
-      broadcasterInstance.setOnConversationCreated((info) => {
-        broadcastFn({
-          type: "notification_conversation_created",
-          conversationId: info.conversationId,
-          title: info.title,
-          sourceEventName: info.sourceEventName,
-          targetGuardianPrincipalId: info.targetGuardianPrincipalId,
-          groupId: info.groupId,
-          source: info.source,
-          silent: info.silent,
-        });
-        log.info(
-          {
-            conversationId: info.conversationId,
-            guardianScoped: info.targetGuardianPrincipalId != null,
-          },
-          "Emitted notification_conversation_created push event",
-        );
+    broadcasterInstance.setOnConversationCreated((info) => {
+      broadcastMessage({
+        type: "notification_conversation_created",
+        conversationId: info.conversationId,
+        title: info.title,
+        sourceEventName: info.sourceEventName,
+        targetGuardianPrincipalId: info.targetGuardianPrincipalId,
+        groupId: info.groupId,
+        source: info.source,
+        silent: info.silent,
       });
-    }
+      log.info(
+        {
+          conversationId: info.conversationId,
+          guardianScoped: info.targetGuardianPrincipalId != null,
+        },
+        "Emitted notification_conversation_created push event",
+      );
+    });
   }
   return broadcasterInstance;
 }
@@ -115,18 +98,15 @@ function getConnectedChannels(): NotificationChannel[] {
     switch (channel) {
       case "vellum":
         // Vellum is always considered connected (the local transport is
-        // always available when the daemon is running).
+        // always available when the assistant is running).
         channels.push(channel);
         break;
       case "platform":
-        // Platform push is connected when the daemon has a registered
-        // broadcast function — i.e., full daemon mode where platform
-        // credentials are also available. Mirrors the vellum gate so
-        // the decision engine doesn't route to platform in standalone
-        // CLI contexts where VellumPlatformClient.create() returns null.
-        if (registeredBroadcastFn) {
-          channels.push(channel);
-        }
+        // Platform push is treated as connected at the decision-engine
+        // layer; the actual delivery path lazily resolves
+        // `VellumPlatformClient.create()` in `PlatformPushAdapter.send()`
+        // and reports a delivery failure when credentials are absent.
+        channels.push(channel);
         break;
       case "telegram": {
         // A binding-based channel is connected when the guardian has an
