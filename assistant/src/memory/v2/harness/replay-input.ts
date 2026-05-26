@@ -10,8 +10,10 @@
  *  - `nowText`: read from current workspace files (`loadNowText`). NOT stored
  *    in the log, so it may differ from what the live turn saw —
  *    always-approximate; see `ReconstructionMeta.nowReconstructedFromCurrent`.
- *  - `priorEverInjected`: the union of injected / in_context slugs from earlier
- *    `mode='router'` logs in the same conversation (turn < target).
+ *  - `priorEverInjected`: the union of retained slugs from earlier
+ *    `mode='router'` logs in the same conversation (turn < target). Retained
+ *    statuses mirror production's `everInjected` (injected / in_context, plus
+ *    page_missing / corrupt — see `PRIOR_STATUSES`).
  *
  * The anchor is the turn's assistant reply; the messages the router saw are
  * those strictly before it, so we fetch a bounded recent window up to the
@@ -172,7 +174,21 @@ export async function reconstructInput(
   };
 }
 
-const PRIOR_STATUSES = new Set<string>(["injected", "in_context"]);
+// Production's `everInjected` retains a slug once it is rendered, EXCEPT for
+// missing synthetic slugs (skills/CLI commands whose capability cache is empty
+// — see `missingSyntheticSlugs` in `injection.ts`). Concept pages that turn out
+// `page_missing` or `corrupt` at render time are still retained so they aren't
+// re-attempted every turn (see the `page_missing ... DOES land in everInjected`
+// case in `injection.test.ts`). The replay must mirror that retention or it
+// builds a narrower prior-state than live routing, skewing comparisons. Missing
+// synthetic slugs never enter the missing/corrupt buckets — they log as
+// `injected` — so widening here introduces no new synthetic-slug discrepancy.
+const PRIOR_STATUSES = new Set<string>([
+  "injected",
+  "in_context",
+  "page_missing",
+  "corrupt",
+]);
 
 /**
  * Union of slugs injected on earlier `mode='router'` turns in this conversation
