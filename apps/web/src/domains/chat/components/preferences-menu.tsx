@@ -162,7 +162,7 @@ function PreferencesMenuContent({
         onSelect={async () => {
           await logout();
           onClose();
-          navigate(routes.account.login);
+          window.location.href = routes.account.login;
         }}
       />
     </>

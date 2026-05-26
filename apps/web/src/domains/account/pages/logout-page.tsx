@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { useNavigate, useSearchParams } from "react-router";
+import { useSearchParams } from "react-router";
 
 import { AccountHeading } from "@/components/account/account-form.js";
 import { AccountShell } from "@/components/account/account-shell.js";
@@ -8,7 +8,6 @@ import { useAuthStore } from "@/stores/auth-store.js";
 import { routes } from "@/utils/routes.js";
 
 export function LogoutPage() {
-  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const logout = useAuthStore.use.logout();
   const logoutInitiated = useRef(false);
@@ -29,21 +28,13 @@ export function LogoutPage() {
         ? returnTo
         : `${routes.account.login}?returnTo=${encodeURIComponent(returnTo)}`;
 
-    const redirect = (url: string) => {
-      if (url.startsWith("http")) {
-        window.location.href = url;
-      } else {
-        navigate(url);
-      }
-    };
-
     let cancelled = false;
     logout().then(
-      () => { if (!cancelled) redirect(target); },
-      () => { if (!cancelled) redirect(target); },
+      () => { if (!cancelled) window.location.href = target; },
+      () => { if (!cancelled) window.location.href = target; },
     );
     return () => { cancelled = true; };
-  }, [logout, navigate, searchParams]);
+  }, [logout, searchParams]);
 
   return (
     <AccountShell>

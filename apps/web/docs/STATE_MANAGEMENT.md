@@ -122,6 +122,30 @@ References:
 - [Zustand — Reading/writing state outside components](https://zustand.docs.pmnd.rs/guides/reading-and-writing-state-outside-components)
 - [React Router — Middleware](https://reactrouter.com/how-to/middleware)
 
+## Logout destroys the JS context via hard navigation
+
+Logout uses `window.location.href` (hard navigation), not
+`navigate()` (SPA navigation). A hard navigation destroys the entire
+JavaScript execution context — every Zustand module-level singleton,
+every closure, every in-flight timer — guaranteeing no in-memory
+state leaks across auth boundaries.
+
+Before the hard navigation, the auth store's `logout()` action
+clears user-scoped browser storage (`lib/auth/session-cleanup.ts`)
+and onboarding flags. Device-level preferences (theme,
+analytics/diagnostics consent) are preserved.
+
+Cross-tab logout uses `BroadcastChannel` → `window.location.reload()`
+so other tabs also destroy their JS context.
+
+**Do not replace `window.location.href` with `navigate()` on logout
+call sites.** SPA navigation preserves module-level Zustand state,
+which is a privacy/security concern on shared devices.
+
+References:
+- [web.dev — Sign-out best practices](https://web.dev/articles/sign-out-best-practices)
+- [React — Preserving and Resetting State](https://react.dev/learn/preserving-and-resetting-state)
+
 ## Turn state lives in `domains/messaging/turn-store.ts`
 
 Turn lifecycle (sending, thinking, streaming, idle, errored), queue

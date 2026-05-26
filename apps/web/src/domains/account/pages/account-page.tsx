@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link } from "react-router";
 
 import { AccountHeading } from "@/components/account/account-form.js";
 import { AccountShell } from "@/components/account/account-shell.js";
@@ -13,7 +13,6 @@ import { routes } from "@/utils/routes.js";
  * or a "Go to your assistant" link + sign-out button when logged in.
  */
 export function AccountPage() {
-  const navigate = useNavigate();
   const isLoggedIn = useAuthStore.use.isLoggedIn();
   const isLoading = useAuthStore.use.isLoading();
   const user = useAuthStore.use.user();
@@ -84,7 +83,7 @@ export function AccountPage() {
           type="button"
           onClick={async () => {
             await logout();
-            navigate(routes.account.login);
+            window.location.href = routes.account.login;
           }}
           className="cursor-pointer bg-transparent text-sm font-normal text-stone-400 transition-colors hover:text-stone-300"
         >
