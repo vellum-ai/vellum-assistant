@@ -1,16 +1,12 @@
-import {
-  createBrowserRouter,
-  Navigate,
-  useNavigate,
-  useSearchParams,
-} from "react-router";
+import { createBrowserRouter } from "react-router";
 
 import { authMiddleware } from "@/lib/auth/auth-middleware.js";
 import { RootLayout } from "@/root-layout.js";
 import { ChatLayout } from "@/domains/chat/chat-layout.js";
 import { ChatPage } from "@/domains/chat/chat-page.js";
+import { ConversationRedirect } from "@/domains/chat/conversation-redirect.js";
 import { DocumentViewerPage } from "@/domains/chat/document-viewer-page.js";
-import { HomePage } from "@/domains/home/home-page.js";
+import { HomePageRoute } from "@/home-page-route.js";
 import { LibraryPage } from "@/domains/library/library-page.js";
 import { LibraryDetailPage } from "@/domains/library/library-detail-page.js";
 import { IdentityPage } from "@/domains/intelligence/identity-page.js";
@@ -52,7 +48,6 @@ import { DesktopOAuthCompletePage } from "@/domains/account/pages/desktop-oauth-
 import { LogoutPage } from "@/domains/account/pages/logout-page.js";
 import { OAuthPopupCompletePage } from "@/domains/account/pages/oauth-popup-complete-page.js";
 import { PasswordResetPage } from "@/domains/account/pages/password-reset-page.js";
-import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate.js";
 import { ActiveAssistantGate } from "@/components/layout/active-assistant-gate.js";
 import { HatchingScreen } from "@/domains/onboarding/pages/hatching-screen.js";
 import { PreChatFlow } from "@/domains/onboarding/pages/pre-chat-flow.js";
@@ -62,63 +57,6 @@ import { TracePage } from "@/domains/logs/pages/trace-page.js";
 import { UsagePage } from "@/domains/logs/pages/usage-page.js";
 import { SystemEventsPage } from "@/domains/logs/pages/system-events-page.js";
 import { EmailsPage } from "@/domains/logs/pages/emails-page.js";
-import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection.js";
-import { useConversationStore } from "@/domains/conversations/conversation-store.js";
-import { useViewerStore } from "@/stores/viewer-store.js";
-import { routes } from "@/utils/routes.js";
-
-/**
- * Handles the `/assistant` index route. If a legacy `?conversationId=` or
- * `?conversationKey=` search param is present, redirects to the canonical
- * path-based conversation URL. `conversationId` wins when both are present.
- *
- * Sanctioned exclusion from the `conversationKey` → `conversationId`
- * cutover: the redirect itself stays bilingual so that ancient saved/shared
- * URLs (which only knew the `conversationKey` query-param shape) continue
- * to land on the right conversation rather than the new-chat page.
- *
- * Otherwise renders `ChatPage` (new/default conversation).
- */
-function ConversationRedirect() {
-  const [searchParams] = useSearchParams();
-  const target =
-    searchParams.get("conversationId") ?? searchParams.get("conversationKey");
-  if (target) {
-    const remaining = new URLSearchParams(searchParams);
-    remaining.delete("conversationId");
-    remaining.delete("conversationKey");
-    const qs = remaining.toString();
-    return (
-      <Navigate
-        to={`${routes.conversation(target)}${qs ? `?${qs}` : ""}`}
-        replace
-      />
-    );
-  }
-  return <ChatPage />;
-}
-
-function HomePageRoute() {
-  const navigate = useNavigate();
-  const { assistantId } = useActiveAssistantContext();
-  return (
-    <HomePage
-      assistantId={assistantId}
-      onStartNewChat={() => navigate(routes.assistant)}
-      onOpenConversation={(conversationId) =>
-        navigate(routes.conversation(conversationId))
-      }
-      onSuggestionSelected={(prompt) => {
-        useViewerStore.getState().setMainView("chat");
-        const draftConversationId = createDraftConversationId();
-        useConversationStore.getState().setActiveConversationId(draftConversationId);
-        navigate(
-          `${routes.conversation(draftConversationId)}?prompt=${encodeURIComponent(prompt)}`,
-        );
-      }}
-    />
-  );
-}
 
 // Route tree — no basename, routes are absolute browser paths.
 // To view the full hierarchy at a glance:
@@ -126,6 +64,7 @@ function HomePageRoute() {
 //
 // References:
 // - React Router data mode routing: https://reactrouter.com/start/data/routing
+// - React Router route object: https://reactrouter.com/start/data/route-object
 // - React Router middleware: https://reactrouter.com/how-to/middleware
 export const router = createBrowserRouter(
   [
@@ -133,65 +72,59 @@ export const router = createBrowserRouter(
     {
       path: "/account",
       children: [
-        { index: true, element: <AccountPage /> },
-        { path: "login", element: <LoginPage /> },
-        { path: "signup", element: <SignupPage /> },
-        { path: "provider/callback", element: <ProviderCallbackPage /> },
-        { path: "provider/signup", element: <ProviderSignupPage /> },
-        { path: "oauth/popup-complete", element: <OAuthPopupCompletePage /> },
-        {
-          path: "oauth/desktop-complete",
-          element: <DesktopOAuthCompletePage />,
-        },
-        { path: "password/reset", element: <PasswordResetPage /> },
-        { path: "password/reset/key/:key", element: <PasswordResetPage /> },
+        { index: true, Component: AccountPage },
+        { path: "login", Component: LoginPage },
+        { path: "signup", Component: SignupPage },
+        { path: "provider/callback", Component: ProviderCallbackPage },
+        { path: "provider/signup", Component: ProviderSignupPage },
+        { path: "oauth/popup-complete", Component: OAuthPopupCompletePage },
+        { path: "oauth/desktop-complete", Component: DesktopOAuthCompletePage },
+        { path: "password/reset", Component: PasswordResetPage },
+        { path: "password/reset/key/:key", Component: PasswordResetPage },
       ],
     },
 
     // Logout — standalone page, no app chrome
-    { path: "/logout", element: <LogoutPage /> },
+    { path: "/logout", Component: LogoutPage },
 
     // Assistant routes — auth-protected app with layout
     {
       path: "/assistant",
       middleware: [authMiddleware],
-      element: <RootLayout />,
+      Component: RootLayout,
       children: [
         // Onboarding routes — full-screen (no ChatLayout sidebar)
-        { path: "onboarding/privacy", element: <PrivacyScreen /> },
-        { path: "onboarding/prechat", element: <PreChatFlow /> },
-        { path: "onboarding/hatching", element: <HatchingScreen /> },
+        { path: "onboarding/privacy", Component: PrivacyScreen },
+        { path: "onboarding/prechat", Component: PreChatFlow },
+        { path: "onboarding/hatching", Component: HatchingScreen },
 
         // Settings routes — full-screen overlay panel (no ChatLayout sidebar).
         // SettingsShell provides its own layout with back-arrow, sidebar nav,
         // and content area — the main app sidebar is intentionally hidden.
         {
           path: "settings",
-          element: <SettingsLayout />,
+          Component: SettingsLayout,
           children: [
-            { index: true, element: <GeneralPage /> },
-            { path: "general", element: <GeneralPage /> },
-            { path: "ai", element: <AiPage /> },
-            { path: "integrations", element: <IntegrationsPage /> },
-            { path: "schedules", element: <SchedulesPage /> },
-            { path: "notifications", element: <NotificationsPage /> },
-            { path: "sounds", element: <SoundsPage /> },
-            { path: "voice", element: <VoicePage /> },
-            { path: "devices", element: <DevicesPage /> },
-            { path: "privacy", element: <PrivacyPage /> },
-            { path: "archive", element: <ArchivePage /> },
-            { path: "billing", element: <BillingPage /> },
-            { path: "billing/upgrade/cancel", element: <UpgradeCancelPage /> },
-            {
-              path: "billing/upgrade/success",
-              element: <UpgradeSuccessPage />,
-            },
-            { path: "community", element: <CommunityPage /> },
-            { path: "debug", element: <DebugPage /> },
-            { path: "developer", element: <DeveloperPage /> },
-            { path: "advanced", element: <AdvancedPage /> },
-            { path: "danger-zone", element: <DangerZoneRedirectPage /> },
-            { path: "system-events", element: <SystemEventsRedirectPage /> },
+            { index: true, Component: GeneralPage },
+            { path: "general", Component: GeneralPage },
+            { path: "ai", Component: AiPage },
+            { path: "integrations", Component: IntegrationsPage },
+            { path: "schedules", Component: SchedulesPage },
+            { path: "notifications", Component: NotificationsPage },
+            { path: "sounds", Component: SoundsPage },
+            { path: "voice", Component: VoicePage },
+            { path: "devices", Component: DevicesPage },
+            { path: "privacy", Component: PrivacyPage },
+            { path: "archive", Component: ArchivePage },
+            { path: "billing", Component: BillingPage },
+            { path: "billing/upgrade/cancel", Component: UpgradeCancelPage },
+            { path: "billing/upgrade/success", Component: UpgradeSuccessPage },
+            { path: "community", Component: CommunityPage },
+            { path: "debug", Component: DebugPage },
+            { path: "developer", Component: DeveloperPage },
+            { path: "advanced", Component: AdvancedPage },
+            { path: "danger-zone", Component: DangerZoneRedirectPage },
+            { path: "system-events", Component: SystemEventsRedirectPage },
           ],
         },
 
@@ -199,54 +132,54 @@ export const router = createBrowserRouter(
         // LogsLayout reuses SettingsShell for visual consistency.
         {
           path: "logs",
-          element: <LogsLayout />,
+          Component: LogsLayout,
           children: [
-            { index: true, element: <UsagePage /> },
-            { path: "trace", element: <TracePage /> },
-            { path: "usage", element: <UsagePage /> },
-            { path: "system-events", element: <SystemEventsPage /> },
-            { path: "emails", element: <EmailsPage /> },
+            { index: true, Component: UsagePage },
+            { path: "trace", Component: TracePage },
+            { path: "usage", Component: UsagePage },
+            { path: "system-events", Component: SystemEventsPage },
+            { path: "emails", Component: EmailsPage },
           ],
         },
 
         {
-          element: <ChatLayout />,
+          Component: ChatLayout,
           children: [
             // ChatPage / DocumentViewerPage own their own lifecycle UI
             // (loading screens, hatching, version-selection, errors) and
             // must render in every assistant state — they are NOT placed
             // under <ActiveAssistantGate>.
-            { index: true, element: <ConversationRedirect /> },
-            { path: "conversations/:conversationId", element: <ChatPage /> },
-            { path: "documents/:surfaceId", element: <DocumentViewerPage /> },
+            { index: true, Component: ConversationRedirect },
+            { path: "conversations/:conversationId", Component: ChatPage },
+            { path: "documents/:surfaceId", Component: DocumentViewerPage },
             // Everything below requires a resolved assistantId AND an
             // active daemon. The gate defers child rendering until the
             // lifecycle resolves so route components can rely on a
             // non-null assistantId via useActiveAssistantContext().
             {
-              element: <ActiveAssistantGate />,
+              Component: ActiveAssistantGate,
               children: [
-                { path: "home", element: <HomePageRoute /> },
+                { path: "home", Component: HomePageRoute },
                 {
-                  element: <IntelligenceLayout />,
+                  Component: IntelligenceLayout,
                   children: [
-                    { path: "identity", element: <IdentityPage /> },
-                    { path: "plugins", element: <PluginsPage /> },
-                    { path: "skills", element: <SkillsPage /> },
-                    { path: "workspace", element: <WorkspacePage /> },
-                    { path: "contacts", element: <ContactsPage /> },
+                    { path: "identity", Component: IdentityPage },
+                    { path: "plugins", Component: PluginsPage },
+                    { path: "skills", Component: SkillsPage },
+                    { path: "workspace", Component: WorkspacePage },
+                    { path: "contacts", Component: ContactsPage },
                   ],
                 },
-                { path: "library", element: <LibraryPage /> },
-                { path: "library/:appId", element: <LibraryDetailPage /> },
-                { path: "connect", element: <ConnectPage /> },
+                { path: "library", Component: LibraryPage },
+                { path: "library/:appId", Component: LibraryDetailPage },
+                { path: "connect", Component: ConnectPage },
                 {
                   path: "conversations/:conversationId/inspect",
-                  element: <InspectPage />,
+                  Component: InspectPage,
                 },
                 {
                   path: "memory-router-playground",
-                  element: <MemoryRouterPlaygroundPage />,
+                  Component: MemoryRouterPlaygroundPage,
                 },
               ],
             },
@@ -254,14 +187,14 @@ export const router = createBrowserRouter(
         },
 
         // Catch-all within /assistant/*
-        { path: "*", element: <NotFound /> },
+        { path: "*", Component: NotFound },
       ],
     },
 
     // Top-level catch-all
-    { path: "*", element: <NotFound /> },
+    { path: "*", Component: NotFound },
   ],
   {
     future: { v8_middleware: true },
-  }
+  },
 );
