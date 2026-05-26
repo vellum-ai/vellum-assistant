@@ -118,22 +118,6 @@
       "updatedAt": "2026-05-12T14:56:19-04:00"
     },
     {
-      "id": "document-writer",
-      "name": "document-writer",
-      "description": "Create and edit long-form documents like blog posts, articles, essays, and reports using the built-in rich text editor",
-      "metadata": {
-        "emoji": "📝",
-        "vellum": {
-          "display-name": "Document Writer",
-          "includes": [
-            "document"
-          ]
-        }
-      },
-      "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-08T14:52:29-04:00"
-    },
-    {
       "id": "doordash",
       "name": "doordash",
       "description": "Order food, groceries, and convenience items from DoorDash using the built-in CLI integration",
@@ -426,7 +410,7 @@
           "feature-flag": "meet"
         }
       },
-      "updatedAt": "2026-05-21T18:58:49-04:00"
+      "updatedAt": "2026-05-26T14:56:40-04:00"
     },
     {
       "id": "meme-generator",

@@ -110,6 +110,12 @@ Users can leave inline comments on documents. Open comments are surfaced in a `<
 3. Call `comment_resolve` on comments you have addressed.
 4. If a comment is ambiguous, call `comment_reply` to ask for clarification instead of guessing.
 
+## Anti-Patterns
+
+- **Don't use `app_create` for blog posts, articles, or written content.** Use `document_create` — apps are for interactive content with state/data.
+- **Don't output the full content in chat.** The content goes in the document editor, not in the chat response. Acknowledge what you're doing and stream to the editor.
+- **Don't wait to generate everything before sending.** Stream content in chunks via `document_update` with `mode: "append"` so users see progress in real time.
+
 ## Usage Notes
 
 - The `mode` parameter on `document_update` defaults to `append`.

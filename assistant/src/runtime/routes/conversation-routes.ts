@@ -151,6 +151,34 @@ function isValidRiskThreshold(value: unknown): value is RiskThreshold {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Temporary fix — remove when #31994 lands
+// ---------------------------------------------------------------------------
+//
+// The canned-response paths in this file (canned greeting, inline approval
+// reply, slash command, /compact, /clean) bypass the agent loop and so don't
+// pick up the per-turn anchor id allocated in conversation-agent-loop.ts.
+// Their `message_complete` events therefore went out without `messageId`,
+// and the macOS client filter at ChatActionHandler.swift:507 dropped those
+// events when they raced past the 50 ms streaming-buffer flush — leaving
+// `isSending` stuck for the full 60 s watchdog window.
+//
+// Centralized so the patch surface is one helper + N one-line callers rather
+// than N duplicated literals. When #31994 lands and stamps these sites with
+// `state.assistantTurnId` directly, grep for `emitCannedMessageComplete` to
+// find every call site and inline-then-delete.
+function emitCannedMessageComplete(
+  send: (msg: ServerMessage) => void,
+  conversationId: string,
+  persistedAssistantId: string,
+): void {
+  send({
+    type: "message_complete",
+    conversationId,
+    messageId: persistedAssistantId,
+  });
+}
+
 /**
  * True when a message's persisted metadata explicitly flags it as hidden.
  * Used to suppress internal scaffolding messages from UI history while
@@ -404,7 +432,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
         ? "Decision applied."
         : "Request already resolved.");
     const assistantMessage = createAssistantMessage(replyText);
-    await addMessage(
+    const persistedAssistant = await addMessage(
       conversationId,
       "assistant",
       JSON.stringify(assistantMessage.content),
@@ -419,7 +447,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
         text: replyText,
         conversationId: conversationId,
       });
-      onEvent({ type: "message_complete", conversationId: conversationId });
+      emitCannedMessageComplete(onEvent, conversationId, persistedAssistant.id);
     }
     publishConversationMessagesChanged(conversationId, originClientId);
   } catch (err) {
@@ -1404,7 +1432,7 @@ export async function handleSendMessage(
       const conversationId = mapping.conversationId;
 
       const assistantMsg = createAssistantMessage(cannedGreeting);
-      await addMessage(
+      const persistedAssistant = await addMessage(
         mapping.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
@@ -1448,7 +1476,11 @@ export async function handleSendMessage(
           text: cannedGreeting,
           conversationId,
         });
-        broadcastMessage({ type: "message_complete", conversationId });
+        emitCannedMessageComplete(
+          broadcastMessage,
+          conversationId,
+          persistedAssistant.id,
+        );
         publishConversationMessagesChanged(conversationId, originClientId);
         conversation.processing = false;
         silentlyWithLog(
@@ -1716,7 +1748,7 @@ export async function handleSendMessage(
       conversation.getMessages().push(llmMsg);
 
       const assistantMsg = createAssistantMessage(slashResult.message);
-      await addMessage(
+      const persistedAssistant = await addMessage(
         mapping.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
@@ -1771,10 +1803,11 @@ export async function handleSendMessage(
           text: message,
           conversationId,
         });
-        broadcastMessage({
-          type: "message_complete",
-          conversationId: conversationId,
-        });
+        emitCannedMessageComplete(
+          broadcastMessage,
+          conversationId,
+          persistedAssistant.id,
+        );
         publishConversationMessagesChanged(conversationId, originClientId);
         conversation.processing = false;
         silentlyWithLog(conversation.drainQueue(), "slash-command queue drain");
@@ -1803,12 +1836,22 @@ export async function handleSendMessage(
       assistantMessageInterface: sourceInterface,
     };
     const cleanMsg = createUserMessage(rawContent, attachments);
-    const persisted = await addMessage(
-      mapping.conversationId,
-      "user",
-      JSON.stringify(cleanMsg.content),
-      channelMeta,
-    );
+    let persisted: Awaited<ReturnType<typeof addMessage>>;
+    try {
+      persisted = await addMessage(
+        mapping.conversationId,
+        "user",
+        JSON.stringify(cleanMsg.content),
+        channelMeta,
+      );
+    } catch (err) {
+      // The fire-and-forget compaction below owns clearing `processing`, but a
+      // throw from this initial persist never reaches it — reset here so the
+      // conversation isn't stranded in queued mode.
+      conversation.processing = false;
+      silentlyWithLog(conversation.drainQueue(), "compact-command queue drain");
+      throw err;
+    }
     conversation.getMessages().push(cleanMsg);
 
     const conversationId = mapping.conversationId;
@@ -1838,7 +1881,7 @@ export async function handleSendMessage(
         const responseText = formatCompactResult(result);
 
         const assistantMsg = createAssistantMessage(responseText);
-        await addMessage(
+        const persistedAssistant = await addMessage(
           conversationId,
           "assistant",
           JSON.stringify(assistantMsg.content),
@@ -1852,7 +1895,11 @@ export async function handleSendMessage(
           text: responseText,
           conversationId,
         });
-        broadcastMessage({ type: "message_complete", conversationId });
+        emitCannedMessageComplete(
+          broadcastMessage,
+          conversationId,
+          persistedAssistant.id,
+        );
         publishConversationMessagesChanged(conversationId, originClientId);
       } catch (err) {
         if (assistantMessagePersisted) {
@@ -1884,78 +1931,87 @@ export async function handleSendMessage(
 
   if (slashResult.kind === "clean") {
     conversation.processing = true;
-    const provenance = provenanceFromTrustContext(conversation.trustContext);
-    const channelMeta = {
-      ...provenance,
-      userMessageChannel: sourceChannel,
-      assistantMessageChannel: sourceChannel,
-      userMessageInterface: sourceInterface,
-      assistantMessageInterface: sourceInterface,
-    };
-    const cleanMsg = createUserMessage(rawContent, attachments);
-    const persisted = await addMessage(
-      mapping.conversationId,
-      "user",
-      JSON.stringify(cleanMsg.content),
-      channelMeta,
-    );
-    conversation.getMessages().push(cleanMsg);
-
     const conversationId = mapping.conversationId;
-
-    let assistantMessagePersisted = false;
+    // Outer try/finally guarantees the processing flag is cleared (and the
+    // queue drained) on every failure path — including a throw from the
+    // initial user-message persist below, which would otherwise leave the
+    // conversation stuck in queued mode indefinitely.
     try {
-      broadcastMessage({
-        type: "user_message_echo",
-        text: rawContent,
-        conversationId,
-        messageId: persisted.id,
-        clientMessageId,
-      });
-      publishConversationMessagesChanged(conversationId, originClientId);
-
-      const result = await conversation.forceClean();
-      const responseText = formatCleanResult(result);
-
-      const assistantMsg = createAssistantMessage(responseText);
-      await addMessage(
-        conversationId,
-        "assistant",
-        JSON.stringify(assistantMsg.content),
+      const provenance = provenanceFromTrustContext(conversation.trustContext);
+      const channelMeta = {
+        ...provenance,
+        userMessageChannel: sourceChannel,
+        assistantMessageChannel: sourceChannel,
+        userMessageInterface: sourceInterface,
+        assistantMessageInterface: sourceInterface,
+      };
+      const cleanMsg = createUserMessage(rawContent, attachments);
+      const persisted = await addMessage(
+        mapping.conversationId,
+        "user",
+        JSON.stringify(cleanMsg.content),
         channelMeta,
       );
-      assistantMessagePersisted = true;
-      conversation.getMessages().push(assistantMsg);
+      conversation.getMessages().push(cleanMsg);
 
-      broadcastMessage({
-        type: "assistant_text_delta",
-        text: responseText,
-        conversationId,
-      });
-      broadcastMessage({ type: "message_complete", conversationId });
-      publishConversationMessagesChanged(conversationId, originClientId);
-    } catch (err) {
-      if (assistantMessagePersisted) {
+      let assistantMessagePersisted = false;
+      try {
+        broadcastMessage({
+          type: "user_message_echo",
+          text: rawContent,
+          conversationId,
+          messageId: persisted.id,
+          clientMessageId,
+        });
         publishConversationMessagesChanged(conversationId, originClientId);
+
+        const result = await conversation.forceClean();
+        const responseText = formatCleanResult(result);
+
+        const assistantMsg = createAssistantMessage(responseText);
+        const persistedAssistant = await addMessage(
+          conversationId,
+          "assistant",
+          JSON.stringify(assistantMsg.content),
+          channelMeta,
+        );
+        assistantMessagePersisted = true;
+        conversation.getMessages().push(assistantMsg);
+
+        broadcastMessage({
+          type: "assistant_text_delta",
+          text: responseText,
+          conversationId,
+        });
+        emitCannedMessageComplete(
+          broadcastMessage,
+          conversationId,
+          persistedAssistant.id,
+        );
+        publishConversationMessagesChanged(conversationId, originClientId);
+      } catch (err) {
+        if (assistantMessagePersisted) {
+          publishConversationMessagesChanged(conversationId, originClientId);
+        }
+        log.error({ err, conversationId }, "Clean command failed");
+        broadcastMessage({
+          type: "conversation_error",
+          conversationId,
+          code: "UNKNOWN",
+          userMessage: `Clean failed: ${err instanceof Error ? err.message : String(err)}`,
+          retryable: true,
+        });
       }
-      log.error({ err, conversationId }, "Clean command failed");
-      broadcastMessage({
-        type: "conversation_error",
+
+      return {
+        accepted: true,
+        messageId: persisted.id,
         conversationId,
-        code: "UNKNOWN",
-        userMessage: `Clean failed: ${err instanceof Error ? err.message : String(err)}`,
-        retryable: true,
-      });
+      };
     } finally {
       conversation.processing = false;
       silentlyWithLog(conversation.drainQueue(), "clean-command queue drain");
     }
-
-    return {
-      accepted: true,
-      messageId: persisted.id,
-      conversationId,
-    };
   }
 
   const resolvedContent = slashResult.content;
