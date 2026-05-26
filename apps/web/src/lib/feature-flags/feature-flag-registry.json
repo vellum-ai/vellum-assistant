@@ -446,7 +446,7 @@
       "scope": "client",
       "key": "gateway-web-auth",
       "label": "Gateway Web Auth",
-      "description": "Enable web SPA authentication via gateway session cookies (BFF pattern). M1: infrastructure probe only.",
+      "description": "Enable web SPA authentication via gateway session cookies.",
       "defaultEnabled": false
     }
   ]
