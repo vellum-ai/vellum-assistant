@@ -576,6 +576,20 @@ export function forkConversation(params: {
     throw new UserError(`Conversation ${conversationId} not found`);
   }
   const sourceMessages = getMessages(conversationId);
+  if (throughMessageId != null) {
+    // `getMessages` orders by `createdAt` only; when rows share an identical
+    // millisecond timestamp the tie order is unspecified. Callers that pin the
+    // fork to a cutoff choose it from a `(createdAt, id)` cursor (e.g. the
+    // memory-retrospective job, via `getMessagesAfter`), so slicing through
+    // `throughMessageId` under the unstable order could include same-timestamp
+    // siblings the cursor considers *after* the cutoff (reprocessed next run)
+    // or exclude ones it considers *before* it (skipped forever). Re-sort on
+    // `(createdAt, id)` so the slice agrees with the cutoff. The unpinned full
+    // fork copies every row regardless of order, so it keeps source order.
+    sourceMessages.sort(
+      (a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id),
+    );
+  }
 
   if (sourceMessages.length === 0) {
     throw new UserError(

@@ -214,6 +214,40 @@ describe("forkConversation", () => {
     ]);
   });
 
+  test("pinned fork through a (createdAt, id) cutoff matches the cursor slice for same-timestamp rows", () => {
+    // Regression for the memory-retrospective cutoff/fork divergence: the job
+    // picks its cutoff from `getMessagesAfter`, which orders by `(createdAt,
+    // id)`. `forkConversation` must slice on the same order so same-millisecond
+    // siblings aren't skipped forever or reprocessed. Insert rows whose
+    // insertion order is the reverse of their `(createdAt, id)` order to expose
+    // the divergence: a `createdAt`-only slice would pick the wrong prefix.
+    const source = createConversation("Same-timestamp cutoff thread");
+    const db = getDb();
+    const createdAt = Date.now();
+    // Insert d, c, b, a so SQLite's createdAt-only tie order (≈ rowid /
+    // insertion order) is the opposite of the (createdAt, id) cursor order
+    // (a, b, c, d). All are plain user rows so no display-turn extension fires.
+    for (const id of ["msg-d", "msg-c", "msg-b", "msg-a"]) {
+      db.run(
+        `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('${id}', '${source.id}', 'user', '${id}', ${createdAt})`,
+      );
+    }
+
+    // Cutoff = "msg-c": the cursor treats {msg-a, msg-b, msg-c} as processed
+    // and {msg-d} as still-after-the-cutoff. The fork must contain exactly the
+    // first three in `(createdAt, id)` order.
+    const fork = forkConversation({
+      conversationId: source.id,
+      throughMessageId: "msg-c",
+    });
+
+    expect(getMessages(fork.id).map((message) => message.content)).toEqual([
+      "msg-a",
+      "msg-b",
+      "msg-c",
+    ]);
+  });
+
   test("advances fork boundary through consecutive assistant rows after the requested message", async () => {
     // When the read-path merges consecutive assistant DB rows into a single
     // display row, the client only addresses the anchor id. Forking through
@@ -273,9 +307,15 @@ describe("forkConversation", () => {
     // between — otherwise the fork loses tool_use ↔ tool_result pairing
     // and produces an invalid LLM history.
     const source = createConversation("Tool-result gap thread");
-    await addMessage(source.id, "user", "Find the latest sales numbers", undefined, {
-      skipIndexing: true,
-    });
+    await addMessage(
+      source.id,
+      "user",
+      "Find the latest sales numbers",
+      undefined,
+      {
+        skipIndexing: true,
+      },
+    );
     const anchor = await addMessage(
       source.id,
       "assistant",
@@ -527,13 +567,34 @@ describe("forkConversation", () => {
       },
       { skipIndexing: true },
     );
-    await addMessage(source.id, "assistant", "Reply 1", undefined, {
+    const reply1 = await addMessage(
+      source.id,
+      "assistant",
+      "Reply 1",
+      undefined,
+      {
+        skipIndexing: true,
+      },
+    );
+    const tail = await addMessage(source.id, "user", "Tail turn", undefined, {
       skipIndexing: true,
     });
-    await addMessage(source.id, "user", "Tail turn", undefined, {
-      skipIndexing: true,
-    });
-    const compactedAt = Date.now();
+    // Pin strictly-increasing timestamps so the pinned fork boundary is
+    // unambiguous. `addMessage` stamps `Date.now()`, and these three rows can
+    // land in the same millisecond; under the `(createdAt, id)` tie-break the
+    // pinned fork uses, that would let `m1`'s slice reorder relative to its
+    // siblings. Distinct timestamps keep this test focused on its intent —
+    // pre-compaction metadata + compaction-state inheritance.
+    const db = getDb();
+    const base = Date.now();
+    db.run(`UPDATE messages SET created_at = ${base} WHERE id = '${m1.id}'`);
+    db.run(
+      `UPDATE messages SET created_at = ${base + 1} WHERE id = '${reply1.id}'`,
+    );
+    db.run(
+      `UPDATE messages SET created_at = ${base + 2} WHERE id = '${tail.id}'`,
+    );
+    const compactedAt = base + 3;
     getDb()
       .update(conversations)
       .set({
