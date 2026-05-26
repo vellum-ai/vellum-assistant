@@ -11,10 +11,6 @@ type BackgroundWakeIntentSnapshot = Pick<
   BackgroundWakeIntent,
   "sourceGeneration" | "computedAt"
 > | null;
-type BackgroundWakeIntentSourceSnapshot = Exclude<
-  BackgroundWakeIntentSnapshot,
-  null
->;
 
 export async function publishBackgroundWakeIntent(
   intent: BackgroundWakeIntent,
@@ -30,7 +26,7 @@ export async function publishBackgroundWakeIntent(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       reason: intent.reason,
-      source_generation: sourceGenerationForPlatform(intent),
+      source_generation: intent.sourceGeneration,
       computed_at: toIsoString(intent.computedAt),
       next_wake_at: toIsoString(intent.nextWakeAt),
       actual_next_due_at: toIsoString(intent.actualNextDueAt),
@@ -53,7 +49,7 @@ export async function clearBackgroundWakeIntent(
 
   const body: Record<string, unknown> = {};
   if (intentSnapshot) {
-    body.source_generation = sourceGenerationForPlatform(intentSnapshot);
+    body.source_generation = intentSnapshot.sourceGeneration;
     body.computed_at = toIsoString(intentSnapshot.computedAt);
   }
 
@@ -70,18 +66,6 @@ export async function clearBackgroundWakeIntent(
 function intentPath(assistantId: string): string {
   const encodedAssistantId = encodeURIComponent(assistantId);
   return `/v1/assistants/${encodedAssistantId}/background-wake-intent/`;
-}
-
-function sourceGenerationForPlatform(
-  snapshot: BackgroundWakeIntentSourceSnapshot,
-): number {
-  const numeric = Number(snapshot.sourceGeneration);
-  if (Number.isSafeInteger(numeric) && numeric >= 0) {
-    return numeric;
-  }
-  // Django/vembda expect an integer generation; local wake intents use a
-  // stable string hash, so fall back to the computed snapshot timestamp.
-  return Math.max(0, Math.floor(snapshot.computedAt));
 }
 
 function toIsoString(timestampMs: number): string {

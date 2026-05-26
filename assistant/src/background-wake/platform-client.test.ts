@@ -40,7 +40,7 @@ describe("background wake platform client", () => {
     );
     expect(JSON.parse(String(init.body))).toEqual({
       reason: "schedule",
-      source_generation: NOW - 1_000,
+      source_generation: "bw1:opaque-hash",
       computed_at: new Date(NOW - 1_000).toISOString(),
       next_wake_at: new Date(NOW + 60_000).toISOString(),
       actual_next_due_at: new Date(NOW + 60_000).toISOString(),
@@ -60,13 +60,45 @@ describe("background wake platform client", () => {
     });
   });
 
-  test("passes numeric sourceGeneration through when already compatible", async () => {
+  test("preserves stable string sourceGeneration across recomputes", async () => {
+    await publishBackgroundWakeIntent(
+      intentFixture({
+        computedAt: NOW - 1_000,
+        sourceGeneration: "bw1:stable-source-hash",
+      }),
+    );
+    await publishBackgroundWakeIntent(
+      intentFixture({
+        computedAt: NOW,
+        sourceGeneration: "bw1:stable-source-hash",
+      }),
+    );
+
+    const [, firstInit] = mockClientFetch.mock.calls[0] as [
+      string,
+      RequestInit,
+    ];
+    const [, secondInit] = mockClientFetch.mock.calls[1] as [
+      string,
+      RequestInit,
+    ];
+    expect(JSON.parse(String(firstInit.body))).toMatchObject({
+      source_generation: "bw1:stable-source-hash",
+      computed_at: new Date(NOW - 1_000).toISOString(),
+    });
+    expect(JSON.parse(String(secondInit.body))).toMatchObject({
+      source_generation: "bw1:stable-source-hash",
+      computed_at: new Date(NOW).toISOString(),
+    });
+  });
+
+  test("preserves numeric-looking sourceGeneration as a string", async () => {
     await publishBackgroundWakeIntent(
       intentFixture({ sourceGeneration: "42" }),
     );
 
     const [, init] = mockClientFetch.mock.calls[0] as [string, RequestInit];
-    expect(JSON.parse(String(init.body)).source_generation).toBe(42);
+    expect(JSON.parse(String(init.body)).source_generation).toBe("42");
   });
 
   test("clears wake intent with the last computed snapshot when available", async () => {
@@ -77,7 +109,7 @@ describe("background wake platform client", () => {
     }));
 
     const result = await clearBackgroundWakeIntent(
-      intentFixture({ sourceGeneration: "99" }),
+      intentFixture({ sourceGeneration: "bw1:opaque-hash" }),
     );
 
     expect(result).toEqual({ status: "cleared", httpStatus: 200 });
@@ -86,7 +118,7 @@ describe("background wake platform client", () => {
     expect(path).toBe("/v1/assistants/asst-123/background-wake-intent/");
     expect(init.method).toBe("DELETE");
     expect(JSON.parse(String(init.body))).toEqual({
-      source_generation: 99,
+      source_generation: "bw1:opaque-hash",
       computed_at: new Date(NOW - 1_000).toISOString(),
     });
   });
