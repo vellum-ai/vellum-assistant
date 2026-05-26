@@ -39,21 +39,28 @@ import type { LogRow } from "../../../memory/llm-request-log-store.js";
 interface FakeSourceState {
   conversation: { id: string } | null;
   selectedCall: LogRow | null;
+  previousNonCompactionCallCreatedAt: number | null;
   compactionLogs: LogRow[];
 }
 
 const state: FakeSourceState = {
   conversation: null,
   selectedCall: null,
+  previousNonCompactionCallCreatedAt: null,
   compactionLogs: [],
 };
 
 // Records the inputs the handler passed to the source so tests can
-// pin the createdAt cutoff plumbing without relying on the projection.
+// pin the windowing plumbing without relying on the projection.
 const sourceCalls = {
   getRequestLogByIdArgs: [] as string[],
-  getCompactionLogsBeforeCallArgs: [] as Array<{
+  getPreviousNonCompactionCallCreatedAtArgs: [] as Array<{
     conversationId: string;
+    beforeCreatedAt: number;
+  }>,
+  getCompactionLogsBetweenArgs: [] as Array<{
+    conversationId: string;
+    afterCreatedAt: number | null;
     beforeCreatedAt: number;
   }>,
 };
@@ -73,12 +80,24 @@ mock.module("../../../memory/llm-request-log-source.js", () => ({
     },
     getRequestLogsByMessageId: async () => [],
     getRequestLogsByConversationId: async () => [],
-    getCompactionLogsBeforeCall: async (
+    getPreviousNonCompactionCallCreatedAt: async (
       conversationId: string,
       beforeCreatedAt: number,
     ) => {
-      sourceCalls.getCompactionLogsBeforeCallArgs.push({
+      sourceCalls.getPreviousNonCompactionCallCreatedAtArgs.push({
         conversationId,
+        beforeCreatedAt,
+      });
+      return state.previousNonCompactionCallCreatedAt;
+    },
+    getCompactionLogsBetween: async (
+      conversationId: string,
+      afterCreatedAt: number | null,
+      beforeCreatedAt: number,
+    ) => {
+      sourceCalls.getCompactionLogsBetweenArgs.push({
+        conversationId,
+        afterCreatedAt,
         beforeCreatedAt,
       });
       return state.compactionLogs;
@@ -115,9 +134,11 @@ function fakeLogRow(overrides: Partial<LogRow> = {}): LogRow {
 beforeEach(() => {
   state.conversation = null;
   state.selectedCall = null;
+  state.previousNonCompactionCallCreatedAt = null;
   state.compactionLogs = [];
   sourceCalls.getRequestLogByIdArgs.length = 0;
-  sourceCalls.getCompactionLogsBeforeCallArgs.length = 0;
+  sourceCalls.getPreviousNonCompactionCallCreatedAtArgs.length = 0;
+  sourceCalls.getCompactionLogsBetweenArgs.length = 0;
 });
 
 // ---------------------------------------------------------------------
@@ -193,13 +214,14 @@ describe("handleGetCompactionTrail — request-shape errors", () => {
 // ---------------------------------------------------------------------
 
 describe("handleGetCompactionTrail — happy path", () => {
-  test("forwards the selected call's createdAt as the trail cutoff", async () => {
+  test("forwards both window bounds to the source (prior call as floor, selected call as ceiling)", async () => {
     state.conversation = { id: "conv-1" };
     state.selectedCall = fakeLogRow({
       id: "call-selected",
       conversationId: "conv-1",
       createdAt: 5000,
     });
+    state.previousNonCompactionCallCreatedAt = 2000;
     state.compactionLogs = [];
 
     await handler({
@@ -208,18 +230,42 @@ describe("handleGetCompactionTrail — happy path", () => {
     });
 
     expect(sourceCalls.getRequestLogByIdArgs).toEqual(["call-selected"]);
-    expect(sourceCalls.getCompactionLogsBeforeCallArgs).toEqual([
+    expect(sourceCalls.getPreviousNonCompactionCallCreatedAtArgs).toEqual([
       { conversationId: "conv-1", beforeCreatedAt: 5000 },
+    ]);
+    expect(sourceCalls.getCompactionLogsBetweenArgs).toEqual([
+      { conversationId: "conv-1", afterCreatedAt: 2000, beforeCreatedAt: 5000 },
     ]);
   });
 
-  test("returns an empty events list when no compactions ran before the call", async () => {
+  test("passes a null floor when the selected call is the first real call in the conversation", async () => {
+    state.conversation = { id: "conv-1" };
+    state.selectedCall = fakeLogRow({
+      id: "call-first",
+      conversationId: "conv-1",
+      createdAt: 5000,
+    });
+    state.previousNonCompactionCallCreatedAt = null;
+    state.compactionLogs = [];
+
+    await handler({
+      pathParams: { id: "conv-1" },
+      queryParams: { callId: "call-first" },
+    });
+
+    expect(sourceCalls.getCompactionLogsBetweenArgs).toEqual([
+      { conversationId: "conv-1", afterCreatedAt: null, beforeCreatedAt: 5000 },
+    ]);
+  });
+
+  test("returns an empty events list when no compactions ran in the window", async () => {
     state.conversation = { id: "conv-1" };
     state.selectedCall = fakeLogRow({
       id: "call-1",
       conversationId: "conv-1",
       createdAt: 5000,
     });
+    state.previousNonCompactionCallCreatedAt = 2000;
     state.compactionLogs = [];
 
     const result = await handler({
@@ -236,6 +282,7 @@ describe("handleGetCompactionTrail — happy path", () => {
       conversationId: "conv-1",
       createdAt: 9000,
     });
+    state.previousNonCompactionCallCreatedAt = 500;
     state.compactionLogs = [
       fakeLogRow({
         id: "compaction-1",

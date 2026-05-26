@@ -9,10 +9,17 @@
  * # Scope
  *
  * Returns the set of `call_site = "compactionAgent"` rows in this
- * conversation that ran **before** the LLM call identified by `callId`,
- * ordered chronologically. This is the data the Inspector's "Compaction"
- * tab shows when you select a call in the rail: it answers "what did the
- * compactor do to my context before this call?".
+ * conversation that ran in the **window between the previous real LLM
+ * call and the one identified by `callId`**, ordered chronologically.
+ * This is the data the Inspector's "Compaction" tab shows when you
+ * select a call in the rail: it answers "what did the compactor do to
+ * my context before *this specific* call?" — not "what has the
+ * compactor ever done in this conversation".
+ *
+ * The floor is resolved by walking back from the selected call to the
+ * most recent non-`compactionAgent` row in the same conversation. When
+ * the selected call is the *first* real call in the conversation,
+ * there is no floor and every preceding compaction is in scope.
  *
  * # Data model decision (in progress)
  *
@@ -189,8 +196,19 @@ async function handleGetCompactionTrail({
     );
   }
 
-  const logs = await source.getCompactionLogsBeforeCall(
+  // Resolve the window floor — the most recent non-`compactionAgent`
+  // call before the selected one. `null` means the selected call is the
+  // first real call in the conversation, so every preceding compaction
+  // is in scope. The store function applies the strict-`>` predicate
+  // (or drops it entirely on null), so the selected call's own
+  // `createdAt` is the only ceiling we pass.
+  const afterCreatedAt = await source.getPreviousNonCompactionCallCreatedAt(
     conversationId,
+    selectedCall.createdAt,
+  );
+  const logs = await source.getCompactionLogsBetween(
+    conversationId,
+    afterCreatedAt,
     selectedCall.createdAt,
   );
 
@@ -212,7 +230,7 @@ export const ROUTES: RouteDefinition[] = [
     policyKey: "conversations/compaction",
     summary: "Get the compaction trail leading up to an LLM call",
     description:
-      "Return the chronological list of compaction events that ran in this conversation before the LLM call identified by `callId`. Projected from `llm_request_logs` rows where `call_site = \"compactionAgent\"` and `created_at < callRow.createdAt`. Drives the Inspector's Compaction tab.",
+      "Return the chronological list of compaction events that ran in this conversation in the open window between the previous non-`compactionAgent` LLM call and the call identified by `callId`. Projected from `llm_request_logs` rows where `call_site = \"compactionAgent\"`. When the selected call is the first real call in the conversation, every preceding compaction is in scope. Drives the Inspector's Compaction tab.",
     tags: ["conversations"],
     pathParams: [
       {

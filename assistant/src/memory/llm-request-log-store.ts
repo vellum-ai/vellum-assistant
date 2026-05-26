@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, isNull, lt, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import type { LLMCallSite } from "../config/schemas/llm.js";
@@ -311,25 +311,42 @@ function selectUnlinkedLogsInRange(
 }
 
 /**
- * Fetch every `compactionAgent` log row in the conversation that ran
- * **before** the given cutoff timestamp, ordered chronologically.
+ * Fetch every `compactionAgent` log row in the conversation whose
+ * `createdAt` falls in the **open window** `(afterCreatedAt, beforeCreatedAt)`,
+ * ordered chronologically.
  *
- * Drives the Inspector's Compaction tab: caller looks up the selected
- * LLM call's `createdAt`, passes it as `beforeCreatedAt`, and gets back
- * the compaction events that contributed to the context that call ran
- * against. Using strict `<` (not `<=`) here means the selected call
- * itself never appears in its own trail — even if it were a compaction
- * call somehow.
+ * Drives the Inspector's Compaction tab. The caller resolves both
+ * bounds:
+ *   - `beforeCreatedAt` = the selected LLM call's `createdAt` (ceiling).
+ *   - `afterCreatedAt` = the previous non-`compactionAgent` call's
+ *     `createdAt` (floor), or `null` when the selected call is the first
+ *     real call in the conversation.
+ *
+ * Both bounds are **strict**: the selected call itself never appears in
+ * its own trail (`<` ceiling), and compactions that fed an earlier real
+ * call's context don't bleed into this call's window (`>` floor). When
+ * `afterCreatedAt` is `null` the floor is dropped entirely — every
+ * preceding compaction is in scope, which is the right behavior for the
+ * very first real call in the conversation.
  *
  * NULL `callSite` rows (pre-migration-264) are excluded by the explicit
  * `callSite = 'compactionAgent'` predicate without a separate IS NOT
  * NULL clause.
  */
-export function getCompactionLogsBeforeCall(
+export function getCompactionLogsBetween(
   conversationId: string,
+  afterCreatedAt: number | null,
   beforeCreatedAt: number,
 ): LogRow[] {
   const db = getDb();
+  const predicates = [
+    eq(llmRequestLogs.conversationId, conversationId),
+    eq(llmRequestLogs.callSite, "compactionAgent"),
+    lt(llmRequestLogs.createdAt, beforeCreatedAt),
+  ];
+  if (afterCreatedAt !== null) {
+    predicates.push(gt(llmRequestLogs.createdAt, afterCreatedAt));
+  }
   return db
     .select({
       id: llmRequestLogs.id,
@@ -343,15 +360,48 @@ export function getCompactionLogsBeforeCall(
       callSite: llmRequestLogs.callSite,
     })
     .from(llmRequestLogs)
+    .where(and(...predicates))
+    .orderBy(asc(llmRequestLogs.createdAt), asc(llmRequestLogs.id))
+    .all();
+}
+
+/**
+ * Find the `createdAt` of the most recent non-`compactionAgent` LLM
+ * call in the conversation strictly before `beforeCreatedAt`, or `null`
+ * when no such call exists (i.e. the cutoff is the first real call).
+ *
+ * Pairs with `getCompactionLogsBetween` to bound the compaction trail
+ * to the window between the prior real call and the selected call.
+ *
+ * "Non-compactionAgent" means `callSite IS NULL OR callSite !=
+ * 'compactionAgent'`. NULL rows are pre-migration-264 (no backfill) and
+ * are treated as real agent calls — they were `mainAgent` in practice.
+ * The OR-with-IS NULL is required because SQL's three-valued logic
+ * makes `callSite != 'compactionAgent'` return UNKNOWN (not TRUE) for
+ * NULL rows, which would otherwise filter them out.
+ */
+export function getPreviousNonCompactionCallCreatedAt(
+  conversationId: string,
+  beforeCreatedAt: number,
+): number | null {
+  const db = getDb();
+  const row = db
+    .select({ createdAt: llmRequestLogs.createdAt })
+    .from(llmRequestLogs)
     .where(
       and(
         eq(llmRequestLogs.conversationId, conversationId),
-        eq(llmRequestLogs.callSite, "compactionAgent"),
         lt(llmRequestLogs.createdAt, beforeCreatedAt),
+        or(
+          isNull(llmRequestLogs.callSite),
+          ne(llmRequestLogs.callSite, "compactionAgent"),
+        ),
       ),
     )
-    .orderBy(asc(llmRequestLogs.createdAt), asc(llmRequestLogs.id))
-    .all();
+    .orderBy(desc(llmRequestLogs.createdAt), desc(llmRequestLogs.id))
+    .limit(1)
+    .get();
+  return row?.createdAt ?? null;
 }
 
 export function getRequestLogById(logId: string): LogRow | null {

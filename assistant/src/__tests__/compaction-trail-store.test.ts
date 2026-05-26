@@ -1,11 +1,13 @@
 /**
- * Tests for `getCompactionLogsBeforeCall` in the LLM request log store.
+ * Tests for the compaction-trail store helpers:
+ *   - `getCompactionLogsBetween` (windowed trail fetch)
+ *   - `getPreviousNonCompactionCallCreatedAt` (window-floor resolver)
  *
  * Exercises the SQL directly against a real in-memory DB — same pattern
  * as `llm-request-log-turn-query.test.ts`. Each test sets up a small
- * conversation, inserts a mix of `mainAgent` and `compactionAgent` rows
- * with controlled createdAt timestamps, and asserts the right subset
- * comes back.
+ * conversation, inserts a mix of `mainAgent` / `compactionAgent` /
+ * NULL-call-site rows with controlled `createdAt` timestamps, and
+ * asserts the right subset comes back.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -34,7 +36,8 @@ import { createConversation } from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import {
-  getCompactionLogsBeforeCall,
+  getCompactionLogsBetween,
+  getPreviousNonCompactionCallCreatedAt,
   recordRequestLog,
 } from "../memory/llm-request-log-store.js";
 import { llmRequestLogs } from "../memory/schema.js";
@@ -78,47 +81,67 @@ function insertLogAt(
   return id;
 }
 
-describe("getCompactionLogsBeforeCall", () => {
+describe("getCompactionLogsBetween", () => {
   beforeEach(() => {
     resetTables();
   });
 
-  test("returns only compactionAgent rows in the conversation, before the cutoff", () => {
+  test("returns only compactionAgent rows in the conversation, in the (after, before) window", () => {
     const conv = createConversation("test-conv");
 
     // Timeline (createdAt in ms):
-    //   100 → compactionAgent  ← included
+    //   100 → compactionAgent  ← excluded (before the floor — would belong to an earlier turn)
+    //   150 ← floor (the prior real call's createdAt)
     //   200 → mainAgent        ← excluded (wrong call site)
     //   300 → compactionAgent  ← included
-    //   400 → null call site   ← excluded (pre-migration row)
-    //   500 ← cutoff (the selected call's createdAt)
-    //   600 → compactionAgent  ← excluded (after cutoff)
+    //   400 → null call site   ← excluded (pre-migration row, not a compaction)
+    //   500 ← ceiling (the selected call's createdAt)
+    //   600 → compactionAgent  ← excluded (after ceiling)
     insertLogAt(conv.id, 100, "compactionAgent");
     insertLogAt(conv.id, 200, "mainAgent");
     insertLogAt(conv.id, 300, "compactionAgent");
     insertLogAt(conv.id, 400, null);
     insertLogAt(conv.id, 600, "compactionAgent");
 
-    const result = getCompactionLogsBeforeCall(conv.id, 500);
-    expect(result).toHaveLength(2);
-    expect(result.map((r) => r.createdAt)).toEqual([100, 300]);
-    for (const row of result) {
-      expect(row.callSite).toBe("compactionAgent");
-      expect(row.conversationId).toBe(conv.id);
-    }
+    const result = getCompactionLogsBetween(conv.id, 150, 500);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.createdAt).toBe(300);
+    expect(result[0]!.callSite).toBe("compactionAgent");
+    expect(result[0]!.conversationId).toBe(conv.id);
   });
 
-  test("uses strict < at the cutoff (a row exactly at the cutoff is excluded)", () => {
-    const conv = createConversation("strict-cutoff");
+  test("null floor matches all compactions before the ceiling (first-real-call case)", () => {
+    const conv = createConversation("null-floor");
 
     insertLogAt(conv.id, 100, "compactionAgent");
-    // This one sits exactly at the cutoff — must be excluded so the
-    // selected call never appears in its own trail.
-    insertLogAt(conv.id, 500, "compactionAgent");
+    insertLogAt(conv.id, 200, "compactionAgent");
+    insertLogAt(conv.id, 300, "compactionAgent");
+    insertLogAt(conv.id, 600, "compactionAgent");
 
-    const result = getCompactionLogsBeforeCall(conv.id, 500);
+    const result = getCompactionLogsBetween(conv.id, null, 500);
+    expect(result.map((r) => r.createdAt)).toEqual([100, 200, 300]);
+  });
+
+  test("uses strict < at the ceiling (a row exactly at the cutoff is excluded)", () => {
+    const conv = createConversation("strict-ceiling");
+
+    insertLogAt(conv.id, 100, "compactionAgent");
+    insertLogAt(conv.id, 500, "compactionAgent"); // exactly at the ceiling
+
+    const result = getCompactionLogsBetween(conv.id, null, 500);
     expect(result).toHaveLength(1);
     expect(result[0]!.createdAt).toBe(100);
+  });
+
+  test("uses strict > at the floor (a row exactly at the floor is excluded)", () => {
+    const conv = createConversation("strict-floor");
+
+    insertLogAt(conv.id, 150, "compactionAgent"); // exactly at the floor
+    insertLogAt(conv.id, 200, "compactionAgent");
+
+    const result = getCompactionLogsBetween(conv.id, 150, 500);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.createdAt).toBe(200);
   });
 
   test("scopes by conversation_id (other conversations are invisible)", () => {
@@ -129,7 +152,7 @@ describe("getCompactionLogsBeforeCall", () => {
     insertLogAt(b.id, 150, "compactionAgent");
     insertLogAt(a.id, 200, "compactionAgent");
 
-    const result = getCompactionLogsBeforeCall(a.id, 500);
+    const result = getCompactionLogsBetween(a.id, null, 500);
     expect(result).toHaveLength(2);
     for (const row of result) {
       expect(row.conversationId).toBe(a.id);
@@ -144,23 +167,98 @@ describe("getCompactionLogsBeforeCall", () => {
     insertLogAt(conv.id, 100, "compactionAgent");
     insertLogAt(conv.id, 200, "compactionAgent");
 
-    const result = getCompactionLogsBeforeCall(conv.id, 500);
+    const result = getCompactionLogsBetween(conv.id, null, 500);
     expect(result.map((r) => r.createdAt)).toEqual([100, 200, 300]);
   });
 
-  test("returns an empty array when there are no compaction rows before the cutoff", () => {
+  test("returns an empty array when no compaction rows fall in the window", () => {
     const conv = createConversation("empty");
 
-    // All rows are either the wrong call site or after the cutoff.
+    // mainAgent (wrong site) + compactionAgent after the ceiling.
     insertLogAt(conv.id, 100, "mainAgent");
     insertLogAt(conv.id, 600, "compactionAgent");
 
-    const result = getCompactionLogsBeforeCall(conv.id, 500);
+    const result = getCompactionLogsBetween(conv.id, null, 500);
     expect(result).toEqual([]);
   });
 
   test("returns an empty array for an unknown conversation_id", () => {
-    const result = getCompactionLogsBeforeCall("nonexistent-conv", 500);
+    const result = getCompactionLogsBetween("nonexistent-conv", null, 500);
     expect(result).toEqual([]);
+  });
+});
+
+describe("getPreviousNonCompactionCallCreatedAt", () => {
+  beforeEach(() => {
+    resetTables();
+  });
+
+  test("returns the most recent non-compaction call's createdAt before the cutoff", () => {
+    const conv = createConversation("prior-call");
+
+    // Timeline:
+    //   100 → mainAgent
+    //   200 → compactionAgent  ← skipped (we want the previous *real* call)
+    //   300 → mainAgent        ← this should be the answer for cutoff=500
+    //   400 → compactionAgent  ← skipped
+    //   500 ← cutoff
+    //   600 → mainAgent        ← excluded (after cutoff)
+    insertLogAt(conv.id, 100, "mainAgent");
+    insertLogAt(conv.id, 200, "compactionAgent");
+    insertLogAt(conv.id, 300, "mainAgent");
+    insertLogAt(conv.id, 400, "compactionAgent");
+    insertLogAt(conv.id, 600, "mainAgent");
+
+    const result = getPreviousNonCompactionCallCreatedAt(conv.id, 500);
+    expect(result).toBe(300);
+  });
+
+  test("returns null when no non-compaction call exists before the cutoff", () => {
+    const conv = createConversation("no-prior");
+
+    // Only compactions before the cutoff.
+    insertLogAt(conv.id, 100, "compactionAgent");
+    insertLogAt(conv.id, 200, "compactionAgent");
+
+    const result = getPreviousNonCompactionCallCreatedAt(conv.id, 500);
+    expect(result).toBeNull();
+  });
+
+  test("returns null for an unknown conversation_id", () => {
+    const result = getPreviousNonCompactionCallCreatedAt("nope", 500);
+    expect(result).toBeNull();
+  });
+
+  test("treats NULL call_site (pre-migration-264) as a real agent call", () => {
+    const conv = createConversation("null-site");
+
+    // Pre-migration rows have NULL call_site. They were mainAgent calls
+    // in practice, so the floor walker must surface them.
+    insertLogAt(conv.id, 100, null);
+    insertLogAt(conv.id, 200, "compactionAgent");
+
+    const result = getPreviousNonCompactionCallCreatedAt(conv.id, 500);
+    expect(result).toBe(100);
+  });
+
+  test("uses strict < at the cutoff (a row exactly at the cutoff is excluded)", () => {
+    const conv = createConversation("strict-prior");
+
+    insertLogAt(conv.id, 100, "mainAgent");
+    insertLogAt(conv.id, 500, "mainAgent"); // exactly at the cutoff
+
+    const result = getPreviousNonCompactionCallCreatedAt(conv.id, 500);
+    expect(result).toBe(100);
+  });
+
+  test("scopes by conversation_id (a prior call in another conversation is invisible)", () => {
+    const a = createConversation("conv-a");
+    const b = createConversation("conv-b");
+
+    insertLogAt(b.id, 100, "mainAgent"); // wrong conversation
+    insertLogAt(a.id, 200, "compactionAgent");
+
+    const result = getPreviousNonCompactionCallCreatedAt(a.id, 500);
+    expect(result).toBeNull();
   });
 });
