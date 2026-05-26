@@ -8,23 +8,26 @@
  *    app uses (avoids the "two Reacts" runtime error from drift between
  *    independent installs).
  *
- * 2. Symlink web's `zod` next to the canonical SSE wire-contract files in
- *    `assistant/src/events/` so the source-as-package import chain that
- *    `@vellumai/assistant-api` re-exports can resolve `zod` via standard
- *    node walk-up from the schema file's location. See
- *    `assistant/src/api/README.md` for the pattern.
- *
- *    Hardcoded list: the api package's `package.json` intentionally has
- *    no `dependencies` block (the api/ barrel is purely a re-export). The
- *    runtime imports live in `assistant/src/events/*.ts`. When a new
- *    schema file in `events/` adds a new runtime dep, add it here.
+ * 2. Generate `apps/web/node_modules/@vellumai/assistant-api/` from the
+ *    in-repo source at `assistant/src/api/`. Materializing a real package
+ *    inside web's `node_modules` lets standard module resolution (Vite,
+ *    tsc, bun) discover the wire-contract schemas and their transitive
+ *    `zod` dep via normal walk-up — no tsconfig path mapping, no Vite
+ *    alias, no sibling-node_modules hack required.
  *
  * 3. Generate the OpenAPI client (`src/generated`) if it isn't already
  *    on disk. This used to live as the tail of an inline postinstall;
  *    it's preserved here so first-install of a fresh checkout still
  *    produces a buildable tree.
  */
-import { existsSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
@@ -66,35 +69,48 @@ for (const pkg of ["react", "react-dom"]) {
   ensureSymlink(target, path.join(designLibraryNodeModules, pkg));
 }
 
-// (2) assistant-api runtime-dep symlinks.
+// (2) Generate apps/web/node_modules/@vellumai/assistant-api/.
 //
-// The canonical SSE wire-contract schemas live at
-// `assistant/src/events/<event>.ts`. Web consumers reach them via
-// `@vellumai/assistant-api` (Vite alias + tsconfig path mapping ->
-// `assistant/src/api/index.ts`, which re-exports from `../events/`).
+// Source of truth: `assistant/src/api/` in this repo. We copy the
+// contents (recursively) into web's node_modules under the package
+// name, then overwrite `package.json` with an install-shaped manifest
+// that declares `zod` as a real dep — the in-repo source variant is
+// `private: true` and intentionally lists no deps because daemon code
+// imports it via relative paths.
 //
-// Node-style resolution walks up from the SCHEMA file's directory when
-// resolving bare specifiers like `zod`. CI's web job only installs
-// `apps/web/node_modules`, so we colocate a node_modules sibling next to
-// the schema files containing symlinks to web's installed copies. This
-// lets Vite, Bun, and tsc all agree without polluting daemon-side
-// resolution.
-const eventsRuntimeDeps = ["zod"];
-const eventsNodeModules = path.join(
-  repoRoot,
-  "assistant/src/events/node_modules",
+// COPY (not symlink) because `preserveSymlinks: true` (set in both
+// tsconfig and Vite for the React-identity invariant) makes walk-up
+// follow the link target's real path. Symlinking back to
+// `assistant/src/api/` would re-trigger the original problem: the
+// schema files' `import { z } from "zod"` would walk up from the
+// assistant tree, not web's node_modules.
+const apiSourceRoot = path.join(repoRoot, "assistant/src/api");
+const apiInstallRoot = path.join(webNodeModules, "@vellumai/assistant-api");
+
+rmSync(apiInstallRoot, { recursive: true, force: true });
+mkdirSync(apiInstallRoot, { recursive: true });
+cpSync(apiSourceRoot, apiInstallRoot, { recursive: true });
+
+// Overwrite the copied source `package.json` with the install variant.
+// (The source variant is marked `private: true` and has no `dependencies`
+// because the daemon imports the files via relative paths — neither
+// applies to the installed-in-web copy.)
+const generatedPackageJson = {
+  name: "@vellumai/assistant-api",
+  version: "0.0.0-generated",
+  description: "Generated install of @vellumai/assistant-api. Source: assistant/src/api/.",
+  type: "module",
+  exports: {
+    ".": "./index.ts",
+  },
+  dependencies: {
+    zod: "*",
+  },
+};
+writeFileSync(
+  path.join(apiInstallRoot, "package.json"),
+  JSON.stringify(generatedPackageJson, null, 2) + "\n",
 );
-for (const dep of eventsRuntimeDeps) {
-  const target = path.join(webNodeModules, dep);
-  if (!existsSync(target)) {
-    console.warn(
-      `[postinstall] skipping events/ runtime dep '${dep}': ${target} does not exist. ` +
-        `Add '${dep}' to apps/web/package.json so the source-as-package can find it.`,
-    );
-    continue;
-  }
-  ensureSymlink(target, path.join(eventsNodeModules, dep));
-}
 
 // (3) Generate API clients if missing. (Idempotent — only runs on fresh
 // checkouts; subsequent installs are no-ops.)

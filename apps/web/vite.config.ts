@@ -47,13 +47,6 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: [
         {
-          find: /^@vellumai\/assistant-api$/,
-          replacement: path.resolve(
-            import.meta.dirname,
-            "../../assistant/src/api/index.ts",
-          ),
-        },
-        {
           find: /^@\//,
           replacement: path.resolve(import.meta.dirname, "src") + "/",
         },
