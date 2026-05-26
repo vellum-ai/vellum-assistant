@@ -199,12 +199,19 @@ export function HeaderStepCarousel({
             {isTextInfo ? (
               <Typography
                 variant="body-small-default"
-                className="block min-w-0 flex-1 truncate text-left text-[var(--content-tertiary)]"
+                // `body-small-default` ships line-height: 1, which clips
+                // descenders (e.g. the "g" in "subagent") once `truncate`
+                // adds overflow:hidden. Bump to 16px — the same ~1.3 ratio
+                // the title's `body-medium-default` (18/14) uses — so the
+                // glyphs get vertical breathing room while staying centered.
+                // `ml-1` adds 4px on top of the row's `gap-1` (also 4px) so
+                // the descriptor sits ~8px clear of the `|` separator.
+                className="ml-1 block min-w-0 flex-1 truncate text-left leading-[16px] text-[var(--content-tertiary)]"
               >
                 {displayed.info}
               </Typography>
             ) : (
-              <span className="block min-w-0 flex-1">{displayed.info}</span>
+              <span className="ml-1 block min-w-0 flex-1">{displayed.info}</span>
             )}
           </>
         ) : null}

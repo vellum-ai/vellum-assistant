@@ -10,7 +10,7 @@ import {
 import { type ReactNode, useEffect, useRef } from "react";
 
 import { AvatarRenderer } from "@/components/avatar-renderer.js";
-import { Typography } from "@vellum/design-library";
+import { Button, Typography } from "@vellum/design-library";
 import { StatusBadge } from "@/domains/chat/components/subagent-status-badge.js";
 import { BUNDLED_COMPONENTS } from "@/domains/avatar/bundled-components.js";
 import { subagentTraits } from "@/domains/avatar/subagent-avatar.js";
@@ -112,7 +112,7 @@ export function SubagentDetailPanel({
   }, [entry.subagentId, entry.conversationId, entry.events.length, onRequestDetail]);
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-[var(--surface-lift)]">
+    <div className="flex h-full flex-col overflow-hidden rounded-xl bg-[var(--surface-lift)]">
       {/* Header */}
       <div className="flex shrink-0 items-center gap-3 border-b border-[var(--border-base)] px-5 py-4">
         <AvatarRenderer
@@ -143,14 +143,14 @@ export function SubagentDetailPanel({
             </Typography>
           </button>
         )}
-        <button
-          type="button"
-          aria-label="Close subagent detail"
+        <Button
+          variant="ghost"
+          iconOnly={<X />}
           onClick={onClose}
-          className="flex shrink-0 cursor-pointer items-center justify-center rounded p-1.5 text-[var(--content-tertiary)] hover:text-[var(--content-default)] hover:bg-[var(--surface-active)] transition-colors"
-        >
-          <X className="h-5 w-5" />
-        </button>
+          aria-label="Close subagent detail"
+          tooltip="Close"
+          className="shrink-0"
+        />
       </div>
 
       {/* Scrollable body */}
