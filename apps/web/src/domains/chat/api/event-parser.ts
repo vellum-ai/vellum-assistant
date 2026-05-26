@@ -2,14 +2,11 @@
  * SSE event parsing for the assistant chat stream.
  *
  * Exports `parseAssistantEvent`, which takes a raw SSE payload and
- * returns a typed `AssistantEvent`. The parser owns the full path: it
- * unwraps the envelope/flat shape, dispatches to a canonical zod schema
- * if one exists, falls back to hand-rolled coercion for legacy events
- * not yet covered by a schema, and stamps the envelope-level
- * conversationId onto conversation-scoped events.
+ * returns a typed `AssistantEvent`. The parser unwraps the
+ * envelope/flat shape, tries the canonical `AssistantEventSchema`
+ * from `@vellumai/assistant-api` first, and falls back to hand-rolled
+ * coercion for legacy events not yet covered by a schema.
  */
-
-import type { z } from "zod";
 
 import type {
   DiskPressureBlockedCapability,
@@ -32,46 +29,28 @@ import type {
   SubagentStatus,
   UISurfaceShowEvent,
 } from "@/domains/chat/api/event-types.js";
-import { RelationshipStateUpdatedEventSchema } from "@vellumai/assistant-api";
+import { AssistantEventSchema } from "@vellumai/assistant-api";
 import type { DisplayAttachment } from "@/domains/chat/types/types.js";
-import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat-utils.js";
 import type { ToolActivityMetadata } from "@/assistant/web-activity-types.js";
 import type { SyncInvalidationTag } from "@/lib/sync/types.js";
 
 /**
- * Canonical wire-contract schemas from `@vellumai/assistant-api`. The
- * parser tries the schema registry first; when a match exists, it's
- * the source of truth for the event shape. Add new schemas here as
- * they land in the package — the legacy switch below is the fallback
- * for events that don't yet have a canonical zod schema.
- */
-const ZOD_EVENT_SCHEMAS: ReadonlyMap<string, z.ZodTypeAny> = new Map([
-  ["relationship_state_updated", RelationshipStateUpdatedEventSchema],
-]);
-
-/**
- * Read the envelope-level conversationId from an SSE payload. Returns
- * `undefined` when absent; the parser then leaves the event's
- * `conversationId` field alone (rather than papering over the
- * daemon's omission).
- */
-function readEventConversationId(
-  data: Record<string, unknown>,
-): string | undefined {
-  if (typeof data.conversationId === "string" && data.conversationId) {
-    return data.conversationId;
-  }
-  return undefined;
-}
-
-/**
  * Unwrap envelope-shape payloads `{ message: { type, ...fields }, conversationId }`
- * into the inner event. Flat-shape payloads `{ type, ...fields }`
- * pass through unchanged.
+ * into the inner event. Flat-shape payloads `{ type, ...fields }` pass
+ * through unchanged.
+ *
+ * Pure unwrap: the envelope-level `conversationId` (SSE routing key)
+ * is NOT merged onto the inner message. Strict-schema events that
+ * don't declare `conversationId` stay strict; legacy events that need
+ * envelope conversationId get it via `mergeEnvelopeConversationId`
+ * along the fallback path.
  */
 function unwrapEnvelope(
   data: Record<string, unknown>,
-): Record<string, unknown> {
+): {
+  inner: Record<string, unknown>;
+  envelopeConversationId: string | undefined;
+} {
   const message = data.message;
   if (
     message &&
@@ -79,25 +58,52 @@ function unwrapEnvelope(
     !Array.isArray(message) &&
     typeof (message as Record<string, unknown>).type === "string"
   ) {
-    return message as Record<string, unknown>;
+    return {
+      inner: message as Record<string, unknown>,
+      envelopeConversationId:
+        typeof data.conversationId === "string"
+          ? data.conversationId
+          : undefined,
+    };
   }
-  return data;
+  return { inner: data, envelopeConversationId: undefined };
 }
 
 /**
- * Stamp the envelope-level conversationId onto conversation-scoped
- * events that don't already declare one. Global events (whose strict
- * wire schemas don't declare the field) are left untouched — this is
- * the exact drift `@vellumai/assistant-api` is meant to prevent.
+ * Merge the envelope-level `conversationId` onto the inner data when
+ * the inner doesn't already declare one. Used only on the legacy
+ * fallback path — strict-schema events skip this step so the envelope
+ * routing key never leaks onto the parsed event.
  */
-function stampConversationId(
-  event: AssistantEvent,
-  conversationId: string | undefined,
+function mergeEnvelopeConversationId(
+  inner: Record<string, unknown>,
+  envelopeConversationId: string | undefined,
+): Record<string, unknown> {
+  if (
+    envelopeConversationId &&
+    typeof inner.conversationId !== "string"
+  ) {
+    return { ...inner, conversationId: envelopeConversationId };
+  }
+  return inner;
+}
+
+/**
+ * Build the `unknown` fallback event, preserving the raw type, the
+ * original payload, and any conversation scope so downstream filters
+ * (e.g. per-conversation SSE subscribers) still route correctly.
+ */
+function unknownEvent(
+  rawType: string,
+  data: Record<string, unknown>,
 ): AssistantEvent {
-  if (!conversationId) return event;
-  if (!isConversationScopedStreamEvent(event)) return event;
-  if (event.conversationId) return event;
-  return { ...event, conversationId };
+  return {
+    type: "unknown",
+    rawType,
+    data,
+    conversationId:
+      typeof data.conversationId === "string" ? data.conversationId : undefined,
+  };
 }
 
 /**
@@ -128,28 +134,29 @@ function parseDocumentCommentBase(
 export function parseAssistantEvent(
   data: Record<string, unknown>,
 ): AssistantEvent {
-  const eventData = unwrapEnvelope(data);
-  // Prefer the inner-message conversationId — it's the authoritative
-  // event-level field. Fall back to the envelope-level value, which is
-  // the SSE routing key for envelope-shaped messages.
-  const envelopeConversationId =
-    readEventConversationId(eventData) ?? readEventConversationId(data);
-  const event = parseEventPayload(eventData);
-  return stampConversationId(event, envelopeConversationId);
+  const { inner, envelopeConversationId } = unwrapEnvelope(data);
+
+  // Canonical schema first. The discriminated union in
+  // `@vellumai/assistant-api` is the source of truth for any event
+  // type it covers — when a member matches the `type` discriminator
+  // and the shape validates, the parser is done. The schema sees the
+  // pure inner message (no envelope merge) so strict shapes stay
+  // strict: the envelope-level conversationId is a routing key, not
+  // an event field, and never leaks onto strict-schema events.
+  const schemaResult = AssistantEventSchema.safeParse(inner);
+  if (schemaResult.success) return schemaResult.data as AssistantEvent;
+
+  // Legacy fallback. Merge the envelope conversationId in so legacy
+  // case bodies just read `data.conversationId` — daemon emit sites
+  // for legacy events aren't always disciplined about putting the
+  // conversationId on the inner message.
+  return parseLegacyEvent(
+    mergeEnvelopeConversationId(inner, envelopeConversationId),
+  );
 }
 
-function parseEventPayload(data: Record<string, unknown>): AssistantEvent {
+function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
   const rawType = typeof data.type === "string" ? data.type : "";
-
-  // Try the canonical zod schema first; when a schema exists for this
-  // type, it owns the shape. A parse failure becomes an `UnknownEvent`,
-  // matching how the legacy switch handles malformed payloads.
-  const schema = ZOD_EVENT_SCHEMAS.get(rawType);
-  if (schema) {
-    const result = schema.safeParse(data);
-    if (!result.success) return { type: "unknown", rawType, data };
-    return result.data as AssistantEvent;
-  }
 
   switch (rawType) {
     case "assistant_text_delta":
@@ -158,6 +165,10 @@ function parseEventPayload(data: Record<string, unknown>): AssistantEvent {
         text: typeof data.text === "string" ? data.text : "",
         messageId:
           typeof data.messageId === "string" ? data.messageId : undefined,
+        conversationId:
+          typeof data.conversationId === "string"
+            ? data.conversationId
+            : undefined,
       };
 
     case "message_complete":
@@ -168,6 +179,10 @@ function parseEventPayload(data: Record<string, unknown>): AssistantEvent {
         content:
           typeof data.content === "string" ? data.content : undefined,
         attachments: parseOutboundAttachments(data.attachments),
+        conversationId:
+          typeof data.conversationId === "string"
+            ? data.conversationId
+            : undefined,
       };
 
     case "generation_handoff":
@@ -176,10 +191,20 @@ function parseEventPayload(data: Record<string, unknown>): AssistantEvent {
         messageId:
           typeof data.messageId === "string" ? data.messageId : undefined,
         attachments: parseOutboundAttachments(data.attachments),
+        conversationId:
+          typeof data.conversationId === "string"
+            ? data.conversationId
+            : undefined,
       };
 
     case "generation_cancelled":
-      return { type: "generation_cancelled" };
+      return {
+        type: "generation_cancelled",
+        conversationId:
+          typeof data.conversationId === "string"
+            ? data.conversationId
+            : undefined,
+      };
 
     case "sync_changed": {
       const tags = data.tags;
@@ -187,7 +212,7 @@ function parseEventPayload(data: Record<string, unknown>): AssistantEvent {
         !Array.isArray(tags) ||
         !tags.every((tag): tag is string => typeof tag === "string")
       ) {
-        return { type: "unknown", rawType, data };
+        return unknownEvent(rawType, data);
       }
       const rawOriginClientId =
         typeof data.originClientId === "string"
@@ -233,7 +258,7 @@ function parseEventPayload(data: Record<string, unknown>): AssistantEvent {
         !validAnchors.includes(anchor) ||
         !validReasons.includes(reason as AssistantActivityReason)
       ) {
-        return { type: "unknown", rawType, data };
+        return unknownEvent(rawType, data);
       }
       return {
         type: "assistant_activity_state",
@@ -241,6 +266,10 @@ function parseEventPayload(data: Record<string, unknown>): AssistantEvent {
         phase: phase as AssistantActivityPhase,
         anchor: anchor as AssistantActivityStateEvent["anchor"],
         reason: reason as AssistantActivityReason,
+        conversationId:
+          typeof data.conversationId === "string"
+            ? data.conversationId
+            : undefined,
         ...(typeof data.requestId === "string"
           ? { requestId: data.requestId }
           : {}),
@@ -253,23 +282,31 @@ function parseEventPayload(data: Record<string, unknown>): AssistantEvent {
     case "open_url": {
       const url = typeof data.url === "string" ? data.url : "";
       if (!url) {
-        return { type: "unknown", rawType, data };
+        return unknownEvent(rawType, data);
       }
       return {
         type: "open_url",
         url,
         title: typeof data.title === "string" ? data.title : undefined,
+        conversationId:
+          typeof data.conversationId === "string"
+            ? data.conversationId
+            : undefined,
       };
     }
 
     case "navigate_settings": {
       const tab = typeof data.tab === "string" ? data.tab : "";
       if (!tab) {
-        return { type: "unknown", rawType, data };
+        return unknownEvent(rawType, data);
       }
       return {
         type: "navigate_settings",
         tab,
+        conversationId:
+          typeof data.conversationId === "string"
+            ? data.conversationId
+            : undefined,
       };
     }
 
@@ -284,6 +321,10 @@ function parseEventPayload(data: Record<string, unknown>): AssistantEvent {
           typeof data.message === "string"
             ? data.message
             : "Unknown error",
+        conversationId:
+          typeof data.conversationId === "string"
+            ? data.conversationId
+            : undefined,
       };
 
     case "secret_request":
@@ -299,6 +340,10 @@ function parseEventPayload(data: Record<string, unknown>): AssistantEvent {
         allowedTools: Array.isArray(data.allowedTools) ? data.allowedTools as string[] : undefined,
         allowedDomains: Array.isArray(data.allowedDomains) ? data.allowedDomains as string[] : undefined,
         purpose: typeof data.purpose === "string" ? data.purpose : undefined,
+        conversationId:
+          typeof data.conversationId === "string"
+            ? data.conversationId
+            : undefined,
       };
 
     case "confirmation_request":
@@ -309,6 +354,10 @@ function parseEventPayload(data: Record<string, unknown>): AssistantEvent {
         description: typeof data.description === "string" ? data.description : undefined,
         confirmLabel: typeof data.confirmLabel === "string" ? data.confirmLabel : undefined,
         denyLabel: typeof data.denyLabel === "string" ? data.denyLabel : undefined,
+        conversationId:
+          typeof data.conversationId === "string"
+            ? data.conversationId
+            : undefined,
         toolName: typeof data.toolName === "string" ? data.toolName : undefined,
         executionTarget: typeof data.executionTarget === "string" ? data.executionTarget : undefined,
         riskLevel: typeof data.riskLevel === "string" ? data.riskLevel : undefined,
@@ -340,6 +389,10 @@ function parseEventPayload(data: Record<string, unknown>): AssistantEvent {
         label: typeof data.label === "string" ? data.label : undefined,
         description: typeof data.description === "string" ? data.description : undefined,
         role: typeof data.role === "string" ? data.role : undefined,
+        conversationId:
+          typeof data.conversationId === "string"
+            ? data.conversationId
+            : undefined,
       };
 
     case "question_request": {
@@ -370,6 +423,10 @@ function parseEventPayload(data: Record<string, unknown>): AssistantEvent {
           typeof data.freeTextPlaceholder === "string"
             ? data.freeTextPlaceholder
             : undefined,
+        conversationId:
+          typeof data.conversationId === "string"
+            ? data.conversationId
+            : undefined,
         toolUseId:
           typeof data.toolUseId === "string" ? data.toolUseId : undefined,
       };
@@ -391,6 +448,10 @@ function parseEventPayload(data: Record<string, unknown>): AssistantEvent {
           ? data.display
           : undefined,
         messageId: typeof data.messageId === "string" ? data.messageId : undefined,
+        conversationId:
+          typeof data.conversationId === "string"
+            ? data.conversationId
+            : undefined,
       };
 
     case "ui_surface_update":
@@ -400,12 +461,20 @@ function parseEventPayload(data: Record<string, unknown>): AssistantEvent {
         data: typeof data.data === "object" && data.data !== null
           ? (data.data as Record<string, unknown>)
           : {},
+        conversationId:
+          typeof data.conversationId === "string"
+            ? data.conversationId
+            : undefined,
       };
 
     case "ui_surface_dismiss":
       return {
         type: "ui_surface_dismiss",
         surfaceId: typeof data.surfaceId === "string" ? data.surfaceId : "",
+        conversationId:
+          typeof data.conversationId === "string"
+            ? data.conversationId
+            : undefined,
       };
 
     case "ui_surface_complete":
@@ -416,6 +485,10 @@ function parseEventPayload(data: Record<string, unknown>): AssistantEvent {
         submittedData: typeof data.submittedData === "object" && data.submittedData !== null
           ? (data.submittedData as Record<string, unknown>)
           : undefined,
+        conversationId:
+          typeof data.conversationId === "string"
+            ? data.conversationId
+            : undefined,
       };
 
     case "tool_use_start":
@@ -426,6 +499,10 @@ function parseEventPayload(data: Record<string, unknown>): AssistantEvent {
           ? (data.input as Record<string, unknown>)
           : {},
         toolUseId: typeof data.toolUseId === "string" ? data.toolUseId : undefined,
+        conversationId:
+          typeof data.conversationId === "string"
+            ? data.conversationId
+            : undefined,
       };
 
     case "tool_result":
@@ -514,6 +591,10 @@ function parseEventPayload(data: Record<string, unknown>): AssistantEvent {
         cacheCreationInputTokens: readNumber("cacheCreationInputTokens"),
         contextWindowTokens: readNumber("contextWindowTokens"),
         contextWindowMaxTokens: readNumber("contextWindowMaxTokens"),
+        conversationId:
+          typeof data.conversationId === "string"
+            ? data.conversationId
+            : undefined,
       };
     }
 
@@ -522,7 +603,7 @@ function parseEventPayload(data: Record<string, unknown>): AssistantEvent {
         typeof data.conversationId === "string" ? data.conversationId : "";
       const title = typeof data.title === "string" ? data.title : "";
       if (!conversationId) {
-        return { type: "unknown", rawType, data };
+        return unknownEvent(rawType, data);
       }
       return { type: "conversation_title_updated", conversationId, title };
     }
@@ -533,7 +614,7 @@ function parseEventPayload(data: Record<string, unknown>): AssistantEvent {
       const sourceEventName =
         typeof data.sourceEventName === "string" ? data.sourceEventName : "";
       if (!title || !sourceEventName) {
-        return { type: "unknown", rawType, data };
+        return unknownEvent(rawType, data);
       }
       const deepLinkMetadata =
         typeof data.deepLinkMetadata === "object" &&
@@ -566,7 +647,7 @@ function parseEventPayload(data: Record<string, unknown>): AssistantEvent {
       const conversationId = typeof data.conversationId === "string" ? data.conversationId : "";
       const profile = typeof data.profile === "string" ? data.profile : "";
       const profileLabel = typeof data.profileLabel === "string" ? data.profileLabel : "";
-      if (!profileLabel) return { type: "unknown", rawType, data };
+      if (!profileLabel) return unknownEvent(rawType, data);
       return {
         type: "turn_profile_auto_routed",
         conversationId,
@@ -617,18 +698,30 @@ function parseEventPayload(data: Record<string, unknown>): AssistantEvent {
         type: "message_queued",
         requestId: typeof data.requestId === "string" ? data.requestId : "",
         position: typeof data.position === "number" ? data.position : 0,
+        conversationId:
+          typeof data.conversationId === "string"
+            ? data.conversationId
+            : undefined,
       };
 
     case "message_dequeued":
       return {
         type: "message_dequeued",
         requestId: typeof data.requestId === "string" ? data.requestId : "",
+        conversationId:
+          typeof data.conversationId === "string"
+            ? data.conversationId
+            : undefined,
       };
 
     case "message_queued_deleted":
       return {
         type: "message_queued_deleted",
         requestId: typeof data.requestId === "string" ? data.requestId : "",
+        conversationId:
+          typeof data.conversationId === "string"
+            ? data.conversationId
+            : undefined,
       };
 
     case "message_request_complete":
@@ -636,6 +729,10 @@ function parseEventPayload(data: Record<string, unknown>): AssistantEvent {
         type: "message_request_complete",
         requestId: typeof data.requestId === "string" ? data.requestId : "",
         runStillActive: typeof data.runStillActive === "boolean" ? data.runStillActive : undefined,
+        conversationId:
+          typeof data.conversationId === "string"
+            ? data.conversationId
+            : undefined,
       };
 
     case "home_feed_updated":
@@ -649,7 +746,7 @@ function parseEventPayload(data: Record<string, unknown>): AssistantEvent {
       const subagentId = typeof data.subagentId === "string" ? data.subagentId : "";
       const label = typeof data.label === "string" ? data.label : "";
       if (!subagentId || !label) {
-        return { type: "unknown", rawType, data };
+        return unknownEvent(rawType, data);
       }
       return {
         type: "subagent_spawned",
@@ -659,6 +756,10 @@ function parseEventPayload(data: Record<string, unknown>): AssistantEvent {
         label,
         objective: typeof data.objective === "string" ? data.objective : "",
         isFork: typeof data.isFork === "boolean" ? data.isFork : undefined,
+        conversationId:
+          typeof data.conversationId === "string"
+            ? data.conversationId
+            : undefined,
       };
     }
 
@@ -666,7 +767,7 @@ function parseEventPayload(data: Record<string, unknown>): AssistantEvent {
       const subagentId = typeof data.subagentId === "string" ? data.subagentId : "";
       const status = typeof data.status === "string" ? data.status : "";
       if (!subagentId || !status) {
-        return { type: "unknown", rawType, data };
+        return unknownEvent(rawType, data);
       }
       const usage = data.usage && typeof data.usage === "object" && !Array.isArray(data.usage)
         ? (data.usage as Record<string, unknown>)
@@ -679,6 +780,10 @@ function parseEventPayload(data: Record<string, unknown>): AssistantEvent {
         inputTokens: typeof usage?.inputTokens === "number" ? usage.inputTokens : undefined,
         outputTokens: typeof usage?.outputTokens === "number" ? usage.outputTokens : undefined,
         totalCost: typeof usage?.estimatedCost === "number" ? usage.estimatedCost : undefined,
+        conversationId:
+          typeof data.conversationId === "string"
+            ? data.conversationId
+            : undefined,
       };
     }
 
@@ -686,7 +791,7 @@ function parseEventPayload(data: Record<string, unknown>): AssistantEvent {
       const subagentId = typeof data.subagentId === "string" ? data.subagentId : "";
       const event = data.event;
       if (!subagentId || !event || typeof event !== "object" || Array.isArray(event)) {
-        return { type: "unknown", rawType, data };
+        return unknownEvent(rawType, data);
       }
       return {
         type: "subagent_event",
@@ -712,7 +817,7 @@ function parseEventPayload(data: Record<string, unknown>): AssistantEvent {
         typeof comment !== "object" ||
         Array.isArray(comment)
       ) {
-        return { type: "unknown", rawType, data };
+        return unknownEvent(rawType, data);
       }
       const c = comment as Record<string, unknown>;
       return {
@@ -746,7 +851,7 @@ function parseEventPayload(data: Record<string, unknown>): AssistantEvent {
     case "document_comment_deleted": {
       const base = parseDocumentCommentBase(data);
       if (!base) {
-        return { type: "unknown", rawType, data };
+        return unknownEvent(rawType, data);
       }
       if (rawType === "document_comment_resolved") {
         return {
@@ -771,7 +876,7 @@ function parseEventPayload(data: Record<string, unknown>): AssistantEvent {
         "superseded",
       ]);
       if (!requestId || !validStates.has(stateRaw)) {
-        return { type: "unknown", rawType, data };
+        return unknownEvent(rawType, data);
       }
       const conversationId =
         typeof data.conversationId === "string" ? data.conversationId : "";
@@ -796,14 +901,24 @@ function parseEventPayload(data: Record<string, unknown>): AssistantEvent {
       const markdown =
         typeof data.markdown === "string" ? data.markdown : "";
       const mode = typeof data.mode === "string" ? data.mode : "replace";
+      const conversationId =
+        typeof data.conversationId === "string"
+          ? data.conversationId
+          : undefined;
       if (!surfaceId) {
-        return { type: "unknown", rawType, data };
+        return unknownEvent(rawType, data);
       }
-      return { type: "document_editor_update", surfaceId, markdown, mode };
+      return {
+        type: "document_editor_update",
+        surfaceId,
+        markdown,
+        mode,
+        conversationId,
+      };
     }
 
     default:
-      return { type: "unknown", rawType, data };
+      return unknownEvent(rawType, data);
   }
 }
 
