@@ -50,6 +50,10 @@ export interface PreChatOnboardingContext {
   cohort?: string;
   /** Auto-send this message on first load instead of waiting for user input. */
   initialMessage?: string;
+  /** Bootstrap template filename for the daemon to use. */
+  bootstrapTemplate?: string;
+  /** Skills to eagerly load. */
+  skills?: string[];
 }
 
 /**
@@ -226,6 +230,13 @@ function isPreChatOnboardingContext(
   }
   if (candidate.initialMessage !== undefined && typeof candidate.initialMessage !== "string") {
     return false;
+  }
+  if (candidate.bootstrapTemplate !== undefined && typeof candidate.bootstrapTemplate !== "string") {
+    return false;
+  }
+  if (candidate.skills !== undefined) {
+    if (!Array.isArray(candidate.skills)) return false;
+    if (!candidate.skills.every((s) => typeof s === "string")) return false;
   }
   return true;
 }
