@@ -29,6 +29,7 @@ function makeFakeTool(name: string): Tool {
     description: `Fake ${name}`,
     category: "test",
     defaultRiskLevel: RiskLevel.Low,
+    executionTarget: "sandbox",
     input_schema: { type: "object", properties: {}, required: [] },
     async execute(
       _input: Record<string, unknown>,

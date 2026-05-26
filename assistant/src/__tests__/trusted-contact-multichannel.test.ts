@@ -36,7 +36,6 @@ mock.module("../notifications/emit-signal.js", () => ({
       deliveryResults: [],
     };
   },
-  registerBroadcastFn: () => {},
 }));
 
 // Mock access-request-helper directly to capture notification calls.

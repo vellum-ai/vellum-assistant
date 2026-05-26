@@ -136,11 +136,21 @@ mock.module("../tools/registry.js", () => ({
         },
       };
     }
+    // Mirror what the real loader stamps onto a tool at registration time
+    // (every registered Tool has `executionTarget` set). Mirror the
+    // prefix heuristic here so the tests that exercise built-in tools
+    // (`bash`, `host_bash`, `file_read`) still observe production-shaped
+    // executionTarget values.
+    const executionTarget =
+      name.startsWith("host_") || name.startsWith("computer_use_")
+        ? ("host" as const)
+        : ("sandbox" as const);
     return {
       name,
       description: "test tool",
       category: "test",
       defaultRiskLevel: "low",
+      executionTarget,
       input_schema: {},
       execute: async () => {
         if (toolThrow) throw toolThrow;

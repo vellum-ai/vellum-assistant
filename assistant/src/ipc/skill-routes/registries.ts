@@ -22,6 +22,7 @@ import { z } from "zod";
 import type { MeetHostSupervisor } from "../../daemon/meet-host-supervisor.js";
 import { registerShutdownHook } from "../../daemon/shutdown-registry.js";
 import { registerSkillRoute } from "../../runtime/skill-route-registry.js";
+import { resolveExecutionTarget } from "../../tools/execution-target.js";
 import { registerSkillTools } from "../../tools/registry.js";
 import type { ExecutionTarget, Tool } from "../../tools/types.js";
 import { RiskLevel } from "../../tools/types.js";
@@ -187,7 +188,11 @@ function buildProxyTool(manifest: ToolManifest): Tool {
     category: manifest.category,
     defaultRiskLevel: manifest.defaultRiskLevel as RiskLevel,
     executionMode: manifest.executionMode ?? "proxy",
-    executionTarget: manifest.executionTarget as ExecutionTarget | undefined,
+    executionTarget: resolveExecutionTarget({
+      name: manifest.name,
+      executionTarget: manifest.executionTarget as ExecutionTarget | undefined,
+      executionMode: manifest.executionMode ?? "proxy",
+    }),
     origin: "skill",
     ownerSkillId: manifest.ownerSkillId,
     ownerSkillBundled: manifest.ownerSkillBundled,

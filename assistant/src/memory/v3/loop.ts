@@ -233,12 +233,27 @@ export async function runRetrievalLoop(
       if (!firstPassBySlug.has(slug)) firstPassBySlug.set(slug, passNumber);
     }
 
+    // When gateCandidateSummaries is enabled (opt-in), render candidates to the
+    // gate as `slug — summary` so it can judge relevance on page content rather
+    // than the slug alone. getPageIndex is cached, so this reuses the index the
+    // scouts/tree lanes already built this pass.
+    let summaryBySlug: Map<string, string> | undefined;
+    if (passInput.config.memory.v3.gateCandidateSummaries) {
+      const pageIndex = await getPageIndex(passInput.workspaceDir);
+      summaryBySlug = new Map<string, string>();
+      for (const slug of candidates) {
+        const summary = pageIndex.bySlug.get(slug)?.summary;
+        if (summary) summaryBySlug.set(slug, summary);
+      }
+    }
+
     // 5. Gate — one capable LLM call over the unioned candidate set.
     const gateResult = await runGate({
       input: passInput,
       candidates,
       sticky,
       passNumber,
+      summaryBySlug,
       capture: passSink,
     });
     selectedSlugs = gateResult.selectedSlugs;

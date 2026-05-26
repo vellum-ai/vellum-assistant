@@ -211,6 +211,7 @@ describe("plugin core types", () => {
       name: "sample-tool",
       description: "Sample plugin tool",
       defaultRiskLevel: RiskLevel.Low,
+      executionTarget: "sandbox",
       input_schema: { type: "object", properties: {}, required: [] },
       async execute() {
         return { content: "ok", isError: false };

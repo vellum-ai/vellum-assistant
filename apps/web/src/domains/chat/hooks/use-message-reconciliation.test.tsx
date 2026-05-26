@@ -161,9 +161,12 @@ function makeRef<T>(value: T): RefObject<T> {
   return { current: value };
 }
 
-function makeMessage(overrides: Omit<DisplayMessage, "stableId"> & { stableId?: string }): DisplayMessage {
-  const { stableId, ...rest } = overrides;
-  return { stableId: stableId ?? newStableId("test"), ...rest };
+function makeMessage(
+  overrides: Omit<DisplayMessage, "stableId" | "id"> & { stableId?: string; id?: string },
+): DisplayMessage {
+  const { stableId, id, ...rest } = overrides;
+  const sid = stableId ?? newStableId("test");
+  return { stableId: sid, id: id ?? sid, ...rest };
 }
 
 function createHarness(overrides?: {
@@ -551,7 +554,10 @@ describe("reconcileActiveConversation", () => {
   test("does NOT call onPollReconciled when only optimistic user message id changes", async () => {
     messages = [
       makeMessage({ id: "m-old-a", role: "assistant", content: "Prior response" }),
-      makeMessage({ role: "user", content: "Continue the story" }),
+      // Post-2c.1: optimistic user rows are explicitly flagged so the
+      // tail content-match block in reconcileMessages can drop them in
+      // favor of the server-assigned row.
+      makeMessage({ role: "user", content: "Continue the story", isOptimistic: true }),
     ];
     mockFetchResult = [
       { id: "m-old-a", role: "assistant", content: "Prior response" },

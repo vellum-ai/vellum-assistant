@@ -74,6 +74,7 @@ class CredentialStoreTool implements Tool {
   description =
     "Store, list, delete, or prompt for credentials in the secure vault";
   category = "credentials";
+  executionTarget = "sandbox" as const;
   defaultRiskLevel = RiskLevel.Low;
 
   input_schema = {

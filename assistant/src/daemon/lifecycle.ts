@@ -56,10 +56,7 @@ import { initQdrantClient, resolveQdrantUrl } from "../memory/qdrant-client.js";
 import { QdrantManager } from "../memory/qdrant-manager.js";
 import { rotateToolInvocations } from "../memory/tool-usage-store.js";
 import { sweepConceptPageFrontmatter } from "../memory/v2/frontmatter-sweep.js";
-import {
-  emitNotificationSignal,
-  registerBroadcastFn,
-} from "../notifications/emit-signal.js";
+import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
 import { installPluginRuntime } from "../plugins/external-api.js";
@@ -941,12 +938,6 @@ export async function runDaemon(): Promise<void> {
 
     registerWatcherProviders();
     registerMessagingProviders();
-
-    // Register the broadcast function for the notification signal pipeline's
-    // macOS adapter so it can deliver notification_intent messages to clients.
-    registerBroadcastFn((msg, conversationId, options) =>
-      broadcastMessage(msg, conversationId, options),
-    );
 
     try {
       recoverStaleSchedules();

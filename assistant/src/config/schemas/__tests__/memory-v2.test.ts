@@ -235,6 +235,7 @@ describe("MemoryV3ConfigSchema", () => {
         descent: { override: null, path: null },
         gate: { override: null, path: null },
       },
+      gateCandidateSummaries: false,
     });
   });
 

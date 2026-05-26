@@ -14,6 +14,7 @@ mock.module("../../runtime/assistant-event-hub.js", () => ({
     publish: publishSpy,
     subscribe: () => () => {},
   },
+  broadcastMessage: () => {},
 }));
 
 // Stub workspace prompt reads so the heartbeat service doesn't try to

@@ -15,13 +15,20 @@ import {
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types.js";
 import type { RuntimeMessage } from "@/domains/chat/api/messages.js";
 
-// Test factory that produces DisplayMessages with a stableId assigned. Every
-// DisplayMessage construction site in production code assigns one; tests
-// must do the same so the type-level requirement holds.
-function makeLocal(overrides: Omit<DisplayMessage, "stableId"> & { stableId?: string }): DisplayMessage {
-  const { stableId, ...rest } = overrides;
+// Test factory that produces DisplayMessages with `stableId` and `id`
+// assigned. Every DisplayMessage construction site in production code
+// assigns both; tests must do the same so the type-level requirement
+// holds. By default `id` mirrors `stableId` (matching the optimistic-
+// phase invariant that they share a value until POST resolve or
+// reconcile content-match swaps `id` to the server-assigned id).
+function makeLocal(
+  overrides: Omit<DisplayMessage, "stableId" | "id"> & { stableId?: string; id?: string },
+): DisplayMessage {
+  const { stableId, id, ...rest } = overrides;
+  const sid = stableId ?? newStableId("test");
   return {
-    stableId: stableId ?? newStableId("test"),
+    stableId: sid,
+    id: id ?? sid,
     ...rest,
   };
 }
@@ -515,54 +522,13 @@ describe("reconcileMessages", () => {
     expect(result[1]!.isStreaming).toBe(true);
   });
 
-  test("reconciles a no-id streaming assistant prefix with the server response", () => {
-    const local: DisplayMessage[] = [
-      makeLocal({
-        stableId: "user",
-        id: "u1",
-        role: "user",
-        content: "Plan a Stockholm trip",
-        timestamp: 1000,
-      }),
-      makeLocal({
-        stableId: "streaming-assistant",
-        role: "assistant",
-        content: "Stockholm plan: start with Gamla Stan",
-        isStreaming: true,
-        timestamp: 1010,
-      }),
-    ];
-    const server: RuntimeMessage[] = [
-      {
-        id: "u1",
-        role: "user",
-        content: "Plan a Stockholm trip",
-        timestamp: 1000,
-      },
-      {
-        id: "a1",
-        role: "assistant",
-        content:
-          "Stockholm plan: start with Gamla Stan, then spend the afternoon on Djurgarden.",
-        timestamp: 1020,
-      },
-    ];
-
-    const result = reconcileMessages(local, server);
-
-    expect(result).toHaveLength(2);
-    expect(result[1]).toMatchObject({
-      stableId: "streaming-assistant",
-      id: "a1",
-      role: "assistant",
-      content:
-        "Stockholm plan: start with Gamla Stan, then spend the afternoon on Djurgarden.",
-    });
-    // The live row was matched via the prefix-fallback path. `isStreaming`
-    // is client-owned and must survive the merge — SSE `message_complete`
-    // (or the watchdog idle-rescue) is the sole authority to clear it.
-    expect(result[1]!.isStreaming).toBe(true);
-  });
+  // Test deleted in PR 2c.1: the "no-id streaming prefix → server row via
+  // role + content + timestamp fallback" path is gone. PR 2b.1's anchor
+  // invariant guarantees every streaming assistant row has its server id
+  // stamped at first text_delta, so the id-match path always succeeds
+  // and there's no no-id state to fallback from. If the server row's
+  // text grows past the local prefix, the id-match still resolves it
+  // and `keepLocalToolState` / content merge takes care of the rest.
 
   test("does not duplicate tool calls when unclaimed message is preserved", () => {
     // GIVEN a local assistant message with tool calls whose id differs from server
@@ -591,7 +557,11 @@ describe("reconcileMessages", () => {
 
   test("deduplicates optimistic user message when server has matching content", () => {
     const local: DisplayMessage[] = [
-      makeLocal({ role: "user", content: "Hello" }), // optimistic, no id
+      // Post-2c.1: optimistic rows are explicitly tagged `isOptimistic`.
+      // The helper still mirrors stableId into `id` (mandatory field),
+      // and the tail content-match block in reconcile.ts drops this row
+      // in favor of the server-derived `m1` row.
+      makeLocal({ role: "user", content: "Hello", isOptimistic: true }),
     ];
     const server: RuntimeMessage[] = [
       { id: "m1", role: "user", content: "Hello" },
@@ -790,40 +760,16 @@ describe("reconcileMessages", () => {
     expect(result[1]!.toolCalls).toBeUndefined();
   });
 
-  test("lost tool call reattachment carries contentOrder and textSegments", () => {
-    // When a local message's toolCalls aren't matched during primary
-    // reconciliation (e.g. messageId mismatch), the safety net should
-    // reattach toolCalls AND their associated contentOrder/textSegments.
-    const localContentOrder = [
-      { type: "toolCall", id: "tool-xyz" },
-      { type: "text", id: "0" },
-    ];
-    const localTextSegments = [{ type: "text", content: "Here you go." }];
-    const local: DisplayMessage[] = [
-      makeLocal({ id: "m1", role: "user", content: "Do it" }),
-      makeLocal({
-        id: "local-only-id",
-        role: "assistant",
-        content: "Here you go.",
-        toolCalls: [
-          { id: "tool-xyz", toolName: "bash", input: { command: "echo hi" }, status: "completed" },
-        ],
-        contentOrder: localContentOrder,
-        textSegments: localTextSegments,
-      }),
-    ];
-    const server: RuntimeMessage[] = [
-      { id: "m1", role: "user", content: "Do it" },
-      { id: "m2", role: "assistant", content: "Here you go." },
-    ];
-    const result = reconcileMessages(local, server);
-    const assistant = result.find((m) => m.role === "assistant");
-    expect(assistant!.toolCalls).toEqual([
-      { id: "tool-xyz", toolName: "bash", input: { command: "echo hi" }, status: "completed" },
-    ]);
-    expect(assistant!.contentOrder).toEqual(localContentOrder);
-    expect(assistant!.textSegments).toEqual(localTextSegments);
-  });
+  // Test deleted in PR 2c.1: the "lost tool call reattachment" safety
+  // net was hedging against SSE event `messageId` drifting from the
+  // server API's message id. PR 2b.1's anchor invariant (first id seen
+  // wins, locked at bubble birth) eliminates that drift, so the safety
+  // net is gone — and the test that exercised it goes with it. If the
+  // local row's id matches the server row's id, the primary lookup
+  // succeeds and toolCalls / contentOrder / textSegments are preserved
+  // by the `keepLocalToolState` branch above. If ids don't match, the
+  // local row is preserved as-is by the tail block — its toolCalls
+  // ride along with it.
 });
 
 describe("reconcileMessages — mid-stream sync-tag bubble-split regression", () => {
@@ -913,44 +859,12 @@ describe("reconcileMessages — mid-stream sync-tag bubble-split regression", ()
     expect(assistant.stableId).toBe("live-assistant");
   });
 
-  test("preserves isStreaming for a no-id streaming assistant prefix matched via fallback", () => {
-    // Same regression, exercising the fallback-match path: the live
-    // assistant row had no server id yet (SSE delivered text deltas but
-    // not the `message_start` id), so reconcile matches via role + content
-    // prefix against the server snapshot.
-    const liveAssistant = makeLocal({
-      stableId: "live-no-id",
-      role: "assistant",
-      content: "Working",
-      isStreaming: true,
-      toolCalls: [
-        { id: "toolu_xyz", toolName: "bash", status: "running", input: {} },
-      ],
-      timestamp: 2000,
-    });
-    const local: DisplayMessage[] = [
-      makeLocal({ id: "u1", role: "user", content: "Run it", timestamp: 1000 }),
-      liveAssistant,
-    ];
-    const server: RuntimeMessage[] = [
-      { id: "u1", role: "user", content: "Run it", timestamp: 1000 },
-      {
-        id: "msg_assigned_later",
-        role: "assistant",
-        content: "Working on it now",
-        timestamp: 2000,
-      },
-    ];
-
-    const result = reconcileMessages(local, server);
-
-    expect(result).toHaveLength(2);
-    const assistant = result[1]!;
-    expect(assistant.isStreaming).toBe(true);
-    expect(assistant.id).toBe("msg_assigned_later");
-    expect(assistant.stableId).toBe("live-no-id");
-    expect(assistant.toolCalls?.[0]).toMatchObject({ status: "running" });
-  });
+  // Test deleted in PR 2c.1: paired with the no-id-streaming-prefix
+  // deletion above. The "live assistant row had no server id yet"
+  // scenario is no longer reachable — PR 2b.1 stamps `id` at bubble
+  // birth (mirrored from stableId when the wire id is absent). The
+  // mid-stream sync-tag bubble-split regression itself is still
+  // exercised by the test above, just via the id-match path.
 });
 
 describe("reconcileMessages — server attachment propagation", () => {
@@ -1265,7 +1179,11 @@ describe("reconcileMessages — server attachment propagation", () => {
     expect(msg!.attachments).toBeUndefined();
   });
 
-  test("preserves stableId for optimistic user message when server content has [File attachment] lines", () => {
+  test("transfers blob preview URL from optimistic user row when server content has [File attachment] lines", () => {
+    // Post-2c.1: the optimistic→server swap is a one-time row remount;
+    // stableId changes (server row's fresh stableId takes over). But the
+    // blob preview URL the user is actively looking at MUST survive — the
+    // server attachment's UUID-based URL can 404 until upload finalizes.
     const blobAttachment = {
       id: "blob-upload-1",
       filename: "spec.pdf",
@@ -1280,6 +1198,7 @@ describe("reconcileMessages — server attachment propagation", () => {
         role: "user",
         content: "Please review this",
         timestamp: 1000,
+        isOptimistic: true,
         attachments: [blobAttachment],
       }),
     ];
@@ -1306,23 +1225,41 @@ describe("reconcileMessages — server attachment propagation", () => {
     const result = reconcileMessages(local, server);
     expect(result).toHaveLength(1);
     const msg = result[0]!;
-    expect(msg.stableId).toBe("optimistic-user");
     expect(msg.id).toBe("m1");
     expect(msg.content).toBe("Please review this");
     expect(msg.attachments).toHaveLength(1);
+    // The blob URL won — local attachments always preferred over server
+    // when both are present (server UUID-only URLs can 404 mid-upload).
     expect(msg.attachments![0]!.previewUrl).toBe("blob:http://localhost/abc");
+    expect(msg.isOptimistic).toBeUndefined();
   });
 });
 
 describe("reconcileMessages stableId preservation", () => {
-  test("preserves stableId when an optimistic user message (no server id) gets reconciled", () => {
-    // The user hits send. We push an optimistic user bubble with a client
-    // stableId. The server echoes back the same content with a freshly
-    // minted server id.
+  test("optimistic user row → server row swap: server row takes over, client-side attachments transfer", () => {
+    // Post-2c.1: the queued send path leaves the user row optimistic
+    // (`isOptimistic: true`, `id` is a client UUID) until reconcile
+    // content-matches against the server snapshot. The legacy invariant
+    // was "stableId survives the swap" so the React row didn't remount.
+    // The new contract is "server row takes over; one-time row remount
+    // is acceptable" — but the client-side attachments/timestamp the
+    // user attached pre-send must transfer to the server row so they
+    // don't vanish.
     const optimistic = makeLocal({
       stableId: "stable-user-1",
       role: "user",
       content: "Hello there",
+      isOptimistic: true,
+      timestamp: 999,
+      attachments: [
+        {
+          id: "att-uuid-1",
+          filename: "draft.txt",
+          mimeType: "text/plain",
+          sizeBytes: 42,
+          previewUrl: null,
+        },
+      ],
     });
     const local: DisplayMessage[] = [optimistic];
     const server: RuntimeMessage[] = [
@@ -1333,48 +1270,17 @@ describe("reconcileMessages stableId preservation", () => {
     const result = reconcileMessages(local, server);
 
     expect(result).toHaveLength(2);
-    // The user bubble carries the original stableId even though its `id`
-    // changed from undefined → "srv-m1".
-    expect(result[0]!.stableId).toBe("stable-user-1");
+    // Server row takes over identity — its `id` is the server-assigned
+    // one, its `stableId` is a fresh one minted by reconcile.
     expect(result[0]!.id).toBe("srv-m1");
-    // The server-only assistant row got a fresh stableId.
-    expect(result[1]!.stableId).not.toBe("stable-user-1");
-    expect(typeof result[1]!.stableId).toBe("string");
-    expect(result[1]!.stableId.length).toBeGreaterThan(0);
-  });
-
-  test("preserves stableId when a streaming assistant bubble is reconciled with the server's final row", () => {
-    // While streaming, we had a temp id. When the server persists the message
-    // it may rewrite the id; the stableId must stick.
-    const streaming = makeLocal({
-      stableId: "stable-assistant-1",
-      id: "temp-m2",
-      role: "assistant",
-      content: "Partial...",
-      isStreaming: true,
-    });
-    const local: DisplayMessage[] = [
-      makeLocal({ stableId: "stable-user-1", id: "srv-m1", role: "user", content: "Q" }),
-      streaming,
-    ];
-    // Server uses a different id for the assistant message (simulates the
-    // fallback path since the streaming id doesn't match).
-    const server: RuntimeMessage[] = [
-      { id: "srv-m1", role: "user", content: "Q" },
-      { id: "srv-m2", role: "assistant", content: "Partial..." },
-    ];
-
-    const result = reconcileMessages(local, server);
-
-    expect(result).toHaveLength(2);
-    expect(result[0]!.stableId).toBe("stable-user-1");
-    // Assistant row matched by role+content fallback, so stableId survived.
-    expect(result[1]!.stableId).toBe("stable-assistant-1");
-    expect(result[1]!.id).toBe("srv-m2");
-    // The live row was still streaming when the reconcile fired — preserve
-    // the client-owned `isStreaming` flag, the SSE message_complete handler
-    // (or the watchdog idle-rescue) will clear it when authoritative.
-    expect(result[1]!.isStreaming).toBe(true);
+    expect(result[0]!.stableId).not.toBe("stable-user-1");
+    expect(result[0]!.isOptimistic).toBeUndefined();
+    // Client-side attachments transferred from the optimistic row.
+    expect(result[0]!.attachments).toHaveLength(1);
+    expect(result[0]!.attachments![0]!.id).toBe("att-uuid-1");
+    // And the client-side timestamp survived (server snapshot here
+    // didn't carry one).
+    expect(result[0]!.timestamp).toBe(999);
   });
 
   test("preserves stableId across id-matched reconciliation", () => {
@@ -1523,11 +1429,18 @@ describe("reconcileMessages — timestamp ordering", () => {
 
   test("sorts reconnect catch-up messages by timestamp", () => {
     // GIVEN the user sent a message while the SSE stream was disconnected
-    // and the server has the assistant's response that was missed
+    // and the server has the assistant's response that was missed.
+    // The Follow-up was queued at send time (no server id yet) — post-2c.1
+    // that means `isOptimistic: true`.
     const local: DisplayMessage[] = [
       makeLocal({ id: "m1", role: "user", content: "Hello", timestamp: 1000 }),
       makeLocal({ id: "m2", role: "assistant", content: "Hi", timestamp: 2000 }),
-      makeLocal({ role: "user", content: "Follow-up", timestamp: 3000 }),
+      makeLocal({
+        role: "user",
+        content: "Follow-up",
+        timestamp: 3000,
+        isOptimistic: true,
+      }),
     ];
 
     // AND the server returns all messages including the missed assistant reply

@@ -322,9 +322,15 @@ export interface ToolContext {
  * `applyPluginToolDefaults` in `external-plugin-loader.ts`.
  */
 export interface ToolDefinition {
+  /** Human-readable description shown to the model in the tool catalog. */
   description?: string;
+  /** Author-asserted risk band — low / medium / high. Drives default permission gating. */
   defaultRiskLevel?: RiskLevel;
+  /** JSON schema describing the tool's input arguments. */
   input_schema?: object;
+  /** Where the tool runs — sandbox (assistant container) or host (guardian device via proxy). Resolved by `resolveExecutionTarget` if omitted. */
+  executionTarget?: ExecutionTarget;
+  /** Implementation invoked when the model calls the tool. */
   execute?: (
     input: Record<string, unknown>,
     context: ToolContext,
@@ -350,7 +356,4 @@ export interface Tool extends LoadedTool {
   ownerSkillVersionHash?: string;
   /** Whether the owning skill is bundled with the daemon (trusted first-party). */
   ownerSkillBundled?: boolean;
-  /** Declared execution target from the skill manifest. Used by resolveExecutionTarget
-   * to accurately label lifecycle events for skill-provided tools. */
-  executionTarget?: ExecutionTarget;
 }

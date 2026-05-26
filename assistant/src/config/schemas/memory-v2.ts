@@ -579,6 +579,14 @@ export const MemoryV3ConfigSchema = z
       .describe(
         "Per-lane system-prompt overrides for the three v3 LLM call sites (filter, descent, gate). Each entry takes an inline `override` string (highest precedence) and/or a file `path` whose contents replace the bundled prompt; absolute paths are used as-is, a leading `~/` expands to the home directory, otherwise the path resolves under the workspace root. An empty/whitespace inline override or a missing/unreadable/empty file falls back to the bundled prompt. Lets the prompts be iterated at runtime without a rebuild/restart — mirroring `memory.v2.router.router_prompt_path`.",
       ),
+    gateCandidateSummaries: z
+      .boolean({
+        error: "memory.v3.gateCandidateSummaries must be a boolean",
+      })
+      .default(false)
+      .describe(
+        "When true, the selection gate sees each candidate as `slug — summary` instead of the bare slug, so it can judge relevance on page content. Off by default: with the bundled (precision-leaning) gate prompt this makes the gate more selective. It pays off paired with a recall-leaning gate prompt override, where the summaries let the gate recognize non-obvious associative/emotional matches it would otherwise pass over. Adds the candidate summaries to the gate prompt (larger input).",
+      ),
   })
   .default({
     enabled: false,
@@ -600,6 +608,7 @@ export const MemoryV3ConfigSchema = z
       descent: { override: null, path: null },
       gate: { override: null, path: null },
     },
+    gateCandidateSummaries: false,
   })
   .describe(
     "Memory v3 — multi-lane bounded-descent retrieval. Additive scaffolding, disabled by default.",

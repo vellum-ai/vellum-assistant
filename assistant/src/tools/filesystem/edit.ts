@@ -10,6 +10,7 @@ class FileEditTool implements Tool {
   description =
     "Replace an exact string in a file on your own machine with a new string. Use this for surgical edits instead of rewriting entire files. Use host_file_edit for files on your guardian's device instead.";
   category = "filesystem";
+  executionTarget = "sandbox" as const;
   defaultRiskLevel = RiskLevel.Low;
 
   input_schema = {

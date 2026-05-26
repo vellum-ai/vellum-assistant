@@ -229,6 +229,13 @@ export function mergeLatestHistoryMessage(
     delete merged.queuePosition;
   }
 
+  // Clear the optimistic flag once a server id is in play — the incoming
+  // row is the server's authoritative version, so the placeholder
+  // identity is no longer needed.
+  if (incoming.id && current.isOptimistic) {
+    delete merged.isOptimistic;
+  }
+
   const toolCalls = mergeByKey(
     current.toolCalls,
     incoming.toolCalls,

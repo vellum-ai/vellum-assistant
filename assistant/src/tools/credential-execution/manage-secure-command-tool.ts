@@ -30,6 +30,7 @@ class ManageSecureCommandToolImpl implements Tool {
     "Accepts only bundle metadata for guardian review - never raw bytes or file paths. " +
     "Each invocation requires fresh approval.";
   category = "credential-execution";
+  executionTarget = "sandbox" as const;
   defaultRiskLevel = RiskLevel.High;
 
   input_schema = {

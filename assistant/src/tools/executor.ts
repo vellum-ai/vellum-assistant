@@ -22,6 +22,7 @@ import { getLogger } from "../util/logger.js";
 import { resolveExecutionTarget } from "./execution-target.js";
 import { executeWithTimeout, safeTimeoutMs } from "./execution-timeout.js";
 import { PermissionChecker } from "./permission-checker.js";
+import { getTool } from "./registry.js";
 import { extractAndSanitize } from "./sensitive-output-placeholders.js";
 import { applyEdit } from "./shared/filesystem/edit-engine.js";
 import { sandboxPolicy } from "./shared/filesystem/path-policy.js";
@@ -126,7 +127,11 @@ export class ToolExecutor {
     let permApprovalMode: string | undefined;
     let permApprovalReason: string | undefined;
     let permRiskThreshold: string | undefined;
-    const executionTarget = resolveExecutionTarget(name);
+    // Registered tools have `executionTarget` stamped at load time; the
+    // `resolveExecutionTarget` fallback only fires for unknown tools (the
+    // executor's name-aliased lookup can race against late registration).
+    const executionTarget =
+      getTool(name)?.executionTarget ?? resolveExecutionTarget({ name });
 
     emitLifecycleEvent(context, {
       type: "start",

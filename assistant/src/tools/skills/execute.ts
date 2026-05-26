@@ -7,6 +7,7 @@ class SkillExecuteTool implements Tool {
   description =
     "Execute a tool provided by a loaded skill. Use this instead of calling skill tools directly. The skill's instructions (from skill_load) describe available tools and their parameters. For browser automation, use the `assistant browser` CLI commands instead.";
   category = "skills";
+  executionTarget = "sandbox" as const;
   defaultRiskLevel = RiskLevel.Low;
 
   input_schema = {

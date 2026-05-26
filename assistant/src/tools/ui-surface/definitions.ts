@@ -41,6 +41,7 @@ export const uiShowTool: Tool = {
   category: "ui-surface",
   defaultRiskLevel: RiskLevel.Low,
   executionMode: "proxy",
+  executionTarget: "host",
 
   input_schema: {
         type: "object",
@@ -120,6 +121,7 @@ const uiUpdateTool: Tool = {
   category: "ui-surface",
   defaultRiskLevel: RiskLevel.Low,
   executionMode: "proxy",
+  executionTarget: "host",
 
   input_schema: {
         type: "object",
@@ -149,6 +151,7 @@ const uiDismissTool: Tool = {
   category: "ui-surface",
   defaultRiskLevel: RiskLevel.Low,
   executionMode: "proxy",
+  executionTarget: "host",
 
   input_schema: {
         type: "object",

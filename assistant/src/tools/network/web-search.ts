@@ -649,6 +649,7 @@ class WebSearchTool implements Tool {
   description =
     "Search the web and return results. Useful for looking up current information, documentation, or anything the assistant doesn't know.";
   category = "network";
+  executionTarget = "sandbox" as const;
   defaultRiskLevel = RiskLevel.Low;
   input_schema = {
     type: "object",

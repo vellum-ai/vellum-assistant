@@ -125,6 +125,7 @@ export class SkillLoadTool implements Tool {
   description =
     "Load full instructions for a skill. Works for both bundled skills (listed in the catalog) and custom workspace skills.";
   category = "skills";
+  executionTarget = "sandbox" as const;
   defaultRiskLevel = RiskLevel.Low;
 
   input_schema = {

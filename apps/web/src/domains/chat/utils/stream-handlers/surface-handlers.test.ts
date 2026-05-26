@@ -69,6 +69,7 @@ describe("handleUISurfaceComplete", () => {
   it("increments refresh key when completed surface is dynamic_page", () => {
     const msg: DisplayMessage = {
       stableId: "m-1",
+      id: "m-1",
       role: "assistant",
       content: "",
       timestamp: 1,
@@ -88,6 +89,7 @@ describe("handleUISurfaceComplete", () => {
   it("does not increment refresh key for non-dynamic surface types", () => {
     const msg: DisplayMessage = {
       stableId: "m-1",
+      id: "m-1",
       role: "assistant",
       content: "",
       timestamp: 1,
