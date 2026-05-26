@@ -186,13 +186,7 @@ export async function stripConversationIds(
  * all items with a conversationId".
  */
 export async function clearAllConversationIds(): Promise<number> {
-  let resolveResult!: (count: number) => void;
-  const resultPromise = new Promise<number>((resolve) => {
-    resolveResult = resolve;
-  });
-  pendingStrips.push({ conversationId: "*", resolve: resolveResult });
-  void scheduleWrite();
-  return resultPromise;
+  return stripConversationIds("*");
 }
 
 // ─── Internal: coalescing queue ────────────────────────────────────────
