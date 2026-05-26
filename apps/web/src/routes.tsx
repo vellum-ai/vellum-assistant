@@ -140,7 +140,7 @@ export const router = createBrowserRouter(
                 {
                   lazy: { Component: () => import("@/domains/intelligence/intelligence-layout.js").then((m) => m.IntelligenceLayout) },
                   children: [
-                    { path: "identity", lazy: { Component: () => import("@/domains/intelligence/identity-page.js").then((m) => m.IdentityPage) } },
+                    { path: "identity", lazy: { Component: () => import("@/identity-page-route.js").then((m) => m.IdentityPageRoute) } },
                     { path: "plugins", lazy: { Component: () => import("@/domains/intelligence/plugins-page.js").then((m) => m.PluginsPage) } },
                     { path: "skills", lazy: { Component: () => import("@/domains/intelligence/skills-page.js").then((m) => m.SkillsPage) } },
                     { path: "workspace", lazy: { Component: () => import("@/domains/workspace/workspace-page.js").then((m) => m.WorkspacePage) } },
