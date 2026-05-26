@@ -210,7 +210,7 @@ describe("Transcript — inline subagent rendering (PR 8)", () => {
     expect(queryAllByTestId("subagent-inline-card").length).toBe(0);
   });
 
-  test("inline card is rendered next to its tool group (not in a separate sibling section)", () => {
+  test("spawn-only group renders the inline card and suppresses the redundant progress card", () => {
     const items: TranscriptItem[] = [
       userMessage("u1", "spawn one"),
       assistantMessageWithSpawn("a1", ["sa-1"]),
@@ -226,16 +226,15 @@ describe("Transcript — inline subagent rendering (PR 8)", () => {
       />,
     );
 
+    // The subagent renders inline...
+    expect(getByTestId("subagent-inline-card")).toBeTruthy();
+    // ...and the unified progress card is suppressed: with the spawn filtered
+    // out of its body it would have no renderable steps, leaving just the
+    // leading-thinking preamble (already shown as message text) — pure noise.
     const toolCard = container.querySelector(
       '[data-testid="tool-call-progress-card"]',
     );
-    const inlineCard = getByTestId("subagent-inline-card");
-    expect(toolCard).not.toBeNull();
-    // The inline card must follow the tool card within the same message body.
-    // `compareDocumentPosition` returns Node.DOCUMENT_POSITION_FOLLOWING (4)
-    // when `inlineCard` is downstream of `toolCard`.
-    const relation = toolCard!.compareDocumentPosition(inlineCard);
-    expect(relation & Node.DOCUMENT_POSITION_FOLLOWING).toBeGreaterThan(0);
+    expect(toolCard).toBeNull();
   });
 });
 

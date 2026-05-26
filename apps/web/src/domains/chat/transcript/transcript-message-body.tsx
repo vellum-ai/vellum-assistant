@@ -565,23 +565,34 @@ export function TranscriptMessageBody({
               if (toolCalls.length === 0) {
                 return null;
               }
+              // A group whose only tool calls are subagent spawns renders
+              // exclusively through the inline subagent cards below. The
+              // unified progress card would have no renderable steps (spawns
+              // are filtered out of its body) and would surface just the
+              // leading-thinking preamble — redundant noise, since that text
+              // already renders as its own message text group.
+              const hasRenderableToolCall = toolCalls.some(
+                (tc) => !isSubagentSpawnCall(tc),
+              );
               return (
                 <Fragment key={`tc-${gi}`}>
-                  <ToolCallProgressCard
-                    toolCalls={toolCalls}
-                    expandedToolCallIds={expandedToolCallIds}
-                    onExpandChange={handleExpandChange}
-                    expandedCardIds={expandedCardIds}
-                    onOpenRuleEditor={onOpenRuleEditor}
-                    isSubmittingConfirmation={isSubmittingConfirmation}
-                    onConfirmationSubmit={onConfirmationSubmit}
-                    onAllowAndCreateRule={onAllowAndCreateRule}
-                    pendingConfirmationToolCallId={pendingConfirmationToolCallId}
-                    unknownNudgeToolCallIds={unknownNudgeToolCallIds}
-                    onDismissUnknownNudge={onDismissUnknownNudge}
-                    isStreaming={message.isStreaming ?? false}
-                    leadingThinkingText={getLeadingThinkingText(message, gi)}
-                  />
+                  {hasRenderableToolCall && (
+                    <ToolCallProgressCard
+                      toolCalls={toolCalls}
+                      expandedToolCallIds={expandedToolCallIds}
+                      onExpandChange={handleExpandChange}
+                      expandedCardIds={expandedCardIds}
+                      onOpenRuleEditor={onOpenRuleEditor}
+                      isSubmittingConfirmation={isSubmittingConfirmation}
+                      onConfirmationSubmit={onConfirmationSubmit}
+                      onAllowAndCreateRule={onAllowAndCreateRule}
+                      pendingConfirmationToolCallId={pendingConfirmationToolCallId}
+                      unknownNudgeToolCallIds={unknownNudgeToolCallIds}
+                      onDismissUnknownNudge={onDismissUnknownNudge}
+                      isStreaming={message.isStreaming ?? false}
+                      leadingThinkingText={getLeadingThinkingText(message, gi)}
+                    />
+                  )}
                   {renderInlineSubagentCards(toolCalls)}
                 </Fragment>
               );
