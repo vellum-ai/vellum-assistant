@@ -86,7 +86,12 @@ const lane = {
 /** Records the args the loop passed each lane, one entry per call. */
 const laneCalls = {
   scouts: [] as Array<{ nowText: string }>,
-  filter: [] as Array<{ nowText: string; dense: ScoutResult }>,
+  filter: [] as Array<{
+    nowText: string;
+    dense: ScoutResult;
+    sticky: string[];
+    bypass: string[];
+  }>,
   walk: [] as Array<{
     nowText: string;
     scouts: ScoutResult[];
@@ -121,8 +126,15 @@ mock.module("../filter.js", () => ({
   filterDenseHits: async (args: {
     input: RetrievalInput;
     dense: ScoutResult;
+    sticky: Set<string>;
+    bypass: Set<string>;
   }): Promise<FilterResult> => {
-    laneCalls.filter.push({ nowText: args.input.nowText, dense: args.dense });
+    laneCalls.filter.push({
+      nowText: args.input.nowText,
+      dense: args.dense,
+      sticky: [...args.sticky],
+      bypass: [...args.bypass],
+    });
     // Filter calls share the scout pass index (one filter call per dense pass).
     return nextOf(lane.filter, laneCalls.filter.length - 1);
   },
@@ -529,6 +541,125 @@ describe("runRetrievalLoop — lane toggles", () => {
     expect(laneCalls.edges[0].seeds).toEqual(
       expect.arrayContaining(["h", "d", "t"]),
     );
+  });
+});
+
+describe("runRetrievalLoop — sourceBySlug lane trust", () => {
+  test("upgrades a slug's lane when a higher-trust lane re-surfaces it in one pass", async () => {
+    // `shared` is surfaced by the low-trust hot lane AND survives the
+    // higher-trust dense filter in the same pass. Provenance must end on the
+    // more trusted lane (dense) so the downstream seed cap ranks it by its
+    // strongest signal, not the stale first-seen hot lane.
+    lane.scouts = [
+      {
+        scouts: [scout("hot", ["shared"]), scout("dense", ["shared"])],
+        sticky: new Set(),
+        bypass: new Set(),
+      },
+    ];
+    lane.filter = [
+      { kept: ["shared"], trace: { judged: ["shared"], dropped: [] } },
+    ];
+    lane.walk = [{ pages: new Set(), levels: [] }];
+    lane.edges = [{ pulled: new Set(), expansions: [] }];
+    lane.gate = [readyGate(["shared"])];
+
+    const out = await runRetrievalLoop(makeInput(), { db });
+
+    // hot tagged first, then upgraded to the more trusted dense lane.
+    expect(out.sourceBySlug.get("shared")).toBe("dense");
+  });
+
+  test("does not downgrade a slug's lane when a lower-trust lane re-surfaces it", async () => {
+    // `s` is a dense survivor (trusted) in pass 1, then edge-pulled (lowest
+    // trust) in pass 2. The lane must stay dense — only upgrades apply.
+    lane.scouts = [
+      {
+        scouts: [scout("dense", ["s"])],
+        sticky: new Set(),
+        bypass: new Set(),
+      },
+      { scouts: [], sticky: new Set(), bypass: new Set() },
+    ];
+    lane.filter = [
+      { kept: ["s"], trace: { judged: ["s"], dropped: [] } },
+      { kept: [], trace: { judged: [], dropped: [] } },
+    ];
+    lane.walk = [
+      { pages: new Set(), levels: [] },
+      { pages: new Set(), levels: [] },
+    ];
+    // Pass 2's edge expansion re-pulls the already-dense `s`.
+    lane.edges = [
+      { pulled: new Set(), expansions: [] },
+      { pulled: new Set(["s"]), expansions: [{ from: "s", pulled: ["s"] }] },
+    ];
+    lane.gate = [moreGate(["s"], ["more?"]), readyGate(["s"])];
+
+    const out = await runRetrievalLoop(makeInput({ passCap: 2 }), { db });
+
+    expect(out.sourceBySlug.get("s")).toBe("dense");
+  });
+
+  test("upgrades the lane across passes while preserving earliest-pass provenance", async () => {
+    // `s` first enters via the low-trust edge lane on pass 1, then is surfaced
+    // by the higher-trust dense lane on pass 2. The lane upgrades to dense, but
+    // the co-activation provenance must still treat it as a pass-1 hit: the lane
+    // upgrades, the first-seen pass does not.
+    lane.scouts = [
+      { scouts: [], sticky: new Set(), bypass: new Set() },
+      {
+        scouts: [scout("dense", ["s"])],
+        sticky: new Set(),
+        bypass: new Set(),
+      },
+    ];
+    // Pass 1 has no dense scout, so the filter is called only once (pass 2);
+    // the mock indexes filter results by call count, so the single entry keeps `s`.
+    lane.filter = [{ kept: ["s"], trace: { judged: ["s"], dropped: [] } }];
+    lane.walk = [
+      { pages: new Set(), levels: [] },
+      { pages: new Set(), levels: [] },
+    ];
+    lane.edges = [
+      { pulled: new Set(["s"]), expansions: [{ from: "x", pulled: ["s"] }] },
+      { pulled: new Set(), expansions: [] },
+    ];
+    lane.gate = [moreGate([], ["more?"]), readyGate(["s"])];
+
+    const out = await runRetrievalLoop(makeInput({ passCap: 2 }), { db });
+
+    // Lane upgraded from edge (pass 1) to dense (pass 2).
+    expect(out.sourceBySlug.get("s")).toBe("dense");
+  });
+});
+
+describe("runRetrievalLoop — sticky excluded from dense filter", () => {
+  test("forwards the full sticky set to the filter while keeping sticky in the selection", async () => {
+    // `sk` is sticky (and a dense hit); `keep` is a plain dense candidate. The
+    // loop must hand the filter the full sticky set so it can exclude `sk` from
+    // judgment — `sk` is force-selected by the gate regardless. `keep` is
+    // judged and kept normally.
+    lane.scouts = [
+      {
+        scouts: [scout("dense", ["sk", "keep"])],
+        sticky: new Set(["sk"]),
+        bypass: new Set(),
+      },
+    ];
+    lane.filter = [
+      { kept: ["keep"], trace: { judged: ["keep"], dropped: [] } },
+    ];
+    lane.walk = [{ pages: new Set(), levels: [] }];
+    lane.edges = [{ pulled: new Set(), expansions: [] }];
+    lane.gate = [readyGate(["sk", "keep"])];
+
+    const out = await runRetrievalLoop(makeInput(), { db });
+
+    // The loop forwarded the full sticky set to the filter so it can subtract it.
+    expect(laneCalls.filter[0].sticky).toEqual(["sk"]);
+    // The sticky slug is still in the final selection (gate force-injects it).
+    expect(out.selectedSlugs).toEqual(expect.arrayContaining(["sk", "keep"]));
   });
 });
 

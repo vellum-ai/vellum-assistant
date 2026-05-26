@@ -361,11 +361,22 @@ function applyQuotaAndMmr(
 function mmrReorder(pool: readonly ScoredSlug[], lambda: number): ScoredSlug[] {
   if (pool.length <= 1) return [...pool];
 
-  // Normalize relevance to [0, 1] by the pool max so it shares a scale with the
-  // redundancy term (also [0, 1]). All-zero scores collapse to pure diversity.
+  // Normalize relevance to [0, 1] so it shares a scale with the redundancy term
+  // (also [0, 1]). The pool is score-descending, so `pool[0]` is the max and the
+  // last entry is the min. When the max is positive we divide by it — the
+  // healthy case, kept exactly as-is. When every cosine is <= 0 (all candidates
+  // weakly/negatively similar) dividing by the max would collapse relevance to a
+  // single value and degrade ranking to diversity-only; instead normalize from
+  // the observed min..max range so the relevance ordering is preserved. A
+  // zero-width range (all scores equal) has no gradient to preserve, so it
+  // collapses to pure diversity.
   const maxScore = pool[0].score;
-  const relevance = (hit: ScoredSlug): number =>
-    maxScore > 0 ? hit.score / maxScore : 0;
+  const minScore = pool[pool.length - 1].score;
+  const range = maxScore - minScore;
+  const relevance = (hit: ScoredSlug): number => {
+    if (maxScore > 0) return hit.score / maxScore;
+    return range > 0 ? (hit.score - minScore) / range : 0;
+  };
 
   const remaining = [...pool];
   const selected: ScoredSlug[] = [];
