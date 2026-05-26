@@ -4,6 +4,7 @@ import { useSearchParams } from "react-router";
 import { AccountHeading } from "@/components/account/account-form.js";
 import { AccountShell } from "@/components/account/account-shell.js";
 import { sanitizeReturnTo } from "@/domains/account/return-to.js";
+import { hardNavigate } from "@/lib/auth/hard-navigate.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 import { routes } from "@/utils/routes.js";
 
@@ -30,8 +31,8 @@ export function LogoutPage() {
 
     let cancelled = false;
     logout().then(
-      () => { if (!cancelled) window.location.href = target; },
-      () => { if (!cancelled) window.location.href = target; },
+      () => { if (!cancelled) hardNavigate(target); },
+      () => { if (!cancelled) hardNavigate(target); },
     );
     return () => { cancelled = true; };
   }, [logout, searchParams]);

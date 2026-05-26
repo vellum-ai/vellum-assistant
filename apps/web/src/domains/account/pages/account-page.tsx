@@ -4,6 +4,7 @@ import { Link } from "react-router";
 import { AccountHeading } from "@/components/account/account-form.js";
 import { AccountShell } from "@/components/account/account-shell.js";
 import { PROVIDER_CALLBACK_URL, PROVIDER_ID } from "@/domains/account/login-flow.js";
+import { hardNavigate } from "@/lib/auth/hard-navigate.js";
 import { startAuthFlow } from "@/runtime/native-auth.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 import { routes } from "@/utils/routes.js";
@@ -83,7 +84,7 @@ export function AccountPage() {
           type="button"
           onClick={async () => {
             await logout();
-            window.location.href = routes.account.login;
+            hardNavigate(routes.account.login);
           }}
           className="cursor-pointer bg-transparent text-sm font-normal text-stone-400 transition-colors hover:text-stone-300"
         >

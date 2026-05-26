@@ -124,23 +124,32 @@ References:
 
 ## Logout destroys the JS context via hard navigation
 
-Logout uses `window.location.href` (hard navigation), not
-`navigate()` (SPA navigation). A hard navigation destroys the entire
-JavaScript execution context — every Zustand module-level singleton,
-every closure, every in-flight timer — guaranteeing no in-memory
-state leaks across auth boundaries.
+Logout uses `hardNavigate()` from `lib/auth/hard-navigate.ts`, not
+React Router's `navigate()`. `hardNavigate()` calls
+`window.location.href`, which destroys the entire JavaScript
+execution context — every Zustand module-level singleton, every
+closure, every in-flight timer — guaranteeing no in-memory state
+leaks across auth boundaries. React Router intentionally does not
+provide a "destroy everything" helper because SPA routers are
+designed to *preserve* state across navigations; for logout,
+preservation is the problem.
 
 Before the hard navigation, the auth store's `logout()` action
-clears user-scoped browser storage (`lib/auth/session-cleanup.ts`)
-and onboarding flags. Device-level preferences (theme,
-analytics/diagnostics consent) are preserved.
+clears user-scoped browser storage (`lib/auth/session-cleanup.ts`).
+The cleanup uses a preserve-list strategy: any localStorage key
+matching app prefixes (`vellum`, `onboarding.`, `ff:client:`,
+`voice:`, `integrations.`) is removed unless it's in the device-level
+preserve set (`vellum_theme`, `vellum_share_analytics`,
+`vellum_share_diagnostics`, `onboarding.lastUserId`). New app keys
+are cleared by default without requiring updates to a removal list.
 
-Cross-tab logout uses `BroadcastChannel` → `window.location.reload()`
-so other tabs also destroy their JS context.
+Cross-tab logout uses `BroadcastChannel` → `clearUserScopedStorage()`
++ `window.location.reload()` so other tabs also destroy their JS
+context and clean storage.
 
-**Do not replace `window.location.href` with `navigate()` on logout
-call sites.** SPA navigation preserves module-level Zustand state,
-which is a privacy/security concern on shared devices.
+**Do not replace `hardNavigate()` with `navigate()` on logout call
+sites.** SPA navigation preserves module-level Zustand state, which
+is a privacy/security concern on shared devices.
 
 References:
 - [web.dev — Sign-out best practices](https://web.dev/articles/sign-out-best-practices)

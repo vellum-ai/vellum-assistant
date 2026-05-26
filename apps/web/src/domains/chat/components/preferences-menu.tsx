@@ -19,6 +19,7 @@ import {
 } from "@vellum/design-library";
 
 import { useIsMobile } from "@/hooks/use-is-mobile.js";
+import { hardNavigate } from "@/lib/auth/hard-navigate.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 import { adminUrl, routes } from "@/utils/routes.js";
 import { ShareFeedbackModal } from "@/components/share-feedback-modal.js";
@@ -162,7 +163,7 @@ function PreferencesMenuContent({
         onSelect={async () => {
           await logout();
           onClose();
-          window.location.href = routes.account.login;
+          hardNavigate(routes.account.login);
         }}
       />
     </>
