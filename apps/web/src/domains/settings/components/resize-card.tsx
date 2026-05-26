@@ -32,14 +32,20 @@ export interface ResizeCardProps {
   assistant: Assistant;
   healthz: AssistantHealthz | null;
   healthzLoading: boolean;
+  /** True while a post-resize poll is waiting for the new allocation to appear. */
+  healthzPolling: boolean;
   refetch: () => Promise<void> | void;
+  /** Poll /v1/health until the allocation changes from `baseline` after a resize. */
+  refetchUntilResized: (baseline: AssistantHealthz | null) => Promise<void> | void;
 }
 
 export function ResizeCard({
   assistant,
   healthz,
   healthzLoading,
+  healthzPolling,
   refetch,
+  refetchUntilResized,
 }: ResizeCardProps) {
   const navigate = useNavigate();
   const subscriptionQuery = useQuery(
@@ -100,7 +106,10 @@ export function ResizeCard({
       setResizeError(null);
       setSelectedSize(null);
       setResizeModalOpen(false);
-      void refetch();
+      // The resize rolls the pod asynchronously, so a single immediate refetch
+      // would just re-read the pre-resize values. Poll against the current
+      // allocation as a baseline until the new size lands.
+      void refetchUntilResized(healthz);
     },
     onError: (error) => {
       setResizeError(
@@ -141,7 +150,9 @@ export function ResizeCard({
     allowedSizes.length > 0 &&
     machineSizeRank(currentSize) < machineSizeRank(allowedSizes[allowedSizes.length - 1]);
 
-  const isLoading = resizeMutation.isPending;
+  // Keep resize CTAs disabled while the post-resize poll is in flight so the
+  // user can't kick off a second resize before the first lands.
+  const isLoading = resizeMutation.isPending || healthzPolling;
 
   // Fall back to the filesystem total only when no quota is known (free plan).
   const diskMaxMb =
@@ -228,15 +239,19 @@ export function ResizeCard({
             variant="ghost"
             size="compact"
             iconOnly={
-              healthzLoading ? (
+              healthzLoading || healthzPolling ? (
                 <Loader2 className="animate-spin" />
               ) : (
                 <RefreshCw />
               )
             }
-            tooltip="Refresh resource metrics"
+            tooltip={
+              healthzPolling
+                ? "Applying resize…"
+                : "Refresh resource metrics"
+            }
             aria-label="Refresh resource metrics"
-            disabled={healthzLoading}
+            disabled={healthzLoading || healthzPolling}
             onClick={() => void refetch()}
           />
         }
@@ -259,16 +274,16 @@ export function ResizeCard({
               <span className="text-label-medium-default text-[var(--content-tertiary)]">
                 Storage
               </span>
-              {healthzLoading ? (
-                <div className="flex items-center gap-2 text-[var(--content-tertiary)]">
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                </div>
-              ) : diskBar ? (
+              {diskBar ? (
                 <CapacityBar
                   value={diskBar.value}
                   max={diskBar.max}
                   caption={diskBar.caption}
                 />
+              ) : healthzLoading ? (
+                <div className="flex items-center gap-2 text-[var(--content-tertiary)]">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                </div>
               ) : (
                 <span className="text-label-medium-default text-[var(--content-tertiary)]">
                   Unavailable
@@ -296,16 +311,16 @@ export function ResizeCard({
                 <span className="text-label-medium-default text-[var(--content-tertiary)]">
                   CPU
                 </span>
-                {healthzLoading ? (
-                  <div className="flex items-center gap-2 text-[var(--content-tertiary)]">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  </div>
-                ) : cpuBar ? (
+                {cpuBar ? (
                   <CapacityBar
                     value={cpuBar.value}
                     max={cpuBar.max}
                     caption={cpuBar.caption}
                   />
+                ) : healthzLoading ? (
+                  <div className="flex items-center gap-2 text-[var(--content-tertiary)]">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  </div>
                 ) : (
                   <span className="text-label-medium-default text-[var(--content-tertiary)]">—</span>
                 )}
@@ -314,16 +329,16 @@ export function ResizeCard({
                 <span className="text-label-medium-default text-[var(--content-tertiary)]">
                   Memory
                 </span>
-                {healthzLoading ? (
-                  <div className="flex items-center gap-2 text-[var(--content-tertiary)]">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  </div>
-                ) : memoryBar ? (
+                {memoryBar ? (
                   <CapacityBar
                     value={memoryBar.value}
                     max={memoryBar.max}
                     caption={memoryBar.caption}
                   />
+                ) : healthzLoading ? (
+                  <div className="flex items-center gap-2 text-[var(--content-tertiary)]">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  </div>
                 ) : (
                   <span className="text-label-medium-default text-[var(--content-tertiary)]">—</span>
                 )}

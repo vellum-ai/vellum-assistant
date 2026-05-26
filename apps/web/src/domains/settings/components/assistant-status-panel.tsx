@@ -18,12 +18,41 @@ import { DevModeVersionUnlock } from "@/domains/settings/components/dev-mode-ver
 
 const CURRENT_ASSISTANT_QUERY_KEY = ["currentAssistant"] as const;
 
+// A resize rolls the assistant pod, so the new allocation only appears once it
+// comes back up. Poll /v1/health for a bounded window, tolerating the restart
+// gap where the endpoint is briefly unreachable.
+const HEALTHZ_POLL_INTERVAL_MS = 4_000;
+const HEALTHZ_POLL_TIMEOUT_MS = 90_000;
+
+/**
+ * True when the reported CPU/memory allocation differs from `baseline` — i.e.
+ * a resize has actually landed. Treats a missing reading on either side as a
+ * change so the poll resolves once real data returns after the restart.
+ */
+function allocationChanged(
+  next: AssistantHealthz,
+  baseline: AssistantHealthz | null,
+): boolean {
+  return (
+    (next.memory?.maxMb ?? null) !== (baseline?.memory?.maxMb ?? null) ||
+    (next.cpu?.maxCores ?? null) !== (baseline?.cpu?.maxCores ?? null)
+  );
+}
+
 export interface AssistantWithHealthz {
   assistant: Assistant | null;
   assistantLoading: boolean;
   healthz: AssistantHealthz | null;
   healthzLoading: boolean;
+  /** True while a post-resize poll is waiting for the new allocation to appear. */
+  healthzPolling: boolean;
   refetch: () => Promise<void>;
+  /**
+   * Refetch repeatedly until the reported CPU/memory allocation differs from
+   * `baseline` (the resize has landed) or a timeout elapses. Tolerates the
+   * pod-restart window where /v1/health is briefly unreachable.
+   */
+  refetchUntilResized: (baseline: AssistantHealthz | null) => Promise<void>;
 }
 
 export function useAssistantWithHealthz(): AssistantWithHealthz {
@@ -43,48 +72,106 @@ export function useAssistantWithHealthz(): AssistantWithHealthz {
 
   const [healthz, setHealthz] = useState<AssistantHealthz | null>(null);
   const [healthzLoading, setHealthzLoading] = useState(false);
+  const [healthzPolling, setHealthzPolling] = useState(false);
   const healthzRequestIdRef = useRef(0);
+  // Bumped to supersede any in-flight resize poll (a new poll, or unmount).
+  const pollIdRef = useRef(0);
 
-  const fetchHealthz = useCallback(async () => {
-    if (!assistantId) {
-      setHealthz(null);
-      setHealthzLoading(false);
-      return;
-    }
-    healthzRequestIdRef.current += 1;
-    const requestId = healthzRequestIdRef.current;
-    setHealthzLoading(true);
-    try {
-      const result = await getAssistantHealthz(assistantId);
-      if (requestId !== healthzRequestIdRef.current) return;
-      setHealthz(result.ok ? result.data : null);
-    } catch (error) {
-      if (requestId !== healthzRequestIdRef.current) return;
-      setHealthz(null);
-      const isNetworkError =
-        error instanceof TypeError &&
-        /failed to fetch|load failed|networkerror/i.test(error.message);
-      if (!isNetworkError) {
-        reportError(error, {
-          context: "fetch_assistant_healthz",
-          userMessage: "Failed to load assistant info",
-        });
+  const fetchHealthz = useCallback(
+    async (
+      opts?: { keepStaleOnError?: boolean },
+    ): Promise<AssistantHealthz | null> => {
+      if (!assistantId) {
+        setHealthz(null);
+        setHealthzLoading(false);
+        return null;
       }
-    } finally {
-      if (requestId === healthzRequestIdRef.current) setHealthzLoading(false);
-    }
-  }, [assistantId]);
+      healthzRequestIdRef.current += 1;
+      const requestId = healthzRequestIdRef.current;
+      setHealthzLoading(true);
+      try {
+        const result = await getAssistantHealthz(assistantId);
+        if (requestId !== healthzRequestIdRef.current) return null;
+        if (result.ok) {
+          setHealthz(result.data);
+          return result.data;
+        }
+        // While polling through a resize restart, keep the last-known values
+        // rather than blanking the card on a transient non-200.
+        if (!opts?.keepStaleOnError) setHealthz(null);
+        return null;
+      } catch (error) {
+        if (requestId !== healthzRequestIdRef.current) return null;
+        if (!opts?.keepStaleOnError) setHealthz(null);
+        const isNetworkError =
+          error instanceof TypeError &&
+          /failed to fetch|load failed|networkerror/i.test(error.message);
+        // Transient unreachability during a resize restart is expected — don't
+        // report it while polling.
+        if (!isNetworkError && !opts?.keepStaleOnError) {
+          reportError(error, {
+            context: "fetch_assistant_healthz",
+            userMessage: "Failed to load assistant info",
+          });
+        }
+        return null;
+      } finally {
+        if (requestId === healthzRequestIdRef.current) setHealthzLoading(false);
+      }
+    },
+    [assistantId],
+  );
 
   useEffect(() => {
     void fetchHealthz();
   }, [fetchHealthz]);
+
+  // Cancel any in-flight resize poll on unmount.
+  useEffect(() => {
+    return () => {
+      pollIdRef.current += 1;
+    };
+  }, []);
 
   const refetch = useCallback(async () => {
     await refetchAssistant();
     await fetchHealthz();
   }, [refetchAssistant, fetchHealthz]);
 
-  return { assistant, assistantLoading, healthz, healthzLoading, refetch };
+  const refetchUntilResized = useCallback(
+    async (baseline: AssistantHealthz | null) => {
+      const pollId = ++pollIdRef.current;
+      const deadline = Date.now() + HEALTHZ_POLL_TIMEOUT_MS;
+      setHealthzPolling(true);
+      try {
+        // The machine-size tag comes from the assistant record, which the
+        // platform updates synchronously during resize — refresh it up front.
+        void refetchAssistant();
+        while (Date.now() < deadline && pollId === pollIdRef.current) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, HEALTHZ_POLL_INTERVAL_MS),
+          );
+          if (pollId !== pollIdRef.current) return;
+          const data = await fetchHealthz({ keepStaleOnError: true });
+          if (pollId !== pollIdRef.current) return;
+          if (data && allocationChanged(data, baseline)) return;
+        }
+      } finally {
+        if (pollId === pollIdRef.current) setHealthzPolling(false);
+      }
+    },
+    [fetchHealthz, refetchAssistant],
+  );
+
+  return {
+    assistant,
+    assistantLoading,
+    healthz,
+    healthzLoading,
+    healthzPolling,
+    refetch,
+    refetchUntilResized,
+  };
 }
 
 export interface AssistantStatusPanelProps {
