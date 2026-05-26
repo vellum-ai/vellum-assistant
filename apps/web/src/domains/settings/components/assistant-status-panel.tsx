@@ -126,12 +126,17 @@ export function useAssistantWithHealthz(): AssistantWithHealthz {
     void fetchHealthz();
   }, [fetchHealthz]);
 
-  // Cancel any in-flight resize poll on unmount.
+  // Cancel any in-flight resize poll when the active assistant changes or on
+  // unmount. Otherwise a poll started for the previous assistant keeps writing
+  // its health data into the new assistant's view and holds its resize controls
+  // disabled until the timeout (reproducible when switching assistants with
+  // multiPlatformAssistant enabled).
   useEffect(() => {
     return () => {
       pollIdRef.current += 1;
+      setHealthzPolling(false);
     };
-  }, []);
+  }, [assistantId]);
 
   const refetch = useCallback(async () => {
     await refetchAssistant();
