@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
-import { newStableId } from "@/domains/chat/utils/stable-id.js";
 import type { Surface } from "@/domains/chat/types/types.js";
 import { buildTranscriptItems } from "@/domains/chat/transcript/build-items.js";
 import type {
@@ -10,12 +9,11 @@ import type {
 } from "@/domains/chat/transcript/types.js";
 
 function makeMessage(
-  overrides: Omit<DisplayMessage, "stableId" | "id"> & { stableId?: string; id?: string },
+  overrides: Omit<DisplayMessage, "id"> & { id?: string },
 ): DisplayMessage {
-  const { stableId, id, ...rest } = overrides;
-  const sid = stableId ?? newStableId("test");
+  const { id, ...rest } = overrides;
   return {
-    id: id ?? sid,
+    id: id ?? crypto.randomUUID(),
     ...rest,
   };
 }
@@ -441,11 +439,9 @@ describe("buildTranscriptItems", () => {
   test("queued blank user rows are NOT dropped (queued marker handles them)", () => {
     // A blank user row with queueStatus="queued" passes through the filter
     // so the projection layer can collapse it into a single QueuedMarker
-    // entry — dropping would hide the user's pending intent.
-    // Post-2c.1 shape: optimistic queued user rows carry a client-generated
-    // `id` (mirrored from `stableId` here via the test helper default) and
-    // `isOptimistic: true`. The transcript projection treats them the same
-    // way the legacy `id === undefined` shape was treated.
+    // entry — dropping would hide the user's pending intent. Optimistic
+    // queued user rows carry a client-generated `id` and `isOptimistic:
+    // true`.
     const queued = makeMessage({
       role: "user",
       content: "Send when ready",

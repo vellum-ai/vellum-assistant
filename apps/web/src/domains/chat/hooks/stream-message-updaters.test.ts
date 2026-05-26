@@ -111,11 +111,11 @@ describe("appendTextDelta", () => {
     expect(result[1]!.content).toBe("text");
   });
 
-  it("uses stableId when creating a new bubble", () => {
-    const result = appendTextDelta([userMsg], "text", "stable-xyz");
+  it("uses the supplied messageId when creating a new bubble", () => {
+    const result = appendTextDelta([userMsg], "text", "msg-xyz");
 
     expect(result).toHaveLength(2);
-    expect(result[1]!.id).toBe("stable-xyz");
+    expect(result[1]!.id).toBe("msg-xyz");
   });
 
   it("does not mutate the original array", () => {
@@ -138,11 +138,6 @@ describe("appendTextDelta", () => {
     expect(result[1]!.content).toBe("Hello world");
   });
 
-  // Test deleted in PR 2c.1: `id` is mandatory on DisplayMessage and is
-  // stamped at bubble birth (mirrored from stableId when the wire
-  // `messageId` is absent). There's no "no id yet" phase to backfill, so
-  // appendTextDelta has nothing to do here. First-id-wins is covered by
-  // the test above.
 });
 
 // ---------------------------------------------------------------------------

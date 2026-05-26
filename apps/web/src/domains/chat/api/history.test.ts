@@ -134,7 +134,7 @@ describe("fetchOlderHistoryPage URL construction", () => {
 // ---------------------------------------------------------------------------
 
 describe("response parsing", () => {
-  test("returns messages with stableIds and all pagination cursors", async () => {
+  test("returns messages with ids and all pagination cursors", async () => {
     nextResponse = makeJsonResponse({
       messages: [
         { id: "m1", role: "user", content: "hello", timestamp: 1 },
@@ -155,7 +155,7 @@ describe("response parsing", () => {
       expect(typeof msg.id).toBe("string");
       expect(msg.id!.length).toBeGreaterThan(0);
     }
-    // stableIds are unique across messages in the same page
+    // ids are unique across messages in the same page
     const ids = result.messages.map((m) => m.id);
     expect(new Set(ids).size).toBe(ids.length);
 

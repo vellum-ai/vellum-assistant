@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
-import { newStableId } from "@/domains/chat/utils/stable-id.js";
 import { partitionLatestTurn } from "@/domains/chat/transcript/partition-latest-turn.js";
 import type {
   ErrorItem,
@@ -11,12 +10,11 @@ import type {
 } from "@/domains/chat/transcript/types.js";
 
 function makeMessage(
-  overrides: Omit<DisplayMessage, "stableId" | "id"> & { stableId?: string; id?: string },
+  overrides: Omit<DisplayMessage, "id"> & { id?: string },
 ): DisplayMessage {
-  const { stableId, id, ...rest } = overrides;
-  const sid = stableId ?? newStableId("test");
+  const { id, ...rest } = overrides;
   return {
-    id: id ?? sid,
+    id: id ?? crypto.randomUUID(),
     ...rest,
   };
 }

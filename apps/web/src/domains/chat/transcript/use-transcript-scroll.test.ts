@@ -35,15 +35,12 @@ import {
 
 function makeMessage(id: string): TranscriptItem {
   // Build a minimal MessageItem. The hook never inspects `message` fields;
-  // only `key`/`kind` identity matters for the scroll coordinator. `id`
-  // mirrors `stableId` to satisfy the post-2c.1 type-level requirement
-  // that DisplayMessage carries both identifiers.
+  // only `key`/`kind` identity matters for the scroll coordinator.
   return {
     kind: "message",
-    key: stableId,
+    key: id,
     message: {
-      stableId,
-      id: stableId,
+      id,
       role: "assistant",
       content: "",
     },
@@ -55,10 +52,9 @@ function makeMessage(id: string): TranscriptItem {
 function makeUserMessage(id: string): TranscriptItem {
   return {
     kind: "message",
-    key: stableId,
+    key: id,
     message: {
-      stableId,
-      id: stableId,
+      id,
       role: "user",
       content: "",
     },

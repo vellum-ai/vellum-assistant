@@ -34,7 +34,7 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 import type { MutableRefObject } from "react";
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
-import { newStableId } from "@/domains/chat/utils/stable-id.js";
+
 import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types.js";
 
 // ---------------------------------------------------------------------------
@@ -107,12 +107,11 @@ import {
 // ---------------------------------------------------------------------------
 
 function makeMsg(
-  overrides: Omit<DisplayMessage, "stableId" | "id"> & { stableId?: string; id?: string },
+  overrides: Omit<DisplayMessage, "id"> & { id?: string },
 ): DisplayMessage {
-  const { stableId, id, ...rest } = overrides;
-  const sid = stableId ?? newStableId("test");
+  const { id, ...rest } = overrides;
   return {
-    id: id ?? sid,
+    id: id ?? crypto.randomUUID(),
     ...rest,
   };
 }
@@ -331,8 +330,8 @@ describe("useRefreshLatestMessages", () => {
 
     // The streaming bubble must survive the merge — losing it is exactly
     // what the previous destructive refresh did.
-    const stableIds = host.messages.map((m) => m.id);
-    expect(stableIds).toContain("a-streaming");
+    const ids = host.messages.map((m) => m.id);
+    expect(ids).toContain("a-streaming");
     const survivor = host.messages.find((m) => m.id === "a-streaming");
     expect(survivor?.isStreaming).toBe(true);
     expect(survivor?.content).toBe("Once upon a time, there was a");
@@ -374,8 +373,7 @@ describe("useRefreshLatestMessages", () => {
       await result.current();
     });
 
-    // The optimistic row keeps its stableId (so the transcript row doesn't
-    // re-mount) and picks up the server id.
+    // The optimistic row picks up the server id.
     expect(host.messages).toHaveLength(1);
     expect(host.messages[0]).toMatchObject({
       id: "u-server-1",

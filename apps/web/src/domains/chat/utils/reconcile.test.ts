@@ -1331,9 +1331,9 @@ describe("reconcileMessages — timestamp ordering", () => {
 
   test("sorts reconnect catch-up messages by timestamp", () => {
     // GIVEN the user sent a message while the SSE stream was disconnected
-    // and the server has the assistant's response that was missed.
-    // The Follow-up was queued at send time (no server id yet) — post-2c.1
-    // that means `isOptimistic: true`.
+    // and the server has the assistant's response that was missed. The
+    // Follow-up was queued at send time (no server id yet) so it carries
+    // `isOptimistic: true`.
     const local: DisplayMessage[] = [
       makeLocal({ id: "m1", role: "user", content: "Hello", timestamp: 1000 }),
       makeLocal({ id: "m2", role: "assistant", content: "Hi", timestamp: 2000 }),

@@ -3,14 +3,11 @@ import { describe, expect, test } from "bun:test";
 import { sanitizeDisplayMessages } from "@/domains/chat/utils/sanitize-display-messages.js";
 import type { DisplayMessage } from "@/domains/chat/types/types.js";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types.js";
-import { newStableId } from "@/domains/chat/utils/stable-id.js";
-
 function makeMessage(
-  overrides: Partial<DisplayMessage> & { stableId?: string; id?: string },
+  overrides: Partial<DisplayMessage> & { id?: string },
 ): DisplayMessage {
-  const sid = overrides.id ?? newStableId("test");
   return {
-    id: overrides.id ?? sid,
+    id: overrides.id ?? crypto.randomUUID(),
     role: "assistant",
     content: "",
     ...overrides,
@@ -169,8 +166,9 @@ describe("sanitizeDisplayMessages · invalid row filter", () => {
 
 describe("sanitizeDisplayMessages · drop trailing assistant duplicate", () => {
   test("drops a trailing assistant row that mirrors the previous one (the bug we're patching)", () => {
-    // Mirrors production failure: a "server-…" stableId row with `id` set is
-    // followed by an "assistant-…" stableId row with `id` undefined.
+    // Mirrors production failure: a server-id row is followed by a
+    // sibling row whose `id` is a different value (here a synthesized
+    // optimistic-style id).
     const server = makeMessage({
       id: "msg-1",
       role: "assistant",
@@ -687,7 +685,7 @@ describe("sanitizeDisplayMessages · integration", () => {
       textSegments: [{ type: "text", content: "42" }],
       timestamp: 200,
     });
-    // The duplicate orphan emission (no id, "assistant-…" stableId).
+    // The duplicate orphan emission (a synthesized optimistic-style id).
     const orphan = makeMessage({
       id: "assistant-abc",
       role: "assistant",

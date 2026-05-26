@@ -19,7 +19,6 @@ import { createElement, type Dispatch, type RefObject, type SetStateAction } fro
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import { INITIAL_TURN_STATE, type TurnState, useTurnStore } from "@/domains/messaging/turn-store.js";
-import { newStableId } from "@/domains/chat/utils/stable-id.js";
 
 // ---------------------------------------------------------------------------
 // Mocks — module mocks MUST come before importing the subject under test.
@@ -162,11 +161,10 @@ function makeRef<T>(value: T): RefObject<T> {
 }
 
 function makeMessage(
-  overrides: Omit<DisplayMessage, "stableId" | "id"> & { stableId?: string; id?: string },
+  overrides: Omit<DisplayMessage, "id"> & { id?: string },
 ): DisplayMessage {
-  const { stableId, id, ...rest } = overrides;
-  const sid = stableId ?? newStableId("test");
-  return { id: id ?? sid, ...rest };
+  const { id, ...rest } = overrides;
+  return { id: id ?? crypto.randomUUID(), ...rest };
 }
 
 function createHarness(overrides?: {
@@ -554,9 +552,9 @@ describe("reconcileActiveConversation", () => {
   test("does NOT call onPollReconciled when only optimistic user message id changes", async () => {
     messages = [
       makeMessage({ id: "m-old-a", role: "assistant", content: "Prior response" }),
-      // Post-2c.1: optimistic user rows are explicitly flagged so the
-      // tail content-match block in reconcileMessages can drop them in
-      // favor of the server-assigned row.
+      // Optimistic user rows are explicitly flagged so the tail
+      // content-match block in reconcileMessages can drop them in favor
+      // of the server-assigned row.
       makeMessage({ role: "user", content: "Continue the story", isOptimistic: true }),
     ];
     mockFetchResult = [
