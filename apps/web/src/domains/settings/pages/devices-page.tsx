@@ -2,7 +2,7 @@ import { Loader2 } from "lucide-react";
 
 import { useQuery } from "@tanstack/react-query";
 
-import { SettingsCard } from "@/components/settings-card.js";
+import { DetailCard } from "@/components/detail-card.js";
 import { DeviceRow } from "@/domains/settings/components/devices/device-row.js";
 import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen.js";
 import type { Assistant } from "@/generated/api/types.gen.js";
@@ -16,7 +16,7 @@ export function DevicesPage() {
 
   return (
     <div className="max-w-[940px] space-y-4">
-      <SettingsCard
+      <DetailCard
         title="Self-Hosted Assistants"
         subtitle="Self-hosted assistants registered with your Vellum account. Registration lets these assistants use Vellum managed services — inference, web search, integrations — so that you don't have to bring your own API keys."
       >
@@ -36,7 +36,7 @@ export function DevicesPage() {
             ))}
           </div>
         )}
-      </SettingsCard>
+      </DetailCard>
     </div>
   );
 }

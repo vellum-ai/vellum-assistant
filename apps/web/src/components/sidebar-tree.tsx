@@ -4,26 +4,26 @@ import { useLocation, useNavigate } from "react-router";
 
 import { SideMenu } from "@vellum/design-library";
 
-export interface SettingsSidebarItem {
+export interface SidebarItem {
   id: string;
   label: string;
   href: string;
   icon: LucideIcon;
 }
 
-interface SettingsSidebarTreeProps {
-  items: SettingsSidebarItem[];
-  bottomItems?: SettingsSidebarItem[];
+interface SidebarTreeProps {
+  items: SidebarItem[];
+  bottomItems?: SidebarItem[];
 }
 
-export function SettingsSidebarTree({
+export function SidebarTree({
   items,
   bottomItems,
-}: SettingsSidebarTreeProps) {
+}: SidebarTreeProps) {
   const { pathname } = useLocation();
   const navigate = useNavigate();
 
-  const renderItem = (item: SettingsSidebarItem, isLast: boolean) => {
+  const renderItem = (item: SidebarItem, isLast: boolean) => {
     const isActive =
       pathname === item.href || pathname.startsWith(item.href + "/");
     return (
@@ -66,7 +66,7 @@ export function SettingsSidebarTree({
 
   return (
     <nav
-      aria-label="Settings navigation"
+      aria-label="Sidebar navigation"
       className="flex min-h-full flex-col md:gap-2 md:px-6 md:pb-4"
     >
       {items.map((item, index) =>

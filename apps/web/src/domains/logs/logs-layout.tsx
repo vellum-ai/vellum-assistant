@@ -3,13 +3,13 @@ import { Outlet, useLocation } from "react-router";
 
 import { routes } from "@/utils/routes.js";
 import { LOGS_SIDEBAR } from "@/domains/logs/navigation.js";
-import { SettingsShell } from "@/components/settings-shell.js";
-import { SettingsSidebarTree } from "@/components/settings-sidebar-tree.js";
+import { SidebarShell } from "@/components/sidebar-shell.js";
+import { SidebarTree } from "@/components/sidebar-tree.js";
 
 /**
  * React Router layout route for `/assistant/logs/*`.
  *
- * Renders the SettingsShell (full-screen overlay with sidebar navigation)
+ * Renders the SidebarShell (full-screen overlay with sidebar navigation)
  * and an `<Outlet />` for the active logs tab page. Uses the same shell
  * component as Settings for visual consistency.
  */
@@ -31,13 +31,13 @@ export function LogsLayout() {
   }, [pathname]);
 
   return (
-    <SettingsShell
+    <SidebarShell
       backHref={routes.assistant}
-      sidebar={<SettingsSidebarTree items={LOGS_SIDEBAR} />}
+      sidebar={<SidebarTree items={LOGS_SIDEBAR} />}
       title={pageTitle}
       menuRoute={routes.logs.root}
     >
       <Outlet />
-    </SettingsShell>
+    </SidebarShell>
   );
 }

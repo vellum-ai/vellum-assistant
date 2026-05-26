@@ -11,7 +11,7 @@ import { type ReactNode, useCallback } from "react";
 
 import { Button } from "@vellum/design-library/components/button";
 import { toast } from "@vellum/design-library/components/toast";
-import { SettingsCard } from "@/components/settings-card.js";
+import { DetailCard } from "@/components/detail-card.js";
 
 export function SentryTestingPanel() {
   const handleCaptureError = useCallback(() => {
@@ -45,7 +45,7 @@ export function SentryTestingPanel() {
   }, []);
 
   return (
-    <SettingsCard
+    <DetailCard
       title="Sentry Testing"
       subtitle="Fire test events to verify Sentry integration is working."
     >
@@ -91,7 +91,7 @@ export function SentryTestingPanel() {
           onClick={handleCaptureTransaction}
         />
       </div>
-    </SettingsCard>
+    </DetailCard>
   );
 }
 

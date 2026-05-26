@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 
 import { Tag, type TagTone } from "@vellum/design-library/components/tag";
 import { Toggle } from "@vellum/design-library/components/toggle";
-import { SettingsCard } from "@/components/settings-card.js";
+import { DetailCard } from "@/components/detail-card.js";
 import { assistantsActiveRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen.js";
 import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
 import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
@@ -100,7 +100,7 @@ export function FeatureFlagsPanel() {
   }, [flags, searchText]);
 
   return (
-    <SettingsCard
+    <DetailCard
       title="Feature Flags"
       subtitle="Active feature flags evaluated for the current session."
     >
@@ -134,7 +134,7 @@ export function FeatureFlagsPanel() {
           </div>
         )}
       </div>
-    </SettingsCard>
+    </DetailCard>
   );
 }
 

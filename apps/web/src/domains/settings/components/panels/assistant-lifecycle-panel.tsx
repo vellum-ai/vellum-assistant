@@ -6,7 +6,7 @@ import { Button } from "@vellum/design-library/components/button";
 import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog";
 import { Tag } from "@vellum/design-library/components/tag";
 import { toast } from "@vellum/design-library/components/toast";
-import { SettingsCard } from "@/components/settings-card.js";
+import { DetailCard } from "@/components/detail-card.js";
 import {
   assistantsActiveRetrieveOptions,
   assistantsListOptions,
@@ -62,7 +62,7 @@ export function AssistantLifecyclePanel() {
         loading={loading}
       />
 
-      <SettingsCard
+      <DetailCard
         title="Hatch New Assistant"
         subtitle="Create a new assistant instance."
       >
@@ -90,7 +90,7 @@ export function AssistantLifecyclePanel() {
           onConfirm={handleHatch}
           onCancel={() => setHatchConfirmOpen(false)}
         />
-      </SettingsCard>
+      </DetailCard>
     </div>
   );
 }
@@ -103,27 +103,27 @@ interface AssistantInfoCardProps {
 function AssistantInfoCard({ assistant, loading }: AssistantInfoCardProps) {
   if (loading) {
     return (
-      <SettingsCard title="Assistant Info">
+      <DetailCard title="Assistant Info">
         <div className="flex items-center gap-2 text-body-medium-lighter text-[var(--content-tertiary)]">
           <Loader2 className="h-4 w-4 animate-spin" />
           Loading assistant info...
         </div>
-      </SettingsCard>
+      </DetailCard>
     );
   }
 
   if (!assistant) {
     return (
-      <SettingsCard title="Assistant Info">
+      <DetailCard title="Assistant Info">
         <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
           No assistant found. Hatch an assistant to get started.
         </p>
-      </SettingsCard>
+      </DetailCard>
     );
   }
 
   return (
-    <SettingsCard title="Assistant Info" subtitle="Current assistant details.">
+    <DetailCard title="Assistant Info" subtitle="Current assistant details.">
       <div className="grid grid-cols-[140px_minmax(0,1fr)] gap-y-3">
         <InfoLabel>Name</InfoLabel>
         <InfoValue>{assistant.name ?? "Unnamed"}</InfoValue>
@@ -166,7 +166,7 @@ function AssistantInfoCard({ assistant, loading }: AssistantInfoCardProps) {
           </>
         )}
       </div>
-    </SettingsCard>
+    </DetailCard>
   );
 }
 
@@ -186,7 +186,7 @@ function AssistantListCard({
   }
 
   return (
-    <SettingsCard
+    <DetailCard
       title="All Assistants"
       subtitle={`${assistants.length} assistant${assistants.length === 1 ? "" : "s"} found.`}
     >
@@ -222,7 +222,7 @@ function AssistantListCard({
           );
         })}
       </div>
-    </SettingsCard>
+    </DetailCard>
   );
 }
 

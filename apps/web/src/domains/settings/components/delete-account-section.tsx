@@ -5,7 +5,7 @@ import { useNavigate } from "react-router";
 import { Button } from "@vellum/design-library/components/button";
 import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog";
 import { toast } from "@vellum/design-library/components/toast";
-import { SettingsCard } from "@/components/settings-card.js";
+import { DetailCard } from "@/components/detail-card.js";
 import { userDeletionRequestCreateMutation } from "@/generated/api/@tanstack/react-query.gen.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 import { routes } from "@/utils/routes.js";
@@ -31,7 +31,7 @@ export function DeleteAccountSection() {
 
   return (
     <>
-      <SettingsCard
+      <DetailCard
         title="Delete Account"
         subtitle="Permanently delete your account and all associated data."
         variant="danger"
@@ -44,7 +44,7 @@ export function DeleteAccountSection() {
         >
           Delete My Account
         </Button>
-      </SettingsCard>
+      </DetailCard>
       <ConfirmDialog
         open={confirmOpen}
         title="Delete Account"

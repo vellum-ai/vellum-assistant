@@ -6,7 +6,7 @@ import { Input } from "@vellum/design-library/components/input";
 
 import { ContactChannelsSection } from "@/domains/contacts/components/contact-channels-section.js";
 import { ContactTypeBadge } from "@/domains/contacts/components/contact-type-badge.js";
-import { SettingsCard } from "@/components/settings-card.js";
+import { DetailCard } from "@/components/detail-card.js";
 import type { ChannelInfo, ContactPayload } from "@/domains/contacts/types.js";
 
 interface ContactDetailViewProps {
@@ -74,7 +74,7 @@ function ContactDetailViewInner({
 
   return (
     <div className="flex flex-col gap-6">
-      <SettingsCard
+      <DetailCard
         title={headerName}
         accessory={<ContactTypeBadge role={contact.role} contactType={contact.contactType} />}
         compactAccessory
@@ -148,9 +148,9 @@ function ContactDetailViewInner({
             </Button>
           </div>
         </div>
-      </SettingsCard>
+      </DetailCard>
 
-      <SettingsCard
+      <DetailCard
         title="Channels"
         subtitle="Once verified, your assistant will recognize this contact when they message from these channels."
       >
@@ -161,7 +161,7 @@ function ContactDetailViewInner({
           onSetupChannel={onSetupChannel}
           onRevokeChannel={onRevokeChannel}
         />
-      </SettingsCard>
+      </DetailCard>
 
       <ConfirmDialog
         open={confirmOpen}
