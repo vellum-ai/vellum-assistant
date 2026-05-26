@@ -1,4 +1,4 @@
-import { app, BrowserWindow, protocol, net } from "electron";
+import { app, BrowserWindow, net, protocol, session, shell } from "electron";
 import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs/promises";
 import { pathToFileURL } from "node:url";
@@ -10,6 +10,14 @@ const APP_PROTOCOL = "app";
 const APP_HOST = "vellum.ai";
 
 const isDev = !app.isPackaged;
+
+// Single-instance lock: relaunches focus the existing window instead of
+// spawning a parallel main process. The second-instance handler fires on the
+// instance that holds the lock (the primary). The instance that fails to
+// acquire calls app.quit() and never reaches whenReady.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+}
 
 // In prod, register `app://` as a "standard" + "secure" scheme so that fetch,
 // service workers, and same-origin policy treat it like https://.
@@ -53,11 +61,17 @@ const createWindow = (): void => {
     mainWindow = null;
   });
 
-  if (isDev) {
-    void mainWindow.loadURL(DEV_SERVER_URL);
-  } else {
-    void mainWindow.loadURL(`${APP_PROTOCOL}://${APP_HOST}/index.html`);
-  }
+  const url = isDev ? DEV_SERVER_URL : `${APP_PROTOCOL}://${APP_HOST}/index.html`;
+  mainWindow.loadURL(url).catch((err: unknown) => {
+    console.error(`[window] loadURL failed for ${url}:`, err);
+  });
+};
+
+const focusMainWindow = (): void => {
+  if (!mainWindow) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
 };
 
 // Serve apps/web/dist/ as static files via `app://vellum.ai/...`. Route-like
@@ -99,6 +113,18 @@ const fileExists = async (candidate: string): Promise<boolean> => {
   } catch {
     return false;
   }
+};
+
+// Deny renderer permission requests by default. Specific permissions
+// (microphone for voice input, notifications, etc.) are allowlisted in the
+// follow-up tickets that wire each feature, so the bridge surface stays
+// honest about what the app can actually do at any given commit.
+const installPermissionHandler = (): void => {
+  session.defaultSession.setPermissionRequestHandler(
+    (_webContents, _permission, callback) => {
+      callback(false);
+    },
+  );
 };
 
 // ---------------------------------------------------------------------------
@@ -196,22 +222,50 @@ const stopDaemon = (): void => {
 // App lifecycle
 // ---------------------------------------------------------------------------
 
-void app.whenReady().then(() => {
-  if (!isDev) {
-    registerAppProtocol();
-  }
-  spawnDaemon();
-  createWindow();
+// TODO(security): set a Content Security Policy via session.webRequest.
+// onHeadersReceived once the prod connect-src endpoints (api.vellum.ai,
+// websocket origins, telemetry) are settled in the auth + networking tickets.
 
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
+app
+  .whenReady()
+  .then(() => {
+    if (!isDev) {
+      registerAppProtocol();
     }
+    installPermissionHandler();
+    spawnDaemon();
+    createWindow();
+
+    app.on("activate", () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow();
+      }
+    });
+  })
+  .catch((err: unknown) => {
+    console.error("[app] whenReady setup failed:", err);
   });
+
+app.on("second-instance", () => {
+  focusMainWindow();
 });
 
 app.on("web-contents-created", (_event, contents) => {
-  contents.setWindowOpenHandler(() => ({ action: "deny" }));
+  contents.setWindowOpenHandler(({ url }) => {
+    // Route http(s) links to the system browser so users can click external
+    // links in the renderer without the click silently disappearing. Other
+    // schemes (file:, javascript:, custom) stay denied with no fallback.
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol === "https:" || parsed.protocol === "http:") {
+        void shell.openExternal(url);
+      }
+    } catch {
+      // Malformed URL — fall through to deny.
+    }
+    return { action: "deny" };
+  });
+
   contents.on("will-navigate", (event, url) => {
     // Compare by parsed origin / protocol+host rather than string prefix:
     // `url.startsWith("http://localhost:5173")` also matches
