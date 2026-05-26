@@ -188,6 +188,37 @@ describe("filterDenseHits — judged keep/drop", () => {
     expect(userText).toContain("b");
   });
 
+  test("includes the just-arrived turn so the filter judges query-aware", async () => {
+    const calls: ProviderCall[] = [];
+    const provider = makeProvider(
+      filterToolResponse({ keep_slugs: ["a"] }),
+      calls,
+    );
+
+    await filterDenseHits({
+      input: makeInput({
+        recentTurnPairs: [
+          {
+            assistantMessage: "an earlier reply",
+            userMessage: "tell me about the people you know",
+          },
+        ],
+      }),
+      dense: denseResult(["a", "b"]),
+      sticky: new Set(),
+      bypass: new Set(),
+      provider,
+    });
+
+    const userText = calls[0].messages[0].content
+      .map((b) => (b.type === "text" ? b.text : ""))
+      .join("\n");
+    // The filter must judge against the user's actual question, not just NOW.
+    expect(userText).toContain("<last_turn>");
+    expect(userText).toContain("tell me about the people you know");
+    expect(userText).toContain("an earlier reply");
+  });
+
   test("drops a model-kept slug outside the judged set", async () => {
     const calls: ProviderCall[] = [];
     const provider = makeProvider(

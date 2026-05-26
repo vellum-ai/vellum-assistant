@@ -167,6 +167,37 @@ describe("runGate — ready decision", () => {
     expect(userText).toContain("b");
   });
 
+  test("includes the just-arrived turn so the selection is query-aware", async () => {
+    const calls: ProviderCall[] = [];
+    const provider = makeProvider(
+      gateToolResponse({ decision: "ready", selected_slugs: ["a"] }),
+      calls,
+    );
+
+    await runGate({
+      input: makeInput({
+        recentTurnPairs: [
+          {
+            assistantMessage: "an earlier reply",
+            userMessage: "tell me about the people you know",
+          },
+        ],
+      }),
+      candidates: new Set(["a", "b"]),
+      sticky: new Set(),
+      passNumber: 1,
+      provider,
+    });
+
+    const userText = calls[0].messages[0].content
+      .map((b) => (b.type === "text" ? b.text : ""))
+      .join("\n");
+    // The gate must see the user's actual question, not just NOW + slugs.
+    expect(userText).toContain("<last_turn>");
+    expect(userText).toContain("tell me about the people you know");
+    expect(userText).toContain("an earlier reply");
+  });
+
   test("drops a model-selected slug outside the candidate set", async () => {
     const calls: ProviderCall[] = [];
     const provider = makeProvider(
