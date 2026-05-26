@@ -4,7 +4,7 @@ import { ChatPill } from "@/domains/chat/components/chat-pill.js";
 
 /**
  * Pill-shaped "Go to Newest" affordance shown above the composer when the
- * user has scrolled far enough up that `useTranscriptScroll` reports
+ * user has scrolled far enough up that the scroll coordinator reports
  * `showScrollToLatest`. Clicking pins the transcript back to the latest
  * message.
  *

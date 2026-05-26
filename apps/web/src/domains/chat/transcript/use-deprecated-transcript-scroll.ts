@@ -34,6 +34,7 @@ import {
 import type { TranscriptItem } from "@/domains/chat/transcript/types.js";
 
 import type { TranscriptHandle } from "@/domains/chat/transcript/transcript.js";
+import { TRANSCRIPT_SCROLL_CONTROLLER_ENABLED } from "@/domains/chat/transcript/transcript-scroll-flag.js";
 
 export type { TranscriptHandle };
 
@@ -59,7 +60,7 @@ export const LOAD_OLDER_THRESHOLD_PX = 200;
 // Public hook API
 // ---------------------------------------------------------------------------
 
-export interface UseTranscriptScrollArgs {
+export interface UseDeprecatedTranscriptScrollArgs {
   transcriptRef: RefObject<TranscriptHandle | null>;
   items: TranscriptItem[];
   conversationId: string | null;
@@ -68,11 +69,10 @@ export interface UseTranscriptScrollArgs {
   onLoadOlder: () => void;
 }
 
-export interface UseTranscriptScrollReturn {
+export interface UseDeprecatedTranscriptScrollReturn {
   isPinnedToLatest: boolean;
   showScrollToLatest: boolean;
   scrollToLatest: (opts?: { behavior?: "auto" | "smooth" }) => void;
-  handleScroll: (event: Event) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -226,9 +226,30 @@ export function decideItemsChangeAction(
 // Hook implementation
 // ---------------------------------------------------------------------------
 
-export function useTranscriptScroll(
-  args: UseTranscriptScrollArgs,
-): UseTranscriptScrollReturn {
+/** Returned when the dev flag has turned this hook off. The transcript
+ *  then runs with no JavaScript scroll coordination at all — the
+ *  defaults below match "nothing is happening". */
+const DISABLED_RESULT: UseDeprecatedTranscriptScrollReturn = {
+  isPinnedToLatest: true,
+  showScrollToLatest: false,
+  scrollToLatest: () => {},
+};
+
+export function useDeprecatedTranscriptScroll(
+  args: UseDeprecatedTranscriptScrollArgs,
+): UseDeprecatedTranscriptScrollReturn {
+  // `TRANSCRIPT_SCROLL_CONTROLLER_ENABLED` is a module-load constant
+  // resolved once from localStorage at page load. It does NOT change
+  // across renders within a page lifetime (toggling the flag reloads
+  // the page). That means this early return is taken consistently for
+  // every render of every instance of this hook on a given page —
+  // either the no-op path runs forever or the full hook runs forever
+  // — which keeps React's hook-order rules satisfied even though no
+  // hooks are called on the no-op path.
+  if (TRANSCRIPT_SCROLL_CONTROLLER_ENABLED) {
+    return DISABLED_RESULT;
+  }
+
   const {
     transcriptRef,
     items,
@@ -645,10 +666,26 @@ export function useTranscriptScroll(
     [transcriptRef, engageAutoPin],
   );
 
+  // -----------------------------------------------------------------------
+  // Attach the scroll-event listener. The hook owns its own listener
+  // so the orchestrator does not have to wire one externally.
+  //
+  // Re-runs on `items` so a transcript remount (inside ResizablePanel)
+  // re-binds to the newly mounted scroll element. `handleScroll` is
+  // stable across renders so it does not contribute to re-binding.
+  // -----------------------------------------------------------------------
+  useEffect(() => {
+    const el = transcriptRef.current?.getScrollElement();
+    if (!el) return;
+    el.addEventListener("scroll", handleScroll, { passive: true });
+    return () => {
+      el.removeEventListener("scroll", handleScroll);
+    };
+  }, [handleScroll, transcriptRef, items, conversationId]);
+
   return {
     isPinnedToLatest,
     showScrollToLatest,
     scrollToLatest,
-    handleScroll,
   };
 }

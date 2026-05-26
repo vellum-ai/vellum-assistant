@@ -6,7 +6,7 @@ import { describe, expect, test } from "bun:test";
 import type { MutableRefObject } from "react";
 
 import type { ChatEventStream } from "@/domains/chat/api/stream.js";
-import type { TranscriptHandle } from "@/domains/chat/transcript/use-transcript-scroll.js";
+import type { TranscriptHandle } from "@/domains/chat/transcript/use-deprecated-transcript-scroll.js";
 import type { TranscriptItem } from "@/domains/chat/transcript/types.js";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import type { RuntimeMessage } from "@/domains/chat/api/messages.js";
@@ -697,25 +697,34 @@ type DebugWindow = Window & {
   _vellumDebug?: {
     chat?: unknown;
     events?: { getClients: unknown; getEvents: unknown };
+    flags?: { toggleTranscriptScrollController?: (v?: boolean) => boolean };
     other?: unknown;
   };
 };
 
+const makeFlagsApi = () => ({
+  toggleTranscriptScrollController: (_value?: boolean): boolean => false,
+});
+
 describe("installVellumDebugApi", () => {
-  test("attaches both .events and .chat in one call", () => {
+  test("attaches .events, .chat, and .flags in one call", () => {
     const api = createChatDebugApi(makeRefs());
-    const uninstall = installVellumDebugApi(api);
+    const flags = makeFlagsApi();
+    const uninstall = installVellumDebugApi(api, flags);
     const root = (globalThis as unknown as DebugWindow)._vellumDebug;
     expect(root?.chat).toBe(api);
     expect(root?.events).toBeDefined();
     expect(typeof root?.events?.getClients).toBe("function");
     expect(typeof root?.events?.getEvents).toBe("function");
+    expect(typeof root?.flags?.toggleTranscriptScrollController).toBe(
+      "function",
+    );
     uninstall();
   });
 
-  test("removes both .events and .chat on uninstall", () => {
+  test("removes .events, .chat, and .flags on uninstall", () => {
     const api = createChatDebugApi(makeRefs());
-    const uninstall = installVellumDebugApi(api);
+    const uninstall = installVellumDebugApi(api, makeFlagsApi());
     uninstall();
     const root = (globalThis as unknown as DebugWindow)._vellumDebug;
     // Root should be gone entirely since nothing else was attached.
@@ -727,10 +736,11 @@ describe("installVellumDebugApi", () => {
     win.window._vellumDebug = { other: "keep" };
 
     const api = createChatDebugApi(makeRefs());
-    const uninstall = installVellumDebugApi(api);
+    const uninstall = installVellumDebugApi(api, makeFlagsApi());
     uninstall();
     expect(win.window._vellumDebug?.chat).toBeUndefined();
     expect(win.window._vellumDebug?.events).toBeUndefined();
+    expect(win.window._vellumDebug?.flags).toBeUndefined();
     expect(win.window._vellumDebug?.other).toBe("keep");
 
     // Cleanup so we don't leak state into other tests.
@@ -739,10 +749,10 @@ describe("installVellumDebugApi", () => {
 
   test("identity-checks chat on teardown so a newer mount isn't clobbered", () => {
     const first = createChatDebugApi(makeRefs());
-    const uninstallFirst = installVellumDebugApi(first);
+    const uninstallFirst = installVellumDebugApi(first, makeFlagsApi());
 
     const second = createChatDebugApi(makeRefs());
-    installVellumDebugApi(second);
+    installVellumDebugApi(second, makeFlagsApi());
 
     // First mount's teardown runs after second mount installed —
     // simulates strict-mode double-mount or hot-reload races.
@@ -751,6 +761,7 @@ describe("installVellumDebugApi", () => {
     const root = (globalThis as unknown as DebugWindow)._vellumDebug;
     expect(root?.chat).toBe(second);
     expect(root?.events).toBeDefined();
+    expect(root?.flags).toBeDefined();
   });
 });
 
