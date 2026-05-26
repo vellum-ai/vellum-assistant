@@ -126,15 +126,17 @@ export function useAssistantWithHealthz(): AssistantWithHealthz {
     void fetchHealthz();
   }, [fetchHealthz]);
 
-  // Cancel any in-flight resize poll when the active assistant changes or on
-  // unmount. Otherwise a poll started for the previous assistant keeps writing
-  // its health data into the new assistant's view and holds its resize controls
-  // disabled until the timeout (reproducible when switching assistants with
-  // multiPlatformAssistant enabled).
+  // When the active assistant changes (or on unmount), cancel any in-flight
+  // resize poll and drop the previous assistant's cached health. Without the
+  // cancel, a poll for the previous assistant keeps writing its data and holds
+  // its resize controls disabled; without clearing `healthz`, the cards would
+  // render the previous assistant's CPU/memory/disk until the new fetch
+  // resolves (both reproducible when switching with multiPlatformAssistant).
   useEffect(() => {
     return () => {
       pollIdRef.current += 1;
       setHealthzPolling(false);
+      setHealthz(null);
     };
   }, [assistantId]);
 
