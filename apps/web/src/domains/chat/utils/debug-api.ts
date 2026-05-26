@@ -728,7 +728,7 @@ declare global {
  *   - `chat` — the per-page chat introspection API built from React refs.
  *     Component-scoped; rebuilt on each mount.
  *   - `api` — the full `@vellumai/assistant-api` namespace, so a developer
- *     can pull canonical SSE schemas (`RelationshipStateUpdatedSchema`, …)
+ *     can pull canonical SSE schemas (`RelationshipStateUpdatedEventSchema`, …)
  *     out of the shipped bundle from the console.
  *   - `flags` — dev-toggleable feature flags (currently:
  *     `toggleTranscriptScrollController`). Stable singleton; pure

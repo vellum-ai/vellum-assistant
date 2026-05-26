@@ -56,8 +56,7 @@ export async function getPendingInteractions(
  * Used by attention-tracking effects so we don't fan out one request per
  * conversation on mount / poll. The returned set contains every conversation
  * key that has at least one pending interaction; callers reconcile against
- * their own state. Conversation key equals conversation id in the web client
- * (see `parseConversation` / `readEventConversationId`).
+ * their own state. Conversation key equals conversation id in the web client.
  */
 export async function listConversationIdsWithPendingInteractions(
   assistantId: string,

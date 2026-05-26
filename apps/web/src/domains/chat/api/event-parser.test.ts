@@ -5,7 +5,8 @@ import { SYNC_TAGS } from "@/lib/sync/types.js";
 
 describe("parseAssistantEvent", () => {
   test("parses assistant_text_delta", () => {
-    const event = parseAssistantEvent("assistant_text_delta", {
+    const event = parseAssistantEvent({
+      type: "assistant_text_delta",
       text: "Hello",
       messageId: "msg-1",
     });
@@ -17,7 +18,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("defaults text to empty string when missing", () => {
-    const event = parseAssistantEvent("assistant_text_delta", {});
+    const event = parseAssistantEvent({ type: "assistant_text_delta" });
     expect(event).toEqual({
       type: "assistant_text_delta",
       text: "",
@@ -26,7 +27,8 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses message_complete with content", () => {
-    const event = parseAssistantEvent("message_complete", {
+    const event = parseAssistantEvent({
+      type: "message_complete",
       messageId: "msg-1",
       content: "Full response",
     });
@@ -39,7 +41,8 @@ describe("parseAssistantEvent", () => {
   });
 
   test("ignores legacy displayMessageId on message_complete", () => {
-    const event = parseAssistantEvent("message_complete", {
+    const event = parseAssistantEvent({
+      type: "message_complete",
       messageId: "msg-1",
       displayMessageId: "ignored",
       content: "Full response",
@@ -53,7 +56,8 @@ describe("parseAssistantEvent", () => {
   });
 
   test("preserves message_complete conversationId", () => {
-    const event = parseAssistantEvent("message_complete", {
+    const event = parseAssistantEvent({
+      type: "message_complete",
       messageId: "msg-1",
       content: "Full response",
       conversationId: "conversation-1",
@@ -68,7 +72,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses message_complete without content", () => {
-    const event = parseAssistantEvent("message_complete", {});
+    const event = parseAssistantEvent({ type: "message_complete" });
     expect(event).toEqual({
       type: "message_complete",
       messageId: undefined,
@@ -78,7 +82,8 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses message_complete with attachments", () => {
-    const event = parseAssistantEvent("message_complete", {
+    const event = parseAssistantEvent({
+      type: "message_complete",
       messageId: "msg-1",
       content: "Here is the screenshot",
       attachments: [
@@ -111,7 +116,8 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses message_complete ignoring invalid attachments", () => {
-    const event = parseAssistantEvent("message_complete", {
+    const event = parseAssistantEvent({
+      type: "message_complete",
       content: "text",
       attachments: [{ bad: true }, { filename: "ok.txt", mimeType: "text/plain" }],
     });
@@ -135,7 +141,8 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses generation_handoff", () => {
-    const event = parseAssistantEvent("generation_handoff", {
+    const event = parseAssistantEvent({
+      type: "generation_handoff",
       messageId: "msg-1",
     });
     expect(event).toEqual({
@@ -146,7 +153,8 @@ describe("parseAssistantEvent", () => {
   });
 
   test("ignores legacy displayMessageId on generation_handoff", () => {
-    const event = parseAssistantEvent("generation_handoff", {
+    const event = parseAssistantEvent({
+      type: "generation_handoff",
       messageId: "msg-1",
       displayMessageId: "ignored",
     });
@@ -158,7 +166,8 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses error with code and message", () => {
-    const event = parseAssistantEvent("error", {
+    const event = parseAssistantEvent({
+      type: "error",
       code: "rate_limit_exceeded",
       message: "Too many requests",
     });
@@ -170,7 +179,8 @@ describe("parseAssistantEvent", () => {
   });
 
   test("preserves categorized stream error metadata", () => {
-    const event = parseAssistantEvent("error", {
+    const event = parseAssistantEvent({
+      type: "error",
       code: "PROVIDER_BILLING",
       errorCategory: "credits_exhausted",
       message: "Your balance has run out",
@@ -184,7 +194,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("defaults error message to 'Unknown error' when missing", () => {
-    const event = parseAssistantEvent("error", {});
+    const event = parseAssistantEvent({ type: "error" });
     expect(event).toEqual({
       type: "error",
       code: undefined,
@@ -193,7 +203,8 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses interaction_resolved with explicit conversationId", () => {
-    const event = parseAssistantEvent("interaction_resolved", {
+    const event = parseAssistantEvent({
+      type: "interaction_resolved",
       requestId: "req-1",
       conversationId: "conv-1",
       state: "approved",
@@ -209,7 +220,8 @@ describe("parseAssistantEvent", () => {
   });
 
   test("interaction_resolved with an invalid state degrades to unknown", () => {
-    const event = parseAssistantEvent("interaction_resolved", {
+    const event = parseAssistantEvent({
+      type: "interaction_resolved",
       requestId: "req-3",
       conversationId: "conv-3",
       state: "exploded",
@@ -219,7 +231,8 @@ describe("parseAssistantEvent", () => {
   });
 
   test("interaction_resolved without a requestId degrades to unknown", () => {
-    const event = parseAssistantEvent("interaction_resolved", {
+    const event = parseAssistantEvent({
+      type: "interaction_resolved",
       conversationId: "conv-4",
       state: "cancelled",
     });
@@ -227,8 +240,8 @@ describe("parseAssistantEvent", () => {
   });
 
   test("returns unknown event for unrecognized type", () => {
-    const data = { foo: "bar" };
-    const event = parseAssistantEvent("some_future_event", data);
+    const data = { type: "some_future_event", foo: "bar" };
+    const event = parseAssistantEvent(data);
     expect(event).toEqual({
       type: "unknown",
       rawType: "some_future_event",
@@ -237,7 +250,8 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses sync_changed tags", () => {
-    const event = parseAssistantEvent("sync_changed", {
+    const event = parseAssistantEvent({
+      type: "sync_changed",
       tags: [
         SYNC_TAGS.assistantAvatar,
         "conversation:conversation-1:metadata",
@@ -255,8 +269,8 @@ describe("parseAssistantEvent", () => {
   });
 
   test("returns unknown for sync_changed without a tags array", () => {
-    const data = { tag: SYNC_TAGS.assistantAvatar };
-    const event = parseAssistantEvent("sync_changed", data);
+    const data = { type: "sync_changed", tag: SYNC_TAGS.assistantAvatar };
+    const event = parseAssistantEvent(data);
     expect(event).toEqual({
       type: "unknown",
       rawType: "sync_changed",
@@ -265,8 +279,8 @@ describe("parseAssistantEvent", () => {
   });
 
   test("returns unknown for sync_changed with non-string tags", () => {
-    const data = { tags: [SYNC_TAGS.assistantAvatar, 42] };
-    const event = parseAssistantEvent("sync_changed", data);
+    const data = { type: "sync_changed", tags: [SYNC_TAGS.assistantAvatar, 42] };
+    const event = parseAssistantEvent(data);
     expect(event).toEqual({
       type: "unknown",
       rawType: "sync_changed",
@@ -275,7 +289,8 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses sync_changed with originClientId", () => {
-    const event = parseAssistantEvent("sync_changed", {
+    const event = parseAssistantEvent({
+      type: "sync_changed",
       tags: [SYNC_TAGS.assistantAvatar],
       originClientId: "client-abc",
     });
@@ -287,7 +302,8 @@ describe("parseAssistantEvent", () => {
   });
 
   test("omits originClientId from sync_changed when absent", () => {
-    const event = parseAssistantEvent("sync_changed", {
+    const event = parseAssistantEvent({
+      type: "sync_changed",
       tags: [SYNC_TAGS.assistantAvatar],
     });
     expect(event).toEqual({
@@ -298,19 +314,22 @@ describe("parseAssistantEvent", () => {
   });
 
   test("ignores blank or non-string originClientId on sync_changed", () => {
-    const blank = parseAssistantEvent("sync_changed", {
+    const blank = parseAssistantEvent({
+      type: "sync_changed",
       tags: [SYNC_TAGS.assistantAvatar],
       originClientId: "   ",
     });
     expect("originClientId" in blank).toBe(false);
 
-    const nonString = parseAssistantEvent("sync_changed", {
+    const nonString = parseAssistantEvent({
+      type: "sync_changed",
       tags: [SYNC_TAGS.assistantAvatar],
       originClientId: 42,
     });
     expect("originClientId" in nonString).toBe(false);
 
-    const trimmed = parseAssistantEvent("sync_changed", {
+    const trimmed = parseAssistantEvent({
+      type: "sync_changed",
       tags: [SYNC_TAGS.assistantAvatar],
       originClientId: "  client-xyz  ",
     });
@@ -322,7 +341,8 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses assistant_activity_state idle", () => {
-    const event = parseAssistantEvent("assistant_activity_state", {
+    const event = parseAssistantEvent({
+      type: "assistant_activity_state",
       conversationId: "conv-1",
       activityVersion: 7,
       phase: "idle",
@@ -342,7 +362,8 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses assistant_activity_state thinking with statusText", () => {
-    const event = parseAssistantEvent("assistant_activity_state", {
+    const event = parseAssistantEvent({
+      type: "assistant_activity_state",
       conversationId: "conv-1",
       activityVersion: 3,
       phase: "thinking",
@@ -365,7 +386,8 @@ describe("parseAssistantEvent", () => {
     // Disk-pressure block path emits idle with error_terminal but no
     // follow-up message_complete. The web handler must treat this as
     // terminal so the loading indicator clears.
-    const event = parseAssistantEvent("assistant_activity_state", {
+    const event = parseAssistantEvent({
+      type: "assistant_activity_state",
       conversationId: "conv-1",
       activityVersion: 1,
       phase: "idle",
@@ -384,13 +406,14 @@ describe("parseAssistantEvent", () => {
 
   test("returns unknown for assistant_activity_state with invalid phase", () => {
     const data = {
+      type: "assistant_activity_state",
       conversationId: "conv-1",
       activityVersion: 1,
       phase: "definitely_not_a_phase",
       anchor: "global",
       reason: "message_complete",
     };
-    const event = parseAssistantEvent("assistant_activity_state", data);
+    const event = parseAssistantEvent(data);
     expect(event).toEqual({
       type: "unknown",
       rawType: "assistant_activity_state",
@@ -401,13 +424,14 @@ describe("parseAssistantEvent", () => {
 
   test("returns unknown for assistant_activity_state with invalid reason", () => {
     const data = {
+      type: "assistant_activity_state",
       conversationId: "conv-1",
       activityVersion: 1,
       phase: "idle",
       anchor: "global",
       reason: "made_up_reason",
     };
-    const event = parseAssistantEvent("assistant_activity_state", data);
+    const event = parseAssistantEvent(data);
     expect(event).toEqual({
       type: "unknown",
       rawType: "assistant_activity_state",
@@ -417,7 +441,8 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses open_url", () => {
-    const event = parseAssistantEvent("open_url", {
+    const event = parseAssistantEvent({
+      type: "open_url",
       url: "https://example.com/oauth",
       title: "Connect Google",
     });
@@ -429,8 +454,8 @@ describe("parseAssistantEvent", () => {
   });
 
   test("returns unknown open_url event when url is missing", () => {
-    const data = { title: "Connect Google" };
-    const event = parseAssistantEvent("open_url", data);
+    const data = { type: "open_url", title: "Connect Google" };
+    const event = parseAssistantEvent(data);
     expect(event).toEqual({
       type: "unknown",
       rawType: "open_url",
@@ -439,7 +464,8 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses navigate_settings", () => {
-    const event = parseAssistantEvent("navigate_settings", {
+    const event = parseAssistantEvent({
+      type: "navigate_settings",
       tab: "Integrations",
     });
     expect(event).toEqual({
@@ -449,8 +475,8 @@ describe("parseAssistantEvent", () => {
   });
 
   test("returns unknown navigate_settings event when tab is missing", () => {
-    const data = {};
-    const event = parseAssistantEvent("navigate_settings", data);
+    const data = { type: "navigate_settings" };
+    const event = parseAssistantEvent(data);
     expect(event).toEqual({
       type: "unknown",
       rawType: "navigate_settings",
@@ -459,7 +485,8 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses disk_pressure_status_changed", () => {
-    const event = parseAssistantEvent("disk_pressure_status_changed", {
+    const event = parseAssistantEvent({
+      type: "disk_pressure_status_changed",
       status: {
         enabled: true,
         state: "critical",
@@ -508,7 +535,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses flat disk_pressure_status_changed payloads", () => {
-    const event = parseAssistantEvent("disk_pressure_status_changed", {
+    const event = parseAssistantEvent({
       type: "disk_pressure_status_changed",
       enabled: true,
       state: "critical",
@@ -548,7 +575,8 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses disk_pressure_status_changed disabled status", () => {
-    const event = parseAssistantEvent("disk_pressure_status_changed", {
+    const event = parseAssistantEvent({
+      type: "disk_pressure_status_changed",
       status: {
         enabled: false,
         state: "disabled",
@@ -588,7 +616,8 @@ describe("parseAssistantEvent", () => {
   });
 
   test("ignores non-string fields gracefully", () => {
-    const event = parseAssistantEvent("assistant_text_delta", {
+    const event = parseAssistantEvent({
+      type: "assistant_text_delta",
       text: 42,
       messageId: true,
     });
@@ -600,7 +629,8 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses secret_request with all fields", () => {
-    const event = parseAssistantEvent("secret_request", {
+    const event = parseAssistantEvent({
+      type: "secret_request",
       requestId: "req-1",
       service: "github",
       field: "token",
@@ -622,7 +652,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("defaults secret_request requestId to empty string", () => {
-    const event = parseAssistantEvent("secret_request", {});
+    const event = parseAssistantEvent({ type: "secret_request" });
     expect(event).toEqual({
       type: "secret_request",
       requestId: "",
@@ -637,7 +667,8 @@ describe("parseAssistantEvent", () => {
 
   describe("confirmation_request", () => {
     test("parses confirmation_request with toolUseId", () => {
-      const event = parseAssistantEvent("confirmation_request", {
+      const event = parseAssistantEvent({
+        type: "confirmation_request",
         requestId: "req-1",
         title: "Allow file write?",
         toolName: "write_file",
@@ -665,7 +696,8 @@ describe("parseAssistantEvent", () => {
     });
 
     test("parses confirmation_request without toolUseId", () => {
-      const event = parseAssistantEvent("confirmation_request", {
+      const event = parseAssistantEvent({
+        type: "confirmation_request",
         requestId: "req-2",
         title: "Allow shell command?",
         toolName: "bash",
@@ -678,7 +710,8 @@ describe("parseAssistantEvent", () => {
     });
 
     test("ignores non-string toolUseId", () => {
-      const event = parseAssistantEvent("confirmation_request", {
+      const event = parseAssistantEvent({
+        type: "confirmation_request",
         requestId: "req-3",
         toolUseId: 12345,
       });
@@ -689,7 +722,8 @@ describe("parseAssistantEvent", () => {
     });
 
     test("parses full confirmation_request with allowlist and scope options", () => {
-      const event = parseAssistantEvent("confirmation_request", {
+      const event = parseAssistantEvent({
+        type: "confirmation_request",
         requestId: "req-full",
         title: "Allow bash command?",
         description: "ls -la /tmp",
@@ -731,7 +765,8 @@ describe("parseAssistantEvent", () => {
     });
 
     test("defaults requestId to empty string when missing", () => {
-      const event = parseAssistantEvent("confirmation_request", {
+      const event = parseAssistantEvent({
+        type: "confirmation_request",
         title: "Confirm?",
       });
       expect(event.type).toBe("confirmation_request");
@@ -741,7 +776,8 @@ describe("parseAssistantEvent", () => {
     });
 
     test("ignores non-array allowlistOptions and non-boolean persistentDecisionsAllowed", () => {
-      const event = parseAssistantEvent("confirmation_request", {
+      const event = parseAssistantEvent({
+        type: "confirmation_request",
         requestId: "req-invalid",
         allowlistOptions: "not-an-array",
         persistentDecisionsAllowed: "yes",
@@ -758,7 +794,8 @@ describe("parseAssistantEvent", () => {
 
   describe("tool_result", () => {
     test("maps riskAllowlistOptions → allowlistOptions (Minimatch save-path) and riskDirectoryScopeOptions → directoryScopeOptions", () => {
-      const event = parseAssistantEvent("tool_result", {
+      const event = parseAssistantEvent({
+        type: "tool_result",
         toolName: "bash",
         result: "ok",
         riskLevel: "medium",
@@ -788,7 +825,8 @@ describe("parseAssistantEvent", () => {
       // rule that never matches future calls. This test guards against
       // regression of the pre-PR-29826 conflation bug where the deserializer
       // cast `riskScopeOptions` into `allowlistOptions`.
-      const event = parseAssistantEvent("tool_result", {
+      const event = parseAssistantEvent({
+        type: "tool_result",
         toolName: "bash",
         result: "ok",
         riskScopeOptions: [
@@ -803,7 +841,8 @@ describe("parseAssistantEvent", () => {
     });
 
     test("returns undefined allowlistOptions when riskAllowlistOptions is missing", () => {
-      const event = parseAssistantEvent("tool_result", {
+      const event = parseAssistantEvent({
+        type: "tool_result",
         toolName: "remember",
         result: "saved",
       });
@@ -818,7 +857,8 @@ describe("parseAssistantEvent", () => {
       // The daemon sends `riskAllowlistOptions` on tool_result, not the
       // un-prefixed `allowlistOptions` (that field is reserved for
       // confirmation_request). Guard against regression to a wrong-field read.
-      const event = parseAssistantEvent("tool_result", {
+      const event = parseAssistantEvent({
+        type: "tool_result",
         toolName: "bash",
         result: "ok",
         allowlistOptions: [{ pattern: "bash(*)", label: "All bash" }],
@@ -831,7 +871,8 @@ describe("parseAssistantEvent", () => {
   });
 
   test("preserves surfaceType verbatim without coercion", () => {
-    const event = parseAssistantEvent("ui_surface_show", {
+    const event = parseAssistantEvent({
+      type: "ui_surface_show",
       surfaceId: "s-1",
       surfaceType: "custom_widget",
       data: { key: "value" },
@@ -849,7 +890,8 @@ describe("parseAssistantEvent", () => {
   });
 
   test("preserves known surfaceType values as-is", () => {
-    const event = parseAssistantEvent("ui_surface_show", {
+    const event = parseAssistantEvent({
+      type: "ui_surface_show",
       surfaceId: "s-2",
       surfaceType: "form",
       data: {},
@@ -861,7 +903,8 @@ describe("parseAssistantEvent", () => {
   });
 
   test("defaults surfaceType to 'card' when not a string", () => {
-    const event = parseAssistantEvent("ui_surface_show", {
+    const event = parseAssistantEvent({
+      type: "ui_surface_show",
       surfaceId: "s-3",
       surfaceType: 42,
       data: {},
@@ -873,7 +916,8 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses notification_intent with deep-link metadata", () => {
-    const event = parseAssistantEvent("notification_intent", {
+    const event = parseAssistantEvent({
+      type: "notification_intent",
       deliveryId: "del-1",
       sourceEventName: "chat.assistant_turn_complete",
       title: "New message",
@@ -892,7 +936,8 @@ describe("parseAssistantEvent", () => {
   });
 
   test("notification_intent preserves targetGuardianPrincipalId", () => {
-    const event = parseAssistantEvent("notification_intent", {
+    const event = parseAssistantEvent({
+      type: "notification_intent",
       sourceEventName: "guardian.question",
       title: "Guardian check-in",
       body: "Approve this request?",
@@ -905,7 +950,8 @@ describe("parseAssistantEvent", () => {
   });
 
   test("notification_intent without title falls through to unknown", () => {
-    const event = parseAssistantEvent("notification_intent", {
+    const event = parseAssistantEvent({
+      type: "notification_intent",
       sourceEventName: "chat.assistant_turn_complete",
       body: "missing title",
     });
@@ -913,7 +959,8 @@ describe("parseAssistantEvent", () => {
   });
 
   test("notification_intent with non-object deepLinkMetadata is ignored", () => {
-    const event = parseAssistantEvent("notification_intent", {
+    const event = parseAssistantEvent({
+      type: "notification_intent",
       sourceEventName: "chat.assistant_turn_complete",
       title: "Hello",
       body: "Body",
@@ -929,7 +976,8 @@ describe("parseAssistantEvent", () => {
     test("parses to a typed invalidation signal regardless of payload", () => {
       // Arbitrary payload — handler treats this as an invalidation-only signal
       // and refetches identity from the canonical endpoint.
-      const event = parseAssistantEvent("identity_changed", {
+      const event = parseAssistantEvent({
+        type: "identity_changed",
         name: "Pax",
         role: "assistant",
       });
@@ -937,7 +985,7 @@ describe("parseAssistantEvent", () => {
     });
 
     test("empty payload still produces IdentityChangedEvent (not UnknownEvent)", () => {
-      const event = parseAssistantEvent("identity_changed", {});
+      const event = parseAssistantEvent({ type: "identity_changed" });
       expect(event.type).toBe("identity_changed");
     });
   });
@@ -945,16 +993,12 @@ describe("parseAssistantEvent", () => {
 });
 
 describe("envelope format parsing", () => {
-  test("parseAssistantEvent works the same regardless of envelope extraction", () => {
-    // The envelope extraction happens in subscribeChatEvents before calling
-    // parseAssistantEvent. Here we verify parseAssistantEvent handles the
-    // extracted inner payload correctly.
-    const innerPayload = {
+  test("flat payloads pass through unchanged", () => {
+    const event = parseAssistantEvent({
       type: "assistant_text_delta",
       text: "Hello from envelope",
       messageId: "msg-env-1",
-    };
-    const event = parseAssistantEvent(innerPayload.type as string, innerPayload);
+    });
     expect(event).toEqual({
       type: "assistant_text_delta",
       text: "Hello from envelope",
@@ -962,30 +1006,15 @@ describe("envelope format parsing", () => {
     });
   });
 
-  test("envelope extraction logic selects message.type over top-level type", () => {
-    // Simulate the envelope extraction logic from subscribeChatEvents
-    const envelopePayload: Record<string, unknown> = {
+  test("envelope shape uses message.type over top-level type", () => {
+    const event = parseAssistantEvent({
       type: "wrapper",
       message: {
         type: "assistant_text_delta",
         text: "nested",
         messageId: "msg-nested",
       },
-    };
-
-    // Replicate the extraction logic
-    let eventData = envelopePayload;
-    if (
-      envelopePayload.message &&
-      typeof envelopePayload.message === "object" &&
-      !Array.isArray(envelopePayload.message) &&
-      typeof (envelopePayload.message as Record<string, unknown>).type === "string"
-    ) {
-      eventData = envelopePayload.message as Record<string, unknown>;
-    }
-
-    const eventType = typeof eventData.type === "string" ? eventData.type : "message";
-    const event = parseAssistantEvent(eventType, eventData);
+    });
 
     expect(event).toEqual({
       type: "assistant_text_delta",
@@ -994,27 +1023,14 @@ describe("envelope format parsing", () => {
     });
   });
 
-  test("envelope extraction supports sync_changed", () => {
-    const envelopePayload: Record<string, unknown> = {
+  test("envelope shape supports sync_changed", () => {
+    const event = parseAssistantEvent({
       type: "wrapper",
       message: {
         type: "sync_changed",
         tags: [SYNC_TAGS.assistantIdentity, "conversation:conversation-1:messages"],
       },
-    };
-
-    let eventData = envelopePayload;
-    if (
-      envelopePayload.message &&
-      typeof envelopePayload.message === "object" &&
-      !Array.isArray(envelopePayload.message) &&
-      typeof (envelopePayload.message as Record<string, unknown>).type === "string"
-    ) {
-      eventData = envelopePayload.message as Record<string, unknown>;
-    }
-
-    const eventType = typeof eventData.type === "string" ? eventData.type : "message";
-    const event = parseAssistantEvent(eventType, eventData);
+    });
 
     expect(event).toEqual({
       type: "sync_changed",
@@ -1022,26 +1038,12 @@ describe("envelope format parsing", () => {
     });
   });
 
-  test("flat format still works when no message field is present", () => {
-    const flatPayload: Record<string, unknown> = {
+  test("flat message_complete works when no envelope message field is present", () => {
+    const event = parseAssistantEvent({
       type: "message_complete",
       messageId: "msg-flat",
       content: "flat content",
-    };
-
-    // Replicate the extraction logic
-    let eventData = flatPayload;
-    if (
-      flatPayload.message &&
-      typeof flatPayload.message === "object" &&
-      !Array.isArray(flatPayload.message) &&
-      typeof (flatPayload.message as Record<string, unknown>).type === "string"
-    ) {
-      eventData = flatPayload.message as Record<string, unknown>;
-    }
-
-    const eventType = typeof eventData.type === "string" ? eventData.type : "message";
-    const event = parseAssistantEvent(eventType, eventData);
+    });
 
     expect(event).toEqual({
       type: "message_complete",
@@ -1051,24 +1053,11 @@ describe("envelope format parsing", () => {
     });
   });
 
-  test("flat sync_changed format works when no message field is present", () => {
-    const flatPayload: Record<string, unknown> = {
+  test("flat sync_changed works when no envelope message field is present", () => {
+    const event = parseAssistantEvent({
       type: "sync_changed",
       tags: [SYNC_TAGS.assistantSounds],
-    };
-
-    let eventData = flatPayload;
-    if (
-      flatPayload.message &&
-      typeof flatPayload.message === "object" &&
-      !Array.isArray(flatPayload.message) &&
-      typeof (flatPayload.message as Record<string, unknown>).type === "string"
-    ) {
-      eventData = flatPayload.message as Record<string, unknown>;
-    }
-
-    const eventType = typeof eventData.type === "string" ? eventData.type : "message";
-    const event = parseAssistantEvent(eventType, eventData);
+    });
 
     expect(event).toEqual({
       type: "sync_changed",
@@ -1077,30 +1066,65 @@ describe("envelope format parsing", () => {
   });
 
   test("non-object message field is ignored (falls back to flat)", () => {
-    const payload: Record<string, unknown> = {
+    const event = parseAssistantEvent({
       type: "error",
       message: "This is a string, not an envelope",
       code: "test_error",
-    };
-
-    let eventData = payload;
-    if (
-      payload.message &&
-      typeof payload.message === "object" &&
-      !Array.isArray(payload.message) &&
-      typeof (payload.message as Record<string, unknown>).type === "string"
-    ) {
-      eventData = payload.message as Record<string, unknown>;
-    }
-
-    const eventType = typeof eventData.type === "string" ? eventData.type : "message";
-    const event = parseAssistantEvent(eventType, eventData);
+    });
 
     expect(event).toEqual({
       type: "error",
       code: "test_error",
       message: "This is a string, not an envelope",
     });
+  });
+
+  test("envelope-level conversationId is stamped onto conversation-scoped events", () => {
+    const event = parseAssistantEvent({
+      conversationId: "conv-from-envelope",
+      message: {
+        type: "assistant_text_delta",
+        text: "stamped",
+      },
+    });
+    expect(event).toEqual({
+      type: "assistant_text_delta",
+      text: "stamped",
+      messageId: undefined,
+      conversationId: "conv-from-envelope",
+    });
+  });
+
+  test("envelope-level conversationId does NOT override an event-supplied conversationId", () => {
+    const event = parseAssistantEvent({
+      conversationId: "envelope-conv",
+      message: {
+        type: "message_complete",
+        messageId: "msg-1",
+        content: "content",
+        conversationId: "event-conv",
+      },
+    });
+    if (event.type !== "message_complete") throw new Error("expected message_complete");
+    expect(event.conversationId).toBe("event-conv");
+  });
+
+  test("envelope-level conversationId is NOT stamped onto strict-schema events", () => {
+    // relationship_state_updated is a global event whose strict wire schema
+    // doesn't declare conversationId. Stamping the envelope-derived value
+    // onto it is the drift `@vellumai/assistant-api` exists to prevent.
+    const event = parseAssistantEvent({
+      conversationId: "should-be-ignored",
+      message: {
+        type: "relationship_state_updated",
+        updatedAt: "2026-05-26T00:00:00Z",
+      },
+    });
+    expect(event).toEqual({
+      type: "relationship_state_updated",
+      updatedAt: "2026-05-26T00:00:00Z",
+    });
+    expect("conversationId" in event).toBe(false);
   });
 });
 

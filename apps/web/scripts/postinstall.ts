@@ -24,6 +24,7 @@ import {
   cpSync,
   existsSync,
   mkdirSync,
+  readFileSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -95,6 +96,21 @@ cpSync(apiSourceRoot, apiInstallRoot, { recursive: true });
 // (The source variant is marked `private: true` and has no `dependencies`
 // because the daemon imports the files via relative paths — neither
 // applies to the installed-in-web copy.)
+//
+// Pin `zod` to exactly the version web has installed. The generated
+// package shares web's `node_modules/zod`, so declaring a floating
+// range here would just invite a `require/exports` mismatch on a future
+// bun install if web's pin moves and the regen lags.
+const webPackageJson = JSON.parse(
+  readFileSync(path.join(webRoot, "package.json"), "utf8"),
+) as { dependencies?: Record<string, string> };
+const webZodVersion = webPackageJson.dependencies?.zod;
+if (!webZodVersion) {
+  throw new Error(
+    "[postinstall] apps/web/package.json must declare a `zod` dependency. " +
+      "@vellumai/assistant-api is generated from web's node_modules and needs to know which zod version to pin to.",
+  );
+}
 const generatedPackageJson = {
   name: "@vellumai/assistant-api",
   version: "0.0.0-generated",
@@ -104,7 +120,7 @@ const generatedPackageJson = {
     ".": "./index.ts",
   },
   dependencies: {
-    zod: "*",
+    zod: webZodVersion,
   },
 };
 writeFileSync(
