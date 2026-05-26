@@ -188,7 +188,20 @@ export function useComposerController(): [ComposerControllerState, EmojiControll
     if (slashConsumed) {
       suppressSlashReopen.current = false;
     }
-    setState(nextSlash);
+    // Functional updater: return prev when values are unchanged so React
+    // bails out via Object.is(). Without this, mobile browsers that
+    // re-dispatch onChange (IME, predictive text, controlled-value sync)
+    // hit an infinite setState→render→re-dispatch loop because
+    // computeSlashState always returns a new object literal.
+    setState((prev) => {
+      if (
+        prev.showSlashMenu === nextSlash.showSlashMenu &&
+        prev.slashFilter === nextSlash.slashFilter
+      ) {
+        return prev;
+      }
+      return nextSlash;
+    });
 
     // Emoji state — looks at text before cursor for `:shortcode` pattern
     const cursor = cursorPosition ?? text.length;
@@ -197,7 +210,15 @@ export function useComposerController(): [ComposerControllerState, EmojiControll
     if (emojiConsumed) {
       suppressEmojiReopen.current = false;
     }
-    setEmojiState(nextEmoji);
+    setEmojiState((prev) => {
+      if (
+        prev.showEmojiMenu === nextEmoji.showEmojiMenu &&
+        prev.emojiFilter === nextEmoji.emojiFilter
+      ) {
+        return prev;
+      }
+      return nextEmoji;
+    });
   }, []);
 
   // --- Slash actions ---
