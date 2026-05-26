@@ -11,7 +11,12 @@ import {
   groupByTime,
   sortFeedItems,
 } from "./utils/feed-utils.js";
-import type { FeedItem, FeedItemCategory, FeedTimeGroup } from "./types.js";
+import type {
+  FeedItem,
+  FeedItemCategory,
+  FeedItemStatus,
+  FeedTimeGroup,
+} from "./types.js";
 
 const TIME_GROUP_LABELS: Record<FeedTimeGroup, string> = {
   today: "Today",
@@ -24,6 +29,8 @@ export interface HomeFeedListProps {
   onSelectItem: (item: FeedItem) => void;
   onDismissItem: (itemId: string) => void;
   onRestoreItem: (itemId: string) => void;
+  onToggleRead?: (itemId: string, newStatus: FeedItemStatus) => void;
+  onGoToThread?: (conversationId: string) => void;
 }
 
 export function HomeFeedList({
@@ -31,6 +38,8 @@ export function HomeFeedList({
   onSelectItem,
   onDismissItem,
   onRestoreItem,
+  onToggleRead,
+  onGoToThread,
 }: HomeFeedListProps) {
   const [activeFilter, setActiveFilter] = useState<FeedItemCategory | null>(
     null,
@@ -104,6 +113,8 @@ export function HomeFeedList({
                   item={item}
                   onSelect={onSelectItem}
                   onDismiss={onDismissItem}
+                  onToggleRead={onToggleRead}
+                  onGoToThread={onGoToThread}
                 />
               ))}
             </div>
