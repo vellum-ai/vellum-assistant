@@ -40,11 +40,11 @@ export interface BuildTranscriptItemsInput {
  * Rules (mirror the JSX in `AssistantPageClient.tsx`):
  *
  *   1. For each `DisplayMessage` in order, emit a `MessageItem` with
- *      `key = message.stableId`. Inline surfaces attached to a message
- *      are rendered within the message body by `TranscriptMessageBody`
- *      via `contentOrder` — they are NOT separate transcript rows.
- *      Tool calls stay inside the `MessageItem` — the Transcript
- *      component flattens them at render time.
+ *      `key = message.id`. Inline surfaces attached to a message are
+ *      rendered within the message body by `TranscriptMessageBody` via
+ *      `contentOrder` — they are NOT separate transcript rows. Tool calls
+ *      stay inside the `MessageItem` — the Transcript component flattens
+ *      them at render time.
  *
  *   2. After the last message, emit trailers in this exact order:
  *        a. `ThinkingItem` when `isThinking`.
@@ -100,7 +100,7 @@ export function buildTranscriptItems(
 
     const messageItem: MessageItem = {
       kind: "message",
-      key: message.stableId,
+      key: message.id,
       message,
     };
     items.push(messageItem);

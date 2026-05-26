@@ -11,9 +11,9 @@ import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 
 export interface QueuedMessagesDrawerProps {
   queuedMessages: DisplayMessage[];
-  onCancelMessage: (stableId: string) => void;
+  onCancelMessage: (messageId: string) => void;
   onCancelAll: () => void;
-  onSteer: (stableId: string) => void;
+  onSteer: (messageId: string) => void;
   showSteer: boolean;
   onEditTail: () => void;
 }
@@ -104,8 +104,8 @@ export function QueuedMessagesDrawer({
   onEditTail,
 }: QueuedMessagesDrawerProps): ReactNode {
   const handleCancelMessage = useCallback(
-    (stableId: string) => {
-      onCancelMessage(stableId);
+    (messageId: string) => {
+      onCancelMessage(messageId);
     },
     [onCancelMessage],
   );
@@ -136,12 +136,12 @@ export function QueuedMessagesDrawer({
         <div className="flex flex-col gap-0.5">
           {queuedMessages.map((msg, idx) => (
             <QueuedMessageRow
-              key={msg.stableId}
+              key={msg.id}
               message={msg}
               position={idx + 1}
               isTail={idx === queuedMessages.length - 1}
-              onCancel={() => handleCancelMessage(msg.stableId)}
-              onSteer={() => onSteer(msg.stableId)}
+              onCancel={() => handleCancelMessage(msg.id)}
+              onSteer={() => onSteer(msg.id)}
               showSteer={showSteer}
               onEdit={onEditTail}
             />

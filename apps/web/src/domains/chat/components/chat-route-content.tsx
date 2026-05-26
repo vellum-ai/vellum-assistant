@@ -175,9 +175,9 @@ export interface SendMessageHandlers {
   sendMessage: (content: string, attachments?: DisplayAttachment[]) => Promise<void>;
   handleStopGenerating: () => Promise<void>;
   queuedMessages: DisplayMessage[];
-  handleCancelQueuedMessage: (stableId: string) => void;
+  handleCancelQueuedMessage: (messageId: string) => void;
   handleCancelAllQueued: () => void;
-  handleSteerMessage: (stableId: string) => void;
+  handleSteerMessage: (messageId: string) => void;
   handleEditQueueTail: () => void;
 }
 

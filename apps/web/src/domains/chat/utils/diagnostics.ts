@@ -140,8 +140,7 @@ function roleCounts(messages: Array<{ role: string }>): Record<string, number> {
 
 export function summarizeDisplayMessage(message: DisplayMessage): Record<string, unknown> {
   return {
-    stableId: message.stableId,
-    id: message.id ?? null,
+    id: message.id,
     role: message.role,
     contentLength: message.content.length,
     timestamp: message.timestamp ?? null,

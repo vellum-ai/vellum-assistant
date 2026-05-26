@@ -108,9 +108,9 @@ export function useAppNudges(
       const m = messages[i]!;
       if (m.role !== "assistant") continue;
       if (m.isStreaming) {
-        streamingMessageIdsRef.current.add(m.stableId);
-      } else if (streamingMessageIdsRef.current.has(m.stableId)) {
-        streamingMessageIdsRef.current.delete(m.stableId);
+        streamingMessageIdsRef.current.add(m.id);
+      } else if (streamingMessageIdsRef.current.has(m.id)) {
+        streamingMessageIdsRef.current.delete(m.id);
         newlyCompleted++;
       } else {
         break;
