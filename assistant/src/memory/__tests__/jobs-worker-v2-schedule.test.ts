@@ -279,8 +279,31 @@ describe("maybeEnqueueGraphMaintenanceJobs — buffer-size trigger", () => {
     maybeEnqueueGraphMaintenanceJobs(config, now);
 
     expect(countPendingJobs("memory_v2_consolidate")).toBe(1);
-    // Checkpoint refreshed so the next tick doesn't immediately re-fire.
+    // Checkpoint refreshed so the time-based branch doesn't re-fire.
     expect(getMemoryCheckpoint(CONSOLIDATE_CHECKPOINT_KEY)).toBe(String(now));
+  });
+
+  test("does not re-fire on every tick while buffer stays over threshold", () => {
+    const config = buildConfig({
+      v2Enabled: true,
+      intervalHours: 1,
+      maxBufferLines: 5,
+    });
+
+    const now = Date.now();
+    // Recent checkpoint so the time-based branch never fires across ticks —
+    // the only thing that could re-enqueue is the size branch.
+    setMemoryCheckpoint(CONSOLIDATE_CHECKPOINT_KEY, String(now - 60_000));
+    writeBuffer(10);
+
+    // Simulate several worker ticks with the buffer still over threshold and
+    // the first-tick job still pending (nothing has drained it yet).
+    maybeEnqueueGraphMaintenanceJobs(config, now);
+    maybeEnqueueGraphMaintenanceJobs(config, now + 1_000);
+    maybeEnqueueGraphMaintenanceJobs(config, now + 2_000);
+
+    // A pending consolidate job dedupes the later ticks — only one enqueue.
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(1);
   });
 
   test("does not enqueue when buffer is under the threshold", () => {

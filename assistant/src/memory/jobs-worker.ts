@@ -65,6 +65,7 @@ import {
   enqueuePruneOldTraceEventsJob,
   failMemoryJob,
   failStalledJobs,
+  hasActiveJobOfType,
   type MemoryJob,
   type MemoryJobType,
   resetRunningJobsToPending,
@@ -791,8 +792,18 @@ export function maybeEnqueueGraphMaintenanceJobs(
   // Size-based trigger: when the shared buffer crosses the configured line
   // count, drain it now rather than waiting out the interval. Retargets to the
   // same consolidator the interval branch above selected.
+  //
+  // The size branch is checkpoint-blind by design (it must fire before the
+  // interval elapses), so it dedupes against an already-active consolidate job
+  // instead — otherwise it would re-enqueue on every worker tick while the
+  // buffer stays over threshold, flooding the queue with redundant LLM work.
   const maxLines = config.memory.v2.consolidation_max_buffer_lines;
-  if (v2Active && !enqueuedConsolidate && maxLines !== null) {
+  if (
+    v2Active &&
+    !enqueuedConsolidate &&
+    maxLines !== null &&
+    !hasActiveJobOfType(consolidateEntry.jobType)
+  ) {
     const bufferPath = join(getWorkspaceDir(), "memory", "buffer.md");
     if (countBufferLines(bufferPath) >= maxLines) {
       enqueueMemoryJob(consolidateEntry.jobType, {});
