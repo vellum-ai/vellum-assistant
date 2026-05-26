@@ -20,13 +20,18 @@ import {
   API_KEY_PROVIDERS,
   getConfig,
   invalidateConfigCache,
+  loadRawConfig,
+  saveRawConfig,
 } from "../../config/loader.js";
+import { seedInferenceProfiles } from "../../config/seed-inference-profiles.js";
 import type { CesClient } from "../../credential-execution/client.js";
 import { setSentryOrganizationId, setSentryUserId } from "../../instrument.js";
+import { getDb } from "../../memory/db-connection.js";
 import { clearEmbeddingBackendCache } from "../../memory/embedding-backend.js";
 import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
 import { validateAnthropicApiKey } from "../../providers/anthropic/client.js";
 import { validateGeminiApiKey } from "../../providers/gemini/client.js";
+import { PROVIDERS_REQUIRING_BASE_URL_AND_MODELS } from "../../providers/inference/connections.js";
 import { validateMinimaxApiKey } from "../../providers/minimax/client.js";
 import { validateOpenAIApiKey } from "../../providers/openai/client.js";
 import { initializeProviders } from "../../providers/registry.js";
@@ -50,6 +55,89 @@ import { getSecretsDeps } from "./secrets-deps.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("runtime-http");
+
+/**
+ * BYOK onboarding trigger.
+ *
+ * Called from the api_key path of `POST /v1/secrets`. When the user stores
+ * their first provider API key on an off-platform install, this helper:
+ *
+ *   1. Sets `llm.default.provider` in workspace config (the seeder's signal
+ *      for which provider to materialize personal profiles against).
+ *   2. Re-invokes `seedInferenceProfiles`, which detects `isByokOnboarding`
+ *      from the connection-graph state and runs the BYOK setup steps
+ *      (create personal connection, materialize custom-* profiles, disable
+ *      managed connections, flip activeProfile to custom-balanced).
+ *
+ * Idempotency: a no-op when (a) running on platform, (b) the provider is
+ * not BYOK-eligible (ollama, anything in PROVIDERS_REQUIRING_BASE_URL_AND_MODELS),
+ * or (c) `llm.default.provider` is already set — the user has already
+ * onboarded; storing additional keys is a key-rotation, not an onboarding
+ * event. The seeder itself is also idempotent (skips if the personal
+ * connection already exists), so double invocation here is safe.
+ *
+ * This replaces the pre-#32025 mechanism where the Docker hatch overlay
+ * carried `llm.default.provider` into the assistant. With the overlay gone,
+ * the secret-store IS the BYOK signal: "I just stored a key for anthropic"
+ * is exactly the signal we need to materialize anthropic's personal profile.
+ */
+function maybeApplyByokOnboarding(provider: string): void {
+  const isPlatform =
+    process.env.IS_PLATFORM === "true" || process.env.IS_PLATFORM === "1";
+  if (isPlatform) return;
+
+  if (provider === "ollama") return;
+  if (PROVIDERS_REQUIRING_BASE_URL_AND_MODELS.has(provider)) return;
+
+  try {
+    const raw = loadRawConfig();
+    const llmValue = raw.llm;
+    const llm =
+      llmValue !== null &&
+      typeof llmValue === "object" &&
+      !Array.isArray(llmValue)
+        ? (llmValue as Record<string, unknown>)
+        : ((raw.llm = {} as Record<string, unknown>) as Record<
+            string,
+            unknown
+          >);
+    const defaultValue = llm.default;
+    const llmDefault =
+      defaultValue !== null &&
+      typeof defaultValue === "object" &&
+      !Array.isArray(defaultValue)
+        ? (defaultValue as Record<string, unknown>)
+        : ((llm.default = {} as Record<string, unknown>) as Record<
+            string,
+            unknown
+          >);
+
+    const existingProvider = llmDefault.provider;
+    if (typeof existingProvider === "string" && existingProvider.length > 0) {
+      // User has already onboarded with a provider. Storing additional keys
+      // doesn't change the default. (User can re-target the default by
+      // editing config or via the connections UI.)
+      return;
+    }
+
+    llmDefault.provider = provider;
+    saveRawConfig(raw);
+    invalidateConfigCache();
+    log.info({ provider }, "BYOK onboarding: set llm.default.provider");
+
+    seedInferenceProfiles({ db: getDb() });
+    log.info({ provider }, "BYOK onboarding: reseeded inference profiles");
+  } catch (err) {
+    // Onboarding is best-effort. The key was already stored; the user can
+    // recover by editing config or restarting the assistant (which will
+    // re-run the seeder on boot if the provider was persisted).
+    log.warn(
+      { err, provider },
+      "BYOK onboarding trigger failed — key stored but profile setup skipped",
+    );
+  }
+}
+
 const MANAGED_PROXY_CREDENTIALS = [
   { service: "vellum", field: "assistant_api_key" },
   { service: "vellum", field: "platform_base_url" },
@@ -218,6 +306,12 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
       }
       await refreshProvidersAfterSecretChange();
       log.info({ provider: name }, "API key updated via HTTP");
+
+      // BYOK onboarding signal: storing a provider API key on an off-platform
+      // install is the moment we materialize personal inference profiles.
+      // No-op on platform, no-op on subsequent key stores. See helper docblock.
+      maybeApplyByokOnboarding(name);
+
       return { success: true, type, name };
     }
 
