@@ -1208,8 +1208,8 @@ export function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceC
               }
             >
               We couldn&apos;t reach the billing service. The form below
-              assumes you&apos;re on Pro — if you&apos;re not, registering a
-              domain will fail.
+              assumes managed email is enabled for your org — if it isn&apos;t,
+              registering a domain will fail.
             </Notice>
           )}
           {subscriptionQuery.isLoading ? (
