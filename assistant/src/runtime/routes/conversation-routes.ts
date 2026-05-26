@@ -974,13 +974,15 @@ export async function handleSendMessage(
       cohort?: string;
       websiteUrl?: string;
       contentSourceUrl?: string;
+      bootstrapTemplate?: string;
+      initialMessage?: string;
+      skills?: string[];
     };
   };
 
   const actorPrincipalId = headers?.["x-vellum-actor-principal-id"];
   const principalType = headers?.["x-vellum-principal-type"];
-  const originClientId =
-    headers?.["x-vellum-client-id"]?.trim() || undefined;
+  const originClientId = headers?.["x-vellum-client-id"]?.trim() || undefined;
 
   const { conversationKey, content, attachmentIds } = body;
   const inboundConversationId =
@@ -2032,8 +2034,8 @@ async function generateLlmSuggestion(
     "",
     "CRITICAL — write from the USER'S perspective only, NEVER from the assistant's:",
     "- The suggestion is what the USER will type into the chat input",
-    "- Use first-person \"I\" only if the user has used it in their prior messages",
-    "- NEVER start with phrases like \"I can help\", \"Here's what\", \"Let me\", \"I'd suggest\" — those are assistant-voice",
+    '- Use first-person "I" only if the user has used it in their prior messages',
+    '- NEVER start with phrases like "I can help", "Here\'s what", "Let me", "I\'d suggest" — those are assistant-voice',
     "- Think: if you were the user reading the assistant's reply, what question or follow-up would you ask next?",
     "",
     "Output only the reply text inside the requested tags — no preamble, no commentary.",
