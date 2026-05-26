@@ -1838,6 +1838,8 @@ paths:
               schema:
                 type: object
                 properties:
+                  accepted:
+                    type: boolean
                   leaseId:
                     type: string
                   reason:
@@ -1848,87 +1850,13 @@ paths:
                     type: number
                   deadlineAt:
                     type: number
-                  counts:
-                    type: object
-                    properties:
-                      heartbeat:
-                        type: number
-                      scheduler:
-                        type: number
-                      total:
-                        type: number
-                      completed:
-                        type: number
-                      failed:
-                        type: number
-                      skipped:
-                        type: number
-                      claimed:
-                        type: number
-                      stillPending:
-                        type: number
-                    required:
-                      - heartbeat
-                      - scheduler
-                      - total
-                      - completed
-                      - failed
-                      - skipped
-                      - claimed
-                      - stillPending
-                    additionalProperties: false
-                  completed:
-                    type: number
-                  failed:
-                    type: number
-                  skipped:
-                    type: number
-                  nextIntent:
-                    anyOf:
-                      - type: object
-                        properties:
-                          nextWakeAt:
-                            type: number
-                          actualNextDueAt:
-                            type: number
-                          reason:
-                            type: string
-                            enum:
-                              - heartbeat
-                              - schedule
-                              - mixed
-                          sourceGeneration:
-                            type: string
-                          computedAt:
-                            type: number
-                          sourcePayload:
-                            type: object
-                            propertyNames:
-                              type: string
-                            additionalProperties: {}
-                        required:
-                          - nextWakeAt
-                          - actualNextDueAt
-                          - reason
-                          - sourceGeneration
-                          - computedAt
-                          - sourcePayload
-                        additionalProperties: false
-                      - type: "null"
-                  dueWorkRemaining:
-                    type: boolean
                 required:
+                  - accepted
                   - leaseId
                   - reason
                   - sourceGeneration
                   - startedAt
                   - deadlineAt
-                  - counts
-                  - completed
-                  - failed
-                  - skipped
-                  - nextIntent
-                  - dueWorkRemaining
                 additionalProperties: false
       requestBody:
         required: true
