@@ -12,20 +12,19 @@
  * corpus). Hot pages and near-exact sparse hits arrive via the scouts'
  * `sticky` / `bypass` sets and are **never judged**: a literal keyword hit or a
  * page the user has been touching is a strong enough signal that we shouldn't
- * make it earn its place through a fallible cheap judgment. They are unioned
- * straight into `kept`.
+ * make it earn its place through a fallible cheap judgment, and the downstream
+ * gate force-injects every sticky slug regardless — judging it could not change
+ * its fate. The `bypass` subset is additionally unioned straight into `kept`.
  *
  * Fail-open. If no provider is configured or the call errors / returns an
- * unusable response, the filter keeps *all* dense candidates and surfaces a
- * `failureReason` so the loop can record that the filter was bypassed. Dropping
- * candidates on a model outage would silently starve retrieval; keeping them is
- * the safe degradation (the downstream gate still narrows the slate).
+ * unusable response, the filter keeps *all* judged dense candidates and surfaces
+ * a `failureReason` so the loop can record that the filter was bypassed.
+ * Dropping candidates on a model outage would silently starve retrieval; keeping
+ * them is the safe degradation (the downstream gate still narrows the slate).
  *
- * No LLM call when there is nothing to judge. An empty dense set short-circuits
- * to `kept` = the bypass-relevant slugs (no judged additions), with no provider
- * round-trip.
- *
- * This module is currently unwired — a later PR composes it into the loop.
+ * No LLM call when there is nothing to judge. A dense set fully covered by
+ * sticky short-circuits to `kept` = the bypass-relevant slugs (no judged
+ * additions), with no provider round-trip.
  */
 
 import { z } from "zod";
@@ -58,10 +57,12 @@ const FILTER_TOOL_NAME = "filter_dense_hits";
  * Arguments to one filter invocation.
  *
  * `dense` is the bounded dense scout result; only its slugs that are *not*
- * already in `bypass` are judged. `sticky` is the broader keep-in-the-running
- * set (hot + near-exact sparse); `bypass` is the subset strong enough to skip
- * judgment entirely. Bypass slugs that also appear in the dense lane are kept
- * unconditionally and never sent to the model.
+ * already in `sticky` are judged. `sticky` is the keep-in-the-running set (hot +
+ * near-exact sparse) the downstream gate force-injects regardless of this
+ * filter, so judging a sticky page wastes an LLM call that can never change its
+ * fate. `bypass` is the subset of sticky strong enough to skip judgment that the
+ * filter also unions straight into `kept`. Sticky slugs that also appear in the
+ * dense lane are excluded from the judged set and never sent to the model.
  */
 export interface FilterDenseHitsArgs {
   input: RetrievalInput;
@@ -163,19 +164,23 @@ function buildResult(
  * Run the fast dense-hit filter for one pass.
  *
  * Makes at most one forced-tool LLM call over the *judged* set (dense slugs not
- * already in `bypass`). Bypass slugs are kept unconditionally. On an empty
- * judged set no call is made. Any failure (no provider, provider throw, missing
- * tool_use, schema mismatch) fails open: every dense candidate is kept and a
+ * already in `sticky`). Sticky slugs are force-selected by the downstream gate
+ * regardless of this filter, so they are excluded from judgment; bypass slugs
+ * are additionally kept unconditionally here. On an empty judged set no call is
+ * made. Any failure (no provider, provider throw, missing tool_use, schema
+ * mismatch) fails open: every judged dense candidate is kept and a
  * `failureReason` is returned.
  */
 export async function filterDenseHits(
   args: FilterDenseHitsArgs,
 ): Promise<FilterDenseHitsResult> {
-  const { input, dense, bypass } = args;
+  const { input, dense, sticky, bypass } = args;
 
-  // Dense slugs that bypass judgment (near-exact sparse / hot) are kept as-is;
-  // only the remainder is judged.
-  const judged = dense.slugs.filter((slug) => !bypass.has(slug));
+  // Sticky slugs (hot + near-exact sparse) are force-selected by the gate
+  // regardless of this filter, so judging them wastes an LLM call that can't
+  // change their fate. Exclude the full sticky set (a superset of bypass) from
+  // the judged set; only the remaining dense near-neighbors are judged.
+  const judged = dense.slugs.filter((slug) => !sticky.has(slug));
 
   // Nothing to judge → no LLM call. Kept is just the bypass-relevant slugs.
   if (judged.length === 0) {

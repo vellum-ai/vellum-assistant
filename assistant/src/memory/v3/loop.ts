@@ -39,7 +39,8 @@
  * Cross-pass accumulation. The `candidates` pool is unioned across every pass
  * and the gate judges that cumulative pool, so a multi-pass `more` never drops
  * the non-sticky hits earlier passes surfaced. Each slug is tagged with the
- * first lane that surfaced it (`sourceBySlug`). The full {@link DescentTrace}
+ * most trusted lane that surfaced it (`sourceBySlug`). The full
+ * {@link DescentTrace}
  * carries one {@link DescentPass} per pass (scouts / treeLevels /
  * edgeExpansions / gate), and {@link RetrievalCost} (wall-clock `ms`, the one
  * dimension observable at this composition layer) accumulates across every pass.
@@ -154,9 +155,10 @@ export async function runRetrievalLoop(
     const scoutResult = await runScouts(passInput, { db: deps.db });
     for (const slug of scoutResult.sticky) sticky.add(slug);
 
-    // Tag hot + sparse scout hits with their lane (first lane wins). Dense
-    // slugs are tagged only if they survive the filter below — a dropped dense
-    // near-neighbor never enters the candidate set, so it earns no source tag.
+    // Tag hot + sparse scout hits with their lane (most trusted lane wins —
+    // see tagSlug). Dense slugs are tagged only if they survive the filter
+    // below — a dropped dense near-neighbor never enters the candidate set, so
+    // it earns no source tag.
     for (const scout of scoutResult.scouts) {
       if (scout.lane === "dense") continue;
       for (const slug of scout.slugs) tagSlug(sourceBySlug, slug, scout.lane);
@@ -360,17 +362,42 @@ function emitCoactivations(args: {
 }
 
 /**
- * Tag `slug`'s provenance with `lane`, keeping the first lane that surfaced it.
- * The pass order (scouts → tree → edge) gives a deterministic precedence: a
- * slug first seen by a scout lane keeps that label even when the tree or edge
- * lane re-surfaces it.
+ * Lane-trust order for `sourceBySlug` provenance (lower = more trusted). A slug
+ * surfaced by several lanes is tagged with the most trusted one. Mirrors
+ * `SEED_LANE_RANK` in {@link expandEdges}'s module, the downstream consumer that
+ * ranks seeds by this tag before the candidate cap: LLM-vetted tree/dense seeds
+ * rank above lexical sparse, recency-only hot, and associative edge pulls.
+ * Keeping the two orders aligned ensures the upgrade picks the lane the cap
+ * actually trusts. Any lane absent here (or an edge pull) ranks last.
+ */
+const LANE_TRUST_RANK: Readonly<Record<LaneSource, number>> = {
+  tree: 0,
+  dense: 1,
+  sparse: 2,
+  hot: 3,
+  edge: 4,
+};
+
+/**
+ * Tag `slug`'s provenance with `lane`, upgrading to the most trusted lane that
+ * surfaces it (see {@link LANE_TRUST_RANK}). A slug first seen via a low-trust
+ * lane (e.g. `edge`) is relabeled when a higher-trust lane (e.g. `dense`) also
+ * surfaces it, so the downstream seed cap ranks it by its strongest signal
+ * rather than a stale first-seen lane. Pass provenance (`firstPassBySlug`) is
+ * tracked separately and keeps earliest-pass semantics — only the lane upgrades.
  */
 function tagSlug(
   sourceBySlug: Map<string, LaneSource>,
   slug: string,
   lane: LaneSource,
 ): void {
-  if (!sourceBySlug.has(slug)) sourceBySlug.set(slug, lane);
+  const current = sourceBySlug.get(slug);
+  if (
+    current === undefined ||
+    LANE_TRUST_RANK[lane] < LANE_TRUST_RANK[current]
+  ) {
+    sourceBySlug.set(slug, lane);
+  }
 }
 
 /**

@@ -171,6 +171,36 @@ describe("filterDenseHits — judged keep/drop", () => {
     expect(userText).not.toContain("x");
   });
 
+  test("excludes the full sticky set from judgment, not just bypass", async () => {
+    const calls: ProviderCall[] = [];
+    // Dense surfaces a, b, plus sticky-but-not-bypass slug `s`. `s` must not be
+    // judged (the gate force-injects every sticky slug regardless), so the model
+    // only sees a, b. Model keeps a.
+    const provider = makeProvider(
+      filterToolResponse({ keep_slugs: ["a"] }),
+      calls,
+    );
+
+    const result = await filterDenseHits({
+      input: makeInput(),
+      dense: denseResult(["a", "b", "s"]),
+      // sticky is a strict superset of bypass here: `s` is sticky but not bypass.
+      sticky: new Set(["s"]),
+      bypass: new Set(),
+      provider,
+    });
+
+    // `s` is excluded from the judged set even though it is not in bypass.
+    expect(result.trace.judged).toEqual(["a", "b"]);
+    expect(result.trace.dropped).toEqual(["b"]);
+    // The sticky slug `s` was never shown to the model.
+    const slugLines = calls[0].messages[0].content
+      .map((b) => (b.type === "text" ? b.text : ""))
+      .join("\n")
+      .split("\n");
+    expect(slugLines).not.toContain("s");
+  });
+
   test("forces tool_choice on filter_dense_hits and surfaces judged candidates", async () => {
     const calls: ProviderCall[] = [];
     const provider = makeProvider(
@@ -304,6 +334,24 @@ describe("filterDenseHits — no LLM call", () => {
     });
 
     expect([...result.kept].sort()).toEqual(["x", "y"]);
+    expect(result.trace).toEqual({ judged: [], dropped: [] });
+  });
+
+  test("dense fully covered by sticky (not bypass) → no call", async () => {
+    const provider = makeNeverCalledProvider();
+
+    // Every dense slug is sticky but none is bypass: there is nothing to judge,
+    // so no LLM round-trip happens. kept is the (empty) bypass set — the sticky
+    // slugs are force-selected downstream by the gate, not via the filter.
+    const result = await filterDenseHits({
+      input: makeInput(),
+      dense: denseResult(["x", "y"]),
+      sticky: new Set(["x", "y"]),
+      bypass: new Set(),
+      provider,
+    });
+
+    expect(result.kept).toEqual([]);
     expect(result.trace).toEqual({ judged: [], dropped: [] });
   });
 });

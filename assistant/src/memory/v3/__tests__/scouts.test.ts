@@ -358,6 +358,55 @@ describe("runScouts — dense lane", () => {
     expect(slugs.indexOf("people/x")).toBeLessThan(slugs.length - 1);
   });
 
+  test("MMR stays relevance-aware when every cosine is non-positive", async () => {
+    // All dense scores are <= 0 (weakly/negatively similar). Dividing by the
+    // pool max would collapse every relevance to a single value and degrade
+    // ranking to diversity-only, which would pull the lowest-scoring off-domain
+    // hit ahead of a higher-scoring active-domain hit. Range-normalizing keeps
+    // relevance ordering: work/b (higher score) stays ahead of people/x.
+    hybridHits = [
+      hit("work/a", { denseScore: -0.1 }),
+      hit("work/b", { denseScore: -0.5 }),
+      hit("people/x", { denseScore: -0.9 }),
+    ];
+    const { scouts } = await runScouts(
+      makeInput({
+        lanes: { hot: false, sparse: false },
+        denseQuota: { activeDomain: 30, offDomain: 8 },
+      }),
+      DEPS,
+    );
+    const slugs = scouts.find((s) => s.lane === "dense")?.slugs ?? [];
+    // Relevance-aware order: the higher-scoring work/b outranks people/x.
+    // Diversity-only (the bug) would interleave people/x ahead of work/b.
+    expect(slugs.indexOf("work/b")).toBeLessThan(slugs.indexOf("people/x"));
+  });
+
+  test("MMR positive-cosine ordering is unchanged by the range fix", async () => {
+    // A healthy positive range must behave exactly as before: relevance is
+    // score/max, so a strong active-domain run still gets diversified by the
+    // redundancy term once the subtree is over-represented.
+    hybridHits = [
+      hit("work/a", { denseScore: 0.95 }),
+      hit("work/b", { denseScore: 0.94 }),
+      hit("work/c", { denseScore: 0.93 }),
+      hit("work/d", { denseScore: 0.92 }),
+      hit("people/x", { denseScore: 0.9 }),
+    ];
+    const { scouts } = await runScouts(
+      makeInput({
+        lanes: { hot: false, sparse: false },
+        denseQuota: { activeDomain: 30, offDomain: 8 },
+      }),
+      DEPS,
+    );
+    const slugs = scouts.find((s) => s.lane === "dense")?.slugs ?? [];
+    // The strongest hit still leads; the lower-scoring off-domain hit is pulled
+    // forward (not stranded last) exactly as in the unmodified positive case.
+    expect(slugs[0]).toBe("work/a");
+    expect(slugs.indexOf("people/x")).toBeLessThan(slugs.length - 1);
+  });
+
   test("no dense hits yields no dense ScoutResult", async () => {
     hybridHits = [hit("sparse/only", { sparseScore: 2.0 })];
     const { scouts } = await runScouts(
