@@ -7,7 +7,6 @@ mock.module("../providers/registry.js", () => ({
     providerRoutingSources[provider],
 }));
 
-import { ConnectionResolutionError } from "../providers/connection-resolution.js";
 import type { ErrorContext } from "../daemon/conversation-error.js";
 import {
   budgetYieldUnrecoveredClassification,
@@ -15,6 +14,7 @@ import {
   classifyConversationError,
   isUserCancellation,
 } from "../daemon/conversation-error.js";
+import { ConnectionResolutionError } from "../providers/connection-resolution.js";
 import {
   type AbortReasonKind,
   createAbortReason,
