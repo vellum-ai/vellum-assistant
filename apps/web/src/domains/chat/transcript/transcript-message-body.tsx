@@ -15,6 +15,7 @@ import { MessageHoverActions } from "@/domains/chat/components/message-hover-act
 import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router.js";
 import { ToolCallProgressCard } from "@/domains/chat/components/tool-call-progress-card/tool-call-progress-card.js";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
+import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces.js";
 import { getSlackLinkUrl, type Surface } from "@/domains/chat/types/types.js";
 import { isPointerCoarse } from "@/utils/pointer.js";
 import type { AllowlistOption, ChatMessageToolCall, ConfirmationDecision, DirectoryScopeOption, ScopeOption } from "@/domains/chat/api/event-types.js";
@@ -383,6 +384,37 @@ export function TranscriptMessageBody({
               const text = seg?.content;
               if (!text) {
                 return null;
+              }
+              const inlineSegments = parseInlineSurfaces(text);
+              if (inlineSegments) {
+                return (
+                  <div key={`text-${gi}`} className="w-full">
+                    {inlineSegments.map((seg, si) => {
+                      if (seg.type === "surface") {
+                        return (
+                          <div key={`inline-surface-${si}`} className="w-full my-2">
+                            <SurfaceRouter
+                              surface={seg.surface}
+                              onAction={() => {}}
+                              onOpenApp={onOpenApp}
+                              onOpenDocument={onOpenDocument}
+                              assistantId={assistantId}
+                              isToolCallComplete={true}
+                            />
+                          </div>
+                        );
+                      }
+                      return (
+                        <div
+                          key={`inline-text-${si}`}
+                          className={`text-[15px] break-words ${textBubbleClass}`}
+                        >
+                          <ChatMarkdownMessage content={seg.content} hardLineBreaks={message.role === "user"} />
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
               }
               return (
                 <div
