@@ -11,8 +11,10 @@
  * `walkTree` fans out from a `start` node and any `seeds`, level by level:
  *   - At each node it resolves the ordered child refs, hands them to `descend`,
  *     and recurses into the chosen `node:` children (capped by `breadthBudget`).
- *   - Every `page:` child encountered anywhere in the walk is collected into the
- *     returned `pages` set — pages are leaves, never recursed into.
+ *   - The `page:` children the `descend` decision chooses to *keep* are collected
+ *     into the returned `pages` set — pages are leaves, never recursed into. A
+ *     page the decision does not keep is dropped, so the walk emits a curated
+ *     selection rather than every page it passes.
  *   - A `visited` set keyed by canonical id (`node:<id>`) dedups shared
  *     sub-nodes (the DAG case) and terminates cycles (A ↔ B). A node is walked
  *     at most once regardless of how many parents reference it.
@@ -34,15 +36,16 @@ import type { TreeLevel } from "../v2/harness/trace.js";
 import type { ChildRef, TreeIndex } from "./tree-index.js";
 
 /**
- * The descend decision injected into {@link walkTree}. Given a node id and its
- * ordered child refs, return the subset of *node* children to recurse into. The
- * driver PR wires this to the LLM; tests pass a deterministic stub.
+ * The decision injected into {@link walkTree}. Given a node id and its ordered
+ * child refs, return the *node* children to recurse into and the *page* children
+ * to keep for the answer. The driver wires this to the LLM; tests pass a
+ * deterministic stub.
  *
  * Returning a `reasoning` string is optional — when present it is threaded into
  * the emitted {@link TreeLevel}; absent, the level's `reasoning` defaults to
- * `""`. Returned refs that are not `node:` children of `nodeId`, or that repeat,
- * are ignored by the walk (it only recurses into distinct node children it
- * actually offered).
+ * `""`. Returned `descend` refs that are not `node:` children of `nodeId`, and
+ * `keep` refs that are not `page:` children of `nodeId`, are ignored by the walk
+ * (it only acts on the distinct children it actually offered).
  */
 export type DescendDecision = (
   nodeId: string,
@@ -51,11 +54,13 @@ export type DescendDecision = (
 
 /**
  * The result of a {@link DescendDecision}. `descend` lists the `node:` children
- * chosen for recursion; `reasoning` is the optional model rationale recorded on
- * the level.
+ * chosen for recursion; `keep` lists the `page:` children to collect into the
+ * walk's result; `reasoning` is the optional model rationale recorded on the
+ * level.
  */
 export interface DescendResult {
   descend: ChildRef[];
+  keep: ChildRef[];
   reasoning?: string;
 }
 
@@ -75,7 +80,7 @@ export interface WalkOptions {
 
 /** The result of a {@link walkTree} run. */
 export interface WalkResult {
-  /** Every `page:` slug encountered across the walk, dedup'd. */
+  /** Every `page:` slug the descend decision kept across the walk, dedup'd. */
   pages: Set<string>;
   /** One {@link TreeLevel} per walked node, in walk order. */
   levels: TreeLevel[];
@@ -141,9 +146,16 @@ export async function walkTree(
     const nextFrontier: string[] = [];
 
     for (const { nodeId, children, result } of levelResults) {
-      // Collect every page child of this node as a leaf hit.
-      for (const child of children) {
-        if (child.kind === "page") pages.add(child.ref);
+      // Collect only the page children the decision chose to keep, filtered to
+      // the page children this node actually offered — a decision can't keep a
+      // page the node never presented.
+      const offeredPageRefs = new Set(
+        children.filter((c) => c.kind === "page").map((c) => c.ref),
+      );
+      for (const choice of result.keep) {
+        if (choice.kind === "page" && offeredPageRefs.has(choice.ref)) {
+          pages.add(choice.ref);
+        }
       }
 
       // The set of node children this node legitimately offered, in order. The
