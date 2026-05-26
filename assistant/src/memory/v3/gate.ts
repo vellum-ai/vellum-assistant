@@ -75,6 +75,15 @@ export interface RunGateArgs {
   candidates: Set<string>;
   sticky: Set<string>;
   passNumber: number;
+  /**
+   * Per-candidate one-line summaries, keyed by slug. When present, candidates
+   * are rendered to the model as `slug — summary` so the gate can judge
+   * relevance on page content rather than the slug alone. Missing entries fall
+   * back to the bare slug; the forced tool's `selected_slugs` enum stays
+   * slug-only. The loop passes this only when `memory.v3.gateCandidateSummaries`
+   * is set.
+   */
+  summaryBySlug?: ReadonlyMap<string, string>;
   /** Optional debug sink — emits one record for the gate's LLM call. */
   capture?: LlmCallSink;
   /**
@@ -115,10 +124,12 @@ function buildGateTool(candidateSlugs: readonly string[]): ToolDefinition {
           type: "array",
           items: { type: "string", enum: [...candidateSlugs] },
           description:
-            "Final ordered page slugs to inject. Choose only from the candidate " +
-            "set. Prefer keeping a plausibly-relevant page over dropping it; for a " +
-            "list / 'all of X' / breadth request, include every candidate that " +
-            "plausibly applies rather than trimming to the most prominent few.",
+            "Final ordered page slugs to inject. Each candidate is listed as " +
+            "`slug — summary` when summaries are available; return only the slug " +
+            "(left of the em-dash), and only from the candidate set. Prefer keeping " +
+            "a plausibly-relevant page over dropping it; for a list / 'all of X' / " +
+            "breadth request, include every candidate that plausibly applies rather " +
+            "than trimming to the most prominent few.",
         },
         questions: {
           type: "array",
@@ -144,6 +155,24 @@ const GateToolResultSchema = z.object({
   questions: z.array(z.string()).optional(),
   reasoning: z.string().optional(),
 });
+
+/**
+ * Render the candidate list for the prompt. With summaries available each line
+ * is `slug — summary` so the model can judge relevance on content; without them
+ * it falls back to the bare slug. The slug (left of the em-dash) is what the
+ * `selected_slugs` enum constrains, so the model always answers in slugs.
+ */
+function renderCandidateLines(
+  slugs: readonly string[],
+  summaryBySlug: ReadonlyMap<string, string> | undefined,
+): string {
+  return slugs
+    .map((slug) => {
+      const summary = summaryBySlug?.get(slug);
+      return summary ? `${slug} — ${summary}` : slug;
+    })
+    .join("\n");
+}
 
 /**
  * Order a slug selection: keep the model's returned order, restricted to the
@@ -231,7 +260,9 @@ export async function runGate(args: RunGateArgs): Promise<RunGateResult> {
         text:
           `<pass_number>${passNumber}</pass_number>\n\n` +
           `<sticky_slugs>\n${stickySlugs.join("\n")}\n</sticky_slugs>\n\n` +
-          `<candidate_slugs>\n${candidateSlugs.join("\n")}\n</candidate_slugs>`,
+          `<candidates>\n` +
+          `${renderCandidateLines(candidateSlugs, args.summaryBySlug)}\n` +
+          `</candidates>`,
       },
     ],
   };

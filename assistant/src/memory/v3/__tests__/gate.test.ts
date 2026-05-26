@@ -253,6 +253,58 @@ describe("runGate — ready decision", () => {
   });
 });
 
+describe("runGate — candidate summaries", () => {
+  test("renders candidates as `slug — summary` when summaryBySlug is provided", async () => {
+    const calls: ProviderCall[] = [];
+    const provider = makeProvider(
+      gateToolResponse({ decision: "ready", selected_slugs: ["a/one"] }),
+      calls,
+    );
+
+    const result = await runGate({
+      input: makeInput(),
+      candidates: new Set(["a/one", "b/two"]),
+      sticky: new Set(),
+      passNumber: 1,
+      summaryBySlug: new Map([
+        ["a/one", "first summary"],
+        ["b/two", "second summary"],
+      ]),
+      provider,
+    });
+
+    // The model still answers in bare slugs (the enum is slug-only).
+    expect(result.selectedSlugs).toEqual(["a/one"]);
+    const userText = calls[0].messages[0].content
+      .map((b) => (b.type === "text" ? b.text : ""))
+      .join("\n");
+    expect(userText).toContain("a/one — first summary");
+    expect(userText).toContain("b/two — second summary");
+  });
+
+  test("falls back to the bare slug when no summary is available", async () => {
+    const calls: ProviderCall[] = [];
+    const provider = makeProvider(
+      gateToolResponse({ decision: "ready", selected_slugs: [] }),
+      calls,
+    );
+
+    await runGate({
+      input: makeInput(),
+      candidates: new Set(["a/one"]),
+      sticky: new Set(),
+      passNumber: 1,
+      provider,
+    });
+
+    const userText = calls[0].messages[0].content
+      .map((b) => (b.type === "text" ? b.text : ""))
+      .join("\n");
+    expect(userText).toContain("a/one");
+    expect(userText).not.toContain("a/one —");
+  });
+});
+
 describe("runGate — more decision", () => {
   test("surfaces generated follow-up questions", async () => {
     const calls: ProviderCall[] = [];
