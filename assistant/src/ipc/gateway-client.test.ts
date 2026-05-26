@@ -108,7 +108,10 @@ describe("ipcGetFeatureFlags", () => {
   });
 
   test("returns empty record when IPC returns undefined", async () => {
-    // No mock configured — ipcCall returns undefined
+    // Explicitly suppress the mock's default `get_feature_flags` sentinel
+    // (which exists to short-circuit `initFeatureFlagOverrides()`'s retry
+    // loop) so this test exercises the underlying-undefined path.
+    mockGatewayIpc(null, { results: { get_feature_flags: undefined } });
     const flags = await ipcGetFeatureFlags();
     expect(flags).toEqual({});
   });

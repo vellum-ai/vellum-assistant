@@ -75,6 +75,36 @@ delete process.env.CES_CREDENTIAL_URL;
 // responses use `mockGatewayIpc()` / `resetMockGatewayIpc()`.
 installGatewayIpcMock();
 
+// --- Phase 3: warm up shared modules (dynamic — runs after env override) ---
+//
+// Bun's `mock.module()` only redirects FUTURE module loads — modules already in
+// the cache keep their original exports. Many test files partially mock shared
+// modules (e.g. `mock.module("../util/logger.js", () => ({ getLogger }))`) and
+// rely on the real exports remaining available for unmocked named imports made
+// by other modules in the test's dep tree. The old preload provided this
+// warm-up implicitly via its static source imports (db-connection,
+// encrypted-store, assistant-feature-flags) which transitively loaded the
+// common shared modules.
+//
+// To preserve that behavior without re-introducing static source imports
+// above the env override, we warm up the same set here via dynamic imports.
+// Critically:
+//   1. The env override above has ALREADY applied — so even if these warm-up
+//      imports throw (e.g. broken node_modules symlink, drizzle-orm/bun-sqlite
+//      missing, the DB ghost #3 failure shape), VELLUM_WORKSPACE_DIR points at
+//      the temp dir and the production DB is safe.
+//   2. If warm-up fails, individual test files will also fail their own
+//      imports — bun will exit with a test failure, not silently corrupt data.
+try {
+  await Promise.all([
+    import("../config/assistant-feature-flags.js"),
+    import("../memory/db-connection.js"),
+    import("../security/encrypted-store.js"),
+  ]);
+} catch {
+  // Best-effort. See block comment above.
+}
+
 afterAll(() => {
   process.exitCode = 0;
   delete process.env.VELLUM_WORKSPACE_DIR;
