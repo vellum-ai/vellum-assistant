@@ -40,10 +40,10 @@ mock.module("../job-utils.js", () => ({
   },
 }));
 
+import { resetDbForTesting } from "../../__tests__/db-test-helpers.js";
 import { DEFAULT_CONFIG } from "../../config/defaults.js";
 import type { AssistantConfig } from "../../config/types.js";
 import { getDb } from "../db-connection.js";
-import { resetDbForTesting } from "../../__tests__/db-test-helpers.js";
 import { initializeDb } from "../db-init.js";
 import type { MemoryJob } from "../jobs-store.js";
 import { mediaAssets } from "../schema.js";

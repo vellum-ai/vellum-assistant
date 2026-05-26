@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
-import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 import type { AssistantConfig } from "../config/schema.js";
 import { resolveSkillStates, skillFlagKey } from "../config/skill-state.js";
 import type { SkillSummary } from "../config/skills.js";
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
 beforeEach(() => {
   setOverridesForTesting({});

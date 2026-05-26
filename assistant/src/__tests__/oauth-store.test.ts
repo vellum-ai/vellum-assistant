@@ -43,7 +43,6 @@ mock.module("../oauth/credential-token-resolver.js", () => ({
 import { eq } from "drizzle-orm";
 
 import { getDb } from "../memory/db-connection.js";
-import { resetDbForTesting } from "./db-test-helpers.js";
 import { getSqliteFrom } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { migrateOAuthProvidersTokenAuthMethodDefault } from "../memory/migrations/216-oauth-providers-token-auth-method.js";
@@ -71,6 +70,7 @@ import {
   upsertApp,
 } from "../oauth/oauth-store.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
+import { resetDbForTesting } from "./db-test-helpers.js";
 import { getMockFetchCalls, mockFetch, resetMockFetch } from "./mock-fetch.js";
 
 initializeDb();

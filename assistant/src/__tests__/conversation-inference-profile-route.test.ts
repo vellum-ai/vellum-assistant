@@ -31,11 +31,11 @@ import {
   getConversation,
 } from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
-import { resetDbForTesting } from "./db-test-helpers.js";
 import { initializeDb } from "../memory/db-init.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { ROUTES } from "../runtime/routes/conversation-management-routes.js";
 import { BadRequestError, NotFoundError } from "../runtime/routes/errors.js";
+import { resetDbForTesting } from "./db-test-helpers.js";
 
 initializeDb();
 

@@ -36,10 +36,10 @@ import {
   updateConversationTitle,
 } from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
-import { resetDbForTesting } from "./db-test-helpers.js";
 import { initializeDb } from "../memory/db-init.js";
 import { rawRun } from "../memory/raw-query.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
+import { resetDbForTesting } from "./db-test-helpers.js";
 
 initializeDb();
 

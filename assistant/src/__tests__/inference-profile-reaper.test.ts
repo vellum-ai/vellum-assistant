@@ -13,7 +13,6 @@ import {
   setConversationInferenceProfileSession,
 } from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
-import { resetDbForTesting } from "./db-test-helpers.js";
 import { initializeDb } from "../memory/db-init.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import {
@@ -21,6 +20,7 @@ import {
   stopInferenceProfileSessionReaper,
   tickInferenceProfileReaper,
 } from "../runtime/routes/inference-profile-session-reaper.js";
+import { resetDbForTesting } from "./db-test-helpers.js";
 
 initializeDb();
 

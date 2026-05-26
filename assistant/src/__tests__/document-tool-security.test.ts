@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import { getDocumentById } from "../documents/document-store.js";
 import { getSqlite } from "../memory/db-connection.js";
-import { resetDbForTesting } from "./db-test-helpers.js";
 import {
   executeDocumentDelete,
   executeDocumentList,
@@ -10,6 +9,7 @@ import {
   executeDocumentUpdate,
 } from "../tools/document/document-tool.js";
 import type { ToolContext, ToolExecutionResult } from "../tools/types.js";
+import { resetDbForTesting } from "./db-test-helpers.js";
 
 function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
   return {

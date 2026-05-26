@@ -64,9 +64,9 @@ import {
   VALID_TTS_PROVIDERS as VALID_TTS_SERVICE_PROVIDERS,
 } from "../config/schemas/tts.js";
 import type { AssistantConfig } from "../config/types.js";
-import { setStorePathForTesting } from "./encrypted-store-test-helpers.js";
 import { listCatalogProviderIds } from "../tts/provider-catalog.js";
 import { resolveTtsConfig } from "../tts/tts-config-resolver.js";
+import { setStorePathForTesting } from "./encrypted-store-test-helpers.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

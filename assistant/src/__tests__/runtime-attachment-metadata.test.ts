@@ -52,12 +52,12 @@ import {
 import * as conversationStore from "../memory/conversation-crud.js";
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
 import { getDb } from "../memory/db-connection.js";
-import { resetDbForTesting } from "./db-test-helpers.js";
 import { initializeDb } from "../memory/db-init.js";
 import * as deliveryChannels from "../memory/delivery-channels.js";
 import { resetTestTables } from "../memory/raw-query.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
+import { resetDbForTesting } from "./db-test-helpers.js";
 
 initializeDb();
 

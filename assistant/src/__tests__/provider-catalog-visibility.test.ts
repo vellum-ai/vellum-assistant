@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 import type { AssistantConfig } from "../config/schema.js";
 import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
 import { getVisibleProviderCatalog } from "../providers/provider-catalog-visibility.js";
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
 beforeEach(() => {
   setOverridesForTesting({});

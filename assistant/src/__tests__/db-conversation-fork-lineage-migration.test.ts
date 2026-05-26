@@ -12,12 +12,12 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { resetDbForTesting } from "./db-test-helpers.js";
 import { getSqliteFrom } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { migrateConversationForkLineage } from "../memory/migrations/183-add-conversation-fork-lineage.js";
 import * as schema from "../memory/schema.js";
 import { getDbPath } from "../util/platform.js";
+import { resetDbForTesting } from "./db-test-helpers.js";
 
 function createTestDb() {
   const sqlite = new Database(":memory:");

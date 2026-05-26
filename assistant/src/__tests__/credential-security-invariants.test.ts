@@ -41,8 +41,8 @@ afterAll(() => {
   mock.restore();
 });
 
-import { setStorePathForTesting } from "./encrypted-store-test-helpers.js";
 import { _resetBackend } from "../security/secure-keys.js";
+import { setStorePathForTesting } from "./encrypted-store-test-helpers.js";
 
 const TEST_DIR = join(
   tmpdir(),

@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 import {
   applyRuntimeInjections,
   stripInjectionsForCompaction,
@@ -16,6 +15,7 @@ import {
 } from "../plugins/registry.js";
 import type { Injector, TurnContext } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
 function findInjector(name: string): Injector {
   const injector = defaultInjectorsPlugin.injectors?.find(

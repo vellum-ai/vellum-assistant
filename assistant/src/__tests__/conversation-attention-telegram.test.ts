@@ -33,12 +33,12 @@ import { eq } from "drizzle-orm";
 
 import { upsertContact } from "../contacts/contact-store.js";
 import { getDb } from "../memory/db-connection.js";
-import { resetDbForTesting } from "./db-test-helpers.js";
 import { initializeDb } from "../memory/db-init.js";
 import * as deliveryChannels from "../memory/delivery-channels.js";
 import { resetTestTables } from "../memory/raw-query.js";
 import { attachments, conversationAttentionEvents } from "../memory/schema.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
+import { resetDbForTesting } from "./db-test-helpers.js";
 import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
 
 initializeDb();

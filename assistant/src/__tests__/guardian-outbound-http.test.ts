@@ -89,7 +89,6 @@ globalThis.fetch = (async (
 // ---------------------------------------------------------------------------
 
 import { getDb } from "../memory/db-connection.js";
-import { resetDbForTesting } from "./db-test-helpers.js";
 import { initializeDb } from "../memory/db-init.js";
 import { updateSessionDelivery } from "../runtime/channel-verification-service.js";
 import {
@@ -103,6 +102,7 @@ import {
   resendOutbound,
   startOutbound,
 } from "../runtime/verification-outbound-actions.js";
+import { resetDbForTesting } from "./db-test-helpers.js";
 
 // Initialize the database (creates all tables)
 initializeDb();

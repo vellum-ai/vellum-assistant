@@ -12,13 +12,13 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { resetDbForTesting } from "./db-test-helpers.js";
 import { getSqlite } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import {
   getRecentInvocations,
   rotateToolInvocations,
 } from "../memory/tool-usage-store.js";
+import { resetDbForTesting } from "./db-test-helpers.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

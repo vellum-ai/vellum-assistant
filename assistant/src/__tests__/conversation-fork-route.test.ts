@@ -46,11 +46,11 @@ mock.module("../config/loader.js", () => ({
 
 import { addMessage, createConversation } from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
-import { resetDbForTesting } from "./db-test-helpers.js";
 import { initializeDb } from "../memory/db-init.js";
 import { getPolicy } from "../runtime/auth/route-policy.js";
 import { mintToken } from "../runtime/auth/token-service.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
+import { resetDbForTesting } from "./db-test-helpers.js";
 
 
 initializeDb();

@@ -154,7 +154,6 @@ import {
   setSlackChannelConfig,
 } from "../daemon/handlers/config-slack-channel.js";
 import { credentialKey } from "../security/credential-key.js";
-import { setStorePathForTesting } from "./encrypted-store-test-helpers.js";
 import * as secureKeys from "../security/secure-keys.js";
 import {
   _resetBackend,
@@ -167,6 +166,7 @@ import {
   listCredentialMetadata,
   upsertCredentialMetadata,
 } from "../tools/credentials/metadata-store.js";
+import { setStorePathForTesting } from "./encrypted-store-test-helpers.js";
 
 afterAll(() => {
   globalThis.fetch = originalFetch;

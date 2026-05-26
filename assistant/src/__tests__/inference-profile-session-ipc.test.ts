@@ -39,9 +39,9 @@ mock.module("../config/loader.js", () => ({
 
 import { createConversation } from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
-import { resetDbForTesting } from "./db-test-helpers.js";
 import { initializeDb } from "../memory/db-init.js";
 import { ROUTES } from "../runtime/routes/inference-profile-session-routes.js";
+import { resetDbForTesting } from "./db-test-helpers.js";
 
 initializeDb();
 

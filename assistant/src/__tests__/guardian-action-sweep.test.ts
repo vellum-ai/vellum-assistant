@@ -29,7 +29,6 @@ import {
   sweepExpiredGuardianActions,
 } from "../calls/guardian-action-sweep.js";
 import { getDb } from "../memory/db-connection.js";
-import { resetDbForTesting } from "./db-test-helpers.js";
 import { initializeDb } from "../memory/db-init.js";
 import {
   createGuardianActionDelivery,
@@ -39,6 +38,7 @@ import {
   updateDeliveryStatus,
 } from "../memory/guardian-action-store.js";
 import { conversations } from "../memory/schema.js";
+import { resetDbForTesting } from "./db-test-helpers.js";
 
 initializeDb();
 

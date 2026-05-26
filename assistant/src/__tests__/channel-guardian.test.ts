@@ -82,7 +82,6 @@ import {
   updateSessionStatus as _storeUpdateSessionStatus,
 } from "../memory/channel-verification-sessions.js";
 import { getDb } from "../memory/db-connection.js";
-import { resetDbForTesting } from "./db-test-helpers.js";
 import { initializeDb } from "../memory/db-init.js";
 import { upsertBinding as upsertExternalBinding } from "../memory/external-conversation-store.js";
 import {
@@ -122,6 +121,7 @@ import {
   composeVerificationTelegram,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
 } from "../runtime/verification-templates.js";
+import { resetDbForTesting } from "./db-test-helpers.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
 initializeDb();

@@ -21,13 +21,13 @@ mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: () => Promise.resolve(undefined),
 }));
 
-import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 import type { AssistantConfig } from "../config/schema.js";
-import { resetDbForTesting } from "./db-test-helpers.js";
 import { initializeDb } from "../memory/db-init.js";
 import { resetTestTables } from "../memory/raw-query.js";
 import { listProviders, seedProviders } from "../oauth/oauth-store.js";
 import { isProviderVisible } from "../oauth/provider-visibility.js";
+import { resetDbForTesting } from "./db-test-helpers.js";
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
 initializeDb();
 

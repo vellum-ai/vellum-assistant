@@ -30,7 +30,6 @@ mock.module("../config/env.js", () => ({
 }));
 
 import { getDb } from "../memory/db-connection.js";
-import { resetDbForTesting } from "./db-test-helpers.js";
 import { initializeDb } from "../memory/db-init.js";
 import { resetExternalAssistantIdCache } from "../runtime/auth/external-assistant-id.js";
 import { initAuthSigningKey } from "../runtime/auth/token-service.js";
@@ -38,6 +37,7 @@ import {
   resolveLocalAuthContext,
   resolveLocalTrustContext,
 } from "../runtime/local-actor-identity.js";
+import { resetDbForTesting } from "./db-test-helpers.js";
 
 // ---------------------------------------------------------------------------
 // Test signing key

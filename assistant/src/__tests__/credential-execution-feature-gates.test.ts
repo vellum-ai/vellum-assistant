@@ -11,7 +11,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
-import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 import type { AssistantConfig } from "../config/schema.js";
 import {
   CES_GRANT_AUDIT_FLAG_KEY,
@@ -23,6 +22,7 @@ import {
   isCesShellLockdownEnabled,
   isCesToolsEnabled,
 } from "../credential-execution/feature-gates.js";
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
 beforeEach(() => {
   setOverridesForTesting({});

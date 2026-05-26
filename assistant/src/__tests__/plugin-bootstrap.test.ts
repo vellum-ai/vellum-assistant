@@ -32,7 +32,6 @@ mock.module("../security/secure-keys.js", () => ({
 }));
 
 import { clearFeatureFlagOverridesCache } from "../config/assistant-feature-flags.js";
-import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 import type { AssistantConfig } from "../config/schema.js";
 import {
   bootstrapPlugins,
@@ -52,6 +51,7 @@ import {
   PluginExecutionError,
   type PluginInitContext,
 } from "../plugins/types.js";
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
 // Redirect plugin storage directory creation into a per-process temp tree so
 // the test doesn't touch the developer's real ~/.vellum.

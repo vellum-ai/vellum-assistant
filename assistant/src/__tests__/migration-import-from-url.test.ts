@@ -118,13 +118,13 @@ mock.module("../config/env.js", () => ({
 // Imports (after mocks so module-level code picks up the stubs)
 // ---------------------------------------------------------------------------
 
-import { resetDbForTesting } from "./db-test-helpers.js";
 import { defaultV1Options } from "../runtime/migrations/__tests__/v1-test-helpers.js";
 import { buildVBundle } from "../runtime/migrations/vbundle-builder.js";
 import {
   _setUrlImportValidatorOptionsForTests,
   handleMigrationImport,
 } from "../runtime/routes/migration-routes.js";
+import { resetDbForTesting } from "./db-test-helpers.js";
 import { callHandler } from "./helpers/call-route-handler.js";
 // ---------------------------------------------------------------------------
 // Local http fixture server

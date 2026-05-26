@@ -253,10 +253,10 @@ import {
 } from "../memory/canonical-guardian-store.js";
 import { getMessages } from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
-import { resetDbForTesting } from "./db-test-helpers.js";
 import { initializeDb } from "../memory/db-init.js";
 import { resetTestTables } from "../memory/raw-query.js";
 import { conversations } from "../memory/schema.js";
+import { resetDbForTesting } from "./db-test-helpers.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
 initializeDb();

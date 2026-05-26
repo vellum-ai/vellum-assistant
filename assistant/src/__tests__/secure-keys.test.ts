@@ -25,7 +25,6 @@ mock.module("../util/logger.js", () => ({
 
 import type { CesClient } from "../credential-execution/client.js";
 import * as encryptedStore from "../security/encrypted-store.js";
-import { setStorePathForTesting } from "./encrypted-store-test-helpers.js";
 import {
   _resetBackend,
   deleteSecureKeyAsync,
@@ -36,6 +35,7 @@ import {
   setCesReconnect,
   setSecureKeyAsync,
 } from "../security/secure-keys.js";
+import { setStorePathForTesting } from "./encrypted-store-test-helpers.js";
 
 // ---------------------------------------------------------------------------
 // Use a temp directory for encrypted store tests
