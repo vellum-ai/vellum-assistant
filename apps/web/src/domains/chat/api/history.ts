@@ -57,14 +57,14 @@ function parsePaginatedResponse(
         (m as RuntimeMessage).role === "assistant"),
   );
 
-  // Map to display messages first so we can correlate stableIds with
-  // subagent notifications. The two arrays share the same indices.
+  // Map to display messages first so we can correlate ids with subagent
+  // notifications. The two arrays share the same indices.
   const mapped = validMessages.map(mapRuntimeToDisplayMessage);
   const messages = dedupeDisplayMessages(mapped);
 
-  // Extract notifications and associate each with the stableId of the
-  // last non-notification assistant message (the message that spawned
-  // the subagent). This mirrors macOS HistoryReconstructionService.
+  // Extract notifications and associate each with the id of the last
+  // non-notification assistant message (the message that spawned the
+  // subagent). This mirrors macOS HistoryReconstructionService.
   const subagentNotifications: RuntimeSubagentNotification[] = [];
   let lastAssistantMessageId: string | undefined;
   for (let i = 0; i < validMessages.length; i++) {

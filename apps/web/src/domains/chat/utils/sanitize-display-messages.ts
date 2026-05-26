@@ -110,12 +110,12 @@ function isInvalidMessage(message: DisplayMessage): boolean {
 // Hack #3 — drop a duplicate trailing assistant message
 // -----------------------------------------------------------------------------
 // Why it exists: occasionally the daemon emits two rows for what is logically
-// the same assistant turn — one with a server-assigned `id` and a `stableId`
-// of the form "server-…", followed immediately by a sibling row with `id`
-// undefined and a `stableId` of the form "assistant-…". The existing dedupe
-// keys (`id` and `stableId`) both miss this case because both fields differ
-// between the rows. Without this filter the UI renders the final assistant
-// message twice (and `window._vellumDebug.chat.getClientMessages()` returns it twice).
+// the same assistant turn — one with a server-assigned `id`, followed
+// immediately by a sibling row whose `id` is a different value (either another
+// server id or a client-synthesized optimistic id). Dedupe-by-id misses this
+// case because the ids differ between the rows. Without this filter the UI
+// renders the final assistant message twice (and
+// `window._vellumDebug.chat.getClientMessages()` returns it twice).
 //
 // Predicate (must ALL hold to filter):
 //   - the last two messages are both `role: "assistant"`,

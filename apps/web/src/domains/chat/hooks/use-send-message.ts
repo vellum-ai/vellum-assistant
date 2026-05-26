@@ -612,7 +612,7 @@ export function useSendMessage({
           // the prepended draft conversation in the sidebar, and the cleared
           // composer input. Then surface the error.
           setMessages((prev) =>
-            prev.filter((m) => m.stableId !== userMessage.id),
+            prev.filter((m) => m.id !== userMessage.id),
           );
           useConversationStore
             .getState()

@@ -174,7 +174,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
     const subagentsByParent = useMemo(() => {
       if (!rest.subagentEntries?.length) return null;
 
-      // Build a reverse lookup from daemon message UUID → item key (stableId).
+      // Build a reverse lookup from daemon message UUID → item key.
       // Used to resolve subagent entries reconstructed from history where
       // parentMessageId (stable UUID) is set but parentMessageStableId
       // (ephemeral, regenerated each load) won't match.
