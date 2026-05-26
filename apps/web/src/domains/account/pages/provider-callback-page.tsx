@@ -55,6 +55,28 @@ function redirectToNativeApp(
 }
 
 /**
+ * Best-effort check for an iOS Capacitor auth context. Returns true on
+ * iPhone, iPad, and iPadOS (which presents as Macintosh with touch).
+ *
+ * Used to keep iOS off the native error bounce: setting
+ * `window.location.href = scheme://?error=…` inside the iOS
+ * `ASWebAuthenticationSession` Safari sheet has been observed to tear
+ * the sheet down before the new WebKit cookie store finishes committing
+ * the session cookie set by allauth's social callback, making an
+ * otherwise-recoverable post-WorkOS failure permanent. macOS does not
+ * exhibit the same behavior and still relies on the bounce so the auth
+ * sheet closes cleanly into the native UI.
+ */
+function isIOSAuthContext(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent;
+  if (/iPhone|iPad|iPod/i.test(ua)) return true;
+  // iPadOS 13+ reports a Macintosh user agent by default; disambiguate
+  // via touch capability, which Macs don't expose.
+  return /Macintosh/i.test(ua) && "ontouchend" in document;
+}
+
+/**
  * OAuth provider callback handler. Probes the allauth session after the
  * IdP redirect and routes the user to the correct next step:
  * - Authenticated → navigate to returnTo or home
@@ -118,20 +140,8 @@ export function ProviderCallbackPage() {
             break;
           }
           case "error":
-            if (nativeParams) {
-              // TEMPORARY DEBUG (revert once iOS sign-in cache-miss is
-              // diagnosed): suppress the redirect-back-to-native so the
-              // Safari sheet stays open and the actual getSession()
-              // failure mode is inspectable. Without this, ASWebAuth
-              // catches the scheme:// redirect, closes the sheet, and
-              // destroys the Web Inspector window before anything can
-              // be read.
-              console.log("[debug native auth] getSession result:", result);
-              console.log("[debug native auth] classification outcome:", outcome);
-              console.log("[debug native auth] nativeParams:", nativeParams);
-              setFallbackError(
-                `[debug] ${outcome.message} :: result=${JSON.stringify(result).slice(0, 800)}`,
-              );
+            if (nativeParams && !isIOSAuthContext()) {
+              redirectToNativeApp(nativeParams, outcome.message);
               return;
             }
             setFallbackError(outcome.message);
