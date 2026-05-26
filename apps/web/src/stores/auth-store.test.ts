@@ -10,6 +10,11 @@ let sessionUser: MockSessionUser | null = null;
 const syncOnboardingUserMock = mock((_userId: string | null) => {});
 const clearOrganizationMock = mock(() => {});
 const logoutMock = mock(async () => {});
+const deleteBiometricTokenMock = mock(async () => {});
+
+mock.module("@/runtime/native-biometric.js", () => ({
+  deleteBiometricToken: deleteBiometricTokenMock,
+}));
 
 mock.module("@/lib/auth/allauth-client.js", () => ({
   getSession: async () => {
@@ -52,6 +57,7 @@ beforeEach(() => {
   syncOnboardingUserMock.mockClear();
   clearOrganizationMock.mockClear();
   logoutMock.mockClear();
+  deleteBiometricTokenMock.mockClear();
   resetAuthStore();
 });
 
@@ -81,5 +87,13 @@ describe("auth store onboarding flag reconciliation", () => {
     expect(logoutMock).toHaveBeenCalled();
     expect(syncOnboardingUserMock).toHaveBeenCalledWith(null);
     expect(useAuthStore.getState().isLoggedIn).toBe(false);
+  });
+});
+
+describe("biometric cleanup on logout", () => {
+  test("logout clears biometric token", async () => {
+    await useAuthStore.getState().logout();
+
+    expect(deleteBiometricTokenMock).toHaveBeenCalled();
   });
 });

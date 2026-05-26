@@ -19,6 +19,7 @@ import {
   getSession,
   logout as allauthLogout,
 } from "@/lib/auth/allauth-client.js";
+import { deleteBiometricToken } from "@/runtime/native-biometric.js";
 import { syncOnboardingUser } from "@/domains/onboarding/prefs.js";
 import { clearOrganization } from "@/stores/organization-store.js";
 import { useEventBusStore } from "@/stores/event-bus-store.js";
@@ -132,6 +133,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
     try {
       await allauthLogout();
     } finally {
+      void deleteBiometricToken();
       syncUserScopedState(null);
       set({ isLoggedIn: false, user: null });
       broadcastAuthChange();
