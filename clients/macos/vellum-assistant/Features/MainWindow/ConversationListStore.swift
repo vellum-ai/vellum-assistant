@@ -943,6 +943,7 @@ final class ConversationListStore {
             }
 
             snapshot.append(conversationModel(from: conversation))
+            snapshotIndexByDaemonId[conversation.id] = snapshot.count - 1
         }
         conversations = snapshot
 
