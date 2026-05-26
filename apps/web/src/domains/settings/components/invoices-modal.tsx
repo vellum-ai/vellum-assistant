@@ -28,15 +28,22 @@ function statusTone(status: string | null): TagTone {
   }
 }
 
-/** Format a minor-unit amount (e.g. cents) in its currency. */
+/**
+ * Format a minor-unit amount in its currency. Stripe amounts are in the
+ * currency's minor unit, whose exponent varies (USD has 2, JPY/KRW have 0),
+ * so we derive the divisor from the currency rather than assuming cents.
+ */
 function formatAmount(minorUnits: number, currency: string): string {
   const code = currency.toUpperCase();
   try {
-    return new Intl.NumberFormat(undefined, {
+    const formatter = new Intl.NumberFormat(undefined, {
       style: "currency",
       currency: code,
-    }).format(minorUnits / 100);
+    });
+    const exponent = formatter.resolvedOptions().maximumFractionDigits ?? 2;
+    return formatter.format(minorUnits / 10 ** exponent);
   } catch {
+    // Unknown currency code: best-effort, assume a 2-digit minor unit.
     return `${(minorUnits / 100).toFixed(2)} ${code}`;
   }
 }
