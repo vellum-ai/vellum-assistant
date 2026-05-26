@@ -129,7 +129,12 @@ export function HomeRecapRow({
           {onGoToThread && item.conversationId && (
             <HoverIconButton
               title="Go to thread"
-              onClick={() => onGoToThread(item.conversationId!)}
+              onClick={() => {
+                if (isUnread && onToggleRead) {
+                  onToggleRead(item.id, "seen");
+                }
+                onGoToThread(item.conversationId!);
+              }}
             >
               <MessageSquare width={14} height={14} />
             </HoverIconButton>
