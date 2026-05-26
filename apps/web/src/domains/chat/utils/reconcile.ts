@@ -1,7 +1,6 @@
 import { prepareServerMessage } from "@/domains/chat/utils/map-runtime-message.js";
 import { dedupeDisplayMessages, mergeLatestHistoryMessage, messagesEqual } from "@/domains/chat/utils/message-merge.js";
 import { sortByTimestamp, sortedByTimestamp, timestampToMs } from "@/domains/chat/utils/message-sorting.js";
-import { newStableId } from "@/domains/chat/utils/stable-id.js";
 import type { DisplayMessage } from "@/domains/chat/types/types.js";
 import type { RuntimeMessage } from "@/domains/chat/api/messages.js";
 
@@ -72,18 +71,12 @@ function selectStreamingAssistantFallbackIndex(
 }
 
 /**
- * Decide whether a row still has a placeholder identity (no real server
- * id yet). Post-2c.1 every DisplayMessage has a non-null `id`, but for
- * optimistic rows it's just the stableId mirrored in. Two ways to
- * recognise that placeholder state:
- *   - `isOptimistic === true` (explicit, set by send-message for queued
- *     user rows)
- *   - `id === stableId` (implicit; matches assistant streaming bubbles
- *     created via `createStreamingBubble({ messageId: undefined })`,
- *     i.e. bubble birth before any SSE event carrying messageId)
+ * A row whose `id` is a client-generated placeholder rather than a
+ * server-assigned id. Used as the signal for latest-history merge to
+ * fall back to content matching instead of id matching.
  */
 function hasPlaceholderIdentity(message: DisplayMessage): boolean {
-  return message.isOptimistic === true || message.id === message.stableId;
+  return message.isOptimistic === true;
 }
 
 function findLatestHistoryFallbackIndex(
@@ -229,11 +222,6 @@ export function reconcileMessages(
       // where one code path forgets a transformation step.
       const prepared = prepareServerMessage(m);
 
-      // Pure id-match. Pre-2c.1, this branch had a content + timestamp-window
-      // fallback for SSE-streamed assistant rows whose id arrived later than
-      // their text. After PR 2b.1 every assistant write site stamps `id` at
-      // birth (first text_delta / tool_use / surface event), so an id-only
-      // lookup is sufficient — and reliable.
       const localMsg = localById.get(m.id);
 
       // Skip server messages that have no local match AND are older
@@ -246,9 +234,7 @@ export function reconcileMessages(
         return [];
       }
 
-      const stableId = localMsg?.stableId ?? newStableId("server");
-
-      const msg: DisplayMessage = { stableId, id: m.id, role: m.role, content: prepared.cleanedContent };
+      const msg: DisplayMessage = { id: m.id, role: m.role, content: prepared.cleanedContent };
       // `isStreaming` is a client-owned, live-only flag — server snapshots
       // never carry it. Preserve the local row's value so a sync-driven
       // reconcile that lands mid-turn doesn't flip the active bubble to
@@ -375,18 +361,13 @@ export function reconcileMessages(
   //     client UUID, never in `serverIds`. We try a content match against
   //     the reconciled array; if a server row matches, transfer the
   //     client-side timestamp/attachments to it (the optimistic row is
-  //     dropped, the server row takes over — one-time React row remount
-  //     is acceptable per the workstream decision). Otherwise preserve
-  //     the optimistic row as-is so the user's message doesn't vanish
+  //     dropped, the server row takes over). Otherwise preserve the
+  //     optimistic row as-is so the user's message doesn't vanish
   //     between POST and the server's first snapshot.
   //
   //  2. Non-optimistic local rows whose id isn't in `serverIds` — likely
   //     brief replication lag or pagination. Preserve to prevent
   //     vanishing, including `isStreaming` flag if the turn is still live.
-  //
-  // The pre-2c.1 "lost-toolCall safety net" that rescued toolCall groups
-  // when the SSE event `messageId` drifted from the server API's id is
-  // gone — PR 2b.1's anchor invariant guarantees those ids match.
   for (const m of local) {
     if (!m.isOptimistic && serverIds.has(m.id)) continue;
 
@@ -404,11 +385,10 @@ export function reconcileMessages(
         if (!match.timestamp && m.timestamp) {
           match.timestamp = m.timestamp;
         }
-        // Local attachments win over server when both present — the
-        // local row holds the blob preview URL the user is actively
-        // viewing; server attachments only have backend UUIDs which
-        // may 404 until the upload finalizes. (Mirrors the local-wins
-        // branch in the main id-match path.)
+        // Local attachments win over server: the local row holds the
+        // blob preview URL the user is actively viewing; server
+        // attachments only carry backend UUIDs which may 404 until the
+        // upload finalizes.
         if (m.attachments && m.attachments.length > 0) {
           match.attachments = m.attachments;
         }
@@ -422,10 +402,6 @@ export function reconcileMessages(
 
   sortByTimestamp(reconciled);
 
-  // Deduplicate by both server id and stableId. Server id dedup catches
-  // duplicate SSE/history rows; stableId dedup catches the rare case
-  // where an optimistic row's content-match swap left the optimistic row
-  // briefly co-resident with the server row before drop.
   const deduped = dedupeDisplayMessages(reconciled);
 
   // Return the original array when nothing changed so that callers using

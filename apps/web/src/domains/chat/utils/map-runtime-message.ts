@@ -1,6 +1,5 @@
 import { runtimeAttachmentsToDisplay } from "@/domains/chat/utils/attachment-mapping.js";
 import { parseAttachmentSummariesFromContent } from "@/domains/chat/utils/parse-attachment-summaries.js";
-import { newStableId } from "@/domains/chat/utils/stable-id.js";
 import type {
   DisplayAttachment,
   DisplayMessage,
@@ -109,7 +108,7 @@ export function prepareServerMessage(m: RuntimeMessage): PreparedRuntimeMessage 
 }
 
 /**
- * Map a `RuntimeMessage` to a `DisplayMessage` with a fresh `stableId`.
+ * Map a `RuntimeMessage` to a `DisplayMessage`.
  *
  * Used by `history.ts` for initial page loads where there is no local state
  * to merge. For reconciliation (where local state must be preserved), use
@@ -122,7 +121,6 @@ export function mapRuntimeToDisplayMessage(m: RuntimeMessage): DisplayMessage {
     id: m.id,
     role: m.role,
     content: prepared.cleanedContent,
-    stableId: newStableId("server"),
   };
   if (m.surfaces) msg.surfaces = m.surfaces;
   if (prepared.normalizedSegments) msg.textSegments = prepared.normalizedSegments;

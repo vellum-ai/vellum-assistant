@@ -66,35 +66,25 @@ export interface SlackRuntimeMessage {
 }
 
 export interface DisplayMessage {
-  /** Stable client-side identity that survives optimistic send →
-   *  server reconciliation. Assigned at message creation; never mutated.
-   *  Used as the row key in the virtualized transcript so a message never
-   *  remounts when the server assigns or rewrites its `id`.
-   *
-   *  TODO(2c.2): delete. Once `id` is the live row identity (mandatory and
-   *  preserved across optimistic→server transitions for assistant rows,
-   *  one-time swap for user rows), `stableId` is redundant. Kept in 2c.1 so
-   *  the row-key call sites in the transcript don't churn alongside the
-   *  reconcile rewrite. */
-  stableId: string;
   /**
-   * Authoritative row identity. For server-confirmed messages this is the
-   * server-assigned message id; for an optimistic user message awaiting
-   * server confirmation this is a client-generated identifier (mirrored
-   * from `stableId` during 2c.1 — they hold the same value until the
-   * mechanical rename in 2c.2). For assistant turns that the server merges
-   * across multiple DB rows (consecutive assistant rows), this is the
-   * display anchor — server-side actions (fork, inspect) accept this id
-   * and resolve the merged cluster internally.
+   * Row identity. Server-assigned message id for confirmed rows; a
+   * client-generated identifier for rows that haven't been confirmed by
+   * the server yet (optimistic user sends, assistant rows born from a
+   * tool/surface SSE event that didn't carry `messageId`). Used as the
+   * row key in the virtualized transcript and as the match key in
+   * reconcile. For assistant turns the server merges across multiple DB
+   * rows, this is the display anchor — server-side actions (fork,
+   * inspect) accept this id and resolve the merged cluster internally.
    */
   id: string;
   /**
-   * True for a user message that's been optimistically rendered but not yet
-   * confirmed by the server. While true, `id` is a client-generated
-   * identifier; it gets swapped to the server-assigned id on POST resolve
-   * (active path) or on reconcile content-match (queued path), and this
-   * flag is cleared at the same moment. Reconcile skips optimistic rows
-   * from id-match so their client id can't shadow a real server row.
+   * True when `id` is a client-generated placeholder rather than a
+   * server-assigned id. Set on optimistic user sends and on assistant
+   * rows born from SSE events that didn't carry `messageId`. Reconcile
+   * uses this as the signal that the row's id can't be matched against
+   * the server snapshot directly; optimistic user rows get a content
+   * match + id swap, optimistic assistant rows are preserved as-is until
+   * a subsequent SSE event or history fetch resolves them.
    */
   isOptimistic?: boolean;
   role: "user" | "assistant";

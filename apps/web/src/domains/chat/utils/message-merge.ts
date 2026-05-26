@@ -7,7 +7,6 @@ export function messagesEqual(a: DisplayMessage[], b: DisplayMessage[]): boolean
     const am = a[i]!;
     const bm = b[i]!;
     if (
-      am.stableId !== bm.stableId ||
       am.id !== bm.id ||
       am.role !== bm.role ||
       am.content !== bm.content ||
@@ -26,7 +25,6 @@ export function messagesEqual(a: DisplayMessage[], b: DisplayMessage[]): boolean
 
     // Compare any arbitrary passthrough fields beyond the known set
     const knownKeys = new Set([
-      "stableId",
       "id",
       "role",
       "content",
@@ -131,12 +129,7 @@ export function mergeDuplicateMessages(
   const merged: DisplayMessage = {
     ...secondary,
     ...preferred,
-    stableId: current.stableId,
   };
-
-  if (!merged.id) {
-    merged.id = current.id ?? incoming.id;
-  }
 
   if (current.isStreaming || incoming.isStreaming) {
     merged.isStreaming = Boolean(current.isStreaming && incoming.isStreaming);
@@ -208,7 +201,6 @@ export function mergeLatestHistoryMessage(
   const merged: DisplayMessage = {
     ...current,
     ...incoming,
-    stableId: current.stableId,
     content: preferredText.content,
   };
 
@@ -229,9 +221,7 @@ export function mergeLatestHistoryMessage(
     delete merged.queuePosition;
   }
 
-  // Clear the optimistic flag once a server id is in play — the incoming
-  // row is the server's authoritative version, so the placeholder
-  // identity is no longer needed.
+  // Server id arrived → the row is no longer optimistic.
   if (incoming.id && current.isOptimistic) {
     delete merged.isOptimistic;
   }
@@ -321,17 +311,9 @@ function dedupeMessagesByKey(
   return result ?? messages;
 }
 
-/**
- * Collapse duplicate display messages while preserving the first row's
- * stable identity. Server ids are authoritative; stable ids are a second
- * safety net for React row keys before a server id exists.
- */
+/** Collapse duplicate display messages keyed by `id`. */
 export function dedupeDisplayMessages(
   messages: DisplayMessage[],
 ): DisplayMessage[] {
-  const dedupedByServerId = dedupeMessagesByKey(messages, (message) => message.id);
-  return dedupeMessagesByKey(
-    dedupedByServerId,
-    (message) => message.stableId,
-  );
+  return dedupeMessagesByKey(messages, (message) => message.id);
 }
