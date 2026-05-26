@@ -22,6 +22,7 @@ function resolveCategoryStyle(category?: FeedItemCategory) {
 
 export interface HomeDetailPanelProps {
   item: FeedItem | null;
+  validConversationIds: Set<string>;
   onClose: () => void;
   onGoToThread: (conversationId: string) => void;
   onUpdateStatus: (itemId: string, status: FeedItemStatus) => void;
@@ -30,6 +31,7 @@ export interface HomeDetailPanelProps {
 
 export function HomeDetailPanel({
   item,
+  validConversationIds,
   onClose,
   onGoToThread,
   onUpdateStatus,
@@ -72,8 +74,8 @@ export function HomeDetailPanel({
           {item.title ?? item.summary}
         </Typography>
 
-        {/* Go to Convo button — only when conversationId exists */}
-        {item.conversationId ? (
+        {/* Go to Convo button — only when conversationId exists and is valid */}
+        {item.conversationId && validConversationIds.has(item.conversationId) ? (
           <Button
             variant="outlined"
             size="compact"
