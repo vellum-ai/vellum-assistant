@@ -1953,6 +1953,15 @@ export const EMOJI_CATALOG: EmojiEntry[] = [
 ];
 
 /**
+ * Matches `:shortcode` at the end of text up to the cursor position.
+ * Allows `+` and `-` so shortcodes like `:+1` and `:-1` are matched.
+ */
+export const EMOJI_TRIGGER_RE = /:([\w+-]+)$/;
+
+/** Minimum filter length before showing the emoji popup. */
+export const EMOJI_MIN_FILTER_LENGTH = 2;
+
+/**
  * Returns emoji entries matching `query` (case-insensitive), capped at `limit`.
  * Ranking: shortcode prefix → shortcode substring → alias prefix → alias substring.
  * Each shortcode appears at most once in the result.

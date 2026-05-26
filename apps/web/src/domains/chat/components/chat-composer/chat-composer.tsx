@@ -30,7 +30,7 @@ import { useAudioAmplitude } from "@/domains/voice/use-audio-amplitude.js";
 import { useVoiceRecordingStore } from "@/domains/voice/voice-recording-store.js";
 import { StreamingWaveform } from "@/domains/chat/components/chat-composer/streaming-waveform.js";
 
-import type { EmojiEntry } from "@/domains/chat/components/chat-composer/emoji-catalog.js";
+import { EMOJI_MIN_FILTER_LENGTH, EMOJI_TRIGGER_RE, searchEmoji, type EmojiEntry } from "@/domains/chat/components/chat-composer/emoji-catalog.js";
 import { EmojiPickerPopup } from "@/domains/chat/components/chat-composer/emoji-picker-popup.js";
 import { SlashCommandPopup } from "@/domains/chat/components/chat-composer/slash-command-popup.js";
 import {
@@ -38,10 +38,12 @@ import {
   matchFormattingShortcut,
 } from "@/domains/chat/components/chat-composer/markdown-formatting.js";
 import {
+  SLASH_PREFIX_RE,
+  filteredCommands,
   type SlashCommand,
   selectedInputText,
 } from "@/domains/chat/components/chat-composer/slash-command-catalog.js";
-import { useComposerController } from "@/domains/chat/components/chat-composer/use-composer-controller.js";
+import { useTextPopup } from "@/domains/chat/components/chat-composer/use-text-popup.js";
 
 // ---------------------------------------------------------------------------
 // Keyboard policy
@@ -270,69 +272,59 @@ export function ChatComposer({
 
   // Stable ref so handleSlashCommandSelect's autoSend path always calls the
   // latest onSubmit even after flushSync triggers a synchronous re-render.
-  // Without this, onSubmit is captured in a stale useCallback closure and
-  // reads the pre-selection input (e.g. "/mo") rather than the full command.
-  // useLayoutEffect (not useEffect) runs synchronously after commit, so the
-  // ref is updated within the flushSync call before we read it.
   const onSubmitRef = useRef(onSubmit);
   useLayoutEffect(() => {
     onSubmitRef.current = onSubmit;
   });
-  // Emoji and slash command state is managed internally via the composer
-  // controller hook — the same pattern the macOS ComposerController uses.
-  const [slashState, emojiState, composerActions] = useComposerController();
-  const {
-    handleSlashDismiss,
-    handleSlashSelect,
-    handleSlashUp,
-    handleSlashDown,
-    handleEmojiUp,
-    handleEmojiDown,
-    handleEmojiSelect,
-    handleEmojiDismiss,
-    onTextChange,
-  } = composerActions;
+
+  // Cursor position at the time of the last text change, used to derive the
+  // emoji popup's trigger text. Updated in onChange and programmatic setInput
+  // calls; defaults to end-of-input for the initial render.
+  const cursorRef = useRef(input.length);
+
+  // Slash and emoji popups — state is derived from the input text, not stored.
+  const slash = useTextPopup({
+    text: input,
+    trigger: SLASH_PREFIX_RE,
+    search: filteredCommands,
+  });
+
+  const textBeforeCursor = input.slice(0, cursorRef.current);
+  const emoji = useTextPopup({
+    text: textBeforeCursor,
+    trigger: EMOJI_TRIGGER_RE,
+    search: searchEmoji,
+    minFilterLength: EMOJI_MIN_FILTER_LENGTH,
+  });
 
   const handleSlashCommandSelect = useCallback(
     (command: SlashCommand) => {
       const newInput = selectedInputText(command);
       if (command.selectionBehavior === "autoSend") {
+        // Suppress before flushSync so the synchronous re-render derives
+        // show=false instead of briefly flashing the popup.
+        slash.dismiss();
         flushSync(() => setInput(newInput));
-        // Explicitly dismiss the popup before submitting — onTextChange(newInput)
-        // would re-match the command and keep the popup open.
-        handleSlashDismiss();
-        // Use onSubmitRef.current (not onSubmit from closure) — flushSync above
-        // triggers a synchronous re-render that updates the ref to the latest
-        // handleSubmit, which closes over the new input value.
         onSubmitRef.current(new Event("submit") as unknown as FormEvent);
-        // handleSubmit clears input via setInput("") but never fires onChange,
-        // so the suppress flag set by handleSlashDismiss would persist and
-        // swallow the next "/" keystroke. Notify the controller of the empty
-        // input so computeSlashState consumes the flag.
-        onTextChange("");
       } else {
+        cursorRef.current = newInput.length;
         setInput(newInput);
-        onTextChange(newInput);
         inputRef.current?.focus();
       }
     },
-    [setInput, inputRef, onTextChange, handleSlashDismiss],
+    [setInput, inputRef, slash.dismiss],
   );
 
-  /** Replace the `:filter` trigger text with the selected emoji and reposition cursor. */
   const insertEmoji = useCallback(
     (entry: EmojiEntry) => {
       const el = inputRef.current;
       const cursorPos = el?.selectionStart ?? input.length;
-      // The colon sits at (cursorPos - filterLength - 1).
-      const colonPos = cursorPos - emojiState.emojiFilter.length - 1;
+      const colonPos = cursorPos - emoji.filter.length - 1;
       const newInput =
         input.slice(0, colonPos) + entry.emoji + input.slice(cursorPos);
-      setInput(newInput);
-      // Notify the controller so it can update state with the new text.
       const newCursor = colonPos + entry.emoji.length;
-      onTextChange(newInput, newCursor);
-      // Position cursor after the inserted emoji.
+      cursorRef.current = newCursor;
+      setInput(newInput);
       requestAnimationFrame(() => {
         if (el) {
           el.setSelectionRange(newCursor, newCursor);
@@ -340,7 +332,7 @@ export function ChatComposer({
         }
       });
     },
-    [emojiState, input, inputRef, setInput, onTextChange],
+    [emoji.filter, input, inputRef, setInput],
   );
 
   const phase: TurnPhase = useTurnStore.use.phase();
@@ -361,7 +353,7 @@ export function ChatComposer({
   return (
     <>
       {noticesAboveFormSlot}
-      <Popover.Root open={emojiState.showEmojiMenu || slashState.showSlashMenu}>
+      <Popover.Root open={emoji.show || slash.show}>
         <Popover.Anchor asChild>
           <form
             onSubmit={onSubmit}
@@ -404,9 +396,8 @@ export function ChatComposer({
                 data-lpignore="true"
                 onChange={(e) => {
                   const value = e.target.value;
-                  const cursor = e.target.selectionStart ?? value.length;
+                  cursorRef.current = e.target.selectionStart ?? value.length;
                   setInput(value);
-                  onTextChange(value, cursor);
                 }}
                 onPaste={(e) => {
                   const items = e.clipboardData?.items;
@@ -425,60 +416,55 @@ export function ChatComposer({
                   }
                 }}
                 onKeyDown={(e) => {
-                  // Slash menu keyboard navigation — intercept before other handlers
-                  if (slashState.showSlashMenu) {
+                  if (slash.show) {
                     if (e.key === "ArrowUp") {
                       e.preventDefault();
-                      handleSlashUp();
+                      slash.moveUp();
                       return;
                     }
                     if (e.key === "ArrowDown") {
                       e.preventDefault();
-                      handleSlashDown();
+                      slash.moveDown();
                       return;
                     }
                     if (e.key === "Tab" || e.key === "Enter") {
                       e.preventDefault();
-                      const cmd = handleSlashSelect();
+                      const cmd = slash.items[slash.selectedIndex];
                       if (cmd) handleSlashCommandSelect(cmd);
                       return;
                     }
                     if (e.key === "Escape") {
                       e.preventDefault();
-                      handleSlashDismiss();
+                      slash.dismiss();
                       setInput("");
                       return;
                     }
                   }
 
-                  // Emoji popup keyboard navigation — intercept before other handlers
-                  if (emojiState.showEmojiMenu) {
+                  if (emoji.show) {
                     if (e.key === "ArrowUp") {
                       e.preventDefault();
-                      handleEmojiUp();
+                      emoji.moveUp();
                       return;
                     }
                     if (e.key === "ArrowDown") {
                       e.preventDefault();
-                      handleEmojiDown();
+                      emoji.moveDown();
                       return;
                     }
                     if (e.key === "Enter") {
                       e.preventDefault();
-                      const selected = handleEmojiSelect();
-                      if (selected) {
-                        insertEmoji(selected);
-                      }
+                      const selected = emoji.items[emoji.selectedIndex];
+                      if (selected) insertEmoji(selected);
                       return;
                     }
                     if (e.key === "Escape") {
                       e.preventDefault();
-                      handleEmojiDismiss();
+                      emoji.dismiss();
                       return;
                     }
                   }
 
-                  // Markdown formatting shortcuts (Ctrl/Cmd+B, I, Shift+X, Shift+C)
                   const marker = matchFormattingShortcut(e);
                   if (marker) {
                     e.preventDefault();
@@ -491,8 +477,8 @@ export function ChatComposer({
                       end,
                       marker,
                     );
+                    cursorRef.current = result.selectionStart;
                     setInput(result.text);
-                    onTextChange(result.text, result.selectionStart);
                     requestAnimationFrame(() => {
                       if (el) {
                         el.setSelectionRange(
@@ -508,8 +494,8 @@ export function ChatComposer({
                   if (e.key === "Tab" && ghostSuffix) {
                     e.preventDefault();
                     const accepted = input + ghostSuffix;
+                    cursorRef.current = accepted.length;
                     setInput(accepted);
-                    onTextChange(accepted, accepted.length);
                     return;
                   }
                   const decision = shouldSubmitOnEnter(
@@ -685,17 +671,17 @@ export function ChatComposer({
           onEscapeKeyDown={(e: Event) => e.preventDefault()}
           onPointerDownOutside={(e: Event) => e.preventDefault()}
         >
-          {emojiState.showEmojiMenu && (
+          {emoji.show && (
             <EmojiPickerPopup
-              entries={emojiState.emojiEntries}
-              selectedIndex={emojiState.emojiSelectedIndex}
+              entries={emoji.items}
+              selectedIndex={emoji.selectedIndex}
               onSelect={insertEmoji}
             />
           )}
-          {slashState.showSlashMenu && (
+          {slash.show && (
             <SlashCommandPopup
-              commands={slashState.slashCommands}
-              selectedIndex={slashState.slashSelectedIndex}
+              commands={slash.items}
+              selectedIndex={slash.selectedIndex}
               onSelect={handleSlashCommandSelect}
             />
           )}
