@@ -222,6 +222,7 @@ describe("MemoryV3ConfigSchema", () => {
       breadthBudget: 6,
       maxDepth: 6,
       denseQuota: { activeDomain: 30, offDomain: 8 },
+      hotLimit: 50,
       lanes: { hot: true, sparse: true, dense: true, tree: true, edges: true },
       ks: [5, 10, 25, 50],
       write: {

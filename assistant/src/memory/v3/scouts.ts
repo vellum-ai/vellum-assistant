@@ -182,8 +182,13 @@ async function runHotLane(
   if (scores.size === 0) return null;
 
   // Slugs with no events in the read window are omitted by
-  // `computeInjectionScores`, so every entry here has score > 0.
-  const ranked = [...scores.entries()].sort((a, b) => sortByScoreDesc(a, b));
+  // `computeInjectionScores`, so every entry here has score > 0. Cap to the
+  // top `hotLimit` by EMA: hot hits are sticky (forced past the gate), so an
+  // uncapped lane on a mature corpus — where nearly every page has been
+  // injected at some point — would force the entire corpus into the selection.
+  const ranked = [...scores.entries()]
+    .sort((a, b) => sortByScoreDesc(a, b))
+    .slice(0, input.config.memory.v3.hotLimit);
   const slugs = ranked.map(([slug]) => slug);
   const scoreBySlug = Object.fromEntries(ranked);
   return { lane: "hot", slugs, scoreBySlug };

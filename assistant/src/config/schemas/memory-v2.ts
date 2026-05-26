@@ -452,6 +452,14 @@ export const MemoryV3ConfigSchema = z
       .describe(
         "Dense-lane candidate quotas split between the active domain and off-domain exploration.",
       ),
+    hotLimit: z
+      .number({ error: "memory.v3.hotLimit must be a number" })
+      .int("memory.v3.hotLimit must be an integer")
+      .positive("memory.v3.hotLimit must be positive")
+      .default(50)
+      .describe(
+        "Top-N cap on the hot scout lane, ranked by injection-frequency EMA. Hot hits are sticky (kept past the gate), so this bounds how many always-on pages the lane forces into the selection. Without a cap a mature corpus — where nearly every page has been injected at some point — surfaces the entire corpus.",
+      ),
     lanes: z
       .object({
         hot: z
@@ -532,6 +540,7 @@ export const MemoryV3ConfigSchema = z
     breadthBudget: 6,
     maxDepth: 6,
     denseQuota: { activeDomain: 30, offDomain: 8 },
+    hotLimit: 50,
     lanes: { hot: true, sparse: true, dense: true, tree: true, edges: true },
     ks: [5, 10, 25, 50],
     write: {

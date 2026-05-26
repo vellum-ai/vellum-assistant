@@ -96,6 +96,7 @@ function makeInput(opts?: {
   nowText?: string;
   lanes?: Partial<Lanes>;
   denseQuota?: { activeDomain: number; offDomain: number };
+  hotLimit?: number;
   signal?: AbortSignal;
 }): RetrievalInput {
   const lanes = {
@@ -111,6 +112,7 @@ function makeInput(opts?: {
       v3: {
         lanes,
         denseQuota: opts?.denseQuota ?? { activeDomain: 30, offDomain: 8 },
+        hotLimit: opts?.hotLimit ?? 50,
       },
     },
   } as unknown as RetrievalInput["config"];
@@ -161,6 +163,28 @@ describe("runScouts — hot lane", () => {
     expect(hot?.slugs).toEqual(["people/alice", "work/proj"]);
     expect(hot?.scoreBySlug).toEqual({ "people/alice": 0.9, "work/proj": 0.2 });
     expect([...sticky].sort()).toEqual(["people/alice", "work/proj"]);
+  });
+
+  test("caps the hot lane to the top hotLimit by EMA", async () => {
+    pageSlugs = ["a", "b", "c", "d"];
+    injectionScores = new Map([
+      ["a", 0.9],
+      ["b", 0.7],
+      ["c", 0.5],
+      ["d", 0.3],
+    ]);
+
+    const { scouts, sticky } = await runScouts(
+      makeInput({ lanes: { sparse: false, dense: false }, hotLimit: 2 }),
+      DEPS,
+    );
+
+    // Only the top-2 by EMA survive the cap; the long tail is dropped so it
+    // can't flood the (sticky) candidate set on a mature corpus.
+    const hot = scouts.find((s) => s.lane === "hot");
+    expect(hot?.slugs).toEqual(["a", "b"]);
+    expect(hot?.scoreBySlug).toEqual({ a: 0.9, b: 0.7 });
+    expect([...sticky].sort()).toEqual(["a", "b"]);
   });
 
   test("empty corpus yields no hot ScoutResult", async () => {
