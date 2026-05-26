@@ -727,10 +727,13 @@ export function handleListMessages({
 
     // Align msgAttachments order with the file-block order captured by
     // renderHistoryContent. When a file block was persisted with
-    // `_attachmentId`, we can join on that id to position the chip inline
-    // (the `attachment:N` entries in contentOrder index into msgAttachments).
-    // DB rows without a matching ref go to the tail as orphan chips;
-    // unmatched refs drop their contentOrder entry and trigger a remap.
+    // `_attachmentId` (user-message uploads), we join on that id to position
+    // the chip inline (the `attachment:N` entries in contentOrder index into
+    // msgAttachments). DB rows without a matching ref go to the tail as orphan
+    // chips; unmatched refs drop their contentOrder entry and trigger a remap.
+    // Assistant-authored file blocks carry no `_attachmentId`, so when no ids
+    // match we fall back to positional alignment if the ref and row counts
+    // agree; otherwise we strip the markers and let chips fall to the tail.
     let alignedContentOrder = m.contentOrder;
     if (
       m.attachmentRefs.length > 0 &&
@@ -781,14 +784,18 @@ export function handleListMessages({
               : undefined;
           })
           .filter((e): e is string => e !== undefined);
-      } else {
-        // No refs carried an attachmentId we could match — strip any
-        // attachment:N entries so the client doesn't try to position
-        // attachments inline against a misaligned array.
+      } else if (m.attachmentRefs.length !== msgAttachments.length) {
+        // No ref carried an attachmentId we could match and the counts
+        // disagree, so positional mapping can't be trusted — strip any
+        // attachment:N entries so the client doesn't position attachments
+        // inline against a misaligned array (they fall to the tail instead).
         alignedContentOrder = m.contentOrder.filter(
           (entry) => !ATTACHMENT_ENTRY_RE.test(entry),
         );
       }
+      // Otherwise no ref matched an id but the counts agree (the
+      // assistant-authored case): the Nth marker maps to the Nth row
+      // positionally, so the original contentOrder is left untouched.
     } else if (m.attachmentRefs.length > 0 && msgAttachments.length === 0) {
       // Refs were captured but no DB rows came back — drop the
       // contentOrder entries to avoid out-of-bounds renders.
@@ -979,8 +986,7 @@ export async function handleSendMessage(
 
   const actorPrincipalId = headers?.["x-vellum-actor-principal-id"];
   const principalType = headers?.["x-vellum-principal-type"];
-  const originClientId =
-    headers?.["x-vellum-client-id"]?.trim() || undefined;
+  const originClientId = headers?.["x-vellum-client-id"]?.trim() || undefined;
 
   const { conversationKey, content, attachmentIds } = body;
   const inboundConversationId =
@@ -2032,8 +2038,8 @@ async function generateLlmSuggestion(
     "",
     "CRITICAL — write from the USER'S perspective only, NEVER from the assistant's:",
     "- The suggestion is what the USER will type into the chat input",
-    "- Use first-person \"I\" only if the user has used it in their prior messages",
-    "- NEVER start with phrases like \"I can help\", \"Here's what\", \"Let me\", \"I'd suggest\" — those are assistant-voice",
+    '- Use first-person "I" only if the user has used it in their prior messages',
+    '- NEVER start with phrases like "I can help", "Here\'s what", "Let me", "I\'d suggest" — those are assistant-voice',
     "- Think: if you were the user reading the assistant's reply, what question or follow-up would you ask next?",
     "",
     "Output only the reply text inside the requested tags — no preamble, no commentary.",
