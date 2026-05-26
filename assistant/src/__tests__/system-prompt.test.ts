@@ -171,6 +171,42 @@ describe("buildSystemPrompt", () => {
     expect(result).toContain("# Soul\n\nBe thoughtful.");
   });
 
+  test("gates off the unmodified bundled IDENTITY.md template when no BOOTSTRAP.md is present", () => {
+    // Regression: the seeded IDENTITY.md ships with `_`-comment lines, so
+    // the raw workspace body never equals the comment-stripped bundled
+    // template. `isTemplateContent` must comment-strip BOTH sides — otherwise
+    // detection fails and the `08-identity` transform leaks the blank
+    // template scaffolding into every fresh post-onboarding prompt.
+    const bundledIdentity = readFileSync(
+      join(import.meta.dirname, "..", "prompts", "templates", "IDENTITY.md"),
+      "utf-8",
+    );
+    writeFileSync(join(TEST_DIR, "IDENTITY.md"), bundledIdentity);
+    writeFileSync(join(TEST_DIR, "SOUL.md"), "# Soul\n\nBe thoughtful.");
+    const result = buildSystemPrompt();
+    // SOUL still renders; the template scaffolding must not.
+    expect(result).toContain("# Soul\n\nBe thoughtful.");
+    expect(result).not.toContain("This file is yours.");
+    expect(result).not.toContain("(not yet chosen)");
+  });
+
+  test("includes the unmodified bundled IDENTITY.md template during bootstrap", () => {
+    // The mirror case: when BOOTSTRAP.md is active the template is included
+    // verbatim so the model can see the field structure and produce a valid
+    // file_write on the first turn.
+    const bundledIdentity = readFileSync(
+      join(import.meta.dirname, "..", "prompts", "templates", "IDENTITY.md"),
+      "utf-8",
+    );
+    writeFileSync(join(TEST_DIR, "IDENTITY.md"), bundledIdentity);
+    writeFileSync(
+      join(TEST_DIR, "BOOTSTRAP.md"),
+      "# First run\n\nGet started.",
+    );
+    const result = buildSystemPrompt();
+    expect(result).toContain("This file is yours.");
+  });
+
   test("trims whitespace from file content", () => {
     writeFileSync(join(TEST_DIR, "SOUL.md"), "\n  Be kind  \n\n");
     const result = buildSystemPrompt();
