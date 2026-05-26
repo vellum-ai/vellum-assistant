@@ -367,6 +367,28 @@ describe("token estimator", () => {
     expect(tokens).toBeLessThan(4_200);
   });
 
+  test("Gemini preserves aspect ratio when resizing to the 3072px cap", () => {
+    // Gemini rescales BOTH dimensions by a single factor so the longest side
+    // becomes 3072px. A 10000x1000 image → 3072x307, i.e. ceil(3072/768)=4
+    // tiles wide * ceil(307/768)=1 tile high = 4 tiles (~1,032 tokens).
+    // Clamping each side independently would yield 4*2=8 tiles, over-counting
+    // by 2x and risking spurious compaction.
+    const tokens = estimateContentBlockTokens(
+      {
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: "image/png",
+          data: makePngBase64(10000, 1000),
+        },
+      },
+      { providerName: "gemini" },
+    );
+    // 4 tiles * 258 = 1,032 image tokens + 16 block overhead + 3 media type.
+    expect(tokens).toBeGreaterThanOrEqual(1_032);
+    expect(tokens).toBeLessThan(1_100);
+  });
+
   test("Gemini images ≤384px on both sides count as a single 258-token tile", () => {
     const tokens = estimateContentBlockTokens(
       {
