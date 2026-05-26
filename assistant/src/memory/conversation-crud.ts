@@ -26,6 +26,7 @@ import { CHANNEL_IDS, isChannelId } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import { findDisplayTurnEndIndex } from "../conversations/message-consolidation.js";
 import type { TrustContext } from "../daemon/trust-context.js";
+import { clearAllConversationIds } from "../home/feed-writer.js";
 import { UserError } from "../util/errors.js";
 import { safeParseRecord } from "../util/json.js";
 import { getLogger } from "../util/logger.js";
@@ -1864,6 +1865,8 @@ export async function clearAll(): Promise<{
   } catch (err) {
     log.warn({ err }, "clearAll: failed to reset conversations directory");
   }
+
+  void clearAllConversationIds();
 
   return { conversations: convCount, messages: msgCount };
 }

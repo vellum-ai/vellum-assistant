@@ -28,6 +28,7 @@ import {
   undoLastMessage,
 } from "../../daemon/handlers/conversations.js";
 import { normalizeConversationType } from "../../daemon/message-types/shared.js";
+import { stripConversationIds } from "../../home/feed-writer.js";
 import {
   archiveConversation,
   batchSetDisplayOrders,
@@ -114,7 +115,10 @@ function handleCreateConversation({ body = {}, headers }: RouteHandlerArgs) {
   };
 }
 
-async function handleForkConversation({ body = {}, headers }: RouteHandlerArgs) {
+async function handleForkConversation({
+  body = {},
+  headers,
+}: RouteHandlerArgs) {
   const conversationId = body.conversationId as string | undefined;
   if (!conversationId || typeof conversationId !== "string") {
     throw new BadRequestError("Missing conversationId");
@@ -223,9 +227,7 @@ function handleRenameConversation({
   return { ok: true };
 }
 
-async function handleClearAllConversations({
-  headers = {},
-}: RouteHandlerArgs) {
+async function handleClearAllConversations({ headers = {} }: RouteHandlerArgs) {
   const confirm = headers["x-confirm-destructive"];
   if (confirm !== "clear-all-conversations") {
     throw new BadRequestError(
@@ -241,7 +243,10 @@ async function handleClearAllConversations({
   return undefined;
 }
 
-function handleWipeConversation({ pathParams = {}, headers }: RouteHandlerArgs) {
+function handleWipeConversation({
+  pathParams = {},
+  headers,
+}: RouteHandlerArgs) {
   const resolvedId = resolveOrThrow(pathParams.id!);
 
   cancelScheduleIfLast(resolvedId);
@@ -273,6 +278,9 @@ function handleWipeConversation({ pathParams = {}, headers }: RouteHandlerArgs) 
     resolvedId,
     headers?.["x-vellum-client-id"]?.trim() || undefined,
   );
+
+  void stripConversationIds(resolvedId);
+
   return {
     wiped: true,
     unsupersededItems: 0,
@@ -310,6 +318,8 @@ function handleDeleteConversation({
     resolvedId,
     headers?.["x-vellum-client-id"]?.trim() || undefined,
   );
+
+  void stripConversationIds(resolvedId);
 
   return undefined;
 }
@@ -445,9 +455,7 @@ export const ROUTES: RouteDefinition[] = [
         ),
       conversationKey: z
         .string()
-        .describe(
-          "Echo of the optional external key supplied by the client.",
-        ),
+        .describe("Echo of the optional external key supplied by the client."),
       conversationType: z.string(),
       created: z.boolean(),
     }),
