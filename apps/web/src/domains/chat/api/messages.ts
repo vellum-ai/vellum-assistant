@@ -520,6 +520,12 @@ export async function postChatMessage(
       onboardingDict.priorAssistants = normalizedOnboarding.priorAssistants;
     if (normalizedOnboarding.cohort !== undefined)
       onboardingDict.cohort = normalizedOnboarding.cohort;
+    if (normalizedOnboarding.bootstrapTemplate !== undefined)
+      onboardingDict.bootstrapTemplate = normalizedOnboarding.bootstrapTemplate;
+    if (normalizedOnboarding.initialMessage !== undefined)
+      onboardingDict.initialMessage = normalizedOnboarding.initialMessage;
+    if (normalizedOnboarding.skills !== undefined)
+      onboardingDict.skills = normalizedOnboarding.skills;
     body.onboarding = onboardingDict;
   }
   if (normalizedOnboarding) {
