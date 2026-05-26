@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useCallback, useState, type ReactNode } from "react";
 
 import type { LucideIcon } from "lucide-react";
 
@@ -62,8 +62,11 @@ export interface CollapsedGroupIconProps {
   label: string;
   /** Drives the indicator dot overlay. */
   indicatorState: GroupIndicatorState;
-  /** Popover content (conversation list). */
-  children: ReactNode;
+  /**
+   * Popover content. Accepts a render function that receives a `close` callback
+   * to programmatically dismiss the popover (e.g. after selecting a conversation).
+   */
+  children: ReactNode | ((close: () => void) => ReactNode);
 }
 
 export function CollapsedGroupIcon({
@@ -73,6 +76,7 @@ export function CollapsedGroupIcon({
   children,
 }: CollapsedGroupIconProps) {
   const [open, setOpen] = useState(false);
+  const close = useCallback(() => setOpen(false), []);
 
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
@@ -98,7 +102,7 @@ export function CollapsedGroupIcon({
         sideOffset={8}
         className="max-h-[500px] w-72 overflow-y-auto rounded-lg py-2 px-0"
       >
-        {children}
+        {typeof children === "function" ? children(close) : children}
       </Popover.Content>
     </Popover.Root>
   );
