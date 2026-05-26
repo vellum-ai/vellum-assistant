@@ -42,6 +42,7 @@ function HomePageSkeleton() {
 
 export interface HomePageProps {
   assistantId: string;
+  validConversationIds: Set<string>;
   onStartNewChat: () => void;
   onOpenConversation: (conversationId: string) => void;
   onSuggestionSelected: (prompt: string) => void;
@@ -49,6 +50,7 @@ export interface HomePageProps {
 
 export function HomePage({
   assistantId,
+  validConversationIds,
   onStartNewChat,
   onOpenConversation,
   onSuggestionSelected,
@@ -163,6 +165,7 @@ export function HomePage({
       <div className="fixed inset-x-0 bottom-0 z-30 h-[100dvh]">
         <HomeDetailPanel
           item={selectedItem}
+          validConversationIds={validConversationIds}
           onClose={handleCloseDetail}
           onGoToThread={handleGoToThread}
           onUpdateStatus={handleUpdateStatus}
@@ -187,6 +190,7 @@ export function HomePage({
         right={
           <HomeDetailPanel
             item={selectedItem}
+            validConversationIds={validConversationIds}
             onClose={handleCloseDetail}
             onGoToThread={handleGoToThread}
             onUpdateStatus={handleUpdateStatus}
