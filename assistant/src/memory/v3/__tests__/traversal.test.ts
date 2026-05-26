@@ -228,6 +228,45 @@ describe("walkTree — breadthBudget", () => {
     expect([...pages].sort()).toEqual(["pa", "pb"]);
     expect(levels.map((l) => l.node).sort()).toEqual(["_root", "a", "b"]);
   });
+
+  test("spends the budget only on unvisited siblings, not already-visited picks", async () => {
+    // `_root` → {p1, p2}. `p1` descends `shared`, marking it visited. `p2`
+    // then offers `[shared, x, y]` under a budget of 2. If the budget were
+    // applied before filtering visited nodes, `shared` would consume a slot
+    // and `y` would be skipped. Filtering visited first spends the budget on
+    // `x` and `y`, so both unvisited siblings are descended.
+    const tree = makeTree("_root", {
+      _root: [node("p1"), node("p2")],
+      p1: [node("shared")],
+      p2: [node("shared"), node("x"), node("y")],
+      shared: [page("ps")],
+      x: [page("px")],
+      y: [page("py")],
+    });
+
+    const { pages, levels } = await walkTree(tree, {
+      breadthBudget: 2,
+      maxDepth: 8,
+      descend: descendAll,
+    });
+
+    const p2Level = levels.find((l) => l.node === "p2")!;
+    // `shared` is offered but already visited; the budget goes to x and y.
+    expect(p2Level.considered).toEqual(["shared", "x", "y"]);
+    expect(p2Level.descended).toEqual(["x", "y"]);
+    expect(p2Level.skipped).toEqual(["shared"]);
+
+    // The previously-skipped sibling `y` (and its page) is now reached.
+    expect([...pages].sort()).toEqual(["ps", "px", "py"]);
+    expect(levels.map((l) => l.node).sort()).toEqual([
+      "_root",
+      "p1",
+      "p2",
+      "shared",
+      "x",
+      "y",
+    ]);
+  });
 });
 
 // ---------------------------------------------------------------------------
