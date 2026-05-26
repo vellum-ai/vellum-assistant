@@ -165,13 +165,18 @@ export async function walkTree(
       const offeredRefs = new Set(offeredNodes.map((c) => c.ref));
 
       // Honor the descend pick in the order it was returned, dedup'd, filtered
-      // to genuinely-offered node children, and capped by `breadthBudget`.
+      // to genuinely-offered node children, skipping nodes already visited
+      // elsewhere in the DAG, and capped by `breadthBudget`. Filtering visited
+      // nodes *before* the budget check ensures the budget is spent only on
+      // nodes the walk will actually descend — an already-visited pick must not
+      // consume a slot that an unvisited sibling could use.
       const descended: string[] = [];
       const descendedSet = new Set<string>();
       for (const choice of result.descend) {
         if (choice.kind !== "node") continue;
         if (!offeredRefs.has(choice.ref)) continue;
         if (descendedSet.has(choice.ref)) continue;
+        if (visited.has(nodeKey(choice.ref))) continue;
         if (descended.length >= breadthBudget) break;
         descendedSet.add(choice.ref);
         descended.push(choice.ref);

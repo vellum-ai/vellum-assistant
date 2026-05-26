@@ -230,4 +230,62 @@ describe("composeNodeIndex", () => {
 
     expect(composeNodeIndex("root", tree, pageIndex([]))).toBe("[node:empty]");
   });
+
+  test("collapses a multi-line node summary to a single index line", () => {
+    const tree = treeIndex(
+      [
+        treeNode("root", {}),
+        treeNode("multiline", {
+          summary: "First sentence.\nSecond sentence.\n  Third.",
+        }),
+      ],
+      { root: [{ kind: "node", ref: "multiline" }] },
+    );
+
+    const block = composeNodeIndex("root", tree, pageIndex([]));
+
+    expect(block).toBe(
+      "[node:multiline] First sentence. Second sentence. Third.",
+    );
+    expect(block.split("\n")).toHaveLength(1);
+  });
+
+  test("collapses a multi-line page summary to a single index line", () => {
+    const tree = treeIndex([treeNode("root", {})], {
+      root: [{ kind: "page", ref: "notes" }],
+    });
+    const pages = pageIndex([
+      pageEntry("notes", "Line one\nLine two\n\nLine three"),
+    ]);
+
+    const block = composeNodeIndex("root", tree, pages);
+
+    expect(block).toBe("[page:notes] Line one Line two Line three");
+    expect(block.split("\n")).toHaveLength(1);
+  });
+
+  test("a multi-line summary cannot inject extra index lines", () => {
+    // A summary crafted to look like another child entry must not become its
+    // own parsed line once collapsed.
+    const tree = treeIndex(
+      [
+        treeNode("root", {}),
+        treeNode("a", { summary: "Real summary\n[node:injected] fake entry" }),
+        treeNode("b", { summary: "Sibling" }),
+      ],
+      {
+        root: [
+          { kind: "node", ref: "a" },
+          { kind: "node", ref: "b" },
+        ],
+      },
+    );
+
+    const block = composeNodeIndex("root", tree, pageIndex([]));
+
+    expect(block.split("\n")).toEqual([
+      "[node:a] Real summary [node:injected] fake entry",
+      "[node:b] Sibling",
+    ]);
+  });
 });

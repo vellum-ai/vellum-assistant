@@ -36,6 +36,16 @@ import type { TreeNode } from "./types.js";
 const ROUTING_HINTS_LABEL = "Routing hints:";
 
 /**
+ * Flatten a summary to a single line. The index is parsed by the descender as
+ * one child per line, so any embedded newline (or other whitespace run) in a
+ * summary would corrupt that format — collapse every whitespace run to a single
+ * space and trim the ends.
+ */
+function collapseToSingleLine(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+/**
  * Resolve a node's display summary: its frontmatter `summary` if non-empty,
  * otherwise the first non-empty line of its body, otherwise the empty string.
  * Whitespace is trimmed so a leading blank line in the body never wins.
@@ -54,9 +64,11 @@ function nodeSummary(node: TreeNode): string {
  * Render one child ref into its index line, or `null` when the ref's target is
  * absent from the supplied indices (validation owns reporting those).
  *
- * A resolvable `node:` child always yields a line — its header (`[node:<id>]`)
- * with a trailing summary when one exists. A `page:` child yields
- * `[page:<slug>] <summary>`; the v2 page index already truncates `summary`.
+ * A resolvable child always yields a line — its header (`[node:<id>]` /
+ * `[page:<slug>]`) with a trailing summary when one exists. Each summary is
+ * collapsed to a single line so an embedded newline can't break the one-child-
+ * per-line format the descender parses; the v2 page index already truncates
+ * `page:` summaries.
  */
 function renderChild(
   kind: "page" | "node",
@@ -67,12 +79,13 @@ function renderChild(
   if (kind === "node") {
     const child = tree.nodes.get(ref);
     if (!child) return null;
-    const summary = nodeSummary(child);
+    const summary = collapseToSingleLine(nodeSummary(child));
     return summary ? `[node:${ref}] ${summary}` : `[node:${ref}]`;
   }
   const entry = pages.bySlug.get(ref);
   if (!entry) return null;
-  return `[page:${ref}] ${entry.summary}`;
+  const summary = collapseToSingleLine(entry.summary);
+  return summary ? `[page:${ref}] ${summary}` : `[page:${ref}]`;
 }
 
 /**
