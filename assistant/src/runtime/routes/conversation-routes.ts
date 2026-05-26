@@ -1421,7 +1421,7 @@ export async function handleSendMessage(
       const conversationId = mapping.conversationId;
 
       const assistantMsg = createAssistantMessage(cannedGreeting);
-      await addMessage(
+      const persistedAssistant = await addMessage(
         mapping.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
@@ -1465,7 +1465,15 @@ export async function handleSendMessage(
           text: cannedGreeting,
           conversationId,
         });
-        broadcastMessage({ type: "message_complete", conversationId });
+        // The macOS client filters `message_complete` events lacking a
+        // `messageId` while a turn is in flight (treats them as aux-style
+        // notifications), so a bare event would leave the 3-dot indicator
+        // stuck. LUM-1902.
+        broadcastMessage({
+          type: "message_complete",
+          conversationId,
+          messageId: persistedAssistant.id,
+        });
         publishConversationMessagesChanged(conversationId, originClientId);
         conversation.processing = false;
         silentlyWithLog(
