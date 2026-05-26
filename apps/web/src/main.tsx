@@ -17,6 +17,7 @@ function isChunkLoadError(error: unknown): boolean {
   if (error instanceof TypeError && /dynamically imported module|importing a module script/i.test(error.message)) {
     return true;
   }
+  if (typeof error !== "object" || error == null) return false;
   const name = (error as { name?: string }).name;
   return name === "ChunkLoadError" || name === "DynamicImportError";
 }
@@ -38,8 +39,14 @@ async function boot() {
           router={router}
           onError={(error) => {
             if (isChunkLoadError(error)) {
-              window.location.reload();
-              return;
+              const key = "vellum:chunk-reload-count";
+              const count = Number(sessionStorage.getItem(key) || 0);
+              if (count < 2) {
+                sessionStorage.setItem(key, String(count + 1));
+                window.location.reload();
+                return;
+              }
+              sessionStorage.removeItem(key);
             }
             console.error("[RouterProvider]", error);
           }}
