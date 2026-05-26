@@ -572,13 +572,14 @@ export async function runDaemon(): Promise<void> {
 
     // Seed inference profiles into the workspace config. Managed Anthropic
     // profiles are overwritten on every boot so Vellum can push updates.
-    // Off-platform hatches additionally create user profiles + a personal
-    // provider connection for the hatch provider.
+    // Off-platform BYOK onboarding (detected state-wise inside the seeder)
+    // additionally creates user profiles + a personal provider connection
+    // for the selected provider. Re-invoked from `POST /v1/secrets` after a
+    // provider API key is stored, which is the BYOK onboarding trigger.
     try {
       seedInferenceProfiles({
         preserveProfileNames: defaultConfigMerge.providedLlmProfileNames,
         preserveActiveProfile: defaultConfigMerge.providedLlmActiveProfile,
-        isHatch: defaultConfigMerge.hadOverlay,
         db: dbReady ? getDb() : undefined,
       });
       log.info("Inference profile seeding complete");
