@@ -22,8 +22,9 @@ import {
 import { probeGatewayAuthState } from "@/lib/auth/gateway-session.js";
 import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
 import { deleteBiometricToken } from "@/runtime/native-biometric.js";
-import { syncOnboardingUser } from "@/domains/onboarding/prefs.js";
+import { syncOnboardingUser, clearOnboardingFlags } from "@/domains/onboarding/prefs.js";
 import { clearOrganization } from "@/stores/organization-store.js";
+import { clearUserScopedStorage } from "@/lib/auth/session-cleanup.js";
 import { useEventBusStore } from "@/stores/event-bus-store.js";
 import { isNativePlatform, installSessionCookies, waitForNativeSessionCookie } from "@/runtime/native-auth.js";
 import { isBiometricEnabled, retrieveBiometricToken } from "@/runtime/native-biometric.js";
@@ -168,7 +169,9 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       await allauthLogout();
     } finally {
       void deleteBiometricToken();
-      syncUserScopedState(null);
+      clearOnboardingFlags();
+      clearOrganization();
+      clearUserScopedStorage();
       set({ isLoggedIn: false, user: null });
       broadcastAuthChange();
     }
@@ -203,7 +206,10 @@ export function setupAuthListeners(): () => void {
 
   if (typeof BroadcastChannel !== "undefined") {
     broadcastChannel = new BroadcastChannel("auth");
-    broadcastChannel.onmessage = () => safeRefresh();
+    broadcastChannel.onmessage = () => {
+      clearUserScopedStorage();
+      window.location.reload();
+    };
     cleanups.push(() => {
       broadcastChannel?.close();
       broadcastChannel = null;
