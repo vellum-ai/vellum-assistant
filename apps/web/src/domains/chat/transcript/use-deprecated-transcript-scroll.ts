@@ -70,7 +70,6 @@ export interface UseDeprecatedTranscriptScrollArgs {
 }
 
 export interface UseDeprecatedTranscriptScrollReturn {
-  isPinnedToLatest: boolean;
   showScrollToLatest: boolean;
   scrollToLatest: (opts?: { behavior?: "auto" | "smooth" }) => void;
 }
@@ -230,7 +229,6 @@ export function decideItemsChangeAction(
  *  then runs with no JavaScript scroll coordination at all — the
  *  defaults below match "nothing is happening". */
 const DISABLED_RESULT: UseDeprecatedTranscriptScrollReturn = {
-  isPinnedToLatest: true,
   showScrollToLatest: false,
   scrollToLatest: () => {},
 };
@@ -684,7 +682,6 @@ export function useDeprecatedTranscriptScroll(
   }, [handleScroll, transcriptRef, items, conversationId]);
 
   return {
-    isPinnedToLatest,
     showScrollToLatest,
     scrollToLatest,
   };

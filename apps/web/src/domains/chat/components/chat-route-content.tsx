@@ -1203,7 +1203,6 @@ export function ChatRouteContent({
     onPullRefresh: handlePullRefresh,
     pullRefreshEnabled: chatPullToRefreshEnabled && touchSupported,
     scrollCoordinatorState: {
-      isPinnedToLatest: scrollCoordinator.isPinnedToLatest,
       showScrollToLatest: scrollCoordinator.showScrollToLatest,
       shouldLoadOlder: false, // Not exposed by scroll coordinator; safe default
     },
