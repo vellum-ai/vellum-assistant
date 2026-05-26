@@ -546,6 +546,7 @@ function TabContent({
         <CompactionTab
           assistantId={assistantId}
           conversationId={conversationId}
+          entry={entry}
         />
       );
     case "skills":
