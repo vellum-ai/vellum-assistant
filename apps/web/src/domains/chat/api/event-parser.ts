@@ -1,10 +1,15 @@
 /**
  * SSE event parsing for the assistant chat stream.
  *
- * Exports `parseAssistantEvent` which converts raw SSE payloads into typed
- * `AssistantEvent` objects, plus helpers for attachment display conversion.
- * `readEventConversationId` is also exported for use by the stream transport.
+ * Exports `parseAssistantEvent`, which takes a raw SSE payload and
+ * returns a typed `AssistantEvent`. The parser owns the full path: it
+ * unwraps the envelope/flat shape, dispatches to a canonical zod schema
+ * if one exists, falls back to hand-rolled coercion for legacy events
+ * not yet covered by a schema, and stamps the envelope-level
+ * conversationId onto conversation-scoped events.
  */
+
+import type { z } from "zod";
 
 import type {
   DiskPressureBlockedCapability,
@@ -27,35 +32,70 @@ import type {
   SubagentStatus,
   UISurfaceShowEvent,
 } from "@/domains/chat/api/event-types.js";
-import { RelationshipStateUpdatedSchema } from "@vellumai/assistant-api";
+import { RelationshipStateUpdatedEventSchema } from "@vellumai/assistant-api";
 import type { DisplayAttachment } from "@/domains/chat/types/types.js";
 import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat-utils.js";
 import type { ToolActivityMetadata } from "@/assistant/web-activity-types.js";
 import type { SyncInvalidationTag } from "@/lib/sync/types.js";
 
-export function readEventConversationId(
+/**
+ * Canonical wire-contract schemas from `@vellumai/assistant-api`. The
+ * parser tries the schema registry first; when a match exists, it's
+ * the source of truth for the event shape. Add new schemas here as
+ * they land in the package — the legacy switch below is the fallback
+ * for events that don't yet have a canonical zod schema.
+ */
+const ZOD_EVENT_SCHEMAS: ReadonlyMap<string, z.ZodTypeAny> = new Map([
+  ["relationship_state_updated", RelationshipStateUpdatedEventSchema],
+]);
+
+/**
+ * Read the envelope-level conversationId from an SSE payload. Returns
+ * `undefined` when absent; the parser then leaves the event's
+ * `conversationId` field alone (rather than papering over the
+ * daemon's omission).
+ */
+function readEventConversationId(
   data: Record<string, unknown>,
 ): string | undefined {
   if (typeof data.conversationId === "string" && data.conversationId) {
     return data.conversationId;
   }
-  // When this returns undefined, stream.ts substitutes the subscription
-  // URL's `requestedConversationId`, which is the authoritative routing
-  // id for the per-conversation SSE stream.
   return undefined;
 }
 
-function withParsedConversationId(
-  event: AssistantEvent,
+/**
+ * Unwrap envelope-shape payloads `{ message: { type, ...fields }, conversationId }`
+ * into the inner event. Flat-shape payloads `{ type, ...fields }`
+ * pass through unchanged.
+ */
+function unwrapEnvelope(
   data: Record<string, unknown>,
+): Record<string, unknown> {
+  const message = data.message;
+  if (
+    message &&
+    typeof message === "object" &&
+    !Array.isArray(message) &&
+    typeof (message as Record<string, unknown>).type === "string"
+  ) {
+    return message as Record<string, unknown>;
+  }
+  return data;
+}
+
+/**
+ * Stamp the envelope-level conversationId onto conversation-scoped
+ * events that don't already declare one. Global events (whose strict
+ * wire schemas don't declare the field) are left untouched — this is
+ * the exact drift `@vellumai/assistant-api` is meant to prevent.
+ */
+function stampConversationId(
+  event: AssistantEvent,
+  conversationId: string | undefined,
 ): AssistantEvent {
-  // Skip for global events whose wire schemas don't declare conversationId
-  // (e.g. `relationship_state_updated`). Stamping the envelope-derived
-  // conversationId onto a strict wire type is the exact drift this package
-  // is meant to eliminate.
-  if (!isConversationScopedStreamEvent(event)) return event;
-  const conversationId = readEventConversationId(data);
   if (!conversationId) return event;
+  if (!isConversationScopedStreamEvent(event)) return event;
   if (event.conversationId) return event;
   return { ...event, conversationId };
 }
@@ -79,16 +119,39 @@ function parseDocumentCommentBase(
 }
 
 /**
- * Parse a raw wire payload into a typed AssistantEvent.
- * Tolerant of unknown event types — returns an `UnknownEvent` for anything
- * unrecognised so callers can safely ignore it without crashing.
+ * Parse a raw SSE payload into a typed `AssistantEvent`. Owns envelope
+ * unwrap, canonical-schema dispatch, legacy-event coercion, and
+ * envelope-conversationId stamping. Tolerant of unknown event types —
+ * returns an `UnknownEvent` for anything unrecognised so callers can
+ * safely ignore it without crashing.
  */
 export function parseAssistantEvent(
-  rawType: string,
   data: Record<string, unknown>,
 ): AssistantEvent {
-  const parsed = ((): AssistantEvent => {
-    switch (rawType) {
+  const eventData = unwrapEnvelope(data);
+  // Prefer the inner-message conversationId — it's the authoritative
+  // event-level field. Fall back to the envelope-level value, which is
+  // the SSE routing key for envelope-shaped messages.
+  const envelopeConversationId =
+    readEventConversationId(eventData) ?? readEventConversationId(data);
+  const event = parseEventPayload(eventData);
+  return stampConversationId(event, envelopeConversationId);
+}
+
+function parseEventPayload(data: Record<string, unknown>): AssistantEvent {
+  const rawType = typeof data.type === "string" ? data.type : "";
+
+  // Try the canonical zod schema first; when a schema exists for this
+  // type, it owns the shape. A parse failure becomes an `UnknownEvent`,
+  // matching how the legacy switch handles malformed payloads.
+  const schema = ZOD_EVENT_SCHEMAS.get(rawType);
+  if (schema) {
+    const result = schema.safeParse(data);
+    if (!result.success) return { type: "unknown", rawType, data };
+    return result.data as AssistantEvent;
+  }
+
+  switch (rawType) {
     case "assistant_text_delta":
       return {
         type: "assistant_text_delta",
@@ -582,15 +645,6 @@ export function parseAssistantEvent(
         newItemCount: typeof data.newItemCount === "number" ? data.newItemCount : 0,
       };
 
-    case "relationship_state_updated": {
-      const result = RelationshipStateUpdatedSchema.safeParse({
-        type: rawType,
-        updatedAt: data.updatedAt,
-      });
-      if (!result.success) return { type: "unknown", rawType, data };
-      return result.data;
-    }
-
     case "subagent_spawned": {
       const subagentId = typeof data.subagentId === "string" ? data.subagentId : "";
       const label = typeof data.label === "string" ? data.label : "";
@@ -750,10 +804,7 @@ export function parseAssistantEvent(
 
     default:
       return { type: "unknown", rawType, data };
-    }
-  })();
-
-  return withParsedConversationId(parsed, data);
+  }
 }
 
 function parseDiskPressureStatus(raw: unknown): DiskPressureStatus | null {

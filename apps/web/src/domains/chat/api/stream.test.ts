@@ -158,20 +158,22 @@ describe("polling reconciliation with state machine", () => {
   test("SSE events mapped from wire format produce correct domain events", () => {
     // Verify that parseAssistantEvent produces events that map correctly
     // to domain events consumed by the reducer
-    const delta = parseAssistantEvent("assistant_text_delta", {
+    const delta = parseAssistantEvent({
+      type: "assistant_text_delta",
       text: "hello",
     });
     expect(delta.type).toBe("assistant_text_delta");
 
-    const complete = parseAssistantEvent("message_complete", {
+    const complete = parseAssistantEvent({
+      type: "message_complete",
       content: "done",
     });
     expect(complete.type).toBe("message_complete");
 
-    const handoff = parseAssistantEvent("generation_handoff", {});
+    const handoff = parseAssistantEvent({ type: "generation_handoff" });
     expect(handoff.type).toBe("generation_handoff");
 
-    const error = parseAssistantEvent("error", { message: "fail" });
+    const error = parseAssistantEvent({ type: "error", message: "fail" });
     expect(error.type).toBe("error");
 
     // The page maps these wire types to domain event types:
