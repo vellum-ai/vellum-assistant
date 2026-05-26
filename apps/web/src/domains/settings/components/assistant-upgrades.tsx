@@ -285,6 +285,7 @@ export function AssistantUpgrades({
 
       <Button
         variant={isRollback ? "outlined" : "primary"}
+        className="min-w-[160px]"
         leftIcon={
           upgradeCreate.isPending ||
           rollbackCreate.isPending ||
@@ -311,7 +312,7 @@ export function AssistantUpgrades({
           : isRollback
             ? "Rollback"
             : isPreviewReleaseChannel
-              ? "Update Preview"
+              ? "Update preview"
               : "Update"}
       </Button>
       {isPreviewReleaseChannel && (
@@ -338,23 +339,23 @@ export function AssistantUpgrades({
         open={showConfirmation}
         title={
           isRollback
-            ? "Rollback Assistant"
+            ? "Rollback assistant"
             : isPreviewReleaseChannel
-              ? "Update Preview Release"
-              : "Update Assistant"
+              ? "Update preview release"
+              : "Update assistant"
         }
         message={
           isRollback
             ? `Rollback to version ${effectiveSelectedVersion ?? "unknown"}? The assistant will be briefly unavailable.`
             : isPreviewReleaseChannel
-              ? `Update to Preview version ${effectiveSelectedVersion ?? "latest"}? The assistant will be briefly unavailable during the update.`
+              ? `Update to preview version ${effectiveSelectedVersion ?? "latest"}? The assistant will be briefly unavailable during the update.`
             : `Update to version ${effectiveSelectedVersion ?? "latest"}? The assistant will be briefly unavailable during the update.`
         }
         confirmLabel={
           isRollback
             ? "Rollback"
             : isPreviewReleaseChannel
-              ? "Update Preview"
+              ? "Update preview"
               : "Update"
         }
         onConfirm={handleUpgrade}
