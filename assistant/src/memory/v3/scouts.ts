@@ -10,8 +10,9 @@
 //   - hot:    corpus-global access-frequency EMA via `computeInjectionScores`.
 //             Retriever-agnostic — v2 keeps writing `memory_v2_injection_events`,
 //             so a page the user has been touching is "hot" regardless of which
-//             retriever surfaced it. Hits are marked **sticky** so the downstream
-//             gate keeps them in the running.
+//             retriever surfaced it. Hits are seeded as ordinary **candidates**
+//             (not sticky) so the query-aware downstream gate can still drop a
+//             recency page that doesn't bear on the turn.
 //   - sparse: BM25 keyword match. Near-exact (high-score) hits are both
 //             **sticky** and **tree-bypass** — a literal keyword hit is a strong
 //             enough signal that we shouldn't make the slug earn its place by
@@ -41,7 +42,8 @@ export interface RunScoutsResult {
   scouts: ScoutResult[];
   /**
    * Slugs the downstream gate should keep in the running regardless of later
-   * scoring — hot hits and near-exact sparse hits.
+   * scoring — near-exact sparse hits. Hot-lane hits are deliberately excluded:
+   * they contribute candidates but must earn their place through the gate.
    */
   sticky: Set<string>;
   /**
@@ -93,10 +95,12 @@ const DENSE_MMR_LAMBDA = 0.7;
 /**
  * Run the always-on scout lanes for one retrieval pass.
  *
- * `queryText` is derived from the last user turn in `input.recentTurnPairs`
- * joined with `input.nowText` — the same shape the v2 router/activation path
- * embeds. Disabled lanes (per `config.memory.v3.lanes`) are skipped entirely:
- * no substrate call, no `ScoutResult` entry.
+ * The dense lane embeds `queryText` (the last user turn joined with
+ * `input.nowText`, the same shape the v2 router/activation path embeds). The
+ * sparse lane keys off `userText` (the user turn alone) so NOW context can't
+ * make whatever it mentions a near-exact sticky hit on every turn. Disabled
+ * lanes (per `config.memory.v3.lanes`) are skipped entirely: no substrate call,
+ * no `ScoutResult` entry.
  *
  * Honors `input.signal` — aborts between lanes and around the dense embed.
  */
@@ -107,26 +111,35 @@ export async function runScouts(
   const { config, signal } = input;
   const lanes = config.memory.v3.lanes;
   const queryText = deriveQueryText(input);
+  const userText = deriveUserText(input);
 
   const scouts: ScoutResult[] = [];
   const sticky = new Set<string>();
   const bypass = new Set<string>();
 
   // Hot lane — corpus-global EMA over the full slug universe. Cheap (single
-  // SQL pass) so it runs first and seeds sticky.
+  // SQL pass) so it runs first. Hot hits are seeded as ordinary candidates but
+  // NOT sticky: the EMA ranks recency/frequency, not query relevance, so
+  // force-keeping the top-N recency pages would dominate every turn with
+  // operationally-frequent pages instead of the pages that bear on the query.
+  // Letting them pass through the query-aware gate lets irrelevant ones drop.
   if (lanes.hot) {
     signal?.throwIfAborted();
     const hot = await runHotLane(input, deps);
-    if (hot) {
-      scouts.push(hot);
-      for (const slug of hot.slugs) sticky.add(slug);
-    }
+    if (hot) scouts.push(hot);
   }
 
-  // Sparse lane — BM25 keyword match. Near-exact hits seed sticky + bypass.
-  if (lanes.sparse && queryText.length > 0) {
+  // Sparse lane — BM25 keyword match on the user's words ONLY (not the NOW
+  // context). NOW is ambient standing text; folding it into a keyword query
+  // makes whatever pages NOW happens to mention score near-exact on every
+  // turn, and near-exact hits become sticky + tree-bypass — so NOW-referenced
+  // pages would be force-injected into every selection regardless of the
+  // query. Keying sparse off the user turn keeps lexical match, sticky, and
+  // bypass tied to what the user actually asked. (Dense still embeds NOW below;
+  // semantic context legitimately helps there.)
+  if (lanes.sparse && userText.length > 0) {
     signal?.throwIfAborted();
-    const sparse = await runSparseLane(queryText, signal);
+    const sparse = await runSparseLane(userText, signal);
     if (sparse) {
       scouts.push(sparse.result);
       for (const slug of sparse.nearExact) {
@@ -151,15 +164,25 @@ export async function runScouts(
 // ---------------------------------------------------------------------------
 
 /**
- * Build the scout query text from the just-arrived user turn plus the NOW
+ * The just-arrived user turn's text — the last `recentTurnPairs` entry's
+ * `userMessage`. This is the keyword target for the sparse lane and the basis
+ * for near-exact sticky/bypass, which must reflect what the user actually
+ * asked rather than the ambient NOW context.
+ */
+function deriveUserText(input: RetrievalInput): string {
+  const lastPair = input.recentTurnPairs[input.recentTurnPairs.length - 1];
+  return (lastPair?.userMessage ?? "").trim();
+}
+
+/**
+ * Build the dense-lane query text from the just-arrived user turn plus the NOW
  * context. Mirrors the v2 activation path (`selectCandidates`): join the
- * non-empty channels with a newline. The last `recentTurnPairs` entry's
- * `userMessage` is the turn being routed.
+ * non-empty channels with a newline. NOW is included here because semantic
+ * embedding benefits from standing context; the sparse lane deliberately omits
+ * it (see {@link deriveUserText}).
  */
 function deriveQueryText(input: RetrievalInput): string {
-  const lastPair = input.recentTurnPairs[input.recentTurnPairs.length - 1];
-  const userText = lastPair?.userMessage ?? "";
-  return [userText, input.nowText]
+  return [deriveUserText(input), input.nowText]
     .filter((s) => s.trim().length > 0)
     .join("\n")
     .trim();
@@ -182,8 +205,13 @@ async function runHotLane(
   if (scores.size === 0) return null;
 
   // Slugs with no events in the read window are omitted by
-  // `computeInjectionScores`, so every entry here has score > 0.
-  const ranked = [...scores.entries()].sort((a, b) => sortByScoreDesc(a, b));
+  // `computeInjectionScores`, so every entry here has score > 0. Cap to the
+  // top `hotLimit` by EMA: on a mature corpus — where nearly every page has
+  // been injected at some point — an uncapped lane would flood the candidate
+  // set with the entire corpus, so keep only the strongest recency signals.
+  const ranked = [...scores.entries()]
+    .sort((a, b) => sortByScoreDesc(a, b))
+    .slice(0, input.config.memory.v3.hotLimit);
   const slugs = ranked.map(([slug]) => slug);
   const scoreBySlug = Object.fromEntries(ranked);
   return { lane: "hot", slugs, scoreBySlug };

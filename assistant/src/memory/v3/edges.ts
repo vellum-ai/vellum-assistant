@@ -25,10 +25,91 @@ import type { EdgeExpansion } from "../v2/harness/trace.js";
 /** Default hop budget. The design calls for a 1–2 hop walk; 2 is the ceiling. */
 const DEFAULT_HOPS = 2;
 
+// ---------------------------------------------------------------------------
+// Expansion bounds
+// ---------------------------------------------------------------------------
+//
+// The seed set handed to this lane is the *union* of every upstream lane's
+// candidates (scouts + dense filter + tree-walk descent), so on a mature corpus
+// it can run to one-to-two-thousand slugs. Expanding all of them — each to its
+// full 1–2 hop neighborhood — pulls in tens of thousands of slugs, which inflates
+// the downstream selection gate's candidate pool toward the entire corpus and
+// drowns the high-confidence signal. The expansion is also purely structural
+// (no scoring), so a larger pool buys no precision; it only adds gate cost.
+//
+// These bounds keep the lane's output proportional to a curated neighborhood
+// rather than the corpus. They are module-level constants (mirroring
+// `LANE_QUERY_LIMIT` in `scouts.ts`) rather than config fields so the lane stays
+// self-contained — the caps protect the gate regardless of how callers compose
+// the seed union. Truncation is deterministic (sorted slugs) so a given seed
+// graph always yields the same bounded result.
+
+/**
+ * Cap on the number of distinct seeds expanded. Seeds are processed in
+ * first-seen order; once this many have been expanded the rest are dropped. The
+ * upstream lanes already rank their hits, so the earliest seeds are the most
+ * confident — truncating the long tail costs little recall.
+ */
+const MAX_SEEDS_EXPANDED = 150;
+
+/**
+ * Cap on how many slugs a single seed may contribute. A hub node in a dense
+ * curated graph can reach a large 2-hop neighborhood on its own; without this a
+ * single highly-connected seed could dominate the union. The per-seed
+ * neighborhood is truncated to its lexicographically-first slugs.
+ */
+const MAX_PULLS_PER_SEED = 32;
+
+/**
+ * Hard ceiling on the size of the unioned `pulled` set. This is the load-bearing
+ * bound: it caps the lane's contribution to the gate's pool to a few hundred
+ * slugs no matter how many seeds or how dense the graph. Once reached, no
+ * further seeds are expanded.
+ */
+const MAX_TOTAL_PULLS = 400;
+
+// ---------------------------------------------------------------------------
+// Seed ranking
+// ---------------------------------------------------------------------------
+
+/**
+ * Lane-trust order used to rank seeds *before* the {@link MAX_SEEDS_EXPANDED}
+ * cap (lower = expanded first). The seed union arrives in lane order (hot
+ * first), so without reordering the seed budget is spent on the hot recency
+ * lane and the LLM-vetted tree/dense seeds — the most query-relevant — are the
+ * ones truncated. Ranking tree > dense > sparse > hot spends the budget on
+ * relevance first. A seed whose lane is unknown/absent (or edge-pulled) ranks
+ * last. Requires `laneBySlug`; without it the incoming order is kept.
+ */
+const SEED_LANE_RANK: Readonly<Record<string, number>> = {
+  tree: 0,
+  dense: 1,
+  sparse: 2,
+  hot: 3,
+};
+const SEED_LANE_RANK_LAST = 4;
+
+function seedRank(
+  slug: string,
+  laneBySlug: ReadonlyMap<string, string>,
+): number {
+  const lane = laneBySlug.get(slug);
+  return lane !== undefined
+    ? (SEED_LANE_RANK[lane] ?? SEED_LANE_RANK_LAST)
+    : SEED_LANE_RANK_LAST;
+}
+
 export interface ExpandEdgesArgs {
   workspaceDir: string;
   /** Confident seed slugs to expand from. */
   seeds: Iterable<string>;
+  /**
+   * Per-seed lane provenance (slug → first lane that surfaced it). When present,
+   * seeds are ranked by lane trust ({@link SEED_LANE_RANK}) before the seed cap,
+   * so the budget is spent on query-relevant seeds rather than recency. Typed as
+   * a plain string map to avoid importing the loop's `LaneSource` (circular).
+   */
+  laneBySlug?: ReadonlyMap<string, string>;
   /** Hop budget for the outgoing walk. Defaults to {@link DEFAULT_HOPS}. */
   hops?: number;
   /**
@@ -89,10 +170,18 @@ function reachableMerged(
 /**
  * Expand a set of confident seed slugs to their 1–2 hop curated neighborhood.
  *
- * Each seed produces one `EdgeExpansion { from, pulled }` entry (sorted slugs
- * for deterministic output); the seed itself is never in its own `pulled`. The
- * top-level `pulled` set is the union across all seeds — a slug pulled by more
- * than one seed appears once there but in each contributing seed's expansion.
+ * Each expanded seed produces one `EdgeExpansion { from, pulled }` entry (sorted
+ * slugs for deterministic output); the seed itself is never in its own `pulled`.
+ * The top-level `pulled` set is the union across all expanded seeds — a slug
+ * pulled by more than one seed appears once there but in each contributing
+ * seed's expansion.
+ *
+ * Bounded by {@link MAX_SEEDS_EXPANDED}, {@link MAX_PULLS_PER_SEED}, and
+ * {@link MAX_TOTAL_PULLS} so a large seed union or a dense graph can't balloon
+ * the downstream gate's pool — see the bounds block above. Seeds past the count
+ * cap, or any seed reached after the union ceiling is full, are skipped entirely
+ * and get no expansion entry; every entry that is emitted lists exactly the
+ * slugs that seed contributed to the bounded union, so the trace stays faithful.
  *
  * Provider-free and read-only: the only I/O is `getEdgeIndex`, which reads
  * concept-page frontmatter from disk (and caches module-locally in v2).
@@ -100,25 +189,60 @@ function reachableMerged(
 export async function expandEdges(
   args: ExpandEdgesArgs,
 ): Promise<ExpandEdgesResult> {
-  const { workspaceDir, seeds, hops = DEFAULT_HOPS, extraAdjacency } = args;
+  const {
+    workspaceDir,
+    seeds,
+    hops = DEFAULT_HOPS,
+    extraAdjacency,
+    laneBySlug,
+  } = args;
 
   const index = await getEdgeIndex(workspaceDir);
   const pulled = new Set<string>();
   const expansions: EdgeExpansion[] = [];
 
-  // De-dupe seeds while preserving first-seen order for a stable trace.
+  // Rank seeds by lane trust before the seed cap so the budget goes to the most
+  // query-relevant seeds (tree/dense/sparse) rather than recency (hot), which
+  // leads the incoming candidate order. `Array.prototype.sort` is stable, so
+  // seeds within a tier keep their candidate order. Without `laneBySlug` the
+  // incoming order is preserved.
+  const orderedSeeds = [...seeds];
+  if (laneBySlug) {
+    orderedSeeds.sort(
+      (a, b) => seedRank(a, laneBySlug) - seedRank(b, laneBySlug),
+    );
+  }
+
+  // De-dupe seeds while preserving (ranked) order for a stable trace.
   const seenSeeds = new Set<string>();
 
-  for (const seed of seeds) {
+  for (const seed of orderedSeeds) {
     if (seenSeeds.has(seed)) continue;
     seenSeeds.add(seed);
+
+    // Bound the number of seeds expanded, and stop once the union is full —
+    // the remaining seeds would only inflate the gate's pool. Checked before
+    // doing any per-seed work so an oversized seed set is cheap to truncate.
+    if (seenSeeds.size > MAX_SEEDS_EXPANDED || pulled.size >= MAX_TOTAL_PULLS) {
+      break;
+    }
 
     const reachable = extraAdjacency
       ? reachableMerged(index.outgoing, extraAdjacency, seed, hops)
       : getReachable(index, seed, hops, "out");
 
-    expansions.push({ from: seed, pulled: [...reachable].sort() });
-    for (const slug of reachable) pulled.add(slug);
+    // Per-seed fan-out cap, then trim to the union's remaining headroom so the
+    // total ceiling is hard (never overshot) and the trace entry lists exactly
+    // the slugs this seed contributed to the bounded union. Sorting first keeps
+    // truncation deterministic — a hub seed always yields the same slice. Slugs
+    // already pulled by an earlier seed don't consume headroom (the union Set
+    // de-dupes), so this is a conservative upper bound on what's admitted.
+    const remaining = MAX_TOTAL_PULLS - pulled.size;
+    const perSeedCap = Math.min(MAX_PULLS_PER_SEED, remaining);
+    const seedPulled = [...reachable].sort().slice(0, perSeedCap);
+
+    expansions.push({ from: seed, pulled: seedPulled });
+    for (const slug of seedPulled) pulled.add(slug);
   }
 
   return { pulled, expansions };

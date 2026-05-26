@@ -703,6 +703,10 @@ export async function dropLegacySkillsCollection(): Promise<void> {
  * candidate set is already known so we don't waste hits on unrelated pages.
  * An empty list short-circuits to no results — the caller is asking for
  * "nothing", not "everything".
+ *
+ * An empty `dense` vector runs a sparse-only query: the dense channels are
+ * skipped rather than sent to Qdrant (a 0-dimension vector would 400). This is
+ * the dense counterpart to the `skipSparse` option.
  */
 export async function hybridQueryConceptPages(
   dense: number[],
@@ -730,6 +734,14 @@ export async function hybridQueryConceptPages(
   // Qdrant 1.13.x sparse-index crash that we've reproduced in the wild.
   const skipSparse = options?.skipSparse ?? false;
 
+  // An empty dense query vector means "sparse-only": skip the dense channels
+  // instead of sending a 0-dimension vector to Qdrant (which rejects it with a
+  // "Vector dimension error: expected dim N, got 0" 400). Symmetric to
+  // skipSparse — the fuser treats a missing dense score as a 0 contribution, so
+  // omitting the dense query is equivalent to weighting it to zero. Callers like
+  // the v3 sparse scout lane rely on this to run a BM25-only query.
+  const skipDense = dense.length === 0;
+
   const queryDense = (using: string) =>
     client.query(MEMORY_V2_COLLECTION, {
       query: dense,
@@ -756,9 +768,9 @@ export async function hybridQueryConceptPages(
   };
   const runQueries = async () =>
     Promise.all([
-      queryDense("dense"),
+      skipDense ? emptyResult : queryDense("dense"),
       skipSparse ? emptyResult : querySparse("sparse"),
-      queryDense("summary_dense"),
+      skipDense ? emptyResult : queryDense("summary_dense"),
       skipSparse ? emptyResult : querySparse("summary_sparse"),
     ]);
 

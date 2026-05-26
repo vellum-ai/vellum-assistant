@@ -12,10 +12,10 @@
  *                               sticky/bypass and are never judged; the dense
  *                               near-neighbors are filtered down to meaningful
  *                               associations.
- *   3. {@link runTreeWalk}    — scout-seeded hierarchical descent. Seeded by the
- *                               surviving scout slugs (their tree parents) so
- *                               descent starts near where the lanes landed but
- *                               still fans out from the root.
+ *   3. {@link runTreeWalk}    — root-only hierarchical descent that selects
+ *                               pages per node. Scout hits steer it as descend
+ *                               pressure in the prompt; the descender keeps only
+ *                               the relevant leaf pages it finds.
  *   4. {@link expandEdges}    — provider-free 1–2 hop curated-graph expansion
  *                               over every accumulated confident seed.
  *   5. {@link runGate}        — one capable LLM call over the unioned candidate
@@ -64,6 +64,7 @@ import {
 import { expandEdges } from "./edges.js";
 import { filterDenseHits } from "./filter.js";
 import { runGate } from "./gate.js";
+import type { LlmCallRecord, LlmCallSink } from "./llm-capture.js";
 import { runScouts } from "./scouts.js";
 import { getTreeIndex } from "./tree-index.js";
 import { runTreeWalk } from "./tree-walk.js";
@@ -84,6 +85,12 @@ export interface RetrievalLoopDeps {
   conversationId?: string;
   /** Turn number within the conversation, for co-activation provenance. */
   turn?: number;
+  /**
+   * Optional debug sink. When set, every v3 LLM call (filter / each descender /
+   * gate) emits one {@link LlmCallRecord} with its full input + raw response.
+   * Undefined on the live/shadow path, so production captures nothing.
+   */
+  capture?: (record: LlmCallRecord) => void;
 }
 
 /**
@@ -130,6 +137,13 @@ export async function runRetrievalLoop(
     const passStart = Date.now();
     const passInput: RetrievalInput = { ...input, nowText: passNowText };
 
+    // Per-pass capture sink: stamp the current pass onto each lane's emitted
+    // record. Stays undefined (inert) unless a capture sink was injected.
+    const sink = deps.capture;
+    const passSink: LlmCallSink | undefined = sink
+      ? (record) => sink({ ...record, pass: passNumber })
+      : undefined;
+
     // 1. Scouts — always-on hot / sparse / dense fanout.
     const scoutResult = await runScouts(passInput, { db: deps.db });
     for (const slug of scoutResult.sticky) sticky.add(slug);
@@ -159,6 +173,7 @@ export async function runRetrievalLoop(
         dense: denseScout,
         sticky: scoutResult.sticky,
         bypass: scoutResult.bypass,
+        capture: passSink,
       });
       for (const slug of filtered.kept) {
         candidates.add(slug);
@@ -169,10 +184,9 @@ export async function runRetrievalLoop(
       }
     }
 
-    // The surviving scout slugs (kept dense + hot + sparse) seed the tree walk.
-    const survivingSeeds = [...candidates];
-
-    // 3. Tree walk — scout-seeded hierarchical descent. Gated by `lanes.tree`.
+    // 3. Tree walk — root-only hierarchical descent that selects pages per
+    // node. Scout hits steer it as descend pressure in the prompt (the scout
+    // pages themselves already entered `candidates` above). Gated by `lanes.tree`.
     let treeLevels: DescentPass["treeLevels"];
     if (lanes.tree) {
       const [tree, pages] = await Promise.all([
@@ -184,7 +198,7 @@ export async function runRetrievalLoop(
         tree,
         pages,
         scouts: scoutResult.scouts,
-        seeds: survivingSeeds,
+        capture: passSink,
       });
       treeLevels = walk.levels;
       for (const slug of walk.pages) {
@@ -200,6 +214,10 @@ export async function runRetrievalLoop(
       const expansion = await expandEdges({
         workspaceDir: passInput.workspaceDir,
         seeds: [...candidates],
+        // Rank seeds by the lane that surfaced them (tree/dense/sparse before
+        // hot) so the seed cap spends its budget on query-relevant seeds, not
+        // recency. `sourceBySlug` holds each candidate's first-seen lane.
+        laneBySlug: sourceBySlug,
       });
       edgeExpansions = expansion.expansions;
       for (const slug of expansion.pulled) {
@@ -221,6 +239,7 @@ export async function runRetrievalLoop(
       candidates,
       sticky,
       passNumber,
+      capture: passSink,
     });
     selectedSlugs = gateResult.selectedSlugs;
 

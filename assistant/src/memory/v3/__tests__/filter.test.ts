@@ -31,6 +31,8 @@ import type {
 import type { RetrievalInput } from "../../v2/harness/retriever.js";
 import type { ScoutResult } from "../../v2/harness/trace.js";
 import { filterDenseHits } from "../filter.js";
+import type { LlmCallRecord } from "../llm-capture.js";
+import { FILTER_SYSTEM_PROMPT } from "../prompts/system-prompts.js";
 
 // ---------------------------------------------------------------------------
 // Helpers.
@@ -123,6 +125,17 @@ function denseResult(slugs: string[]): ScoutResult {
   return { lane: "dense", slugs };
 }
 
+/**
+ * Build a `RetrievalInput["config"]` carrying a `memory.v3.prompts.filter`
+ * inline override. The cast mirrors `makeInput`'s — the filter only reads the
+ * prompts path on config.
+ */
+function configWithFilterOverride(override: string): RetrievalInput["config"] {
+  return {
+    memory: { v3: { prompts: { filter: { override, path: null } } } },
+  } as unknown as RetrievalInput["config"];
+}
+
 // ---------------------------------------------------------------------------
 // Tests.
 // ---------------------------------------------------------------------------
@@ -186,6 +199,37 @@ describe("filterDenseHits — judged keep/drop", () => {
     expect(userText).toContain("NOW-MARKER");
     expect(userText).toContain("a");
     expect(userText).toContain("b");
+  });
+
+  test("includes the just-arrived turn so the filter judges query-aware", async () => {
+    const calls: ProviderCall[] = [];
+    const provider = makeProvider(
+      filterToolResponse({ keep_slugs: ["a"] }),
+      calls,
+    );
+
+    await filterDenseHits({
+      input: makeInput({
+        recentTurnPairs: [
+          {
+            assistantMessage: "an earlier reply",
+            userMessage: "tell me about the people you know",
+          },
+        ],
+      }),
+      dense: denseResult(["a", "b"]),
+      sticky: new Set(),
+      bypass: new Set(),
+      provider,
+    });
+
+    const userText = calls[0].messages[0].content
+      .map((b) => (b.type === "text" ? b.text : ""))
+      .join("\n");
+    // The filter must judge against the user's actual question, not just NOW.
+    expect(userText).toContain("<last_turn>");
+    expect(userText).toContain("tell me about the people you know");
+    expect(userText).toContain("an earlier reply");
   });
 
   test("drops a model-kept slug outside the judged set", async () => {
@@ -264,6 +308,46 @@ describe("filterDenseHits — no LLM call", () => {
   });
 });
 
+describe("filterDenseHits — system prompt", () => {
+  test("uses the bundled default when no override is configured", async () => {
+    const calls: ProviderCall[] = [];
+    const provider = makeProvider(
+      filterToolResponse({ keep_slugs: ["a"] }),
+      calls,
+    );
+
+    await filterDenseHits({
+      input: makeInput(),
+      dense: denseResult(["a", "b"]),
+      sticky: new Set(),
+      bypass: new Set(),
+      provider,
+    });
+
+    expect(calls[0].systemPrompt).toBe(FILTER_SYSTEM_PROMPT);
+  });
+
+  test("uses the configured inline override as the system prompt", async () => {
+    const calls: ProviderCall[] = [];
+    const provider = makeProvider(
+      filterToolResponse({ keep_slugs: ["a"] }),
+      calls,
+    );
+
+    const override = "CUSTOM FILTER PROMPT — keep only the obvious matches.";
+    await filterDenseHits({
+      input: makeInput({ config: configWithFilterOverride(override) }),
+      dense: denseResult(["a", "b"]),
+      sticky: new Set(),
+      bypass: new Set(),
+      provider,
+    });
+
+    expect(calls[0].systemPrompt).toBe(override);
+    expect(calls[0].systemPrompt).not.toBe(FILTER_SYSTEM_PROMPT);
+  });
+});
+
 describe("filterDenseHits — fail-open", () => {
   test("provider === null keeps all dense with failureReason no_provider", async () => {
     const result = await filterDenseHits({
@@ -334,5 +418,95 @@ describe("filterDenseHits — fail-open", () => {
 
     expect([...result.kept].sort()).toEqual(["a", "b"]);
     expect(result.failureReason).toBe("schema_mismatch");
+  });
+});
+
+describe("filterDenseHits — capture", () => {
+  test("emits one record with the filter's input + raw response", async () => {
+    const calls: ProviderCall[] = [];
+    const captured: Omit<LlmCallRecord, "pass">[] = [];
+    const provider = makeProvider(
+      filterToolResponse({ keep_slugs: ["a"] }),
+      calls,
+    );
+
+    await filterDenseHits({
+      input: makeInput(),
+      dense: denseResult(["a", "b"]),
+      sticky: new Set(),
+      bypass: new Set(),
+      provider,
+      capture: (record) => captured.push(record),
+    });
+
+    expect(captured).toHaveLength(1);
+    const rec = captured[0]!;
+    expect(rec.lane).toBe("filter");
+    expect(rec.callSite).toBe("memoryV3Filter");
+    expect(rec.request.tools[0]!.name).toBe("filter_dense_hits");
+    expect(rec.response.stopReason).toBe("tool_use");
+  });
+
+  test("emits nothing when there is nothing to judge (no LLM call)", async () => {
+    const captured: Omit<LlmCallRecord, "pass">[] = [];
+    await filterDenseHits({
+      input: makeInput(),
+      dense: denseResult([]),
+      sticky: new Set(),
+      bypass: new Set(),
+      capture: (record) => captured.push(record),
+    });
+    expect(captured).toHaveLength(0);
+  });
+});
+
+describe("filterDenseHits — reasoning field", () => {
+  test("exposes an optional reasoning property in the forced tool schema", async () => {
+    const calls: ProviderCall[] = [];
+    const provider = makeProvider(
+      filterToolResponse({ keep_slugs: ["a"] }),
+      calls,
+    );
+
+    await filterDenseHits({
+      input: makeInput(),
+      dense: denseResult(["a", "b"]),
+      sticky: new Set(),
+      bypass: new Set(),
+      provider,
+    });
+
+    const schema = calls[0].tools![0].input_schema as {
+      properties: Record<string, { type?: string }>;
+      required?: string[];
+    };
+    expect(schema.properties.reasoning?.type).toBe("string");
+    // Reasoning is purely additive — the model may omit it.
+    expect(schema.required ?? []).not.toContain("reasoning");
+  });
+
+  test("accepts model-supplied reasoning without altering the kept set", async () => {
+    const calls: ProviderCall[] = [];
+    const provider = makeProvider(
+      filterToolResponse({
+        keep_slugs: ["c", "a"],
+        reasoning:
+          "kept the cross-domain associations, dropped the near-duplicate",
+      }),
+      calls,
+    );
+
+    const result = await filterDenseHits({
+      input: makeInput(),
+      dense: denseResult(["a", "b", "c"]),
+      sticky: new Set(),
+      bypass: new Set(),
+      provider,
+    });
+
+    // Reasoning is ignored by control flow: kept/dropped unchanged.
+    expect(result.kept).toEqual(["c", "a"]);
+    expect(result.trace.dropped).toEqual(["b"]);
+    expect(result.failureReason).toBeUndefined();
   });
 });

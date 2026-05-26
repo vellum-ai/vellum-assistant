@@ -49,6 +49,12 @@ import type {
 import { getLogger } from "../../util/logger.js";
 import type { RetrievalInput } from "../v2/harness/retriever.js";
 import type { GateDecision } from "../v2/harness/trace.js";
+import type { LlmCallSink } from "./llm-capture.js";
+import { renderConversationContext } from "./prompt-context.js";
+import {
+  GATE_SYSTEM_PROMPT,
+  resolveV3SystemPrompt,
+} from "./prompts/system-prompts.js";
 
 const log = getLogger("memory-v3-gate");
 
@@ -69,6 +75,8 @@ export interface RunGateArgs {
   candidates: Set<string>;
   sticky: Set<string>;
   passNumber: number;
+  /** Optional debug sink — emits one record for the gate's LLM call. */
+  capture?: LlmCallSink;
   /**
    * Provider override seam for tests. Production leaves this unset and the
    * gate resolves `getConfiguredProvider("memoryV3Gate")`. `null` is distinct
@@ -107,13 +115,22 @@ function buildGateTool(candidateSlugs: readonly string[]): ToolDefinition {
           type: "array",
           items: { type: "string", enum: [...candidateSlugs] },
           description:
-            "Final ordered page slugs to inject. Choose only from the candidate set.",
+            "Final ordered page slugs to inject. Choose only from the candidate " +
+            "set. Prefer keeping a plausibly-relevant page over dropping it; for a " +
+            "list / 'all of X' / breadth request, include every candidate that " +
+            "plausibly applies rather than trimming to the most prominent few.",
         },
         questions: {
           type: "array",
           items: { type: "string" },
           description:
             "When decision='more', the generated follow-up questions seeding the next pass.",
+        },
+        reasoning: {
+          type: "string",
+          description:
+            "One short sentence: why this ready/more verdict, and which " +
+            "candidates were kept or dropped.",
         },
       },
       required: ["decision"],
@@ -125,6 +142,7 @@ const GateToolResultSchema = z.object({
   decision: z.enum(["ready", "more"]),
   selected_slugs: z.array(z.string()).optional(),
   questions: z.array(z.string()).optional(),
+  reasoning: z.string().optional(),
 });
 
 /**
@@ -194,10 +212,11 @@ export async function runGate(args: RunGateArgs): Promise<RunGateResult> {
     return failSafe(candidates, sticky);
   }
 
-  const systemPrompt =
-    "You are the final selection gate for a memory-retrieval loop. You are " +
-    "given the candidate concept pages gathered so far for the current turn. " +
-    "Decide whether they are sufficient to answer the next reply.";
+  const systemPrompt = resolveV3SystemPrompt(
+    GATE_SYSTEM_PROMPT,
+    input.config.memory?.v3?.prompts?.gate,
+    input.workspaceDir,
+  );
 
   const stickySlugs = [...sticky];
   const userMsg: Message = {
@@ -205,7 +224,7 @@ export async function runGate(args: RunGateArgs): Promise<RunGateResult> {
     content: [
       {
         type: "text",
-        text: `<now>\n${input.nowText}\n</now>`,
+        text: renderConversationContext(input),
       },
       {
         type: "text",
@@ -219,6 +238,7 @@ export async function runGate(args: RunGateArgs): Promise<RunGateResult> {
 
   const gateTool = buildGateTool(candidateSlugs);
 
+  const startedAt = Date.now();
   let response;
   try {
     response = await provider.sendMessage([userMsg], [gateTool], systemPrompt, {
@@ -232,6 +252,14 @@ export async function runGate(args: RunGateArgs): Promise<RunGateResult> {
     log.warn({ err }, "Gate provider call threw; failing open (ready)");
     return failSafe(candidates, sticky);
   }
+
+  args.capture?.({
+    lane: "gate",
+    callSite: "memoryV3Gate",
+    request: { systemPrompt, messages: [userMsg], tools: [gateTool] },
+    response,
+    ms: Date.now() - startedAt,
+  });
 
   const toolBlock = extractToolUse(response);
   if (!toolBlock || toolBlock.name !== GATE_TOOL_NAME) {

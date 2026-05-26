@@ -8,7 +8,8 @@
  * map, so the injected `db` is an opaque sentinel the lane never dereferences.
  *
  * Coverage:
- *   - hot lane: ranks the EMA score map desc, marks every hit sticky.
+ *   - hot lane: ranks the EMA score map desc; hits are candidates but NOT
+ *     sticky (the query-aware gate may drop them).
  *   - sparse lane: reads sparseScore, ranks desc, flags near-exact hits
  *     sticky + tree-bypass.
  *   - dense lane: per-subtree quota caps off-domain hits; MMR diversifies.
@@ -32,6 +33,9 @@ let injectionScores = new Map<string, number>();
 let pageSlugs: string[] = [];
 let hybridHits: ConceptPageQueryResult[] = [];
 let embedCalls = 0;
+// Records the text the sparse lane keyed its BM25 query off, so tests can
+// assert it is the user turn only (not the NOW context).
+let lastBm25QueryText: string | null = null;
 
 mock.module("../../v2/injection-events.js", () => ({
   computeInjectionScores: () => injectionScores,
@@ -61,10 +65,12 @@ mock.module("../../v2/sparse-bm25.js", () => ({
   // Non-empty indices so the sparse/dense lanes don't short-circuit on an
   // "empty query embedding". The values are irrelevant — the stubbed Qdrant
   // query ignores them and returns `hybridHits` directly.
-  generateBm25QueryEmbedding: (text: string) =>
-    text.trim().length > 0
+  generateBm25QueryEmbedding: (text: string) => {
+    lastBm25QueryText = text;
+    return text.trim().length > 0
       ? { indices: [1], values: [1] }
-      : { indices: [], values: [] },
+      : { indices: [], values: [] };
+  },
 }));
 
 mock.module("../../embedding-backend.js", () => ({
@@ -96,6 +102,7 @@ function makeInput(opts?: {
   nowText?: string;
   lanes?: Partial<Lanes>;
   denseQuota?: { activeDomain: number; offDomain: number };
+  hotLimit?: number;
   signal?: AbortSignal;
 }): RetrievalInput {
   const lanes = {
@@ -111,6 +118,7 @@ function makeInput(opts?: {
       v3: {
         lanes,
         denseQuota: opts?.denseQuota ?? { activeDomain: 30, offDomain: 8 },
+        hotLimit: opts?.hotLimit ?? 50,
       },
     },
   } as unknown as RetrievalInput["config"];
@@ -145,7 +153,7 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("runScouts — hot lane", () => {
-  test("ranks EMA scores desc and marks every hit sticky", async () => {
+  test("ranks EMA scores desc and seeds candidates without marking them sticky", async () => {
     pageSlugs = ["people/alice", "work/proj", "essentials"];
     injectionScores = new Map([
       ["work/proj", 0.2],
@@ -160,7 +168,32 @@ describe("runScouts — hot lane", () => {
     const hot = scouts.find((s) => s.lane === "hot");
     expect(hot?.slugs).toEqual(["people/alice", "work/proj"]);
     expect(hot?.scoreBySlug).toEqual({ "people/alice": 0.9, "work/proj": 0.2 });
-    expect([...sticky].sort()).toEqual(["people/alice", "work/proj"]);
+    // Hot hits are candidates only — the query-aware gate may still drop them,
+    // so they must NOT be force-kept via sticky.
+    expect(sticky.size).toBe(0);
+  });
+
+  test("caps the hot lane to the top hotLimit by EMA", async () => {
+    pageSlugs = ["a", "b", "c", "d"];
+    injectionScores = new Map([
+      ["a", 0.9],
+      ["b", 0.7],
+      ["c", 0.5],
+      ["d", 0.3],
+    ]);
+
+    const { scouts, sticky } = await runScouts(
+      makeInput({ lanes: { sparse: false, dense: false }, hotLimit: 2 }),
+      DEPS,
+    );
+
+    // Only the top-2 by EMA survive the cap; the long tail is dropped so it
+    // can't flood the candidate set on a mature corpus.
+    const hot = scouts.find((s) => s.lane === "hot");
+    expect(hot?.slugs).toEqual(["a", "b"]);
+    expect(hot?.scoreBySlug).toEqual({ a: 0.9, b: 0.7 });
+    // Even the capped hot hits are not sticky.
+    expect(sticky.size).toBe(0);
   });
 
   test("empty corpus yields no hot ScoutResult", async () => {
@@ -207,6 +240,23 @@ describe("runScouts — sparse lane", () => {
     // Near-exact: readme (top) and api (>= 90% of top). Not misc/note.
     expect([...sticky].sort()).toEqual(["docs/api", "docs/readme"]);
     expect([...bypass].sort()).toEqual(["docs/api", "docs/readme"]);
+  });
+
+  test("keys the BM25 query off the user turn only, not the NOW context", async () => {
+    hybridHits = [hit("docs/readme", { sparseScore: 4.0 })];
+
+    await runScouts(
+      makeInput({
+        userMessage: "favorite foods",
+        nowText: "ongoing project alpha and journal beta",
+        lanes: { hot: false, dense: false },
+      }),
+      DEPS,
+    );
+
+    // The sparse lane must search the user's words alone — folding NOW in would
+    // make NOW-referenced pages near-exact (sticky) on every turn.
+    expect(lastBm25QueryText).toBe("favorite foods");
   });
 
   test("no sparse hits yields no sparse ScoutResult", async () => {

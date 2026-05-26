@@ -340,3 +340,224 @@ describe("expandEdges — cycle safety", () => {
     expect([...pulled].sort()).toEqual(["bob"]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Expansion bounds
+// ---------------------------------------------------------------------------
+//
+// These constants mirror the (intentionally module-private) caps in `edges.ts`.
+// The seed set handed to this lane is the union of every upstream lane's
+// candidates, so on a mature corpus it can run to thousands of slugs; expanding
+// all of them to their full neighborhood balloons the downstream gate's pool.
+// The lane caps the seeds expanded, the per-seed fan-out, and the total union.
+const MAX_SEEDS_EXPANDED = 150;
+const MAX_PULLS_PER_SEED = 32;
+const MAX_TOTAL_PULLS = 400;
+
+/** Zero-padded slug so lexical sort matches numeric order (`topics/000`..). */
+function topicSlug(domain: string, i: number): string {
+  return `${domain}/${String(i).padStart(4, "0")}`;
+}
+
+describe("expandEdges — bounds", () => {
+  test("expands at most MAX_SEEDS_EXPANDED seeds, dropping the tail", async () => {
+    // More seeds than the cap, each a 1-hop edge to its own private target.
+    const seedCount = MAX_SEEDS_EXPANDED + 50;
+    const graph: Record<string, string[]> = {};
+    const seeds: string[] = [];
+    for (let i = 0; i < seedCount; i++) {
+      const seed = topicSlug("people", i);
+      const target = topicSlug("targets", i);
+      graph[seed] = [target];
+      graph[target] = [];
+      seeds.push(seed);
+    }
+    await writeGraph(graph);
+
+    const { pulled, expansions } = await expandEdges({
+      workspaceDir,
+      seeds,
+      hops: 1,
+    });
+
+    // Only the first MAX_SEEDS_EXPANDED seeds yield an expansion entry; the
+    // 200-seed input is truncated to the cap.
+    expect(expansions).toHaveLength(MAX_SEEDS_EXPANDED);
+    expect(expansions.map((e) => e.from)).toEqual(
+      seeds.slice(0, MAX_SEEDS_EXPANDED),
+    );
+    // Each surviving seed contributes exactly its one target, so the union is
+    // one slug per expanded seed and stays under the total ceiling.
+    expect(pulled.size).toBe(MAX_SEEDS_EXPANDED);
+    expect(pulled.size).toBeLessThanOrEqual(MAX_TOTAL_PULLS);
+  });
+
+  test("caps a single hub seed's fan-out at MAX_PULLS_PER_SEED", async () => {
+    // One hub seed pointing at far more 1-hop neighbors than the per-seed cap.
+    const fanOut = MAX_PULLS_PER_SEED + 40;
+    const graph: Record<string, string[]> = {};
+    const targets: string[] = [];
+    for (let i = 0; i < fanOut; i++) {
+      const target = topicSlug("topics", i);
+      targets.push(target);
+      graph[target] = [];
+    }
+    graph["hub"] = targets;
+    await writeGraph(graph);
+
+    const { pulled, expansions } = await expandEdges({
+      workspaceDir,
+      seeds: ["hub"],
+      hops: 1,
+    });
+
+    // The hub's neighborhood is truncated to the per-seed cap, deterministically
+    // keeping the lexicographically-first targets.
+    expect(expansions).toHaveLength(1);
+    expect(expansions[0]!.from).toBe("hub");
+    expect(expansions[0]!.pulled).toHaveLength(MAX_PULLS_PER_SEED);
+    expect(expansions[0]!.pulled).toEqual(
+      [...targets].sort().slice(0, MAX_PULLS_PER_SEED),
+    );
+    expect(pulled.size).toBe(MAX_PULLS_PER_SEED);
+  });
+
+  test("bounds the total pulled union at MAX_TOTAL_PULLS across many seeds", async () => {
+    // Enough seeds, each with a per-seed-cap-sized private fan-out, that the
+    // unbounded union would be seedCount * MAX_PULLS_PER_SEED slugs — far past
+    // the total ceiling (ceil(400/32) = 13 seeds fills it). Each seed's targets
+    // are disjoint, so nothing collapses via de-dup and the only thing holding
+    // the union down is the cap.
+    const seedCount = 20;
+    const graph: Record<string, string[]> = {};
+    const seeds: string[] = [];
+    for (let s = 0; s < seedCount; s++) {
+      const seed = topicSlug("people", s);
+      const targets: string[] = [];
+      for (let t = 0; t < MAX_PULLS_PER_SEED; t++) {
+        // Globally-unique target slug per (seed, target) pair.
+        const target = topicSlug("targets", s * MAX_PULLS_PER_SEED + t);
+        targets.push(target);
+        graph[target] = [];
+      }
+      graph[seed] = targets;
+      seeds.push(seed);
+    }
+    await writeGraph(graph);
+
+    const { pulled, expansions } = await expandEdges({
+      workspaceDir,
+      seeds,
+      hops: 1,
+    });
+
+    // The union is held at the ceiling exactly — never overshot — even though
+    // the seeds collectively reach far more slugs.
+    expect(pulled.size).toBe(MAX_TOTAL_PULLS);
+    // Every emitted expansion entry lists only slugs that made it into the
+    // bounded union, so the trace never claims an un-pulled slug.
+    for (const expansion of expansions) {
+      for (const slug of expansion.pulled) {
+        expect(pulled.has(slug)).toBe(true);
+      }
+    }
+  });
+
+  test("duplicate slugs across seeds don't waste the total budget", async () => {
+    // Two seeds, both pointing at the same shared target plus one private each.
+    // The shared slug is counted once, so the union is 3 — well under the cap,
+    // and both seeds still get a faithful expansion entry.
+    await writeGraph({
+      "people/alice": ["topics/shared", "topics/alice-only"],
+      "people/bob": ["topics/shared", "topics/bob-only"],
+      "topics/shared": [],
+      "topics/alice-only": [],
+      "topics/bob-only": [],
+    });
+
+    const { pulled, expansions } = await expandEdges({
+      workspaceDir,
+      seeds: ["people/alice", "people/bob"],
+      hops: 1,
+    });
+
+    expect([...pulled].sort()).toEqual([
+      "topics/alice-only",
+      "topics/bob-only",
+      "topics/shared",
+    ]);
+    expect(pulled.size).toBeLessThanOrEqual(MAX_TOTAL_PULLS);
+    expect(expansions).toEqual([
+      { from: "people/alice", pulled: ["topics/alice-only", "topics/shared"] },
+      { from: "people/bob", pulled: ["topics/bob-only", "topics/shared"] },
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Seed ranking by lane trust
+// ---------------------------------------------------------------------------
+
+describe("expandEdges — seed ranking", () => {
+  test("ranks tree/dense/sparse seeds ahead of hot before the seed cap", async () => {
+    // 200 seeds (> the 150 cap), each with a private 1-hop edge. In candidate
+    // order the first 150 are hot (recency) and the last 50 are tree (LLM-
+    // chosen). Without ranking the cap would expand all 150 hot and drop every
+    // tree seed; with laneBySlug the tree seeds must be expanded first.
+    const hotCount = 150;
+    const treeCount = 50;
+    const graph: Record<string, string[]> = {};
+    const seeds: string[] = [];
+    const laneBySlug = new Map<string, string>();
+    for (let i = 0; i < hotCount; i++) {
+      const seed = topicSlug("hot", i);
+      graph[seed] = [topicSlug("hot-targets", i)];
+      graph[topicSlug("hot-targets", i)] = [];
+      seeds.push(seed);
+      laneBySlug.set(seed, "hot");
+    }
+    for (let i = 0; i < treeCount; i++) {
+      const seed = topicSlug("tree", i);
+      graph[seed] = [topicSlug("tree-targets", i)];
+      graph[topicSlug("tree-targets", i)] = [];
+      seeds.push(seed);
+      laneBySlug.set(seed, "tree");
+    }
+    await writeGraph(graph);
+
+    const { expansions } = await expandEdges({
+      workspaceDir,
+      seeds,
+      hops: 1,
+      laneBySlug,
+    });
+
+    const expandedFrom = expansions.map((e) => e.from);
+    // The seed cap still holds.
+    expect(expandedFrom).toHaveLength(MAX_SEEDS_EXPANDED);
+    // Every tree seed survives the cap (ranked ahead of hot) and leads the
+    // order, keeping candidate order within the tier (stable sort).
+    const treeSeeds = seeds.slice(hotCount);
+    expect(expandedFrom.slice(0, treeCount)).toEqual(treeSeeds);
+    // The dropped seeds are the tail-end hot seeds, not any tree seed.
+    const droppedHot = seeds.slice(hotCount - treeCount, hotCount);
+    for (const h of droppedHot) expect(expandedFrom).not.toContain(h);
+  });
+
+  test("without laneBySlug, seeds keep candidate order", async () => {
+    const graph: Record<string, string[]> = {};
+    const seeds: string[] = [];
+    for (let i = 0; i < MAX_SEEDS_EXPANDED + 10; i++) {
+      const seed = topicSlug("people", i);
+      graph[seed] = [topicSlug("targets", i)];
+      graph[topicSlug("targets", i)] = [];
+      seeds.push(seed);
+    }
+    await writeGraph(graph);
+
+    const { expansions } = await expandEdges({ workspaceDir, seeds, hops: 1 });
+    expect(expansions.map((e) => e.from)).toEqual(
+      seeds.slice(0, MAX_SEEDS_EXPANDED),
+    );
+  });
+});

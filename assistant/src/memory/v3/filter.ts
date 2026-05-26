@@ -42,6 +42,12 @@ import type {
 import { getLogger } from "../../util/logger.js";
 import type { RetrievalInput } from "../v2/harness/retriever.js";
 import type { ScoutResult } from "../v2/harness/trace.js";
+import type { LlmCallSink } from "./llm-capture.js";
+import { renderConversationContext } from "./prompt-context.js";
+import {
+  FILTER_SYSTEM_PROMPT,
+  resolveV3SystemPrompt,
+} from "./prompts/system-prompts.js";
 
 const log = getLogger("memory-v3-filter");
 
@@ -62,6 +68,8 @@ export interface FilterDenseHitsArgs {
   dense: ScoutResult;
   sticky: Set<string>;
   bypass: Set<string>;
+  /** Optional debug sink — emits one record for the filter's LLM call. */
+  capture?: LlmCallSink;
   /**
    * Provider override seam for tests. Production leaves this unset and the
    * filter resolves `getConfiguredProvider("memoryV3Filter")`. `null` is
@@ -108,6 +116,11 @@ function buildFilterTool(judgedSlugs: readonly string[]): ToolDefinition {
           description:
             "The subset of candidate page slugs to keep. Choose only from the candidate set.",
         },
+        reasoning: {
+          type: "string",
+          description:
+            "One short sentence: why these hits were kept and the rest dropped.",
+        },
       },
       required: ["keep_slugs"],
     },
@@ -116,6 +129,7 @@ function buildFilterTool(judgedSlugs: readonly string[]): ToolDefinition {
 
 const FilterToolResultSchema = z.object({
   keep_slugs: z.array(z.string()),
+  reasoning: z.string().optional(),
 });
 
 /**
@@ -183,18 +197,18 @@ export async function filterDenseHits(
     return buildResult(bypass, judged, judged, "no_provider");
   }
 
-  const systemPrompt =
-    "You are a fast relevance filter for a memory-retrieval loop. You are given " +
-    "candidate concept pages surfaced by embedding similarity for the current " +
-    "turn. Keep the pages that are meaningful associations and drop the " +
-    "spurious near-neighbors. When in doubt, keep.";
+  const systemPrompt = resolveV3SystemPrompt(
+    FILTER_SYSTEM_PROMPT,
+    input.config.memory?.v3?.prompts?.filter,
+    input.workspaceDir,
+  );
 
   const userMsg: Message = {
     role: "user",
     content: [
       {
         type: "text",
-        text: `<now>\n${input.nowText}\n</now>`,
+        text: renderConversationContext(input),
       },
       {
         type: "text",
@@ -205,6 +219,7 @@ export async function filterDenseHits(
 
   const filterTool = buildFilterTool(judged);
 
+  const startedAt = Date.now();
   let response;
   try {
     response = await provider.sendMessage(
@@ -223,6 +238,14 @@ export async function filterDenseHits(
     log.warn({ err }, "Filter provider call threw; failing open (keep all)");
     return buildResult(bypass, judged, judged, "api_error");
   }
+
+  args.capture?.({
+    lane: "filter",
+    callSite: "memoryV3Filter",
+    request: { systemPrompt, messages: [userMsg], tools: [filterTool] },
+    response,
+    ms: Date.now() - startedAt,
+  });
 
   const toolBlock = extractToolUse(response);
   if (!toolBlock || toolBlock.name !== FILTER_TOOL_NAME) {

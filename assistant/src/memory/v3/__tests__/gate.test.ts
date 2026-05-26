@@ -31,6 +31,8 @@ import type {
 } from "../../../providers/types.js";
 import type { RetrievalInput } from "../../v2/harness/retriever.js";
 import { runGate } from "../gate.js";
+import type { LlmCallRecord } from "../llm-capture.js";
+import { GATE_SYSTEM_PROMPT } from "../prompts/system-prompts.js";
 
 // ---------------------------------------------------------------------------
 // Helpers.
@@ -109,6 +111,17 @@ function makeInput(overrides?: Partial<RetrievalInput>): RetrievalInput {
   };
 }
 
+/**
+ * Build a `RetrievalInput["config"]` carrying a `memory.v3.prompts.gate`
+ * inline override. The cast mirrors `makeInput`'s — the gate only reads the
+ * prompts path on config.
+ */
+function configWithGateOverride(override: string): RetrievalInput["config"] {
+  return {
+    memory: { v3: { prompts: { gate: { override, path: null } } } },
+  } as unknown as RetrievalInput["config"];
+}
+
 // ---------------------------------------------------------------------------
 // Tests.
 // ---------------------------------------------------------------------------
@@ -165,6 +178,37 @@ describe("runGate — ready decision", () => {
     expect(userText).toContain("NOW-MARKER");
     expect(userText).toContain("a");
     expect(userText).toContain("b");
+  });
+
+  test("includes the just-arrived turn so the selection is query-aware", async () => {
+    const calls: ProviderCall[] = [];
+    const provider = makeProvider(
+      gateToolResponse({ decision: "ready", selected_slugs: ["a"] }),
+      calls,
+    );
+
+    await runGate({
+      input: makeInput({
+        recentTurnPairs: [
+          {
+            assistantMessage: "an earlier reply",
+            userMessage: "tell me about the people you know",
+          },
+        ],
+      }),
+      candidates: new Set(["a", "b"]),
+      sticky: new Set(),
+      passNumber: 1,
+      provider,
+    });
+
+    const userText = calls[0].messages[0].content
+      .map((b) => (b.type === "text" ? b.text : ""))
+      .join("\n");
+    // The gate must see the user's actual question, not just NOW + slugs.
+    expect(userText).toContain("<last_turn>");
+    expect(userText).toContain("tell me about the people you know");
+    expect(userText).toContain("an earlier reply");
   });
 
   test("drops a model-selected slug outside the candidate set", async () => {
@@ -282,6 +326,46 @@ describe("runGate — more decision", () => {
   });
 });
 
+describe("runGate — system prompt", () => {
+  test("uses the bundled default when no override is configured", async () => {
+    const calls: ProviderCall[] = [];
+    const provider = makeProvider(
+      gateToolResponse({ decision: "ready", selected_slugs: ["a"] }),
+      calls,
+    );
+
+    await runGate({
+      input: makeInput(),
+      candidates: new Set(["a", "b"]),
+      sticky: new Set(),
+      passNumber: 1,
+      provider,
+    });
+
+    expect(calls[0].systemPrompt).toBe(GATE_SYSTEM_PROMPT);
+  });
+
+  test("uses the configured inline override as the system prompt", async () => {
+    const calls: ProviderCall[] = [];
+    const provider = makeProvider(
+      gateToolResponse({ decision: "ready", selected_slugs: ["a"] }),
+      calls,
+    );
+
+    const override = "CUSTOM GATE PROMPT — finalize aggressively.";
+    await runGate({
+      input: makeInput({ config: configWithGateOverride(override) }),
+      candidates: new Set(["a", "b"]),
+      sticky: new Set(),
+      passNumber: 1,
+      provider,
+    });
+
+    expect(calls[0].systemPrompt).toBe(override);
+    expect(calls[0].systemPrompt).not.toBe(GATE_SYSTEM_PROMPT);
+  });
+});
+
 describe("runGate — fail-safe", () => {
   test("provider === null selects all candidates with sticky and ready", async () => {
     const result = await runGate({
@@ -340,5 +424,99 @@ describe("runGate — fail-safe", () => {
 
     expect(result.decision).toEqual({ decision: "ready" });
     expect([...result.selectedSlugs].sort()).toEqual(["a", "b"]);
+  });
+});
+
+describe("runGate — capture", () => {
+  test("emits one record with the gate's input + raw response", async () => {
+    const calls: ProviderCall[] = [];
+    const captured: Omit<LlmCallRecord, "pass">[] = [];
+    const provider = makeProvider(
+      gateToolResponse({ decision: "ready", selected_slugs: ["a"] }),
+      calls,
+    );
+
+    await runGate({
+      input: makeInput(),
+      candidates: new Set(["a", "b"]),
+      sticky: new Set(),
+      passNumber: 1,
+      provider,
+      capture: (record) => captured.push(record),
+    });
+
+    expect(captured).toHaveLength(1);
+    const rec = captured[0]!;
+    expect(rec.lane).toBe("gate");
+    expect(rec.callSite).toBe("memoryV3Gate");
+    expect(rec.request.tools[0]!.name).toBe("decide_selection");
+    expect(rec.request.systemPrompt.length).toBeGreaterThan(0);
+    expect(rec.request.messages).toHaveLength(1);
+    expect(rec.response.stopReason).toBe("tool_use");
+    expect(rec.ms).toBeGreaterThanOrEqual(0);
+  });
+
+  test("emits nothing when the provider is unavailable (fail-safe path)", async () => {
+    const captured: Omit<LlmCallRecord, "pass">[] = [];
+    await runGate({
+      input: makeInput(),
+      candidates: new Set(["a"]),
+      sticky: new Set(),
+      passNumber: 1,
+      provider: null,
+      capture: (record) => captured.push(record),
+    });
+    expect(captured).toHaveLength(0);
+  });
+});
+
+describe("runGate — reasoning field", () => {
+  test("exposes an optional reasoning property in the forced tool schema", async () => {
+    const calls: ProviderCall[] = [];
+    const provider = makeProvider(
+      gateToolResponse({ decision: "ready", selected_slugs: ["a"] }),
+      calls,
+    );
+
+    await runGate({
+      input: makeInput(),
+      candidates: new Set(["a", "b"]),
+      sticky: new Set(),
+      passNumber: 1,
+      provider,
+    });
+
+    const schema = calls[0].tools![0].input_schema as {
+      properties: Record<string, { type?: string }>;
+      required?: string[];
+    };
+    expect(schema.properties.reasoning?.type).toBe("string");
+    // Reasoning is purely additive — the model may omit it.
+    expect(schema.required ?? []).not.toContain("reasoning");
+  });
+
+  test("accepts model-supplied reasoning without altering the decision", async () => {
+    const calls: ProviderCall[] = [];
+    const provider = makeProvider(
+      gateToolResponse({
+        decision: "ready",
+        selected_slugs: ["b", "a"],
+        reasoning: "kept the two query-relevant pages, dropped the rest",
+      }),
+      calls,
+    );
+
+    const result = await runGate({
+      input: makeInput(),
+      candidates: new Set(["a", "b", "c"]),
+      sticky: new Set(["c"]),
+      passNumber: 1,
+      provider,
+    });
+
+    // Reasoning is ignored by control flow: decision + ordered selection
+    // (model order, omitted sticky appended) are unchanged.
+    expect(result.decision).toEqual({ decision: "ready" });
+    expect(result.selectedSlugs).toEqual(["b", "a", "c"]);
   });
 });

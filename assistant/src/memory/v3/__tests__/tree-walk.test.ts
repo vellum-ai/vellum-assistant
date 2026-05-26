@@ -4,22 +4,20 @@
  * The descent provider is always a scripted stub injected via the `provider`
  * arg — no real LLM, no network, no `mock.module`, `~/.vellum/` untouched. The
  * stub keys its scripted decision off the `<node id="...">` marker in the user
- * message so one fixture provider can drive a whole multi-node walk with one
- * call per visited node.
+ * message so one fixture provider can drive a whole multi-node walk.
  *
  * Coverage:
- *   - scripted descent over a fixture tree collects the right leaf pages and
- *     records considered/descended/skipped + reasoning per node.
- *   - one descent call per *visited* node (not per offered child).
- *   - breadthBudget caps descents per node (skip the overflow).
- *   - maxDepth halts the walk.
- *   - scout page hits seed the start node set (deriveSeedNodes) so a subtree the
- *     root never reaches is still walked.
- *   - explicit seeds bias the start set.
- *   - scout hits are rendered into the descend prompt as pressure.
- *   - provider === null → fail-safe: descend nothing, walk still terminates and
- *     collects the pages it reached, reasoning records the failure.
- *   - leaf nodes (no node children) make no provider call.
+ *   - scripted descent collects the kept leaf pages and records
+ *     considered/descended/skipped + reasoning per node.
+ *   - one descent call per *visited node with children* (node or page) — leaf
+ *     buckets are now judged for page selection, not bulk-collected.
+ *   - the descender keeps only the pages the model selects (drops the rest).
+ *   - breadthBudget caps descents per node; maxDepth halts the walk.
+ *   - the walk starts at root only — scout hits steer it as prompt pressure,
+ *     not as mid-tree seeds.
+ *   - provider === null → fail-safe: descend + keep nothing, walk still
+ *     terminates, reasoning records the failure.
+ *   - the forced tool exposes keep_pages (enum = offered page slugs).
  *   - request shape: forced tool_choice on `choose_branches`, abort signal
  *     forwarded.
  */
@@ -36,8 +34,10 @@ import type {
 import type { RetrievalInput } from "../../v2/harness/retriever.js";
 import type { ScoutResult } from "../../v2/harness/trace.js";
 import type { PageIndex } from "../../v2/page-index.js";
+import type { LlmCallRecord } from "../llm-capture.js";
+import { DESCENT_SYSTEM_PROMPT } from "../prompts/system-prompts.js";
 import type { ChildRef, TreeIndex } from "../tree-index.js";
-import { createDescender, deriveSeedNodes, runTreeWalk } from "../tree-walk.js";
+import { createDescender, runTreeWalk } from "../tree-walk.js";
 import type { TreeNode } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -76,9 +76,8 @@ function makeNode(id: string, children: ChildRef[]): TreeNode {
 
 /**
  * Build an in-memory `TreeIndex` from a forward-adjacency spec, materializing
- * `nodes`, `childrenByNode`, and the `pageParents` reverse edges (the only maps
- * `tree-walk.ts` reads). `parentsByNode` is left empty — the driver never reads
- * it.
+ * `nodes`, `childrenByNode`, and the `pageParents` reverse edges. `parentsByNode`
+ * is left empty — the driver never reads it.
  */
 function makeTree(
   root: string,
@@ -134,14 +133,33 @@ function makeInput(
   overrides?: Partial<RetrievalInput> & {
     breadthBudget?: number;
     maxDepth?: number;
+    /** Inline override for `memory.v3.prompts.descent`. */
+    descentOverride?: string;
   },
 ): RetrievalInput {
   const breadthBudget = overrides?.breadthBudget ?? 8;
   const maxDepth = overrides?.maxDepth ?? 8;
   const config = {
-    memory: { v3: { breadthBudget, maxDepth } },
+    memory: {
+      v3: {
+        breadthBudget,
+        maxDepth,
+        ...(overrides?.descentOverride !== undefined
+          ? {
+              prompts: {
+                descent: { override: overrides.descentOverride, path: null },
+              },
+            }
+          : {}),
+      },
+    },
   } as unknown as RetrievalInput["config"];
-  const { breadthBudget: _b, maxDepth: _m, ...rest } = overrides ?? {};
+  const {
+    breadthBudget: _b,
+    maxDepth: _m,
+    descentOverride: _d,
+    ...rest
+  } = overrides ?? {};
   return {
     workspaceDir: "/tmp/does-not-matter",
     recentTurnPairs: [{ assistantMessage: "", userMessage: "tell me about a" }],
@@ -162,13 +180,26 @@ function nodeIdFromCall(call: ProviderCall): string | null {
   return null;
 }
 
+/** Read the `keep_pages` enum (offered page slugs) out of a built descend tool. */
+function keepPagesEnum(tool: ToolDefinition | undefined): string[] {
+  const schema = tool?.input_schema as
+    | { properties?: { keep_pages?: { items?: { enum?: string[] } } } }
+    | undefined;
+  return schema?.properties?.keep_pages?.items?.enum ?? [];
+}
+
 /**
  * A scripted descent provider. `script` maps a node id to the bare child-node
- * ids to descend (and an optional reasoning string). Records every call and
- * honors an already-aborted signal by throwing.
+ * ids to descend, an optional explicit `keep` (page slugs), and an optional
+ * reasoning. When `keep` is omitted the stub keeps *every* offered page (the old
+ * bulk behavior), so a test only sets `keep` when exercising selective keeping.
+ * Records every call and honors an already-aborted signal by throwing.
  */
 function makeProvider(
-  script: Record<string, { descend: string[]; reasoning?: string }>,
+  script: Record<
+    string,
+    { descend: string[]; keep?: string[]; reasoning?: string }
+  >,
   calls: ProviderCall[],
 ): Provider {
   return {
@@ -183,7 +214,11 @@ function makeProvider(
       const nodeId =
         nodeIdFromCall({ messages, tools, systemPrompt, options }) ?? "";
       const decision = script[nodeId] ?? { descend: [] };
-      const input: Record<string, unknown> = { descend: decision.descend };
+      const keep = decision.keep ?? keepPagesEnum(tools?.[0]);
+      const input: Record<string, unknown> = {
+        descend: decision.descend,
+        keep_pages: keep,
+      };
       if (decision.reasoning !== undefined)
         input.reasoning = decision.reasoning;
       const response: ProviderResponse = {
@@ -205,43 +240,11 @@ function makeProvider(
 }
 
 // ---------------------------------------------------------------------------
-// deriveSeedNodes
-// ---------------------------------------------------------------------------
-
-describe("deriveSeedNodes", () => {
-  test("maps scout page slugs to their parent nodes via pageParents", () => {
-    const tree = makeTree("_root", {
-      _root: [node("a"), node("b")],
-      a: [page("pa")],
-      b: [page("pb")],
-    });
-    const scouts: ScoutResult[] = [{ lane: "sparse", slugs: ["pb"] }];
-    expect(deriveSeedNodes(tree, scouts, [])).toEqual(["b"]);
-  });
-
-  test("unions explicit seeds first, then scout-derived parents, dedup'd", () => {
-    const tree = makeTree("_root", {
-      _root: [node("a")],
-      a: [page("pa")],
-    });
-    const scouts: ScoutResult[] = [{ lane: "hot", slugs: ["pa", "pa"] }];
-    // "a" is both an explicit seed and the parent of pa — appears once, seeds first.
-    expect(deriveSeedNodes(tree, scouts, ["a", "x"])).toEqual(["a", "x"]);
-  });
-
-  test("ignores scout slugs with no parent node", () => {
-    const tree = makeTree("_root", { _root: [page("pr")] });
-    const scouts: ScoutResult[] = [{ lane: "dense", slugs: ["orphan"] }];
-    expect(deriveSeedNodes(tree, scouts, [])).toEqual([]);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // runTreeWalk — scripted descent
 // ---------------------------------------------------------------------------
 
 describe("runTreeWalk — scripted descent", () => {
-  test("collects the right leaf pages and records the descend/skip split", async () => {
+  test("collects the kept leaf pages and records the descend/skip split", async () => {
     // _root → {a, b}; a → leaf pa; b → leaf pb. Script descends only "a".
     const tree = makeTree("_root", {
       _root: [node("a"), node("b")],
@@ -260,11 +263,10 @@ describe("runTreeWalk — scripted descent", () => {
       tree,
       pages,
       scouts: [],
-      seeds: [],
       provider,
     });
 
-    // Only the descended branch's page is collected.
+    // Only the descended branch's page is kept; b is skipped entirely.
     expect([...collected]).toEqual(["pa"]);
 
     const rootLevel = levels.find((l) => l.node === "_root")!;
@@ -273,11 +275,38 @@ describe("runTreeWalk — scripted descent", () => {
     expect(rootLevel.skipped).toEqual(["b"]);
     expect(rootLevel.reasoning).toBe("a matches the turn");
 
-    // _root walked (has node children) + a walked (leaf, no call). b skipped.
+    // _root (node children) and a (page child) are both walked; b is skipped.
     expect(levels.map((l) => l.node).sort()).toEqual(["_root", "a"]);
   });
 
-  test("makes exactly one descent call per visited node with node children", async () => {
+  test("keeps only the pages the model selects at a node", async () => {
+    // _root → a, a leaf bucket of two pages. The model keeps only one.
+    const tree = makeTree("_root", {
+      _root: [node("a")],
+      a: [page("pa-keep"), page("pa-drop")],
+    });
+    const pages = makePages(["pa-keep", "pa-drop"]);
+    const calls: ProviderCall[] = [];
+    const provider = makeProvider(
+      {
+        _root: { descend: ["a"] },
+        a: { descend: [], keep: ["pa-keep"] },
+      },
+      calls,
+    );
+
+    const { pages: collected } = await runTreeWalk({
+      input: makeInput(),
+      tree,
+      pages,
+      scouts: [],
+      provider,
+    });
+
+    expect([...collected]).toEqual(["pa-keep"]);
+  });
+
+  test("makes one descent call per visited node with children", async () => {
     const tree = makeTree("_root", {
       _root: [node("a"), node("b")],
       a: [node("c"), page("pa")],
@@ -287,11 +316,7 @@ describe("runTreeWalk — scripted descent", () => {
     const pages = makePages(["pa", "pb", "pc"]);
     const calls: ProviderCall[] = [];
     const provider = makeProvider(
-      {
-        _root: { descend: ["a", "b"] },
-        a: { descend: ["c"] },
-        // b and c are leaves of the descended set; c has no node children.
-      },
+      { _root: { descend: ["a", "b"] }, a: { descend: ["c"] } },
       calls,
     );
 
@@ -300,14 +325,13 @@ describe("runTreeWalk — scripted descent", () => {
       tree,
       pages,
       scouts: [],
-      seeds: [],
       provider,
     });
 
-    // Calls happen for nodes that HAVE node children: _root, a. b (leaf) and
-    // c (leaf) are visited but short-circuit before the provider call.
+    // Every visited node has children (b and c are page-only leaf buckets that
+    // now get a page-selection call too), so all four are called.
     const calledNodes = calls.map(nodeIdFromCall).sort();
-    expect(calledNodes).toEqual(["_root", "a"]);
+    expect(calledNodes).toEqual(["_root", "a", "b", "c"]);
   });
 
   test("breadthBudget caps descents per node", async () => {
@@ -330,7 +354,6 @@ describe("runTreeWalk — scripted descent", () => {
       tree,
       pages,
       scouts: [],
-      seeds: [],
       provider,
     });
 
@@ -358,7 +381,6 @@ describe("runTreeWalk — scripted descent", () => {
       tree,
       pages,
       scouts: [],
-      seeds: [],
       provider,
     });
 
@@ -369,13 +391,13 @@ describe("runTreeWalk — scripted descent", () => {
 });
 
 // ---------------------------------------------------------------------------
-// runTreeWalk — scout seeding
+// runTreeWalk — root-only walk + scout pressure
 // ---------------------------------------------------------------------------
 
-describe("runTreeWalk — scout seeding", () => {
-  test("scout page hits seed a subtree the root never reaches", async () => {
-    // root only links to a; the "island" subtree is unreachable from root but a
-    // scout surfaced its leaf page, so deriveSeedNodes seeds `island`.
+describe("runTreeWalk — root-only walk", () => {
+  test("starts at root only — a scout hit in an unreachable subtree is not walked", async () => {
+    // root only links to `a`; `island` is unreachable from root. A scout
+    // surfaced its leaf page, but the walk no longer seeds at scout parents.
     const tree = makeTree("_root", {
       _root: [node("a")],
       a: [page("pa")],
@@ -391,35 +413,12 @@ describe("runTreeWalk — scout seeding", () => {
       tree,
       pages,
       scouts,
-      seeds: [],
       provider,
     });
 
-    // Both the root branch (pa) and the scout-seeded island (treasure) reached.
-    expect([...collected].sort()).toEqual(["pa", "treasure"]);
-    expect(levels.map((l) => l.node).sort()).toEqual(["_root", "a", "island"]);
-  });
-
-  test("explicit seeds bias the start set", async () => {
-    const tree = makeTree("_root", {
-      _root: [page("pr")],
-      mid: [page("pm")],
-    });
-    const pages = makePages(["pr", "pm"]);
-    const calls: ProviderCall[] = [];
-    const provider = makeProvider({}, calls);
-
-    const { pages: collected, levels } = await runTreeWalk({
-      input: makeInput(),
-      tree,
-      pages,
-      scouts: [],
-      seeds: ["mid"],
-      provider,
-    });
-
-    expect([...collected].sort()).toEqual(["pm", "pr"]);
-    expect(levels.map((l) => l.node).sort()).toEqual(["_root", "mid"]);
+    // Only the root branch is walked; `island`/treasure is never reached.
+    expect([...collected]).toEqual(["pa"]);
+    expect(levels.map((l) => l.node).sort()).toEqual(["_root", "a"]);
   });
 
   test("renders scout hits into the descend prompt as pressure", async () => {
@@ -437,10 +436,7 @@ describe("runTreeWalk — scout seeding", () => {
       input: makeInput(),
       tree,
       pages,
-      // Pass scouts but no parent-seed match so the start set stays root-only;
-      // we only assert the prompt rendering here.
       scouts,
-      seeds: [],
       provider,
     });
 
@@ -455,11 +451,11 @@ describe("runTreeWalk — scout seeding", () => {
 });
 
 // ---------------------------------------------------------------------------
-// runTreeWalk — fail-safe + request shape
+// runTreeWalk — fail-safe
 // ---------------------------------------------------------------------------
 
 describe("runTreeWalk — fail-safe", () => {
-  test("provider null descends nothing but still terminates and collects reached pages", async () => {
+  test("provider null descends and keeps nothing but still terminates", async () => {
     const tree = makeTree("_root", {
       _root: [node("a"), page("pr")],
       a: [page("pa")],
@@ -471,12 +467,12 @@ describe("runTreeWalk — fail-safe", () => {
       tree,
       pages,
       scouts: [],
-      seeds: [],
       provider: null,
     });
 
-    // Root's own page is collected; the undescended branch's page is not.
-    expect([...collected]).toEqual(["pr"]);
+    // No provider → the node keeps nothing (the scout lanes carry recall in the
+    // loop), descends nothing, and the walk stops at root.
+    expect([...collected]).toEqual([]);
     expect(levels.map((l) => l.node)).toEqual(["_root"]);
     const rootLevel = levels[0];
     expect(rootLevel.descended).toEqual([]);
@@ -517,7 +513,6 @@ describe("runTreeWalk — fail-safe", () => {
       tree,
       pages,
       scouts: [],
-      seeds: [],
       provider,
     });
 
@@ -526,6 +521,10 @@ describe("runTreeWalk — fail-safe", () => {
     expect(rootLevel.reasoning).toContain("validation");
   });
 });
+
+// ---------------------------------------------------------------------------
+// createDescender — request shape + page selection
+// ---------------------------------------------------------------------------
 
 describe("createDescender — request shape", () => {
   test("forces tool_choice on choose_branches and forwards the abort signal", async () => {
@@ -537,18 +536,13 @@ describe("createDescender — request shape", () => {
     const calls: ProviderCall[] = [];
     const provider = makeProvider({ _root: { descend: ["a"] } }, calls);
 
-    const reasoningByNode = new Map<string, string>();
-    const descender = createDescender(
-      {
-        input: makeInput({ signal: AbortSignal.timeout(10_000) }),
-        tree,
-        pages,
-        scouts: [],
-        seeds: [],
-        provider,
-      },
-      reasoningByNode,
-    );
+    const descender = createDescender({
+      input: makeInput({ signal: AbortSignal.timeout(10_000) }),
+      tree,
+      pages,
+      scouts: [],
+      provider,
+    });
 
     await descender("_root", [...tree.childrenByNode.get("_root")!]);
 
@@ -563,23 +557,151 @@ describe("createDescender — request shape", () => {
     expect(call.options?.signal).toBeDefined();
   });
 
-  test("a node with no node children makes no provider call", async () => {
-    const tree = makeTree("leaf", { leaf: [page("p")] });
-    const pages = makePages(["p"]);
+  test("exposes a keep_pages enum of the node's offered page slugs", async () => {
+    const tree = makeTree("bucket", {
+      bucket: [page("p1"), page("p2")],
+    });
+    const pages = makePages(["p1", "p2"]);
     const calls: ProviderCall[] = [];
     const provider = makeProvider({}, calls);
 
-    const reasoningByNode = new Map<string, string>();
-    const descender = createDescender(
-      { input: makeInput(), tree, pages, scouts: [], seeds: [], provider },
-      reasoningByNode,
+    const descender = createDescender({
+      input: makeInput(),
+      tree,
+      pages,
+      scouts: [],
+      provider,
+    });
+
+    await descender("bucket", [...tree.childrenByNode.get("bucket")!]);
+
+    expect(keepPagesEnum(calls[0].tools?.[0]).sort()).toEqual(["p1", "p2"]);
+  });
+
+  test("a node with no children at all makes no provider call", async () => {
+    const tree = makeTree("empty", { empty: [] });
+    const pages = makePages([]);
+    const calls: ProviderCall[] = [];
+    const provider = makeProvider({}, calls);
+
+    const descender = createDescender({
+      input: makeInput(),
+      tree,
+      pages,
+      scouts: [],
+      provider,
+    });
+
+    const result = await descender("empty", [
+      ...(tree.childrenByNode.get("empty") ?? []),
+    ]);
+    expect(result).toEqual({ descend: [], keep: [], reasoning: "" });
+    expect(calls).toHaveLength(0);
+  });
+
+  test("a leaf bucket of pages makes a call and keeps the selected pages", async () => {
+    const tree = makeTree("leaf", { leaf: [page("p1"), page("p2")] });
+    const pages = makePages(["p1", "p2"]);
+    const calls: ProviderCall[] = [];
+    // Keep only p1.
+    const provider = makeProvider(
+      { leaf: { descend: [], keep: ["p1"] } },
+      calls,
     );
 
-    const chosen = await descender("leaf", [
+    const descender = createDescender({
+      input: makeInput(),
+      tree,
+      pages,
+      scouts: [],
+      provider,
+    });
+
+    const result = await descender("leaf", [
       ...tree.childrenByNode.get("leaf")!,
     ]);
-    expect(chosen).toEqual([]);
-    expect(calls).toHaveLength(0);
-    expect(reasoningByNode.get("leaf")).toBe("");
+
+    expect(calls).toHaveLength(1);
+    expect(result.descend).toEqual([]);
+    expect(result.keep).toEqual([page("p1")]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runTreeWalk — descent system prompt
+// ---------------------------------------------------------------------------
+
+describe("runTreeWalk — descent system prompt", () => {
+  const tree = makeTree("_root", {
+    _root: [node("a")],
+    a: [page("pa")],
+  });
+
+  test("uses the bundled default when no override is configured", async () => {
+    const pages = makePages(["pa"]);
+    const calls: ProviderCall[] = [];
+    const provider = makeProvider({ _root: { descend: ["a"] } }, calls);
+
+    await runTreeWalk({
+      input: makeInput(),
+      tree,
+      pages,
+      scouts: [],
+      provider,
+    });
+
+    const rootCall = calls.find((c) => nodeIdFromCall(c) === "_root")!;
+    expect(rootCall.systemPrompt).toBe(DESCENT_SYSTEM_PROMPT);
+  });
+
+  test("uses the configured inline override as the descent system prompt", async () => {
+    const pages = makePages(["pa"]);
+    const calls: ProviderCall[] = [];
+    const provider = makeProvider({ _root: { descend: ["a"] } }, calls);
+
+    const override = "CUSTOM DESCENT PROMPT — descend everything plausible.";
+    await runTreeWalk({
+      input: makeInput({ descentOverride: override }),
+      tree,
+      pages,
+      scouts: [],
+      provider,
+    });
+
+    const rootCall = calls.find((c) => nodeIdFromCall(c) === "_root")!;
+    expect(rootCall.systemPrompt).toBe(override);
+    expect(rootCall.systemPrompt).not.toBe(DESCENT_SYSTEM_PROMPT);
+  });
+});
+
+describe("runTreeWalk — capture", () => {
+  test("emits one record per descender LLM call, tagged with the node", async () => {
+    // _root has node children but descends nothing, so exactly one call fires.
+    const tree = makeTree("_root", {
+      _root: [node("a"), node("b")],
+      a: [page("pa")],
+      b: [page("pb")],
+    });
+    const pages = makePages(["pa", "pb"]);
+    const calls: ProviderCall[] = [];
+    const provider = makeProvider({ _root: { descend: [] } }, calls);
+    const captured: Omit<LlmCallRecord, "pass">[] = [];
+
+    await runTreeWalk({
+      input: makeInput(),
+      tree,
+      pages,
+      scouts: [],
+      provider,
+      capture: (record) => captured.push(record),
+    });
+
+    expect(captured).toHaveLength(1);
+    const rec = captured[0]!;
+    expect(rec.lane).toBe("descent");
+    expect(rec.callSite).toBe("memoryV3Descent");
+    expect(rec.node).toBe("_root");
+    expect(rec.request.tools[0]!.name).toBe("choose_branches");
+    expect(rec.response.stopReason).toBe("tool_use");
   });
 });

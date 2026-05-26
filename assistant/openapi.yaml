@@ -11707,6 +11707,51 @@ paths:
               type: object
               properties: {}
               additionalProperties: false
+  /v1/memory/v3/simulate:
+    post:
+      operationId: memory_v3_simulate_post
+      summary: Dry-run the v3 retrieval loop against an ad-hoc query (read-only)
+      description:
+        Runs the v3 multi-lane bounded-descent retrieval loop read-only against a single synthetic turn built from
+        the supplied query plus the live (or supplied) NOW context. Returns the selected page slugs, per-lane
+        provenance, the full multi-pass descent trace, and accumulated cost. Optional passCap / lane-allowlist overrides
+        apply on top of live config. Invoked directly (not gated by memory.v3.enabled/shadow) so operators can probe v3
+        retrieval before flipping the flags; writes nothing (co-activation persistence is forced off), though each pass
+        still spends the loop's filter + gate LLM calls.
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                query:
+                  type: string
+                  minLength: 1
+                nowText:
+                  type: string
+                passCap:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                lanes:
+                  type: array
+                  items:
+                    type: string
+                    enum:
+                      - hot
+                      - sparse
+                      - dense
+                      - tree
+                      - edges
+              required:
+                - query
+              additionalProperties: false
   /v1/memory/v3/tree:
     post:
       operationId: memory_v3_tree_post
