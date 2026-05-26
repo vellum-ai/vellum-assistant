@@ -370,6 +370,41 @@ describe("handleSendMessage slash command interception", () => {
     expect(runAgentLoop).not.toHaveBeenCalled();
   });
 
+  test("clears processing and drains the queue when /compact's initial persist fails", async () => {
+    const { conversation } = makeConversation();
+    const drainQueue = mock(async () => {});
+    (
+      conversation as unknown as { drainQueue: () => Promise<void> }
+    ).drainQueue = drainQueue;
+
+    // Force the user-message persist (the first addMessage in the /compact
+    // branch, on the synchronous pre-202 path) to throw.
+    addMessageMock.mockImplementationOnce(async () => {
+      throw new Error("disk full");
+    });
+
+    // The failure surfaces to the caller rather than silently 202-ing.
+    let caught: Error | undefined;
+    try {
+      await callHandler(
+        (args) => handleSendMessage(args, makeDeps(conversation)),
+        makeRequest("/compact"),
+        undefined,
+        202,
+      );
+    } catch (err) {
+      caught = err as Error;
+    }
+    expect(caught?.message).toBe("disk full");
+
+    // Regression: without the guard `processing` stays stuck true, leaving
+    // every later send queued forever; the queue must also be drained.
+    expect(
+      (conversation as unknown as { processing: boolean }).processing,
+    ).toBe(false);
+    expect(drainQueue).toHaveBeenCalledTimes(1);
+  });
+
   test("passes regular messages through to agent loop unchanged", async () => {
     const {
       conversation,

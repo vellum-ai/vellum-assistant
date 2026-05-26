@@ -1820,12 +1820,22 @@ export async function handleSendMessage(
       assistantMessageInterface: sourceInterface,
     };
     const cleanMsg = createUserMessage(rawContent, attachments);
-    const persisted = await addMessage(
-      mapping.conversationId,
-      "user",
-      JSON.stringify(cleanMsg.content),
-      channelMeta,
-    );
+    let persisted: Awaited<ReturnType<typeof addMessage>>;
+    try {
+      persisted = await addMessage(
+        mapping.conversationId,
+        "user",
+        JSON.stringify(cleanMsg.content),
+        channelMeta,
+      );
+    } catch (err) {
+      // The fire-and-forget compaction below owns clearing `processing`, but a
+      // throw from this initial persist never reaches it — reset here so the
+      // conversation isn't stranded in queued mode.
+      conversation.processing = false;
+      silentlyWithLog(conversation.drainQueue(), "compact-command queue drain");
+      throw err;
+    }
     conversation.getMessages().push(cleanMsg);
 
     const conversationId = mapping.conversationId;
