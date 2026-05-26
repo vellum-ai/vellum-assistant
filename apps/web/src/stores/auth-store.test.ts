@@ -12,6 +12,13 @@ let getSessionFailFirstCall = false;
 const syncOnboardingUserMock = mock((_userId: string | null) => {});
 const clearOrganizationMock = mock(() => {});
 const logoutMock = mock(async () => {});
+const deleteBiometricTokenMock = mock(async () => {});
+
+let mockIsNativePlatform = false;
+let mockIsBiometricEnabled = false;
+let mockBiometricToken: string | null = null;
+const installSessionCookiesMock = mock((_token: string) => {});
+const retrieveBiometricTokenMock = mock(async () => mockBiometricToken);
 
 mock.module("@/lib/auth/allauth-client.js", () => ({
   getSession: async () => {
@@ -27,18 +34,13 @@ mock.module("@/lib/auth/allauth-client.js", () => ({
   logout: logoutMock,
 }));
 
-let mockIsNativePlatform = false;
-let mockIsBiometricEnabled = false;
-let mockBiometricToken: string | null = null;
-const installSessionCookiesMock = mock((_token: string) => {});
-const retrieveBiometricTokenMock = mock(async () => mockBiometricToken);
-
 mock.module("@/runtime/native-auth.js", () => ({
   isNativePlatform: () => mockIsNativePlatform,
   installSessionCookies: installSessionCookiesMock,
 }));
 
 mock.module("@/runtime/native-biometric.js", () => ({
+  deleteBiometricToken: deleteBiometricTokenMock,
   isBiometricEnabled: () => mockIsBiometricEnabled,
   retrieveBiometricToken: retrieveBiometricTokenMock,
 }));
@@ -79,6 +81,8 @@ beforeEach(() => {
   syncOnboardingUserMock.mockClear();
   clearOrganizationMock.mockClear();
   logoutMock.mockClear();
+<<<<<<< HEAD
+  deleteBiometricTokenMock.mockClear();
   installSessionCookiesMock.mockClear();
   retrieveBiometricTokenMock.mockClear();
   resetAuthStore();
@@ -110,6 +114,14 @@ describe("auth store onboarding flag reconciliation", () => {
     expect(logoutMock).toHaveBeenCalled();
     expect(syncOnboardingUserMock).toHaveBeenCalledWith(null);
     expect(useAuthStore.getState().isLoggedIn).toBe(false);
+  });
+});
+
+describe("biometric cleanup on logout", () => {
+  test("logout clears biometric token", async () => {
+    await useAuthStore.getState().logout();
+
+    expect(deleteBiometricTokenMock).toHaveBeenCalled();
   });
 });
 
