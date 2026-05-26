@@ -340,3 +340,156 @@ describe("expandEdges — cycle safety", () => {
     expect([...pulled].sort()).toEqual(["bob"]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Expansion bounds
+// ---------------------------------------------------------------------------
+//
+// These constants mirror the (intentionally module-private) caps in `edges.ts`.
+// The seed set handed to this lane is the union of every upstream lane's
+// candidates, so on a mature corpus it can run to thousands of slugs; expanding
+// all of them to their full neighborhood balloons the downstream gate's pool.
+// The lane caps the seeds expanded, the per-seed fan-out, and the total union.
+const MAX_SEEDS_EXPANDED = 150;
+const MAX_PULLS_PER_SEED = 32;
+const MAX_TOTAL_PULLS = 400;
+
+/** Zero-padded slug so lexical sort matches numeric order (`topics/000`..). */
+function topicSlug(domain: string, i: number): string {
+  return `${domain}/${String(i).padStart(4, "0")}`;
+}
+
+describe("expandEdges — bounds", () => {
+  test("expands at most MAX_SEEDS_EXPANDED seeds, dropping the tail", async () => {
+    // More seeds than the cap, each a 1-hop edge to its own private target.
+    const seedCount = MAX_SEEDS_EXPANDED + 50;
+    const graph: Record<string, string[]> = {};
+    const seeds: string[] = [];
+    for (let i = 0; i < seedCount; i++) {
+      const seed = topicSlug("people", i);
+      const target = topicSlug("targets", i);
+      graph[seed] = [target];
+      graph[target] = [];
+      seeds.push(seed);
+    }
+    await writeGraph(graph);
+
+    const { pulled, expansions } = await expandEdges({
+      workspaceDir,
+      seeds,
+      hops: 1,
+    });
+
+    // Only the first MAX_SEEDS_EXPANDED seeds yield an expansion entry; the
+    // 200-seed input is truncated to the cap.
+    expect(expansions).toHaveLength(MAX_SEEDS_EXPANDED);
+    expect(expansions.map((e) => e.from)).toEqual(
+      seeds.slice(0, MAX_SEEDS_EXPANDED),
+    );
+    // Each surviving seed contributes exactly its one target, so the union is
+    // one slug per expanded seed and stays under the total ceiling.
+    expect(pulled.size).toBe(MAX_SEEDS_EXPANDED);
+    expect(pulled.size).toBeLessThanOrEqual(MAX_TOTAL_PULLS);
+  });
+
+  test("caps a single hub seed's fan-out at MAX_PULLS_PER_SEED", async () => {
+    // One hub seed pointing at far more 1-hop neighbors than the per-seed cap.
+    const fanOut = MAX_PULLS_PER_SEED + 40;
+    const graph: Record<string, string[]> = {};
+    const targets: string[] = [];
+    for (let i = 0; i < fanOut; i++) {
+      const target = topicSlug("topics", i);
+      targets.push(target);
+      graph[target] = [];
+    }
+    graph["hub"] = targets;
+    await writeGraph(graph);
+
+    const { pulled, expansions } = await expandEdges({
+      workspaceDir,
+      seeds: ["hub"],
+      hops: 1,
+    });
+
+    // The hub's neighborhood is truncated to the per-seed cap, deterministically
+    // keeping the lexicographically-first targets.
+    expect(expansions).toHaveLength(1);
+    expect(expansions[0]!.from).toBe("hub");
+    expect(expansions[0]!.pulled).toHaveLength(MAX_PULLS_PER_SEED);
+    expect(expansions[0]!.pulled).toEqual(
+      [...targets].sort().slice(0, MAX_PULLS_PER_SEED),
+    );
+    expect(pulled.size).toBe(MAX_PULLS_PER_SEED);
+  });
+
+  test("bounds the total pulled union at MAX_TOTAL_PULLS across many seeds", async () => {
+    // Enough seeds, each with a per-seed-cap-sized private fan-out, that the
+    // unbounded union would be seedCount * MAX_PULLS_PER_SEED slugs — far past
+    // the total ceiling (ceil(400/32) = 13 seeds fills it). Each seed's targets
+    // are disjoint, so nothing collapses via de-dup and the only thing holding
+    // the union down is the cap.
+    const seedCount = 20;
+    const graph: Record<string, string[]> = {};
+    const seeds: string[] = [];
+    for (let s = 0; s < seedCount; s++) {
+      const seed = topicSlug("people", s);
+      const targets: string[] = [];
+      for (let t = 0; t < MAX_PULLS_PER_SEED; t++) {
+        // Globally-unique target slug per (seed, target) pair.
+        const target = topicSlug("targets", s * MAX_PULLS_PER_SEED + t);
+        targets.push(target);
+        graph[target] = [];
+      }
+      graph[seed] = targets;
+      seeds.push(seed);
+    }
+    await writeGraph(graph);
+
+    const { pulled, expansions } = await expandEdges({
+      workspaceDir,
+      seeds,
+      hops: 1,
+    });
+
+    // The union is held at the ceiling exactly — never overshot — even though
+    // the seeds collectively reach far more slugs.
+    expect(pulled.size).toBe(MAX_TOTAL_PULLS);
+    // Every emitted expansion entry lists only slugs that made it into the
+    // bounded union, so the trace never claims an un-pulled slug.
+    for (const expansion of expansions) {
+      for (const slug of expansion.pulled) {
+        expect(pulled.has(slug)).toBe(true);
+      }
+    }
+  });
+
+  test("duplicate slugs across seeds don't waste the total budget", async () => {
+    // Two seeds, both pointing at the same shared target plus one private each.
+    // The shared slug is counted once, so the union is 3 — well under the cap,
+    // and both seeds still get a faithful expansion entry.
+    await writeGraph({
+      "people/alice": ["topics/shared", "topics/alice-only"],
+      "people/bob": ["topics/shared", "topics/bob-only"],
+      "topics/shared": [],
+      "topics/alice-only": [],
+      "topics/bob-only": [],
+    });
+
+    const { pulled, expansions } = await expandEdges({
+      workspaceDir,
+      seeds: ["people/alice", "people/bob"],
+      hops: 1,
+    });
+
+    expect([...pulled].sort()).toEqual([
+      "topics/alice-only",
+      "topics/bob-only",
+      "topics/shared",
+    ]);
+    expect(pulled.size).toBeLessThanOrEqual(MAX_TOTAL_PULLS);
+    expect(expansions).toEqual([
+      { from: "people/alice", pulled: ["topics/alice-only", "topics/shared"] },
+      { from: "people/bob", pulled: ["topics/bob-only", "topics/shared"] },
+    ]);
+  });
+});
