@@ -929,7 +929,7 @@ interface EmailServiceCardProps {
   assistantHandle: string | undefined;
 }
 
-function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceCardProps) {
+export function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceCardProps) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -960,21 +960,24 @@ function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceCardProp
     setSubdomainPrefilled(true);
   }, [assistantHandle, subdomainPrefilled, subdomainDraft]);
 
-  // -- Subscription gate (managed mode requires Pro) -------------------------
-  // We separate "definitely not Pro" from "unknown" so a failed subscription
-  // fetch (transient 5xx, network blip) doesn't lock Pro users out of their
-  // own managed email. React Query preserves last-known `data` across failed
-  // refetches, so `isExplicitlyNotPro` only flips true when the server told
-  // us so. The backend `MANAGED_EMAIL` entitlement remains the source of
-  // truth — this gate is just a UX hint to keep Base orgs out of a form that
-  // would 403 anyway.
+  // -- Subscription gate (managed mode requires the managed_email entitlement)
+  // We read the `managed_email` entitlement directly rather than inferring it
+  // from the plan, so an admin `EntitlementOverride` (which flips a Base org to
+  // entitled) is honored in-product. We separate "definitely not entitled"
+  // from "unknown" so a failed subscription fetch (transient 5xx, network
+  // blip) doesn't lock entitled users out of their own managed email. React
+  // Query preserves last-known `data` across failed refetches, so
+  // `isExplicitlyNotEntitled` only flips true when the server told us so. The
+  // backend `assert_entitlement` remains the source of truth — this gate is
+  // just a UX hint to keep non-entitled orgs out of a form that would 403
+  // anyway.
   const subscriptionQuery = useQuery({
     ...organizationsBillingSubscriptionRetrieveOptions(),
     enabled: mode === "managed",
   });
   const subscriptionData = subscriptionQuery.data;
-  const isPro = subscriptionData?.plan_id === "pro";
-  const isExplicitlyNotPro = !!subscriptionData && !isPro;
+  const hasManagedEmail = subscriptionData?.entitlements?.managed_email === true;
+  const isExplicitlyNotEntitled = !!subscriptionData && !hasManagedEmail;
   const subscriptionUnknown =
     !subscriptionData &&
     subscriptionQuery.isError &&
@@ -985,13 +988,13 @@ function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceCardProp
     ...assistantsDomainsListOptions({
       path: { assistant_id: assistantId ?? "" },
     }),
-    enabled: !!assistantId && mode === "managed" && !isExplicitlyNotPro,
+    enabled: !!assistantId && mode === "managed" && !isExplicitlyNotEntitled,
   });
   const addressesQuery = useQuery({
     ...assistantsEmailAddressesListOptions({
       path: { assistant_id: assistantId ?? "" },
     }),
-    enabled: !!assistantId && mode === "managed" && !isExplicitlyNotPro,
+    enabled: !!assistantId && mode === "managed" && !isExplicitlyNotEntitled,
   });
 
   const domain = domainsQuery.data?.results?.[0];
@@ -1214,7 +1217,7 @@ function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceCardProp
               <Loader2 className="h-4 w-4 animate-spin" />
               Checking subscription…
             </div>
-          ) : isExplicitlyNotPro ? (
+          ) : isExplicitlyNotEntitled ? (
             <Notice
               tone="info"
               icon={<Crown className="h-4 w-4" aria-hidden />}
