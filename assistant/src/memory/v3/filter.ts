@@ -116,6 +116,11 @@ function buildFilterTool(judgedSlugs: readonly string[]): ToolDefinition {
           description:
             "The subset of candidate page slugs to keep. Choose only from the candidate set.",
         },
+        reasoning: {
+          type: "string",
+          description:
+            "One short sentence: why these hits were kept and the rest dropped.",
+        },
       },
       required: ["keep_slugs"],
     },
@@ -124,6 +129,7 @@ function buildFilterTool(judgedSlugs: readonly string[]): ToolDefinition {
 
 const FilterToolResultSchema = z.object({
   keep_slugs: z.array(z.string()),
+  reasoning: z.string().optional(),
 });
 
 /**

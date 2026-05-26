@@ -459,3 +459,54 @@ describe("filterDenseHits — capture", () => {
     expect(captured).toHaveLength(0);
   });
 });
+
+describe("filterDenseHits — reasoning field", () => {
+  test("exposes an optional reasoning property in the forced tool schema", async () => {
+    const calls: ProviderCall[] = [];
+    const provider = makeProvider(
+      filterToolResponse({ keep_slugs: ["a"] }),
+      calls,
+    );
+
+    await filterDenseHits({
+      input: makeInput(),
+      dense: denseResult(["a", "b"]),
+      sticky: new Set(),
+      bypass: new Set(),
+      provider,
+    });
+
+    const schema = calls[0].tools![0].input_schema as {
+      properties: Record<string, { type?: string }>;
+      required?: string[];
+    };
+    expect(schema.properties.reasoning?.type).toBe("string");
+    // Reasoning is purely additive — the model may omit it.
+    expect(schema.required ?? []).not.toContain("reasoning");
+  });
+
+  test("accepts model-supplied reasoning without altering the kept set", async () => {
+    const calls: ProviderCall[] = [];
+    const provider = makeProvider(
+      filterToolResponse({
+        keep_slugs: ["c", "a"],
+        reasoning:
+          "kept the cross-domain associations, dropped the near-duplicate",
+      }),
+      calls,
+    );
+
+    const result = await filterDenseHits({
+      input: makeInput(),
+      dense: denseResult(["a", "b", "c"]),
+      sticky: new Set(),
+      bypass: new Set(),
+      provider,
+    });
+
+    // Reasoning is ignored by control flow: kept/dropped unchanged.
+    expect(result.kept).toEqual(["c", "a"]);
+    expect(result.trace.dropped).toEqual(["b"]);
+    expect(result.failureReason).toBeUndefined();
+  });
+});
