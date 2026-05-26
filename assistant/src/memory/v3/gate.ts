@@ -49,6 +49,7 @@ import type {
 import { getLogger } from "../../util/logger.js";
 import type { RetrievalInput } from "../v2/harness/retriever.js";
 import type { GateDecision } from "../v2/harness/trace.js";
+import { renderConversationContext } from "./prompt-context.js";
 
 const log = getLogger("memory-v3-gate");
 
@@ -205,7 +206,7 @@ export async function runGate(args: RunGateArgs): Promise<RunGateResult> {
     content: [
       {
         type: "text",
-        text: `<now>\n${input.nowText}\n</now>`,
+        text: renderConversationContext(input),
       },
       {
         type: "text",

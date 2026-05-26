@@ -59,6 +59,7 @@ import type { RetrievalInput } from "../v2/harness/retriever.js";
 import type { ScoutResult } from "../v2/harness/trace.js";
 import type { PageIndex } from "../v2/page-index.js";
 import { composeNodeIndex } from "./index-composition.js";
+import { renderConversationContext } from "./prompt-context.js";
 import type { WalkResult } from "./traversal.js";
 import { walkTree } from "./traversal.js";
 import type { ChildRef, TreeIndex } from "./tree-index.js";
@@ -150,26 +151,6 @@ function buildDescendTool(offeredNodeIds: readonly string[]): ToolDefinition {
       required: ["descend"],
     },
   };
-}
-
-/**
- * Render the recent-turn + NOW context the descend prompt needs. The just-
- * arrived user turn is the last pair's `userMessage`; the prior assistant reply
- * (when present) precedes it. NOW is passed verbatim.
- */
-function renderConversationContext(input: RetrievalInput): string {
-  const lines: string[] = [];
-  const lastPair = input.recentTurnPairs[input.recentTurnPairs.length - 1];
-  if (lastPair) {
-    if (lastPair.assistantMessage.trim().length > 0) {
-      lines.push(`[assistant]: ${lastPair.assistantMessage}`);
-    }
-    lines.push(`[user]: ${lastPair.userMessage}`);
-  }
-  return (
-    `<now>\n${input.nowText}\n</now>\n\n` +
-    `<last_turn>\n${lines.join("\n")}\n</last_turn>`
-  );
 }
 
 /**
