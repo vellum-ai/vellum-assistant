@@ -64,6 +64,7 @@ import {
 import { expandEdges } from "./edges.js";
 import { filterDenseHits } from "./filter.js";
 import { runGate } from "./gate.js";
+import type { LlmCallRecord, LlmCallSink } from "./llm-capture.js";
 import { runScouts } from "./scouts.js";
 import { getTreeIndex } from "./tree-index.js";
 import { runTreeWalk } from "./tree-walk.js";
@@ -84,6 +85,12 @@ export interface RetrievalLoopDeps {
   conversationId?: string;
   /** Turn number within the conversation, for co-activation provenance. */
   turn?: number;
+  /**
+   * Optional debug sink. When set, every v3 LLM call (filter / each descender /
+   * gate) emits one {@link LlmCallRecord} with its full input + raw response.
+   * Undefined on the live/shadow path, so production captures nothing.
+   */
+  capture?: (record: LlmCallRecord) => void;
 }
 
 /**
@@ -130,6 +137,13 @@ export async function runRetrievalLoop(
     const passStart = Date.now();
     const passInput: RetrievalInput = { ...input, nowText: passNowText };
 
+    // Per-pass capture sink: stamp the current pass onto each lane's emitted
+    // record. Stays undefined (inert) unless a capture sink was injected.
+    const sink = deps.capture;
+    const passSink: LlmCallSink | undefined = sink
+      ? (record) => sink({ ...record, pass: passNumber })
+      : undefined;
+
     // 1. Scouts — always-on hot / sparse / dense fanout.
     const scoutResult = await runScouts(passInput, { db: deps.db });
     for (const slug of scoutResult.sticky) sticky.add(slug);
@@ -159,6 +173,7 @@ export async function runRetrievalLoop(
         dense: denseScout,
         sticky: scoutResult.sticky,
         bypass: scoutResult.bypass,
+        capture: passSink,
       });
       for (const slug of filtered.kept) {
         candidates.add(slug);
@@ -185,6 +200,7 @@ export async function runRetrievalLoop(
         pages,
         scouts: scoutResult.scouts,
         seeds: survivingSeeds,
+        capture: passSink,
       });
       treeLevels = walk.levels;
       for (const slug of walk.pages) {
@@ -225,6 +241,7 @@ export async function runRetrievalLoop(
       candidates,
       sticky,
       passNumber,
+      capture: passSink,
     });
     selectedSlugs = gateResult.selectedSlugs;
 

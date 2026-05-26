@@ -49,6 +49,7 @@ import type {
 import { getLogger } from "../../util/logger.js";
 import type { RetrievalInput } from "../v2/harness/retriever.js";
 import type { GateDecision } from "../v2/harness/trace.js";
+import type { LlmCallSink } from "./llm-capture.js";
 import { renderConversationContext } from "./prompt-context.js";
 import {
   GATE_SYSTEM_PROMPT,
@@ -74,6 +75,8 @@ export interface RunGateArgs {
   candidates: Set<string>;
   sticky: Set<string>;
   passNumber: number;
+  /** Optional debug sink — emits one record for the gate's LLM call. */
+  capture?: LlmCallSink;
   /**
    * Provider override seam for tests. Production leaves this unset and the
    * gate resolves `getConfiguredProvider("memoryV3Gate")`. `null` is distinct
@@ -228,6 +231,7 @@ export async function runGate(args: RunGateArgs): Promise<RunGateResult> {
 
   const gateTool = buildGateTool(candidateSlugs);
 
+  const startedAt = Date.now();
   let response;
   try {
     response = await provider.sendMessage([userMsg], [gateTool], systemPrompt, {
@@ -241,6 +245,14 @@ export async function runGate(args: RunGateArgs): Promise<RunGateResult> {
     log.warn({ err }, "Gate provider call threw; failing open (ready)");
     return failSafe(candidates, sticky);
   }
+
+  args.capture?.({
+    lane: "gate",
+    callSite: "memoryV3Gate",
+    request: { systemPrompt, messages: [userMsg], tools: [gateTool] },
+    response,
+    ms: Date.now() - startedAt,
+  });
 
   const toolBlock = extractToolUse(response);
   if (!toolBlock || toolBlock.name !== GATE_TOOL_NAME) {

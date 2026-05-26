@@ -28,6 +28,7 @@ import type {
 } from "../../memory/v2/harness/retriever.js";
 import type { DescentTrace } from "../../memory/v2/harness/trace.js";
 import { loadNowText } from "../../memory/v2/now-text.js";
+import type { LlmCallRecord } from "../../memory/v3/llm-capture.js";
 import { runRetrievalLoop } from "../../memory/v3/loop.js";
 import { getTreeIndex } from "../../memory/v3/tree-index.js";
 import type { TreeValidationReport } from "../../memory/v3/validate.js";
@@ -47,6 +48,7 @@ export type {
   ScoutResult,
   TreeLevel,
 } from "../../memory/v2/harness/trace.js";
+export type { LlmCallRecord };
 
 // ── Validate ────────────────────────────────────────────────────────────
 
@@ -164,6 +166,12 @@ export interface MemoryV3SimulateResult {
   cost: RetrievalCost;
   /** Non-null when the dense filter failed open on any pass. */
   failureReason: string | null;
+  /**
+   * Every v3 LLM call made during the run (filter / each descender / gate),
+   * with full input + raw response. Empty unless capture was on (it always is
+   * for simulate). Read-only debug surface — persisted nowhere.
+   */
+  llmCalls: LlmCallRecord[];
   effectiveConfig: {
     passCap: number;
     lanes: MemoryV3SimulateLanes;
@@ -242,7 +250,11 @@ async function handleSimulate({
     config,
   };
 
-  const output = await runRetrievalLoop(input, { db: getDb() });
+  const llmCalls: LlmCallRecord[] = [];
+  const output = await runRetrievalLoop(input, {
+    db: getDb(),
+    capture: (record) => llmCalls.push(record),
+  });
 
   const sourceBySlug: Record<string, string> = {};
   for (const [slug, lane] of output.sourceBySlug.entries()) {
@@ -256,6 +268,7 @@ async function handleSimulate({
     trace: output.trace ?? { passes: [] },
     cost: output.cost ?? {},
     failureReason: output.failureReason ?? null,
+    llmCalls,
     effectiveConfig: {
       passCap: config.memory.v3.passCap,
       lanes: config.memory.v3.lanes,

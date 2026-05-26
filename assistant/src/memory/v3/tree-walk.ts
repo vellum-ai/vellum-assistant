@@ -59,6 +59,7 @@ import type { RetrievalInput } from "../v2/harness/retriever.js";
 import type { ScoutResult } from "../v2/harness/trace.js";
 import type { PageIndex } from "../v2/page-index.js";
 import { composeNodeIndex } from "./index-composition.js";
+import type { LlmCallSink } from "./llm-capture.js";
 import { renderConversationContext } from "./prompt-context.js";
 import {
   DESCENT_SYSTEM_PROMPT,
@@ -94,6 +95,8 @@ export interface CreateDescenderArgs {
   scouts: ScoutResult[];
   /** Explicit seed node ids (folded into the prompt's seed context). */
   seeds: string[];
+  /** Optional debug sink — emits one record per descender LLM call (per node). */
+  capture?: LlmCallSink;
   /**
    * Provider override seam for tests. Production omits it and the descender
    * resolves `getConfiguredProvider("memoryV3Descent")` per call. Explicit
@@ -255,6 +258,7 @@ export function createDescender(
 
     const descendTool = buildDescendTool(offeredNodeIds);
 
+    const startedAt = Date.now();
     let response;
     try {
       response = await provider.sendMessage(
@@ -280,6 +284,15 @@ export function createDescender(
         reasoningByNode,
       );
     }
+
+    args.capture?.({
+      lane: "descent",
+      callSite: "memoryV3Descent",
+      node: nodeId,
+      request: { systemPrompt, messages: [userMsg], tools: [descendTool] },
+      response,
+      ms: Date.now() - startedAt,
+    });
 
     const toolBlock = extractToolUse(response);
     if (!toolBlock || toolBlock.name !== DESCEND_TOOL_NAME) {
