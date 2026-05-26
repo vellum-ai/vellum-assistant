@@ -103,7 +103,7 @@ mock.module("../tools/skills/skill-tool-factory.js", () => ({
     skillId: string,
     _skillDir: string,
     versionHash: string,
-    bundled?: boolean,
+    _bundled?: boolean,
   ) =>
     entries.map((e) => ({
       name: e.name,
@@ -113,7 +113,6 @@ mock.module("../tools/skills/skill-tool-factory.js", () => ({
       origin: "skill" as const,
       ownerSkillId: skillId,
       ownerSkillVersionHash: versionHash,
-      ownerSkillBundled: bundled,
       input_schema: e.input_schema,
       execute: async () => ({ content: "", isError: false }),
     })),

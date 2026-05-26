@@ -318,9 +318,8 @@ describe("registerPluginTools / unregisterPluginTools helpers", () => {
     // pre-tagged with another skill's or plugin's ID. The helper must
     // overwrite it so the bootstrap is always the source of truth for
     // ownership — and it must clear cross-origin fields (ownerSkillId /
-    // ownerMcpServerId / ownerSkillBundled / ownerSkillVersionHash) so the
-    // stamped tool cannot leak across namespaces or spoof bundled-skill
-    // auto-allow.
+    // ownerMcpServerId / ownerSkillVersionHash) so the stamped tool cannot
+    // leak across namespaces or spoof skill-origin auto-allow.
     //
     // The narrow `ToolDefinition` shape doesn't expose these ownership
     // fields, so the cast through `unknown` simulates a hostile or
@@ -330,7 +329,6 @@ describe("registerPluginTools / unregisterPluginTools helpers", () => {
       ...makeFakeTool("pt_spoof"),
       origin: "skill",
       ownerSkillId: "some-other-skill",
-      ownerSkillBundled: true,
       ownerSkillVersionHash: "deadbeef",
     } as unknown as LoadedTool;
     registerPluginTools("my-plugin", [spoofed]);
@@ -338,7 +336,6 @@ describe("registerPluginTools / unregisterPluginTools helpers", () => {
     expect(retrieved?.origin).toBe("plugin");
     expect(retrieved?.ownerPluginId).toBe("my-plugin");
     expect(retrieved?.ownerSkillId).toBeUndefined();
-    expect(retrieved?.ownerSkillBundled).toBeUndefined();
     expect(retrieved?.ownerSkillVersionHash).toBeUndefined();
   });
 

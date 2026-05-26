@@ -141,7 +141,10 @@ const mockSkillTool: Tool = {
 };
 registerTool(mockSkillTool);
 
-// Register a mock bundled skill-origin tool for testing strict mode + bundled policy.
+// Register a mock bundled skill-origin tool for testing strict mode + bundled
+// policy. `app-builder` is a real entry under `bundled-skills/`, so
+// `loadSkillCatalog()` reports it as `bundled: true` and the permission
+// checker derives `isSkillBundled = true` without any per-tool stamp.
 const mockBundledSkillTool: Tool = {
   name: "skill_bundled_test_tool",
   description: "A test bundled skill tool",
@@ -149,8 +152,7 @@ const mockBundledSkillTool: Tool = {
   defaultRiskLevel: RiskLevel.Low,
   executionTarget: "sandbox",
   origin: "skill",
-  ownerSkillId: "gmail",
-  ownerSkillBundled: true,
+  ownerSkillId: "app-builder",
   input_schema: { type: "object" as const, properties: {} },
   execute: async () => ({ content: "ok", isError: false }),
 };

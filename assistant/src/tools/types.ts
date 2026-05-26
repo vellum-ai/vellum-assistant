@@ -354,6 +354,4 @@ export interface Tool extends LoadedTool {
   ownerPluginId?: string;
   /** Content-hash of the owning skill's source at registration time. */
   ownerSkillVersionHash?: string;
-  /** Whether the owning skill is bundled with the daemon (trusted first-party). */
-  ownerSkillBundled?: boolean;
 }

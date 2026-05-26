@@ -53,7 +53,6 @@ const ToolManifestSchema = z.object({
   // tool registered without an owner has no ref-counted entry to drop and
   // would leak into the global registry on socket close.
   ownerSkillId: z.string().min(1),
-  ownerSkillBundled: z.boolean().optional(),
   ownerSkillVersionHash: z.string().optional(),
 });
 
@@ -195,7 +194,6 @@ function buildProxyTool(manifest: ToolManifest): Tool {
     }),
     origin: "skill",
     ownerSkillId: manifest.ownerSkillId,
-    ownerSkillBundled: manifest.ownerSkillBundled,
     ownerSkillVersionHash: manifest.ownerSkillVersionHash,
     execute: async () => {
       // Only reached when no supervisor is attached (tests/boot race);

@@ -344,33 +344,20 @@ export function projectSkillTools(
           continue;
         }
       } else {
-        // Hash unchanged — check if the bundled status drifted (e.g. a
-        // managed skill override was added/removed with identical content).
-        // Re-register so the ownerSkillBundled flag stays accurate.
-        const existing = getTool(tools[0].name);
-        if (
-          existing &&
-          existing.ownerSkillBundled !== (skill.bundled ?? undefined)
-        ) {
-          log.info(
-            { skillId, bundled: skill.bundled },
-            "Skill bundled status changed, re-registering tools",
+        // Hash unchanged — filter to only tools that are actually registered
+        // for this skill. Some tools may have been skipped during initial
+        // registration due to core-name collisions — don't let them leak
+        // back in. Bundled-status drift no longer requires re-registration
+        // because the permission checker derives bundled state from the
+        // live catalog instead of a stamped tool field.
+        accepted = tools.filter((t) => {
+          const reg = getTool(t.name);
+          return (
+            reg !== undefined &&
+            reg.origin === "skill" &&
+            reg.ownerSkillId === skillId
           );
-          unregisterSkillTools(skillId);
-          accepted = registerSkillTools(tools);
-        } else {
-          // Filter to only tools that are actually registered for this skill.
-          // Some tools may have been skipped during initial registration due
-          // to core-name collisions — don't let them leak back in.
-          accepted = tools.filter((t) => {
-            const reg = getTool(t.name);
-            return (
-              reg !== undefined &&
-              reg.origin === "skill" &&
-              reg.ownerSkillId === skillId
-            );
-          });
-        }
+        });
       }
 
       successfulEntries.set(skillId, currentHash);
