@@ -67,7 +67,7 @@ export function HomeFeedList({
     );
 
   return (
-    <div className="flex flex-col gap-[var(--app-spacing-sm)]">
+    <div className="flex flex-col gap-[var(--app-spacing-lg)]">
       <HomeFeedFilterBar
         categories={presentCategories}
         activeFilter={effectiveFilter}
@@ -87,7 +87,7 @@ export function HomeFeedList({
         [...grouped.entries()].map(([group, groupItems]) => (
           <section
             key={group}
-            className="flex flex-col gap-[var(--app-spacing-xs)]"
+            className="flex flex-col gap-[var(--app-spacing-md)]"
           >
             <Typography
               variant="body-small-default"
