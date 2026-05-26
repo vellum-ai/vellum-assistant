@@ -67,14 +67,35 @@ final class BillingServiceSubscriptionTests: XCTestCase {
                 {
                     "id": "pro",
                     "name": "Pro",
-                    "price_cents": 2500,
+                    "base_price_cents": 3000,
+                    "base_lookup_key": "pro_base",
                     "billing_interval": "month",
+                    "machine_tiers": [
+                        {
+                            "tier": "medium",
+                            "label": "medium",
+                            "price_cents": 0,
+                            "lookup_key": "pro_machine_medium",
+                            "cpu_limit": "2.5",
+                            "memory_gib": 5,
+                            "description": "Medium machine (2.5 vCPU, 5 GiB)"
+                        }
+                    ],
+                    "storage_tiers": [
+                        {
+                            "tier": "medium",
+                            "label": "256 GiB",
+                            "storage_gib": 256,
+                            "price_cents": 0,
+                            "lookup_key": "pro_storage_medium"
+                        }
+                    ],
                     "included_features": [
-                        "Larger machine size",
-                        "Bundled credits",
-                        "Managed email subdomain",
-                        "Managed Twilio phone numbers",
-                        "90-day grace period on cancellation before managed resources are released"
+                        "Pay-as-you-go credits",
+                        "Custom LLM credentials",
+                        "Configurable machine size",
+                        "Configurable storage",
+                        "Assistant email & subdomain"
                     ]
                 }
             ]
@@ -93,12 +114,17 @@ final class BillingServiceSubscriptionTests: XCTestCase {
         XCTAssertFalse(base.included_features.isEmpty)
         XCTAssertEqual(base.included_features.first, "Pay-as-you-go credits")
 
+        // The Pro entry uses the server's tiered shape: no flat `price_cents`,
+        // with pricing split across `base_price_cents` + per-tier arrays the
+        // client doesn't model. Decoding must still succeed (extra keys are
+        // ignored, `price_cents` decodes to nil) — a regression here is what
+        // produced "Unable to load plan information." on the Plan card.
         let pro = decoded.plans[1]
         XCTAssertEqual(pro.id, "pro")
         XCTAssertEqual(pro.name, "Pro")
-        XCTAssertEqual(pro.price_cents, 2500)
+        XCTAssertNil(pro.price_cents)
         XCTAssertEqual(pro.billing_interval, "month")
         XCTAssertFalse(pro.included_features.isEmpty)
-        XCTAssertTrue(pro.included_features.contains("Larger machine size"))
+        XCTAssertTrue(pro.included_features.contains("Assistant email & subdomain"))
     }
 }
