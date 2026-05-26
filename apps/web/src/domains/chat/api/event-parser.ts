@@ -3,8 +3,8 @@
  *
  * Exports `parseAssistantEvent`, which takes a raw SSE payload and
  * returns a typed `AssistantEvent`. The parser unwraps the
- * envelope/flat shape, tries schema-validated event types from
- * `@vellumai/assistant-api` first, and falls back to hand-rolled
+ * envelope/flat shape, tries the canonical `AssistantEventSchema`
+ * from `@vellumai/assistant-api` first, and falls back to hand-rolled
  * coercion for legacy events not yet covered by a schema.
  */
 
@@ -29,7 +29,7 @@ import type {
   SubagentStatus,
   UISurfaceShowEvent,
 } from "@/domains/chat/api/event-types.js";
-import { RelationshipStateUpdatedSchema } from "@vellumai/assistant-api";
+import { AssistantEventSchema } from "@vellumai/assistant-api";
 import type { DisplayAttachment } from "@/domains/chat/types/types.js";
 import type { ToolActivityMetadata } from "@/assistant/web-activity-types.js";
 import type { SyncInvalidationTag } from "@/lib/sync/types.js";
@@ -143,7 +143,7 @@ export function parseAssistantEvent(
   // pure inner message (no envelope merge) so strict shapes stay
   // strict: the envelope-level conversationId is a routing key, not
   // an event field, and never leaks onto strict-schema events.
-  const schemaResult = RelationshipStateUpdatedSchema.safeParse(inner);
+  const schemaResult = AssistantEventSchema.safeParse(inner);
   if (schemaResult.success) return schemaResult.data as AssistantEvent;
 
   // Legacy fallback. Merge the envelope conversationId in so legacy
