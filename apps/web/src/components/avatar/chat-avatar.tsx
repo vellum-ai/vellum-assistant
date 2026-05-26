@@ -1,7 +1,7 @@
 import { motion, useReducedMotion } from "motion/react";
 import { useCallback, useMemo, useState, type CSSProperties } from "react";
 
-import type { CharacterComponents, CharacterTraits } from "@/domains/avatar/types.js";
+import type { CharacterComponents, CharacterTraits } from "@/types/avatar.js";
 import { AnimatedAvatar } from "./animated-avatar.js";
 
 export interface ChatAvatarProps {

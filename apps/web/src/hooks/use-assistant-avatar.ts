@@ -5,8 +5,8 @@ import {
   fetchCharacterComponents,
   fetchCharacterTraits,
   fetchAvatarImageUrl,
-} from "./api.js";
-import type { CharacterComponents, CharacterTraits } from "./types.js";
+} from "@/assistant/avatar-api.js";
+import type { CharacterComponents, CharacterTraits } from "@/types/avatar.js";
 import { avatarQueryKey } from "@/lib/sync/query-tags.js";
 
 interface AvatarData {

@@ -6,12 +6,10 @@
     "messaging"
   ],
   "src/domains/chat/chat-layout.tsx": [
-    "avatar",
     "conversations",
     "subagents"
   ],
   "src/domains/chat/chat-page.tsx": [
-    "avatar",
     "conversations",
     "interactions",
     "messaging",
@@ -26,7 +24,6 @@
     "voice"
   ],
   "src/domains/chat/components/chat-route-content.tsx": [
-    "avatar",
     "interactions",
     "messaging",
     "nudges",
@@ -36,14 +33,10 @@
     "subagents"
   ],
   "src/domains/chat/components/subagent-detail-panel.tsx": [
-    "avatar",
     "subagents"
   ],
   "src/domains/chat/components/subagent-inline-progress-card/subagent-inline-progress-card.test.tsx": [
     "subagents"
-  ],
-  "src/domains/chat/components/subagent-inline-progress-card/subagent-inline-progress-card.tsx": [
-    "avatar"
   ],
   "src/domains/chat/components/subagent-status-badge.tsx": [
     "subagents"
@@ -181,12 +174,6 @@
   "src/domains/conversations/use-conversation-loader.ts": [
     "chat"
   ],
-  "src/domains/home/home-greeting-header.tsx": [
-    "avatar"
-  ],
-  "src/domains/home/home-page.tsx": [
-    "avatar"
-  ],
   "src/domains/intelligence/components/apps/app-viewer-container.tsx": [
     "chat"
   ],
@@ -195,15 +182,6 @@
   ],
   "src/domains/intelligence/components/apps/library-view.tsx": [
     "chat"
-  ],
-  "src/domains/intelligence/components/constellation-view/constellation-view.tsx": [
-    "avatar"
-  ],
-  "src/domains/intelligence/components/constellation-view/node-view.tsx": [
-    "avatar"
-  ],
-  "src/domains/intelligence/components/identity-tab.tsx": [
-    "avatar"
   ],
   "src/domains/interactions/interaction-store.ts": [
     "chat"
@@ -235,9 +213,6 @@
   ],
   "src/domains/logs/pages/usage-page.tsx": [
     "settings"
-  ],
-  "src/domains/onboarding/pages/hatching-screen.tsx": [
-    "avatar"
   ],
   "src/domains/onboarding/pages/pre-chat-flow.tsx": [
     "nudges"

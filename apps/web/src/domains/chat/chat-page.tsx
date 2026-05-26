@@ -55,7 +55,7 @@ import { VercelTokenDialog } from "@/components/vercel-token-dialog.js";
 import { useSyncChatStore } from "@/domains/chat/chat-store.js";
 import { useChatAttachments } from "@/domains/chat/components/chat-attachments/use-chat-attachments.js";
 import { useVoiceInput } from "@/domains/chat/hooks/use-voice-input.js";
-import { useAssistantAvatar } from "@/domains/avatar/use-assistant-avatar.js";
+import { useAssistantAvatar } from "@/hooks/use-assistant-avatar.js";
 import { useAssistantReachability } from "@/assistant/use-assistant-reachability.js";
 import { useDiskPressureMonitor } from "@/assistant/use-disk-pressure-monitor.js";
 import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure.js";

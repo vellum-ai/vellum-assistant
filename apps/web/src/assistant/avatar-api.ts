@@ -8,8 +8,8 @@
  */
 import { client } from "@/generated/api/client.gen.js";
 import { assertHasResponse } from "@/lib/api-errors.js";
-import type { CharacterComponents, CharacterTraits } from "./types.js";
-import { isCharacterTraits } from "./types.js";
+import type { CharacterComponents, CharacterTraits } from "@/types/avatar.js";
+import { isCharacterTraits } from "@/types/avatar.js";
 
 export async function fetchCharacterComponents(
   assistantId: string,

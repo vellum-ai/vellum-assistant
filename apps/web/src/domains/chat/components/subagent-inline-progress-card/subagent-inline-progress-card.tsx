@@ -22,7 +22,7 @@
 import { Square } from "lucide-react";
 import { useCallback, type MouseEvent } from "react";
 
-import { SubagentAvatarChip } from "@/domains/avatar/subagent-avatar-chip.js";
+import { SubagentAvatarChip } from "@/components/avatar/subagent-avatar-chip.js";
 import { PhaseGroupedStepList } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list.js";
 import { ToolProgressCardShell } from "@/domains/chat/components/tool-progress-card/tool-progress-card-shell.js";
 import { useSubagentCardData } from "@/domains/chat/hooks/use-subagent-card-data.js";

@@ -12,8 +12,8 @@ import { type ReactNode, useEffect, useRef } from "react";
 import { AvatarRenderer } from "@/components/avatar-renderer.js";
 import { Button, Typography } from "@vellum/design-library";
 import { StatusBadge } from "@/domains/chat/components/subagent-status-badge.js";
-import { BUNDLED_COMPONENTS } from "@/domains/avatar/bundled-components.js";
-import { subagentTraits } from "@/domains/avatar/subagent-avatar.js";
+import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components.js";
+import { subagentTraits } from "@/utils/avatar-subagent.js";
 import type { SubagentEntry } from "@/domains/subagents/subagent-store.js";
 import { isActiveStatus } from "@/domains/subagents/status-helpers.js";
 
