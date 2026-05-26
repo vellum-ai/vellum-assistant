@@ -15,17 +15,17 @@
  * wrapper.
  */
 
+import { VALID_CONNECTION_PROVIDERS } from "../providers/inference/auth.js";
 import {
   MANAGED_CONNECTION_NAMES,
   PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
 } from "../providers/inference/connections.js";
-import { VALID_CONNECTION_PROVIDERS } from "../providers/inference/auth.js";
 import type { ProfileEntry } from "./schemas/llm.js";
 import {
   MANAGED_PROFILE_NAMES,
-  USER_PROFILE_TEMPLATES,
   materializeProfile,
   personalConnectionLabel,
+  USER_PROFILE_TEMPLATES,
 } from "./seed-inference-profiles.js";
 
 /**

@@ -25,13 +25,13 @@
 
 import { z } from "zod";
 
-import { credentialKey } from "../../security/credential-key.js";
-import { BadRequestError } from "./errors.js";
-import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 import {
   buildByokOnboardingTemplate,
   isProviderEligibleForByokOnboarding,
 } from "../../config/byok-onboarding-templates.js";
+import { credentialKey } from "../../security/credential-key.js";
+import { BadRequestError } from "./errors.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const personalConnectionSchema = z.object({
   name: z.string(),

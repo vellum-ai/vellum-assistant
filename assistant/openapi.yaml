@@ -9694,6 +9694,113 @@ paths:
                 - code
                 - state
               additionalProperties: false
+  /v1/inference/onboarding-templates/{provider}:
+    get:
+      operationId: inference_onboardingtemplates_by_provider_get
+      summary: Get BYOK onboarding templates for a provider
+      description:
+        Return the resolved provider-connection and inference-profile shapes a fresh BYOK hatch should write. The
+        caller applies them via the regular POST/PATCH/PUT endpoints. Read-only — this endpoint never writes to the
+        workspace.
+      tags:
+        - inference
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  provider:
+                    type: string
+                  personalConnection:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      provider:
+                        type: string
+                      label:
+                        type: string
+                      auth:
+                        type: object
+                        properties:
+                          type:
+                            type: string
+                            const: api_key
+                          credential:
+                            type: string
+                        required:
+                          - type
+                          - credential
+                        additionalProperties: false
+                      status:
+                        type: string
+                        const: active
+                    required:
+                      - name
+                      - provider
+                      - label
+                      - auth
+                      - status
+                    additionalProperties: false
+                  managedConnectionsToDisable:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        auth:
+                          type: object
+                          properties:
+                            type:
+                              type: string
+                              const: platform
+                          required:
+                            - type
+                          additionalProperties: false
+                        status:
+                          type: string
+                          const: disabled
+                      required:
+                        - name
+                        - auth
+                        - status
+                      additionalProperties: false
+                  managedProfilesToDisable:
+                    type: array
+                    items:
+                      type: string
+                  userProfiles:
+                    type: object
+                    propertyNames:
+                      type: string
+                    additionalProperties: {}
+                  activeProfile:
+                    type: string
+                  profileOrder:
+                    type: array
+                    items:
+                      type: string
+                required:
+                  - provider
+                  - personalConnection
+                  - managedConnectionsToDisable
+                  - managedProfilesToDisable
+                  - userProfiles
+                  - activeProfile
+                  - profileOrder
+                additionalProperties: false
+        "400":
+          description: Unknown provider or provider not eligible for BYOK onboarding via this endpoint.
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/inference/provider-connections:
     get:
       operationId: inference_providerconnections_get
