@@ -124,6 +124,16 @@ export interface SubagentActions {
 
   setConversationId: (subagentId: string, conversationId: string) => void;
 
+  /**
+   * Attach the durable server `messageId` to every entry currently anchored
+   * to `stableId` (the optimistic streaming bubble id) and re-index `byParent`
+   * so those entries are reachable under the server id after the parent
+   * message reconciles. No-op when stableId === messageId, when no entry
+   * matches, or when the entry already carries that parentMessageId. Strengthens
+   * the positional/byParent fallback; the toolUseId anchor (PR 2/3) is primary.
+   */
+  reanchorToMessage: (params: { stableId: string; messageId: string }) => void;
+
   reset: () => void;
 }
 
@@ -173,6 +183,47 @@ function addEntryToByParent(
     merged.sort((a, b) => a.spawnedAt - b.spawnedAt);
     next.set(key, merged);
   }
+  return next;
+}
+
+/**
+ * Re-index `byParent` after a set of entries gains a new `parentMessageId`.
+ * Only the two affected buckets are rebuilt — the old `stableId` bucket (whose
+ * entry objects are swapped for their updated copies) and the new `messageId`
+ * bucket (which gains any updated entries not already present), each re-sorted
+ * by `spawnedAt`. Every other bucket reference is preserved so unrelated
+ * message subscribers don't see their selector output change.
+ */
+function reindexByParentForReanchor(
+  byParent: Map<string, SubagentEntry[]>,
+  stableId: string,
+  messageId: string,
+  updatedById: Map<string, SubagentEntry>,
+): Map<string, SubagentEntry[]> {
+  const next = new Map(byParent);
+
+  const stableBucket = next.get(stableId);
+  if (stableBucket) {
+    next.set(
+      stableId,
+      stableBucket.map((entry) => updatedById.get(entry.subagentId) ?? entry),
+    );
+  }
+
+  const messageBucket = [...(next.get(messageId) ?? [])];
+  for (const updated of updatedById.values()) {
+    const idx = messageBucket.findIndex(
+      (entry) => entry.subagentId === updated.subagentId,
+    );
+    if (idx === -1) {
+      messageBucket.push(updated);
+    } else {
+      messageBucket[idx] = updated;
+    }
+  }
+  messageBucket.sort((a, b) => a.spawnedAt - b.spawnedAt);
+  next.set(messageId, messageBucket);
+
   return next;
 }
 
@@ -383,6 +434,37 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
         ...byId,
         [subagentId]: { ...existing, conversationId },
       },
+    });
+  },
+
+  reanchorToMessage: ({ stableId, messageId }) => {
+    if (stableId === messageId) return;
+
+    const { byId } = get();
+    const updatedById = new Map<string, SubagentEntry>();
+    for (const entry of Object.values(byId)) {
+      if (
+        entry.parentMessageStableId === stableId &&
+        entry.parentMessageId !== messageId
+      ) {
+        updatedById.set(entry.subagentId, { ...entry, parentMessageId: messageId });
+      }
+    }
+    if (updatedById.size === 0) return;
+
+    const nextById = { ...byId };
+    for (const [subagentId, updated] of updatedById) {
+      nextById[subagentId] = updated;
+    }
+
+    set({
+      byId: nextById,
+      byParent: reindexByParentForReanchor(
+        get().byParent,
+        stableId,
+        messageId,
+        updatedById,
+      ),
     });
   },
 
