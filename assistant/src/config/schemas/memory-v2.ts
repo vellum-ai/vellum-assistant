@@ -466,11 +466,13 @@ export const MemoryV3ConfigSchema = z
           .number({
             error: "memory.v3.denseQuota.activeDomain must be a number",
           })
+          .default(30)
           .describe(
             "Dense-lane candidate quota allocated to the conversation's active domain.",
           ),
         offDomain: z
           .number({ error: "memory.v3.denseQuota.offDomain must be a number" })
+          .default(8)
           .describe(
             "Dense-lane candidate quota allocated to off-domain (exploratory) retrieval.",
           ),

@@ -178,6 +178,38 @@ describe("validateTree — cycles", () => {
 
     expect(report.cycles).toEqual([]);
   });
+
+  test("detects a cycle in a component unreachable from the root", async () => {
+    // _root is a leaf with no edges; the x ↔ y cycle lives in a disconnected
+    // component the root can never reach. The sweep over unvisited nodes must
+    // still surface it.
+    await writeNode(workspaceDir, node(ROOT_NODE_ID, []));
+    await writeNode(workspaceDir, node("x", ["node:y"]));
+    await writeNode(workspaceDir, node("y", ["node:x"]));
+    resetCaches();
+
+    const report = await validateTree(workspaceDir);
+
+    expect(report.cycleCount).toBe(1);
+    // The back-edge closes on whichever of the pair the sweep enters second.
+    const [{ from, to }] = report.cycles;
+    expect(new Set([from, to])).toEqual(new Set(["x", "y"]));
+  });
+
+  test("a page off an unreachable cyclic node stays an orphan", async () => {
+    // The disconnected-component sweep covers x/y for cycle detection but must
+    // not mark them root-reachable — `detached` therefore remains an orphan.
+    await writeNode(workspaceDir, node(ROOT_NODE_ID, []));
+    await writeNode(workspaceDir, node("x", ["node:y", "page:detached"]));
+    await writeNode(workspaceDir, node("y", ["node:x"]));
+    await writePage(workspaceDir, page("detached"));
+    resetCaches();
+
+    const report = await validateTree(workspaceDir);
+
+    expect(report.cycleCount).toBe(1);
+    expect(report.orphanPages).toEqual(["detached"]);
+  });
 });
 
 describe("validateTree — staleIndex", () => {

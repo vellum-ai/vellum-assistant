@@ -133,7 +133,7 @@ async function handleTree({
 /** The five v3 retrieval lanes, in fanout order. */
 const V3_LANE_NAMES = ["hot", "sparse", "dense", "tree", "edges"] as const;
 
-const MemoryV3SimulateParams = z
+export const MemoryV3SimulateParams = z
   .object({
     /** The ad-hoc user query to route a single synthetic turn against. */
     query: z.string().min(1, "memory.v3.simulate query must be non-empty"),
@@ -152,7 +152,10 @@ const MemoryV3SimulateParams = z
      * Restrict the run to this allowlist of lanes (others forced off). Omit to
      * inherit the live `memory.v3.lanes` toggles.
      */
-    lanes: z.array(z.enum(V3_LANE_NAMES)).optional(),
+    lanes: z
+      .array(z.enum(V3_LANE_NAMES))
+      .min(1, "memory.v3.simulate lanes must list at least one lane")
+      .optional(),
   })
   .strict();
 

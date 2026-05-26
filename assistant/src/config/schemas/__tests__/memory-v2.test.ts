@@ -272,6 +272,20 @@ describe("MemoryV3ConfigSchema", () => {
     expect(parsed.denseQuota).toEqual({ activeDomain: 50, offDomain: 12 });
   });
 
+  test("accepts a partial denseQuota override and defaults the rest", () => {
+    // Overriding only one leaf must merge with defaults, not fail validation
+    // (which would discard the entire user config).
+    const onlyActive = MemoryV3ConfigSchema.parse({
+      denseQuota: { activeDomain: 50 },
+    });
+    expect(onlyActive.denseQuota).toEqual({ activeDomain: 50, offDomain: 8 });
+
+    const onlyOff = MemoryV3ConfigSchema.parse({
+      denseQuota: { offDomain: 12 },
+    });
+    expect(onlyOff.denseQuota).toEqual({ activeDomain: 30, offDomain: 12 });
+  });
+
   test("accepts a partial lanes override and defaults the rest", () => {
     const parsed = MemoryV3ConfigSchema.parse({ lanes: { dense: false } });
     expect(parsed.lanes).toEqual({
