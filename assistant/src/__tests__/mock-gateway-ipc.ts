@@ -56,7 +56,9 @@ class FakePersistentIpcClient extends EventEmitter {
     if (simulateError) {
       throw new Error("Mock IPC socket error");
     }
-    return method in ipcResults ? ipcResults[method] : undefined;
+    if (method in ipcResults) return ipcResults[method];
+    if (method === "get_feature_flags") return GET_FEATURE_FLAGS_DEFAULT;
+    return undefined;
   }
 
   destroy(): void {
@@ -67,6 +69,18 @@ class FakePersistentIpcClient extends EventEmitter {
 // ---------------------------------------------------------------------------
 // Register the mock (called once from test-preload.ts)
 // ---------------------------------------------------------------------------
+
+/**
+ * Sentinel returned by the mock for `get_feature_flags` when a test has not
+ * explicitly configured a result. Keeps the response non-empty so
+ * `initFeatureFlagOverrides()` does not enter its 7.75 s empty-result retry
+ * loop during tests that build the CLI program or otherwise trigger flag
+ * initialization. The sentinel key starts with a double underscore so it
+ * cannot collide with any real registry-declared flag.
+ */
+const GET_FEATURE_FLAGS_DEFAULT: Record<string, boolean> = {
+  __test_default__: false,
+};
 
 export function installGatewayIpcMock(): void {
   mock.module("@vellumai/gateway-client/ipc-client", () => ({
@@ -79,7 +93,9 @@ export function installGatewayIpcMock(): void {
         // Real ipcCall returns undefined on failure — mirror that behavior.
         return undefined;
       }
-      return method in ipcResults ? ipcResults[method] : undefined;
+      if (method in ipcResults) return ipcResults[method];
+      if (method === "get_feature_flags") return GET_FEATURE_FLAGS_DEFAULT;
+      return undefined;
     },
     PersistentIpcClient: FakePersistentIpcClient,
   }));

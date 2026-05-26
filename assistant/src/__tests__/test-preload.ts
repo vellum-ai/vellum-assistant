@@ -1,40 +1,60 @@
 /**
  * Shared test preload — runs before every test file.
  *
- * Creates a per-file temporary directory and sets VELLUM_WORKSPACE_DIR so that
- * all workspace-derived helpers (getDataDir, getDbPath, getConversationsDir, …)
- * resolve under the temp dir instead of the real ~/.vellum/workspace.
+ * Creates a per-process temporary directory and sets VELLUM_WORKSPACE_DIR so
+ * that all workspace-derived helpers (getDataDir, getDbPath,
+ * getConversationsDir, getProtectedDir, …) resolve under the temp dir
+ * instead of the real ~/.vellum/workspace.
  *
  * Cleanup: the temp dir is removed after all tests in the file complete.
  *
- * Ordering invariant
- * ------------------
- * The env override at line ~30 MUST run before any source-module import
- * resolves. ES module imports are hoisted and executed top-to-bottom at
- * module load, so any top-level `import` of a source module would run
- * before the env override line — and if that import threw (e.g. broken
- * `node_modules` symlink in a worktree), the env override would never
- * run, leaving `VELLUM_WORKSPACE_DIR=/workspace` inherited from the
- * parent daemon. Migration tests then call `rmSync(getDbPath())`
- * targeting the live production DB.
+ * Zero source-module imports
+ * --------------------------
+ * The only static imports in this file are node stdlib (`node:fs`,
+ * `node:os`, `node:path`), `bun:test`, and `./mock-gateway-ipc.js` — which
+ * itself imports only node stdlib + `bun:test`. No source-module import
+ * runs at preload-load time, so a broken `node_modules` symlink (the
+ * DB ghost #3 failure shape — see
+ * /workspace/journal/2026-05-25-db-ghost-3-recovery.md) cannot prevent
+ * the env override below from running.
  *
- * To preserve that ordering, only node stdlib + `bun:test` are imported
- * at the top. All source-module setup uses dynamic `await import()`
- * calls below the env override. See
- * /workspace/journal/2026-05-25-db-ghost-3-recovery.md for the incident
- * this ordering prevents.
+ * Three prior preload-side setup calls were replaced with node-module-free
+ * alternatives:
+ *
+ * 1. `_setOverridesForTesting({})` — the gateway IPC mock now returns a
+ *    sentinel for `get_feature_flags` so `initFeatureFlagOverrides()`
+ *    doesn't hit the 7.75 s empty-result retry loop. Tests that need
+ *    specific flag state still call `mockGatewayIpc()` or
+ *    `_setOverridesForTesting()` directly from their own setup.
+ *
+ * 2. `resetDb()` — was a no-op at preload time: bun test processes start
+ *    with a fresh JS heap, so the `db-connection.ts` singleton is `null`.
+ *    The first test to call `getDb()` lazily opens a connection pointing
+ *    at the already-set `VELLUM_WORKSPACE_DIR`.
+ *
+ * 3. `_setStorePath(join(testDir, "keys.enc"))` — the testDir layout is
+ *    now `<tmpRoot>/workspace`, so `vellumRoot()` (which derives from
+ *    `dirname(VELLUM_WORKSPACE_DIR)`) resolves to `<tmpRoot>` per
+ *    process. `getProtectedDir()` resolves to `<tmpRoot>/protected`,
+ *    naturally isolated.
  */
 
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll } from "bun:test";
 
-// --- Phase 1: env override (zero source imports above this point) -----------
+import { installGatewayIpcMock } from "./mock-gateway-ipc.js";
 
-const testDir = realpathSync(
-  mkdtempSync(join(tmpdir(), "vellum-test-workspace-")),
-);
+// --- Phase 1: env override (zero source-module imports above this point) ---
+
+// Layout: <tmpRoot>/workspace as VELLUM_WORKSPACE_DIR. The parent of
+// VELLUM_WORKSPACE_DIR is what `vellumRoot()` resolves to, so a separate
+// tmpRoot per process gives `getProtectedDir()` and friends per-process
+// isolation without needing `_setStorePath()`.
+const tmpRoot = realpathSync(mkdtempSync(join(tmpdir(), "vellum-test-")));
+const testDir = join(tmpRoot, "workspace");
+mkdirSync(testDir);
 process.env.VELLUM_WORKSPACE_DIR = testDir;
 process.env.VELLUM_PLATFORM_URL = "https://test-platform.vellum.ai";
 process.exitCode = 0;
@@ -47,43 +67,15 @@ const savedCesCredentialUrl = process.env.CES_CREDENTIAL_URL;
 delete process.env.IS_CONTAINERIZED;
 delete process.env.CES_CREDENTIAL_URL;
 
-// --- Phase 2: source-module setup (dynamic imports, post-env override) ------
-//
-// Any failure below this line surfaces with VELLUM_WORKSPACE_DIR already
-// redirected to the temp dir.
-
-const { installGatewayIpcMock } = await import("./mock-gateway-ipc.js");
-const { _setOverridesForTesting } = await import(
-  "../config/assistant-feature-flags.js"
-);
-const { resetDb } = await import("../memory/db-connection.js");
-const { _setStorePath } = await import("../security/encrypted-store.js");
-
-// Isolate the encrypted credential store per test file. Without this,
-// parallel test processes all read/write the same ~/.vellum/protected/keys.enc,
-// causing races when one file deletes a key while another sets it.
-_setStorePath(join(testDir, "keys.enc"));
+// --- Phase 2: install the IPC mock (no source-module imports) ---
 
 // Mock gateway IPC so no test accidentally connects to a real gateway socket.
-// Tests that need to control IPC responses use mockGatewayIpc() / resetMockGatewayIpc().
+// The mock returns a sentinel for `get_feature_flags` to short-circuit the
+// retry loop in `initFeatureFlagOverrides()`. Tests that need specific IPC
+// responses use `mockGatewayIpc()` / `resetMockGatewayIpc()`.
 installGatewayIpcMock();
 
-// Pre-populate the feature-flag override cache so `initFeatureFlagOverrides()`
-// short-circuits its retry loop — there is no real gateway in tests, and the
-// retry backoff would otherwise exceed the per-test timeout for any test that
-// builds the CLI program. Tests exercising the retry behavior call
-// `clearFeatureFlagOverridesCache()` first.
-_setOverridesForTesting({});
-
-// Force-close any DB connection inherited from the parent process (e.g. when
-// the test runner is spawned by the running assistant via a pre-push hook).
-// Without this, the db singleton in db-connection.ts may still point at the
-// real ~/.vellum/workspace database, and test cleanup (DELETE FROM …) would
-// wipe production data — contacts, channels, credentials, etc.
-resetDb();
-
 afterAll(() => {
-  resetDb();
   process.exitCode = 0;
   delete process.env.VELLUM_WORKSPACE_DIR;
   delete process.env.VELLUM_PLATFORM_URL;
@@ -94,7 +86,7 @@ afterAll(() => {
     process.env.CES_CREDENTIAL_URL = savedCesCredentialUrl;
   }
   try {
-    rmSync(testDir, { recursive: true, force: true });
+    rmSync(tmpRoot, { recursive: true, force: true });
   } catch {
     /* best-effort cleanup */
   }
