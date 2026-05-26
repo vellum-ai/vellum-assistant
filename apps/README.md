@@ -32,7 +32,14 @@ follow-up PRs.
 
 ## Planned moves
 
-The current Chrome extension at `clients/chrome-extension/` is the first
-candidate for relocation under this directory. That move is intentionally
-scoped to a separate follow-up PR so its impact on Chrome Web Store release
-workflows can be reviewed in isolation.
+- **Chrome extension** — `clients/chrome-extension/` will move to
+  `apps/chrome-extension/` (preserving its name) in a follow-up PR. Scoped
+  separately so its impact on Chrome Web Store release workflows can be
+  reviewed in isolation.
+- **macOS Electron** — `apps/electron/` will be renamed `apps/macos/` to match
+  the platform-named convention used by `apps/ios/`. Held until the legacy
+  native Swift app at `clients/macos/` retires (the two would otherwise both
+  want the `macos/` name, and `.github/workflows/ci-main-macos.yaml` already
+  targets the Swift app). Tracked at
+  [LUM-1908](https://linear.app/vellum/issue/LUM-1908), blocked on Phase 5
+  cutover.
