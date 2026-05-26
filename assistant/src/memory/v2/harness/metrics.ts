@@ -36,6 +36,10 @@ export interface AggregateEval {
 /**
  * recall@k = |topK(selected) ∩ G| / |G|. An empty ground-truth set is defined
  * as recall 1 (nothing to recall — vacuously complete).
+ *
+ * The top-k window is deduped before intersecting with the ground-truth set so
+ * a retriever that emits the same slug twice (e.g. `['a','a']`) cannot count it
+ * twice and push recall above 1.0. Recall is therefore bounded in [0, 1].
  */
 export function recallAtK(
   selected: readonly string[],
@@ -44,7 +48,7 @@ export function recallAtK(
 ): number {
   if (groundTruth.size === 0) return 1;
   let hit = 0;
-  for (const slug of selected.slice(0, k)) {
+  for (const slug of new Set(selected.slice(0, k))) {
     if (groundTruth.has(slug)) hit++;
   }
   return hit / groundTruth.size;

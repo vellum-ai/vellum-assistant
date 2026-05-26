@@ -195,7 +195,7 @@ describe("harness/replay-input reconstructInput", () => {
     expect(r).toBeNull();
   });
 
-  test("priorEverInjected unions injected/in_context slugs from earlier router turns", async () => {
+  test("priorEverInjected mirrors production everInjected retention from earlier router turns", async () => {
     insertMessage("u1", "c1", "user", "u1", 10);
     insertMessage("a1", "c1", "assistant", "a1", 20);
     insertMessage("u2", "c1", "user", "u2", 30);
@@ -207,7 +207,12 @@ describe("harness/replay-input reconstructInput", () => {
       [
         makeConcept("p1", "injected"),
         makeConcept("p2", "in_context"),
-        makeConcept("p3", "not_injected"),
+        // page_missing / corrupt concept pages are retained in production's
+        // everInjected (so they aren't re-attempted every turn), so the replay
+        // must include them too.
+        makeConcept("p3", "page_missing"),
+        makeConcept("p4", "corrupt"),
+        makeConcept("p5", "not_injected"),
       ],
       20,
     );
@@ -219,7 +224,7 @@ describe("harness/replay-input reconstructInput", () => {
       WORKSPACE,
     );
     const slugs = (r?.input.priorEverInjected ?? []).map((e) => e.slug).sort();
-    expect(slugs).toEqual(["p1", "p2"]);
-    expect(r?.meta.priorEverInjectedCount).toBe(2);
+    expect(slugs).toEqual(["p1", "p2", "p3", "p4"]);
+    expect(r?.meta.priorEverInjectedCount).toBe(4);
   });
 });

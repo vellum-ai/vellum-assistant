@@ -25,6 +25,15 @@ describe("harness/metrics recallAtK", () => {
   test("empty ground truth is vacuously complete (recall 1)", () => {
     expect(recallAtK([], new Set<string>(), 5)).toBe(1);
   });
+
+  test("duplicate selections cannot push recall above 1.0", () => {
+    // A retriever emitting the same slug twice must not double-count it.
+    expect(recallAtK(["a", "a"], new Set(["a"]), 10)).toBe(1);
+    // Duplicates inside the top-k window still count once.
+    const gt = new Set(["a", "b"]);
+    expect(recallAtK(["a", "a", "b"], gt, 10)).toBeCloseTo(1);
+    expect(recallAtK(["a", "a", "b"], gt, 2)).toBeCloseTo(0.5);
+  });
 });
 
 describe("harness/metrics evalTurn", () => {
