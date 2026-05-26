@@ -1,4 +1,4 @@
-import { contextBridge } from "electron";
+import { contextBridge, ipcRenderer } from "electron";
 
 // Surface exposed to the renderer as `window.vellum`. Implementations land in
 // follow-up tickets; for now these are typed stubs so the renderer can
@@ -30,8 +30,10 @@ const bridge: VellumBridge = {
     getToken: notImplemented("auth.getToken"),
   },
   settings: {
-    get: notImplemented("settings.get"),
-    set: notImplemented("settings.set"),
+    get: <T>(key: string): Promise<T | null> =>
+      ipcRenderer.invoke("vellum:settings:get", key) as Promise<T | null>,
+    set: <T>(key: string, value: T): Promise<void> =>
+      ipcRenderer.invoke("vellum:settings:set", key, value) as Promise<void>,
   },
   helper: {
     ping: notImplemented("helper.ping"),

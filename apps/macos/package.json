@@ -17,5 +17,8 @@
     "electron-vite": "5.0.0",
     "typescript": "5.9.3",
     "vite": "7.3.3"
+  },
+  "dependencies": {
+    "electron-store": "11.0.2"
   }
 }
