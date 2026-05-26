@@ -449,12 +449,16 @@ export function ProviderEditorContent({
 
         auth = { type: "api_key", credential: effectiveCredential };
       } else if (authType === "oauth_subscription") {
-        // OAuth subscription connections are created by the OAuth flow
-        // (handleChatgptUrlSubmit), not through the normal Save path.
-        // If the user somehow reaches here, prompt them to use the
-        // sign-in button instead.
-        setError("Use the \"Sign in with ChatGPT\" button to connect your subscription.");
-        return;
+        if (effectiveMode !== "create" && connection?.auth.type === "oauth_subscription") {
+          // Editing an existing oauth_subscription connection — preserve
+          // the stored auth so users can update display name / status.
+          auth = connection.auth;
+        } else {
+          // Create mode: OAuth subscription connections are created by
+          // the OAuth flow (handleChatgptUrlSubmit), not through Save.
+          setError("Use the \"Sign in with ChatGPT\" button to connect your subscription.");
+          return;
+        }
       } else if (authType === "none") {
         auth = { type: "none" };
       } else {
