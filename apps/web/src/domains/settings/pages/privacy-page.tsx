@@ -8,13 +8,9 @@ import { AccessConsentSetting } from "@/domains/settings/components/access-conse
 import { RiskToleranceSettings } from "@/domains/settings/components/risk-tolerance-settings.js";
 import { TrustRules } from "@/domains/settings/components/trust-rules/trust-rules.js";
 import {
-  getLocalSetting,
-  setLocalSetting,
-} from "@/lib/local-settings.js";
-
-const LS_SHARE_ANALYTICS = "vellum_share_analytics";
-const LS_SHARE_DIAGNOSTICS = "vellum_share_diagnostics";
-const LS_LLM_LOG_RETENTION = "vellum_llm_log_retention";
+  getDeviceSetting,
+  setDeviceSetting,
+} from "@/lib/device-settings.js";
 
 const RETENTION_OPTIONS: { value: string; label: string }[] = [
   { value: "dontRetain", label: "Don't retain" },
@@ -62,30 +58,30 @@ function Divider() {
 
 export function PrivacyPage() {
   const [shareAnalytics, setShareAnalytics] = useState(
-    () => getLocalSetting(LS_SHARE_ANALYTICS, "true") === "true",
+    () => getDeviceSetting("shareAnalytics", "true") === "true",
   );
   const [shareDiagnostics, setShareDiagnostics] = useState(
-    () => getLocalSetting(LS_SHARE_DIAGNOSTICS, "true") === "true",
+    () => getDeviceSetting("shareDiagnostics", "true") === "true",
   );
   const [retentionId, setRetentionId] = useState(() =>
-    getLocalSetting(LS_LLM_LOG_RETENTION, DEFAULT_RETENTION_ID),
+    getDeviceSetting("llmLogRetention", DEFAULT_RETENTION_ID),
   );
 
   const handleAnalyticsToggle = () => {
     const next = !shareAnalytics;
     setShareAnalytics(next);
-    setLocalSetting(LS_SHARE_ANALYTICS, String(next));
+    setDeviceSetting("shareAnalytics", String(next));
   };
 
   const handleDiagnosticsToggle = () => {
     const next = !shareDiagnostics;
     setShareDiagnostics(next);
-    setLocalSetting(LS_SHARE_DIAGNOSTICS, String(next));
+    setDeviceSetting("shareDiagnostics", String(next));
   };
 
   const handleRetentionChange = (value: string) => {
     setRetentionId(value);
-    setLocalSetting(LS_LLM_LOG_RETENTION, value);
+    setDeviceSetting("llmLogRetention", value);
   };
 
   return (

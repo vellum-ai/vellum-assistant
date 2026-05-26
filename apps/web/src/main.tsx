@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { RouterProvider } from "react-router";
 import * as Sentry from "@sentry/react";
 
+import { migrateDeviceSettings } from "@/lib/device-settings.js";
 import { useAuthStore, setupAuthListeners } from "@/stores/auth-store.js";
 import { setupOrganizationStore } from "@/stores/organization-store.js";
 import { AppProviders } from "@/components/providers.js";
@@ -16,6 +17,7 @@ import { initSafeAreaBridge } from "@/runtime/native-safe-area.js";
 
 async function boot() {
   await initSafeAreaBridge();
+  migrateDeviceSettings();
 
   setupOrganizationStore();
   useAuthStore.getState().initSession();

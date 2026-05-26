@@ -1,6 +1,8 @@
+import { deviceKey } from "@/lib/device-settings.js";
+
 export type ThemePreference = "system" | "light" | "dark" | "velvet";
 
-export const THEME_STORAGE_KEY = "vellum_theme";
+export const THEME_STORAGE_KEY = deviceKey("theme");
 
 interface NormalizeThemeOptions {
   velvetEnabled: boolean;
@@ -29,7 +31,7 @@ export function readStoredThemePreference(
   if (typeof window === "undefined") return "system";
   try {
     return normalizeThemePreference(
-      window.localStorage.getItem(THEME_STORAGE_KEY),
+      localStorage.getItem(THEME_STORAGE_KEY),
       options,
     );
   } catch {
@@ -40,7 +42,7 @@ export function readStoredThemePreference(
 export function writeStoredThemePreference(theme: ThemePreference): void {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+    localStorage.setItem(THEME_STORAGE_KEY, theme);
   } catch {
     // Theme persistence is best-effort; still notify live listeners below.
   }

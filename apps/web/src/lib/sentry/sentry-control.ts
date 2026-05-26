@@ -1,8 +1,10 @@
 import * as Sentry from "@sentry/react";
 
+import { deviceKey } from "@/lib/device-settings.js";
+
 /**
  * Gates the browser-side Sentry client on the user's Share Diagnostics
- * toggle (`vellum_share_diagnostics`), matching the macOS app's behavior.
+ * toggle (`device:share_diagnostics`), matching the macOS app's behavior.
  *
  * Strict opt-in semantics:
  *   - stored "true"  → Sentry ON  (explicit consent)
@@ -12,7 +14,7 @@ import * as Sentry from "@sentry/react";
  * Reference: https://docs.sentry.io/platforms/javascript/guides/react/configuration/options/
  */
 
-const STORAGE_KEY = "vellum_share_diagnostics";
+const STORAGE_KEY = deviceKey("shareDiagnostics");
 const PREF_CHANGED_EVENT = "vellum:pref-changed";
 
 export interface PrefChangedEventDetail {

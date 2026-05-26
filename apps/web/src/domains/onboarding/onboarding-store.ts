@@ -13,15 +13,15 @@
  *
  * | Field             | localStorage key              | Read by                |
  * |-------------------|-------------------------------|------------------------|
- * | `shareAnalytics`  | `vellum_share_analytics`      | privacy page (direct)  |
- * | `shareDiagnostics`| `vellum_share_diagnostics`    | privacy page + Sentry  |
+ * | `shareAnalytics`  | `device:share_analytics`      | privacy page (direct)  |
+ * | `shareDiagnostics`| `device:share_diagnostics`    | privacy page + Sentry  |
  * | `tosAccepted`     | `onboarding.tosAccepted`      | onboarding pages       |
  * | `aiDataConsent`   | `onboarding.aiDataConsent`    | onboarding pages       |
  * | `completed`       | `onboarding.completed`        | onboarding + chat gate |
  *
  * We deliberately do **not** use Zustand's `persist` middleware here.
  * `persist` writes the full state envelope on every update, which would
- * write `vellum_share_diagnostics = "true"` to localStorage whenever any
+ * write `device:share_diagnostics = "true"` to localStorage whenever any
  * unrelated flag (e.g. `tosAccepted`) changed — silently flipping Sentry
  * consent from "absent / opt-out" to "true / explicit consent" without
  * the user ever toggling the Share Diagnostics control. The Sentry gate
@@ -54,15 +54,16 @@ import {
   removeLocalSetting,
   setLocalSetting,
 } from "@/lib/local-settings.js";
+import { deviceKey } from "@/lib/device-settings.js";
 
 // ---------------------------------------------------------------------------
-// Storage keys — shared with other surfaces, do NOT rename
+// Storage keys — shared with other surfaces
 // ---------------------------------------------------------------------------
 
 /** Shared with `/settings/privacy`. */
-const KEY_SHARE_ANALYTICS = "vellum_share_analytics";
+const KEY_SHARE_ANALYTICS = deviceKey("shareAnalytics");
 /** Shared with `/settings/privacy` and the Sentry consent gate. */
-const KEY_SHARE_DIAGNOSTICS = "vellum_share_diagnostics";
+const KEY_SHARE_DIAGNOSTICS = deviceKey("shareDiagnostics");
 /** Onboarding-only: Terms of Service accepted. */
 const KEY_TOS_ACCEPTED = "onboarding.tosAccepted";
 /** Onboarding-only: explicit AI-data-sharing consent (Apple Guideline 5.1.2(i)). */
@@ -198,7 +199,7 @@ function syncFieldFromLS(key: string): void {
   const field = KEY_TO_FIELD.get(key);
   if (!field) return;
   // Default mirrors the field's defined default — keeps absence semantics
-  // intact (e.g. an absent `vellum_share_diagnostics` reads as `true` here
+  // intact (e.g. an absent `device:share_diagnostics` reads as `true` here
   // for UI display, while sentry-control.ts independently treats absence
   // as opt-out for its own consent gate).
   const defaults: Record<keyof OnboardingState, boolean> = {

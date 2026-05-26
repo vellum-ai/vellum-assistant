@@ -1,5 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query";
-import type { RelationshipStateUpdatedEvent } from "@vellumai/assistant-api";
+import type { RelationshipStateUpdated as RelationshipStateUpdatedEvent } from "@vellumai/assistant-api";
 import type { HomeFeedUpdatedEvent } from "@/domains/chat/api/event-types.js";
 
 export function handleHomeFeedUpdated(

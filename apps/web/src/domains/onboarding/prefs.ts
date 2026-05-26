@@ -10,7 +10,7 @@
  * (`onboarding.selectedVersion`, `onboarding.lastUserId`).
  *
  * Storage keys are documented in `onboarding-store.ts`. The privacy
- * settings page and the Sentry consent gate read `vellum_share_*`
+ * settings page and the Sentry consent gate read `device:share_*`
  * directly — that contract is preserved by the per-key adapter.
  */
 import { useCallback } from "react";
@@ -20,6 +20,7 @@ import {
   removeLocalSetting,
   setLocalSetting,
 } from "@/lib/local-settings.js";
+import { deviceKey } from "@/lib/device-settings.js";
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store.js";
 
 // ---------------------------------------------------------------------------
@@ -42,7 +43,7 @@ const KEY_SELECTED_VERSION = "onboarding.selectedVersion";
  * the same machine without the previous user ever logging out (e.g. session
  * expiry, cookie clear, browser profile share).
  */
-const KEY_LAST_USER_ID = "onboarding.lastUserId";
+const KEY_LAST_USER_ID = deviceKey("lastUserId");
 
 // ---------------------------------------------------------------------------
 // Public hooks — thin wrappers around the Zustand store

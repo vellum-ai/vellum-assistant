@@ -1,6 +1,7 @@
 import { registerPlugin } from "@capacitor/core";
 
 import { isNativePlatform } from "@/runtime/native-auth.js";
+import { deviceKey } from "@/lib/device-settings.js";
 
 /**
  * JS ↔ native bridge for the `NativeBiometric` Capacitor plugin registered by
@@ -35,7 +36,7 @@ interface NativeBiometricPlugin {
 const NativeBiometric = registerPlugin<NativeBiometricPlugin>("NativeBiometric");
 
 const BIOMETRIC_SERVER = "vellum.ai";
-const BIOMETRIC_ENABLED_KEY = "vellum_biometric_enabled";
+const BIOMETRIC_ENABLED_KEY = deviceKey("biometricEnabled");
 
 /**
  * Check whether biometric authentication is available on this device.

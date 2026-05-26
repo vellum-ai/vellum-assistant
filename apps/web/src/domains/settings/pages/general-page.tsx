@@ -31,9 +31,9 @@ import {
   writeStoredThemePreference,
 } from "@/domains/settings/utils/theme-preferences.js";
 import {
-  getLocalSetting,
-  setLocalSetting,
-} from "@/lib/local-settings.js";
+  getDeviceSetting,
+  setDeviceSetting,
+} from "@/lib/device-settings.js";
 
 function ThemeCard() {
   const velvet = useClientFeatureFlagStore.use.velvet();
@@ -116,12 +116,12 @@ function ThemeCard() {
 
 function TimezoneCard() {
   const [timezone, setTimezone] = useState<string>(() =>
-    getLocalSetting("vellum_timezone", ""),
+    getDeviceSetting("timezone", ""),
   );
 
   const handleChange = (value: string) => {
     setTimezone(value);
-    setLocalSetting("vellum_timezone", value);
+    setDeviceSetting("timezone", value);
   };
 
   return (

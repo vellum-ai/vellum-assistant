@@ -7,12 +7,9 @@ import { Toggle } from "@vellum/design-library/components/toggle";
 import { DetailCard } from "@/components/detail-card.js";
 import { SettingsDivider } from "@/domains/settings/components/settings-divider.js";
 import {
-  getLocalSetting,
-  setLocalSetting,
-} from "@/lib/local-settings.js";
-
-const ENABLED_KEY = "vellum_media_embeds_enabled";
-const ALLOWLIST_KEY = "vellum_media_embed_domains";
+  getDeviceSetting,
+  setDeviceSetting,
+} from "@/lib/device-settings.js";
 
 const DEFAULT_VIDEO_ALLOWLIST: ReadonlyArray<string> = [
   "youtube.com",
@@ -34,11 +31,11 @@ function parseAllowlist(raw: string): string[] {
 }
 
 function loadEnabled(): boolean {
-  return getLocalSetting(ENABLED_KEY, "true") === "true";
+  return getDeviceSetting("mediaEmbedsEnabled", "true") === "true";
 }
 
 function loadAllowlist(): string[] {
-  const raw = getLocalSetting(ALLOWLIST_KEY, "");
+  const raw = getDeviceSetting("mediaEmbedDomains", "");
   if (!raw) return [...DEFAULT_VIDEO_ALLOWLIST];
   return parseAllowlist(raw);
 }
@@ -56,12 +53,12 @@ export function MediaEmbedsCard() {
 
   const handleToggle = (next: boolean) => {
     setEnabled(next);
-    setLocalSetting(ENABLED_KEY, next ? "true" : "false");
+    setDeviceSetting("mediaEmbedsEnabled", next ? "true" : "false");
   };
 
   const persistDomains = (next: string[]) => {
     setDomains(next);
-    setLocalSetting(ALLOWLIST_KEY, JSON.stringify(next));
+    setDeviceSetting("mediaEmbedDomains", JSON.stringify(next));
   };
 
   const addDomain = () => {
