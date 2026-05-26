@@ -84,4 +84,25 @@ describe("EmailServiceCard managed-email gate", () => {
     expect(html).toContain("Subdomain");
     expect(html).toContain("Register");
   });
+
+  test("Successful payload WITHOUT entitlements is treated as unknown and fails open", () => {
+    // Simulates an older platform deploy / partial response: a successful
+    // subscription payload that omits `entitlements` entirely. This must be
+    // treated as unknown (fail-open), NOT as explicit denial, so otherwise
+    // eligible users (e.g. Pro) aren't locked out of their managed email.
+    const subscriptionWithoutEntitlements = {
+      plan_id: "pro",
+      status: "active",
+      renewal_date: null,
+      current_period_end: null,
+      cancel_at_period_end: false,
+      cancel_at: null,
+    } as unknown as SubscriptionResponse;
+    const html = renderCard(subscriptionWithoutEntitlements);
+    expect(html).not.toContain("Upgrade to Pro");
+    expect(html).not.toContain("Get a dedicated email address for your assistant");
+    // The domain registration form renders (fail-open).
+    expect(html).toContain("Subdomain");
+    expect(html).toContain("Register");
+  });
 });

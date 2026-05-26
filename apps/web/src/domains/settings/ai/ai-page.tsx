@@ -976,8 +976,13 @@ export function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceC
     enabled: mode === "managed",
   });
   const subscriptionData = subscriptionQuery.data;
-  const hasManagedEmail = subscriptionData?.entitlements?.managed_email === true;
-  const isExplicitlyNotEntitled = !!subscriptionData && !hasManagedEmail;
+  const entitlements = subscriptionData?.entitlements;
+  const hasManagedEmail = entitlements?.managed_email === true;
+  // Only an explicit denial when the server returned an entitlements object that
+  // omits managed_email. A successful payload lacking entitlements entirely
+  // (older platform deploy / partial response) is treated as unknown and fails
+  // open, preserving the definitely-not vs unknown split.
+  const isExplicitlyNotEntitled = !!entitlements && !hasManagedEmail;
   const subscriptionUnknown =
     !subscriptionData &&
     subscriptionQuery.isError &&
