@@ -44,9 +44,11 @@ const {
   HOME_FEED_FILENAME,
   HOME_FEED_VERSION,
   appendFeedItem,
+  clearAllConversationIds,
   getHomeFeedPath,
   patchFeedItemStatus,
   readHomeFeed,
+  stripConversationIds,
 } = await import("../feed-writer.js");
 
 type FeedItemStatus = "new" | "seen" | "acted_on";
@@ -60,6 +62,7 @@ interface TestFeedItem {
   timestamp: string;
   status: FeedItemStatus;
   expiresAt?: string;
+  conversationId?: string;
   createdAt: string;
 }
 
@@ -419,6 +422,163 @@ describe("feed-writer", () => {
       for (const item of items) {
         expect(ids.has(item.id)).toBe(true);
       }
+    });
+  });
+
+  describe("stripConversationIds", () => {
+    test("removes conversationId from matching items and leaves others untouched", async () => {
+      await appendFeedItem(
+        makeItem({
+          id: "item-a",
+          title: "Linked",
+          conversationId: "conv-123",
+        }),
+      );
+      await appendFeedItem(
+        makeItem({
+          id: "item-b",
+          title: "Other conv",
+          conversationId: "conv-456",
+          createdAt: "2026-04-14T12:00:01.000Z",
+        }),
+      );
+      await appendFeedItem(
+        makeItem({
+          id: "item-c",
+          title: "No conv",
+          createdAt: "2026-04-14T12:00:02.000Z",
+        }),
+      );
+
+      await stripConversationIds("conv-123");
+
+      const decoded = readFileJson();
+      const itemA = decoded.items.find((i) => i.id === "item-a")!;
+      const itemB = decoded.items.find((i) => i.id === "item-b")!;
+      const itemC = decoded.items.find((i) => i.id === "item-c")!;
+
+      expect(itemA.conversationId).toBeUndefined();
+      expect(itemB.conversationId).toBe("conv-456");
+      expect(itemC.conversationId).toBeUndefined();
+    });
+
+    test("returns the count of items modified", async () => {
+      await appendFeedItem(
+        makeItem({
+          id: "m1",
+          conversationId: "conv-abc",
+        }),
+      );
+      await appendFeedItem(
+        makeItem({
+          id: "m2",
+          conversationId: "conv-abc",
+          createdAt: "2026-04-14T12:00:01.000Z",
+        }),
+      );
+      await appendFeedItem(
+        makeItem({
+          id: "m3",
+          conversationId: "conv-other",
+          createdAt: "2026-04-14T12:00:02.000Z",
+        }),
+      );
+
+      const count = await stripConversationIds("conv-abc");
+      expect(count).toBe(2);
+    });
+
+    test("returns 0 when no items match", async () => {
+      await appendFeedItem(
+        makeItem({
+          id: "no-match",
+          conversationId: "conv-xyz",
+        }),
+      );
+
+      const count = await stripConversationIds("conv-nonexistent");
+      expect(count).toBe(0);
+    });
+
+    test("coalesces with pending appends correctly", async () => {
+      // Fire an append and a strip concurrently — both should land in
+      // the same coalesced write cycle.
+      const appendPromise = appendFeedItem(
+        makeItem({
+          id: "coalesce-item",
+          conversationId: "conv-coalesce",
+        }),
+      );
+      const stripPromise = stripConversationIds("conv-coalesce");
+
+      await Promise.all([appendPromise, stripPromise]);
+
+      const decoded = readFileJson();
+      const item = decoded.items.find((i) => i.id === "coalesce-item")!;
+      // The append lands first, then the strip runs — conversationId
+      // should be gone.
+      expect(item).toBeDefined();
+      expect(item.conversationId).toBeUndefined();
+    });
+
+    test("items retain all other fields after strip", async () => {
+      await appendFeedItem(
+        makeItem({
+          id: "retain-fields",
+          title: "Keep me",
+          summary: "Important summary",
+          conversationId: "conv-strip",
+          priority: 75,
+          status: "seen",
+        }),
+      );
+
+      await stripConversationIds("conv-strip");
+
+      const decoded = readFileJson();
+      const item = decoded.items.find((i) => i.id === "retain-fields")!;
+      expect(item.conversationId).toBeUndefined();
+      expect(item.id).toBe("retain-fields");
+      expect(item.title).toBe("Keep me");
+      expect(item.summary).toBe("Important summary");
+      expect(item.priority).toBe(75);
+      expect(item.status).toBe("seen");
+      expect(item.type).toBe("notification");
+    });
+  });
+
+  describe("clearAllConversationIds", () => {
+    test("strips conversationId from all items that have one", async () => {
+      await appendFeedItem(
+        makeItem({
+          id: "all-1",
+          conversationId: "conv-aaa",
+        }),
+      );
+      await appendFeedItem(
+        makeItem({
+          id: "all-2",
+          conversationId: "conv-bbb",
+          createdAt: "2026-04-14T12:00:01.000Z",
+        }),
+      );
+      await appendFeedItem(
+        makeItem({
+          id: "all-3",
+          title: "No conv link",
+          createdAt: "2026-04-14T12:00:02.000Z",
+        }),
+      );
+
+      const count = await clearAllConversationIds();
+      expect(count).toBe(2);
+
+      const decoded = readFileJson();
+      for (const item of decoded.items) {
+        expect(item.conversationId).toBeUndefined();
+      }
+      // All three items still exist.
+      expect(decoded.items).toHaveLength(3);
     });
   });
 
