@@ -151,10 +151,17 @@ export function projectAssistantMessage(params: {
     return false;
   }
 
+  // Determine whether the conversation was previously in a "seen" state.
+  // Two cases count as seen:
+  //   1. latestAssistantMessageAt is null — no prior assistant message existed,
+  //      so there was nothing unseen. The first assistant message transitions
+  //      the conversation to unseen.
+  //   2. lastSeenAssistantMessageAt >= latestAssistantMessageAt — the user saw
+  //      the most recent assistant message.
   const wasSeen =
-    existing.lastSeenAssistantMessageAt != null &&
-    existing.latestAssistantMessageAt != null &&
-    existing.lastSeenAssistantMessageAt >= existing.latestAssistantMessageAt;
+    existing.latestAssistantMessageAt == null ||
+    (existing.lastSeenAssistantMessageAt != null &&
+      existing.lastSeenAssistantMessageAt >= existing.latestAssistantMessageAt);
 
   db.update(conversationAssistantAttentionState)
     .set({

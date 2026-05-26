@@ -224,6 +224,30 @@ describe("conversation-attention-store", () => {
       });
       expect(result).toBe(false);
     });
+
+    test("returns true when row exists with null latestAssistantMessageAt (seen signal before first assistant msg)", () => {
+      ensureConversation("conv-1");
+      // Simulate: user opens conversation before any assistant message,
+      // which calls recordConversationSeenSignal and creates a state row
+      // with latestAssistantMessageAt = null.
+      recordConversationSeenSignal({
+        conversationId: "conv-1",
+        sourceChannel: "vellum",
+        signalType: "macos_conversation_opened",
+        confidence: "explicit",
+        source: "test",
+      });
+      const states = getAttentionStateByConversationIds(["conv-1"]);
+      expect(states.get("conv-1")!.latestAssistantMessageAt).toBeNull();
+
+      // First assistant message should transition to unseen
+      const result = projectAssistantMessage({
+        conversationId: "conv-1",
+        messageId: "msg-1",
+        messageAt: 1000,
+      });
+      expect(result).toBe(true);
+    });
   });
 
   // ── recordConversationSeenSignal ────────────────────────────────
