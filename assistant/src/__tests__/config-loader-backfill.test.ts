@@ -18,6 +18,7 @@ import {
   test,
 } from "bun:test";
 
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 // ---------------------------------------------------------------------------
@@ -97,6 +98,7 @@ function mergeDefaultConfigAndSeedInferenceProfiles(db?: DrizzleDb): void {
   seedInferenceProfiles({
     preserveProfileNames: defaultConfigMerge.providedLlmProfileNames,
     preserveActiveProfile: defaultConfigMerge.providedLlmActiveProfile,
+    hadOverlay: defaultConfigMerge.hadOverlay,
     db,
   });
 }
@@ -447,7 +449,10 @@ describe("loadConfig startup behavior", () => {
     );
     process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
 
-    mergeDefaultConfigAndSeedInferenceProfiles();
+    // BYOK onboarding is state-derived: needs a db so the seeder can detect
+    // that no personal connection exists yet for this provider.
+    const db = createProviderConnectionsDb();
+    mergeDefaultConfigAndSeedInferenceProfiles(db);
     const config = loadConfig();
 
     expect(config.llm.default.provider).toBe("anthropic");
@@ -532,7 +537,11 @@ describe("loadConfig startup behavior", () => {
     );
     process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
 
-    mergeDefaultConfigAndSeedInferenceProfiles();
+    // Re-hatch detection is state-derived in the new model: the fresh db has
+    // no anthropic-personal connection, so isByokOnboarding fires and the
+    // custom-* profiles get rematerialized for anthropic.
+    const db = createProviderConnectionsDb();
+    mergeDefaultConfigAndSeedInferenceProfiles(db);
 
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
     // Off-platform re-hatch: user profiles are overwritten for the new
@@ -613,7 +622,9 @@ describe("loadConfig startup behavior", () => {
     );
     process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
 
-    mergeDefaultConfigAndSeedInferenceProfiles();
+    // Fresh db: no openai-personal connection yet → isByokOnboarding fires.
+    const db = createProviderConnectionsDb();
+    mergeDefaultConfigAndSeedInferenceProfiles(db);
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
     // User profiles for the hatch provider (openai).
@@ -874,7 +885,8 @@ describe("loadConfig startup behavior", () => {
     );
     process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
 
-    mergeDefaultConfigAndSeedInferenceProfiles();
+    const db = createProviderConnectionsDb();
+    mergeDefaultConfigAndSeedInferenceProfiles(db);
 
     const quarantined = readdirSync(WORKSPACE_DIR).filter((n) =>
       n.startsWith("config.json.corrupt-"),
@@ -971,7 +983,8 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     );
     process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
 
-    mergeDefaultConfigAndSeedInferenceProfiles();
+    const db = createProviderConnectionsDb();
+    mergeDefaultConfigAndSeedInferenceProfiles(db);
     const config = loadConfig();
 
     // Managed profile labels carry the suffix so they're visibly distinct
@@ -1002,7 +1015,8 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     );
     process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
 
-    mergeDefaultConfigAndSeedInferenceProfiles();
+    const db = createProviderConnectionsDb();
+    mergeDefaultConfigAndSeedInferenceProfiles(db);
     const config = loadConfig();
 
     expect(config.llm.profiles.balanced?.status).toBe("disabled");
@@ -1293,5 +1307,145 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     expect(config.llm.profiles.balanced?.status).toBe("active");
     // Label is still suffixed (Vellum can push label updates).
     expect(config.llm.profiles.balanced?.label).toBe("Balanced (Managed)");
+  });
+});
+
+// Tests: Option 3 isByokOnboarding state-derived gate. These verify that
+// the BYOK onboarding block:
+//   (a) Fires once when the personal connection is missing AND
+//       llm.default.provider is set off-platform.
+//   (b) Self-disables on the second call (personal connection exists now).
+//   (c) Is a no-op when llm.default.provider is unset (the typical post-#32025
+//       boot before the user has stored an API key).
+//   (d) Is a no-op for non-BYOK-eligible providers (ollama, base-url-required).
+//   (e) Is a no-op on platform.
+describe("seedInferenceProfiles isByokOnboarding state-derived gate", () => {
+  beforeEach(() => {
+    ensureTestDir();
+    const resetPaths = [
+      CONFIG_PATH,
+      join(WORKSPACE_DIR, "default-config.json"),
+      join(WORKSPACE_DIR, "hatch-overlay.json"),
+      join(WORKSPACE_DIR, "keys.enc"),
+    ];
+    for (const path of resetPaths) {
+      if (existsSync(path)) {
+        rmSync(path, { recursive: true, force: true });
+      }
+    }
+    ensureTestDir();
+    setStorePathForTesting(join(WORKSPACE_DIR, "keys.enc"));
+    delete process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH;
+    delete process.env.IS_PLATFORM;
+    invalidateConfigCache();
+  });
+
+  afterEach(() => {
+    setStorePathForTesting(null);
+    delete process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH;
+    delete process.env.IS_PLATFORM;
+    invalidateConfigCache();
+  });
+
+  test("first call materializes custom-* profiles; second call leaves them alone", () => {
+    // Pre-state: off-platform, anthropic provider selected (as if the secrets
+    // handler set llm.default.provider after storing a key), fresh db with
+    // no personal connection.
+    writeConfig({ llm: { default: { provider: "anthropic" } } });
+    const db = createProviderConnectionsDb();
+
+    // Boot 1: BYOK onboarding fires.
+    seedInferenceProfiles({ db });
+    let raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.llm.profiles["custom-balanced"]?.provider_connection).toBe(
+      "anthropic-personal",
+    );
+    expect(raw.llm.activeProfile).toBe("custom-balanced");
+    expect(getConnection(db, "anthropic-personal")).toBeTruthy();
+
+    // User edits custom-balanced (changes the label and model).
+    raw.llm.profiles["custom-balanced"].label = "My Custom Daily Driver";
+    raw.llm.profiles["custom-balanced"].model = "claude-opus-4-7";
+    writeFileSync(CONFIG_PATH, JSON.stringify(raw, null, 2) + "\n");
+    invalidateConfigCache();
+
+    // Boot 2: anthropic-personal now exists, so isByokOnboarding is false.
+    // The seeder must not clobber the user's edits.
+    seedInferenceProfiles({ db });
+    raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.llm.profiles["custom-balanced"].label).toBe(
+      "My Custom Daily Driver",
+    );
+    expect(raw.llm.profiles["custom-balanced"].model).toBe("claude-opus-4-7");
+  });
+
+  test("does not re-disable a user-re-enabled managed connection on boot 2", () => {
+    writeConfig({ llm: { default: { provider: "anthropic" } } });
+    const db = createProviderConnectionsDb();
+
+    // Boot 1: BYOK onboarding fires, all three managed connections disabled.
+    seedInferenceProfiles({ db });
+    expect(getConnection(db, "anthropic-managed")?.status).toBe("disabled");
+
+    // User re-enables anthropic-managed (e.g. logged into Vellum).
+    db.update(schema.providerConnections)
+      .set({ status: "active" })
+      .where(eq(schema.providerConnections.name, "anthropic-managed"))
+      .run();
+    expect(getConnection(db, "anthropic-managed")?.status).toBe("active");
+
+    // Boot 2: anthropic-personal exists, isByokOnboarding=false, no re-disable.
+    seedInferenceProfiles({ db });
+    expect(getConnection(db, "anthropic-managed")?.status).toBe("active");
+  });
+
+  test("no provider in config → no BYOK onboarding fires", () => {
+    // Default starting state post-#32025: no overlay, no provider set yet.
+    // (The user hasn't stored an API key, so the secrets handler hasn't
+    // populated llm.default.provider.)
+    writeConfig({ llm: {} });
+    const db = createProviderConnectionsDb();
+
+    seedInferenceProfiles({ db });
+
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.llm.profiles["custom-balanced"]).toBeUndefined();
+    expect(getConnection(db, "anthropic-managed")?.status).toBe("active");
+  });
+
+  test("provider=ollama → no BYOK onboarding (ollama needs base_url + models, not a key)", () => {
+    writeConfig({ llm: { default: { provider: "ollama" } } });
+    const db = createProviderConnectionsDb();
+
+    seedInferenceProfiles({ db });
+
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    // No custom-* user profiles for ollama (not key-based).
+    expect(raw.llm.profiles["custom-balanced"]).toBeUndefined();
+  });
+
+  test("on-platform with provider set → no BYOK onboarding even with no personal connection", () => {
+    process.env.IS_PLATFORM = "true";
+    writeConfig({ llm: { default: { provider: "anthropic" } } });
+    const db = createProviderConnectionsDb();
+
+    seedInferenceProfiles({ db });
+
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    // No custom-* user profiles on platform.
+    expect(raw.llm.profiles["custom-balanced"]).toBeUndefined();
+    // No managed connection disable on platform either.
+    expect(getConnection(db, "anthropic-managed")?.status).toBe("active");
+  });
+
+  test("no db → no BYOK onboarding (defensive: can't verify state without it)", () => {
+    // This matches the lifecycle.ts degraded-startup path where dbReady=false.
+    writeConfig({ llm: { default: { provider: "anthropic" } } });
+
+    seedInferenceProfiles({});
+
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    // No custom-* materialized without a db.
+    expect(raw.llm.profiles["custom-balanced"]).toBeUndefined();
   });
 });
