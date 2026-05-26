@@ -97,6 +97,16 @@ function recordReengagementTimestamp(): void {
   }
 }
 
+function refreshBackgroundWakeIntentSoon(reason: string): void {
+  void import("../background-wake/publisher.js")
+    .then(({ refreshBackgroundWakeIntent }) =>
+      refreshBackgroundWakeIntent(reason),
+    )
+    .catch((err) =>
+      log.warn({ err, reason }, "Failed to queue background wake refresh"),
+    );
+}
+
 export interface HeartbeatDeps {
   alerter: (alert: HeartbeatAlert) => void;
   onConversationCreated?: (info: {
@@ -206,6 +216,7 @@ export class HeartbeatService {
     if (!config.enabled) {
       log.info("Heartbeat disabled by config");
       this._nextRunAt = null;
+      refreshBackgroundWakeIntentSoon("heartbeat-disabled");
       return;
     }
     if (this.timer) return;
@@ -330,6 +341,7 @@ export class HeartbeatService {
         { nextRunAt: new Date(nextRunAt).toISOString(), delayMs },
         "Heartbeat cron run scheduled",
       );
+      refreshBackgroundWakeIntentSoon("heartbeat-cron-scheduled");
     } catch (err) {
       log.warn(
         { err },
@@ -356,6 +368,7 @@ export class HeartbeatService {
     this._nextRunAt = null;
     this.cronMode = false;
     this.start();
+    refreshBackgroundWakeIntentSoon("heartbeat-reconfigured");
   }
 
   /**
@@ -433,6 +446,7 @@ export class HeartbeatService {
 
     if (!force && !config.enabled) {
       if (runId) skipHeartbeatRun(runId, "disabled");
+      refreshBackgroundWakeIntentSoon("heartbeat-disabled");
       return false;
     }
 
@@ -557,6 +571,7 @@ export class HeartbeatService {
       if (!this.cronMode) {
         this.scheduleNextRun(getConfig().heartbeat.intervalMs);
       }
+      refreshBackgroundWakeIntentSoon("heartbeat-run-complete");
     }
     return true;
   }
@@ -567,6 +582,7 @@ export class HeartbeatService {
     }
     this._nextRunAt = Date.now() + intervalMs;
     this._pendingRunId = insertPendingHeartbeatRun(this._nextRunAt);
+    refreshBackgroundWakeIntentSoon("heartbeat-interval-scheduled");
   }
 
   /**

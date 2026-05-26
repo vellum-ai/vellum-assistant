@@ -17,6 +17,13 @@ const logger = getLogger("schedule-store");
 
 function notifySchedulesChanged(): void {
   publishSchedulesChanged();
+  void import("../background-wake/publisher.js")
+    .then(({ refreshBackgroundWakeIntent }) =>
+      refreshBackgroundWakeIntent("schedule-changed"),
+    )
+    .catch((err) =>
+      logger.warn({ err }, "Failed to queue background wake refresh"),
+    );
 }
 
 export type ScheduleMode = "notify" | "execute" | "script" | "wake";

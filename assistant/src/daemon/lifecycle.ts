@@ -2,6 +2,7 @@ import { join } from "node:path";
 
 import { config as dotenvConfig } from "dotenv";
 
+import { refreshBackgroundWakeIntent } from "../background-wake/publisher.js";
 import { registerBackgroundWakeRuntime } from "../background-wake/runtime-registry.js";
 import { setPointerMessageProcessor } from "../calls/call-pointer-messages.js";
 import { reconcileCallsOnStartup } from "../calls/call-recovery.js";
@@ -1271,11 +1272,9 @@ export async function runDaemon(): Promise<void> {
     })();
 
     if (config.auditLog.retentionDays > 0) {
-      void rotateToolInvocations(config.auditLog.retentionDays).catch(
-        (err) => {
-          log.warn({ err }, "Audit log rotation failed");
-        },
-      );
+      void rotateToolInvocations(config.auditLog.retentionDays).catch((err) => {
+        log.warn({ err }, "Audit log rotation failed");
+      });
     }
 
     const workspaceHeartbeat = new WorkspaceHeartbeatService();
@@ -1293,6 +1292,7 @@ export async function runDaemon(): Promise<void> {
     });
     heartbeat.start();
     registerBackgroundWakeRuntime({ scheduler, heartbeat });
+    refreshBackgroundWakeIntent("daemon-startup");
     log.info(
       {
         enabled: heartbeatConfig.enabled,
