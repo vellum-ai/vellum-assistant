@@ -1,7 +1,7 @@
 import { ChevronLeft, ChevronRight, Dices, Save, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { fetchCharacterComponents, saveCharacterTraits } from "@/utils/avatar-api.js";
+import { fetchCharacterComponents, saveCharacterTraits } from "@/assistant/avatar-api.js";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar.js";
 import { AvatarRenderer } from "@/components/avatar-renderer.js";
 

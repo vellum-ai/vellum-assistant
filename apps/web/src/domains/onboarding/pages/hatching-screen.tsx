@@ -11,7 +11,7 @@ import {
   resolveAssistantLifecycleState,
   shouldRecoverFromHatchFailure,
 } from "@/assistant/lifecycle.js";
-import { fetchCharacterTraits, saveCharacterTraits } from "@/utils/avatar-api.js";
+import { fetchCharacterTraits, saveCharacterTraits } from "@/assistant/avatar-api.js";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components.js";
 import { randomCharacterTraits } from "@/utils/avatar-random.js";
 import { composeSvg } from "@/utils/avatar-svg-compositor.js";

@@ -36,7 +36,7 @@ const fetchCharacterComponents = mock(async () => components);
 const fetchCharacterTraits = mock(async () => traits);
 const fetchAvatarImageUrl = mock(async () => null as string | null);
 
-mock.module("@/utils/avatar-api", () => ({
+mock.module("@/assistant/avatar-api", () => ({
   fetchCharacterComponents,
   fetchCharacterTraits,
   fetchAvatarImageUrl,

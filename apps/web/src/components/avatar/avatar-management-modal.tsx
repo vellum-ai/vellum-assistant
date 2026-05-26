@@ -13,7 +13,7 @@ import { createPortal } from "react-dom";
 
 import { AvatarCustomizationPanel } from "@/components/avatar/avatar-customization-panel.js";
 import { ChatAvatar } from "@/components/avatar/chat-avatar.js";
-import { uploadAvatarImage } from "@/utils/avatar-api.js";
+import { uploadAvatarImage } from "@/assistant/avatar-api.js";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar.js";
 
 type ModalView = "actions" | "character-builder";

@@ -7,7 +7,7 @@ import { ConstellationView } from "@/domains/intelligence/components/constellati
 import { SkillDetail } from "@/domains/intelligence/components/skills/skill-detail.js";
 import { AvatarManagementModal } from "@/components/avatar/avatar-management-modal.js";
 import { ChatAvatar } from "@/components/avatar/chat-avatar.js";
-import { deleteAvatar } from "@/utils/avatar-api.js";
+import { deleteAvatar } from "@/assistant/avatar-api.js";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar.js";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar.js";
 import { fetchSkills, installSkill, uninstallSkill } from "@/domains/intelligence/skills/api.js";
