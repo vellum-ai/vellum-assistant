@@ -8,17 +8,25 @@ import {
 } from "./runtime-registry.js";
 
 type MockIntent = BackgroundWakeIntent;
+type MockCompletionPayload = {
+  leaseId: string;
+  status: "completed" | "failed" | "expired";
+  error?: string;
+  nextIntent?: MockIntent | null;
+};
 
 let computedIntent: MockIntent | null;
 let computeCalls: number;
-const mockRenewBackgroundWakeLease = mock(async () => ({
+const mockRenewBackgroundWakeLease = mock(async (_leaseId: string) => ({
   status: "renewed" as const,
   httpStatus: 200,
 }));
-const mockCompleteBackgroundWakeLease = mock(async () => ({
-  status: "completed" as const,
-  httpStatus: 200,
-}));
+const mockCompleteBackgroundWakeLease = mock(
+  async (_args: MockCompletionPayload) => ({
+    status: "completed" as const,
+    httpStatus: 200,
+  }),
+);
 
 const {
   ROUTES,
@@ -77,21 +85,11 @@ function acceptedResponse(
   };
 }
 
-function lastCompletionPayload(): {
-  leaseId: string;
-  status: "completed" | "failed" | "expired";
-  error?: string;
-  nextIntent?: MockIntent | null;
-} {
+function lastCompletionPayload(): MockCompletionPayload {
   const calls = mockCompleteBackgroundWakeLease.mock.calls;
   const call = calls[calls.length - 1] as unknown[] | undefined;
   if (!call) throw new Error("completeBackgroundWakeLease was not called");
-  return call[0] as {
-    leaseId: string;
-    status: "completed" | "failed" | "expired";
-    error?: string;
-    nextIntent?: MockIntent | null;
-  };
+  return call[0] as MockCompletionPayload;
 }
 
 describe("background wake runtime routes", () => {
@@ -99,14 +97,18 @@ describe("background wake runtime routes", () => {
     clearBackgroundWakeRuntime();
     mockRenewBackgroundWakeLease.mockClear();
     mockCompleteBackgroundWakeLease.mockClear();
-    mockRenewBackgroundWakeLease.mockImplementation(async () => ({
-      status: "renewed" as const,
-      httpStatus: 200,
-    }));
-    mockCompleteBackgroundWakeLease.mockImplementation(async () => ({
-      status: "completed" as const,
-      httpStatus: 200,
-    }));
+    mockRenewBackgroundWakeLease.mockImplementation(
+      async (_leaseId: string) => ({
+        status: "renewed" as const,
+        httpStatus: 200,
+      }),
+    );
+    mockCompleteBackgroundWakeLease.mockImplementation(
+      async (_args: MockCompletionPayload) => ({
+        status: "completed" as const,
+        httpStatus: 200,
+      }),
+    );
     setBackgroundWakeLeaseClientForTest({
       renew: mockRenewBackgroundWakeLease,
       complete: mockCompleteBackgroundWakeLease,
@@ -577,7 +579,7 @@ describe("background wake runtime routes", () => {
     });
   });
 
-  test("drain-due reports due work remaining from scheduler counts", async () => {
+  test("drain-due runs scheduler work even when pending work remains", async () => {
     const schedulerRunDue = mock(async () =>
       schedulerResultFixture({ claimed: 1, completed: 1, stillPending: 1 }),
     );
@@ -636,6 +638,42 @@ describe("background wake runtime routes", () => {
       leaseId: "lease-123",
       status: "failed",
       error: "scheduler exploded",
+    });
+  });
+
+  test("drain-due does not reclassify successful work when completion reporting fails", async () => {
+    const completionError = new Error("platform unavailable");
+    mockCompleteBackgroundWakeLease.mockImplementation(async (args) => {
+      if (args.status === "completed" || args.status === "expired") {
+        throw completionError;
+      }
+      return { status: "completed" as const, httpStatus: 200 };
+    });
+    const schedulerRunDue = mock(async () => schedulerResultFixture());
+    registerBackgroundWakeRuntime({
+      heartbeat: {
+        nextRunAt: null,
+        runManagedWakeIfDue: mock(async () => ({
+          due: false,
+          completed: 0,
+          skipped: 0,
+        })),
+      },
+      scheduler: {
+        runOnce: mock(async () => 0),
+        runDueWorkOnce: schedulerRunDue,
+      },
+    });
+    const handler = findHandler("drainDueBackgroundWake");
+
+    const response = await handler({ body: drainBodyFixture() });
+    await flushBackgroundWakeDrainsForTest();
+
+    expect(response).toEqual(acceptedResponse());
+    expect(mockCompleteBackgroundWakeLease).toHaveBeenCalledTimes(1);
+    expect(lastCompletionPayload()).toMatchObject({
+      leaseId: "lease-123",
+      status: "completed",
     });
   });
 

@@ -6,7 +6,7 @@ import {
 } from "../../background-wake/next-wake.js";
 import type { BackgroundWakeRuntime } from "../../background-wake/runtime-registry.js";
 import { getBackgroundWakeRuntime } from "../../background-wake/runtime-registry.js";
-import type { SchedulerDueWorkResult } from "../../schedule/scheduler.js";
+import { getLogger } from "../../util/logger.js";
 import { BadRequestError, ServiceUnavailableError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -15,6 +15,7 @@ const HEARTBEAT_DUE_TOLERANCE_MS = 1_000;
 const MIN_DRAIN_START_BUDGET_MS = 5_000;
 const LEASE_RENEW_INTERVAL_MS = 120_000;
 const MAX_TIMEOUT_MS = 2_147_483_647;
+const log = getLogger("background-wake-routes");
 
 type RenewWakeLease = (leaseId: string) => Promise<unknown>;
 type CompleteWakeLease = (args: {
@@ -169,21 +170,34 @@ async function runDrainDueLease(
       performDrainDue(request, runtime),
       request.deadlineAt,
     );
-    await completeWakeLease({
+    await reportLeaseCompletion({
       leaseId: request.leaseId,
       status: Date.now() >= request.deadlineAt ? "expired" : "completed",
       nextIntent: result.nextIntent,
     });
   } catch (error) {
-    await completeWakeLease({
+    await reportLeaseCompletion({
       leaseId: request.leaseId,
       status: Date.now() >= request.deadlineAt ? "expired" : "failed",
       error: error instanceof Error ? error.message : String(error),
       nextIntent: computeWakeIntent(),
-    }).catch(() => {});
+    });
   } finally {
     if (renewTimer) clearInterval(renewTimer);
     activeDrainLeases.delete(request.leaseId);
+  }
+}
+
+async function reportLeaseCompletion(
+  args: Parameters<CompleteWakeLease>[0],
+): Promise<void> {
+  try {
+    await completeWakeLease(args);
+  } catch (err) {
+    log.warn(
+      { err, leaseId: args.leaseId, status: args.status },
+      "Failed to report background wake lease completion",
+    );
   }
 }
 
@@ -199,67 +213,28 @@ async function performDrainDue(
     reasonIncludesSource(request.reason, "schedule") ||
     intentHasDueSource(currentIntent, "schedule", now);
 
-  let heartbeatCompleted = 0;
-  let heartbeatSkipped = 0;
-  let heartbeatDueRemaining = false;
   if (heartbeatDue) {
     if (hasStartBudget(request.deadlineAt)) {
-      const heartbeatResult = await runtime.heartbeat.runManagedWakeIfDue({
+      await runtime.heartbeat.runManagedWakeIfDue({
         now,
         toleranceMs: HEARTBEAT_DUE_TOLERANCE_MS,
         scheduledFor: request.startedAt,
       });
-      heartbeatCompleted = heartbeatResult.completed;
-      heartbeatSkipped = heartbeatResult.skipped;
-      heartbeatDueRemaining =
-        heartbeatResult.due && heartbeatResult.completed === 0;
-    } else {
-      heartbeatSkipped = 1;
-      heartbeatDueRemaining = true;
     }
   }
 
-  const schedulerResult = schedulerDue
-    ? await runtime.scheduler.runDueWorkOnce({
-        deadlineAt: request.deadlineAt,
-        minStartBudgetMs: MIN_DRAIN_START_BUDGET_MS,
-        includeStillPending: true,
-      })
-    : emptySchedulerDueWorkResult();
+  if (schedulerDue) {
+    await runtime.scheduler.runDueWorkOnce({
+      deadlineAt: request.deadlineAt,
+      minStartBudgetMs: MIN_DRAIN_START_BUDGET_MS,
+      includeStillPending: true,
+    });
+  }
+
   const nextIntent = computeWakeIntent();
-  const completed = heartbeatCompleted + schedulerResult.completed;
-  const failed = schedulerResult.failed;
-  const skipped = heartbeatSkipped + schedulerResult.skipped;
-  const schedulerProcessed =
-    schedulerResult.completed +
-    schedulerResult.failed +
-    schedulerResult.skipped;
-  const dueWorkRemaining =
-    heartbeatDueRemaining ||
-    schedulerResult.stillPending > 0 ||
-    intentIsDue(nextIntent);
 
   return {
-    leaseId: request.leaseId,
-    reason: request.reason,
-    sourceGeneration: request.sourceGeneration,
-    startedAt: request.startedAt,
-    deadlineAt: request.deadlineAt,
-    counts: {
-      heartbeat: heartbeatCompleted,
-      scheduler: schedulerProcessed,
-      total: heartbeatCompleted + schedulerProcessed,
-      completed,
-      failed,
-      skipped,
-      claimed: schedulerResult.claimed,
-      stillPending: schedulerResult.stillPending,
-    },
-    completed,
-    failed,
-    skipped,
     nextIntent,
-    dueWorkRemaining,
   };
 }
 
@@ -311,25 +286,8 @@ function intentHasDueSource(
   );
 }
 
-function intentIsDue(intent: BackgroundWakeIntent | null): boolean {
-  return (
-    intent != null &&
-    intent.actualNextDueAt <= Date.now() + HEARTBEAT_DUE_TOLERANCE_MS
-  );
-}
-
 function hasStartBudget(deadlineAt: number): boolean {
   return deadlineAt - Date.now() >= MIN_DRAIN_START_BUDGET_MS;
-}
-
-function emptySchedulerDueWorkResult(): SchedulerDueWorkResult {
-  return {
-    claimed: 0,
-    completed: 0,
-    failed: 0,
-    skipped: 0,
-    stillPending: 0,
-  };
 }
 
 /** @internal Test helper for route-only tests. */

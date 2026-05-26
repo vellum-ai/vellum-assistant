@@ -107,15 +107,17 @@ export async function completeBackgroundWakeLease(args: {
     status: args.status,
   };
   if (args.error) body.error = args.error;
-  if (args.nextIntent != null) {
-    body.next_intent = {
-      reason: args.nextIntent.reason,
-      source_generation: args.nextIntent.sourceGeneration,
-      computed_at: toIsoString(args.nextIntent.computedAt),
-      next_wake_at: toIsoString(args.nextIntent.nextWakeAt),
-      actual_next_due_at: toIsoString(args.nextIntent.actualNextDueAt),
-      source_payload: args.nextIntent.sourcePayload,
-    };
+  if ("nextIntent" in args) {
+    body.next_intent = args.nextIntent
+      ? {
+          reason: args.nextIntent.reason,
+          source_generation: args.nextIntent.sourceGeneration,
+          computed_at: toIsoString(args.nextIntent.computedAt),
+          next_wake_at: toIsoString(args.nextIntent.nextWakeAt),
+          actual_next_due_at: toIsoString(args.nextIntent.actualNextDueAt),
+          source_payload: args.nextIntent.sourcePayload,
+        }
+      : null;
   }
 
   const response = await client.fetch(

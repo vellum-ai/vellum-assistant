@@ -201,6 +201,20 @@ describe("background wake platform client", () => {
     });
   });
 
+  test("completes background wake lease with an explicit null next intent", async () => {
+    await completeBackgroundWakeLease({
+      leaseId: "lease-123",
+      status: "completed",
+      nextIntent: null,
+    });
+
+    const [, init] = mockClientFetch.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toEqual({
+      status: "completed",
+      next_intent: null,
+    });
+  });
+
   test("skips when platform prerequisites are missing", async () => {
     mockCreateClient = mock(async () => null);
 
