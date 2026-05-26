@@ -3,8 +3,8 @@
  *
  * Exports `parseAssistantEvent`, which takes a raw SSE payload and
  * returns a typed `AssistantEvent`. The parser unwraps the
- * envelope/flat shape, tries canonical schemas from
- * `@vellumai/assistant-api` first, and falls back to hand-rolled
+ * envelope/flat shape, tries the canonical `AssistantEventSchema`
+ * from `@vellumai/assistant-api` first, and falls back to hand-rolled
  * coercion for legacy events not yet covered by a schema.
  */
 
@@ -29,7 +29,7 @@ import type {
   SubagentStatus,
   UISurfaceShowEvent,
 } from "@/domains/chat/api/event-types.js";
-import { RelationshipStateUpdatedSchema } from "@vellumai/assistant-api";
+import { AssistantEventSchema } from "@vellumai/assistant-api";
 import type { DisplayAttachment } from "@/domains/chat/types/types.js";
 import type { ToolActivityMetadata } from "@/assistant/web-activity-types.js";
 import type { SyncInvalidationTag } from "@/lib/sync/types.js";
@@ -136,12 +136,15 @@ export function parseAssistantEvent(
 ): AssistantEvent {
   const { inner, envelopeConversationId } = unwrapEnvelope(data);
 
-  // Schema-validated events from `@vellumai/assistant-api`. Each
-  // schema covers one event type — try them before the legacy fallback.
-  // The schema sees the pure inner message (no envelope merge) so
-  // strict shapes stay strict.
-  const relResult = RelationshipStateUpdatedSchema.safeParse(inner);
-  if (relResult.success) return relResult.data as AssistantEvent;
+  // Canonical schema first. The discriminated union in
+  // `@vellumai/assistant-api` is the source of truth for any event
+  // type it covers — when a member matches the `type` discriminator
+  // and the shape validates, the parser is done. The schema sees the
+  // pure inner message (no envelope merge) so strict shapes stay
+  // strict: the envelope-level conversationId is a routing key, not
+  // an event field, and never leaks onto strict-schema events.
+  const schemaResult = AssistantEventSchema.safeParse(inner);
+  if (schemaResult.success) return schemaResult.data as AssistantEvent;
 
   // Legacy fallback. Merge the envelope conversationId in so legacy
   // case bodies just read `data.conversationId` — daemon emit sites
