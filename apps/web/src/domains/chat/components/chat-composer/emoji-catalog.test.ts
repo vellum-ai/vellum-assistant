@@ -42,6 +42,16 @@ describe("EMOJI_CATALOG", () => {
     expect(triumph!.aliases).toContain("huff");
     expect(triumph!.aliases).toContain("frustrated");
   });
+
+  test.each([
+    ["left_facing_fist", "🤛"],
+    ["right_facing_fist", "🤜"],
+    ["red_flag", "🚩"],
+  ])("preserves legacy web shortcode :%s as a catalog row", (shortcode, emoji) => {
+    const entry = EMOJI_CATALOG.find((e) => e.shortcode === shortcode);
+    expect(entry).toBeDefined();
+    expect(entry!.emoji).toBe(emoji);
+  });
 });
 
 describe("searchEmoji", () => {
