@@ -36,6 +36,7 @@ import type {
 import type { RetrievalInput } from "../../v2/harness/retriever.js";
 import type { ScoutResult } from "../../v2/harness/trace.js";
 import type { PageIndex } from "../../v2/page-index.js";
+import { DESCENT_SYSTEM_PROMPT } from "../prompts/system-prompts.js";
 import type { ChildRef, TreeIndex } from "../tree-index.js";
 import { createDescender, deriveSeedNodes, runTreeWalk } from "../tree-walk.js";
 import type { TreeNode } from "../types.js";
@@ -134,14 +135,33 @@ function makeInput(
   overrides?: Partial<RetrievalInput> & {
     breadthBudget?: number;
     maxDepth?: number;
+    /** Inline override for `memory.v3.prompts.descent`. */
+    descentOverride?: string;
   },
 ): RetrievalInput {
   const breadthBudget = overrides?.breadthBudget ?? 8;
   const maxDepth = overrides?.maxDepth ?? 8;
   const config = {
-    memory: { v3: { breadthBudget, maxDepth } },
+    memory: {
+      v3: {
+        breadthBudget,
+        maxDepth,
+        ...(overrides?.descentOverride !== undefined
+          ? {
+              prompts: {
+                descent: { override: overrides.descentOverride, path: null },
+              },
+            }
+          : {}),
+      },
+    },
   } as unknown as RetrievalInput["config"];
-  const { breadthBudget: _b, maxDepth: _m, ...rest } = overrides ?? {};
+  const {
+    breadthBudget: _b,
+    maxDepth: _m,
+    descentOverride: _d,
+    ...rest
+  } = overrides ?? {};
   return {
     workspaceDir: "/tmp/does-not-matter",
     recentTurnPairs: [{ assistantMessage: "", userMessage: "tell me about a" }],
@@ -581,5 +601,54 @@ describe("createDescender — request shape", () => {
     expect(chosen).toEqual([]);
     expect(calls).toHaveLength(0);
     expect(reasoningByNode.get("leaf")).toBe("");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runTreeWalk — descent system prompt
+// ---------------------------------------------------------------------------
+
+describe("runTreeWalk — descent system prompt", () => {
+  const tree = makeTree("_root", {
+    _root: [node("a")],
+    a: [page("pa")],
+  });
+
+  test("uses the bundled default when no override is configured", async () => {
+    const pages = makePages(["pa"]);
+    const calls: ProviderCall[] = [];
+    const provider = makeProvider({ _root: { descend: ["a"] } }, calls);
+
+    await runTreeWalk({
+      input: makeInput(),
+      tree,
+      pages,
+      scouts: [],
+      seeds: [],
+      provider,
+    });
+
+    const rootCall = calls.find((c) => nodeIdFromCall(c) === "_root")!;
+    expect(rootCall.systemPrompt).toBe(DESCENT_SYSTEM_PROMPT);
+  });
+
+  test("uses the configured inline override as the descent system prompt", async () => {
+    const pages = makePages(["pa"]);
+    const calls: ProviderCall[] = [];
+    const provider = makeProvider({ _root: { descend: ["a"] } }, calls);
+
+    const override = "CUSTOM DESCENT PROMPT — descend everything plausible.";
+    await runTreeWalk({
+      input: makeInput({ descentOverride: override }),
+      tree,
+      pages,
+      scouts: [],
+      seeds: [],
+      provider,
+    });
+
+    const rootCall = calls.find((c) => nodeIdFromCall(c) === "_root")!;
+    expect(rootCall.systemPrompt).toBe(override);
+    expect(rootCall.systemPrompt).not.toBe(DESCENT_SYSTEM_PROMPT);
   });
 });

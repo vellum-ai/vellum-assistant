@@ -390,6 +390,33 @@ export const MemoryV2ConfigSchema = z
 export type MemoryV2Config = z.infer<typeof MemoryV2ConfigSchema>;
 
 /**
+ * Per-lane system-prompt override for a v3 LLM call site. `override` is an
+ * inline prompt string (highest precedence); `path` points at a file whose
+ * contents replace the bundled prompt. Both default to `null` (use the bundled
+ * prompt). Shared by the filter, descent, and gate entries under
+ * `memory.v3.prompts`. The whole object is `.default(...)`-wrapped so an
+ * omitted lane parses to `{ override: null, path: null }`.
+ */
+const V3PromptOverrideSchema = z
+  .object({
+    override: z
+      .string({ error: "memory.v3.prompts.*.override must be a string" })
+      .nullable()
+      .default(null)
+      .describe(
+        "Optional inline system-prompt string that replaces the bundled prompt for this lane. Takes precedence over `path`. An empty or whitespace-only string is ignored (falls back to `path` / bundled).",
+      ),
+    path: z
+      .string({ error: "memory.v3.prompts.*.path must be a string" })
+      .nullable()
+      .default(null)
+      .describe(
+        "Optional path to a file whose contents replace the bundled prompt for this lane. Absolute paths are used as-is, a leading `~/` expands to the home directory, otherwise the path resolves under the workspace root. If the file is missing, unreadable, or empty, the bundled prompt is used and a warning is logged.",
+      ),
+  })
+  .default({ override: null, path: null });
+
+/**
  * Memory v3 (multi-lane, bounded-descent retrieval) configuration.
  *
  * Additive scaffolding only — defaults to `enabled: false` so existing
@@ -532,6 +559,26 @@ export const MemoryV3ConfigSchema = z
       .describe(
         "Memory v3 write-path configuration. All default-off scaffolding — controls whether v3 consolidation owns the shared-buffer drain + tree build. Consumed by later PRs.",
       ),
+    prompts: z
+      .object({
+        filter: V3PromptOverrideSchema.describe(
+          "Override for the dense-hit filter lane's system prompt.",
+        ),
+        descent: V3PromptOverrideSchema.describe(
+          "Override for the tree-walk descent driver's system prompt.",
+        ),
+        gate: V3PromptOverrideSchema.describe(
+          "Override for the selection gate's system prompt.",
+        ),
+      })
+      .default({
+        filter: { override: null, path: null },
+        descent: { override: null, path: null },
+        gate: { override: null, path: null },
+      })
+      .describe(
+        "Per-lane system-prompt overrides for the three v3 LLM call sites (filter, descent, gate). Each entry takes an inline `override` string (highest precedence) and/or a file `path` whose contents replace the bundled prompt; absolute paths are used as-is, a leading `~/` expands to the home directory, otherwise the path resolves under the workspace root. An empty/whitespace inline override or a missing/unreadable/empty file falls back to the bundled prompt. Lets the prompts be iterated at runtime without a rebuild/restart — mirroring `memory.v2.router.router_prompt_path`.",
+      ),
   })
   .default({
     enabled: false,
@@ -547,6 +594,11 @@ export const MemoryV3ConfigSchema = z
       enabled: false,
       consolidateIntervalMs: 3600000,
       coactivation: false,
+    },
+    prompts: {
+      filter: { override: null, path: null },
+      descent: { override: null, path: null },
+      gate: { override: null, path: null },
     },
   })
   .describe(

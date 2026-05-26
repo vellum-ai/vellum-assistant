@@ -60,6 +60,10 @@ import type { ScoutResult } from "../v2/harness/trace.js";
 import type { PageIndex } from "../v2/page-index.js";
 import { composeNodeIndex } from "./index-composition.js";
 import { renderConversationContext } from "./prompt-context.js";
+import {
+  DESCENT_SYSTEM_PROMPT,
+  resolveV3SystemPrompt,
+} from "./prompts/system-prompts.js";
 import type { WalkResult } from "./traversal.js";
 import { walkTree } from "./traversal.js";
 import type { ChildRef, TreeIndex } from "./tree-index.js";
@@ -168,13 +172,6 @@ function renderScoutHits(scouts: readonly ScoutResult[]): string {
   return `<scout_hits>\n${lines.join("\n")}\n</scout_hits>`;
 }
 
-const DESCENT_SYSTEM_PROMPT =
-  "You are the descent driver for a hierarchical memory-retrieval walk. At each " +
-  "node you see its child index (one line per child sub-node or leaf page) and " +
-  "the current conversation turn. Choose which child *nodes* to descend into to " +
-  "find the pages that bear on the next reply. Leaf pages are collected " +
-  "automatically — you only decide which branches to explore deeper.";
-
 /** Fail-safe descend result: descend nothing, recording why on the side map. */
 function failClosed(
   nodeId: string,
@@ -206,6 +203,14 @@ export function createDescender(
   const { input, tree, pages, scouts } = args;
   const conversationContext = renderConversationContext(input);
   const scoutHits = renderScoutHits(scouts);
+  // Resolve the descent system prompt once for the whole walk — config is
+  // stable across the per-node calls, so there is no reason to re-resolve
+  // (and re-read any override file) per node.
+  const systemPrompt = resolveV3SystemPrompt(
+    DESCENT_SYSTEM_PROMPT,
+    input.config.memory?.v3?.prompts?.descent,
+    input.workspaceDir,
+  );
 
   return async (nodeId: string, children: ChildRef[]): Promise<ChildRef[]> => {
     const offeredNodes = children.filter((c) => c.kind === "node");
@@ -255,7 +260,7 @@ export function createDescender(
       response = await provider.sendMessage(
         [userMsg],
         [descendTool],
-        DESCENT_SYSTEM_PROMPT,
+        systemPrompt,
         {
           config: {
             callSite: "memoryV3Descent" as const,
