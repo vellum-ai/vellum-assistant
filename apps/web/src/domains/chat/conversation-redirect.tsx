@@ -10,6 +10,8 @@ import { routes } from "@/utils/routes.js";
 
 export function ConversationRedirect() {
   const [searchParams] = useSearchParams();
+  // Both params are checked intentionally: `conversationKey` predates the
+  // `conversationId` cutover. Ancient saved/shared URLs only have `conversationKey`.
   const target =
     searchParams.get("conversationId") ?? searchParams.get("conversationKey");
   if (target) {
