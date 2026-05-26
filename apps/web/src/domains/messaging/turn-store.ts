@@ -84,9 +84,23 @@ export const INITIAL_TURN_STATE: TurnState = {
 // Derived helpers
 // ---------------------------------------------------------------------------
 
-/** True when the turn is actively processing (not idle/errored). */
+/** True when a turn is in flight.
+ *
+ * `activeTurnId` is the authoritative signal: it is set synchronously by
+ * `requestSend` / `acceptSend` and cleared by every terminal handler. The
+ * phase checks remain so that the post-complete "queued waiting" state
+ * (phase=`queued`, activeTurnId=`null`, pendingQueuedCount>0) still
+ * reports as sending.
+ *
+ * Including `activeTurnId !== null` also makes the predicate robust to a
+ * stale terminal event slipping in between `requestSend` and `acceptSend`
+ * (which would otherwise leave the store in an illegal phase=`idle` +
+ * activeTurnId=non-null shape until the first assistant delta arrived,
+ * suppressing the thinking indicator).
+ */
 export function isSending(state: TurnState): boolean {
   return (
+    state.activeTurnId !== null ||
     state.phase === "queued" ||
     state.phase === "thinking" ||
     state.phase === "streaming" ||

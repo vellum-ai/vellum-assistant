@@ -63,6 +63,54 @@ describe("INITIAL_TURN_STATE", () => {
 });
 
 // ---------------------------------------------------------------------------
+// isSending — illegal-state robustness
+// ---------------------------------------------------------------------------
+
+describe("isSending", () => {
+  test("returns true whenever activeTurnId is set, even if phase is idle", () => {
+    // Repro of the state observed in the wild:
+    //   `requestSend(turn-NEW)` runs (phase=thinking, activeTurnId=turn-NEW)
+    //   → stale `completeTurn` from the previous turn fires during the
+    //     `await sendMessageViaStream(...)` window
+    //     (phase=idle, activeTurnId=null, lastTerminalReason=complete)
+    //   → `acceptSend(turn-NEW)` re-sets activeTurnId
+    //     (phase=idle, activeTurnId=turn-NEW, lastTerminalReason=complete)
+    // Before the fix, isSending returned false here and the thinking
+    // indicator stayed hidden until the first assistant delta arrived.
+    const illegalAfterStaleTerminal: TurnState = {
+      ...INITIAL_TURN_STATE,
+      phase: "idle",
+      activeTurnId: "turn-1",
+      lastTerminalReason: "complete",
+    };
+    expect(isSending(illegalAfterStaleTerminal)).toBe(true);
+  });
+
+  test("returns false for terminal idle with no active turn", () => {
+    const idle: TurnState = {
+      ...INITIAL_TURN_STATE,
+      phase: "idle",
+      activeTurnId: null,
+      lastTerminalReason: "complete",
+    };
+    expect(isSending(idle)).toBe(false);
+  });
+
+  test("returns true for queued waiting state (post-complete, pendingQueuedCount>0)", () => {
+    // After `completeTurn` with queued messages remaining: phase=queued
+    // and activeTurnId=null until the next turn starts.
+    const queuedWaiting: TurnState = {
+      ...INITIAL_TURN_STATE,
+      phase: "queued",
+      activeTurnId: null,
+      pendingQueuedCount: 1,
+      lastTerminalReason: "complete",
+    };
+    expect(isSending(queuedWaiting)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // USER_SEND_REQUESTED
 // ---------------------------------------------------------------------------
 
