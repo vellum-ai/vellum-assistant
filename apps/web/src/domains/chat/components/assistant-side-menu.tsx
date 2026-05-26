@@ -3,7 +3,6 @@ import {
   Calendar,
   ChevronDown,
   ChevronRight,
-  CircleAlert,
   Clock,
   Globe,
   Hash,
@@ -319,20 +318,16 @@ export function AssistantSideMenu({
         <span className="text-body-small-default text-[var(--content-tertiary)]">{title}</span>
       </div>
       <div className="px-2">
-        {conversations.map((c) => {
-          const needsAttention = attentionConversationIds?.has(c.conversationId) ?? false;
-          return (
-            <PanelItem
-              key={c.conversationId}
-              icon={needsAttention ? CircleAlert : isConversationPinned(c) ? Pin : undefined}
-              label={c.title ?? "Untitled"}
-              active={c.conversationId === activeConversationId}
-              onSelect={() => { closePopover?.(); selectAndClose(c.conversationId); }}
-              trailingAction={renderThreadActions(c)}
-              className={needsAttention ? "text-[var(--system-mid-strong)]" : undefined}
-            />
-          );
-        })}
+        {conversations.map((c) => (
+          <PanelItem
+            key={c.conversationId}
+            leadingSlot={renderThreadPinToggle(c)}
+            label={c.title ?? "Untitled"}
+            active={c.conversationId === activeConversationId}
+            onSelect={() => { closePopover?.(); selectAndClose(c.conversationId); }}
+            trailingAction={renderThreadActions(c)}
+          />
+        ))}
       </div>
     </div>
   );
@@ -435,6 +430,7 @@ export function AssistantSideMenu({
                 activeConversationId={activeConversationId}
                 onSelectConversation={selectAndClose}
                 renderActions={renderThreadActions}
+                renderPinToggle={renderThreadPinToggle}
                 processingConversationIds={processingConversationIds}
                 attentionConversationIds={attentionConversationIds}
               />
@@ -584,6 +580,7 @@ interface CollapsedBackgroundGroupProps {
   activeConversationId?: string;
   onSelectConversation: (conversationId: string) => void;
   renderActions: (conversation: Conversation) => ReactNode;
+  renderPinToggle: (conversation: Conversation) => ReactNode;
   processingConversationIds?: Set<string>;
   attentionConversationIds?: Set<string>;
 }
@@ -593,6 +590,7 @@ function CollapsedBackgroundGroup({
   activeConversationId,
   onSelectConversation,
   renderActions,
+  renderPinToggle,
   processingConversationIds,
   attentionConversationIds,
 }: CollapsedBackgroundGroupProps) {
@@ -647,16 +645,14 @@ function CollapsedBackgroundGroup({
               if (isSingle) {
                 const c = group.conversations[0];
                 if (!c) return null;
-                const singleNeedsAttention = attentionConversationIds?.has(c.conversationId) ?? false;
                 return (
                   <PanelItem
                     key={c.conversationId}
-                    icon={singleNeedsAttention ? CircleAlert : isConversationPinned(c) ? Pin : undefined}
+                    leadingSlot={renderPinToggle(c)}
                     label={c.title ?? "Untitled"}
                     active={c.conversationId === activeConversationId}
                     onSelect={() => { closePopover(); onSelectConversation(c.conversationId); }}
                     trailingAction={renderActions(c)}
-                    className={singleNeedsAttention ? "text-[var(--system-mid-strong)]" : undefined}
                   />
                 );
               }
@@ -671,20 +667,16 @@ function CollapsedBackgroundGroup({
                     onSelect={() => toggleGroup(group.key)}
                   />
                   {isExpanded
-                    ? group.conversations.map((c) => {
-                        const rowNeedsAttention = attentionConversationIds?.has(c.conversationId) ?? false;
-                        return (
-                          <PanelItem
-                            key={c.conversationId}
-                            icon={rowNeedsAttention ? CircleAlert : isConversationPinned(c) ? Pin : undefined}
-                            label={c.title ?? "Untitled"}
-                            active={c.conversationId === activeConversationId}
-                            onSelect={() => { closePopover(); onSelectConversation(c.conversationId); }}
-                            trailingAction={renderActions(c)}
-                            className={rowNeedsAttention ? "text-[var(--system-mid-strong)]" : undefined}
-                          />
-                        );
-                      })
+                    ? group.conversations.map((c) => (
+                        <PanelItem
+                          key={c.conversationId}
+                          leadingSlot={renderPinToggle(c)}
+                          label={c.title ?? "Untitled"}
+                          active={c.conversationId === activeConversationId}
+                          onSelect={() => { closePopover(); onSelectConversation(c.conversationId); }}
+                          trailingAction={renderActions(c)}
+                        />
+                      ))
                     : null}
                 </div>
               );
