@@ -1,6 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router";
 
 import { toast } from "@vellum/design-library/components/toast";
 
@@ -39,10 +38,8 @@ import type {
   ContactPayload,
   ContactSelection,
 } from "@/domains/contacts/types.js";
-import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate.js";
 import { fetchAssistantIdentity } from "@/assistant/identity.js";
 import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
-import { routes } from "@/utils/routes.js";
 
 const ASSISTANT_SETUP_PROMPTS: Record<AssistantChannelState["key"], string> = {
   slack: "I want to reach you on Slack. Let's set it up.",
@@ -52,30 +49,15 @@ const ASSISTANT_SETUP_PROMPTS: Record<AssistantChannelState["key"], string> = {
 
 const READINESS_REFETCH_MS = 15000;
 
-export function ContactsPage() {
-  const { assistantId } = useActiveAssistantContext();
-  const navigate = useNavigate();
-
-  return (
-    <ContactsPageInner
-      key={assistantId}
-      assistantId={assistantId}
-      onStartSetupConversation={(prompt) => {
-        void navigate(`${routes.assistant}?prompt=${encodeURIComponent(prompt)}`);
-      }}
-    />
-  );
-}
-
-interface ContactsPageInnerProps {
+export interface ContactsPageProps {
   assistantId: string;
   onStartSetupConversation?: (prompt: string) => void;
 }
 
-function ContactsPageInner({
+export function ContactsPage({
   assistantId,
   onStartSetupConversation,
-}: ContactsPageInnerProps) {
+}: ContactsPageProps) {
   const a2aChannel = useAssistantFeatureFlagStore.use.a2aChannel();
   const queryClient = useQueryClient();
   const [loadedName, setLoadedName] = useState<{

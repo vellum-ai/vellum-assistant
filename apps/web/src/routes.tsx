@@ -144,7 +144,7 @@ export const router = createBrowserRouter(
                     { path: "plugins", lazy: { Component: () => import("@/domains/intelligence/plugins-page.js").then((m) => m.PluginsPage) } },
                     { path: "skills", lazy: { Component: () => import("@/domains/intelligence/skills-page.js").then((m) => m.SkillsPage) } },
                     { path: "workspace", lazy: { Component: () => import("@/domains/workspace/workspace-page.js").then((m) => m.WorkspacePage) } },
-                    { path: "contacts", lazy: { Component: () => import("@/domains/contacts/contacts-page.js").then((m) => m.ContactsPage) } },
+                    { path: "contacts", lazy: { Component: () => import("@/contacts-page-route.js").then((m) => m.ContactsPageRoute) } },
                   ],
                 },
                 { path: "library", lazy: { Component: () => import("@/domains/library/library-page.js").then((m) => m.LibraryPage) } },
