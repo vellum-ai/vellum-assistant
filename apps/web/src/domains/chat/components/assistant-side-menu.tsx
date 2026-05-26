@@ -1,6 +1,9 @@
 import {
   Brain,
   Calendar,
+  ChevronDown,
+  ChevronRight,
+  CircleAlert,
   Clock,
   Globe,
   Hash,
@@ -11,18 +14,22 @@ import {
   SquarePen,
   X,
 } from "lucide-react";
-import { useCallback, type ReactNode } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 
 import {
   ConversationActionsMenu,
   renderConversationMenuItems,
   type ConversationMenuItemsProps,
 } from "@/domains/chat/components/conversation-actions-menu.js";
-import { CollapsedConversationsButton } from "@/domains/chat/components/collapsed-conversations-button.js";
+import { CollapsedGroupIcon, getGroupIndicatorState } from "@/domains/chat/components/collapsed-group-icon.js";
 import { ThreadPinToggle } from "@/domains/chat/components/thread-pin-toggle.js";
 import { GroupActionsMenu } from "@/domains/chat/components/group-actions-menu.js";
 import { BackgroundSubGroups, ScheduledSubGroups } from "@/domains/chat/components/sub-group-accordion.js";
 import { countBadge } from "@/domains/chat/components/sidebar-count-badge.js";
+import {
+  formatBackgroundSubGroupLabel,
+  groupBackgroundConversationsBySource,
+} from "@/domains/chat/utils/background-sub-groups.js";
 import { useSidebarState, SIDEBAR_CONVERSATION_LIMIT, type UseSidebarStateParams } from "@/domains/chat/use-sidebar-state.js";
 import {
   Button,
@@ -304,6 +311,32 @@ export function AssistantSideMenu({
     </SideMenu.SubList>
   );
 
+  // --- Collapsed-rail popover content renderer ---
+
+  const renderCollapsedGroupContent = (title: string, conversations: Conversation[]): ReactNode => (
+    <div className="pb-1">
+      <div className="flex items-center justify-between px-4 py-1">
+        <span className="text-body-small-default text-[var(--content-tertiary)]">{title}</span>
+      </div>
+      <div className="px-2">
+        {conversations.map((c) => {
+          const needsAttention = attentionConversationIds?.has(c.conversationId) ?? false;
+          return (
+            <PanelItem
+              key={c.conversationId}
+              icon={needsAttention ? CircleAlert : isConversationPinned(c) ? Pin : undefined}
+              label={c.title ?? "Untitled"}
+              active={c.conversationId === activeConversationId}
+              onSelect={() => { selectAndClose(c.conversationId); }}
+              trailingAction={renderThreadActions(c)}
+              className={needsAttention ? "text-[var(--system-mid-strong)]" : undefined}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+
   // --- JSX ---
 
   return (
@@ -369,18 +402,52 @@ export function AssistantSideMenu({
         {collapsed && variant === "rail" ? (
           <div className="flex flex-col items-center gap-1">
             {headerActions}
-            <CollapsedConversationsButton
-              pinned={sidebar.pinned}
-              scheduled={sidebar.scheduled}
-              background={sidebar.background}
-              slack={sidebar.slack.all}
-              recents={sidebar.recents.all}
-              customGroups={sidebar.conversationGroupsEnabled ? sidebar.customGroups : undefined}
-              activeConversationId={activeConversationId}
-              onSelectConversation={selectAndClose}
-              renderActions={renderThreadActions}
-              attentionConversationIds={attentionConversationIds}
-            />
+            {sidebar.pinned.length > 0 ? (
+              <CollapsedGroupIcon
+                icon={Pin}
+                label="Pinned"
+                indicatorState={getGroupIndicatorState(sidebar.pinned, processingConversationIds, attentionConversationIds)}
+              >
+                {renderCollapsedGroupContent("Pinned", sidebar.pinned)}
+              </CollapsedGroupIcon>
+            ) : null}
+            {sidebar.recents.all.length > 0 ? (
+              <CollapsedGroupIcon
+                icon={Clock}
+                label="Recents"
+                indicatorState={getGroupIndicatorState(sidebar.recents.all, processingConversationIds, attentionConversationIds)}
+              >
+                {renderCollapsedGroupContent("Recents", sidebar.recents.all)}
+              </CollapsedGroupIcon>
+            ) : null}
+            {sidebar.scheduled.length > 0 ? (
+              <CollapsedGroupIcon
+                icon={Calendar}
+                label="Scheduled"
+                indicatorState={getGroupIndicatorState(sidebar.scheduled, processingConversationIds, attentionConversationIds)}
+              >
+                {renderCollapsedGroupContent("Scheduled", sidebar.scheduled)}
+              </CollapsedGroupIcon>
+            ) : null}
+            {sidebar.background.length > 0 ? (
+              <CollapsedBackgroundGroup
+                conversations={sidebar.background}
+                activeConversationId={activeConversationId}
+                onSelectConversation={selectAndClose}
+                renderActions={renderThreadActions}
+                processingConversationIds={processingConversationIds}
+                attentionConversationIds={attentionConversationIds}
+              />
+            ) : null}
+            {sidebar.slack.totalCount > 0 ? (
+              <CollapsedGroupIcon
+                icon={Hash}
+                label="Slack"
+                indicatorState={getGroupIndicatorState(sidebar.slack.all, processingConversationIds, attentionConversationIds)}
+              >
+                {renderCollapsedGroupContent("Slack", sidebar.slack.all)}
+              </CollapsedGroupIcon>
+            ) : null}
           </div>
         ) : (
           <SideMenu.Section
@@ -505,5 +572,124 @@ export function AssistantSideMenu({
         </SideMenu.Footer>
       ) : null}
     </SideMenu>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Collapsed background group — extracted so it can own sub-group expand state
+// ---------------------------------------------------------------------------
+
+interface CollapsedBackgroundGroupProps {
+  conversations: Conversation[];
+  activeConversationId?: string;
+  onSelectConversation: (conversationId: string) => void;
+  renderActions: (conversation: Conversation) => ReactNode;
+  processingConversationIds?: Set<string>;
+  attentionConversationIds?: Set<string>;
+}
+
+function CollapsedBackgroundGroup({
+  conversations,
+  activeConversationId,
+  onSelectConversation,
+  renderActions,
+  processingConversationIds,
+  attentionConversationIds,
+}: CollapsedBackgroundGroupProps) {
+  const subGroups = useMemo(() => groupBackgroundConversationsBySource(conversations), [conversations]);
+  const [manualExpandedKeys, setManualExpandedKeys] = useState<Set<string>>(new Set());
+
+  const attentionExpandedKeys = useMemo(() => {
+    if (!attentionConversationIds || attentionConversationIds.size === 0) return new Set<string>();
+    const keys = new Set<string>();
+    for (const group of subGroups) {
+      if (group.key.startsWith("__single__:")) continue;
+      if (group.conversations.some(c => attentionConversationIds.has(c.conversationId))) {
+        keys.add(group.key);
+      }
+    }
+    return keys;
+  }, [attentionConversationIds, subGroups]);
+
+  const expandedKeys = useMemo(() => {
+    if (attentionExpandedKeys.size === 0) return manualExpandedKeys;
+    const merged = new Set(manualExpandedKeys);
+    for (const k of attentionExpandedKeys) merged.add(k);
+    return merged;
+  }, [manualExpandedKeys, attentionExpandedKeys]);
+
+  const toggleGroup = (key: string) => {
+    setManualExpandedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  };
+
+  return (
+    <CollapsedGroupIcon
+      icon={Layers}
+      label="Background"
+      indicatorState={getGroupIndicatorState(conversations, processingConversationIds, attentionConversationIds)}
+    >
+      <div className="pb-1">
+        <div className="flex items-center justify-between px-4 py-1">
+          <span className="text-body-small-default text-[var(--content-tertiary)]">Background</span>
+        </div>
+        <div className="px-2">
+          {subGroups.map((group) => {
+            const isSingle = group.key.startsWith("__single__:");
+            if (isSingle) {
+              const c = group.conversations[0];
+              if (!c) return null;
+              const singleNeedsAttention = attentionConversationIds?.has(c.conversationId) ?? false;
+              return (
+                <PanelItem
+                  key={c.conversationId}
+                  icon={singleNeedsAttention ? CircleAlert : isConversationPinned(c) ? Pin : undefined}
+                  label={c.title ?? "Untitled"}
+                  active={c.conversationId === activeConversationId}
+                  onSelect={() => onSelectConversation(c.conversationId)}
+                  trailingAction={renderActions(c)}
+                  className={singleNeedsAttention ? "text-[var(--system-mid-strong)]" : undefined}
+                />
+              );
+            }
+
+            const isExpanded = expandedKeys.has(group.key);
+            return (
+              <div key={group.key}>
+                <PanelItem
+                  icon={isExpanded ? ChevronDown : ChevronRight}
+                  label={formatBackgroundSubGroupLabel(group.key)}
+                  badge={group.conversations.length}
+                  onSelect={() => toggleGroup(group.key)}
+                />
+                {isExpanded
+                  ? group.conversations.map((c) => {
+                      const rowNeedsAttention = attentionConversationIds?.has(c.conversationId) ?? false;
+                      return (
+                        <PanelItem
+                          key={c.conversationId}
+                          icon={rowNeedsAttention ? CircleAlert : isConversationPinned(c) ? Pin : undefined}
+                          label={c.title ?? "Untitled"}
+                          active={c.conversationId === activeConversationId}
+                          onSelect={() => onSelectConversation(c.conversationId)}
+                          trailingAction={renderActions(c)}
+                          className={rowNeedsAttention ? "text-[var(--system-mid-strong)]" : undefined}
+                        />
+                      );
+                    })
+                  : null}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </CollapsedGroupIcon>
   );
 }
