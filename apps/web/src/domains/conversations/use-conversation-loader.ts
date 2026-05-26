@@ -84,8 +84,8 @@ interface UseConversationLoaderParams {
   contextWindowUsageByConversationRef: MutableRefObject<Map<string, ContextWindowUsage>>;
   dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
   streamingMessageIdsRef: MutableRefObject<Set<string>>;
-  pendingQueuedStableIdsRef: MutableRefObject<string[]>;
-  requestIdToStableIdRef: MutableRefObject<Map<string, string>>;
+  pendingQueuedMessageIdsRef: MutableRefObject<string[]>;
+  requestIdToMessageIdRef: MutableRefObject<Map<string, string>>;
   pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
   confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
   lastSuggestionMsgIdRef: MutableRefObject<string | null>;
@@ -152,8 +152,8 @@ export function useConversationLoader({
   contextWindowUsageByConversationRef,
   dismissedSurfaceIdsRef,
   streamingMessageIdsRef,
-  pendingQueuedStableIdsRef,
-  requestIdToStableIdRef,
+  pendingQueuedMessageIdsRef,
+  requestIdToMessageIdRef,
   pendingLocalDeletionsRef,
   confirmationToolCallMapRef,
   lastSuggestionMsgIdRef,
@@ -452,8 +452,8 @@ export function useConversationLoader({
     contextWindowUsageByConversationRef,
     dismissedSurfaceIdsRef,
     streamingMessageIdsRef,
-    pendingQueuedStableIdsRef,
-    requestIdToStableIdRef,
+    pendingQueuedMessageIdsRef,
+    requestIdToMessageIdRef,
     pendingLocalDeletionsRef,
     confirmationToolCallMapRef,
     lastSuggestionMsgIdRef,

@@ -17,11 +17,11 @@ export function handleAssistantTextDelta(
   ctx.setMessages((prev) => {
     const next = appendTextDelta(prev, event.text, event.messageId);
     const tail = next[next.length - 1];
-    // Stamp the stable-id ref to the streaming tail (no-op for extends; new
-    // id for creates). Subagent handlers read this to attribute nested
-    // notifications to the right parent bubble.
+    // Stamp the current-assistant ref to the streaming tail. Subagent
+    // handlers read this to attribute nested notifications to the right
+    // parent bubble.
     if (tail?.role === "assistant" && tail.isStreaming) {
-      ctx.currentAssistantStableIdRef.current = tail.stableId;
+      ctx.currentAssistantMessageIdRef.current = tail.id;
     }
     return next;
   });

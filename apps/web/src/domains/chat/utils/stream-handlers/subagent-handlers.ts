@@ -12,7 +12,7 @@ export function handleSubagentSpawned(
     objective: event.objective,
     isFork: event.isFork,
     timestamp: Date.now(),
-    parentMessageStableId: ctx.currentAssistantStableIdRef.current,
+    parentMessageStableId: ctx.currentAssistantMessageIdRef.current,
   });
 }
 

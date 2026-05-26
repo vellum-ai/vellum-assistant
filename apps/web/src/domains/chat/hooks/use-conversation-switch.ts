@@ -41,8 +41,8 @@ export interface UseConversationSwitchParams {
   draftConversationIdResolutionRef: MutableRefObject<boolean>;
   previousConversationIdRef: MutableRefObject<string | null>;
   streamingMessageIdsRef: MutableRefObject<Set<string>>;
-  pendingQueuedStableIdsRef: MutableRefObject<string[]>;
-  requestIdToStableIdRef: MutableRefObject<Map<string, string>>;
+  pendingQueuedMessageIdsRef: MutableRefObject<string[]>;
+  requestIdToMessageIdRef: MutableRefObject<Map<string, string>>;
   pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
   confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
   lastSuggestionMsgIdRef: MutableRefObject<string | null>;
@@ -87,8 +87,8 @@ export function useConversationSwitch({
   draftConversationIdResolutionRef,
   previousConversationIdRef,
   streamingMessageIdsRef,
-  pendingQueuedStableIdsRef,
-  requestIdToStableIdRef,
+  pendingQueuedMessageIdsRef,
+  requestIdToMessageIdRef,
   pendingLocalDeletionsRef,
   confirmationToolCallMapRef,
   lastSuggestionMsgIdRef,
@@ -143,8 +143,8 @@ export function useConversationSwitch({
     setIsLoadingHistory(true);
     setMessages([]);
     streamingMessageIdsRef.current.clear();
-    pendingQueuedStableIdsRef.current = [];
-    requestIdToStableIdRef.current.clear();
+    pendingQueuedMessageIdsRef.current = [];
+    requestIdToMessageIdRef.current.clear();
     pendingLocalDeletionsRef.current.clear();
     setTranscriptPagination({
       hasMore: false,
@@ -185,8 +185,8 @@ export function useConversationSwitch({
     contextWindowUsageByConversationRef,
     dismissedSurfaceIdsRef,
     streamingMessageIdsRef,
-    pendingQueuedStableIdsRef,
-    requestIdToStableIdRef,
+    pendingQueuedMessageIdsRef,
+    requestIdToMessageIdRef,
     pendingLocalDeletionsRef,
     confirmationToolCallMapRef,
     lastSuggestionMsgIdRef,

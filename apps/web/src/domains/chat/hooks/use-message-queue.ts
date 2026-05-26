@@ -32,8 +32,8 @@ interface UseMessageQueueParams {
   messages: DisplayMessage[];
 
   // Refs
-  pendingQueuedStableIdsRef: MutableRefObject<string[]>;
-  requestIdToStableIdRef: MutableRefObject<Map<string, string>>;
+  pendingQueuedMessageIdsRef: MutableRefObject<string[]>;
+  requestIdToMessageIdRef: MutableRefObject<Map<string, string>>;
   pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
 
   // State setters
@@ -50,8 +50,8 @@ export function useMessageQueue({
   assistantId,
   activeConversationId,
   messages,
-  pendingQueuedStableIdsRef,
-  requestIdToStableIdRef,
+  pendingQueuedMessageIdsRef,
+  requestIdToMessageIdRef,
   pendingLocalDeletionsRef,
   setMessages,
   setInput,
@@ -60,7 +60,7 @@ export function useMessageQueue({
   const revertQueuedMessage = useCallback(
     (stableId: string) => {
       setMessages((prev) => prev.filter((m) => m.stableId !== stableId));
-      pendingQueuedStableIdsRef.current = pendingQueuedStableIdsRef.current.filter(
+      pendingQueuedMessageIdsRef.current = pendingQueuedMessageIdsRef.current.filter(
         (id) => id !== stableId,
       );
     },
@@ -81,7 +81,7 @@ export function useMessageQueue({
         return;
       }
       let targetRequestId: string | undefined;
-      for (const [reqId, sId] of requestIdToStableIdRef.current.entries()) {
+      for (const [reqId, sId] of requestIdToMessageIdRef.current.entries()) {
         if (sId === stableId) {
           targetRequestId = reqId;
           break;
@@ -110,7 +110,7 @@ export function useMessageQueue({
         return;
       }
       let targetRequestId: string | undefined;
-      for (const [reqId, sId] of requestIdToStableIdRef.current.entries()) {
+      for (const [reqId, sId] of requestIdToMessageIdRef.current.entries()) {
         if (sId === stableId) {
           targetRequestId = reqId;
           break;

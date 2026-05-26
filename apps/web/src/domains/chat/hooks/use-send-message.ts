@@ -30,7 +30,6 @@ import { isAsyncChatScopeCurrent } from "@/domains/chat/utils/conversation-scope
 import { resolveEditChatDraftConversationId } from "@/domains/chat/utils/edit-chat-session.js";
 import { type DiskPressureChatBlockReason, getDiskPressureChatBlockMessage } from "@/assistant/disk-pressure.js";
 import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics.js";
-import { newStableId } from "@/domains/chat/utils/stable-id.js";
 import { saveDismissedSurfaceIds } from "@/domains/chat/utils/dismissed-surfaces-storage.js";
 import { isSending, useTurnStore } from "@/domains/messaging/turn-store.js";
 import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
@@ -131,8 +130,8 @@ interface UseSendMessageParams {
   onboardingDraftConversationIdRef: MutableRefObject<string | null>;
   draftConversationIdResolutionRef: MutableRefObject<boolean>;
   previousConversationIdRef: MutableRefObject<string | null>;
-  pendingQueuedStableIdsRef: MutableRefObject<string[]>;
-  requestIdToStableIdRef: MutableRefObject<Map<string, string>>;
+  pendingQueuedMessageIdsRef: MutableRefObject<string[]>;
+  requestIdToMessageIdRef: MutableRefObject<Map<string, string>>;
   pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
   confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
 
@@ -170,8 +169,8 @@ export function useSendMessage({
   onboardingDraftConversationIdRef,
   draftConversationIdResolutionRef,
   previousConversationIdRef,
-  pendingQueuedStableIdsRef,
-  requestIdToStableIdRef,
+  pendingQueuedMessageIdsRef,
+  requestIdToMessageIdRef,
   pendingLocalDeletionsRef,
   confirmationToolCallMapRef,
   setMessages,
@@ -198,8 +197,8 @@ export function useSendMessage({
     assistantId,
     activeConversationId,
     messages,
-    pendingQueuedStableIdsRef,
-    requestIdToStableIdRef,
+    pendingQueuedMessageIdsRef,
+    requestIdToMessageIdRef,
     pendingLocalDeletionsRef,
     setMessages,
     setInput,
@@ -403,7 +402,6 @@ export function useSendMessage({
               const existing = prev[existingIdx];
               const updated = [...prev];
               updated[existingIdx] = {
-                stableId: existing?.stableId ?? newStableId("assistant-poll"),
                 id: reply.id,
                 role: "assistant",
                 content: reply.content,
@@ -414,7 +412,6 @@ export function useSendMessage({
             return [
               ...prev,
               {
-                stableId: newStableId("assistant-poll"),
                 id: reply.id,
                 role: "assistant",
                 content: reply.content,
@@ -501,13 +498,8 @@ export function useSendMessage({
       }
 
       const willQueue = isSending(useTurnStore.getState());
-      const optimisticUserId = newStableId("user");
+      const optimisticUserId = crypto.randomUUID();
       const userMessage: DisplayMessage = {
-        stableId: optimisticUserId,
-        // Client-generated identifier during the optimistic phase. The
-        // active POST resolves below swaps this to the server's
-        // `messageId` and clears `isOptimistic`; the queued path stays
-        // optimistic until a later reconcile content-matches and swaps.
         id: optimisticUserId,
         isOptimistic: true,
         role: "user",
@@ -521,7 +513,7 @@ export function useSendMessage({
       // Queue path: POST to daemon (it queues internally) but don't
       // disrupt the active turn.
       if (willQueue) {
-        pendingQueuedStableIdsRef.current.push(userMessage.stableId);
+        pendingQueuedMessageIdsRef.current.push(userMessage.id);
         const attachmentIds = attachments.map((att) => att.id);
         try {
           const postResult = await postChatMessage(
@@ -531,7 +523,7 @@ export function useSendMessage({
             attachmentIds,
           );
           if (!postResult.ok) {
-            revertQueuedMessage(userMessage.stableId);
+            revertQueuedMessage(userMessage.id);
             const detail = resolvePostError(
               postResult.error.code,
               postResult.error.detail,
@@ -545,12 +537,12 @@ export function useSendMessage({
             // between the client-side isSending check and the POST
             // arriving). Clear the optimistic queue status and let the
             // existing SSE stream deliver the response.
-            pendingQueuedStableIdsRef.current =
-              pendingQueuedStableIdsRef.current.filter(
-                (id) => id !== userMessage.stableId,
+            pendingQueuedMessageIdsRef.current =
+              pendingQueuedMessageIdsRef.current.filter(
+                (id) => id !== userMessage.id,
               );
             setMessages((prev) =>
-              clearQueueStatus(prev, userMessage.stableId),
+              clearQueueStatus(prev, userMessage.id),
             );
             const fallbackTurnId = newTurnId();
             useTurnStore.getState().requestSend(fallbackTurnId);
@@ -571,10 +563,10 @@ export function useSendMessage({
             return;
           }
           if (postResult.requestId) {
-            requestIdToStableIdRef.current.set(postResult.requestId, userMessage.stableId);
+            requestIdToMessageIdRef.current.set(postResult.requestId, userMessage.id);
           }
         } catch {
-          revertQueuedMessage(userMessage.stableId);
+          revertQueuedMessage(userMessage.id);
           setError({ message: "Failed to queue message. Please try again." });
         }
         return;
@@ -620,7 +612,7 @@ export function useSendMessage({
           // the prepended draft conversation in the sidebar, and the cleared
           // composer input. Then surface the error.
           setMessages((prev) =>
-            prev.filter((m) => m.stableId !== userMessage.stableId),
+            prev.filter((m) => m.stableId !== userMessage.id),
           );
           useConversationStore
             .getState()
@@ -648,17 +640,15 @@ export function useSendMessage({
         resolvedId = result.resolvedConversationId;
 
         // POST resolve — swap the optimistic user row's client id for the
-        // server's. Match by stableId (immutable) and gate on
-        // `isOptimistic` so a reconcile that already swapped this row
-        // doesn't get clobbered. The row's `stableId` stays put so the
-        // virtualized transcript doesn't remount; only `id` and the
-        // `isOptimistic` flag change. Queued sends skip this — they keep
-        // their optimistic id until a later reconcile content-matches.
+        // server's. Gate on `isOptimistic` so a reconcile that already
+        // swapped this row doesn't get clobbered. Queued sends skip this
+        // and keep their optimistic id until a later reconcile
+        // content-matches.
         if (result.userMessageId) {
           const serverUserMessageId = result.userMessageId;
           setMessages((prev) =>
             prev.map((m) =>
-              m.isOptimistic && m.stableId === optimisticUserId
+              m.isOptimistic && m.id === optimisticUserId
                 ? { ...m, id: serverUserMessageId, isOptimistic: false }
                 : m,
             ),

@@ -228,8 +228,8 @@ export interface ChatRouteRefs {
   contextWindowUsageByConversationRef: MutableRefObject<Map<string, ContextWindowUsage>>;
   streamRef: MutableRefObject<ChatEventStream | null>;
   streamEpochRef: MutableRefObject<number>;
-  pendingQueuedStableIdsRef: MutableRefObject<string[]>;
-  requestIdToStableIdRef: MutableRefObject<Map<string, string>>;
+  pendingQueuedMessageIdsRef: MutableRefObject<string[]>;
+  requestIdToMessageIdRef: MutableRefObject<Map<string, string>>;
   pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
   confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
   reconcileAfterNextStreamOpenRef: MutableRefObject<boolean>;
@@ -515,8 +515,8 @@ export function ChatRouteContent({
     contextWindowUsageByConversationRef: _contextWindowUsageByConversationRef,
     streamRef: _streamRef,
     streamEpochRef: _streamEpochRef,
-    pendingQueuedStableIdsRef: _pendingQueuedStableIdsRef,
-    requestIdToStableIdRef: _requestIdToStableIdRef,
+    pendingQueuedMessageIdsRef: _pendingQueuedMessageIdsRef,
+    requestIdToMessageIdRef: _requestIdToMessageIdRef,
     pendingLocalDeletionsRef: _pendingLocalDeletionsRef,
     confirmationToolCallMapRef: _confirmationToolCallMapRef,
 

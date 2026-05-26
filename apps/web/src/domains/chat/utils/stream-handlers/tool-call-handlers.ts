@@ -29,10 +29,10 @@ export function handleToolUseStart(
   ctx.setMessages((prev) => {
     const next = upsertToolCall(prev, newToolCall);
     const tail = next[next.length - 1];
-    // Stamp the stable-id ref to the streaming tail (no-op for extends; new
-    // id for creates). See parallel logic in handleAssistantTextDelta.
+    // Stamp the current-assistant ref to the streaming tail. See parallel
+    // logic in handleAssistantTextDelta.
     if (tail?.role === "assistant" && tail.isStreaming) {
-      ctx.currentAssistantStableIdRef.current = tail.stableId;
+      ctx.currentAssistantMessageIdRef.current = tail.id;
     }
     return next;
   });

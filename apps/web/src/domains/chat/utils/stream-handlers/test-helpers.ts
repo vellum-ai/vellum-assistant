@@ -66,12 +66,12 @@ export function makeCtx(
     applyDiskPressureStatusEvent: mock(() => {}),
     refreshAssistantIdentity: mock(() => Promise.resolve()),
     invalidateAvatar: mock(() => {}),
-    pendingQueuedStableIdsRef: { current: [] },
-    requestIdToStableIdRef: { current: new Map() },
+    pendingQueuedMessageIdsRef: { current: [] },
+    requestIdToMessageIdRef: { current: new Map() },
     pendingLocalDeletionsRef: { current: new Set() },
     lastActivityVersionRef: { current: new Map() },
     toolCallIdCounterRef: { current: 0 },
-    currentAssistantStableIdRef: { current: undefined },
+    currentAssistantMessageIdRef: { current: undefined },
     ...overrides,
   };
 }

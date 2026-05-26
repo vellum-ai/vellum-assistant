@@ -11,7 +11,6 @@
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import type { Surface } from "@/domains/chat/types/types.js";
-import { newStableId } from "@/domains/chat/utils/stable-id.js";
 import { toDisplayAttachments } from "@/domains/chat/api/event-parser.js";
 import type { AllowlistOption, ChatMessageToolCall, DirectoryScopeOption, MessageCompleteEvent, ScopeOption } from "@/domains/chat/api/event-types.js";
 import type { ToolActivityMetadata } from "@/assistant/web-activity-types.js";
@@ -55,19 +54,12 @@ export function createStreamingBubble(
   prev: DisplayMessage[],
   text: string,
   messageId?: string,
-  stableId?: string,
 ): DisplayMessage[] {
-  const sid = stableId ?? newStableId("assistant-stream");
   return [
     ...prev,
     {
-      stableId: sid,
-      // After PR 2b.1 the daemon always emits `messageId` on
-      // `assistant_text_delta`; the optional parameter is kept for the
-      // legacy wire fallback. When absent, mirror `stableId` into `id`
-      // so the row identity is locked from creation — reconcile then
-      // matches by id without falling back to content/timestamp.
-      id: messageId ?? sid,
+      id: messageId ?? crypto.randomUUID(),
+      ...(messageId ? {} : { isOptimistic: true }),
       role: "assistant",
       content: text,
       isStreaming: true,
@@ -93,10 +85,9 @@ export function appendTextDelta(
   prev: DisplayMessage[],
   text: string,
   messageId?: string,
-  stableId?: string,
 ): DisplayMessage[] {
   if (!tailIsStreamingAssistant(prev)) {
-    return createStreamingBubble(prev, text, messageId, stableId);
+    return createStreamingBubble(prev, text, messageId);
   }
 
   const last = prev[prev.length - 1]!;
@@ -118,15 +109,13 @@ export function appendTextDelta(
     order.push({ type: "text", id: String(newIndex) });
   }
 
+  // First-id-wins: keep the original anchor even if a later delta carries
+  // a different `messageId`. The id is locked from bubble creation.
   return [
     ...prev.slice(0, -1),
     {
       ...last,
       content: last.content + text,
-      // First-id-wins lock from PR 2b.1 — keep the original anchor even if
-      // a later delta arrives with a different `messageId` (e.g. daemon
-      // advanced rows within the same agent turn). `last.id` is mandatory
-      // post-2c.1 so no `??` fallback is needed.
       textSegments: segments,
       contentOrder: order,
     },
@@ -190,16 +179,11 @@ export function finalizeMessageComplete(
 
   if (last?.role !== "assistant") {
     if (!event.content && !attachments) return prev;
-    const sid = newStableId("assistant-complete");
     return [
       ...prev,
       {
-        stableId: sid,
-        // 2b.1: daemon always emits `messageId` on `message_complete`.
-        // Fall back to stableId only in the defensive path so the row
-        // type-checks; reconcile will not surface a content-fallback
-        // match for assistant rows anyway.
-        id: event.messageId ?? sid,
+        id: event.messageId ?? crypto.randomUUID(),
+        ...(event.messageId ? {} : { isOptimistic: true }),
         role: "assistant" as const,
         content: event.content ?? "",
         timestamp: Date.now(),
@@ -308,15 +292,12 @@ export function attachSurface(
 
   const updated = [...prev];
   if (targetIdx === -1) {
-    const sid = newStableId("assistant-surface");
+    // Surface-only assistant rows have no wire messageId — `ui_surface_*`
+    // events identify by surfaceId, not message. The row gets its server
+    // id when a later message_complete or history fetch lands.
     updated.push({
-      stableId: sid,
-      // Surface-only assistant rows have no wire `messageId` of their
-      // own — `ui_surface_*` events identify by surfaceId, not message.
-      // Mirror stableId into id so reconcile by id stays unambiguous;
-      // the row gets its server id when a later message_complete or
-      // history fetch lands.
-      id: sid,
+      id: crypto.randomUUID(),
+      isOptimistic: true,
       role: "assistant" as const,
       content: "",
       isStreaming: true,
@@ -450,7 +431,6 @@ export function completeSurface(
 export function upsertToolCall(
   prev: DisplayMessage[],
   toolCall: ChatMessageToolCall,
-  stableId?: string,
 ): DisplayMessage[] {
   if (tailIsStreamingAssistant(prev)) {
     const lastIdx = prev.length - 1;
@@ -479,16 +459,14 @@ export function upsertToolCall(
     return updated;
   }
 
-  const sid = stableId ?? newStableId("assistant-tool");
+  // Tool-only assistant rows have no wire messageId — `tool_use_*` events
+  // identify by toolCall.id, not message. The row gets its server id when
+  // a later message_complete or history fetch lands.
   return [
     ...prev,
     {
-      stableId: sid,
-      // tool_use events identify by toolCall.id, not by message id. As
-      // with assistant-surface births, mirror stableId into id so the
-      // row identity is locked from creation; reconcile then matches
-      // strictly by id once the server publishes the row.
-      id: sid,
+      id: crypto.randomUUID(),
+      isOptimistic: true,
       role: "assistant" as const,
       content: "",
       isStreaming: true,
@@ -641,33 +619,33 @@ export function applyToolProgress(
 // Queue updaters
 // ---------------------------------------------------------------------------
 
-/** Set queue position on a message by stable ID. */
+/** Set queue position on a message by id. */
 export function setQueuePosition(
   prev: DisplayMessage[],
-  stableId: string,
+  id: string,
   position: number,
 ): DisplayMessage[] {
   return prev.map((m) =>
-    m.stableId === stableId ? { ...m, queuePosition: position } : m,
+    m.id === id ? { ...m, queuePosition: position } : m,
   );
 }
 
-/** Clear queue status on a message by stable ID. */
+/** Clear queue status on a message by id. */
 export function clearQueueStatus(
   prev: DisplayMessage[],
-  stableId: string,
+  id: string,
 ): DisplayMessage[] {
   return prev.map((m) =>
-    m.stableId === stableId
+    m.id === id
       ? { ...m, queueStatus: undefined, queuePosition: undefined }
       : m,
   );
 }
 
-/** Remove a queued message by stable ID. */
+/** Remove a queued message by id. */
 export function removeQueuedMessage(
   prev: DisplayMessage[],
-  stableId: string,
+  id: string,
 ): DisplayMessage[] {
-  return prev.filter((m) => m.stableId !== stableId);
+  return prev.filter((m) => m.id !== id);
 }

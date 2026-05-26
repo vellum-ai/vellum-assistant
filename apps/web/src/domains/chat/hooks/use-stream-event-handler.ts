@@ -152,8 +152,8 @@ export interface UseStreamEventHandlerParams {
   dispatchSyncChanged: (event: AssistantSyncChangedEvent) => void;
 
   // --- Queue management ---
-  pendingQueuedStableIdsRef: MutableRefObject<string[]>;
-  requestIdToStableIdRef: MutableRefObject<Map<string, string>>;
+  pendingQueuedMessageIdsRef: MutableRefObject<string[]>;
+  requestIdToMessageIdRef: MutableRefObject<Map<string, string>>;
   pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
 }
 
@@ -203,15 +203,15 @@ export function useStreamEventHandler(
     refreshAssistantIdentity,
     invalidateAvatar,
     dispatchSyncChanged,
-    pendingQueuedStableIdsRef,
-    requestIdToStableIdRef,
+    pendingQueuedMessageIdsRef,
+    requestIdToMessageIdRef,
     pendingLocalDeletionsRef,
   } = params;
 
   // --- Refs owned by this hook (only used inside handleStreamEvent) ---
   const lastActivityVersionRef = useRef<Map<string, number>>(new Map());
   const toolCallIdCounterRef = useRef(0);
-  const currentAssistantStableIdRef = useRef<string | undefined>(undefined);
+  const currentAssistantMessageIdRef = useRef<string | undefined>(undefined);
 
   // Stabilize external callbacks that may not be memoized upstream.
   // Storing them in refs keeps handleStreamEvent's identity stable across
@@ -327,12 +327,12 @@ export function useStreamEventHandler(
           refreshAssistantIdentityRef.current(...args),
         invalidateAvatar: (...args) =>
           invalidateAvatarRef.current(...args),
-        pendingQueuedStableIdsRef,
-        requestIdToStableIdRef,
+        pendingQueuedMessageIdsRef,
+        requestIdToMessageIdRef,
         pendingLocalDeletionsRef,
         lastActivityVersionRef,
         toolCallIdCounterRef,
-        currentAssistantStableIdRef,
+        currentAssistantMessageIdRef,
       };
 
       switch (event.type) {
@@ -519,8 +519,8 @@ export function useStreamEventHandler(
       contextWindowUsageByConversationRef,
       setContextWindowUsage,
       setCompactionCircuitOpenUntil,
-      pendingQueuedStableIdsRef,
-      requestIdToStableIdRef,
+      pendingQueuedMessageIdsRef,
+      requestIdToMessageIdRef,
       pendingLocalDeletionsRef,
     ],
   );

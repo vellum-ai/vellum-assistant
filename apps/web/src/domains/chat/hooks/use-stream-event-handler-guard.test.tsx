@@ -65,8 +65,8 @@ function noopRefs() {
     contextWindowUsageByConversationRef: { current: new Map() } as MutableRefObject<
       Map<string, unknown>
     >,
-    pendingQueuedStableIdsRef: { current: [] } as MutableRefObject<string[]>,
-    requestIdToStableIdRef: { current: new Map() } as MutableRefObject<
+    pendingQueuedMessageIdsRef: { current: [] } as MutableRefObject<string[]>,
+    requestIdToMessageIdRef: { current: new Map() } as MutableRefObject<
       Map<string, string>
     >,
     pendingLocalDeletionsRef: { current: new Set() } as MutableRefObject<

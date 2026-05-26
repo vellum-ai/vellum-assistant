@@ -13,13 +13,13 @@ export function handleMessageQueued(
 ): void {
   ctx.turnActions.enqueueMessage();
   const { requestId, position } = event;
-  const stableId = ctx.pendingQueuedStableIdsRef.current.shift();
-  if (!stableId) return;
+  const messageId = ctx.pendingQueuedMessageIdsRef.current.shift();
+  if (!messageId) return;
 
-  ctx.requestIdToStableIdRef.current.set(requestId, stableId);
+  ctx.requestIdToMessageIdRef.current.set(requestId, messageId);
 
-  if (ctx.pendingLocalDeletionsRef.current.has(stableId)) {
-    ctx.pendingLocalDeletionsRef.current.delete(stableId);
+  if (ctx.pendingLocalDeletionsRef.current.has(messageId)) {
+    ctx.pendingLocalDeletionsRef.current.delete(messageId);
     if (
       ctx.assistantIdRef.current &&
       ctx.activeConversationIdRef.current
@@ -32,7 +32,7 @@ export function handleMessageQueued(
     }
   } else {
     ctx.setMessages((prev) =>
-      setQueuePosition(prev, stableId, position + 1),
+      setQueuePosition(prev, messageId, position + 1),
     );
   }
 }
@@ -42,12 +42,12 @@ export function handleMessageDequeued(
   ctx: StreamHandlerContext,
 ): void {
   ctx.turnActions.dequeueMessage();
-  const dequeuedStableId = ctx.requestIdToStableIdRef.current.get(
+  const dequeuedMessageId = ctx.requestIdToMessageIdRef.current.get(
     event.requestId,
   );
-  ctx.requestIdToStableIdRef.current.delete(event.requestId);
-  if (dequeuedStableId) {
-    ctx.setMessages((prev) => clearQueueStatus(prev, dequeuedStableId));
+  ctx.requestIdToMessageIdRef.current.delete(event.requestId);
+  if (dequeuedMessageId) {
+    ctx.setMessages((prev) => clearQueueStatus(prev, dequeuedMessageId));
   }
 }
 
@@ -56,12 +56,12 @@ export function handleMessageQueuedDeleted(
   ctx: StreamHandlerContext,
 ): void {
   ctx.turnActions.deleteQueuedMessage();
-  const deletedStableId = ctx.requestIdToStableIdRef.current.get(
+  const deletedMessageId = ctx.requestIdToMessageIdRef.current.get(
     event.requestId,
   );
-  ctx.requestIdToStableIdRef.current.delete(event.requestId);
-  if (deletedStableId) {
-    ctx.setMessages((prev) => removeQueuedMessage(prev, deletedStableId));
+  ctx.requestIdToMessageIdRef.current.delete(event.requestId);
+  if (deletedMessageId) {
+    ctx.setMessages((prev) => removeQueuedMessage(prev, deletedMessageId));
   }
 }
 

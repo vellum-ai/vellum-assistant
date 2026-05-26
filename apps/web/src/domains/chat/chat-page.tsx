@@ -276,8 +276,8 @@ export function ChatPage() {
   const [onboardingConversationId, setOnboardingConversationId] = useState<string | null>(null);
   const draftConversationIdResolutionRef = useRef(false);
   const previousConversationIdRef = useRef<string | null>(null);
-  const pendingQueuedStableIdsRef = useRef<string[]>([]);
-  const requestIdToStableIdRef = useRef<Map<string, string>>(new Map());
+  const pendingQueuedMessageIdsRef = useRef<string[]>([]);
+  const requestIdToMessageIdRef = useRef<Map<string, string>>(new Map());
   const pendingLocalDeletionsRef = useRef<Set<string>>(new Set());
   const confirmationToolCallMapRef = useRef<Map<string, string>>(new Map());
   const streamingMessageIdsRef = useRef<Set<string>>(new Set());
@@ -420,8 +420,8 @@ export function ChatPage() {
     contextWindowUsageByConversationRef,
     dismissedSurfaceIdsRef,
     streamingMessageIdsRef,
-    pendingQueuedStableIdsRef,
-    requestIdToStableIdRef,
+    pendingQueuedMessageIdsRef,
+    requestIdToMessageIdRef,
     pendingLocalDeletionsRef,
     confirmationToolCallMapRef,
     lastSuggestionMsgIdRef,
@@ -585,8 +585,8 @@ export function ChatPage() {
     refreshAssistantIdentity,
     invalidateAvatar,
     dispatchSyncChanged,
-    pendingQueuedStableIdsRef,
-    requestIdToStableIdRef,
+    pendingQueuedMessageIdsRef,
+    requestIdToMessageIdRef,
     pendingLocalDeletionsRef,
   });
 
@@ -617,8 +617,8 @@ export function ChatPage() {
     onboardingDraftConversationIdRef,
     draftConversationIdResolutionRef,
     previousConversationIdRef,
-    pendingQueuedStableIdsRef,
-    requestIdToStableIdRef,
+    pendingQueuedMessageIdsRef,
+    requestIdToMessageIdRef,
     pendingLocalDeletionsRef,
     confirmationToolCallMapRef,
     setMessages,
@@ -1565,8 +1565,8 @@ export function ChatPage() {
       contextWindowUsageByConversationRef,
       streamRef,
       streamEpochRef,
-      pendingQueuedStableIdsRef,
-      requestIdToStableIdRef,
+      pendingQueuedMessageIdsRef,
+      requestIdToMessageIdRef,
       pendingLocalDeletionsRef,
       confirmationToolCallMapRef,
       reconcileAfterNextStreamOpenRef,

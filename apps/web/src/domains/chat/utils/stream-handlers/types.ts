@@ -85,8 +85,8 @@ export interface StreamHandlerContext {
   invalidateAvatar: () => void;
 
   // --- Queue management ---
-  pendingQueuedStableIdsRef: MutableRefObject<string[]>;
-  requestIdToStableIdRef: MutableRefObject<Map<string, string>>;
+  pendingQueuedMessageIdsRef: MutableRefObject<string[]>;
+  requestIdToMessageIdRef: MutableRefObject<Map<string, string>>;
   pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
 
   // --- Hook-owned refs ---
@@ -94,9 +94,9 @@ export interface StreamHandlerContext {
   toolCallIdCounterRef: MutableRefObject<number>;
 
   // --- Synchronous message tracking ---
-  /** StableId of the current assistant message being streamed.
-   *  Updated synchronously at dispatch time (before setMessages) so
+  /** Id of the current assistant message being streamed. Updated
+   *  synchronously at dispatch time (before setMessages) so
    *  subagent_spawned can read the correct parent without waiting for
    *  React's batched render. Mirrors macOS `currentAssistantMessageId`. */
-  currentAssistantStableIdRef: MutableRefObject<string | undefined>;
+  currentAssistantMessageIdRef: MutableRefObject<string | undefined>;
 }
