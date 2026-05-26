@@ -4,25 +4,24 @@ import WebKit
 
 /// Custom `CAPBridgeViewController` subclass used for two things:
 ///
-/// 1. Register `NativeAuthPlugin` as a local plugin instance at bridge init
-///    time. Capacitor auto-registers plugins that live in external packages
-///    via their `Package.swift` manifest; `NativeAuthPlugin` lives inside
-///    the App target (no SPM module for ~100 lines of Swift) so the bridge
-///    won't discover it automatically — we hand it over here.
+/// 1. Register `NativeAuthPlugin` and `NativeBiometricPlugin` as local
+///    plugin instances at bridge init time. Capacitor auto-registers
+///    plugins that live in external packages via their `Package.swift`
+///    manifest; these plugins live inside the App target (no SPM module
+///    for ~100 lines of Swift each) so the bridge won't discover them
+///    automatically — we hand them over here.
 ///
-/// 2. Force `viewport-fit=cover` into the viewport meta tag at document
-///    start, before WebKit parses the page's own `<meta>`. This is
-///    required to make `env(safe-area-inset-*)` resolve to non-zero values
-///    inside the WKWebView so the page's safe-area padding
-///    (`<Layout>`, `<AssistantShell>`, the mobile drawer, etc.) actually
-///    compensates for the notch and home indicator. The web side ships a
-///    synchronous script that does the same thing, but it runs *after*
-///    WebKit has already committed to `viewport-fit=auto` from the initial
-///    meta tag, and dynamic viewport-meta updates do not reliably trigger
-///    a safe-area-inset recomputation. Injecting at
-///    `.atDocumentStart` via `WKUserScript` runs before the page's own
-///    meta is parsed, so the cover behaviour is locked in from first
-///    layout.
+/// 2. Inject a `WKUserScript` at `.atDocumentStart` that pins focusable
+///    fields to a minimum 16px font-size, preventing the iOS auto-zoom
+///    behaviour that otherwise gets stuck after the input loses focus.
+///
+/// Safe-area handling lives on the web side: `apps/web/index.html` ships
+/// `viewport-fit=cover` in its viewport meta tag, and `initSafeAreaBridge()`
+/// in `runtime/native-safe-area.ts` reads native insets via
+/// `capacitor-plugin-safe-area` and writes them to `--safe-area-inset-*`
+/// CSS custom properties. `env(safe-area-inset-*)` alone returns 0 in
+/// Capacitor's WKWebView (WebKit bug #191872 + Capacitor #2149), so the
+/// bridge is what actually compensates for the notch and home indicator.
 ///
 /// `Main.storyboard`'s single scene uses this class instead of the stock
 /// `CAPBridgeViewController`.
@@ -30,56 +29,7 @@ class MyViewController: CAPBridgeViewController {
     override open func capacitorDidLoad() {
         bridge?.registerPluginInstance(NativeAuthPlugin())
         bridge?.registerPluginInstance(NativeBiometricPlugin())
-        installViewportFitCoverUserScript()
         installInputZoomPreventionUserScript()
-    }
-
-    /// Inject a `WKUserScript` at `.atDocumentStart` that sets
-    /// `viewport-fit=cover` on the viewport meta tag before WebKit parses
-    /// the page's own `<meta>`. The web side also ships a synchronous
-    /// `<script>` that does the same thing, but it runs *after* WebKit
-    /// has already committed to the initial viewport — doing it here
-    /// ensures cover is locked in from first layout.
-    ///
-    /// Note: this alone does not make `env(safe-area-inset-*)` return
-    /// non-zero values inside Capacitor's WKWebView (WebKit bug #191872,
-    /// plus the `contentInset: "never"` interaction documented in
-    /// Capacitor issue #2149). The web side bridges this gap via
-    /// `initSafeAreaBridge()` (`runtime/native-safe-area.ts`), which
-    /// calls `capacitor-plugin-safe-area` to read insets natively and
-    /// injects them as `--safe-area-inset-*` CSS custom properties.
-    /// This user script is still useful because `viewport-fit=cover` is
-    /// what lets the WKWebView extend its surface under the notch and
-    /// home indicator in the first place.
-    private func installViewportFitCoverUserScript() {
-        guard let contentController = webView?.configuration.userContentController else { return }
-        let source = """
-        (function() {
-          var ensureViewport = function() {
-            if (!document.head) return;
-            var meta = document.querySelector('meta[name=viewport]');
-            var content = 'width=device-width, initial-scale=1, viewport-fit=cover';
-            if (meta) {
-              meta.setAttribute('content', content);
-            } else {
-              meta = document.createElement('meta');
-              meta.name = 'viewport';
-              meta.content = content;
-              document.head.appendChild(meta);
-            }
-          };
-          ensureViewport();
-          if (document.readyState === 'loading') {
-            document.addEventListener('readystatechange', ensureViewport, { once: true });
-          }
-        })();
-        """
-        let script = WKUserScript(
-            source: source,
-            injectionTime: .atDocumentStart,
-            forMainFrameOnly: true
-        )
-        contentController.addUserScript(script)
     }
 
     /// Inject a `WKUserScript` at `.atDocumentStart` that forces all
