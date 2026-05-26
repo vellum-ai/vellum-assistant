@@ -134,8 +134,6 @@ export type SeedInferenceProfilesOptions = {
    */
   preserveProfileNames?: Iterable<string>;
   preserveActiveProfile?: boolean;
-  /** True when a hatch overlay was consumed this startup. */
-  isHatch?: boolean;
   /** DB handle for creating user provider connections at hatch time. */
   db?: DrizzleDb;
 };
@@ -143,7 +141,8 @@ export type SeedInferenceProfilesOptions = {
 /**
  * Seed inference profiles into the workspace config.
  *
- * Runs on every daemon startup. Two responsibilities:
+ * Runs on every assistant startup AND after a provider API key is stored via
+ * `POST /v1/secrets` (the BYOK onboarding trigger). Two responsibilities:
  *
  * 1. **Managed profiles** (`balanced`, `quality-optimized`, `cost-optimized`):
  *    overwritten on every boot so Vellum can push model/config updates to
@@ -151,10 +150,17 @@ export type SeedInferenceProfilesOptions = {
  *    Platform overlays (`preserveProfileNames`) take precedence.
  *
  * 2. **User profiles** (`custom-balanced`, `custom-quality-optimized`,
- *    `custom-cost-optimized`): materialized once at hatch time for
+ *    `custom-cost-optimized`): materialized at BYOK onboarding for
  *    off-platform installations. Each points at a personal provider
- *    connection backed by the user's API key in CES. Subsequent boots
- *    leave these untouched — the user owns them.
+ *    connection backed by the user's API key in CES. Subsequent boots leave
+ *    these untouched — the user owns them.
+ *
+ * BYOK onboarding is detected state-wise: off-platform AND `llm.default.provider`
+ * is set AND the personal connection for that provider does not exist yet. The
+ * detection is naturally idempotent — once the personal connection is created,
+ * subsequent calls skip the onboarding steps. Replaces the old `isHatch`
+ * (overlay-consumed) signal which silently went false after the Docker overlay
+ * was deleted in PR #32025.
  */
 export function seedInferenceProfiles(
   options: SeedInferenceProfilesOptions = {},
@@ -180,11 +186,25 @@ export function seedInferenceProfiles(
   // from the personal "custom-*" profiles that share base labels. Managed
   // profile + connection status is initially "disabled" for true BYOK hatches
   // so the picker doesn't offer an unusable platform-auth option on day one.
-  // When the hatch overlay explicitly selects a managed profile, the matching
-  // managed connection stays active so the first post-onboarding message can
-  // use the user's chosen managed route. Post-hatch user toggles survive every
-  // subsequent boot.
+  // When onboarding explicitly selects a managed profile (via preserveActiveProfile
+  // pointing at a managed connection), the matching managed connection stays
+  // active so the first post-onboarding message can use the user's chosen
+  // managed route. Post-hatch user toggles survive every subsequent boot.
   const isByokMode = !isPlatform;
+
+  // First-time BYOK onboarding signal. State-derived: off-platform, the user
+  // selected a key-only provider, and the personal connection for that provider
+  // hasn't been created yet. Once we run through the onboarding steps below,
+  // the personal connection exists and `isByokOnboarding` flips to false on
+  // every subsequent call — that's the idempotency story for repeat boots.
+  const hatchProvider = readString(readObject(llm.default)?.provider);
+  const isByokOnboarding =
+    isByokMode &&
+    options.db !== undefined &&
+    hatchProvider !== undefined &&
+    hatchProvider !== "ollama" &&
+    !PROVIDERS_REQUIRING_BASE_URL_AND_MODELS.has(hatchProvider) &&
+    !getConnection(options.db, `${hatchProvider}-personal`);
 
   // 1. Managed profiles. Off-platform: overwrite on every boot so Vellum can
   //    push model/config updates in new releases. On-platform: insert only if
@@ -213,13 +233,13 @@ export function seedInferenceProfiles(
   //        rewritten to the suffixed form. Any other previous label value
   //        (user-set custom string, explicit null, already-suffixed) is
   //        preserved as-is.
-  //      • status: "disabled" on fresh materialization at BYOK hatch only —
-  //        gated on (isHatch && !previous) and skipped for any managed
-  //        connection explicitly selected by the hatch overlay. Post-hatch
-  //        boots and existing installs are never auto-disabled. A user
-  //        re-enable persists across boots via the key-presence preservation
-  //        below.
-  const hatchSelectedManagedConnection = getHatchSelectedManagedConnection(
+  //      • status: "disabled" on fresh materialization at BYOK onboarding only —
+  //        gated on (isByokOnboarding && !previous) and skipped for any managed
+  //        connection explicitly preserved (preserveActiveProfile pointing at
+  //        a managed connection). Post-onboarding boots and existing installs
+  //        are never auto-disabled. A user re-enable persists across boots via
+  //        the key-presence preservation below.
+  const preservedManagedConnection = getPreservedManagedConnection(
     llm,
     profiles,
     options,
@@ -239,10 +259,9 @@ export function seedInferenceProfiles(
       template.connectionName,
     ) as Record<string, unknown>;
     if (
-      isByokMode &&
-      options.isHatch &&
+      isByokOnboarding &&
       !previous &&
-      template.connectionName !== hatchSelectedManagedConnection
+      template.connectionName !== preservedManagedConnection
     ) {
       next.status = "disabled";
     }
@@ -263,56 +282,53 @@ export function seedInferenceProfiles(
     profiles[name] = next as ProfileEntry;
   }
 
-  // 2. User profiles — only at hatch time for off-platform installations.
+  // 2. User profiles — only at BYOK onboarding for off-platform installations.
+  // Gated on `isByokOnboarding`, which is true exactly when the personal
+  // connection for the selected provider doesn't exist yet. Self-disables on
+  // the second call: once we create the personal connection below, the next
+  // invocation sees it and skips this entire block.
   let userConnectionName: string | undefined;
-  if (options.isHatch && !isPlatform) {
-    // BYOK hatch: disable canonical managed connections so the picker doesn't
-    // surface unusable platform-auth options on day one. If the hatch overlay
-    // selected a managed profile, leave that connection active; the user has
-    // already chosen managed inference. Runs only here, only at hatch —
+  if (isByokOnboarding) {
+    // hatchProvider is guaranteed non-undefined by `isByokOnboarding`'s gate;
+    // narrow it for the type checker.
+    const provider = hatchProvider as NonNullable<ProfileEntry["provider"]>;
+
+    // Disable canonical managed connections so the picker doesn't surface
+    // unusable platform-auth options on day one. If onboarding explicitly
+    // preserved a managed profile, leave that connection active.
     // `seedCanonicalConnections` leaves `status` alone on subsequent boots so
-    // a post-hatch user re-enable persists.
+    // a post-onboarding user re-enable persists.
     if (options.db) {
       disableManagedConnectionsForByokHatch(options.db, {
-        excludeConnection: hatchSelectedManagedConnection,
+        excludeConnection: preservedManagedConnection,
       });
     }
 
-    const hatchProvider = readString(readObject(llm.default)?.provider);
-    if (
-      hatchProvider &&
-      hatchProvider !== "ollama" &&
-      !PROVIDERS_REQUIRING_BASE_URL_AND_MODELS.has(hatchProvider)
-    ) {
-      userConnectionName = `${hatchProvider}-personal`;
+    userConnectionName = `${provider}-personal`;
 
-      if (options.db) {
-        if (!getConnection(options.db, userConnectionName)) {
-          const credName = credentialKey(hatchProvider, "api_key");
-          const result = createConnection(options.db, {
-            name: userConnectionName,
-            provider: hatchProvider,
-            auth: { type: "api_key", credential: credName },
-            label: personalConnectionLabel(hatchProvider),
-          });
-          if (!result.ok) {
-            log.warn(
-              { provider: hatchProvider, error: result.error },
-              "Failed to create personal connection during hatch seeding",
-            );
-          }
-        }
-      }
-
-      const provider = hatchProvider as NonNullable<ProfileEntry["provider"]>;
-      for (const [name, template] of Object.entries(USER_PROFILE_TEMPLATES)) {
-        if (preservedProfileNames.has(name)) continue;
-        profiles[name] = materializeProfile(
-          template,
-          provider,
-          userConnectionName,
+    if (options.db) {
+      const credName = credentialKey(provider, "api_key");
+      const result = createConnection(options.db, {
+        name: userConnectionName,
+        provider,
+        auth: { type: "api_key", credential: credName },
+        label: personalConnectionLabel(provider),
+      });
+      if (!result.ok) {
+        log.warn(
+          { provider, error: result.error },
+          "Failed to create personal connection during BYOK onboarding",
         );
       }
+    }
+
+    for (const [name, template] of Object.entries(USER_PROFILE_TEMPLATES)) {
+      if (preservedProfileNames.has(name)) continue;
+      profiles[name] = materializeProfile(
+        template,
+        provider,
+        userConnectionName,
+      );
     }
   }
 
@@ -327,8 +343,8 @@ export function seedInferenceProfiles(
     options.preserveActiveProfile === true && requestedActiveExists;
 
   if (!shouldPreserveActiveProfile) {
-    if (options.isHatch) {
-      // Hatch = fresh setup. Pick the right default based on platform mode.
+    if (isByokOnboarding) {
+      // BYOK onboarding: default to the personal profile.
       llm.activeProfile = userConnectionName ? "custom-balanced" : "balanced";
     } else if (!requestedActiveExists) {
       llm.activeProfile = "balanced";
@@ -395,12 +411,12 @@ function readString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
-function getHatchSelectedManagedConnection(
+function getPreservedManagedConnection(
   llm: Record<string, unknown>,
   profiles: Record<string, Record<string, unknown>>,
   options: SeedInferenceProfilesOptions,
 ): string | undefined {
-  if (!options.isHatch || options.preserveActiveProfile !== true) {
+  if (options.preserveActiveProfile !== true) {
     return undefined;
   }
 

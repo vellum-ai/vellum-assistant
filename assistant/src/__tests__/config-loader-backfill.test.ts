@@ -97,7 +97,6 @@ function mergeDefaultConfigAndSeedInferenceProfiles(db?: DrizzleDb): void {
   seedInferenceProfiles({
     preserveProfileNames: defaultConfigMerge.providedLlmProfileNames,
     preserveActiveProfile: defaultConfigMerge.providedLlmActiveProfile,
-    isHatch: defaultConfigMerge.hadOverlay,
     db,
   });
 }
