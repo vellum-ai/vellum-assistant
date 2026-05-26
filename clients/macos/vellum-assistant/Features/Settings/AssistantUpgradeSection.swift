@@ -332,6 +332,7 @@ struct AssistantUpgradeSection: View {
                             isCheckingLocal = false
                         }
                     }
+                    .frame(minWidth: 160)
                 } else if topology != .remote {
                     VButton(
                         label: isLoadingReleases ? "Checking..." : "Check for Updates",
@@ -350,6 +351,7 @@ struct AssistantUpgradeSection: View {
                             }
                         }
                     }
+                    .frame(minWidth: 160)
                     .disabled(isLoadingReleases || isUpgrading)
 
                     VButton(
@@ -361,16 +363,16 @@ struct AssistantUpgradeSection: View {
                         showingUpgradeConfirmation = true
                     }
                     .disabled(!upgradeAvailable || isUpgrading || pickerReleases.isEmpty)
-                }
-            }
 
-            if isLoadingReleases || isUpgrading {
-                HStack(spacing: VSpacing.sm) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text(isUpgrading ? (isRollback ? "Rolling back assistant..." : "Upgrading assistant...") : "Checking for updates...")
-                        .font(VFont.labelDefault)
-                        .foregroundStyle(VColor.contentTertiary)
+                    if isUpgrading {
+                        HStack(spacing: VSpacing.sm) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text(isRollback ? "Rolling back assistant..." : "Upgrading assistant...")
+                                .font(VFont.labelDefault)
+                                .foregroundStyle(VColor.contentTertiary)
+                        }
+                    }
                 }
             }
 
