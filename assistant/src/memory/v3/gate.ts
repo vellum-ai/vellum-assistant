@@ -126,6 +126,12 @@ function buildGateTool(candidateSlugs: readonly string[]): ToolDefinition {
           description:
             "When decision='more', the generated follow-up questions seeding the next pass.",
         },
+        reasoning: {
+          type: "string",
+          description:
+            "One short sentence: why this ready/more verdict, and which " +
+            "candidates were kept or dropped.",
+        },
       },
       required: ["decision"],
     },
@@ -136,6 +142,7 @@ const GateToolResultSchema = z.object({
   decision: z.enum(["ready", "more"]),
   selected_slugs: z.array(z.string()).optional(),
   questions: z.array(z.string()).optional(),
+  reasoning: z.string().optional(),
 });
 
 /**

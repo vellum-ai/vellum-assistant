@@ -469,3 +469,54 @@ describe("runGate — capture", () => {
     expect(captured).toHaveLength(0);
   });
 });
+
+describe("runGate — reasoning field", () => {
+  test("exposes an optional reasoning property in the forced tool schema", async () => {
+    const calls: ProviderCall[] = [];
+    const provider = makeProvider(
+      gateToolResponse({ decision: "ready", selected_slugs: ["a"] }),
+      calls,
+    );
+
+    await runGate({
+      input: makeInput(),
+      candidates: new Set(["a", "b"]),
+      sticky: new Set(),
+      passNumber: 1,
+      provider,
+    });
+
+    const schema = calls[0].tools![0].input_schema as {
+      properties: Record<string, { type?: string }>;
+      required?: string[];
+    };
+    expect(schema.properties.reasoning?.type).toBe("string");
+    // Reasoning is purely additive — the model may omit it.
+    expect(schema.required ?? []).not.toContain("reasoning");
+  });
+
+  test("accepts model-supplied reasoning without altering the decision", async () => {
+    const calls: ProviderCall[] = [];
+    const provider = makeProvider(
+      gateToolResponse({
+        decision: "ready",
+        selected_slugs: ["b", "a"],
+        reasoning: "kept the two query-relevant pages, dropped the rest",
+      }),
+      calls,
+    );
+
+    const result = await runGate({
+      input: makeInput(),
+      candidates: new Set(["a", "b", "c"]),
+      sticky: new Set(["c"]),
+      passNumber: 1,
+      provider,
+    });
+
+    // Reasoning is ignored by control flow: decision + ordered selection
+    // (model order, omitted sticky appended) are unchanged.
+    expect(result.decision).toEqual({ decision: "ready" });
+    expect(result.selectedSlugs).toEqual(["b", "a", "c"]);
+  });
+});
