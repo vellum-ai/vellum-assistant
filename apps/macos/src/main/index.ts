@@ -50,6 +50,7 @@ const createWindow = (): void => {
       webSecurity: true,
       allowRunningInsecureContent: false,
       experimentalFeatures: false,
+      devTools: isDev,
     },
   });
 
@@ -61,9 +62,33 @@ const createWindow = (): void => {
     mainWindow = null;
   });
 
-  const url = isDev ? DEV_SERVER_URL : `${APP_PROTOCOL}://${APP_HOST}/index.html`;
-  mainWindow.loadURL(url).catch((err: unknown) => {
-    console.error(`[window] loadURL failed for ${url}:`, err);
+  // Same-origin allowlist for top-level navigation. Scoped to the main
+  // window — popups (OAuth flows etc.) need to redirect between provider
+  // domains and our callback origin, so they're left unrestricted.
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    let target: URL;
+    try {
+      target = new URL(url);
+    } catch {
+      event.preventDefault();
+      return;
+    }
+    const allowed =
+      (isDev && target.origin === DEV_SERVER_ORIGIN) ||
+      (!isDev && target.protocol === `${APP_PROTOCOL}:` && target.host === APP_HOST);
+    if (allowed) return;
+    event.preventDefault();
+    // External http(s) top-level navigations (e.g. `window.location.href =
+    // "https://billing.stripe.com/..."`) route to the system browser instead
+    // of silently failing. Other schemes stay blocked.
+    if (target.protocol === "https:" || target.protocol === "http:") {
+      void shell.openExternal(url);
+    }
+  });
+
+  const loadTarget = isDev ? DEV_SERVER_URL : `${APP_PROTOCOL}://${APP_HOST}/index.html`;
+  mainWindow.loadURL(loadTarget).catch((err: unknown) => {
+    console.error(`[window] loadURL failed for ${loadTarget}:`, err);
   });
 };
 
@@ -280,6 +305,7 @@ app.on("web-contents-created", (_event, contents) => {
             webSecurity: true,
             allowRunningInsecureContent: false,
             experimentalFeatures: false,
+            devTools: isDev,
           },
         },
       };
@@ -288,31 +314,6 @@ app.on("web-contents-created", (_event, contents) => {
     // Plain target=_blank link clicks → system browser.
     void shell.openExternal(url);
     return { action: "deny" };
-  });
-
-  contents.on("will-navigate", (event, url) => {
-    let target: URL;
-    try {
-      target = new URL(url);
-    } catch {
-      event.preventDefault();
-      return;
-    }
-    // Compare by parsed origin / protocol+host rather than string prefix:
-    // `url.startsWith("http://localhost:5173")` also matches
-    // `http://localhost:5173.attacker.com/...`.
-    const allowed =
-      (isDev && target.origin === DEV_SERVER_ORIGIN) ||
-      (!isDev && target.protocol === `${APP_PROTOCOL}:` && target.host === APP_HOST);
-    if (allowed) return;
-
-    event.preventDefault();
-    // External http(s) top-level navigations (e.g. `window.location.href =
-    // "https://billing.stripe.com/..."`) route to the system browser instead
-    // of silently failing. Other schemes stay blocked.
-    if (target.protocol === "https:" || target.protocol === "http:") {
-      void shell.openExternal(url);
-    }
   });
 });
 
