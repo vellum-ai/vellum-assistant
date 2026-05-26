@@ -108,6 +108,7 @@ mock.module("../../runtime/assistant-event-hub.js", () => ({
     publish: publishSpy,
     subscribe: subscribeSpy,
   },
+  broadcastMessage: async () => {},
 }));
 
 mock.module("../../runtime/assistant-event.js", () => ({

@@ -26,6 +26,7 @@ mock.module("../../runtime/assistant-event-hub.js", () => ({
   assistantEventHub: {
     listClientsByCapability: () => [],
   },
+  broadcastMessage: async () => {},
 }));
 
 const { hostFileReadTool } = await import("./read.js");

@@ -1,4 +1,10 @@
-import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, mock, test } from "bun:test";
@@ -18,12 +24,28 @@ mock.module("../../daemon/host-transfer-proxy.js", () => ({
     get instance() {
       return {
         isAvailable: () => mockProxyAvailable,
-        requestToSandbox: (args: { sourcePath: string; destPath: string; overwrite?: boolean; conversationId: string }) => {
-          toSandboxCalls.push({ sourcePath: args.sourcePath, destPath: args.destPath });
+        requestToSandbox: (args: {
+          sourcePath: string;
+          destPath: string;
+          overwrite?: boolean;
+          conversationId: string;
+        }) => {
+          toSandboxCalls.push({
+            sourcePath: args.sourcePath,
+            destPath: args.destPath,
+          });
           return Promise.resolve({ content: "ok", isError: false });
         },
-        requestToHost: (args: { sourcePath: string; destPath: string; overwrite: boolean; conversationId: string }) => {
-          toHostCalls.push({ sourcePath: args.sourcePath, destPath: args.destPath });
+        requestToHost: (args: {
+          sourcePath: string;
+          destPath: string;
+          overwrite: boolean;
+          conversationId: string;
+        }) => {
+          toHostCalls.push({
+            sourcePath: args.sourcePath,
+            destPath: args.destPath,
+          });
           return Promise.resolve({ content: "ok", isError: false });
         },
       };
@@ -38,6 +60,7 @@ mock.module("../../runtime/assistant-event-hub.js", () => ({
   assistantEventHub: {
     listClientsByCapability: () => [],
   },
+  broadcastMessage: async () => {},
 }));
 
 const { hostFileTransferTool } = await import("./transfer.js");
@@ -244,7 +267,9 @@ describe("host_file_transfer managed mode", () => {
     );
 
     expect(toSandboxCalls.length).toBe(1);
-    expect(toSandboxCalls[0].destPath).toBe(join(workingDir, "relative", "file.txt"));
+    expect(toSandboxCalls[0].destPath).toBe(
+      join(workingDir, "relative", "file.txt"),
+    );
   });
 
   test("to_host relative source is pre-resolved before proxy call", async () => {
