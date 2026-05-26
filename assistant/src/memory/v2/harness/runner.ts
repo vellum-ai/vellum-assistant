@@ -74,6 +74,12 @@ export async function runComparison(
     }
     turnsScored++;
 
+    // Thread the abort signal into the reconstructed input so retrievers that
+    // wrap LLM calls (e.g. the router retriever forwarding to `runRouter`) abort
+    // the in-flight per-turn call on caller disconnect — the loop gating below
+    // only stops scheduling new work, it can't cancel the current retrieval.
+    if (signal) reconstructed.input.signal = signal;
+
     const byRetriever: Record<string, TurnEval> = {};
     for (const retriever of retrievers) {
       if (signal?.aborted) break;

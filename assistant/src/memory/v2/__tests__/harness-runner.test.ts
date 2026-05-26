@@ -92,6 +92,32 @@ describe("harness/runner runComparison", () => {
     expect(loop?.aggregate.meanRecallAtK[5]).toBeCloseTo(0.75);
   });
 
+  test("threads the abort signal into each retriever's input", async () => {
+    const controller = new AbortController();
+    const seenSignals: (AbortSignal | undefined)[] = [];
+    const capturingRetriever: Retriever = {
+      name: "router",
+      retrieve: async (input): Promise<RetrievalOutput> => {
+        seenSignals.push(input.signal);
+        return { selectedSlugs: [], sourceBySlug: new Map() };
+      },
+    };
+
+    // Fresh reconstructed input per turn so we exercise the per-turn assignment.
+    await runComparison({
+      retrievers: [capturingRetriever],
+      oracleTurns: [oracleTurn("c1", 1, ["a"])],
+      reconstruct: async () => ({
+        ...STUB_RECONSTRUCTED,
+        input: { ...STUB_INPUT },
+      }),
+      ks: [5],
+      signal: controller.signal,
+    });
+
+    expect(seenSignals).toEqual([controller.signal]);
+  });
+
   test("skips turns whose reconstruction returns null", async () => {
     const report = await runComparison({
       retrievers: [fixedRetriever("router", ["a"])],
