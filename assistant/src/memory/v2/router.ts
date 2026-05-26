@@ -59,7 +59,6 @@ import {
   splitTier2,
 } from "./page-index.js";
 import { resolveRouterPrompt } from "./prompts/router.js";
-import type { EverInjectedEntry } from "./types.js";
 
 const log = getLogger("memory-v2-router");
 
@@ -184,8 +183,6 @@ interface RunRouterParams {
   recentTurnPairs: readonly RouterTurnPair[];
   /** Verbatim contents to inject into `<now>...</now>` on this turn. */
   nowText: string;
-  /** Slugs already injected on prior turns (used to seed `<already_injected_ids>`). */
-  priorEverInjected: readonly EverInjectedEntry[];
   config: AssistantConfig;
   signal?: AbortSignal;
   /**
@@ -245,7 +242,7 @@ interface RunRouterParams {
 export async function runRouter(
   params: RunRouterParams,
 ): Promise<RouterResult> {
-  const { workspaceDir, priorEverInjected, config } = params;
+  const { workspaceDir, config } = params;
 
   const pageIndex = await getPageIndex(workspaceDir);
   if (pageIndex.entries.length === 0) {
@@ -306,7 +303,6 @@ export async function runRouter(
       runRouterBatch({
         ...params,
         batchIndex: index,
-        priorEverInjected,
         provider,
       }),
     ),
@@ -373,10 +369,10 @@ interface RunRouterBatchParams extends RunRouterParams {
 }
 
 /**
- * Route one batch of the page index. Uses batch-local IDs everywhere
- * (including `<already_injected_ids>`, which is filtered to slugs present
- * in this batch). Provider is passed in by the orchestrator so we don't
- * re-resolve it N times for an N-batch turn.
+ * Route one batch of the page index. Uses batch-local IDs throughout — the
+ * model in batch B can only reference page IDs present in its own prompt.
+ * Provider is passed in by the orchestrator so we don't re-resolve it N times
+ * for an N-batch turn.
  */
 async function runRouterBatch(
   params: RunRouterBatchParams,
@@ -385,7 +381,6 @@ async function runRouterBatch(
     workspaceDir,
     recentTurnPairs,
     nowText,
-    priorEverInjected,
     config,
     signal,
     batchIndex,
@@ -402,15 +397,6 @@ async function runRouterBatch(
     },
     params.routerPromptOverride ?? null,
   );
-
-  // Filter prior-injected to slugs present in THIS batch and map to
-  // batch-local IDs. The model in batch B can't reference global IDs that
-  // aren't in its prompt, so listing them would just be noise.
-  const priorIds: number[] = [];
-  for (const entry of priorEverInjected) {
-    const local = batchIndex.bySlug.get(entry.slug);
-    if (local) priorIds.push(local.id);
-  }
 
   // Trim the pairs down to the configured `<last_turn>` content budget,
   // newest-message-first so the just-arrived user turn keeps full claim
@@ -441,9 +427,7 @@ async function runRouterBatch(
       cachedTextBlock(`<now>\n${nowText}\n</now>`),
       {
         type: "text",
-        text:
-          `<already_injected_ids>\n${priorIds.join(", ")}\n</already_injected_ids>\n\n` +
-          lastTurnBlock,
+        text: lastTurnBlock,
       },
     ],
   };

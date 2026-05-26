@@ -43,7 +43,7 @@ import { hybridQueryConceptPages } from "./qdrant.js";
 import { rerankCandidates } from "./reranker.js";
 import { simBatch } from "./sim.js";
 import { generateBm25QueryEmbedding } from "./sparse-bm25.js";
-import type { ActivationState, EverInjectedEntry } from "./types.js";
+import type { ActivationState } from "./types.js";
 
 /**
  * Sentinel passed to Qdrant when `config.memory.v2.ann_candidate_limit` is
@@ -506,33 +506,27 @@ function bfsPredecessorDistances(
 interface SelectInjectionsParams {
   /** Final activation map after spread. */
   A: ReadonlyMap<string, number>;
-  /** Slugs already attached to a prior user message (with their turn). */
-  priorEverInjected: readonly EverInjectedEntry[];
   /** Cap on the per-turn injection slate, e.g. `config.memory.v2.top_k`. */
   topK: number;
 }
 
 interface SelectInjectionsResult {
-  /** Top-K slugs by activation (descending), used for the cached top-now view. */
+  /** Top-K slugs by activation (descending) — the set to render this turn. */
   topNow: string[];
-  /**
-   * Slugs in `topNow` that have not yet been attached to any prior user
-   * message — the new injections to render on the current user message.
-   */
-  toInject: string[];
 }
 
 /**
  * Pick the top-K slugs by activation (descending; stable on ties via slug
- * lexicographic order) and subtract slugs already in `priorEverInjected` to
- * yield the per-turn injection delta. Empty activation map → empty results.
+ * lexicographic order). This is the full set rendered each turn — history is
+ * stripped every turn, so there is no prior attachment to subtract against.
+ * Empty activation map → empty result.
  */
 export function selectInjections(
   params: SelectInjectionsParams,
 ): SelectInjectionsResult {
-  const { A, priorEverInjected, topK } = params;
+  const { A, topK } = params;
   if (A.size === 0 || topK <= 0) {
-    return { topNow: [], toInject: [] };
+    return { topNow: [] };
   }
 
   const ranked = [...A.entries()].sort(([slugA, valA], [slugB, valB]) => {
@@ -541,8 +535,5 @@ export function selectInjections(
   });
 
   const topNow = ranked.slice(0, topK).map(([slug]) => slug);
-  const everSet = new Set(priorEverInjected.map((entry) => entry.slug));
-  const toInject = topNow.filter((slug) => !everSet.has(slug));
-
-  return { topNow, toInject };
+  return { topNow };
 }

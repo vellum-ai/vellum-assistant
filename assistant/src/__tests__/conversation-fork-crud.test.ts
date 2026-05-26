@@ -807,10 +807,6 @@ describe("forkConversation", () => {
           "concepts/q3-launch-plan": 0.71,
           "concepts/marketing-ops": 0.34,
         }),
-        everInjectedJson: JSON.stringify([
-          { slug: "concepts/q3-launch-plan", turn: 1 },
-          { slug: "concepts/marketing-ops", turn: 1 },
-        ]),
         currentTurn: 2,
         updatedAt: 1_700_000_000_000,
       })
@@ -825,10 +821,6 @@ describe("forkConversation", () => {
         "concepts/q3-launch-plan": 0.71,
         "concepts/marketing-ops": 0.34,
       },
-      everInjected: [
-        { slug: "concepts/q3-launch-plan", turn: 1 },
-        { slug: "concepts/marketing-ops", turn: 1 },
-      ],
       currentTurn: 2,
       updatedAt: 1_700_000_000_000,
     });
@@ -908,7 +900,6 @@ describe("forkConversation", () => {
         conversationId: source.id,
         messageId: lastMessage.id,
         stateJson: JSON.stringify({ "concepts/foo": 0.5 }),
-        everInjectedJson: JSON.stringify([{ slug: "concepts/foo", turn: 2 }]),
         currentTurn: 2,
         updatedAt: 1_700_000_000_000,
       })
@@ -1001,7 +992,6 @@ describe("forkConversation", () => {
         conversationId: source.id,
         messageId: lastMessage.id,
         stateJson: JSON.stringify({ "concepts/foo": 0.9 }),
-        everInjectedJson: JSON.stringify([{ slug: "concepts/foo", turn: 1 }]),
         currentTurn: 1,
         updatedAt: 1_700_000_000_000,
       })

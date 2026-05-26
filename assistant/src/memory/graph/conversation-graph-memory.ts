@@ -26,11 +26,6 @@ import type { QdrantSparseVector } from "../qdrant-client.js";
 import { memorySummaries } from "../schema.js";
 import { conversations } from "../schema/conversations.js";
 import {
-  clearEverInjected as clearV2EverInjected,
-  hydrate as hydrateV2State,
-  save as saveV2State,
-} from "../v2/activation-store.js";
-import {
   injectMemoryV2Block,
   type InjectMemoryV2Mode,
 } from "../v2/injection.js";
@@ -221,28 +216,6 @@ export class ConversationGraphMemory {
     const upToTurn = this.tracker.getTurn();
     this.tracker.evictCompactedTurns(upToTurn);
 
-    // Mirror the eviction on the v2 activation row: the cached `<memory>`
-    // attachments those slugs lived on are gone, but `everInjected` would
-    // otherwise keep them deduped from per-turn deltas forever.
-    //
-    // Cleared unconditionally rather than filtered by `upToTurn`: the
-    // tracker's `currentTurn` is only persisted on graceful dispose while
-    // `everInjected` is persisted every turn, so a SIGKILL'd session can
-    // leave entries with `turn > tracker.currentTurn` that a turn-bounded
-    // filter would skip.
-    try {
-      const db = getDb();
-      const state = await hydrateV2State(db, this.conversationId);
-      if (state) {
-        await saveV2State(db, this.conversationId, clearV2EverInjected(state));
-      }
-    } catch (err) {
-      log.warn(
-        { err: err instanceof Error ? err.message : String(err) },
-        "Failed to evict v2 activation state on compaction (non-fatal)",
-      );
-    }
-
     this.needsReload = true;
     log.info(
       { compactedMessageCount },
@@ -264,9 +237,10 @@ export class ConversationGraphMemory {
     }
     // Re-track node IDs since onCompacted evicted them
     this.tracker.add(this.lastInjectedNodeIds);
-    // Strip any existing <memory> blocks from the last user message
-    // before re-injecting, so compaction sites don't end up with duplicates.
-    const cleaned = stripExistingMemoryInjections(messages);
+    // Strip any existing <memory> blocks from every user message before
+    // re-injecting: avoids duplicates on the most recent user message and
+    // clears stale memory from historical messages.
+    const cleaned = stripAllMemoryInjections(messages);
 
     const injectedTokens =
       estimateTextTokens(this.lastInjectedBlock) +
@@ -881,27 +855,25 @@ export function countMemoryPrefixBlocks(content: ContentBlock[]): number {
 }
 
 /**
- * Remove all memory-injected blocks from the last user message.
+ * Strip memory-injected prefix blocks from every user message in the array.
  *
  * `injectMemoryBlock` always prepends blocks in this order:
  *   1. For each image: `<memory_image __injected>…` text + `image` + `</memory_image>` text (3-block group)
  *   2. `<memory>…</memory>` text block
  *
- * We strip all leading blocks that match this pattern so that
- * `reinjectCachedMemory` is idempotent — no duplicate images after compaction.
+ * Applied to every user message: prevents duplicates when re-injecting fresh
+ * memory into the most recent user message, and clears stale memory from
+ * historical user messages so dynamic memory doesn't accumulate across turns
+ * and bloat the context window. Anthropic's prompt cache stays coherent
+ * because stripped historical messages are byte-stable across turns.
  */
-export function stripExistingMemoryInjections(messages: Message[]): Message[] {
-  if (messages.length === 0) return messages;
-  const last = messages[messages.length - 1];
-  if (!last || last.role !== "user") return messages;
-
-  const firstNonMemory = countMemoryPrefixBlocks(last.content);
-  if (firstNonMemory === 0) return messages;
-
-  return [
-    ...messages.slice(0, -1),
-    { ...last, content: last.content.slice(firstNonMemory) },
-  ];
+export function stripAllMemoryInjections(messages: Message[]): Message[] {
+  return messages.map((msg) => {
+    if (msg.role !== "user") return msg;
+    const count = countMemoryPrefixBlocks(msg.content);
+    if (count === 0) return msg;
+    return { ...msg, content: msg.content.slice(count) };
+  });
 }
 
 /**
@@ -921,9 +893,10 @@ export function extractMemoryPrefixBlocks(messages: Message[]): ContentBlock[] {
 function injectTextBlock(messages: Message[], text: string): Message[] {
   if (text.trim().length === 0) return messages;
   if (messages.length === 0) return messages;
-  // Strip existing memory blocks from the last user message first to prevent
-  // duplicates when the message was loaded from DB with a persisted block.
-  const cleaned = stripExistingMemoryInjections(messages);
+  // Strip existing memory blocks from every user message before re-injecting:
+  // avoids duplicates on the most recent user message and clears stale memory
+  // from historical messages so it doesn't accumulate across turns.
+  const cleaned = stripAllMemoryInjections(messages);
   const userTail = cleaned[cleaned.length - 1];
   if (!userTail || userTail.role !== "user") return messages;
   return [
@@ -948,9 +921,10 @@ function injectMemoryBlock(
 ): Message[] {
   if (text.trim().length === 0 && images.size === 0) return messages;
   if (messages.length === 0) return messages;
-  // Strip existing memory blocks from the last user message first to prevent
-  // duplicates when the message was loaded from DB with a persisted block.
-  const cleaned = stripExistingMemoryInjections(messages);
+  // Strip existing memory blocks from every user message before re-injecting:
+  // avoids duplicates on the most recent user message and clears stale memory
+  // from historical messages so it doesn't accumulate across turns.
+  const cleaned = stripAllMemoryInjections(messages);
   const userTail = cleaned[cleaned.length - 1];
   if (!userTail || userTail.role !== "user") return messages;
 

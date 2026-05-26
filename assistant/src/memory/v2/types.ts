@@ -66,29 +66,14 @@ export type ConceptPage = z.infer<typeof ConceptPageSchema>;
 // ---------------------------------------------------------------------------
 
 /**
- * One entry in the per-conversation `everInjected` list. Tracks which
- * concept-page slug was injected on which turn so compaction can selectively
- * evict slugs whose attachments lived on compacted turns.
- */
-export const EverInjectedEntrySchema = z.object({
-  slug: z.string(),
-  turn: z.number().int().nonnegative(),
-});
-
-export type EverInjectedEntry = z.infer<typeof EverInjectedEntrySchema>;
-
-/**
  * Snapshot of memory v2 retrieval state for a single conversation.
  *
  * `state` is a sparse map of slug → activation in [0, 1]; only slugs above
- * `epsilon` are persisted. `everInjected` is the running list of slugs the
- * assistant has already attached to a user message, used to make injection
- * append-only and cache-stable.
+ * `epsilon` are persisted.
  */
 export const ActivationStateSchema = z.object({
   messageId: z.string(),
   state: z.record(z.string(), z.number()),
-  everInjected: z.array(EverInjectedEntrySchema),
   currentTurn: z.number().int().nonnegative(),
   updatedAt: z.number().int().nonnegative(),
 });

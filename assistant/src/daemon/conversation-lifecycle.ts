@@ -294,15 +294,21 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
           ];
         }
 
-        // Memory remains rehydrated on all rows (existing behavior).
-        // Strip any pre-existing wrapper before re-wrapping so historical
-        // rows persisted with the wrapper (v2 path before the
-        // injectedBlockText contract was unified with v1's unwrapped form)
-        // don't render double-wrapped after rehydrate. Only unwrap when
-        // the full <memory>...</memory> pair is present so we don't mutate
-        // legitimate unwrapped payloads that happen to start with
-        // "<memory>\n" or end with "\n</memory>".
-        if (typeof meta.memoryInjectedBlock === "string") {
+        // Memory is rehydrated on the tail only. Historical user rows are
+        // deliberately left clean: the cache anchor sits on the
+        // 2nd-most-recent user message (whose prefix excludes the tail's
+        // memory), and the next turn re-injects fresh memory after stripping
+        // all rows — so a clean cold-reloaded historical row is byte-identical
+        // to the warm path's stripped row. Rehydrating the tail keeps an
+        // in-flight turn's memory intact across mid-turn restart/resume.
+        // Strip any pre-existing wrapper before re-wrapping so tail rows
+        // persisted with the wrapper (v2 path before the injectedBlockText
+        // contract was unified with v1's unwrapped form) don't render
+        // double-wrapped after rehydrate. Only unwrap when the full
+        // <memory>...</memory> pair is present so we don't mutate legitimate
+        // unwrapped payloads that happen to start with "<memory>\n" or end
+        // with "\n</memory>".
+        if (isTail && typeof meta.memoryInjectedBlock === "string") {
           const block = meta.memoryInjectedBlock;
           const inner =
             block.startsWith("<memory>\n") && block.endsWith("\n</memory>")

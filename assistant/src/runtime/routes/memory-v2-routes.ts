@@ -521,7 +521,6 @@ export async function handleSimulateRouter({
     workspaceDir,
     recentTurnPairs,
     nowText,
-    priorEverInjected: [],
     config: mergedConfig,
     database: getDb(),
     ...(profileOverride !== undefined

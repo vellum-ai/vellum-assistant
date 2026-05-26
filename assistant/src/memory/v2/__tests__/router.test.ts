@@ -248,7 +248,6 @@ const COMMON_PARAMS = {
     },
   ],
   nowText: "2026-05-10 14:00 PT",
-  priorEverInjected: [] as { slug: string; turn: number }[],
 };
 
 // ---------------------------------------------------------------------------
@@ -384,13 +383,12 @@ describe("runRouter — successful tool_use", () => {
     }
   });
 
-  test("user message has two text blocks: <now> and <last_turn>+already_injected", async () => {
+  test("user message has two text blocks: <now> and <last_turn>", async () => {
     providerStub = makeProvider(toolUseResponse([1]));
 
     await runRouter({
       workspaceDir,
       ...COMMON_PARAMS,
-      priorEverInjected: [{ slug: "alpha", turn: 1 }],
       config: makeConfig(),
     });
 
@@ -415,10 +413,8 @@ describe("runRouter — successful tool_use", () => {
     expect(blockA.text).toContain("</now>");
     expect(blockA.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
 
-    // Block B — already-injected IDs + last turn, NO cache_control.
+    // Block B — last turn, NO cache_control.
     expect(blockB.type).toBe("text");
-    expect(blockB.text).toContain("<already_injected_ids>");
-    expect(blockB.text).toContain("1"); // alpha → id 1
     expect(blockB.text).toContain("<last_turn>");
     expect(blockB.text).toContain("[user]: What's on my plate today?");
     expect(blockB.text).toContain("[assistant]: Let me check your plan.");
@@ -441,7 +437,6 @@ describe("runRouter — successful tool_use", () => {
         { assistantMessage: recentAssistant, userMessage: justArrived },
       ],
       nowText: "now",
-      priorEverInjected: [],
       // Budget: just enough room for the most-recent pair plus the old user
       // line in full, leaving a small slice for the very oldest assistant
       // (which should be front-truncated with the `…` marker).
@@ -486,7 +481,6 @@ describe("runRouter — successful tool_use", () => {
         { assistantMessage: huge, userMessage: "just arrived" },
       ],
       nowText: "now",
-      priorEverInjected: [],
       config: makeConfig(), // historical_pairs_max_chars: null
     });
 
@@ -713,39 +707,6 @@ describe("runRouter — batched (batch_size set)", () => {
     expect(new Set(result.selectedSlugs).size).toBe(
       result.selectedSlugs.length,
     );
-  });
-
-  test("priorEverInjected is filtered to the batch's own slugs as local IDs", async () => {
-    providerStub = makeProvider(toolUseResponse([1]));
-    await runRouter({
-      workspaceDir,
-      ...COMMON_PARAMS,
-      priorEverInjected: [
-        { slug: "alpha", turn: 1 },
-        { slug: "echo", turn: 1 },
-      ],
-      config: makeConfig({ batchSize: 2 }),
-    });
-
-    // Exactly the batches containing alpha or echo should mention any
-    // already_injected_id; other batches should have an empty list.
-    for (const call of providerCalls) {
-      const text =
-        (call.messages[0].content as Array<{ text?: string }>)[1]?.text ?? "";
-      const hasAlpha = call.systemPrompt?.includes("alpha");
-      const hasEcho = call.systemPrompt?.includes("echo");
-      const expectsId = hasAlpha || hasEcho;
-      // Block contents: "<already_injected_ids>\n{ids}\n</already_injected_ids>"
-      const match = text.match(
-        /<already_injected_ids>\n([^\n]*)\n<\/already_injected_ids>/,
-      );
-      const idsStr = match?.[1] ?? "";
-      if (expectsId) {
-        expect(idsStr.trim().length).toBeGreaterThan(0);
-      } else {
-        expect(idsStr.trim()).toBe("");
-      }
-    }
   });
 
   test("partial failure: one batch fails, others succeed → union returned with success", async () => {
