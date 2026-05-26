@@ -7,6 +7,7 @@ mock.module("../providers/registry.js", () => ({
     providerRoutingSources[provider],
 }));
 
+import { ConnectionResolutionError } from "../providers/connection-resolution.js";
 import type { ErrorContext } from "../daemon/conversation-error.js";
 import {
   budgetYieldUnrecoveredClassification,
@@ -976,5 +977,34 @@ describe("budgetYieldUnrecoveredClassification", () => {
     expect(envelope.retryable).toBe(true);
     expect(envelope.errorCategory).toBe("budget_yield_unrecovered");
     expect(envelope.userMessage).toBe(classified.userMessage);
+  });
+});
+
+describe("ConnectionResolutionError classification", () => {
+  const errCtx: ErrorContext = { phase: "agent_loop" };
+
+  it("classifies provider_mismatch as PROVIDER_NOT_CONFIGURED with user-friendly message", () => {
+    const err = new ConnectionResolutionError(
+      "anthropic-managed",
+      "provider_mismatch",
+      'provider_connection "anthropic-managed" has provider="anthropic" but resolving profile declared provider="openai"',
+    );
+    const result = classifyConversationError(err, errCtx);
+    expect(result.code).toBe("PROVIDER_NOT_CONFIGURED");
+    expect(result.userMessage).toContain("No compatible provider connection");
+    expect(result.userMessage).toContain("Settings");
+    expect(result.userMessage).not.toContain("provider_connection");
+    expect(result.connectionName).toBe("anthropic-managed");
+  });
+
+  it("classifies not_found as PROVIDER_NOT_CONFIGURED", () => {
+    const err = new ConnectionResolutionError(
+      "deleted-connection",
+      "not_found",
+      'provider_connection "deleted-connection" not found in DB',
+    );
+    const result = classifyConversationError(err, errCtx);
+    expect(result.code).toBe("PROVIDER_NOT_CONFIGURED");
+    expect(result.userMessage).not.toContain("not found in DB");
   });
 });

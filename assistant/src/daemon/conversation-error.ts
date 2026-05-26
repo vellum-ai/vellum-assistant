@@ -1,3 +1,4 @@
+import { ConnectionResolutionError } from "../providers/connection-resolution.js";
 import { getProviderRoutingSource } from "../providers/registry.js";
 import { isAbortReason } from "../util/abort-reasons.js";
 import { ProviderError, ProviderNotConfiguredError } from "../util/errors.js";
@@ -256,6 +257,23 @@ export function classifyConversationError(
         profileName: error.profileName ?? attribution.profileName,
       }),
       debugDetails,
+    };
+  }
+
+  if (error instanceof ConnectionResolutionError) {
+    return {
+      code: "PROVIDER_NOT_CONFIGURED",
+      userMessage:
+        "No compatible provider connection found for this profile. Check your provider connections in Settings.",
+      retryable: true,
+      debugDetails,
+      errorCategory: "provider_not_configured",
+      ...(error.connectionName
+        ? { connectionName: error.connectionName }
+        : {}),
+      ...(attribution.profileName
+        ? { profileName: attribution.profileName }
+        : {}),
     };
   }
 
