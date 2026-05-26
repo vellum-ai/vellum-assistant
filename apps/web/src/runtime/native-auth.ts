@@ -159,7 +159,7 @@ export async function startNativeLogin(options?: {
  * finally settles, and a stuck loop here would block the user worse
  * than a possible re-login.
  */
-async function waitForNativeSessionCookie(): Promise<void> {
+export async function waitForNativeSessionCookie(): Promise<void> {
   const MAX_ATTEMPTS = 6;
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     try {

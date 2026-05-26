@@ -37,6 +37,7 @@ mock.module("@/lib/auth/allauth-client.js", () => ({
 mock.module("@/runtime/native-auth.js", () => ({
   isNativePlatform: () => mockIsNativePlatform,
   installSessionCookies: installSessionCookiesMock,
+  waitForNativeSessionCookie: async () => {},
 }));
 
 mock.module("@/runtime/native-biometric.js", () => ({
