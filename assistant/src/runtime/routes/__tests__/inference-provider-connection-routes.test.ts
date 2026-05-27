@@ -530,10 +530,10 @@ describe("DELETE inference/provider-connections/:name (delete)", () => {
   });
 });
 
-// ── status + label fields ─────────────────────────────────────────────────────
+// ── label fields ─────────────────────────────────────────────────────────────
 
-describe("POST with label and status", () => {
-  test("creates connection with label and status, both echoed in response", async () => {
+describe("POST with label", () => {
+  test("creates connection with label, echoed in response", async () => {
     const result = (await call(
       findHandler("inference_provider_connections_create"),
       {
@@ -542,13 +542,11 @@ describe("POST with label and status", () => {
           provider: "anthropic",
           auth: { type: "platform" },
           label: "My Anthropic",
-          status: "active",
         },
       },
-    )) as { name: string; label: string | null; status: string };
+    )) as { name: string; label: string | null };
     expect(result.name).toBe("labeled-conn");
     expect(result.label).toBe("My Anthropic");
-    expect(result.status).toBe("active");
   });
 
   test("creates connection without label — label is null in response", async () => {
@@ -561,30 +559,12 @@ describe("POST with label and status", () => {
           auth: { type: "platform" },
         },
       },
-    )) as { label: string | null; status: string };
+    )) as { label: string | null };
     expect(result.label).toBeNull();
-    expect(result.status).toBe("active");
   });
 });
 
-describe("PATCH with status and label", () => {
-  test("updates status to disabled", async () => {
-    seedConnection({
-      name: "toggleable",
-      provider: "anthropic",
-      auth: { type: "platform" },
-    });
-
-    const result = (await call(
-      findHandler("inference_provider_connections_update"),
-      {
-        pathParams: { name: "toggleable" },
-        body: { auth: { type: "platform" }, status: "disabled" },
-      },
-    )) as { status: string };
-    expect(result.status).toBe("disabled");
-  });
-
+describe("PATCH with label", () => {
   test("updates label to a string", async () => {
     seedConnection({
       name: "set-label",
@@ -758,24 +738,7 @@ describe("Managed connection write protection", () => {
     });
   });
 
-  describe("PATCH status + label (allowed)", () => {
-    test("allows disabling a managed connection", async () => {
-      seedConnection({
-        name: "anthropic-managed",
-        provider: "anthropic",
-        auth: { type: "platform" },
-      });
-
-      const result = (await call(
-        findHandler("inference_provider_connections_update"),
-        {
-          pathParams: { name: "anthropic-managed" },
-          body: { auth: { type: "platform" }, status: "disabled" },
-        },
-      )) as { status: string };
-      expect(result.status).toBe("disabled");
-    });
-
+  describe("PATCH label (allowed)", () => {
     test("allows relabeling a managed connection", async () => {
       seedConnection({
         name: "openai-managed",

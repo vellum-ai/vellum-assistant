@@ -96,6 +96,7 @@ import {
   migrateDropMemoryItemsTables,
   migrateDropMemorySegmentFts,
   migrateDropOrphanedMediaTables,
+  migrateDropProviderConnectionStatus,
   migrateDropRemindersTable,
   migrateDropSetupSkillIdColumn,
   migrateDropSimplifiedMemory,
@@ -462,6 +463,7 @@ export function initializeDb(): void {
     migrateMemoryV3Coactivation,
     migrateMemoryV3AutoEdges,
     migrateLlmRequestLogCallSite,
+    migrateDropProviderConnectionStatus,
   ];
 
   // Run each migration step, catching and logging individual failures so one

@@ -4,7 +4,7 @@
  * GET    /v1/inference/provider-connections          — list all connections (optional ?provider= filter)
  * GET    /v1/inference/provider-connections/:name    — single connection by name
  * POST   /v1/inference/provider-connections          — create a new connection
- * PATCH  /v1/inference/provider-connections/:name    — update auth/label/status (cannot rename or change provider; auth is locked to platform for managed connections)
+ * PATCH  /v1/inference/provider-connections/:name    — update auth/label (cannot rename or change provider; auth is locked to platform for managed connections)
  * DELETE /v1/inference/provider-connections/:name    — delete (rejects if profiles or call sites reference it; rejects outright for managed connections)
  */
 
@@ -18,7 +18,6 @@ import {
   type ConnectionModel,
   ConnectionModelSchema,
   ConnectionProviderSchema,
-  ConnectionStatusSchema,
   ProviderConnectionSchema,
   VALID_CONNECTION_PROVIDERS,
 } from "../../providers/inference/auth.js";
@@ -223,14 +222,6 @@ async function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
     throw new BadRequestError(`Invalid auth: ${authResult.error.message}`);
   }
 
-  const statusResult =
-    body.status !== undefined
-      ? ConnectionStatusSchema.safeParse(body.status)
-      : null;
-  if (statusResult && !statusResult.success) {
-    throw new BadRequestError(`Invalid status: must be "active" or "disabled"`);
-  }
-
   const labelRaw = body.label;
   if (
     labelRaw !== undefined &&
@@ -248,7 +239,6 @@ async function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
     name,
     provider: providerResult.data,
     auth: authResult.data,
-    ...(statusResult ? { status: statusResult.data } : {}),
     ...(labelRaw !== undefined ? { label: labelRaw as string | null } : {}),
     ...customFields,
   });
@@ -302,14 +292,6 @@ async function handleUpdateConnection({
     throw new BadRequestError(`Invalid auth: ${authResult.error.message}`);
   }
 
-  const statusResult =
-    body.status !== undefined
-      ? ConnectionStatusSchema.safeParse(body.status)
-      : null;
-  if (statusResult && !statusResult.success) {
-    throw new BadRequestError(`Invalid status: must be "active" or "disabled"`);
-  }
-
   const labelRaw = body.label;
   if (
     labelRaw !== undefined &&
@@ -323,8 +305,8 @@ async function handleUpdateConnection({
 
   // Managed connections: lock auth to `{type:"platform"}`. The boot upsert in
   // `seedCanonicalConnections` would revert any other value on next restart;
-  // reject the write here so the surprise loop never happens. Label and status
-  // remain user-editable (the boot upsert leaves those alone).
+  // reject the write here so the surprise loop never happens. Label remains
+  // user-editable (the boot upsert leaves it alone).
   if (
     MANAGED_CONNECTION_NAMES.has(name) &&
     authResult.data.type !== "platform"
@@ -338,7 +320,6 @@ async function handleUpdateConnection({
 
   const result = updateConnection(getDb(), name, {
     auth: authResult.data,
-    ...(statusResult ? { status: statusResult.data } : {}),
     ...(labelRaw !== undefined ? { label: labelRaw as string | null } : {}),
     ...customFields,
   });
@@ -387,7 +368,7 @@ function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
   // re-overlaid by `seed-inference-profiles.ts` on boot).
   if (MANAGED_CONNECTION_NAMES.has(name)) {
     throw new BadRequestError(
-      `Cannot delete managed connection "${name}". This is a Vellum-managed connection — disable it via PATCH status="disabled" if you want to opt out of platform inference.`,
+      `Cannot delete managed connection "${name}". This is a Vellum-managed connection that is re-seeded on every startup.`,
     );
   }
 
@@ -485,7 +466,6 @@ export const ROUTES: RouteDefinition[] = [
       provider: ConnectionProviderSchema,
       auth: AuthSchema,
       label: z.string().min(1).optional(),
-      status: ConnectionStatusSchema.optional(),
       base_url: z.string().url().nullable().optional(),
       models: z.array(ConnectionModelSchema).nullable().optional(),
     }),
@@ -504,12 +484,11 @@ export const ROUTES: RouteDefinition[] = [
     policyKey: "inference/provider-connections/detail",
     summary: "Update a provider connection",
     description:
-      "Update an existing connection. Cannot rename or change the provider. For managed connections (anthropic-managed, openai-managed, gemini-managed) the auth is locked to platform; label and status remain editable.",
+      "Update an existing connection. Cannot rename or change the provider. For managed connections (anthropic-managed, openai-managed, gemini-managed) the auth is locked to platform; label remains editable.",
     tags: ["inference"],
     pathParams: [{ name: "name", description: "Connection name" }],
     requestBody: z.object({
       auth: AuthSchema,
-      status: ConnectionStatusSchema.optional(),
       label: z.string().min(1).nullable().optional(),
       base_url: z.string().url().nullable().optional(),
       models: z.array(ConnectionModelSchema).nullable().optional(),

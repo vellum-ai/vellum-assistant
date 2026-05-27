@@ -11139,11 +11139,6 @@ paths:
                                 - type
                                 - credential
                               additionalProperties: false
-                        status:
-                          type: string
-                          enum:
-                            - active
-                            - disabled
                         label:
                           anyOf:
                             - type: string
@@ -11184,7 +11179,6 @@ paths:
                         - name
                         - provider
                         - auth
-                        - status
                         - label
                         - baseUrl
                         - models
@@ -11286,11 +11280,6 @@ paths:
                           - type
                           - credential
                         additionalProperties: false
-                  status:
-                    type: string
-                    enum:
-                      - active
-                      - disabled
                   label:
                     anyOf:
                       - type: string
@@ -11331,7 +11320,6 @@ paths:
                   - name
                   - provider
                   - auth
-                  - status
                   - label
                   - baseUrl
                   - models
@@ -11421,11 +11409,6 @@ paths:
                 label:
                   type: string
                   minLength: 1
-                status:
-                  type: string
-                  enum:
-                    - active
-                    - disabled
                 base_url:
                   anyOf:
                     - type: string
@@ -11570,11 +11553,6 @@ paths:
                           - type
                           - credential
                         additionalProperties: false
-                  status:
-                    type: string
-                    enum:
-                      - active
-                      - disabled
                   label:
                     anyOf:
                       - type: string
@@ -11615,7 +11593,6 @@ paths:
                   - name
                   - provider
                   - auth
-                  - status
                   - label
                   - baseUrl
                   - models
@@ -11636,8 +11613,7 @@ paths:
       summary: Update a provider connection
       description:
         Update an existing connection. Cannot rename or change the provider. For managed connections
-        (anthropic-managed, openai-managed, gemini-managed) the auth is locked to platform; label and status remain
-        editable.
+        (anthropic-managed, openai-managed, gemini-managed) the auth is locked to platform; label remains editable.
       tags:
         - inference
       responses:
@@ -11716,11 +11692,6 @@ paths:
                           - type
                           - credential
                         additionalProperties: false
-                  status:
-                    type: string
-                    enum:
-                      - active
-                      - disabled
                   label:
                     anyOf:
                       - type: string
@@ -11761,7 +11732,6 @@ paths:
                   - name
                   - provider
                   - auth
-                  - status
                   - label
                   - baseUrl
                   - models
@@ -11840,11 +11810,6 @@ paths:
                         - type
                         - credential
                       additionalProperties: false
-                status:
-                  type: string
-                  enum:
-                    - active
-                    - disabled
                 label:
                   anyOf:
                     - type: string

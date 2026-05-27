@@ -707,15 +707,14 @@ async function handleReplaceInferenceProfile({
       );
     }
   }
-  // When the UI sends provider but no provider_connection ("Any active X
-  // connection"), derive the connection now so the config deep-merge doesn't
-  // inherit a stale connection from the default layer.
+  // When the UI sends provider but no provider_connection, derive the connection
+  // now so the config deep-merge doesn't inherit a stale connection from the
+  // default layer.
   const fragment = parsed.data as Record<string, unknown>;
   if (!isManaged && fragment.provider && !fragment.provider_connection) {
     const provider = fragment.provider as string;
     const db = getDb();
-    const candidates = listConnections(db, { provider });
-    const active = candidates.find((c) => c.status === "active");
+    const [active] = listConnections(db, { provider });
     if (active) {
       fragment.provider_connection = active.name;
     } else if (!PROVIDERS_REQUIRING_BASE_URL_AND_MODELS.has(provider)) {

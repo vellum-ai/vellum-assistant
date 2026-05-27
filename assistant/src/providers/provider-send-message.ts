@@ -117,20 +117,18 @@ export async function resolveConfiguredProvider(
 
   // Connection-aware path: every dispatch goes through `provider_connection`.
   // The boot-time backfill ensures every profile has one in production.
-  // When unset (profile set provider with "Any active" connection, test envs
-  // that skip backfill, freshly-installed configs not yet backfilled, or
-  // users who manually cleared the field), try to auto-resolve from the
-  // provider before falling back to null.
+  // When unset (profile set provider without a connection, test envs that
+  // skip backfill, freshly-installed configs not yet backfilled, or users
+  // who manually cleared the field), try to auto-resolve from the provider
+  // before falling back to null.
   if (!connectionName) {
     if (inferenceProvider) {
       try {
         const candidates = listConnections(getDb(), {
           provider: inferenceProvider,
         });
-        const active = candidates.find(
-          (c) =>
-            c.status === "active" &&
-            isConnectionCompatibleWithModel(c, resolved.model),
+        const active = candidates.find((c) =>
+          isConnectionCompatibleWithModel(c, resolved.model),
         );
         if (active) {
           connectionName = active.name;

@@ -89,7 +89,6 @@ mock.module("../../memory/db-connection.js", () => ({
 type Connection = {
   name: string;
   provider: string;
-  status: string;
   auth: { type: string; credential?: string };
 };
 
@@ -140,13 +139,11 @@ function reset(): void {
 const OPENAI_KEY: Connection = {
   name: "openai-key",
   provider: "openai",
-  status: "active",
   auth: { type: "api_key", credential: "credential/openai" },
 };
 const OPENAI_CODEX: Connection = {
   name: "openai-codex",
   provider: "openai",
-  status: "active",
   auth: {
     type: "oauth_subscription",
     credential: "credential/openai-codex/access_token",
