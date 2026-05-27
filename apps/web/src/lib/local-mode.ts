@@ -5,6 +5,12 @@ import {
   removeLocalSetting,
   setLocalSetting,
 } from "@/lib/local-settings";
+import {
+  ensureGatewayToken,
+  getGatewayToken,
+  getLocalTokenUrl,
+} from "@/lib/auth/gateway-session";
+import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -178,4 +184,27 @@ export function getLocalGatewayUrl(): string | undefined {
   const assistant = getSelectedAssistant();
   if (!assistant || !isLocalAssistant(assistant)) return undefined;
   return gatewayProxyUrl(assistant.resources!.gatewayPort);
+}
+
+// ---------------------------------------------------------------------------
+// Gateway connection setup
+// ---------------------------------------------------------------------------
+
+/**
+ * Acquire a gateway token and prime the self-hosted connection for the
+ * selected local assistant.
+ *
+ * Transport: fetch to Vite dev middleware gateway proxy.
+ * In Electron, replace with direct IPC token acquisition.
+ */
+export async function primeLocalGatewayConnection(): Promise<void> {
+  const tokenUrl = getLocalTokenUrl();
+  if (!tokenUrl) return;
+  await ensureGatewayToken(tokenUrl);
+  const localGateway = getLocalGatewayUrl();
+  if (!localGateway) return;
+  setSelfHostedConnection({
+    url: `${window.location.origin}${localGateway}`,
+    token: getGatewayToken(),
+  });
 }

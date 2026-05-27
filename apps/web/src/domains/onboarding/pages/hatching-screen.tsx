@@ -18,9 +18,7 @@ import { composeSvg } from "@/utils/avatar-svg-compositor";
 import type { CharacterTraits } from "@/types/avatar";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { extractErrorMessage } from "@/lib/api-errors";
-import { isLocalMode, hatchLocalAssistant, loadLockfile, getLocalGatewayUrl } from "@/lib/local-mode";
-import { ensureGatewayToken, getGatewayToken, getLocalTokenUrl } from "@/lib/auth/gateway-session";
-import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
+import { isLocalMode, hatchLocalAssistant, loadLockfile, setSelectedAssistantId, primeLocalGatewayConnection } from "@/lib/local-mode";
 import { useRootOutletContext } from "@/root-layout";
 import {
   readAiDataConsent,
@@ -173,8 +171,6 @@ export function HatchingScreen() {
         });
       }
       markPrivacyConsent(userId);
-      // Note: avatar sync only applies to platform-hatched assistants
-      // (local assistants don't have platform-side avatar storage yet)
       setDisplayProgress(1);
       displayProgressRef.current = 1;
       segmentStartRef.current = 1;
@@ -230,17 +226,10 @@ export function HatchingScreen() {
             return;
           }
           await loadLockfile();
-          const tokenUrl = getLocalTokenUrl();
-          if (tokenUrl) {
-            await ensureGatewayToken(tokenUrl);
-            const localGateway = getLocalGatewayUrl();
-            if (localGateway) {
-              setSelfHostedConnection({
-                url: `${window.location.origin}${localGateway}`,
-                token: getGatewayToken(),
-              });
-            }
+          if (result.assistantId) {
+            setSelectedAssistantId(result.assistantId);
           }
+          await primeLocalGatewayConnection();
           handleHatchReady();
         } catch {
           if (cancelled) return;
