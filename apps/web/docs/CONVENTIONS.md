@@ -116,15 +116,32 @@ When adding a new route, default to `lazy` unless it's on the primary
 landing path. Use `Component`, not `element` — they are mutually
 exclusive and `lazy` returns `Component`.
 
-Lazy-chunk fetch failures (stale deploys, network errors) are caught by
-the `LazyRouteErrorBoundary` mounted via pathless wrappers inside
-`/account`, `/assistant`, and `ChatLayout`. It renders an inline
-"section couldn't load" message with a reload affordance, leaving the
-parent layout chrome (sidebar, header) visible so the user can navigate
-elsewhere instead of being stranded on a full-page error. Non-chunk
-render errors keep bubbling up to `RootErrorBoundary`. The
-`RouterProvider.onError` handler in `main.tsx` reports every router
-error to Sentry independently.
+Errors during route resolution (loader exceptions, lazy chunk fetch
+failures, render bugs) are caught by `RouteErrorBoundary`
+(`src/components/route-error-boundary.tsx`), mounted at every level of
+the route tree. It picks one of two UI variants based on the error
+shape:
+
+- **Lazy-chunk fetch failure** (stale deploy, network drop) — renders
+  an inline "this section couldn't load" message with a Reload
+  button. Mounted via pathless wrappers inside `/account`,
+  `/assistant`, and `ChatLayout` so the parent chrome (sidebar, etc.)
+  stays visible and the user can navigate elsewhere.
+- **Anything else** — renders the full-page "Something went wrong"
+  treatment.
+
+`isChunkLoadError(err)` in `src/lib/chunk-errors.ts` is the single
+predicate used by both the boundary and `LazyBoundary`
+(component-level lazy in `src/components/lazy-boundary.tsx`). For
+non-route lazy components (modals, inline lazy widgets) use
+`LazyBoundary` directly.
+
+`RouterProvider.onError` in `main.tsx` is the single Sentry capture
+point for router errors — it tags each event with
+`boundary: "lazy-route"` for chunk failures and
+`boundary: "route-render"` for everything else, so the two are
+sliceable in Sentry. Component-level `LazyBoundary` tags its captures
+analogously (`"lazy-component"` / `"component-render"`).
 
 References:
 - [React Router — Route Object (`Component`)](https://reactrouter.com/start/data/route-object#component)

@@ -6,9 +6,8 @@ import { ChatLayout } from "@/domains/chat/chat-layout";
 import { ChatPage } from "@/domains/chat/chat-page";
 import { ConversationRedirect } from "@/domains/chat/conversation-redirect";
 import { NotFound } from "@/components/not-found";
-import { RootErrorBoundary } from "@/components/root-error-boundary";
+import { RouteErrorBoundary } from "@/components/route-error-boundary";
 import { RootHydrateFallback } from "@/components/root-hydrate-fallback";
-import { LazyRouteErrorBoundary } from "@/components/lazy-route-error-boundary";
 import { ActiveAssistantGate } from "@/components/layout/active-assistant-gate";
 
 // Route tree — no basename, routes are absolute browser paths.
@@ -32,14 +31,14 @@ export const router = createBrowserRouter(
     // Lazy-loaded: only needed for unauthenticated flows.
     {
       path: "/account",
-      ErrorBoundary: RootErrorBoundary,
+      ErrorBoundary: RouteErrorBoundary,
       HydrateFallback: RootHydrateFallback,
       children: [
-        // Pathless wrapper so lazy-chunk failures render inline (no chrome
-        // to preserve here, but it gives a friendlier "blip / stale deploy"
-        // message vs. the generic RootErrorBoundary copy).
+        // Pathless wrapper so lazy-chunk failures render the chunk-fail
+        // variant of `RouteErrorBoundary` (inline copy + Reload button)
+        // rather than the full-page variant inherited from the top.
         {
-          ErrorBoundary: LazyRouteErrorBoundary,
+          ErrorBoundary: RouteErrorBoundary,
           children: [
             { index: true, lazy: { Component: () => import("@/domains/account/pages/account-page").then((m) => m.AccountPage) } },
             { path: "login", lazy: { Component: () => import("@/domains/account/pages/login-page").then((m) => m.LoginPage) } },
@@ -56,22 +55,23 @@ export const router = createBrowserRouter(
     },
 
     // Logout — standalone page, no app chrome
-    { path: "/logout", ErrorBoundary: LazyRouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/domains/account/pages/logout-page").then((m) => m.LogoutPage) } },
+    { path: "/logout", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/domains/account/pages/logout-page").then((m) => m.LogoutPage) } },
 
     // Assistant routes — auth-protected app with layout
     {
       path: "/assistant",
       middleware: [authMiddleware],
-      ErrorBoundary: RootErrorBoundary,
+      ErrorBoundary: RouteErrorBoundary,
       HydrateFallback: RootHydrateFallback,
       Component: RootLayout,
       children: [
-        // Pathless wrapper: catches lazy-chunk failures so they render
-        // *inside* RootLayout's chrome instead of replacing the whole app
-        // shell with `RootErrorBoundary`. `RootErrorBoundary` still fires
-        // for genuine render errors that escape this layer.
+        // Pathless wrapper: lazy-chunk failures are caught here so the
+        // chunk-fail UI renders *inside* RootLayout's chrome (sidebar
+        // remains visible). Non-chunk render errors escape to the
+        // outer boundary on `/assistant`, which replaces RootLayout
+        // with the full-page variant.
         {
-          ErrorBoundary: LazyRouteErrorBoundary,
+          ErrorBoundary: RouteErrorBoundary,
           children: [
         // Onboarding routes — full-screen (no ChatLayout sidebar).
         // Lazy-loaded: one-time flow, not revisited.
@@ -142,7 +142,7 @@ export const router = createBrowserRouter(
             // *inside* ChatLayout so the sidebar stays visible and the
             // user can navigate elsewhere instead of reloading.
             {
-              ErrorBoundary: LazyRouteErrorBoundary,
+              ErrorBoundary: RouteErrorBoundary,
               children: [
             // ChatPage / DocumentViewerPage own their own lifecycle UI
             // (loading screens, hatching, version-selection, errors) and
@@ -185,20 +185,20 @@ export const router = createBrowserRouter(
                 },
               ],
             },
-              ], // end inner LazyRouteErrorBoundary children (chat-side)
+              ], // end inner chunk-fail boundary (chat-side)
             },
           ],
         },
 
         // Catch-all within /assistant/*
         { path: "*", Component: NotFound },
-          ], // end outer LazyRouteErrorBoundary children (/assistant)
+          ], // end outer chunk-fail boundary (/assistant)
         },
       ],
     },
 
     // Top-level catch-all
-    { path: "*", ErrorBoundary: RootErrorBoundary, Component: NotFound },
+    { path: "*", ErrorBoundary: RouteErrorBoundary, Component: NotFound },
   ],
   {
     future: { v8_middleware: true },
