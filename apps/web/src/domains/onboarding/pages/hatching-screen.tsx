@@ -18,6 +18,9 @@ import { composeSvg } from "@/utils/avatar-svg-compositor";
 import type { CharacterTraits } from "@/types/avatar";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { extractErrorMessage } from "@/lib/api-errors";
+import { isLocalMode, hatchLocalAssistant, loadLockfile, getLocalGatewayUrl } from "@/lib/local-mode";
+import { ensureGatewayToken, getGatewayToken, getLocalTokenUrl } from "@/lib/auth/gateway-session";
+import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 import { useRootOutletContext } from "@/root-layout";
 import {
   readAiDataConsent,
@@ -161,12 +164,91 @@ export function HatchingScreen() {
 
     const pinnedVersion = readSelectedVersion();
 
+    const handleHatchReady = () => {
+      try {
+        writeSelectedVersion("");
+      } catch (err) {
+        Sentry.captureException(err, {
+          tags: { context: "onboarding_mark_completed" },
+        });
+      }
+      markPrivacyConsent(userId);
+      // Note: avatar sync only applies to platform-hatched assistants
+      // (local assistants don't have platform-side avatar storage yet)
+      setDisplayProgress(1);
+      displayProgressRef.current = 1;
+      segmentStartRef.current = 1;
+      setPhase("ready");
+      phaseRef.current = "ready";
+      navigateTimer = setTimeout(() => {
+        if (cancelled) return;
+        void (async () => {
+          if (!isLocalMode()) {
+            await checkAssistant();
+          }
+          if (cancelled) return;
+          if (isNativePlatform()) {
+            try {
+              setOnboardingCompleted(true);
+            } catch (err) {
+              Sentry.captureException(err, {
+                tags: { context: "hatching_mark_onboarding_completed_native" },
+              });
+            }
+            clearPrivacyConsent();
+            void navigate(`${routes.assistant}?onboarding=1`, {
+              replace: true,
+            });
+            return;
+          }
+          void navigate(routes.onboarding.prechat, { replace: true });
+        })();
+      }, COMPLETION_NAVIGATE_DELAY_MS);
+    };
+
     const startHatch = async () => {
       transitionPhase("provisioning");
       if (isReplay) {
         scheduleNextPoll(0);
         return;
       }
+
+      // Local-mode hatch lifecycle:
+      // 1. POST /assistant/__local/hatch -> CLI spawns daemon + gateway
+      // 2. Reload lockfile to discover new assistant
+      // 3. Acquire gateway token + set self-hosted connection
+      // 4. Navigate to pre-chat flow
+      //
+      // Transport: fetch to Vite dev middleware.
+      // In Electron: window.electronAPI.hatchAssistant() -> direct IPC to main process.
+      if (isLocalMode()) {
+        try {
+          const result = await hatchLocalAssistant();
+          if (cancelled) return;
+          if (!result.ok) {
+            setError(result.error ?? "Failed to hatch local assistant.");
+            return;
+          }
+          await loadLockfile();
+          const tokenUrl = getLocalTokenUrl();
+          if (tokenUrl) {
+            await ensureGatewayToken(tokenUrl);
+            const localGateway = getLocalGatewayUrl();
+            if (localGateway) {
+              setSelfHostedConnection({
+                url: `${window.location.origin}${localGateway}`,
+                token: getGatewayToken(),
+              });
+            }
+          }
+          handleHatchReady();
+        } catch (err) {
+          if (cancelled) return;
+          setError("Failed to hatch local assistant. Check CLI logs for details.");
+        }
+        return;
+      }
+
       try {
         const result = await hatchAssistant(
           pinnedVersion ? { version: pinnedVersion } : undefined,
@@ -227,15 +309,6 @@ export function HatchingScreen() {
         if (cancelled) return;
         const next = resolveAssistantLifecycleState(result);
         if (next.kind === "active") {
-          try {
-            writeSelectedVersion("");
-          } catch (err) {
-            Sentry.captureException(err, {
-              tags: { context: "onboarding_mark_completed" },
-            });
-          }
-          markPrivacyConsent(userId);
-
           if (result.ok) {
             const assistantId = result.data.id;
             fetchCharacterTraits(assistantId).then((existing) => {
@@ -248,33 +321,7 @@ export function HatchingScreen() {
             });
           }
 
-          setDisplayProgress(1);
-          displayProgressRef.current = 1;
-          segmentStartRef.current = 1;
-          setPhase("ready");
-          phaseRef.current = "ready";
-          navigateTimer = setTimeout(() => {
-            if (cancelled) return;
-            void (async () => {
-              await checkAssistant();
-              if (cancelled) return;
-              if (isNativePlatform()) {
-                try {
-                  setOnboardingCompleted(true);
-                } catch (err) {
-                  Sentry.captureException(err, {
-                    tags: { context: "hatching_mark_onboarding_completed_native" },
-                  });
-                }
-                clearPrivacyConsent();
-                void navigate(`${routes.assistant}?onboarding=1`, {
-                  replace: true,
-                });
-                return;
-              }
-              void navigate(routes.onboarding.prechat, { replace: true });
-            })();
-          }, COMPLETION_NAVIGATE_DELAY_MS);
+          handleHatchReady();
           return;
         }
         if (next.kind === "error") {
