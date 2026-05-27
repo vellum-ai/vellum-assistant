@@ -23,7 +23,7 @@ export interface SandboxFetchProxyOptions {
   frameId: string;
   /** Assistant ID for constructing proxy URLs. */
   assistantId: string;
-  /** Whether the proxy is active. Default: true. */
+  /** Whether the fetch proxy is active. Surface actions are always forwarded regardless. Default: true. */
   enabled?: boolean;
   /** Handler for surface action messages from the sandboxed app. */
   onAction?: (actionId: string, data?: Record<string, unknown>) => void;
@@ -33,8 +33,9 @@ export interface SandboxFetchProxyOptions {
  * Listen for postMessage events from a sandboxed iframe and proxy
  * authenticated fetch requests through the parent's API client.
  *
- * Surface action messages are forwarded to `onAction` if provided;
- * otherwise they are silently ignored.
+ * The message listener is always active so surface action messages
+ * reach `onAction` regardless of the `enabled` flag. Only fetch
+ * proxy requests are gated by `enabled`.
  */
 export function useSandboxFetchProxy(
   iframeRef: RefObject<HTMLIFrameElement | null>,
@@ -43,8 +44,6 @@ export function useSandboxFetchProxy(
   const { frameId, assistantId, enabled = true, onAction } = options;
 
   useEffect(() => {
-    if (!enabled) return;
-
     const handler = async (event: MessageEvent) => {
       const msg = event.data;
       if (!msg || msg.frameId !== frameId) return;
@@ -55,7 +54,7 @@ export function useSandboxFetchProxy(
         return;
       }
 
-      if (msg.type !== "vellum_fetch_request") return;
+      if (!enabled || msg.type !== "vellum_fetch_request") return;
 
       const { callId, path, method, headers, body } = msg as {
         callId: string;
