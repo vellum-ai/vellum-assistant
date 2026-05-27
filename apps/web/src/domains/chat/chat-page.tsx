@@ -18,6 +18,7 @@ import {
 import { createPortal } from "react-dom";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { ChevronDown } from "lucide-react";
+import * as Sentry from "@sentry/react";
 
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useVisibleViewport } from "@/hooks/use-visible-viewport";
@@ -114,10 +115,15 @@ const CommandPalette = lazy(() =>
   })),
 );
 import { shouldHandleShortcut } from "@/domains/chat/chat-layout";
-import { abortSubagent, fetchSubagentDetail } from "@/domains/chat/api/conversations";
+import { subagentsByIdAbortPost } from "@/generated/daemon/sdk.gen";
+import { fetchSubagentDetail } from "@/lib/conversations-api";
 import { MobileAppOverlay } from "@/domains/chat/components/mobile-app-overlay";
 import { MobileDocumentOverlay } from "@/domains/chat/components/mobile-document-overlay";
 import { MobileSubagentDetailOverlay } from "@/domains/chat/components/mobile-subagent-detail-overlay";
+import {
+  type ChatConnectingReason,
+  resolveChatConnectingReason,
+} from "@/domains/chat/utils/connecting-reason";
 import { getEditChatConversationId, setEditChatConversationId } from "@/domains/chat/utils/edit-chat-session";
 import { routes } from "@/utils/routes";
 import { haptic } from "@/utils/haptics";
@@ -150,7 +156,6 @@ export function ChatPage() {
     checkAssistant,
     retryAssistant,
     hatchVersion,
-    setAssistantId,
     setTopBarCenter,
     setTopBarRightSlot,
     setOnSearchClick,
@@ -167,7 +172,7 @@ export function ChatPage() {
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [error, setError] = useState<ChatError | null>(null);
   // Seed with `true` so the chat scroll area renders the skeleton on the very
-  // first frame. The conversation loader bootstrap (`getChatContext` →
+  // first frame. The conversation loader bootstrap (conversation list query →
   // `SET_ACTIVE_KEY` → `use-conversation-history`) is asynchronous, and
   // without this seed the brief window between mount and the history effect
   // dispatching `setIsLoadingHistory(true)` leaves the user staring at a
@@ -446,7 +451,6 @@ export function ChatPage() {
     autoGreetRef,
     conversationListInvalidatedTimerRef,
     pendingInitialMessageRef,
-    setAssistantId,
     setMessages,
     setTranscriptPagination: setTranscriptPagination as Dispatch<SetStateAction<Omit<TranscriptPaginationState, "items">>>,
     setIsLoadingHistory,
@@ -665,7 +669,7 @@ export function ChatPage() {
 
   // Kick off a background reachability probe immediately when a pending
   // onboarding message exists, instead of waiting for a 502 from
-  // getChatContext to trigger the unreachable-bus.
+  // the conversation list query to trigger the unreachable-bus.
   useEffect(() => {
     if (!assistantId) return;
     const message = peekPendingPreChatContext()?.initialMessage;
@@ -1313,10 +1317,36 @@ export function ChatPage() {
   };
   void _uiContext;
 
+  const connectingReason = resolveChatConnectingReason({
+    authLoading,
+    assistantStateKind: assistantState.kind,
+    autoGreetPending,
+  });
+  const lastConnectingReasonRef = useRef<ChatConnectingReason | null>(null);
+  useEffect(() => {
+    if (connectingReason === null) {
+      lastConnectingReasonRef.current = null;
+      return;
+    }
+    if (lastConnectingReasonRef.current === connectingReason) return;
+    lastConnectingReasonRef.current = connectingReason;
+    Sentry.addBreadcrumb({
+      category: "chat.connecting",
+      level: "info",
+      message: "ChatPage rendered Connecting",
+      data: {
+        reason: connectingReason,
+        assistantStateKind: assistantState.kind,
+        hasAssistantId: assistantId != null,
+        hasActiveConversationId: activeConversationId != null,
+      },
+    });
+  }, [activeConversationId, assistantId, assistantState.kind, connectingReason]);
+
   // -------------------------------------------------------------------------
   // Loading / error guards
   // -------------------------------------------------------------------------
-  if (authLoading || assistantState.kind === "loading" || autoGreetPending) {
+  if (connectingReason !== null) {
     return (
       <div className="flex h-full items-center justify-center">
         <p className="text-[var(--text-secondary)]">Connecting…</p>
@@ -1562,7 +1592,11 @@ export function ChatPage() {
     onStopSubagent: async (subagentId: string) => {
       if (!assistantId || !activeConversationId) return;
       try {
-        await abortSubagent(assistantId, activeConversationId, subagentId);
+        await subagentsByIdAbortPost({
+          path: { assistant_id: assistantId, id: subagentId },
+          body: { conversationId: activeConversationId },
+          throwOnError: true,
+        });
       } catch {
         // Best-effort — the daemon may have already completed
       }
@@ -1727,7 +1761,11 @@ export function ChatPage() {
               onStop={async (subagentId: string) => {
                 if (!assistantId || !activeConversationId) return;
                 try {
-                  await abortSubagent(assistantId, activeConversationId, subagentId);
+                  await subagentsByIdAbortPost({
+                    path: { assistant_id: assistantId, id: subagentId },
+                    body: { conversationId: activeConversationId },
+                    throwOnError: true,
+                  });
                 } catch {
                   // Best-effort — the daemon may have already completed
                 }

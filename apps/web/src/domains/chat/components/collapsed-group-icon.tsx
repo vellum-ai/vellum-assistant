@@ -3,7 +3,7 @@ import { useCallback, useState, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 
 import { Popover } from "@vellum/design-library";
-import type { Conversation } from "@/domains/chat/api/conversations";
+import type { Conversation } from "@/lib/conversations-api";
 
 // ---------------------------------------------------------------------------
 // Indicator state
@@ -106,7 +106,7 @@ export function CollapsedGroupIcon({
           {indicatorState != null ? (
             <span
               aria-hidden
-              className={`absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-[var(--surface-base)] ${INDICATOR_CLASS[indicatorState]}`}
+              className={`absolute right-0 top-0 h-2.5 w-2.5 rounded-full border-2 border-[var(--surface-base)] ${INDICATOR_CLASS[indicatorState]}`}
             />
           ) : null}
         </button>

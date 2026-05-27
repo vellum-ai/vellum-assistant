@@ -9,8 +9,8 @@ import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen
 import {
   type Conversation,
   listConversations,
-  unarchiveConversation,
-} from "@/domains/chat/api/conversations";
+} from "@/lib/conversations-api";
+import { conversationsByIdUnarchivePost } from "@/generated/daemon/sdk.gen";
 import { reportError } from "@/lib/errors/report";
 
 function formatConversationDate(timestamp: string | undefined): string {
@@ -148,7 +148,10 @@ export function ArchivePage() {
       if (!assistantId) return;
       setPendingUnarchiveId(conversationId);
       try {
-        await unarchiveConversation(assistantId, conversationId);
+        await conversationsByIdUnarchivePost({
+          path: { assistant_id: assistantId, id: conversationId },
+          throwOnError: true,
+        });
         setConversations((prev) => {
           if (!prev) return prev;
           return prev.map((c) =>

@@ -1,4 +1,4 @@
-import type { Conversation } from "@/domains/chat/api/conversations";
+import type { Conversation } from "@/lib/conversations-api";
 
 export interface SubGroup {
   key: string;

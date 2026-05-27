@@ -1,13 +1,13 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 
-import type { AppSummary } from "@/domains/chat/api/apps";
+import type { AppSummary } from "@/lib/apps-api";
 import {
   isAppPinned,
   loadPinnedApps,
   pinApp,
   savePinnedApps,
   unpinApp,
-} from "@/domains/chat/utils/app-pin-storage";
+} from "@/utils/app-pin-storage";
 
 const STORAGE_KEY = "vellum:pinnedApps";
 

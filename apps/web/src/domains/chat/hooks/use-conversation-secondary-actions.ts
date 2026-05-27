@@ -18,8 +18,8 @@ import {
 
 import type { NavigateFunction } from "react-router";
 
-import type { Conversation } from "@/domains/chat/api/conversations";
-import { analyzeConversation, forkConversation } from "@/domains/chat/api/conversations";
+import type { Conversation } from "@/lib/conversations-api";
+import { conversationsByIdAnalyzePost, conversationsForkPost } from "@/generated/daemon/sdk.gen";
 import { routes } from "@/utils/routes";
 import { haptic } from "@/utils/haptics";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
@@ -87,13 +87,13 @@ export function useConversationSecondaryActions({
       haptic.light();
 
       try {
-        const { conversationId: newConversationId } = await forkConversation(
-          assistantId,
-          activeConversationId,
-          throughMessageId,
-        );
+        const { data } = await conversationsForkPost({
+          path: { assistant_id: assistantId },
+          body: { conversationId: activeConversationId, throughMessageId },
+          throwOnError: true,
+        });
         refreshConversations();
-        navigateToConversation(newConversationId);
+        navigateToConversation(data.conversation.id);
       } catch (err) {
         Sentry.captureException(err, {
           tags: { context: "fork_conversation" },
@@ -116,12 +116,12 @@ export function useConversationSecondaryActions({
     async (conversation: Conversation) => {
       if (!assistantId) return;
       try {
-        const result = await analyzeConversation(
-          assistantId,
-          conversation.conversationId,
-        );
+        const { data } = await conversationsByIdAnalyzePost({
+          path: { assistant_id: assistantId, id: conversation.conversationId },
+          throwOnError: true,
+        });
         await refreshConversations();
-        switchConversation(result.conversationId);
+        switchConversation(data.conversation.id);
       } catch (err) {
         const message =
           err instanceof Error ? err.message : "Failed to analyze conversation.";

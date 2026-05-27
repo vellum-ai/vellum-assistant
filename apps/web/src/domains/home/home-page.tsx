@@ -132,6 +132,7 @@ export function HomePage({
         avatarTraits={avatar.traits}
         avatarImageUrl={avatar.customImageUrl}
         greeting={feedQuery.data?.contextBanner?.greeting}
+        isMobile={isMobile}
         onStartNewChat={onStartNewChat}
       />
       {feedQuery.isError ? (
@@ -147,6 +148,7 @@ export function HomePage({
       ) : null}
       <HomeSuggestionPillBar
         suggestions={feedQuery.data?.suggestedPrompts ?? []}
+        maxVisible={isMobile ? 2 : 3}
         onSelect={handleSuggestionSelect}
       />
       <HomeFeedList
@@ -163,9 +165,18 @@ export function HomePage({
 
   if (selectedItem && isMobile) {
     return (
-      <div className="fixed inset-x-0 bottom-0 z-30 h-[100dvh]">
+      <div
+        className="fixed inset-0 z-30 bg-[var(--surface-overlay)]"
+        style={{
+          paddingTop:
+            "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))",
+          paddingBottom:
+            "var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))",
+        }}
+      >
         <HomeDetailPanel
           item={selectedItem}
+          isMobile
           validConversationIds={validConversationIds}
           onClose={handleCloseDetail}
           onGoToThread={handleGoToThread}

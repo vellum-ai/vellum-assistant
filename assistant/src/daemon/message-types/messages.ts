@@ -1,8 +1,19 @@
 // User/assistant messages, tool results, confirmations, secrets, errors, and generation lifecycle.
 
+import type { AssistantTurnStartEvent } from "../../api/events/assistant-turn-start.js";
+import type { ToolUseStartEvent } from "../../api/events/tool-use-start.js";
 import type { ChannelId, InterfaceId } from "../../channels/types.js";
 import type { CommandIntent, UserMessageAttachment } from "./shared.js";
 import type { ToolActivityMetadata } from "./web-activity.js";
+
+/**
+ * Re-export canonical event types under the daemon's interface naming
+ * convention (`*` vs `*Event`) so existing `_MessagesServerMessages` union
+ * members read consistently. The canonical schemas in
+ * `@vellumai/assistant-api` are the source of truth.
+ */
+export type AssistantTurnStart = AssistantTurnStartEvent;
+export type ToolUseStart = ToolUseStartEvent;
 
 // === Client → Server ===
 
@@ -76,21 +87,19 @@ export interface AssistantTextDelta {
   type: "assistant_text_delta";
   text: string;
   conversationId?: string;
+  /** Database ID of the assistant message this delta belongs to. Stamped by
+   *  the agent loop from the pre-allocated turn anchor. Absent on streams
+   *  produced by older daemons that pre-date the anchor protocol. */
+  messageId?: string;
 }
 
 export interface AssistantThinkingDelta {
   type: "assistant_thinking_delta";
   thinking: string;
   conversationId?: string;
-}
-
-export interface ToolUseStart {
-  type: "tool_use_start";
-  toolName: string;
-  input: Record<string, unknown>;
-  conversationId?: string;
-  /** The tool_use block ID for client-side correlation. */
-  toolUseId?: string;
+  /** Database ID of the assistant message this thinking delta belongs to.
+   *  Same semantics as `AssistantTextDelta.messageId`. */
+  messageId?: string;
 }
 
 export interface ToolOutputChunk {
@@ -103,6 +112,9 @@ export interface ToolOutputChunk {
   subToolInput?: string;
   subToolIsError?: boolean;
   subToolId?: string;
+  /** Database ID of the assistant message that owns the parent tool_use
+   *  block. Same semantics as `AssistantTextDelta.messageId`. */
+  messageId?: string;
 }
 
 export interface ToolUsePreviewStart {
@@ -110,6 +122,9 @@ export interface ToolUsePreviewStart {
   toolUseId: string;
   toolName: string;
   conversationId?: string;
+  /** Database ID of the assistant message that owns this tool_use block.
+   *  Same semantics as `AssistantTextDelta.messageId`. */
+  messageId?: string;
 }
 
 export interface ToolInputDelta {
@@ -119,6 +134,9 @@ export interface ToolInputDelta {
   conversationId?: string;
   /** The tool_use block ID for client-side correlation. */
   toolUseId?: string;
+  /** Database ID of the assistant message that owns this tool_use block.
+   *  Same semantics as `AssistantTextDelta.messageId`. */
+  messageId?: string;
 }
 
 export interface ToolResult {
@@ -140,6 +158,9 @@ export interface ToolResult {
   imageDataList?: string[];
   /** The tool_use block ID for client-side correlation. */
   toolUseId?: string;
+  /** Database ID of the assistant message that owns the parent tool_use
+   *  block. Same semantics as `AssistantTextDelta.messageId`. */
+  messageId?: string;
   /** Risk level from the classifier ("low" | "medium" | "high" | "unknown"). */
   riskLevel?: string;
   /** Human-readable reason for the risk classification. */
@@ -537,6 +558,7 @@ export type _MessagesClientMessages =
 
 export type _MessagesServerMessages =
   | UserMessageEcho
+  | AssistantTurnStart
   | AssistantTextDelta
   | AssistantThinkingDelta
   | ToolUseStart

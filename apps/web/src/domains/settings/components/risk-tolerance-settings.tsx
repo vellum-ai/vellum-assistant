@@ -11,11 +11,11 @@ import {
 import {
   getGlobalThresholds,
   setGlobalThresholds,
-} from "@/domains/chat/api/threshold-api";
+} from "@/lib/threshold-api";
 import {
   THRESHOLD_PRESETS,
   presetFromThreshold,
-} from "@/domains/chat/utils/threshold-presets";
+} from "@/utils/threshold-presets";
 
 function Divider() {
   return (

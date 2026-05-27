@@ -146,65 +146,13 @@
   "src/domains/chat/utils/stream-handlers/types.ts": [
     "messaging"
   ],
-  "src/domains/conversations/conversation-queries.test.ts": [
-    "chat"
-  ],
-  "src/domains/conversations/conversation-queries.ts": [
-    "chat"
-  ],
   "src/domains/conversations/use-attention-tracking.ts": [
-    "chat"
-  ],
-  "src/domains/conversations/use-conversation-actions-archive-optimistic.test.tsx": [
-    "chat"
-  ],
-  "src/domains/conversations/use-conversation-actions.test.ts": [
     "chat"
   ],
   "src/domains/conversations/use-conversation-actions.ts": [
     "chat"
   ],
-  "src/domains/conversations/use-conversation-group-actions.ts": [
-    "chat"
-  ],
   "src/domains/conversations/use-conversation-loader.ts": [
-    "chat"
-  ],
-  "src/domains/intelligence/components/apps/app-viewer-container.tsx": [
-    "chat"
-  ],
-  "src/domains/intelligence/components/apps/document-viewer-container.tsx": [
-    "chat"
-  ],
-  "src/domains/intelligence/components/apps/library-view.tsx": [
-    "chat"
-  ],
-  "src/domains/interactions/interaction-store.ts": [
-    "chat"
-  ],
-  "src/domains/library/library-detail-page.tsx": [
-    "chat",
-    "intelligence"
-  ],
-  "src/domains/library/library-page.tsx": [
-    "intelligence"
-  ],
-  "src/domains/logs/components/logs-tab.tsx": [
-    "chat"
-  ],
-  "src/domains/logs/components/usage-tab.tsx": [
-    "chat"
-  ],
-  "src/domains/settings/components/risk-tolerance-settings.tsx": [
-    "chat"
-  ],
-  "src/domains/settings/pages/archive-page.tsx": [
-    "chat"
-  ],
-  "src/domains/subagents/status-helpers.ts": [
-    "chat"
-  ],
-  "src/domains/subagents/subagent-store.ts": [
     "chat"
   ]
 }

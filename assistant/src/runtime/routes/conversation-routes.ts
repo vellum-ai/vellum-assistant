@@ -1020,6 +1020,9 @@ export async function handleSendMessage(
       cohort?: string;
       websiteUrl?: string;
       contentSourceUrl?: string;
+      bootstrapTemplate?: string;
+      initialMessage?: string;
+      skills?: string[];
     };
   };
 
@@ -1405,10 +1408,8 @@ export async function handleSendMessage(
       : ("content-source" as const);
     effectiveContent = buildScanFirstMessage(scanUrl, scanVariant);
     // Fall through to normal inference path below
-  } else if (isWakeUp && body.onboarding?.cohort === "content-automation") {
-    effectiveContent = "I want to write articles that rank better in GEO";
-    // Fall through to normal inference path — the bootstrap template
-    // and geo-writing skill handle this message.
+  } else if (isWakeUp && body.onboarding?.initialMessage) {
+    effectiveContent = body.onboarding.initialMessage;
   } else if (isWakeUp) {
     const cannedGreeting = getCannedFirstGreeting(body.onboarding ?? undefined);
 

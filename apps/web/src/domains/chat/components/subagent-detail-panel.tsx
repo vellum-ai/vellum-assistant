@@ -7,12 +7,12 @@ import {
   X,
 } from "lucide-react";
 
-import { type ReactNode, useEffect, useRef } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { AvatarRenderer } from "@/components/avatar-renderer";
 import { Button, Typography } from "@vellum/design-library";
 import { StatusBadge } from "@/domains/chat/components/subagent-status-badge";
-import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
+import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import { subagentTraits } from "@/utils/avatar-subagent";
 import type { SubagentEntry } from "@/domains/subagents/subagent-store";
 import { isActiveStatus } from "@/domains/subagents/status-helpers";
@@ -42,6 +42,38 @@ function formatCost(cost: number): string {
     return cost.toFixed(4);
   }
   return cost.toFixed(2);
+}
+
+const ANIMATION_DURATION_MS = 300;
+
+function useAnimatedNumber(target: number): number {
+  const [displayed, setDisplayed] = useState(target);
+  const rafRef = useRef<number>(0);
+  const displayedRef = useRef(target);
+
+  useEffect(() => {
+    const from = displayedRef.current;
+    if (from === target) return;
+
+    cancelAnimationFrame(rafRef.current);
+    const start = performance.now();
+
+    const step = (now: number) => {
+      const elapsed = now - start;
+      const progress = Math.min(elapsed / ANIMATION_DURATION_MS, 1);
+      const eased = 1 - (1 - progress) ** 3;
+      const value = from + (target - from) * eased;
+      displayedRef.current = value;
+      setDisplayed(value);
+      if (progress < 1) {
+        rafRef.current = requestAnimationFrame(step);
+      }
+    };
+    rafRef.current = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [target]);
+
+  return displayed;
 }
 
 function MetricCard({
@@ -86,6 +118,13 @@ function MetricCard({
   );
 }
 
+function AnimatedMetricCard({ icon, label, target, format }: {
+  icon: ReactNode; label: string; target: number; format: (n: number) => string;
+}) {
+  const animated = useAnimatedNumber(target);
+  return <MetricCard icon={icon} label={label} value={format(animated)} />;
+}
+
 // ---------------------------------------------------------------------------
 // Props
 // ---------------------------------------------------------------------------
@@ -118,6 +157,7 @@ export function SubagentDetailPanel({
     entry.outputTokens === 0 &&
     entry.totalCost === 0;
   const requestedRef = useRef<string | null>(null);
+  const components = useBundledAvatarComponents();
 
   useEffect(() => {
     if (
@@ -135,13 +175,17 @@ export function SubagentDetailPanel({
     <div className="flex h-full flex-col overflow-hidden rounded-xl bg-[var(--surface-lift)]">
       {/* Header */}
       <div className="flex shrink-0 items-center gap-3 border-b border-[var(--border-base)] px-5 py-4">
-        <AvatarRenderer
-          components={BUNDLED_COMPONENTS}
-          bodyShapeId={subagentTraits(entry.subagentId).bodyShape}
-          eyeStyleId={subagentTraits(entry.subagentId).eyeStyle}
-          colorId={subagentTraits(entry.subagentId).color}
-          size={32}
-        />
+        {components ? (
+          <AvatarRenderer
+            components={components}
+            bodyShapeId={subagentTraits(entry.subagentId).bodyShape}
+            eyeStyleId={subagentTraits(entry.subagentId).eyeStyle}
+            colorId={subagentTraits(entry.subagentId).color}
+            size={32}
+          />
+        ) : (
+          <div style={{ width: 32, height: 32, flexShrink: 0 }} aria-hidden />
+        )}
         <Typography
           variant="title-medium"
           className="min-w-0 shrink truncate text-[var(--content-default)]"
@@ -177,21 +221,24 @@ export function SubagentDetailPanel({
       <div className="flex-1 overflow-y-auto px-5 py-5">
         {/* Metrics row */}
         <div className="mb-5 grid grid-cols-3 gap-3">
-          <MetricCard
+          <AnimatedMetricCard
             icon={<ArrowDownToLine className="h-4 w-4 shrink-0" style={{ color: "var(--content-secondary)" }} />}
-            value={formatNumber(entry.inputTokens)}
+            target={entry.inputTokens}
+            format={(n) => formatNumber(Math.round(n))}
             label="Input"
             loading={metricsPending}
           />
-          <MetricCard
+          <AnimatedMetricCard
             icon={<ArrowUpFromLine className="h-4 w-4 shrink-0" style={{ color: "var(--content-secondary)" }} />}
-            value={formatNumber(entry.outputTokens)}
+            target={entry.outputTokens}
+            format={(n) => formatNumber(Math.round(n))}
             label="Output"
             loading={metricsPending}
           />
-          <MetricCard
+          <AnimatedMetricCard
             icon={<DollarSign className="h-4 w-4 shrink-0" style={{ color: "var(--content-secondary)" }} />}
-            value={formatCost(entry.totalCost)}
+            target={entry.totalCost}
+            format={formatCost}
             label="Cost"
             loading={metricsPending}
           />

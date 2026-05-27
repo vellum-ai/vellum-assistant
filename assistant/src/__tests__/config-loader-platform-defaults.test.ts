@@ -1,9 +1,11 @@
 /**
  * When IS_PLATFORM=true and no config.json exists yet, loadConfig() must
- * write all eight managed-capable service modes as "managed" instead of the
- * schema default "your-own". When IS_PLATFORM is absent/false, or when
- * config.json already exists, the schema defaults and existing values are
- * preserved unchanged.
+ * write all managed-capable service modes as "managed" instead of the
+ * per-service schema default. When IS_PLATFORM is absent/false, or when
+ * config.json already exists, the Zod schema defaults and existing values
+ * are preserved unchanged — note that `google-oauth` and `notion-oauth`
+ * default to "managed" at the schema level (per JARVIS-966), while every
+ * other managed-capable service defaults to "your-own".
  */
 
 import {
@@ -91,6 +93,9 @@ function readConfig(): Record<string, unknown> {
   return JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 }
 
+// When IS_PLATFORM=true, every managed-capable service defaults to "managed".
+// Without IS_PLATFORM, services split by Zod schema default: google/notion-oauth
+// resolve to "managed" (per JARVIS-966), the rest resolve to "your-own".
 const MANAGED_SERVICES = [
   "image-generation",
   "web-search",
@@ -99,6 +104,28 @@ const MANAGED_SERVICES = [
   "linear-oauth",
   "github-oauth",
   "notion-oauth",
+] as const;
+
+/**
+ * Services whose Zod schema default is `"managed"` rather than `"your-own"`.
+ * For these, the fresh-write and in-memory paths produce `"managed"` even
+ * when IS_PLATFORM is false/unset — the schema default applies regardless of
+ * deployment context. See `assistant/src/config/schemas/services.ts` and
+ * JARVIS-966: managed mode is the optimization target for new users on
+ * managed-capable infra, since the BYO flow requires a Google Cloud /
+ * Notion integration setup that most users never complete.
+ */
+const SCHEMA_MANAGED_DEFAULT_SERVICES = [
+  "google-oauth",
+  "notion-oauth",
+] as const;
+
+const SCHEMA_YOUR_OWN_DEFAULT_SERVICES = [
+  "image-generation",
+  "web-search",
+  "outlook-oauth",
+  "linear-oauth",
+  "github-oauth",
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -139,7 +166,7 @@ describe("platform-managed config defaults", () => {
     }
   });
 
-  test("IS_PLATFORM=false, no config file → managed service modes default to 'your-own'", () => {
+  test("IS_PLATFORM=false, no config file → service modes follow schema defaults (your-own except google/notion-oauth which are managed)", () => {
     process.env.IS_PLATFORM = "false";
 
     loadConfig();
@@ -148,12 +175,15 @@ describe("platform-managed config defaults", () => {
     const written = readConfig() as { services?: Record<string, unknown> };
     expect(written.services).toBeDefined();
     const services = written.services!;
-    for (const svc of MANAGED_SERVICES) {
+    for (const svc of SCHEMA_YOUR_OWN_DEFAULT_SERVICES) {
       expect((services[svc] as { mode?: string })?.mode).toBe("your-own");
+    }
+    for (const svc of SCHEMA_MANAGED_DEFAULT_SERVICES) {
+      expect((services[svc] as { mode?: string })?.mode).toBe("managed");
     }
   });
 
-  test("IS_PLATFORM unset, no config file → managed service modes default to 'your-own'", () => {
+  test("IS_PLATFORM unset, no config file → service modes follow schema defaults (your-own except google/notion-oauth which are managed)", () => {
     delete process.env.IS_PLATFORM;
 
     loadConfig();
@@ -162,8 +192,11 @@ describe("platform-managed config defaults", () => {
     const written = readConfig() as { services?: Record<string, unknown> };
     expect(written.services).toBeDefined();
     const services = written.services!;
-    for (const svc of MANAGED_SERVICES) {
+    for (const svc of SCHEMA_YOUR_OWN_DEFAULT_SERVICES) {
       expect((services[svc] as { mode?: string })?.mode).toBe("your-own");
+    }
+    for (const svc of SCHEMA_MANAGED_DEFAULT_SERVICES) {
+      expect((services[svc] as { mode?: string })?.mode).toBe("managed");
     }
   });
 
@@ -197,6 +230,37 @@ describe("platform-managed config defaults", () => {
     expect(config.services["image-generation"].mode).toBe("your-own");
   });
 
+  test("IS_PLATFORM=true, config file with explicit notion-oauth mode='your-own' → preserved (schema default is 'managed')", () => {
+    process.env.IS_PLATFORM = "true";
+
+    // notion-oauth's schema default is "managed" (per JARVIS-966), but an
+    // explicit user choice of "your-own" must win — the fill-defaults pass
+    // must never override an explicit value, even one that contradicts the
+    // schema default. Mirror of the image-generation "your-own preserved"
+    // test above, but for a service whose schema default is "managed".
+    writeFileSync(
+      CONFIG_PATH,
+      JSON.stringify(
+        {
+          services: {
+            "notion-oauth": { mode: "your-own" },
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+
+    const config = loadConfig();
+
+    const written = readConfig() as { services?: Record<string, unknown> };
+    expect(written.services).toBeDefined();
+    expect((written.services!["notion-oauth"] as { mode?: string })?.mode).toBe(
+      "your-own",
+    );
+    expect(config.services["notion-oauth"].mode).toBe("your-own");
+  });
+
   test("IS_PLATFORM=true, config file exists without a services key → in-memory config has all managed modes", () => {
     // Regression guard for the platform-managed boot order: by the time
     // `loadConfig()` runs, lifecycle steps such as `seedInferenceProfiles`
@@ -228,12 +292,8 @@ describe("platform-managed config defaults", () => {
     // missing service-mode fields.
     for (const svc of MANAGED_SERVICES) {
       expect(
-        (
-          config.services as unknown as Record<
-            string,
-            { mode: string }
-          >
-        )[svc]!.mode,
+        (config.services as unknown as Record<string, { mode: string }>)[svc]!
+          .mode,
       ).toBe("managed");
     }
 
@@ -277,9 +337,11 @@ describe("platform-managed config defaults", () => {
     expect(imageGen.provider).toBe("openai");
   });
 
-  test("IS_PLATFORM=false, config file exists without services key → in-memory config keeps schema your-own defaults", () => {
+  test("IS_PLATFORM=false, config file exists without services key → in-memory config keeps schema defaults (your-own except google/notion-oauth which are managed)", () => {
     // Sanity guard: deployment-context defaults are a no-op when IS_PLATFORM
-    // is not enabled, regardless of whether config.json existed.
+    // is not enabled, regardless of whether config.json existed. The Zod
+    // schema defaults still apply, so google-oauth and notion-oauth resolve
+    // to "managed" while the remaining services resolve to "your-own".
     process.env.IS_PLATFORM = "false";
 
     writeFileSync(
@@ -300,15 +362,17 @@ describe("platform-managed config defaults", () => {
 
     const config = loadConfig();
 
-    for (const svc of MANAGED_SERVICES) {
+    for (const svc of SCHEMA_YOUR_OWN_DEFAULT_SERVICES) {
       expect(
-        (
-          config.services as unknown as Record<
-            string,
-            { mode: string }
-          >
-        )[svc]!.mode,
+        (config.services as unknown as Record<string, { mode: string }>)[svc]!
+          .mode,
       ).toBe("your-own");
+    }
+    for (const svc of SCHEMA_MANAGED_DEFAULT_SERVICES) {
+      expect(
+        (config.services as unknown as Record<string, { mode: string }>)[svc]!
+          .mode,
+      ).toBe("managed");
     }
   });
 });

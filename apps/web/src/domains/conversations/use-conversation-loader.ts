@@ -21,7 +21,7 @@ import {
 import {
   loadLastViewedConversationId,
   saveLastViewedConversationId,
-} from "@/domains/chat/utils/last-viewed-conversation-storage";
+} from "@/utils/last-viewed-conversation-storage";
 import type { TranscriptPaginationState } from "@/domains/chat/transcript/types";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
 
@@ -36,11 +36,14 @@ import { useConversationHistory } from "@/domains/chat/hooks/use-conversation-hi
 import { useQueryClient } from "@tanstack/react-query";
 
 import { ApiError } from "@/domains/chat/api/client";
-import { type Conversation } from "@/domains/chat/api/conversations";
 import {
-  chatContextQueryKey,
+  type Conversation,
+  isBackgroundConversation,
+} from "@/lib/conversations-api";
+import {
   conversationGroupsQueryKey,
-  useChatContextQuery,
+  conversationsQueryKey,
+  useConversationListQuery,
 } from "@/domains/conversations/conversation-queries";
 
 // ---------------------------------------------------------------------------
@@ -48,7 +51,7 @@ import {
 // ---------------------------------------------------------------------------
 
 const CONVERSATION_LIST_INVALIDATED_DEBOUNCE_MS = 250;
-const CHAT_CONTEXT_LOAD_FAILED_CODE = "CHAT_CONTEXT_LOAD_FAILED";
+const CONVERSATION_LIST_LOAD_FAILED_CODE = "CONVERSATION_LIST_LOAD_FAILED";
 
 /** Minimal URL search-params reader (subset of `URLSearchParams`). */
 interface SearchParamsLike {
@@ -94,7 +97,6 @@ interface UseConversationLoaderParams {
   pendingInitialMessageRef: MutableRefObject<{ conversationId: string; content: string } | null>;
 
   // State setters
-  setAssistantId: Dispatch<SetStateAction<string | null>>;
   setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
   setTranscriptPagination: Dispatch<SetStateAction<Omit<TranscriptPaginationState, "items">>>;
   setIsLoadingHistory: Dispatch<SetStateAction<boolean>>;
@@ -160,7 +162,6 @@ export function useConversationLoader({
   autoGreetRef,
   conversationListInvalidatedTimerRef,
   pendingInitialMessageRef,
-  setAssistantId,
   setMessages,
   setTranscriptPagination,
   setIsLoadingHistory,
@@ -182,13 +183,13 @@ export function useConversationLoader({
   // refreshConversations -- invalidate the cached conversation list + groups
   // so subscribed query consumers refetch. The active list query is mounted
   // by `ChatLayout` and `ChatPage`, so invalidation triggers a background
-  // refetch through the same `getChatContext` queryFn used at boot.
+  // refetch through the same `listConversations` queryFn used at boot.
   // -------------------------------------------------------------------------
   const refreshConversations = useCallback(async () => {
     if (!assistantId) return;
     try {
       await queryClient.invalidateQueries({
-        queryKey: chatContextQueryKey(assistantId),
+        queryKey: conversationsQueryKey(assistantId),
       });
     } catch (err) {
       Sentry.captureException(err, {
@@ -228,14 +229,14 @@ export function useConversationLoader({
   }, [conversationListInvalidatedTimerRef]);
 
   // -------------------------------------------------------------------------
-  // Chat context query subscription
+  // Conversation list query subscription
   //
-  // The bootstrapping data (assistant id + conversation list + default
-  // conversation key) is owned by a single `useChatContextQuery` here.
-  // Sibling consumers in `ChatLayout`, `ChatPage`, and `useAttentionTracking`
-  // mount the same query — they all share one cache entry under
-  // `chatContextQueryKey(assistantId)`, so dedupe and structural-sharing are
-  // automatic.
+  // The conversation list is owned by `useConversationListQuery`, which
+  // fetches all conversations (foreground + background) for the given
+  // `assistantId`. Sibling consumers in `ChatLayout` and `ChatPage` mount
+  // the same query — they all share one cache entry under
+  // `conversationsQueryKey(assistantId)`, so dedupe and structural-sharing
+  // are automatic.
   //
   // The query owns:
   // - fetch initiation (on first subscribe + on invalidations below)
@@ -249,13 +250,13 @@ export function useConversationLoader({
   // already have. A genuine "no data at all" failure surfaces via the banner
   // consumer below.
   // -------------------------------------------------------------------------
-  const chatContextQuery = useChatContextQuery(
+  const conversationListQuery = useConversationListQuery(
     assistantId,
     assistantStateKind === "active",
   );
-  const chatContext = chatContextQuery.data ?? null;
-  const chatContextError = chatContextQuery.error;
-  const chatContextIsError = chatContextQuery.isError;
+  const queryConversations = conversationListQuery.conversations;
+  const conversationListError = conversationListQuery.error;
+  const conversationListIsError = conversationListQuery.isError;
 
   // -------------------------------------------------------------------------
   // Refresh-epoch / reachability-epoch ticks
@@ -275,7 +276,7 @@ export function useConversationLoader({
     }
     if (assistantStateKind !== "active" || !assistantId) return;
     void queryClient.invalidateQueries({
-      queryKey: chatContextQueryKey(assistantId),
+      queryKey: conversationsQueryKey(assistantId),
     });
   }, [
     refreshEpoch,
@@ -293,16 +294,16 @@ export function useConversationLoader({
   // because this toast already surfaces the right message.
   // -------------------------------------------------------------------------
   useEffect(() => {
-    if (chatContextError instanceof ApiError && chatContextError.status === 401) {
+    if (conversationListError instanceof ApiError && conversationListError.status === 401) {
       toast.error("Failed to authenticate user.");
     }
-  }, [chatContextError]);
+  }, [conversationListError]);
 
   // -------------------------------------------------------------------------
   // Banner consumer
   //
-  // Raise the chat-context load-failed banner only when (a) the query is
-  // in error state AND (b) we have no cached data to fall back on. A
+  // Raise the conversation-list load-failed banner only when (a) the query
+  // is in error state AND (b) we have no cached data to fall back on. A
   // refetch failure that leaves the previous `data` intact is a *refresh*
   // failure, not a load failure — the user is still looking at a
   // populated UI, so there is nothing useful to say.
@@ -313,21 +314,20 @@ export function useConversationLoader({
   useEffect(() => {
     if (assistantStateKind !== "active") return;
     const isAuthFail =
-      chatContextError instanceof ApiError && chatContextError.status === 401;
-    const hasUsableData =
-      !!chatContext && chatContext.conversations.length > 0;
+      conversationListError instanceof ApiError && conversationListError.status === 401;
+    const hasUsableData = queryConversations.length > 0;
 
-    if (chatContextIsError && !hasUsableData && !isAuthFail) {
-      Sentry.captureException(chatContextError, {
+    if (conversationListIsError && !hasUsableData && !isAuthFail) {
+      Sentry.captureException(conversationListError, {
         level: "warning",
-        tags: { context: "getChatContext.bootstrap" },
+        tags: { context: "conversationList.bootstrap" },
       });
       setError((prev) => {
         if (shouldSuppressGenericChatErrorNotice(prev)) return prev;
         const status =
-          chatContextError instanceof ApiError ? chatContextError.status : 0;
+          conversationListError instanceof ApiError ? conversationListError.status : 0;
         return {
-          code: CHAT_CONTEXT_LOAD_FAILED_CODE,
+          code: CONVERSATION_LIST_LOAD_FAILED_CODE,
           message:
             status >= 500
               ? "We couldn't reach your assistant. We'll keep checking the connection."
@@ -338,14 +338,14 @@ export function useConversationLoader({
     }
     if (hasUsableData) {
       setError((prev) =>
-        prev?.code === CHAT_CONTEXT_LOAD_FAILED_CODE ? null : prev,
+        prev?.code === CONVERSATION_LIST_LOAD_FAILED_CODE ? null : prev,
       );
     }
   }, [
     assistantStateKind,
-    chatContext,
-    chatContextError,
-    chatContextIsError,
+    queryConversations,
+    conversationListError,
+    conversationListIsError,
     setError,
     shouldSuppressGenericChatErrorNotice,
   ]);
@@ -353,13 +353,13 @@ export function useConversationLoader({
   // -------------------------------------------------------------------------
   // Bootstrap routing
   //
-  // When chat context arrives in the cache (from any source — this hook's
-  // own subscription or a sibling subscriber that fetched first), resolve
-  // the bootstrap conversation key and write it into the URL + client
-  // store. Idempotent: `resolveBootstrappedConversationId` prefers the
-  // currently-active key when one is set, so a refetch with the same data
-  // shape (de-duped by React Query's structural sharing) does not churn
-  // the route.
+  // When conversation data arrives in the cache (from any source — this
+  // hook's own subscription or a sibling subscriber that fetched first),
+  // resolve the bootstrap conversation key and write it into the URL +
+  // client store. Idempotent: `resolveBootstrappedConversationId` prefers
+  // the currently-active key when one is set, so a refetch with the same
+  // data shape (de-duped by React Query's structural sharing) does not
+  // churn the route.
   //
   // This effect intentionally does not raise the banner — error handling
   // lives in the banner-consumer effect above. Decoupling lets the
@@ -369,22 +369,33 @@ export function useConversationLoader({
   const lastAppliedUrlConversationIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (assistantStateKind !== "active") return;
-    if (!chatContext) return;
+    if (!assistantId) return;
+    if (queryConversations.length === 0 && !conversationListIsError) return;
 
     const explicitConversationId = urlConversationId;
 
-    // When only chatContext changed (e.g. from resolveDraftKey's
+    // When only the conversation list changed (e.g. from resolveDraftKey's
     // setQueryData) but the URL hasn't changed, the URL key is stale —
     // a programmatic navigate() is in flight. Trust the store's
     // activeConversationId and let the URL catch up.
     if (
       explicitConversationId != null &&
       explicitConversationId === lastAppliedUrlConversationIdRef.current &&
-      assistantIdRef.current === chatContext.assistantId
+      assistantIdRef.current === assistantId
     ) {
       return;
     }
     lastAppliedUrlConversationIdRef.current = explicitConversationId;
+
+    // Compute the default landing conversation — prefer the latest
+    // foreground conversation. Background/scheduled conversations live
+    // behind a collapsed-by-default sidebar section and must never be
+    // selected implicitly.
+    const active = queryConversations.filter((c) => c.archivedAt == null);
+    const latestForeground = active.find((c) => !isBackgroundConversation(c));
+    const defaultConversationId = latestForeground
+      ? latestForeground.conversationId
+      : assistantId;
 
     let onboardingDraftConversationId: string | null = null;
     if (searchParams.get("onboarding") === "1") {
@@ -396,25 +407,24 @@ export function useConversationLoader({
       onboardingDraftConversationId,
       currentConversationId: activeConversationIdRef.current,
       currentAssistantId: assistantIdRef.current,
-      nextAssistantId: chatContext.assistantId,
-      storedConversationId: loadLastViewedConversationId(chatContext.assistantId),
-      defaultConversationId: chatContext.conversationId,
-      conversations: chatContext.conversations,
+      nextAssistantId: assistantId,
+      storedConversationId: loadLastViewedConversationId(assistantId),
+      defaultConversationId,
+      conversations: queryConversations,
     });
-
-    setAssistantId(chatContext.assistantId);
 
     useConversationStore.getState().setActiveConversationId(key);
     if (key) {
       void navigate(routes.conversation(key), { replace: true });
     }
   }, [
-    chatContext,
+    queryConversations,
+    conversationListIsError,
+    assistantId,
     assistantStateKind,
     urlConversationId,
     searchParams,
     navigate,
-    setAssistantId,
     assistantIdRef,
     activeConversationIdRef,
     onboardingDraftConversationIdRef,

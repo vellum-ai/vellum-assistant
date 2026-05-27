@@ -4,7 +4,7 @@
 //
 // Shape on disk: PinnedAppEntry[]
 
-import type { AppSummary } from "@/domains/chat/api/apps";
+import type { AppSummary } from "@/lib/apps-api";
 
 const STORAGE_KEY = "vellum:pinnedApps";
 

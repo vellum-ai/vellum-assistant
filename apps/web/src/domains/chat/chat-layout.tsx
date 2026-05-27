@@ -22,7 +22,7 @@ import type { AssistantContextValue } from "@/components/layout/assistant-contex
 
 import { useConversationStore } from "@/domains/conversations/conversation-store";
 import {
-  chatContextQueryKey,
+  conversationsQueryKey,
   useConversationGroupsQuery,
   useConversationListQuery,
 } from "@/domains/conversations/conversation-queries";
@@ -36,7 +36,7 @@ import { useViewerStore } from "@/stores/viewer-store";
 import { useSubagentStore } from "@/domains/subagents/subagent-store";
 import { useAuthStore } from "@/stores/auth-store";
 import { canUseLlmInspector } from "@/domains/chat/inspector/access";
-import type { Conversation } from "@/domains/chat/api/conversations";
+import type { Conversation } from "@/lib/conversations-api";
 
 import { OfflineBanner } from "@/components/offline-banner";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
@@ -465,7 +465,7 @@ export function ChatLayout() {
     if (!lifecycle.assistantId) return;
     try {
       await queryClient.invalidateQueries({
-        queryKey: chatContextQueryKey(lifecycle.assistantId),
+        queryKey: conversationsQueryKey(lifecycle.assistantId),
       });
     } catch (err) {
       Sentry.captureException(err, {

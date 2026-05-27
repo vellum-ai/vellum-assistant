@@ -1,9 +1,8 @@
 import { describe, expect, it } from "bun:test";
 
 import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers";
-import { chatContextQueryKey } from "@/domains/conversations/conversation-queries";
-import type { Conversation } from "@/domains/chat/api/conversations";
-import type { ChatContext } from "@/domains/chat/api/assistant";
+import { conversationsQueryKey } from "@/domains/conversations/conversation-queries";
+import type { Conversation } from "@/lib/conversations-api";
 import {
   handleUsageUpdate,
   handleConversationTitleUpdated,
@@ -77,17 +76,13 @@ describe("handleUsageUpdate", () => {
 });
 
 describe("handleConversationTitleUpdated", () => {
-  it("patches conversation title in the chat-context query cache", () => {
+  it("patches conversation title in the conversations query cache", () => {
     const ctx = makeCtx();
-    ctx.queryClient.setQueryData<ChatContext | null>(
-      chatContextQueryKey(ctx.assistantIdRef.current),
-      {
-        assistantId: ctx.assistantIdRef.current ?? "",
-        conversationId: "conv-1",
-        conversations: [
-          { conversationId: "conv-1", title: "Old Title" } as Conversation,
-        ],
-      },
+    ctx.queryClient.setQueryData<Conversation[]>(
+      conversationsQueryKey(ctx.assistantIdRef.current),
+      [
+        { conversationId: "conv-1", title: "Old Title" } as Conversation,
+      ],
     );
 
     handleConversationTitleUpdated(
@@ -99,10 +94,10 @@ describe("handleConversationTitleUpdated", () => {
       ctx,
     );
 
-    const cached = ctx.queryClient.getQueryData<ChatContext | null>(
-      chatContextQueryKey(ctx.assistantIdRef.current),
+    const cached = ctx.queryClient.getQueryData<Conversation[]>(
+      conversationsQueryKey(ctx.assistantIdRef.current),
     );
-    const conv = cached?.conversations.find(
+    const conv = cached?.find(
       (c) => c.conversationId === "conv-1",
     );
     expect(conv?.title).toBe("New Title");

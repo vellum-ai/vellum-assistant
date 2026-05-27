@@ -11,9 +11,5 @@ export {
   ApiError,
   assertHasResponse,
   extractErrorMessage,
+  SDK_BASE_OPTIONS,
 } from "@/lib/api-errors";
-
-export const SDK_BASE_OPTIONS =
-  typeof window === "undefined"
-    ? ({ baseUrl: "http://localhost" } as const)
-    : ({} as const);

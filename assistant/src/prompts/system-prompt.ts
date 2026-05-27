@@ -21,24 +21,11 @@ import {
 } from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";
 import { cleanupBootstrapFiles } from "./bootstrap-cleanup.js";
-import {
-  resolveGuardianPersona,
-  resolveUserSlug,
-} from "./persona-resolver.js";
+import { resolveGuardianPersona, resolveUserSlug } from "./persona-resolver.js";
 import { renderWorkspaceSections } from "./sections.js";
 import { isTemplateContent } from "./template-detection.js";
 
 export { isTemplateContent };
-
-/**
- * Maps onboarding cohort identifiers to their cohort-specific bootstrap
- * template filenames.  When a cohort key is present in OnboardingContext,
- * `maybeReseedBootstrapForCohort` swaps the generic BOOTSTRAP.md with the
- * cohort-specific variant — but only if the workspace file is still pristine.
- */
-const COHORT_BOOTSTRAP_TEMPLATES: Record<string, string> = {
-  "content-automation": "BOOTSTRAP-CONTENT-AUTOMATION.md",
-};
 
 const log = getLogger("system-prompt");
 
@@ -215,23 +202,34 @@ export function ensurePromptFiles(): void {
 
 /**
  * One-shot swap: if the workspace BOOTSTRAP.md is still the unmodified generic
- * template AND a cohort-specific template exists, overwrite the workspace file
- * with the cohort variant.  No-op when BOOTSTRAP.md has been deleted, modified,
- * or the cohort has no mapped template.
+ * template AND a matching template file exists in the bundled templates dir,
+ * overwrite the workspace file with the specified variant.  No-op when
+ * BOOTSTRAP.md has been deleted, modified, or the template file is missing.
  */
-export function maybeReseedBootstrapForCohort(cohort: string): void {
-  const templateFileName = COHORT_BOOTSTRAP_TEMPLATES[cohort];
-  if (!templateFileName) return;
+export function maybeReseedBootstrap(templateFileName: string): void {
+  // Path traversal guard: reject filenames containing directory separators or
+  // parent-directory references, and require a `.md` extension.
+  if (
+    templateFileName.includes("/") ||
+    templateFileName.includes("..") ||
+    !templateFileName.endsWith(".md")
+  ) {
+    log.warn(
+      { templateFileName },
+      "Rejected bootstrap template filename: invalid characters or extension",
+    );
+    return;
+  }
 
   const bootstrapPath = getWorkspacePromptPath("BOOTSTRAP.md");
   if (!existsSync(bootstrapPath)) return;
 
   const currentContent = readPromptFile(bootstrapPath);
-  // Compare against the GENERIC "BOOTSTRAP.md" template, not the cohort-
-  // specific one.  After the swap, the workspace content no longer matches
-  // the generic template, so this guard returns false on subsequent calls —
-  // making the swap idempotent.  Do NOT change the comparison target to the
-  // cohort template filename; that would re-swap on every prompt build.
+  // Compare against the GENERIC "BOOTSTRAP.md" template, not the specified
+  // one.  After the swap, the workspace content no longer matches the generic
+  // template, so this guard returns false on subsequent calls — making the
+  // swap idempotent.  Do NOT change the comparison target to the provided
+  // template filename; that would re-swap on every prompt build.
   if (!isTemplateContent(currentContent, "BOOTSTRAP.md")) return;
 
   const templatesDir = resolveBundledDir(
@@ -239,26 +237,26 @@ export function maybeReseedBootstrapForCohort(cohort: string): void {
     "templates",
     "templates",
   );
-  const cohortTemplatePath = join(templatesDir, templateFileName);
-  if (!existsSync(cohortTemplatePath)) {
+  const templatePath = join(templatesDir, templateFileName);
+  if (!existsSync(templatePath)) {
     log.warn(
-      { cohort, templateFileName },
-      "Cohort bootstrap template not found, keeping generic BOOTSTRAP.md",
+      { templateFileName },
+      "Bootstrap template not found, keeping generic BOOTSTRAP.md",
     );
     return;
   }
 
   try {
-    const cohortContent = readFileSync(cohortTemplatePath, "utf-8");
-    writeFileSync(bootstrapPath, cohortContent, "utf-8");
+    const templateContent = readFileSync(templatePath, "utf-8");
+    writeFileSync(bootstrapPath, templateContent, "utf-8");
     log.info(
-      { cohort, templateFileName },
-      "Replaced generic BOOTSTRAP.md with cohort-specific template",
+      { templateFileName },
+      "Replaced generic BOOTSTRAP.md with specified template",
     );
   } catch (err) {
     log.warn(
-      { err, cohort, templateFileName },
-      "Failed to reseed BOOTSTRAP.md for cohort",
+      { err, templateFileName },
+      "Failed to reseed BOOTSTRAP.md with template",
     );
   }
 }
@@ -280,11 +278,11 @@ export interface BuildSystemPromptOptions {
  * file-backed bodies, and runtime-computed transforms.
  */
 export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
-  // One-shot cohort swap: if the user has a cohort and BOOTSTRAP.md is still
-  // the generic template, replace it with the cohort-specific variant before
-  // the prompt reads the file.
-  if (options?.onboardingContext?.cohort) {
-    maybeReseedBootstrapForCohort(options.onboardingContext.cohort);
+  // One-shot bootstrap swap: if the onboarding context specifies a bootstrap
+  // template and BOOTSTRAP.md is still the generic template, replace it with
+  // the specified variant before the prompt reads the file.
+  if (options?.onboardingContext?.bootstrapTemplate) {
+    maybeReseedBootstrap(options.onboardingContext.bootstrapTemplate);
   }
 
   // Slugs used by the persona sections (`10-user-persona`,

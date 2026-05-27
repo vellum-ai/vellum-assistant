@@ -3,11 +3,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import type { Surface } from "@/domains/chat/types/types";
 
-mock.module("@/domains/chat/api/apps", () => ({
+mock.module("@/lib/apps-api", () => ({
   getCachedAppHtml: () => Promise.resolve("<html></html>"),
 }));
 
-mock.module("@/domains/chat/pinned-apps-store", () => {
+mock.module("@/stores/pinned-apps-store", () => {
   const emptyStore = {
     use: {
       pinnedApps: () => [],

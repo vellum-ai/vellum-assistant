@@ -145,7 +145,7 @@ const authBoundaryAllowedPaths = [
 
 const eslintConfig = defineConfig([
   ...tseslint.configs.recommended,
-  globalIgnores(["dist/**", "src/generated/**"]),
+  globalIgnores(["dist/**", "src/generated/**", "storybook-static/**"]),
   {
     plugins: {
       local: { rules: { "no-cross-domain-imports": noCrossDomainImports } },

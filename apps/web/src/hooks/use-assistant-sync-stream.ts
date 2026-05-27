@@ -35,9 +35,9 @@ import {
   assistantSoundsAvailableQueryKey,
   assistantSoundsConfigQueryKey,
   avatarQueryKey,
-  chatContextQueryKey,
-  conversationGroupsQueryKey,
+  conversationsQueryKey,
 } from "@/lib/sync/query-tags";
+import { conversationGroupsQueryKey } from "@/domains/conversations/conversation-queries";
 import {
   parseConversationSyncTag,
   SYNC_TAGS,
@@ -132,7 +132,7 @@ function scheduleConversationListRefetch(
   debounceTimerRef.current = setTimeout(() => {
     debounceTimerRef.current = null;
     void queryClient.invalidateQueries({
-      queryKey: chatContextQueryKey(assistantId),
+      queryKey: conversationsQueryKey(assistantId),
     });
     void queryClient.invalidateQueries({
       queryKey: conversationGroupsQueryKey(assistantId),

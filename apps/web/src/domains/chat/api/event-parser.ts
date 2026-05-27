@@ -140,9 +140,10 @@ export function parseAssistantEvent(
   // `@vellumai/assistant-api` is the source of truth for any event
   // type it covers — when a member matches the `type` discriminator
   // and the shape validates, the parser is done. The schema sees the
-  // pure inner message (no envelope merge) so strict shapes stay
-  // strict: the envelope-level conversationId is a routing key, not
-  // an event field, and never leaks onto strict-schema events.
+  // pure inner message (no envelope merge): every wire-contract
+  // schema declares the fields it requires (including
+  // `conversationId` for conversation-scoped events), so the
+  // envelope-level routing key never needs to be grafted on.
   const schemaResult = AssistantEventSchema.safeParse(inner);
   if (schemaResult.success) return schemaResult.data as AssistantEvent;
 
@@ -276,22 +277,6 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
         ...(typeof data.statusText === "string"
           ? { statusText: data.statusText }
           : {}),
-      };
-    }
-
-    case "open_url": {
-      const url = typeof data.url === "string" ? data.url : "";
-      if (!url) {
-        return unknownEvent(rawType, data);
-      }
-      return {
-        type: "open_url",
-        url,
-        title: typeof data.title === "string" ? data.title : undefined,
-        conversationId:
-          typeof data.conversationId === "string"
-            ? data.conversationId
-            : undefined,
       };
     }
 
@@ -499,6 +484,8 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
           ? (data.input as Record<string, unknown>)
           : {},
         toolUseId: typeof data.toolUseId === "string" ? data.toolUseId : undefined,
+        messageId:
+          typeof data.messageId === "string" ? data.messageId : undefined,
         conversationId:
           typeof data.conversationId === "string"
             ? data.conversationId
@@ -512,6 +499,8 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
         result: typeof data.result === "string" ? data.result : "",
         isError: typeof data.isError === "boolean" ? data.isError : undefined,
         toolUseId: typeof data.toolUseId === "string" ? data.toolUseId : undefined,
+        messageId:
+          typeof data.messageId === "string" ? data.messageId : undefined,
         conversationId: typeof data.conversationId === "string" ? data.conversationId : undefined,
         riskLevel: typeof data.riskLevel === "string" ? data.riskLevel : undefined,
         riskReason: typeof data.riskReason === "string" ? data.riskReason : undefined,

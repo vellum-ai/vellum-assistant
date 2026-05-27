@@ -647,6 +647,89 @@ describe("reset", () => {
 });
 
 // ---------------------------------------------------------------------------
+// updateUsage
+// ---------------------------------------------------------------------------
+
+describe("updateUsage", () => {
+  it("accumulates token deltas additively", () => {
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "Agent",
+      objective: "Task",
+      timestamp: NOW,
+    });
+
+    getState().updateUsage({
+      subagentId: "sa-1",
+      inputTokens: 100,
+      outputTokens: 50,
+      estimatedCost: 0.001,
+    });
+    getState().updateUsage({
+      subagentId: "sa-1",
+      inputTokens: 200,
+      outputTokens: 75,
+      estimatedCost: 0.002,
+    });
+
+    const entry = getState().byId["sa-1"]!;
+    expect(entry.inputTokens).toBe(300);
+    expect(entry.outputTokens).toBe(125);
+    expect(entry.totalCost).toBeCloseTo(0.003);
+  });
+
+  it("skips updates after terminal status with usage", () => {
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "Agent",
+      objective: "Task",
+      timestamp: NOW,
+    });
+
+    getState().updateUsage({
+      subagentId: "sa-1",
+      inputTokens: 100,
+      outputTokens: 50,
+      estimatedCost: 0.001,
+    });
+
+    // Terminal status with final usage data
+    getState().changeStatus({
+      subagentId: "sa-1",
+      status: "completed",
+      inputTokens: 500,
+      outputTokens: 200,
+      totalCost: 0.005,
+    });
+
+    // This should be ignored — terminal guard
+    getState().updateUsage({
+      subagentId: "sa-1",
+      inputTokens: 9999,
+      outputTokens: 9999,
+      estimatedCost: 99.99,
+    });
+
+    const entry = getState().byId["sa-1"]!;
+    expect(entry.inputTokens).toBe(500);
+    expect(entry.outputTokens).toBe(200);
+    expect(entry.totalCost).toBe(0.005);
+  });
+
+  it("no-ops for unknown subagentId", () => {
+    const before = { ...getState().byId };
+    getState().updateUsage({
+      subagentId: "sa-nonexistent",
+      inputTokens: 100,
+      outputTokens: 50,
+      estimatedCost: 0.001,
+    });
+
+    expect(getState().byId).toEqual(before);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Edge cases
 // ---------------------------------------------------------------------------
 

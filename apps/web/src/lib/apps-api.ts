@@ -1,116 +1,64 @@
-import { client } from "@/generated/api/client.gen";
+/**
+ * App CRUD and bundle operations via the generated daemon SDK.
+ *
+ * Types are re-exported from the generated SDK so consumers don't need
+ * to reach into `@/generated/daemon/` directly.
+ */
 
-
+import { client as daemonClient } from "@/generated/daemon/client.gen";
+import {
+  appsByIdDeletePost,
+  appsByIdOpenPost,
+  appsByIdSharecloudPost,
+  appsGet,
+  appsSharedByTokenGet,
+} from "@/generated/daemon/sdk.gen";
+import type {
+  AppsByIdOpenPostResponse,
+  AppsGetResponse,
+  AppsImportbundlePostResponse,
+  AppsImportbundlePostResponses,
+} from "@/generated/daemon/types.gen";
 import { ApiError, assertHasResponse, extractErrorMessage } from "@/lib/api-errors";
 import { saveFile } from "@/runtime/native-file";
 
 // ---------------------------------------------------------------------------
-// Types
+// Types — re-exported from generated daemon SDK
 // ---------------------------------------------------------------------------
 
-export interface AppSummary {
-  id: string;
-  name: string;
-  description?: string;
-  icon?: string;
-  createdAt: number;
-  version: string;
-  contentId: string;
-}
+export type AppSummary = AppsGetResponse["apps"][number];
 
-interface ListAppsResponse {
-  apps: AppSummary[];
-}
+export type AppOpenResponse = AppsByIdOpenPostResponse;
 
-interface AppOpenResponse {
-  appId: string;
-  dirName: string;
-  name: string;
-  html: string;
-}
-
-interface ShareAppCloudResponse {
-  success: boolean;
-  shareToken: string;
-  shareUrl: string;
-}
-
-interface ImportBundleResponse {
-  success: boolean;
-  appId: string;
-  name: string;
-  scanResult: {
-    passed: boolean;
-    blocked: string[];
-    warnings: string[];
-  };
-  signatureResult: {
-    trustTier: string;
-    signerKeyId?: string;
-    signerDisplayName?: string;
-    signerAccount?: string;
-  };
-}
-
-// ---------------------------------------------------------------------------
-// SDK base options — same pattern as chat/api.ts
-// ---------------------------------------------------------------------------
-
-const SDK_BASE_OPTIONS =
-  typeof window === "undefined"
-    ? ({ baseUrl: "http://localhost" } as const)
-    : ({} as const);
+export type ImportBundleResponse = AppsImportbundlePostResponse;
 
 // ---------------------------------------------------------------------------
 // API functions
 // ---------------------------------------------------------------------------
 
-/**
- * Fetch the full list of apps from the assistant daemon.
- *
- * Hits `GET /v1/apps` which goes through the wildcard proxy
- * (RuntimeProxyWildcardView) → vembda → container.
- */
 export async function listApps(
   assistantId: string,
   conversationId?: string,
 ): Promise<AppSummary[]> {
-  const query: Record<string, string> = {};
-  if (conversationId) {
-    query.conversationId = conversationId;
-  }
-  const { data, error, response } = await client.get<ListAppsResponse, unknown>(
-    {
-      ...SDK_BASE_OPTIONS,
-      url: "/v1/assistants/{assistant_id}/apps",
-      path: { assistant_id: assistantId },
-      query,
-      throwOnError: false,
-    },
-  );
+  const { data, error, response } = await appsGet({
+    path: { assistant_id: assistantId },
+    query: conversationId ? { conversationId } : undefined,
+    throwOnError: false,
+  });
   assertHasResponse(response, error, "Failed to list apps.");
   if (!response.ok) {
     const msg = extractErrorMessage(error, response, "Failed to list apps.");
     throw new ApiError(response.status, msg);
   }
-  const payload = data as ListAppsResponse | undefined;
-  return payload?.apps ?? [];
+  return data?.apps ?? [];
 }
 
-/**
- * Permanently delete an app from the assistant daemon. Hits
- * `POST /v1/assistants/:id/apps/:appId/delete` through the wildcard proxy.
- * Also evicts any cached HTML for the deleted app so subsequent reads of the
- * same id (should one ever be reused) don't return a stale render.
- */
 export async function deleteApp(
   assistantId: string,
   appId: string,
 ): Promise<void> {
-  const { error, response } = await client.post<{ success: boolean }, unknown>({
-    ...SDK_BASE_OPTIONS,
-    url: "/v1/assistants/{assistant_id}/apps/{app_id}/delete",
-    path: { assistant_id: assistantId, app_id: appId },
+  const { error, response } = await appsByIdDeletePost({
+    path: { assistant_id: assistantId, id: appId },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to delete app.");
@@ -133,11 +81,8 @@ export async function shareApp(
   appId: string,
   appName: string,
 ): Promise<void> {
-  // Step 1: Create the share link (packages the app server-side)
-  const { data, error, response } = await client.post<ShareAppCloudResponse, unknown>({
-    ...SDK_BASE_OPTIONS,
-    url: "/v1/assistants/{assistant_id}/apps/{app_id}/share-cloud",
-    path: { assistant_id: assistantId, app_id: appId },
+  const { data, error, response } = await appsByIdSharecloudPost({
+    path: { assistant_id: assistantId, id: appId },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to share app.");
@@ -145,16 +90,12 @@ export async function shareApp(
     const msg = extractErrorMessage(error, response, "Failed to share app.");
     throw new ApiError(response.status, msg);
   }
-  const payload = data as ShareAppCloudResponse | undefined;
-  if (!payload?.shareToken) {
+  if (!data?.shareToken) {
     throw new ApiError(500, "Share response missing token.");
   }
 
-  // Step 2: Download the .vellum bundle binary
-  const { response: dlResponse } = await client.get<unknown, unknown>({
-    ...SDK_BASE_OPTIONS,
-    url: "/v1/assistants/{assistant_id}/apps/shared/{token}",
-    path: { assistant_id: assistantId, token: payload.shareToken },
+  const { response: dlResponse } = await appsSharedByTokenGet({
+    path: { assistant_id: assistantId, token: data.shareToken },
     throwOnError: false,
     parseAs: "stream",
   });
@@ -163,7 +104,6 @@ export async function shareApp(
   }
   const blob = await dlResponse.blob();
 
-  // Step 3: Trigger browser download
   const safeName = appName.replace(/[/\\:*?"<>|]/g, "_").trim() || "App";
   await saveFile(blob, `${safeName}.vellum`);
 }
@@ -171,19 +111,23 @@ export async function shareApp(
 /**
  * Import a `.vellum` bundle file into the assistant daemon.
  *
- * Sends the raw file bytes as `application/octet-stream` to
- * `POST /v1/assistants/:id/apps/import-bundle` through the wildcard proxy.
- * We use octet-stream (not multipart) because the Django wildcard proxy only
- * forwards `application/octet-stream` as raw binary — multipart is parsed by
- * DRF which drops the file from the forwarded body.
+ * Sends the raw file bytes as `application/octet-stream`. We use
+ * octet-stream (not multipart) because the Django wildcard proxy only
+ * forwards `application/octet-stream` as raw binary — multipart is
+ * parsed by DRF which drops the file from the forwarded body.
  */
 export async function importBundle(
   assistantId: string,
   file: File,
 ): Promise<ImportBundleResponse> {
   const bytes = await file.arrayBuffer();
-  const { data, error, response } = await client.post<ImportBundleResponse, unknown>({
-    ...SDK_BASE_OPTIONS,
+  // The daemon route definition doesn't declare a requestBody, so the
+  // generated SDK types have `body?: never`. Use the raw daemon client
+  // for this binary upload.
+  const { data, error, response } = await daemonClient.post<
+    AppsImportbundlePostResponses,
+    unknown
+  >({
     url: "/v1/assistants/{assistant_id}/apps/import-bundle",
     path: { assistant_id: assistantId },
     headers: { "Content-Type": "application/octet-stream" },
@@ -196,25 +140,15 @@ export async function importBundle(
     const msg = extractErrorMessage(error, response, "Failed to import app.");
     throw new ApiError(response.status, msg);
   }
-  return data as ImportBundleResponse;
+  return data!;
 }
 
-/**
- * Open an app — compiles if needed and returns the rendered HTML.
- *
- * Hits `POST /v1/apps/:id/open` through the wildcard proxy.
- */
 export async function openApp(
   assistantId: string,
   appId: string,
 ): Promise<AppOpenResponse> {
-  const { data, error, response } = await client.post<
-    AppOpenResponse,
-    unknown
-  >({
-    ...SDK_BASE_OPTIONS,
-    url: "/v1/assistants/{assistant_id}/apps/{app_id}/open",
-    path: { assistant_id: assistantId, app_id: appId },
+  const { data, error, response } = await appsByIdOpenPost({
+    path: { assistant_id: assistantId, id: appId },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to open app.");
@@ -222,7 +156,7 @@ export async function openApp(
     const msg = extractErrorMessage(error, response, "Failed to open app.");
     throw new ApiError(response.status, msg);
   }
-  return data as AppOpenResponse;
+  return data!;
 }
 
 // ---------------------------------------------------------------------------
@@ -240,10 +174,6 @@ function cacheKey(assistantId: string, appId: string): string {
   return `${assistantId}::${appId}`;
 }
 
-/**
- * Get the rendered HTML for an app, fetching once and caching the promise.
- * Concurrent callers share the same in-flight request.
- */
 export function getCachedAppHtml(
   assistantId: string,
   appId: string,
@@ -262,7 +192,6 @@ export function getCachedAppHtml(
   return entry;
 }
 
-/** Seed the cache with HTML returned from a direct `openApp` call. */
 export function primeAppHtmlCache(
   assistantId: string,
   appId: string,
@@ -271,7 +200,6 @@ export function primeAppHtmlCache(
   htmlCache.set(cacheKey(assistantId, appId), Promise.resolve(html));
 }
 
-/** Drop a single (assistant, appId) entry from the in-memory HTML cache. */
 export function clearAppHtmlCache(assistantId: string, appId: string): void {
   htmlCache.delete(cacheKey(assistantId, appId));
 }

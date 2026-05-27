@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { injectBridge } from "@/domains/chat/utils/app-bridge";
+import { injectBridge } from "@/utils/app-bridge";
 
 const APP_ID = "test-app";
 

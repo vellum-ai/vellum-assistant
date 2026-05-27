@@ -445,21 +445,35 @@ describe("parseAssistantEvent", () => {
       type: "open_url",
       url: "https://example.com/oauth",
       title: "Connect Google",
+      conversationId: "conv-1",
     });
     expect(event).toEqual({
       type: "open_url",
       url: "https://example.com/oauth",
       title: "Connect Google",
+      conversationId: "conv-1",
     });
   });
 
   test("returns unknown open_url event when url is missing", () => {
-    const data = { type: "open_url", title: "Connect Google" };
+    const data = { type: "open_url", title: "Connect Google", conversationId: "conv-1" };
     const event = parseAssistantEvent(data);
     expect(event).toEqual({
       type: "unknown",
       rawType: "open_url",
       data,
+      conversationId: "conv-1",
+    });
+  });
+
+  test("returns unknown open_url event when url is empty string", () => {
+    const data = { type: "open_url", url: "", conversationId: "conv-1" };
+    const event = parseAssistantEvent(data);
+    expect(event).toEqual({
+      type: "unknown",
+      rawType: "open_url",
+      data,
+      conversationId: "conv-1",
     });
   });
 
@@ -868,6 +882,121 @@ describe("parseAssistantEvent", () => {
         expect(event.allowlistOptions).toBeUndefined();
       }
     });
+
+    test("propagates messageId (anchor protocol)", () => {
+      const event = parseAssistantEvent({
+        type: "tool_result",
+        toolName: "bash",
+        result: "ok",
+        toolUseId: "toolu_01",
+        messageId: "asst-msg-42",
+      });
+      expect(event.type).toBe("tool_result");
+      if (event.type === "tool_result") {
+        expect(event.messageId).toBe("asst-msg-42");
+      }
+    });
+
+    test("messageId is undefined when absent (legacy daemon stream)", () => {
+      const event = parseAssistantEvent({
+        type: "tool_result",
+        toolName: "bash",
+        result: "ok",
+      });
+      expect(event.type).toBe("tool_result");
+      if (event.type === "tool_result") {
+        expect(event.messageId).toBeUndefined();
+      }
+    });
+
+    test("ignores non-string messageId", () => {
+      const event = parseAssistantEvent({
+        type: "tool_result",
+        toolName: "bash",
+        result: "ok",
+        messageId: 42,
+      });
+      expect(event.type).toBe("tool_result");
+      if (event.type === "tool_result") {
+        expect(event.messageId).toBeUndefined();
+      }
+    });
+  });
+
+  describe("tool_use_start", () => {
+    test("propagates messageId (anchor protocol)", () => {
+      const event = parseAssistantEvent({
+        type: "tool_use_start",
+        toolName: "bash",
+        input: { command: "ls" },
+        toolUseId: "toolu_01",
+        messageId: "asst-msg-42",
+      });
+      expect(event.type).toBe("tool_use_start");
+      if (event.type === "tool_use_start") {
+        expect(event.messageId).toBe("asst-msg-42");
+        expect(event.toolUseId).toBe("toolu_01");
+      }
+    });
+
+    test("messageId is undefined when absent (legacy daemon stream)", () => {
+      const event = parseAssistantEvent({
+        type: "tool_use_start",
+        toolName: "bash",
+        input: {},
+      });
+      expect(event.type).toBe("tool_use_start");
+      if (event.type === "tool_use_start") {
+        expect(event.messageId).toBeUndefined();
+      }
+    });
+  });
+
+  describe("assistant_turn_start", () => {
+    test("parses with required messageId", () => {
+      const event = parseAssistantEvent({
+        type: "assistant_turn_start",
+        messageId: "asst-msg-42",
+        conversationId: "conv-1",
+      });
+      expect(event).toEqual({
+        type: "assistant_turn_start",
+        messageId: "asst-msg-42",
+        conversationId: "conv-1",
+      });
+    });
+
+    test("conversationId is optional", () => {
+      const event = parseAssistantEvent({
+        type: "assistant_turn_start",
+        messageId: "asst-msg-42",
+      });
+      expect(event.type).toBe("assistant_turn_start");
+      if (event.type === "assistant_turn_start") {
+        expect(event.messageId).toBe("asst-msg-42");
+        expect(event.conversationId).toBeUndefined();
+      }
+    });
+
+    test("drops to unknown when messageId is missing — the anchor id is the entire payload", () => {
+      // `assistant_turn_start` exists solely to communicate the
+      // pre-allocated row id. Without it, the event carries no information
+      // worth surfacing to the reducer. Falling back to `unknown` keeps the
+      // chat reducer's "saw an event we didn't know how to handle" branch
+      // visible in dev mode rather than silently producing a no-op event.
+      const event = parseAssistantEvent({
+        type: "assistant_turn_start",
+      });
+      expect(event.type).toBe("unknown");
+    });
+
+    test("drops to unknown when messageId is non-string", () => {
+      const event = parseAssistantEvent({
+        type: "assistant_turn_start",
+        messageId: 42,
+      });
+      expect(event.type).toBe("unknown");
+    });
   });
 
   test("preserves surfaceType verbatim without coercion", () => {
@@ -1125,6 +1254,47 @@ describe("envelope format parsing", () => {
       updatedAt: "2026-05-26T00:00:00Z",
     });
     expect("conversationId" in event).toBe(false);
+  });
+
+  test("schema-parsed events: envelope conversationId is NOT grafted onto the typed event", () => {
+    // open_url declares `conversationId` as an OPTIONAL field on the
+    // inner message. When the emit site omits it (CLI signal-file
+    // broadcasts, global flows), the schema still validates and the
+    // typed event simply has no conversationId — the parser never
+    // grafts the envelope-level routing key onto schema-parsed events.
+    // Drift between envelope and typed event is exactly what
+    // `@vellumai/assistant-api` exists to prevent. Downstream routing
+    // that needs conversation scope reads the envelope at the SSE
+    // pipe, not from the typed event.
+    const event = parseAssistantEvent({
+      conversationId: "conv-from-envelope",
+      message: {
+        type: "open_url",
+        url: "https://example.com/oauth",
+        title: "Connect Google",
+      },
+    });
+    if (event.type !== "open_url") throw new Error("expected open_url");
+    expect(event.url).toBe("https://example.com/oauth");
+    expect(event.title).toBe("Connect Google");
+    expect(event.conversationId).toBeUndefined();
+  });
+
+  test("schema-parsed events: inner-declared conversationId is preserved verbatim", () => {
+    // Happy path for conversation-scoped emit sites: the emit site
+    // sets conversationId on the inner message, the schema validates,
+    // and the typed event carries it through. The envelope value plays
+    // no role.
+    const event = parseAssistantEvent({
+      conversationId: "envelope-conv",
+      message: {
+        type: "open_url",
+        url: "https://example.com/oauth",
+        conversationId: "inner-conv",
+      },
+    });
+    if (event.type !== "open_url") throw new Error("expected open_url");
+    expect(event.conversationId).toBe("inner-conv");
   });
 });
 

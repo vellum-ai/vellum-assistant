@@ -42,6 +42,7 @@ export async function run(
     context.sendToClient({
       type: "open_url",
       url: meta.url,
+      conversationId: context.conversationId,
     });
   }
 

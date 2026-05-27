@@ -17,6 +17,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { createElement } from "react";
 
+import * as sdkGen from "@/generated/daemon/sdk.gen";
 import { useConversationStore } from "@/domains/conversations/conversation-store";
 import { __resetEventBusForTesting } from "@/stores/event-bus-store";
 
@@ -44,10 +45,11 @@ mock.module("@/domains/conversations/conversation-queries", () => ({
   markConversationSeenLocal: () => {},
 }));
 
-mock.module("@/domains/chat/api/conversations", () => ({
-  markConversationSeen: (assistantId: string, conversationId: string) => {
-    markConversationSeenCalls.push({ assistantId, conversationId });
-    return markConversationSeenImpl();
+mock.module("@/generated/daemon/sdk.gen", () => ({
+  ...sdkGen,
+  conversationsSeenPost: (opts: { path: { assistant_id: string }; body: { conversationId: string } }) => {
+    markConversationSeenCalls.push({ assistantId: opts.path.assistant_id, conversationId: opts.body.conversationId });
+    return markConversationSeenImpl().then(() => ({ data: undefined, error: undefined, response: { ok: true } }));
   },
 }));
 

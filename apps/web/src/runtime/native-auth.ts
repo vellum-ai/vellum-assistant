@@ -225,7 +225,10 @@ export async function startAuthFlow(
   if (isNativePlatform()) {
     try {
       await startNativeLogin({
-        returnTo: options.returnTo ?? null,
+        returnTo:
+          options.intent === "signup"
+            ? routes.onboarding.privacy
+            : options.returnTo ?? null,
         loginHint: options.loginHint,
         providerHint: options.providerHint,
       });

@@ -10,11 +10,11 @@ import {
 } from "@vellum/design-library";
 
 import { useIsMobile } from "@/hooks/use-is-mobile";
-import { listApps, type AppSummary } from "@/domains/chat/api/apps";
+import { listApps, type AppSummary } from "@/lib/apps-api";
 import {
   listDocuments,
   type DocumentSummary,
-} from "@/domains/chat/api/documents";
+} from "@/lib/documents-api";
 
 interface ConversationAsset {
   id: string;

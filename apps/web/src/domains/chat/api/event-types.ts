@@ -6,11 +6,41 @@
  * consumed by event-parser.ts and the stream handler domain modules.
  */
 
-import type { RelationshipStateUpdatedEvent } from "@vellumai/assistant-api";
+import type {
+  AssistantTurnStartEvent,
+  OpenUrlEvent,
+  RelationshipStateUpdatedEvent,
+  ToolUseStartEvent,
+} from "@vellumai/assistant-api";
 import type { DiskPressureStatus } from "@/assistant/types";
 import type { Surface } from "@/domains/chat/types/types";
 import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
 import type { SyncChangedEvent } from "@/lib/sync/types";
+export type {
+  AllowlistOption,
+  DirectoryScopeOption,
+  QuestionEntry,
+  QuestionOption,
+  ScopeOption,
+  SubagentInnerEvent,
+  SubagentStatus,
+} from "@/types/interaction-ui-types";
+import type {
+  AllowlistOption,
+  DirectoryScopeOption,
+  QuestionEntry,
+  QuestionOption,
+  ScopeOption,
+  SubagentInnerEvent,
+  SubagentStatus,
+} from "@/types/interaction-ui-types";
+
+// Re-export canonical event types under the web side's existing names so
+// downstream importers continue working unchanged. The canonical schema in
+// `@vellumai/assistant-api` is the source of truth; the inline declarations
+// here that haven't been migrated yet are gradually getting replaced with
+// imports of this shape.
+export type { AssistantTurnStartEvent, ToolUseStartEvent };
 
 /** Data needed to render an inline permission prompt inside a ToolCallChip. */
 export interface PendingToolConfirmation {
@@ -151,33 +181,7 @@ export interface SecretRequestEvent {
 /** Valid decisions accepted by the assistant runtime's POST /v1/confirm endpoint. */
 export type ConfirmationDecision = "allow" | "deny";
 
-export interface AllowlistOption {
-  /** Short display label for the radio row in the rule editor. */
-  label: string;
-  /**
-   * Optional longer-form description shown beneath/alongside the label.
-   * Daemon includes this on `riskAllowlistOptions` (shared with macOS); the
-   * web modal renders the label today and may surface description later.
-   */
-  description?: string;
-  /**
-   * Minimatch-glob compatible pattern saved as the trust rule's `pattern`
-   * field. The gateway matches incoming tool calls against this string —
-   * it is NOT a regex despite some legacy emit sites prefixing with `^`.
-   * See `gateway/src/risk/bash-risk-classifier.ts` for the matching contract.
-   */
-  pattern: string;
-}
 
-export interface ScopeOption {
-  label: string;
-  scope: string;
-}
-
-export interface DirectoryScopeOption {
-  label: string;
-  scope: string;
-}
 
 export interface ConfirmationRequestEvent {
   type: "confirmation_request";
@@ -212,19 +216,7 @@ export interface ContactRequestEvent {
   conversationId?: string;
 }
 
-export interface QuestionOption {
-  id: string;
-  label: string;
-  description?: string;
-}
 
-export interface QuestionEntry {
-  id: string;
-  question: string;
-  description?: string;
-  options: QuestionOption[];
-  freeTextPlaceholder?: string;
-}
 
 export interface QuestionRequestEvent {
   type: "question_request";
@@ -316,14 +308,6 @@ export interface UISurfaceCompleteEvent {
   conversationId?: string;
 }
 
-export interface ToolUseStartEvent {
-  type: "tool_use_start";
-  toolName: string;
-  input: Record<string, unknown>;
-  toolUseId?: string;
-  conversationId?: string;
-}
-
 export interface ToolResultEvent {
   type: "tool_result";
   toolName: string;
@@ -331,6 +315,9 @@ export interface ToolResultEvent {
   isError?: boolean;
   toolUseId?: string;
   conversationId?: string;
+  /** Database ID of the assistant message that owns the parent tool_use
+   *  block. Same semantics as `AssistantTextDeltaEvent.messageId`. */
+  messageId?: string;
   riskLevel?: string;
   riskReason?: string;
   matchedTrustRuleId?: string;
@@ -433,13 +420,6 @@ export interface AssistantActivityStateEvent {
   conversationId?: string;
 }
 
-export interface OpenUrlEvent {
-  type: "open_url";
-  url: string;
-  title?: string;
-  conversationId?: string;
-}
-
 export interface NavigateSettingsEvent {
   type: "navigate_settings";
   tab: string;
@@ -456,8 +436,6 @@ export interface HomeFeedUpdatedEvent {
 // ---------------------------------------------------------------------------
 // Subagent event types
 // ---------------------------------------------------------------------------
-
-export type SubagentStatus = "pending" | "running" | "awaiting_input" | "completed" | "failed" | "aborted";
 
 export interface SubagentSpawnedEvent {
   type: "subagent_spawned";
@@ -485,27 +463,6 @@ export interface SubagentStatusChangedEvent {
   outputTokens?: number;
   totalCost?: number;
   conversationId?: string;
-}
-
-export interface SubagentInnerEvent {
-  type: string;
-  content?: string;
-  /** `assistant_text_delta` events carry text in `text`, not `content`. */
-  text?: string;
-  /** `tool_result` events carry output in `result`, not `content`. */
-  result?: string;
-  /** `tool_use_start` events carry a JSON object with tool arguments. */
-  input?: Record<string, unknown>;
-  toolName?: string;
-  isError?: boolean;
-  /**
-   * Tool-use block ID for client-side correlation. Present on
-   * `tool_use_start` and `tool_result` envelopes; used to pair a result
-   * with its originating call when a subagent emits parallel calls to
-   * the same tool (e.g. two `bash` calls) which `toolName` alone cannot
-   * disambiguate.
-   */
-  toolUseId?: string;
 }
 
 export interface SubagentEventWrapperEvent {
@@ -763,6 +720,7 @@ export interface InteractionResolvedEvent {
 }
 
 export type AssistantEvent =
+  | AssistantTurnStartEvent
   | AssistantTextDeltaEvent
   | MessageCompleteEvent
   | GenerationHandoffEvent

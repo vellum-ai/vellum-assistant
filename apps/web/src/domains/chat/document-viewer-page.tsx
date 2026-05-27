@@ -21,7 +21,7 @@ import {
   exportDocumentPDF,
   fetchDocumentContent,
   linkDocumentConversation,
-} from "./api/documents";
+} from "@/lib/documents-api";
 import { useDocumentCommentEvents } from "./hooks/use-document-comment-events";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import {

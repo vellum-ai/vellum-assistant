@@ -22,8 +22,8 @@
 import * as Sentry from "@sentry/react";
 import { create } from "zustand";
 
-import { openApp, primeAppHtmlCache } from "@/domains/chat/api/apps";
-import { fetchDocumentContent } from "@/domains/chat/api/documents";
+import { openApp, primeAppHtmlCache } from "@/lib/apps-api";
+import { fetchDocumentContent } from "@/lib/documents-api";
 import { createSelectors } from "@/utils/create-selectors";
 
 // ---------------------------------------------------------------------------

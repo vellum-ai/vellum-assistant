@@ -39,7 +39,7 @@ import type {
   PendingContactRequestState,
   PendingQuestionState,
   PendingSecretState,
-} from "@/domains/chat/types/chat-ui-types";
+} from "@/types/interaction-ui-types";
 import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation";
