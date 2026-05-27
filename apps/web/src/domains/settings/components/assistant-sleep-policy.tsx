@@ -20,6 +20,7 @@ const PRESET_OPTIONS: ReadonlyArray<{
   { label: "5 min", seconds: 300, devOnly: true },
   { label: "10 min", seconds: 600, devOnly: true },
   { label: "1 hour", seconds: 3600 },
+  { label: "3 hours", seconds: 10800 },
   { label: "1 day", seconds: 86400 },
   { label: "3 days", seconds: 259200 },
   { label: "7 days", seconds: 604800 },
