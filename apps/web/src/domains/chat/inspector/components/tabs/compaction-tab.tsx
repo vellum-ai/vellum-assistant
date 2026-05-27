@@ -26,14 +26,16 @@ import type { LLMRequestLogEntry } from "@/domains/chat/types/inspector-types";
  * call in the rail busts the query cache key, so the displayed trail
  * tracks the selection.
  *
- * Today the data comes from `compaction-trail-mock.ts`. The real API
- * route (planned: `GET /v1/assistants/:id/conversations/:cid/compaction?callId=…`)
- * will return the same `CompactionTrailResponse` shape, projected from
- * `llm_request_logs` filtered by `call_site = "compactionAgent"` and
- * a createdAt cutoff at the selected call. Whether the existing column
- * is sufficient or we need a richer `compaction_logs` table is the
- * question this UI is here to answer — review feedback drives that
- * data-model decision.
+ * Data source: `GET /v1/assistants/:id/conversations/:cid/compaction?callId=…`,
+ * projected from `llm_request_logs` rows where
+ * `call_site = "compactionAgent"`. The assistant resolves the trail's
+ * floor server-side to the most recent non-`compactionAgent` call
+ * before the selected one — so the events here are strictly the
+ * compactions that ran between the previous outbound call and this
+ * one, not the conversation's full compaction history. Whether
+ * `llm_request_logs` is sufficient or we need a richer
+ * `compaction_logs` table is still open — review feedback against
+ * this surface drives that data-model decision.
  */
 interface CompactionTabProps {
   assistantId: string | undefined;
