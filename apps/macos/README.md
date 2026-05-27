@@ -48,25 +48,16 @@ Code signing, notarization, and auto-update wiring live in follow-up tickets.
   bar with `Vellum`, `Edit`, `View`, `Window`, and `Help` submenus, all
   role-based so they work without renderer IPC. `View > Toggle Developer
   Tools` is gated to dev builds only so the packaged DMG doesn't expose
-  devtools to end users. A `File` menu with `New Conversation` / `Mark
-  Unread` etc. lands in a follow-up ticket alongside the renderer-side
-  handlers — shipping menu items that no-op when clicked is worse than
-  omitting them.
-- **Sleep / wake** (`src/main/power.ts`). The main process logs
-  `powerMonitor` `suspend` and `resume` events for diagnostic visibility.
-  No IPC bridge to the renderer yet: Chromium's `visibilitychange` already
-  fires when the screen sleeps, and the renderer's existing event-bus
-  listener (`apps/web/src/hooks/use-event-bus-init.ts`) catches it. A
-  bridge can be added when a feature needs an earlier signal than
-  `visibilitychange` carries.
-- **Launch at login** (`src/main/login-item.ts`). On startup the main
-  process reads `featureFlags.loginAtStartup` from the settings store and
-  calls `app.setLoginItemSettings` to match. It also subscribes to the
-  setting via `electron-store`'s `onDidChange` so a future renderer-side
-  toggle takes effect immediately without an app restart. Default is off;
-  until a settings UI lands, the manual escape hatch is to set
-  `featureFlags.loginAtStartup = true` in
-  `~/Library/Application Support/Vellum Dev/config.json`.
+  devtools to end users.
+
+  A `File` menu with `New Conversation` / `Current Conversation` /
+  `Mark Unread` is intentionally absent. Those items need a typed
+  command/hotkey system (main-process command bus → typed preload
+  subscription → renderer dispatcher) and the renderer-side handlers in
+  `apps/web` so they actually do work when clicked. That system lands as
+  one cohesive PR that wires main + preload + renderer together. Shipping
+  menu items that no-op on click would be the kind of dormant surface
+  this codebase has been backing out of.
 
 ## Scripts
 
@@ -87,8 +78,6 @@ apps/macos/
 │   ├── main/index.ts         # window creation, app://, assistant supervisor
 │   ├── main/settings.ts      # electron-store schema + IPC-backed accessors
 │   ├── main/menu.ts          # macOS application menu
-│   ├── main/power.ts         # powerMonitor suspend / resume listeners
-│   ├── main/login-item.ts    # launch-at-login wiring driven by settings
 │   └── preload/index.ts      # contextBridge: window.vellum.*
 └── tsconfig.json
 ```

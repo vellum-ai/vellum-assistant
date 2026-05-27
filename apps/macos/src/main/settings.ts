@@ -69,18 +69,3 @@ export const readSetting = (key: string): unknown => {
 export const writeSetting = (key: string, value: unknown): void => {
   store().set(key as keyof AppSettings, value as never);
 };
-
-/**
- * Subscribe to changes for a setting key. Supports dot-notation for nested
- * keys (e.g. `"featureFlags.loginAtStartup"`). Returns an unsubscribe
- * function. Used by main-process consumers that need to react to settings
- * writes from the renderer.
- */
-export const onSettingChange = <T = unknown>(
-  key: string,
-  callback: (newValue: T | undefined, oldValue: T | undefined) => void,
-): (() => void) =>
-  store().onDidChange(
-    key as keyof AppSettings,
-    callback as (newValue: unknown, oldValue: unknown) => void,
-  );
