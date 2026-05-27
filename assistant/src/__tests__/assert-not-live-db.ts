@@ -1,13 +1,14 @@
 /**
- * Per-callsite guard for destructive operations against a DB path.
+ * Test-only utilities for safely interacting with on-disk DB files.
  *
- * Use immediately before any `rmSync(dbPath, ...)` (or sibling
- * `${dbPath}-shm` / `${dbPath}-wal`) in test code:
+ * Two exports:
  *
- *   import { assertNotLiveDb } from "./assert-not-live-db.js";
- *
- *   assertNotLiveDb(dbPath);
- *   rmSync(dbPath, { force: true });
+ * - `assertNotLiveDb(dbPath)` — per-callsite guard. Throws unless the
+ *   path resolves under `os.tmpdir()`. Use it before any custom
+ *   destructive operation not covered by `removeTestDbFiles`.
+ * - `removeTestDbFiles(dbPath)` — guarded `rmSync` of the DB file and
+ *   its sibling `-shm` / `-wal` files. The standard way to clear a
+ *   test DB between migrations.
  *
  * Defence-in-depth complement to the test-preload-verifier
  * (`os.tmpdir()` containment check during preload). If a future bug
@@ -15,14 +16,16 @@
  * destructive call still has its own line of defence.
  *
  * Positive assertion: the path MUST resolve under `os.tmpdir()`. Same
- * shape as the preload verifier — no enumeration of "real" paths, works
- * across every deployment.
+ * shape as the preload verifier — no enumeration of "real" paths,
+ * works across every deployment.
  *
  * No source-module imports — only node stdlib. Helpers in `__tests__/`
- * must not import from `src/` (see assistant/AGENTS.md).
+ * must not import from `src/` (see assistant/AGENTS.md). Callers pass
+ * the resolved `dbPath` in so this file stays decoupled from
+ * `src/util/platform.ts`.
  */
 
-import { realpathSync } from "node:fs";
+import { realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, sep } from "node:path";
 
@@ -58,4 +61,19 @@ export function assertNotLiveDb(dbPath: string): void {
       ].join("\n"),
     );
   }
+}
+
+/**
+ * Remove a SQLite DB file and its sibling `-shm` / `-wal` files. Always
+ * `force: true` (no error if the file doesn't exist yet). Guarded by
+ * `assertNotLiveDb` so a test can never destroy a non-tmpdir path.
+ *
+ * Caller passes `dbPath` (typically `getDbPath()` from the test file)
+ * to keep this helper free of source-module imports.
+ */
+export function removeTestDbFiles(dbPath: string): void {
+  assertNotLiveDb(dbPath);
+  rmSync(dbPath, { force: true });
+  rmSync(`${dbPath}-shm`, { force: true });
+  rmSync(`${dbPath}-wal`, { force: true });
 }

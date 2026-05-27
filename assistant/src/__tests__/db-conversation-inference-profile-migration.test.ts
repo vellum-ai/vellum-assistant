@@ -1,10 +1,9 @@
-import { rmSync } from "node:fs";
 import { Database } from "bun:sqlite";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import { assertNotLiveDb } from "./assert-not-live-db.js";
+import { removeTestDbFiles } from "./assert-not-live-db.js";
 import { makeMockLogger } from "./helpers/mock-logger.js";
 
 const originalBunTest = process.env.BUN_TEST;
@@ -67,29 +66,25 @@ function bootstrapPreInferenceProfileConversations(raw: Database): void {
   `);
 }
 
-function removeTestDbFiles(): void {
+function resetMigrationTestDb(): void {
   resetDbForTesting();
   // Reset the in-process guards for the lazy `group_id` / `display_order` /
   // `is_pinned` migrations so the freshly recreated DB gets those columns
   // again. Otherwise downstream tests hit `no such column: group_id`.
   _resetGroupMigrationForTests();
   _resetDisplayOrderMigrationForTests();
-  const dbPath = getDbPath();
-  assertNotLiveDb(dbPath);
-  rmSync(dbPath, { force: true });
-  rmSync(`${dbPath}-shm`, { force: true });
-  rmSync(`${dbPath}-wal`, { force: true });
+  removeTestDbFiles(getDbPath());
 }
 
 describe("conversation inference profile migration", () => {
   beforeEach(() => {
     process.env.BUN_TEST = "0";
-    removeTestDbFiles();
+    resetMigrationTestDb();
   });
 
   afterAll(() => {
     process.env.BUN_TEST = originalBunTest;
-    removeTestDbFiles();
+    resetMigrationTestDb();
   });
 
   test("fresh DB initialization includes nullable inference_profile column", () => {

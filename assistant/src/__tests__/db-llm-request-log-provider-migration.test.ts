@@ -1,4 +1,3 @@
-import { rmSync } from "node:fs";
 import { Database } from "bun:sqlite";
 import {
   afterAll,
@@ -12,7 +11,7 @@ import {
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import { assertNotLiveDb } from "./assert-not-live-db.js";
+import { removeTestDbFiles } from "./assert-not-live-db.js";
 const originalBunTest = process.env.BUN_TEST;
 
 mock.module("../util/logger.js", () => ({
@@ -58,24 +57,16 @@ function bootstrapPreProviderLlmRequestLogs(raw: Database): void {
   `);
 }
 
-function removeTestDbFiles(): void {
-  const dbPath = getDbPath();
-  assertNotLiveDb(dbPath);
-  rmSync(dbPath, { force: true });
-  rmSync(`${dbPath}-shm`, { force: true });
-  rmSync(`${dbPath}-wal`, { force: true });
-}
-
 describe("llm_request_logs provider migration", () => {
   beforeEach(() => {
     process.env.BUN_TEST = "0";
     resetDbForTesting();
-    removeTestDbFiles();
+    removeTestDbFiles(getDbPath());
   });
 
   afterEach(() => {
     resetDbForTesting();
-    removeTestDbFiles();
+    removeTestDbFiles(getDbPath());
   });
 
   afterAll(() => {
@@ -85,7 +76,7 @@ describe("llm_request_logs provider migration", () => {
       process.env.BUN_TEST = originalBunTest;
     }
     resetDbForTesting();
-    removeTestDbFiles();
+    removeTestDbFiles(getDbPath());
   });
 
   test("fresh DB initialization includes llm_request_logs.provider", () => {
