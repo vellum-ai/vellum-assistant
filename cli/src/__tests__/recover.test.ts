@@ -1,5 +1,7 @@
 import {
+  afterAll,
   afterEach,
+  beforeAll,
   beforeEach,
   describe,
   expect,
@@ -18,21 +20,38 @@ import { homedir, tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
 import type { AssistantEntry } from "../lib/assistant-config.js";
+import * as localModule from "../lib/local.js";
+import * as stepRunnerModule from "../lib/step-runner.js";
 
-// ── Module mocks (must appear before importing the module under test) ────────
+// Captured real exports — afterAll restores these so module mocks don't
+// leak into other test files in the same `bun test` run.
+const realLocal = {
+  generateLocalSigningKey: localModule.generateLocalSigningKey,
+  startLocalDaemon: localModule.startLocalDaemon,
+  startGateway: localModule.startGateway,
+};
+const realExec = stepRunnerModule.exec;
 
 // Prevent real daemon / gateway from starting
 const startLocalDaemonMock = mock(async () => {});
 const startGatewayMock = mock(async () => {});
-mock.module("../lib/local.js", () => ({
-  generateLocalSigningKey: () => "deadbeefdeadbeefdeadbeefdeadbeef",
-  startLocalDaemon: startLocalDaemonMock,
-  startGateway: startGatewayMock,
-}));
 
 // Capture exec calls without running real tar
 const execMock = mock(async (_cmd: string, _args: string[]) => {});
-mock.module("../lib/step-runner.js", () => ({ exec: execMock }));
+
+beforeAll(() => {
+  mock.module("../lib/local.js", () => ({
+    generateLocalSigningKey: () => "deadbeefdeadbeefdeadbeefdeadbeef",
+    startLocalDaemon: startLocalDaemonMock,
+    startGateway: startGatewayMock,
+  }));
+  mock.module("../lib/step-runner.js", () => ({ exec: execMock }));
+});
+
+afterAll(() => {
+  mock.module("../lib/local.js", () => realLocal);
+  mock.module("../lib/step-runner.js", () => ({ exec: realExec }));
+});
 
 import { recover } from "../commands/recover.js";
 
@@ -124,7 +143,6 @@ afterEach(() => {
 });
 
 // Runs after all tests finish
-import { afterAll } from "bun:test";
 afterAll(() => {
   rmSync(testDir, { recursive: true, force: true });
   process.argv = [...originalArgv];
