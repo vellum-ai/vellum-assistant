@@ -116,23 +116,12 @@ export function useConversationSecondaryActions({
     async (conversation: Conversation) => {
       if (!assistantId) return;
       try {
-        const { data, response } = await conversationsByIdAnalyzePost({
+        const { data } = await conversationsByIdAnalyzePost({
           path: { assistant_id: assistantId, id: conversation.conversationId },
-          throwOnError: false,
+          throwOnError: true,
         });
-        if (!response?.ok) {
-          throw new Error("Failed to analyze conversation.");
-        }
-        const conversationObj =
-          data && typeof data === "object" && !Array.isArray(data)
-            ? (data as { conversation?: { id?: string } }).conversation
-            : undefined;
-        const newConversationId = conversationObj?.id;
-        if (!newConversationId) {
-          throw new Error("Analyze response did not include a conversation id.");
-        }
         await refreshConversations();
-        switchConversation(newConversationId);
+        switchConversation(data.conversation.id);
       } catch (err) {
         const message =
           err instanceof Error ? err.message : "Failed to analyze conversation.";
