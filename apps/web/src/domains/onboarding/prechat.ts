@@ -15,8 +15,8 @@
  * window's chat if the user opens onboarding in two tabs concurrently.
  *
  * Storage-error handling matches the pattern in
- * `@/domains/onboarding/prefs.ts` (e.g. `syncOnboardingUser`,
- * `readSelectedVersion`): every read/write is wrapped in `try/catch` so a
+ * `@/domains/onboarding/prefs` (e.g. `readSelectedVersion`) and
+ * `@/lib/onboarding-cleanup`: every read/write is wrapped in `try/catch` so a
  * disabled or quota-exceeded `sessionStorage` degrades to "no pending
  * context" instead of throwing into the caller.
  */

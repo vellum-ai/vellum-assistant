@@ -13,7 +13,7 @@ import { PreviewReleaseChannel } from "@/domains/settings/components/preview-rel
 import { RetireAssistant } from "@/domains/settings/components/retire-assistant";
 import { DetailCard } from "@/components/detail-card";
 import { TimezonePicker } from "@/domains/settings/components/timezone-picker";
-import { ProfileCard } from "@/domains/settings/components/profile-card";
+import { ProfileCard } from "@/components/profile-card";
 import { AssistantOutOfStorageBanner } from "@/domains/settings/components/assistant-out-of-storage-banner";
 import {
   AssistantStatusPanel,
