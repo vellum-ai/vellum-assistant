@@ -3,8 +3,8 @@ import { describe, expect, test } from "bun:test";
 import {
   findNextConversationId,
   resolveUnpinGroupId,
-} from "@/domains/conversations/use-conversation-actions.js";
-import type { Conversation } from "@/domains/chat/api/conversations.js";
+} from "@/domains/conversations/use-conversation-actions";
+import type { Conversation } from "@/domains/chat/api/conversations";
 
 function makeConversation(overrides: Partial<Conversation> = {}): Conversation {
   return { conversationId: "conv-1", ...overrides };

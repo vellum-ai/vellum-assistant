@@ -4,12 +4,12 @@ import { renderToStaticMarkup } from "react-dom/server";
 let isNativePlatformMock = false;
 let connectedMock = true;
 
-mock.module("@/runtime/native-auth.js", () => ({
+mock.module("@/runtime/native-auth", () => ({
   isNativePlatform: () => isNativePlatformMock,
   useIsNativePlatform: () => isNativePlatformMock,
 }));
 
-mock.module("@/hooks/use-network-status.js", () => ({
+mock.module("@/hooks/use-network-status", () => ({
   useNetworkStatus: () => connectedMock,
 }));
 
@@ -19,7 +19,7 @@ mock.module("@vellum/design-library/components/notice", () => ({
   ),
 }));
 
-import { OfflineBanner } from "@/components/offline-banner.js";
+import { OfflineBanner } from "@/components/offline-banner";
 
 beforeEach(() => {
   isNativePlatformMock = false;

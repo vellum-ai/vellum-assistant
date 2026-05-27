@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "bun:test";
 
-import { useChatStore } from "@/domains/chat/chat-store.js";
+import { useChatStore } from "@/domains/chat/chat-store";
 
 beforeEach(() => {
   useChatStore.setState({

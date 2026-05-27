@@ -16,10 +16,10 @@
 
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 
-import { requestInterceptor } from "@/lib/api-interceptors.js";
-import { setSelfHostedConnection } from "@/lib/self-hosted/connection.js";
-import { getClientId } from "@/lib/telemetry/client-identity.js";
-import { useOrganizationStore } from "@/stores/organization-store.js";
+import { requestInterceptor } from "@/lib/api-interceptors";
+import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
+import { getClientId } from "@/lib/telemetry/client-identity";
+import { useOrganizationStore } from "@/stores/organization-store";
 
 const TEST_ORG_ID = "org-test-1234";
 

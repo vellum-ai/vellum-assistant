@@ -1,6 +1,6 @@
 
-import { DiscordLogo } from "@/components/icons/discord-logo.js";
-import { NudgeChatBanner } from "@/components/nudges/nudge-chat-banner.js";
+import { DiscordLogo } from "@/components/icons/discord-logo";
+import { NudgeChatBanner } from "@/components/nudges/nudge-chat-banner";
 
 interface DiscordNudgeBannerProps {
   onJoin: () => void;

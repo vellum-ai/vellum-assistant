@@ -1,11 +1,11 @@
 import { describe, expect, it } from "bun:test";
 
-import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers.js";
+import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers";
 import {
   handleToolProgress,
   handleToolResult,
   handleToolUseStart,
-} from "@/domains/chat/utils/stream-handlers/tool-call-handlers.js";
+} from "@/domains/chat/utils/stream-handlers/tool-call-handlers";
 
 describe("handleToolUseStart", () => {
   it("cancels reconciliation and creates tool call with generated id", () => {

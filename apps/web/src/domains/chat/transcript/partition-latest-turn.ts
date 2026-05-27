@@ -4,7 +4,7 @@
 // and to allow the history half to be virtualized independently of the
 // actively-streaming response half.
 
-import type { LatestTurnPartition, MessageItem, TranscriptItem } from "@/domains/chat/transcript/types.js";
+import type { LatestTurnPartition, MessageItem, TranscriptItem } from "@/domains/chat/transcript/types";
 
 /**
  * Walk `items` from the end to find the most recent `MessageItem` whose

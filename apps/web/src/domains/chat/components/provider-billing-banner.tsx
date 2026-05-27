@@ -1,7 +1,7 @@
 
 import { KeyRound } from "lucide-react";
 
-import { BillingErrorBanner } from "@/domains/chat/components/billing-error-banner.js";
+import { BillingErrorBanner } from "@/domains/chat/components/billing-error-banner";
 
 interface ProviderBillingBannerProps {
   onOpenSettings: () => void;

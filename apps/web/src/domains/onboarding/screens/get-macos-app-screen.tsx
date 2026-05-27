@@ -1,12 +1,12 @@
 import { Check } from "lucide-react";
 
 import { Button } from "@vellum/design-library/components/button";
-import { AppleLogo } from "@/components/icons/apple-logo.js";
-import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout.js";
+import { AppleLogo } from "@/components/icons/apple-logo";
+import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import {
   writeMacOsAppDownloaded,
   openMacOsDownload,
-} from "@/hooks/use-macos-app-nudge.js";
+} from "@/hooks/use-macos-app-nudge";
 
 interface GetMacOSAppScreenProps {
   onComplete: () => void;

@@ -10,13 +10,13 @@
 
 import { describe, expect, test } from "bun:test";
 
-const MODULE_PATH = "@/lib/telemetry/client-identity.js";
+const MODULE_PATH = "@/lib/telemetry/client-identity";
 
-async function freshImport(): Promise<typeof import("./client-identity.js")> {
+async function freshImport(): Promise<typeof import("./client-identity")> {
   // Bust the module cache so the in-module `cached` singleton starts fresh.
   // Each test that wants a fresh id calls this.
   const mod = await import(`${MODULE_PATH}?t=${Math.random()}`);
-  return mod as typeof import("./client-identity.js");
+  return mod as typeof import("./client-identity");
 }
 
 describe("client-identity", () => {

@@ -2,10 +2,10 @@ import { Loader2 } from "lucide-react";
 
 import { useQuery } from "@tanstack/react-query";
 
-import { DetailCard } from "@/components/detail-card.js";
-import { DeviceRow } from "@/domains/settings/components/devices/device-row.js";
-import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen.js";
-import type { Assistant } from "@/generated/api/types.gen.js";
+import { DetailCard } from "@/components/detail-card";
+import { DeviceRow } from "@/domains/settings/components/devices/device-row";
+import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen";
+import type { Assistant } from "@/generated/api/types.gen";
 
 export function DevicesPage() {
   const { data, isLoading } = useQuery(

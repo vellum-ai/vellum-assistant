@@ -80,7 +80,7 @@ onboarding, intelligence pages, library, inspector, home, connect.
 
 ```ts
 // Lazy route — object syntax (preferred)
-{ path: "settings", lazy: { Component: () => import("./settings-layout.js").then((m) => m.SettingsLayout) } }
+{ path: "settings", lazy: { Component: () => import("./settings-layout").then((m) => m.SettingsLayout) } }
 
 // Eager route — direct Component reference
 { path: "conversations/:conversationId", Component: ChatPage }

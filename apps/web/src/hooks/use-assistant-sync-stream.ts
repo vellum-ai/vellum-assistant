@@ -22,11 +22,11 @@ import * as Sentry from "@sentry/react";
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-import type { AssistantEvent } from "@/domains/chat/api/event-types.js";
-import { refreshConversationRow } from "@/domains/conversations/conversation-queries.js";
-import { assistantIdentityQueryKey } from "@/hooks/use-assistant-identity-init.js";
-import { ASSISTANT_FLAG_VALUES_QUERY_KEY } from "@/lib/feature-flags/use-assistant-feature-flag-sync.js";
-import { CLIENT_FLAG_QUERY_KEY } from "@/lib/feature-flags/use-client-feature-flag-sync.js";
+import type { AssistantEvent } from "@/domains/chat/api/event-types";
+import { refreshConversationRow } from "@/domains/conversations/conversation-queries";
+import { assistantIdentityQueryKey } from "@/hooks/use-assistant-identity-init";
+import { ASSISTANT_FLAG_VALUES_QUERY_KEY } from "@/lib/feature-flags/use-assistant-feature-flag-sync";
+import { CLIENT_FLAG_QUERY_KEY } from "@/lib/feature-flags/use-client-feature-flag-sync";
 import {
   assistantDaemonConfigQueryKey,
   assistantScheduleRunsQueryKey,
@@ -36,13 +36,13 @@ import {
   avatarQueryKey,
   chatContextQueryKey,
   conversationGroupsQueryKey,
-} from "@/lib/sync/query-tags.js";
+} from "@/lib/sync/query-tags";
 import {
   parseConversationSyncTag,
   SYNC_TAGS,
   type SyncChangedEvent,
-} from "@/lib/sync/types.js";
-import { useEventBusStore } from "@/stores/event-bus-store.js";
+} from "@/lib/sync/types";
+import { useEventBusStore } from "@/stores/event-bus-store";
 
 const CONVERSATION_LIST_DEBOUNCE_MS = 250;
 

@@ -1,10 +1,10 @@
 import { useCallback } from "react";
 import { useNavigate } from "react-router";
 
-import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate.js";
-import { PageShell } from "@/components/page-shell.js";
-import { LibraryView } from "@/domains/intelligence/components/apps/library-view.js";
-import { routes } from "@/utils/routes.js";
+import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate";
+import { PageShell } from "@/components/page-shell";
+import { LibraryView } from "@/domains/intelligence/components/apps/library-view";
+import { routes } from "@/utils/routes";
 
 export function LibraryPage() {
   const { assistantId } = useActiveAssistantContext();

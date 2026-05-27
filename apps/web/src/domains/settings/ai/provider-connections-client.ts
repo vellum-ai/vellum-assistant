@@ -1,5 +1,5 @@
-import { client } from "@/generated/api/client.gen.js";
-import { PROVIDER_DISPLAY_NAMES as CATALOG_PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog.js";
+import { client } from "@/generated/api/client.gen";
+import { PROVIDER_DISPLAY_NAMES as CATALOG_PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
 
 // ---------------------------------------------------------------------------
 // Types — mirror the assistant daemon's inference/auth.ts shapes.

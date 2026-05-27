@@ -4,11 +4,11 @@ import { useState } from "react";
 import { Button } from "@vellum/design-library/components/button";
 import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog";
 import { toast } from "@vellum/design-library/components/toast";
-import { DetailCard } from "@/components/detail-card.js";
-import { userDeletionRequestCreateMutation } from "@/generated/api/@tanstack/react-query.gen.js";
-import { hardNavigate } from "@/lib/auth/hard-navigate.js";
-import { useAuthStore } from "@/stores/auth-store.js";
-import { routes } from "@/utils/routes.js";
+import { DetailCard } from "@/components/detail-card";
+import { userDeletionRequestCreateMutation } from "@/generated/api/@tanstack/react-query.gen";
+import { hardNavigate } from "@/lib/auth/hard-navigate";
+import { useAuthStore } from "@/stores/auth-store";
+import { routes } from "@/utils/routes";
 
 export function DeleteAccountSection() {
   const logout = useAuthStore.use.logout();

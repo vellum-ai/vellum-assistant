@@ -18,8 +18,8 @@ import {
   useRef,
 } from "react";
 
-import { loadContextWindowUsageMap } from "@/domains/chat/utils/context-window-storage.js";
-import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
+import { loadContextWindowUsageMap } from "@/domains/chat/utils/context-window-storage";
+import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
 
 export interface UseContextWindowUsageHydrationParams {
   assistantId: string | null;

@@ -6,7 +6,7 @@
  * Keep in sync when body shapes, eye styles, or colors change.
  */
 
-import type { CharacterComponents } from "@/types/avatar.js";
+import type { CharacterComponents } from "@/types/avatar";
 
 const SCLERA = "#F2F2F2";
 const PUPIL = "#1A1A1A";

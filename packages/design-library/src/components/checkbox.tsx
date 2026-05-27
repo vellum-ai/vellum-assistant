@@ -2,8 +2,8 @@ import * as CheckboxPrimitive from "@radix-ui/react-checkbox";
 import { Check, Minus } from "lucide-react";
 import { type ComponentProps, type ReactNode, useId } from "react";
 
-import { Typography } from "./typography.js";
-import { cn } from "../utils/cn.js";
+import { Typography } from "./typography";
+import { cn } from "../utils/cn";
 
 export type CheckboxState = boolean | "indeterminate";
 

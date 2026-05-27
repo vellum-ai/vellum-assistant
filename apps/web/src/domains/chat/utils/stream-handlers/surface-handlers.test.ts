@@ -1,13 +1,13 @@
 import { describe, expect, it } from "bun:test";
 
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
-import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers";
 import {
   handleUISurfaceShow,
   handleUISurfaceUpdate,
   handleUISurfaceDismiss,
   handleUISurfaceComplete,
-} from "@/domains/chat/utils/stream-handlers/surface-handlers.js";
+} from "@/domains/chat/utils/stream-handlers/surface-handlers";
 
 describe("handleUISurfaceShow", () => {
   it("increments assets refresh key for dynamic_page", () => {

@@ -23,10 +23,10 @@ import { useEffect } from "react";
 import * as Sentry from "@sentry/browser";
 import type { PluginListenerHandle } from "@capacitor/core";
 
-import { subscribeChatEvents } from "@/domains/chat/api/stream.js";
-import type { ChatEventStream } from "@/domains/chat/api/stream.js";
-import { useEventBusStore } from "@/stores/event-bus-store.js";
-import { isNativePlatform } from "@/runtime/native-auth.js";
+import { subscribeChatEvents } from "@/domains/chat/api/stream";
+import type { ChatEventStream } from "@/domains/chat/api/stream";
+import { useEventBusStore } from "@/stores/event-bus-store";
+import { isNativePlatform } from "@/runtime/native-auth";
 
 interface UseEventBusInitParams {
   /** Resolved assistant id, or `null` when not yet loaded. */

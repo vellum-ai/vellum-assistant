@@ -3,8 +3,8 @@ import type { BrowserOptions } from "@sentry/react";
 import {
   installSentryControlListeners,
   syncSentryClient,
-} from "@/lib/sentry/sentry-control.js";
-import { sanitizeUrl } from "@/lib/sentry/url-sanitize.js";
+} from "@/lib/sentry/sentry-control";
+import { sanitizeUrl } from "@/lib/sentry/url-sanitize";
 
 /**
  * Browser-side Sentry initialization, gated on the user's Share Diagnostics

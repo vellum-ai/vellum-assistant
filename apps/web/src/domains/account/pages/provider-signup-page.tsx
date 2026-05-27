@@ -5,16 +5,16 @@ import {
   AccountForm,
   AccountHeading,
   AccountInput,
-} from "@/components/account/account-form.js";
-import { AccountShell } from "@/components/account/account-shell.js";
+} from "@/components/account/account-form";
+import { AccountShell } from "@/components/account/account-shell";
 import {
   getProviderSignup,
   isConflict,
   submitProviderSignup,
-} from "@/lib/auth/allauth-client.js";
-import { resolvePostLoginDestination } from "@/domains/account/login-flow.js";
-import { useAuthStore } from "@/stores/auth-store.js";
-import { routes } from "@/utils/routes.js";
+} from "@/lib/auth/allauth-client";
+import { resolvePostLoginDestination } from "@/domains/account/login-flow";
+import { useAuthStore } from "@/stores/auth-store";
+import { routes } from "@/utils/routes";
 
 /**
  * Provider signup completion page. Shown when allauth's provider flow needs

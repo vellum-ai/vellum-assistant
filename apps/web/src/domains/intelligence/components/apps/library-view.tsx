@@ -12,9 +12,9 @@ import {
 } from "lucide-react";
 import { type ChangeEvent, type MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { AppSummary } from "@/domains/chat/api/apps.js";
-import type { DocumentSummary } from "@/domains/chat/api/documents.js";
-import { ApiError } from "@/lib/api-errors.js";
+import type { AppSummary } from "@/domains/chat/api/apps";
+import type { DocumentSummary } from "@/domains/chat/api/documents";
+import { ApiError } from "@/lib/api-errors";
 import {
   deleteApp,
   getCachedAppHtml,
@@ -23,12 +23,12 @@ import {
   openApp,
   primeAppHtmlCache,
   shareApp,
-} from "@/domains/chat/api/apps.js";
-import { listDocuments } from "@/domains/chat/api/documents.js";
-import { getVercelConfig, isCredentialError, publishApp } from "@/domains/chat/api/publish.js";
-import { usePinnedAppsStore } from "@/domains/chat/pinned-apps-store.js";
-import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
-import { AppPreviewThumbnail } from "@/domains/chat/components/app-card.js";
+} from "@/domains/chat/api/apps";
+import { listDocuments } from "@/domains/chat/api/documents";
+import { getVercelConfig, isCredentialError, publishApp } from "@/domains/chat/api/publish";
+import { usePinnedAppsStore } from "@/domains/chat/pinned-apps-store";
+import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
+import { AppPreviewThumbnail } from "@/domains/chat/components/app-card";
 import {
   BottomSheet,
   Button,
@@ -38,10 +38,10 @@ import {
   PanelItem,
   toast,
 } from "@vellum/design-library";
-import { AppViewerContainer } from "@/domains/intelligence/components/apps/app-viewer-container.js";
-import { VercelTokenDialog } from "@/components/vercel-token-dialog.js";
-import { useIsMobile } from "@/hooks/use-is-mobile.js";
-import { cn } from "@/utils/misc.js";
+import { AppViewerContainer } from "@/domains/intelligence/components/apps/app-viewer-container";
+import { VercelTokenDialog } from "@/components/vercel-token-dialog";
+import { useIsMobile } from "@/hooks/use-is-mobile";
+import { cn } from "@/utils/misc";
 
 function formatDate(epochMs: number): string {
   const date = new Date(epochMs);

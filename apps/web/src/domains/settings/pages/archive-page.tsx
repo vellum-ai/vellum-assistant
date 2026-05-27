@@ -5,13 +5,13 @@ import { useQuery } from "@tanstack/react-query";
 
 import { Button } from "@vellum/design-library/components/button";
 import { Card } from "@vellum/design-library/components/card";
-import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen.js";
+import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen";
 import {
   type Conversation,
   listConversations,
   unarchiveConversation,
-} from "@/domains/chat/api/conversations.js";
-import { reportError } from "@/lib/errors/report.js";
+} from "@/domains/chat/api/conversations";
+import { reportError } from "@/lib/errors/report";
 
 function formatConversationDate(timestamp: string | undefined): string {
   if (!timestamp) return "";

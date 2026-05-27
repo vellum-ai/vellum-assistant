@@ -1,8 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Share } from "lucide-react";
 
-import { Button } from "./button.js";
-import { BottomSheet } from "./bottom-sheet.js";
+import { Button } from "./button";
+import { BottomSheet } from "./bottom-sheet";
 
 interface BottomSheetStoryArgs {
   title: string;

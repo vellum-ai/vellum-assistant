@@ -1,6 +1,6 @@
 import { Capacitor } from "@capacitor/core";
 
-import { openUrl } from "@/runtime/browser.js";
+import { openUrl } from "@/runtime/browser";
 
 const OAUTH_POPUP_FEATURES = "width=500,height=600";
 

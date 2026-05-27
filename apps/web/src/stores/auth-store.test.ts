@@ -70,7 +70,7 @@ mock.module("@/stores/event-bus-store.js", () => ({
   },
 }));
 
-const { useAuthStore } = await import("@/stores/auth-store.js");
+const { useAuthStore } = await import("@/stores/auth-store");
 
 function resetAuthStore(): void {
   useAuthStore.setState({

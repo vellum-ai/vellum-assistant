@@ -25,18 +25,18 @@ import { Tag } from "@vellum/design-library/components/tag";
 import {
   assistantsDoctorHistoryListOptions,
   assistantsDoctorHistoryRetrieveOptions,
-} from "@/generated/api/@tanstack/react-query.gen.js";
-import { assistantsMaintenanceModeExitCreate } from "@/generated/api/sdk.gen.js";
-import { getAssistant } from "@/assistant/api.js";
+} from "@/generated/api/@tanstack/react-query.gen";
+import { assistantsMaintenanceModeExitCreate } from "@/generated/api/sdk.gen";
+import { getAssistant } from "@/assistant/api";
 import {
   buildVellumHeaders,
   buildVellumMutatingHeaders,
-} from "@/lib/auth/request-headers.js";
-import { reportError } from "@/lib/errors/report.js";
-import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity.js";
-import { isPointerCoarse } from "@/utils/pointer.js";
-import { ShareFeedbackModal } from "@/components/share-feedback-modal.js";
-import { DoctorAvatar } from "@/domains/settings/components/panels/doctor-avatar.js";
+} from "@/lib/auth/request-headers";
+import { reportError } from "@/lib/errors/report";
+import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
+import { isPointerCoarse } from "@/utils/pointer";
+import { ShareFeedbackModal } from "@/components/share-feedback-modal";
+import { DoctorAvatar } from "@/domains/settings/components/panels/doctor-avatar";
 import {
   type ChatEntry,
   type PersistedMessage,
@@ -47,7 +47,7 @@ import {
   mapPersistedMessagesToEntries,
   mapPersistedStatusToPanelStatus,
   selectLatestHistorySession,
-} from "@/domains/settings/components/panels/doctor-history.js";
+} from "@/domains/settings/components/panels/doctor-history";
 
 // ---------------------------------------------------------------------------
 // Types

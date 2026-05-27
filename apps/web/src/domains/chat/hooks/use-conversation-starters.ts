@@ -9,14 +9,14 @@
 
 import { useQuery } from "@tanstack/react-query";
 
-import { MAX_CONVERSATION_STARTER_CHIPS } from "@/domains/chat/utils/empty-state-constants.js";
+import { MAX_CONVERSATION_STARTER_CHIPS } from "@/domains/chat/utils/empty-state-constants";
 
 import {
   listConversationStarters,
   type ConversationStarter,
   type ConversationStartersStatus,
   type ListConversationStartersResult,
-} from "@/domains/chat/utils/conversation-starters.js";
+} from "@/domains/chat/utils/conversation-starters";
 
 const POLL_INTERVAL_MS = 3000;
 const STALE_TIME_MS = 60_000;

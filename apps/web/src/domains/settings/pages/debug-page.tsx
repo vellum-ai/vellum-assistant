@@ -1,11 +1,11 @@
 import { useMemo } from "react";
 import { useSearchParams } from "react-router";
 
-import { AssistantTerminalPanel } from "@/domains/settings/components/panels/assistant-terminal-panel.js";
-import { DebugControlsPanel } from "@/domains/settings/components/panels/debug-controls-panel.js";
-import { DoctorPanel } from "@/domains/settings/components/panels/doctor-panel.js";
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
-import { cn } from "@/utils/misc.js";
+import { AssistantTerminalPanel } from "@/domains/settings/components/panels/assistant-terminal-panel";
+import { DebugControlsPanel } from "@/domains/settings/components/panels/debug-controls-panel";
+import { DoctorPanel } from "@/domains/settings/components/panels/doctor-panel";
+import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
+import { cn } from "@/utils/misc";
 
 const ALL_TABS = [
   { id: "general", label: "General" },

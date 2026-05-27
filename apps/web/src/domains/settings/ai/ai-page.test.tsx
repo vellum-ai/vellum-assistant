@@ -19,8 +19,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import type { SubscriptionResponse } from "@/generated/api/types.gen.js";
-import { organizationsBillingSubscriptionRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen.js";
+import type { SubscriptionResponse } from "@/generated/api/types.gen";
+import { organizationsBillingSubscriptionRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 
 // The settings-card barrel re-exports toast surfaces; stub them so barrel
 // resolution doesn't pull the real toast module during the static render.
@@ -30,7 +30,7 @@ mock.module("@vellum/design-library/components/toast", () => ({
   ToastContent: () => null,
 }));
 
-const { EmailServiceCard } = await import("@/domains/settings/ai/ai-page.js");
+const { EmailServiceCard } = await import("@/domains/settings/ai/ai-page");
 
 const ASSISTANT_ID = "asst-1";
 

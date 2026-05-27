@@ -26,8 +26,8 @@
 import { useEffect } from "react";
 import { create } from "zustand";
 
-import { createSelectors } from "@/utils/create-selectors.js";
-import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/utils/reconcile.js";
+import { createSelectors } from "@/utils/create-selectors";
+import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/utils/reconcile";
 
 // ---------------------------------------------------------------------------
 // Store shape

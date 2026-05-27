@@ -1,5 +1,5 @@
-import type { DisplayAttachment } from "@/domains/chat/types/types.js";
-import type { RuntimeAttachment } from "@/domains/chat/api/messages.js";
+import type { DisplayAttachment } from "@/domains/chat/types/types";
+import type { RuntimeAttachment } from "@/domains/chat/api/messages";
 
 /**
  * Convert daemon-provided structured attachment metadata into DisplayAttachment

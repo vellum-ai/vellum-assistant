@@ -23,14 +23,14 @@ import {
   assistantsReleaseChannelRetrieveOptions,
   assistantsReleaseChannelRetrieveQueryKey,
   assistantsRetrieveQueryKey,
-} from "@/generated/api/@tanstack/react-query.gen.js";
+} from "@/generated/api/@tanstack/react-query.gen";
 import type {
   ModeEnum,
   PreviewSafetyBackup,
   ReleaseChannelStatus,
-} from "@/generated/api/types.gen.js";
-import { extractErrorMessage } from "@/lib/api-errors.js";
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
+} from "@/generated/api/types.gen";
+import { extractErrorMessage } from "@/lib/api-errors";
+import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
 
 interface PreviewReleaseChannelProps {
   assistantId: string;

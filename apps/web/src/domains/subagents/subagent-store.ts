@@ -12,8 +12,8 @@
 
 import { create } from "zustand";
 
-import { createSelectors } from "@/utils/create-selectors.js";
-import type { SubagentStatus, SubagentInnerEvent } from "@/domains/chat/api/event-types.js";
+import { createSelectors } from "@/utils/create-selectors";
+import type { SubagentStatus, SubagentInnerEvent } from "@/domains/chat/api/event-types";
 
 // ---------------------------------------------------------------------------
 // State

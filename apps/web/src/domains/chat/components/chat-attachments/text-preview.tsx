@@ -150,7 +150,7 @@ export const TextPreview: FC<TextPreviewProps> = ({ url, filename, mimeType: _mi
   }, [url, filename]);
 
   const handleDownload = async () => {
-    const { saveFile } = await import("@/runtime/native-file.js");
+    const { saveFile } = await import("@/runtime/native-file");
     await saveFile(url, filename);
   };
 

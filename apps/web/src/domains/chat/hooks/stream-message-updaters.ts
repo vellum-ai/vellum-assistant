@@ -9,11 +9,11 @@
  * @see https://react.dev/reference/react/useState#updating-state-based-on-the-previous-state
  */
 
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
-import type { Surface } from "@/domains/chat/types/types.js";
-import { toDisplayAttachments } from "@/domains/chat/api/event-parser.js";
-import type { AllowlistOption, ChatMessageToolCall, DirectoryScopeOption, MessageCompleteEvent, ScopeOption } from "@/domains/chat/api/event-types.js";
-import type { ToolActivityMetadata } from "@/assistant/web-activity-types.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { Surface } from "@/domains/chat/types/types";
+import { toDisplayAttachments } from "@/domains/chat/api/event-parser";
+import type { AllowlistOption, ChatMessageToolCall, DirectoryScopeOption, MessageCompleteEvent, ScopeOption } from "@/domains/chat/api/event-types";
+import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
 
 // ---------------------------------------------------------------------------
 // Shared helpers

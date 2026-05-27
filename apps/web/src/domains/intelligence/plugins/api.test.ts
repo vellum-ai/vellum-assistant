@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
-import { client } from "@/domains/intelligence/client.js";
+import { client } from "@/domains/intelligence/client";
 import {
   ApiError,
   fetchPluginCatalog,
-} from "@/domains/intelligence/plugins/api.js";
+} from "@/domains/intelligence/plugins/api";
 
 // ---------------------------------------------------------------------------
 // fetchPluginCatalog — /v1/assistants/{id}/plugins/search/

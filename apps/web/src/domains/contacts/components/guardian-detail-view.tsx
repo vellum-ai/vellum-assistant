@@ -3,11 +3,11 @@ import { useState } from "react";
 import { Button } from "@vellum/design-library/components/button";
 import { Input } from "@vellum/design-library/components/input";
 
-import { ContactChannelsSection } from "@/domains/contacts/components/contact-channels-section.js";
-import { ContactTypeBadge } from "@/domains/contacts/components/contact-type-badge.js";
-import { ShareConnectionLinkButton } from "@/domains/contacts/components/share-connection-link-button.js";
-import { DetailCard } from "@/components/detail-card.js";
-import type { ChannelInfo, ContactPayload } from "@/domains/contacts/types.js";
+import { ContactChannelsSection } from "@/domains/contacts/components/contact-channels-section";
+import { ContactTypeBadge } from "@/domains/contacts/components/contact-type-badge";
+import { ShareConnectionLinkButton } from "@/domains/contacts/components/share-connection-link-button";
+import { DetailCard } from "@/components/detail-card";
+import type { ChannelInfo, ContactPayload } from "@/domains/contacts/types";
 
 interface GuardianDetailViewProps {
   contact: ContactPayload;

@@ -3,17 +3,17 @@ import { Link, useSearchParams } from "react-router";
 import { Mail } from "lucide-react";
 
 import { Button } from "@vellum/design-library";
-import { AppleLogo } from "@/components/icons/apple-logo.js";
-import { GoogleLogo } from "@/components/icons/google-logo.js";
-import { NativeSplash } from "@/components/native-splash.js";
-import { LoginBackground } from "@/domains/account/components/login-background.js";
-import { PROVIDER_ID, buildProviderCallbackUrl } from "@/domains/account/login-flow.js";
+import { AppleLogo } from "@/components/icons/apple-logo";
+import { GoogleLogo } from "@/components/icons/google-logo";
+import { NativeSplash } from "@/components/native-splash";
+import { LoginBackground } from "@/domains/account/components/login-background";
+import { PROVIDER_ID, buildProviderCallbackUrl } from "@/domains/account/login-flow";
 import {
   startAuthFlow,
   startNativeLogin,
   useIsNativePlatform,
-} from "@/runtime/native-auth.js";
-import { routes } from "@/utils/routes.js";
+} from "@/runtime/native-auth";
+import { routes } from "@/utils/routes";
 
 const CARD_CLASS =
   "flex w-full max-w-[448px] flex-col gap-6 rounded-lg border border-[var(--border-disabled)] bg-[var(--surface-lift)] p-6";

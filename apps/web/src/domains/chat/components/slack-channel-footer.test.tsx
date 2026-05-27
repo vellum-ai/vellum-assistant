@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 
-import { client } from "@/domains/chat/api/client.js";
-import { SlackChannelFooter } from "@/domains/chat/components/slack-channel-footer.js";
+import { client } from "@/domains/chat/api/client";
+import { SlackChannelFooter } from "@/domains/chat/components/slack-channel-footer";
 
 describe("SlackChannelFooter lazy channel name resolution", () => {
   const originalPost = client.post;

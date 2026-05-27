@@ -9,9 +9,9 @@ import { describe, expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { shouldOpenMarkdownLinkInOAuthPopup } from "@/domains/chat/utils/oauth-popup-links.js";
+import { shouldOpenMarkdownLinkInOAuthPopup } from "@/domains/chat/utils/oauth-popup-links";
 
-import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message.js";
+import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 
 describe("ChatMarkdownMessage (OAuth link handling)", () => {
   test("detects OAuth authorization links for popup handling", () => {

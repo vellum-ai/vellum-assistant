@@ -24,7 +24,7 @@ import type {
   ConversationStarter,
   ConversationStartersStatus,
   ListConversationStartersResult,
-} from "@/domains/chat/utils/conversation-starters.js";
+} from "@/domains/chat/utils/conversation-starters";
 
 // ---------------------------------------------------------------------------
 // Captured query config + currently-served stub data.
@@ -96,7 +96,7 @@ import {
   shouldPoll,
   useConversationStarters,
   type UseConversationStartersResult,
-} from "@/domains/chat/hooks/use-conversation-starters.js";
+} from "@/domains/chat/hooks/use-conversation-starters";
 
 // ---------------------------------------------------------------------------
 // Test harness — `renderToStaticMarkup` walks function components, so this

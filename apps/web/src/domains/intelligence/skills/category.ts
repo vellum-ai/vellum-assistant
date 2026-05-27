@@ -10,7 +10,7 @@ import {
   Zap,
 } from "lucide-react";
 
-import type { SkillCategory, SkillInfo } from "./types.js";
+import type { SkillCategory, SkillInfo } from "./types";
 
 export const SKILL_CATEGORIES: SkillCategory[] = [
   "automation",

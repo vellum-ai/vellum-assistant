@@ -10,9 +10,9 @@
  * Callers:
  *   - `/assistant` AssistantPageClient (auto-hatch branch for new signups)
  */
-import { routes } from "@/utils/routes.js";
+import { routes } from "@/utils/routes";
 
-import { readOnboardingCompleted } from "@/domains/onboarding/prefs.js";
+import { readOnboardingCompleted } from "@/domains/onboarding/prefs";
 
 /**
  * Returns the path to redirect to when onboarding should intercept, or

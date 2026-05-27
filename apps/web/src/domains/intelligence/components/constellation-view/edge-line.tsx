@@ -1,5 +1,5 @@
 
-import { clipEdgeToNodes, type EdgeLine, type TreeNode } from "@/domains/intelligence/components/constellation-layout.js";
+import { clipEdgeToNodes, type EdgeLine, type TreeNode } from "@/domains/intelligence/components/constellation-layout";
 
 export interface EdgesLayerProps {
   edges: EdgeLine[];

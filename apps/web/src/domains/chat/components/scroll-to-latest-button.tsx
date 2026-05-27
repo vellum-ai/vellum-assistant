@@ -1,6 +1,6 @@
 import { ChevronDown } from "lucide-react";
 
-import { ChatPill } from "@/domains/chat/components/chat-pill.js";
+import { ChatPill } from "@/domains/chat/components/chat-pill";
 
 /**
  * Pill-shaped "Go to Newest" affordance shown above the composer when the

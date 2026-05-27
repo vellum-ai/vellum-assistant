@@ -1,11 +1,11 @@
-import { runtimeAttachmentsToDisplay } from "@/domains/chat/utils/attachment-mapping.js";
-import { parseAttachmentSummariesFromContent } from "@/domains/chat/utils/parse-attachment-summaries.js";
+import { runtimeAttachmentsToDisplay } from "@/domains/chat/utils/attachment-mapping";
+import { parseAttachmentSummariesFromContent } from "@/domains/chat/utils/parse-attachment-summaries";
 import type {
   DisplayAttachment,
   DisplayMessage,
   SlackRuntimeMessage,
-} from "@/domains/chat/types/types.js";
-import { mapRuntimeToolCalls, normalizeContentOrder, normalizeTextSegments, type RuntimeMessage } from "@/domains/chat/api/messages.js";
+} from "@/domains/chat/types/types";
+import { mapRuntimeToolCalls, normalizeContentOrder, normalizeTextSegments, type RuntimeMessage } from "@/domains/chat/api/messages";
 
 /**
  * Intermediate representation of a RuntimeMessage after all server-side fields

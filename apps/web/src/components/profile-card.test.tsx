@@ -16,7 +16,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import type { Assistant } from "@/generated/api/types.gen.js";
+import type { Assistant } from "@/generated/api/types.gen";
 
 // ---------------------------------------------------------------------------
 // Module mocks — registered before the subject is imported.

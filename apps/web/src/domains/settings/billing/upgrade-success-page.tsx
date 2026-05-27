@@ -12,8 +12,8 @@ import { Typography } from "@vellum/design-library/components/typography";
 import {
   organizationsBillingSubscriptionRetrieveOptions,
   organizationsBillingSubscriptionRetrieveQueryKey,
-} from "@/generated/api/@tanstack/react-query.gen.js";
-import { routes } from "@/utils/routes.js";
+} from "@/generated/api/@tanstack/react-query.gen";
+import { routes } from "@/utils/routes";
 
 /**
  * Stripe-redirect-vs-webhook-delivery race window.

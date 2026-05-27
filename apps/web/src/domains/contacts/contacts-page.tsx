@@ -6,13 +6,13 @@ import { toast } from "@vellum/design-library/components/toast";
 import {
   MobileSidebarDrawer,
   MobileSidebarTrigger,
-} from "@/components/mobile-sidebar-drawer.js";
-import { AssistantChannelsDetail } from "@/domains/contacts/components/assistant-channels-detail.js";
-import { ContactDetailView } from "@/domains/contacts/components/contact-detail-view.js";
-import { GenerateInviteLinkDialog } from "@/domains/contacts/components/generate-invite-link-dialog.js";
-import { ContactMergeDialog } from "@/domains/contacts/components/contact-merge-dialog.js";
-import { ContactsList } from "@/domains/contacts/components/contacts-list.js";
-import { GuardianDetailView } from "@/domains/contacts/components/guardian-detail-view.js";
+} from "@/components/mobile-sidebar-drawer";
+import { AssistantChannelsDetail } from "@/domains/contacts/components/assistant-channels-detail";
+import { ContactDetailView } from "@/domains/contacts/components/contact-detail-view";
+import { GenerateInviteLinkDialog } from "@/domains/contacts/components/generate-invite-link-dialog";
+import { ContactMergeDialog } from "@/domains/contacts/components/contact-merge-dialog";
+import { ContactsList } from "@/domains/contacts/components/contacts-list";
+import { GuardianDetailView } from "@/domains/contacts/components/guardian-detail-view";
 import {
   clearTelegramConfig,
   clearTwilioCredentials,
@@ -29,7 +29,7 @@ import {
   setTwilioCredentials,
   updateContact as apiUpdateContact,
   verifyContactChannel,
-} from "@/domains/contacts/api.js";
+} from "@/domains/contacts/api";
 import type {
   AssistantChannelState,
   ChannelInfo,
@@ -37,9 +37,9 @@ import type {
   ContactChannelPayload,
   ContactPayload,
   ContactSelection,
-} from "@/domains/contacts/types.js";
-import { fetchAssistantIdentity } from "@/assistant/identity.js";
-import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
+} from "@/domains/contacts/types";
+import { fetchAssistantIdentity } from "@/assistant/identity";
+import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
 
 const ASSISTANT_SETUP_PROMPTS: Record<AssistantChannelState["key"], string> = {
   slack: "I want to reach you on Slack. Let's set it up.",

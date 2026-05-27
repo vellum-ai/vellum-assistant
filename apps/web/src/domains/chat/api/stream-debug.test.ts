@@ -8,8 +8,8 @@ import {
   registerSseClient,
   resetSseDebugStateForTests,
   unregisterSseClient,
-} from "@/domains/chat/api/stream-debug.js";
-import type { AssistantEvent } from "@/domains/chat/api/event-types.js";
+} from "@/domains/chat/api/stream-debug";
+import type { AssistantEvent } from "@/domains/chat/api/event-types";
 
 beforeEach(() => {
   resetSseDebugStateForTests();

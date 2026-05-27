@@ -1,10 +1,10 @@
 
 import { Fragment, memo, type ReactNode } from "react";
 
-import type { MessageItem, TranscriptItem } from "@/domains/chat/transcript/types.js";
+import type { MessageItem, TranscriptItem } from "@/domains/chat/transcript/types";
 
-import { TranscriptRow } from "@/domains/chat/transcript/transcript-row.js";
-import type { ConfirmationDecision } from "@/domains/chat/api/event-types.js";
+import { TranscriptRow } from "@/domains/chat/transcript/transcript-row";
+import type { ConfirmationDecision } from "@/domains/chat/api/event-types";
 
 /**
  * Renders the newest user message (the "anchor") plus any response items that
@@ -47,9 +47,9 @@ export interface LatestTurnRowProps {
     riskLevel?: string;
     riskReason?: string;
     input?: Record<string, unknown>;
-    allowlistOptions: import("@/domains/chat/api/event-types.js").AllowlistOption[];
-    scopeOptions: import("@/domains/chat/api/event-types.js").ScopeOption[];
-    directoryScopeOptions: import("@/domains/chat/api/event-types.js").DirectoryScopeOption[];
+    allowlistOptions: import("@/domains/chat/api/event-types").AllowlistOption[];
+    scopeOptions: import("@/domains/chat/api/event-types").ScopeOption[];
+    directoryScopeOptions: import("@/domains/chat/api/event-types").DirectoryScopeOption[];
   }) => void;
   unknownNudgeToolCallIds?: Set<string>;
   onDismissUnknownNudge?: (toolCallId: string) => void;

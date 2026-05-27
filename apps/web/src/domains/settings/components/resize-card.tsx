@@ -9,24 +9,24 @@ import { Modal } from "@vellum/design-library/components/modal";
 import { Notice } from "@vellum/design-library/components/notice";
 import { Tag } from "@vellum/design-library/components/tag";
 import { toast } from "@vellum/design-library/components/toast";
-import { CapacityBar } from "@/domains/settings/components/capacity-bar.js";
-import { DetailCard } from "@/components/detail-card.js";
-import { extractResizeError } from "@/domains/settings/components/resize-errors.js";
-import { formatResourceMb } from "@/domains/settings/components/assistant-status-panel.js";
+import { CapacityBar } from "@/domains/settings/components/capacity-bar";
+import { DetailCard } from "@/components/detail-card";
+import { extractResizeError } from "@/domains/settings/components/resize-errors";
+import { formatResourceMb } from "@/domains/settings/components/assistant-status-panel";
 import {
   assistantsResizeMutation,
   organizationsBillingSubscriptionOnboardingRetrieveOptions,
   organizationsBillingSubscriptionRetrieveOptions,
-} from "@/generated/api/@tanstack/react-query.gen.js";
-import type { MachineSizeEnum } from "@/generated/api/types.gen.js";
-import type { Assistant, AssistantHealthz } from "@/assistant/api.js";
+} from "@/generated/api/@tanstack/react-query.gen";
+import type { MachineSizeEnum } from "@/generated/api/types.gen";
+import type { Assistant, AssistantHealthz } from "@/assistant/api";
 import {
   allowedMachineSizesForTier,
   buildMachineSizeOptions,
   machineSizeRank,
   SIZE_LABEL,
-} from "@/lib/billing/machine-sizes.js";
-import { routes } from "@/utils/routes.js";
+} from "@/lib/billing/machine-sizes";
+import { routes } from "@/utils/routes";
 
 export interface ResizeCardProps {
   assistant: Assistant;

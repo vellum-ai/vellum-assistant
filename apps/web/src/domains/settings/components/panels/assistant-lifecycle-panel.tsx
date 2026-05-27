@@ -6,13 +6,13 @@ import { Button } from "@vellum/design-library/components/button";
 import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog";
 import { Tag } from "@vellum/design-library/components/tag";
 import { toast } from "@vellum/design-library/components/toast";
-import { DetailCard } from "@/components/detail-card.js";
+import { DetailCard } from "@/components/detail-card";
 import {
   assistantsActiveRetrieveOptions,
   assistantsListOptions,
-} from "@/generated/api/@tanstack/react-query.gen.js";
-import type { Assistant } from "@/generated/api/types.gen.js";
-import { hatchAssistant } from "@/assistant/api.js";
+} from "@/generated/api/@tanstack/react-query.gen";
+import type { Assistant } from "@/generated/api/types.gen";
+import { hatchAssistant } from "@/assistant/api";
 
 export function AssistantLifecyclePanel() {
   const queryClient = useQueryClient();

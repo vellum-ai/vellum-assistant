@@ -11,7 +11,7 @@
 import type {
   DiskPressureBlockedCapability,
   DiskPressureStatus,
-} from "@/assistant/types.js";
+} from "@/assistant/types";
 import type {
   AllowlistOption,
   AssistantActivityPhase,
@@ -28,11 +28,11 @@ import type {
   SubagentInnerEvent,
   SubagentStatus,
   UISurfaceShowEvent,
-} from "@/domains/chat/api/event-types.js";
+} from "@/domains/chat/api/event-types";
 import { AssistantEventSchema } from "@vellumai/assistant-api";
-import type { DisplayAttachment } from "@/domains/chat/types/types.js";
-import type { ToolActivityMetadata } from "@/assistant/web-activity-types.js";
-import type { SyncInvalidationTag } from "@/lib/sync/types.js";
+import type { DisplayAttachment } from "@/domains/chat/types/types";
+import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
+import type { SyncInvalidationTag } from "@/lib/sync/types";
 
 /**
  * Unwrap envelope-shape payloads `{ message: { type, ...fields }, conversationId }`

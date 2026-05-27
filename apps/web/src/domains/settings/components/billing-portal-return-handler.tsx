@@ -7,14 +7,14 @@ import { toast } from "@vellum/design-library/components/toast";
 import {
   organizationsBillingSubscriptionRetrieveOptions,
   organizationsBillingSubscriptionRetrieveQueryKey,
-} from "@/generated/api/@tanstack/react-query.gen.js";
+} from "@/generated/api/@tanstack/react-query.gen";
 import {
   clearPortalReturnSnapshot,
   formatGraceDate,
   type PortalReturnSnapshot,
   readPortalReturnSnapshot,
-} from "@/domains/settings/hooks/use-billing-portal-session.js";
-import { routes } from "@/utils/routes.js";
+} from "@/domains/settings/hooks/use-billing-portal-session";
+import { routes } from "@/utils/routes";
 
 const POLL_INTERVAL_MS = 1000;
 const POLL_TIMEOUT_MS = 15000;

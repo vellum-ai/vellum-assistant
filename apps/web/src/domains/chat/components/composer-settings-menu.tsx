@@ -7,26 +7,26 @@ import { BottomSheet } from "@vellum/design-library";
 import { Button } from "@vellum/design-library";
 import { Menu } from "@vellum/design-library";
 import { PanelItem } from "@vellum/design-library";
-import { client } from "@/generated/api/client.gen.js";
-import { useIsMobile } from "@/hooks/use-is-mobile.js";
+import { client } from "@/generated/api/client.gen";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import {
   profilePickerLabel,
   visibleProfilesForPicker,
   type ProfilePickerEntry,
-} from "@/assistant/profile-pickers.js";
+} from "@/assistant/profile-pickers";
 import {
   deleteConversationOverride,
   getConversationOverride,
   getGlobalThresholds,
   setConversationOverride,
   setGlobalThresholds,
-} from "@/domains/chat/api/threshold-api.js";
+} from "@/domains/chat/api/threshold-api";
 import {
   THRESHOLD_PRESETS,
   overrideAction,
   presetFromThreshold,
   type ThresholdPreset,
-} from "@/domains/chat/utils/threshold-presets.js";
+} from "@/domains/chat/utils/threshold-presets";
 
 interface Props {
   assistantId: string;

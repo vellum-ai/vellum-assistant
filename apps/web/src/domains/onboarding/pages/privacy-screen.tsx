@@ -7,19 +7,19 @@ import { Button } from "@vellum/design-library/components/button";
 import { Card } from "@vellum/design-library/components/card";
 import { Checkbox } from "@vellum/design-library/components/checkbox";
 import { Toggle } from "@vellum/design-library/components/toggle";
-import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout.js";
-import { StepIndicatorDots } from "@/domains/onboarding/components/step-indicator-dots.js";
+import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
+import { StepIndicatorDots } from "@/domains/onboarding/components/step-indicator-dots";
 import {
   readOnboardingCompleted,
   useAiDataConsent,
   useShareAnalytics,
   useShareDiagnostics,
   useTosAccepted,
-} from "@/domains/onboarding/prefs.js";
-import { markPrivacyConsent } from "@/domains/onboarding/signals.js";
-import { useIsNativePlatform } from "@/runtime/native-auth.js";
-import { useAuthStore } from "@/stores/auth-store.js";
-import { legalUrl, routes } from "@/utils/routes.js";
+} from "@/domains/onboarding/prefs";
+import { markPrivacyConsent } from "@/domains/onboarding/signals";
+import { useIsNativePlatform } from "@/runtime/native-auth";
+import { useAuthStore } from "@/stores/auth-store";
+import { legalUrl, routes } from "@/utils/routes";
 
 function SettingRow({
   label,

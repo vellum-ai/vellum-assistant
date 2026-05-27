@@ -8,11 +8,11 @@
  */
 import { useEffect } from "react";
 
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
+import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
 import {
   applyThemePreference,
   readStoredThemePreference,
-} from "@/domains/settings/utils/theme-preferences.js";
+} from "@/domains/settings/utils/theme-preferences";
 
 export function useAppTheme() {
   const velvet = useClientFeatureFlagStore.use.velvet();

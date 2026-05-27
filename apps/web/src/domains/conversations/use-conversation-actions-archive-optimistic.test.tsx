@@ -30,9 +30,9 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createElement, type ReactNode } from "react";
 
-import * as conversationsApi from "@/domains/chat/api/conversations.js";
-import type { Conversation } from "@/domains/chat/api/conversations.js";
-import { chatContextQueryKey } from "@/lib/sync/query-tags.js";
+import * as conversationsApi from "@/domains/chat/api/conversations";
+import type { Conversation } from "@/domains/chat/api/conversations";
+import { chatContextQueryKey } from "@/lib/sync/query-tags";
 
 // ---------------------------------------------------------------------------
 // Module mocks. Archive/unarchive impls are pulled from module-level holders
@@ -47,7 +47,7 @@ type ApiImpl = (assistantId: string, conversationId: string) => Promise<void>;
 let archiveImpl: ApiImpl = async () => {};
 let unarchiveImpl: ApiImpl = async () => {};
 
-mock.module("@/domains/chat/api/conversations.js", () => ({
+mock.module("@/domains/chat/api/conversations", () => ({
   ...conversationsApi,
   archiveConversation: (assistantId: string, conversationId: string) =>
     archiveImpl(assistantId, conversationId),
@@ -57,7 +57,7 @@ mock.module("@/domains/chat/api/conversations.js", () => ({
 
 // Stub haptics — Capacitor's web shim works fine in a node test environment,
 // but stubbing avoids the unrelated side-effect noise.
-mock.module("@/utils/haptics.js", () => ({
+mock.module("@/utils/haptics", () => ({
   haptic: { medium: () => {}, light: () => {} },
 }));
 
@@ -68,7 +68,7 @@ mock.module("@sentry/react", () => ({
 }));
 
 const { useConversationActions } = await import(
-  "@/domains/conversations/use-conversation-actions.js"
+  "@/domains/conversations/use-conversation-actions"
 );
 
 // ---------------------------------------------------------------------------

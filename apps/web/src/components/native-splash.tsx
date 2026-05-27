@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { publicAsset } from "@/lib/public-asset.js";
+import { publicAsset } from "@/lib/public-asset";
 
 /**
  * Full-screen branded splash shown on native iOS during:

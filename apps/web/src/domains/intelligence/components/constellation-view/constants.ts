@@ -1,7 +1,7 @@
 import {
   CATEGORY_NODE_SIZE,
   SUB_CATEGORY_NODE_SIZE,
-} from "@/domains/intelligence/components/constellation-layout.js";
+} from "@/domains/intelligence/components/constellation-layout";
 
 // ─── Zoom & viewport ────────────────────────────────────────────────────────
 

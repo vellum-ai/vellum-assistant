@@ -19,36 +19,36 @@ import {
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { NavigateFunction } from "react-router";
-import { routes } from "@/utils/routes.js";
+import { routes } from "@/utils/routes";
 
 import {
   type DisplayAttachment,
   type DisplayMessage,
   reconcileMessages,
-} from "@/domains/chat/utils/reconcile.js";
-import { isAsyncChatScopeCurrent } from "@/domains/chat/utils/conversation-scope.js";
-import { resolveEditChatDraftConversationId } from "@/domains/chat/utils/edit-chat-session.js";
-import { type DiskPressureChatBlockReason, getDiskPressureChatBlockMessage } from "@/assistant/disk-pressure.js";
-import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics.js";
-import { saveDismissedSurfaceIds } from "@/domains/chat/utils/dismissed-surfaces-storage.js";
-import { isSending, useTurnStore } from "@/domains/messaging/turn-store.js";
-import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
-import { useConversationStore } from "@/domains/conversations/conversation-store.js";
+} from "@/domains/chat/utils/reconcile";
+import { isAsyncChatScopeCurrent } from "@/domains/chat/utils/conversation-scope";
+import { resolveEditChatDraftConversationId } from "@/domains/chat/utils/edit-chat-session";
+import { type DiskPressureChatBlockReason, getDiskPressureChatBlockMessage } from "@/assistant/disk-pressure";
+import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics";
+import { saveDismissedSurfaceIds } from "@/domains/chat/utils/dismissed-surfaces-storage";
+import { isSending, useTurnStore } from "@/domains/messaging/turn-store";
+import { useInteractionStore } from "@/domains/interactions/interaction-store";
+import { useConversationStore } from "@/domains/conversations/conversation-store";
 import {
   findConversation,
   prependConversation,
   removeConversation,
   resolveDraftKey,
-} from "@/domains/conversations/conversation-queries.js";
-import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
+} from "@/domains/conversations/conversation-queries";
+import { useSubagentStore } from "@/domains/subagents/subagent-store";
 import {
   consumePendingPreChatContext,
   type PreChatOnboardingContext,
-} from "@/domains/onboarding/prechat.js";
+} from "@/domains/onboarding/prechat";
 
-import { clearQueueStatus } from "@/domains/chat/hooks/stream-message-updaters.js";
-import { attachConfirmationToToolCall } from "@/domains/chat/utils/chat-utils.js";
-import type { ChatError } from "@/domains/chat/types.js";
+import { clearQueueStatus } from "@/domains/chat/hooks/stream-message-updaters";
+import { attachConfirmationToToolCall } from "@/domains/chat/utils/chat-utils";
+import type { ChatError } from "@/domains/chat/types";
 
 import {
   clearPendingConfirmationsFromMessages,
@@ -58,12 +58,12 @@ import {
   parsePendingSecretState,
   resolvePostError,
   stopStreamingAndClearConfirmations,
-} from "@/domains/chat/hooks/send-message-utils.js";
-import { useMessageQueue } from "@/domains/chat/hooks/use-message-queue.js";
-import { type Conversation, cancelGeneration } from "@/domains/chat/api/conversations.js";
-import { getPendingInteractions } from "@/domains/chat/api/interactions.js";
-import { type RuntimeMessage, fetchConversationMessages, postChatMessage, pollForResponse } from "@/domains/chat/api/messages.js";
-import type { ChatEventStream } from "@/domains/chat/api/stream.js";
+} from "@/domains/chat/hooks/send-message-utils";
+import { useMessageQueue } from "@/domains/chat/hooks/use-message-queue";
+import { type Conversation, cancelGeneration } from "@/domains/chat/api/conversations";
+import { getPendingInteractions } from "@/domains/chat/api/interactions";
+import { type RuntimeMessage, fetchConversationMessages, postChatMessage, pollForResponse } from "@/domains/chat/api/messages";
+import type { ChatEventStream } from "@/domains/chat/api/stream";
 
 // Re-export pure utilities so existing consumers don't break.
 export {
@@ -73,7 +73,7 @@ export {
   stopStreamingAndClearConfirmations,
   parsePendingSecretState,
   parsePendingConfirmationData,
-} from "@/domains/chat/hooks/send-message-utils.js";
+} from "@/domains/chat/hooks/send-message-utils";
 
 // ---------------------------------------------------------------------------
 // Stream send result

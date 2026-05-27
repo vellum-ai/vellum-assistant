@@ -1,7 +1,7 @@
 
 import { forwardRef } from "react";
 
-import { cn } from "@/utils/misc.js";
+import { cn } from "@/utils/misc";
 
 import { Button } from "@vellum/design-library";
 

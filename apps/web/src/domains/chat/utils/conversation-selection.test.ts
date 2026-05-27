@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { resolveBootstrappedConversationId } from "@/domains/chat/utils/conversation-selection.js";
+import { resolveBootstrappedConversationId } from "@/domains/chat/utils/conversation-selection";
 
 const conversations = [
   { conversationId: "old-visible" },

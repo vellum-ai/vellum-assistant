@@ -6,7 +6,7 @@ import {
   getDeviceSetting,
   migrateDeviceSettings,
   setDeviceSetting,
-} from "./device-settings.js";
+} from "./device-settings";
 
 beforeEach(() => {
   localStorage.clear();

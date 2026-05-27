@@ -1,6 +1,6 @@
 import { beforeEach, describe, it, expect } from "bun:test";
 
-import { useViewerStore } from "@/stores/viewer-store.js";
+import { useViewerStore } from "@/stores/viewer-store";
 
 // ---------------------------------------------------------------------------
 // Helpers

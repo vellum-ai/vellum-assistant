@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { parseInlineSurfaces } from "./parse-inline-surfaces.js";
+import { parseInlineSurfaces } from "./parse-inline-surfaces";
 
 describe("parseInlineSurfaces", () => {
   test("returns null when no <ui_show> tags are present", () => {

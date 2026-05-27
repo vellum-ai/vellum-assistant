@@ -1,10 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect } from "react";
 
-import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen.js";
-import type { Assistant } from "@/generated/api/types.gen.js";
-import { useCurrentPlatformAssistantStore } from "@/stores/current-platform-assistant-store.js";
-import { useOrganizationStore } from "@/stores/organization-store.js";
+import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen";
+import type { Assistant } from "@/generated/api/types.gen";
+import { useCurrentPlatformAssistantStore } from "@/stores/current-platform-assistant-store";
+import { useOrganizationStore } from "@/stores/organization-store";
 
 const PLATFORM_LIST_OPTIONS = assistantsListOptions({
   query: { hosting: "platform" },

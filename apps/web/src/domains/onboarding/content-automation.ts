@@ -1,8 +1,8 @@
 import {
   setPendingPreChatContext,
   type PreChatOnboardingContext,
-} from "@/domains/onboarding/prechat.js";
-import { DEFAULT_GROUP_ID } from "@/domains/onboarding/prechat-names.js";
+} from "@/domains/onboarding/prechat";
+import { DEFAULT_GROUP_ID } from "@/domains/onboarding/prechat-names";
 
 export const CONTENT_AUTOMATION_INITIAL_MESSAGE =
   "I want to write articles that rank better for GEO.";

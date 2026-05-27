@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useReducedMotion } from "motion/react";
 
-import { computeTransforms, resolveDefinitions } from "@/utils/avatar-svg-compositor.js";
-import type { CharacterComponents, CharacterTraits, EyePathDefinition } from "@/types/avatar.js";
+import { computeTransforms, resolveDefinitions } from "@/utils/avatar-svg-compositor";
+import type { CharacterComponents, CharacterTraits, EyePathDefinition } from "@/types/avatar";
 
 interface AnimatedAvatarProps {
   components: CharacterComponents;

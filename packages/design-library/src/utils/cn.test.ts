@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { cn } from "./cn.js";
+import { cn } from "./cn";
 
 describe("cn — tailwind-merge typography / text-color interaction", () => {
   test("preserves text-color alongside typography utility", () => {

@@ -12,12 +12,12 @@ import {
   assistantsDomainsListOptions,
   assistantsListQueryKey,
   organizationsBillingSubscriptionOnboardingDomainCreateMutation,
-} from "@/generated/api/@tanstack/react-query.gen.js";
-import { useEnvironmentStore } from "@/lib/environment/environment-store.js";
+} from "@/generated/api/@tanstack/react-query.gen";
+import { useEnvironmentStore } from "@/lib/environment/environment-store";
 
-import { DomainField } from "@/domains/settings/components/domain-field.js";
-import { IconBadge, StepDots } from "./primitives.js";
-import { DOMAIN_EXIT_DELAY_MS, extractOnboardingErrorMessage } from "./utils.js";
+import { DomainField } from "@/domains/settings/components/domain-field";
+import { IconBadge, StepDots } from "./primitives";
+import { DOMAIN_EXIT_DELAY_MS, extractOnboardingErrorMessage } from "./utils";
 
 export function DomainStep({ onBack, onExit }: { onBack: () => void; onExit: () => void }) {
   const queryClient = useQueryClient();

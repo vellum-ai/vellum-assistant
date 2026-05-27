@@ -10,7 +10,7 @@ import { describe, expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { Collapsible } from "./collapsible.js";
+import { Collapsible } from "./collapsible";
 
 function renderSection(opts: {
   value: string;

@@ -21,7 +21,7 @@
  * - https://web.dev/articles/sign-out-best-practices
  */
 
-import { DEVICE_PREFIX } from "@/lib/device-settings.js";
+import { DEVICE_PREFIX } from "@/lib/device-settings";
 
 /** Prefixes that identify keys owned by this app. */
 const APP_KEY_PREFIXES = [

@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
-import { sanitizeDisplayMessages } from "@/domains/chat/utils/sanitize-display-messages.js";
-import type { DisplayMessage } from "@/domains/chat/types/types.js";
-import type { ChatMessageToolCall } from "@/domains/chat/api/event-types.js";
+import { sanitizeDisplayMessages } from "@/domains/chat/utils/sanitize-display-messages";
+import type { DisplayMessage } from "@/domains/chat/types/types";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 function makeMessage(
   overrides: Partial<DisplayMessage> & { id?: string },
 ): DisplayMessage {

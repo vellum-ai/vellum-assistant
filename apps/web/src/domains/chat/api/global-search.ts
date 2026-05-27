@@ -1,5 +1,5 @@
 
-import { client } from "@/generated/api/client.gen.js";
+import { client } from "@/generated/api/client.gen";
 
 // ---------------------------------------------------------------------------
 // Types

@@ -4,11 +4,11 @@ import {
   Transcript,
   type TranscriptHandle,
   type TranscriptProps,
-} from "@/domains/chat/transcript/transcript.js";
-import { MaintenanceRecoveryCard } from "@/domains/chat/components/maintenance-recovery-card.js";
-import { ChatEmptyState } from "@/domains/chat/components/chat-empty-state.js";
-import type { ChatEmptyStateProps } from "@/domains/chat/components/chat-empty-state.js";
-import { ChatSkeleton } from "@/domains/chat/components/chat-skeleton.js";
+} from "@/domains/chat/transcript/transcript";
+import { MaintenanceRecoveryCard } from "@/domains/chat/components/maintenance-recovery-card";
+import { ChatEmptyState } from "@/domains/chat/components/chat-empty-state";
+import type { ChatEmptyStateProps } from "@/domains/chat/components/chat-empty-state";
+import { ChatSkeleton } from "@/domains/chat/components/chat-skeleton";
 
 /**
  * Renders the scrollable content of a chat panel — the single source of

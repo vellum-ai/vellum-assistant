@@ -1,11 +1,11 @@
-import { client as platformClient } from "@/generated/api/client.gen.js";
+import { client as platformClient } from "@/generated/api/client.gen";
 import {
   assistantsTerminalSessionsCreate,
   assistantsTerminalSessionsDestroy,
   assistantsTerminalSessionsInputCreate,
   assistantsTerminalSessionsResizeCreate,
-} from "@/generated/api/sdk.gen.js";
-import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity.js";
+} from "@/generated/api/sdk.gen";
+import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
 
 // ---------------------------------------------------------------------------
 // Types

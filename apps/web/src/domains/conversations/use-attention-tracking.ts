@@ -2,17 +2,17 @@ import * as Sentry from "@sentry/react";
 import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { useConversationStore } from "@/domains/conversations/conversation-store.js";
+import { useConversationStore } from "@/domains/conversations/conversation-store";
 import {
   getConversations,
   markConversationSeenLocal,
   useConversationListQuery,
-} from "@/domains/conversations/conversation-queries.js";
-import { markConversationSeen } from "@/domains/chat/api/conversations.js";
-import { listConversationIdsWithPendingInteractions } from "@/domains/chat/api/interactions.js";
-import { USER_FACING_INTERACTION_KINDS } from "@/domains/chat/api/event-types.js";
-import type { AssistantState } from "@/domains/chat/hooks/use-assistant-lifecycle.js";
-import { useBusSubscription } from "@/hooks/use-bus-subscription.js";
+} from "@/domains/conversations/conversation-queries";
+import { markConversationSeen } from "@/domains/chat/api/conversations";
+import { listConversationIdsWithPendingInteractions } from "@/domains/chat/api/interactions";
+import { USER_FACING_INTERACTION_KINDS } from "@/domains/chat/api/event-types";
+import type { AssistantState } from "@/domains/chat/hooks/use-assistant-lifecycle";
+import { useBusSubscription } from "@/hooks/use-bus-subscription";
 
 interface UseAttentionTrackingParams {
   /** From `useAssistantLifecycle` in `ChatLayout`. */

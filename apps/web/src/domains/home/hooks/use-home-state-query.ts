@@ -1,8 +1,8 @@
 import { useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { fetchRelationshipState } from "../api.js";
-import type { RelationshipState } from "../types.js";
+import { fetchRelationshipState } from "../api";
+import type { RelationshipState } from "../types";
 
 const QUERY_KEY_PREFIX = "home-state" as const;
 

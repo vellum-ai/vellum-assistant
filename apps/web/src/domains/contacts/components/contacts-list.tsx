@@ -6,11 +6,11 @@ import { Card } from "@vellum/design-library/components/card";
 import { Input } from "@vellum/design-library/components/input";
 import { PanelItem } from "@vellum/design-library/components/panel-item";
 
-import { ContactTypeBadge } from "@/domains/contacts/components/contact-type-badge.js";
+import { ContactTypeBadge } from "@/domains/contacts/components/contact-type-badge";
 import type {
   ContactSelection,
   ContactSummary,
-} from "@/domains/contacts/types.js";
+} from "@/domains/contacts/types";
 
 interface ContactsListProps {
   loading: boolean;

@@ -1,14 +1,14 @@
 import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 
-import { client } from "@/generated/api/client.gen.js";
-import { assertHasResponse } from "@/lib/api-errors.js";
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
+import { client } from "@/generated/api/client.gen";
+import { assertHasResponse } from "@/lib/api-errors";
+import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
 import {
   CLIENT_FLAG_DEFAULTS,
   flagKeyToStoreKey,
-} from "@/lib/feature-flags/feature-flag-catalog.js";
-import { useFlagQueryFreshness } from "@/lib/backwards-compat/flag-query-freshness.js";
+} from "@/lib/feature-flags/feature-flag-catalog";
+import { useFlagQueryFreshness } from "@/lib/backwards-compat/flag-query-freshness";
 
 interface ClientFlagValuesResponse {
   flags: Record<string, boolean>;

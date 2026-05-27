@@ -10,39 +10,39 @@ import {
 import { Outlet, useLocation, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { haptic } from "@/utils/haptics.js";
-import { routes } from "@/utils/routes.js";
-import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile.js";
-import { useRootOutletContext } from "@/root-layout.js";
-import { useAssistantIdentityInit } from "@/hooks/use-assistant-identity-init.js";
-import { useAssistantAvatar } from "@/hooks/use-assistant-avatar.js";
-import { useDynamicFavicon } from "@/hooks/use-dynamic-favicon.js";
-import { useHomeUnreadBadge } from "@/hooks/use-home-unread-badge.js";
-import type { AssistantContextValue } from "@/components/layout/assistant-context.js";
+import { haptic } from "@/utils/haptics";
+import { routes } from "@/utils/routes";
+import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile";
+import { useRootOutletContext } from "@/root-layout";
+import { useAssistantIdentityInit } from "@/hooks/use-assistant-identity-init";
+import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
+import { useDynamicFavicon } from "@/hooks/use-dynamic-favicon";
+import { useHomeUnreadBadge } from "@/hooks/use-home-unread-badge";
+import type { AssistantContextValue } from "@/components/layout/assistant-context";
 
-import { useConversationStore } from "@/domains/conversations/conversation-store.js";
+import { useConversationStore } from "@/domains/conversations/conversation-store";
 import {
   chatContextQueryKey,
   useConversationGroupsQuery,
   useConversationListQuery,
-} from "@/domains/conversations/conversation-queries.js";
-import { useAttentionTracking } from "@/domains/conversations/use-attention-tracking.js";
-import { useConversationActions } from "@/domains/conversations/use-conversation-actions.js";
-import { useConversationGroupActions } from "@/domains/conversations/use-conversation-group-actions.js";
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
-import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
-import { useViewerStore } from "@/stores/viewer-store.js";
-import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
-import { useAuthStore } from "@/stores/auth-store.js";
-import { canUseLlmInspector } from "@/domains/chat/inspector/access.js";
-import type { Conversation } from "@/domains/chat/api/conversations.js";
+} from "@/domains/conversations/conversation-queries";
+import { useAttentionTracking } from "@/domains/conversations/use-attention-tracking";
+import { useConversationActions } from "@/domains/conversations/use-conversation-actions";
+import { useConversationGroupActions } from "@/domains/conversations/use-conversation-group-actions";
+import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
+import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
+import { useViewerStore } from "@/stores/viewer-store";
+import { useSubagentStore } from "@/domains/subagents/subagent-store";
+import { useAuthStore } from "@/stores/auth-store";
+import { canUseLlmInspector } from "@/domains/chat/inspector/access";
+import type { Conversation } from "@/domains/chat/api/conversations";
 
-import { OfflineBanner } from "@/components/offline-banner.js";
-import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu.js";
-import { PreferencesMenu } from "@/domains/chat/components/preferences-menu.js";
-import { useAssistantIdentityStore } from "@/stores/assistant-identity-store.js";
-import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection.js";
-import { ChatLayoutHeader } from "./chat-layout-header.js";
+import { OfflineBanner } from "@/components/offline-banner";
+import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
+import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
+import { ChatLayoutHeader } from "./chat-layout-header";
 
 /**
  * LocalStorage key used to persist the collapsed state of the sidebar rail

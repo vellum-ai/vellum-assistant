@@ -18,9 +18,9 @@
 import { create } from "zustand";
 
 import { toast } from "@vellum/design-library";
-import { shareApp as shareAppApi } from "@/domains/chat/api/apps.js";
-import { getVercelConfig, isCredentialError, publishApp } from "@/domains/chat/api/publish.js";
-import { createSelectors } from "@/utils/create-selectors.js";
+import { shareApp as shareAppApi } from "@/domains/chat/api/apps";
+import { getVercelConfig, isCredentialError, publishApp } from "@/domains/chat/api/publish";
+import { createSelectors } from "@/utils/create-selectors";
 
 // ---------------------------------------------------------------------------
 // Types

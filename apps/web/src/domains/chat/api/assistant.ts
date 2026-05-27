@@ -13,12 +13,12 @@ import {
   client,
   extractErrorMessage,
   SDK_BASE_OPTIONS,
-} from "@/domains/chat/api/client.js";
+} from "@/domains/chat/api/client";
 import {
   isBackgroundConversation,
   listConversations,
-} from "@/domains/chat/api/conversations.js";
-import type { Conversation } from "@/domains/chat/api/conversations.js";
+} from "@/domains/chat/api/conversations";
+import type { Conversation } from "@/domains/chat/api/conversations";
 
 async function fetchAssistantId(): Promise<string | null> {
   // Prefer platform-managed assistants, fall back to local.

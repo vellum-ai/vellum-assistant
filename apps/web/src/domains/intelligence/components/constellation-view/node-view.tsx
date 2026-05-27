@@ -1,19 +1,19 @@
 
 import { motion } from "motion/react";
 
-import { ChatAvatar } from "@/components/avatar/chat-avatar.js";
-import type { CharacterComponents, CharacterTraits } from "@/types/avatar.js";
+import { ChatAvatar } from "@/components/avatar/chat-avatar";
+import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 
 import {
   CATEGORY_CONFIGS,
   CENTER_AVATAR_SIZE,
   type TreeNode,
-} from "@/domains/intelligence/components/constellation-layout.js";
+} from "@/domains/intelligence/components/constellation-layout";
 
-import { NODE_SPRING } from "@/domains/intelligence/components/constellation-view/constants.js";
-import { NodeShell, type NodeShellVariant } from "@/domains/intelligence/components/constellation-view/node-shell.js";
-import { SkillNode } from "@/domains/intelligence/components/constellation-view/skill-node.js";
-import { nodeDelay, nodeVisibility } from "@/domains/intelligence/components/constellation-view/utils.js";
+import { NODE_SPRING } from "@/domains/intelligence/components/constellation-view/constants";
+import { NodeShell, type NodeShellVariant } from "@/domains/intelligence/components/constellation-view/node-shell";
+import { SkillNode } from "@/domains/intelligence/components/constellation-view/skill-node";
+import { nodeDelay, nodeVisibility } from "@/domains/intelligence/components/constellation-view/utils";
 
 export interface NodeViewProps {
   node: TreeNode;

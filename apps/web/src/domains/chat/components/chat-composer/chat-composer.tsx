@@ -16,34 +16,34 @@ import { flushSync } from "react-dom";
 import {
   AttachFileButton,
   ChatAttachmentsStrip,
-} from "@/domains/chat/components/chat-attachments/chat-attachments.js";
-import type { ChatAttachment } from "@/domains/chat/components/chat-attachments/use-chat-attachments.js";
+} from "@/domains/chat/components/chat-attachments/chat-attachments";
+import type { ChatAttachment } from "@/domains/chat/components/chat-attachments/use-chat-attachments";
 import { Button, Popover } from "@vellum/design-library";
 import {
   VoiceInputButton,
   type VoiceInputButtonHandle,
-} from "@/domains/chat/components/voice-input-button.js";
-import { type TurnPhase, useTurnStore } from "@/domains/messaging/turn-store.js";
-import { useIsMobile } from "@/hooks/use-is-mobile.js";
-import { isPointerCoarse } from "@/utils/pointer.js";
-import { useAudioAmplitude } from "@/domains/voice/use-audio-amplitude.js";
-import { useVoiceRecordingStore } from "@/domains/voice/voice-recording-store.js";
-import { StreamingWaveform } from "@/domains/chat/components/chat-composer/streaming-waveform.js";
+} from "@/domains/chat/components/voice-input-button";
+import { type TurnPhase, useTurnStore } from "@/domains/messaging/turn-store";
+import { useIsMobile } from "@/hooks/use-is-mobile";
+import { isPointerCoarse } from "@/utils/pointer";
+import { useAudioAmplitude } from "@/domains/voice/use-audio-amplitude";
+import { useVoiceRecordingStore } from "@/domains/voice/voice-recording-store";
+import { StreamingWaveform } from "@/domains/chat/components/chat-composer/streaming-waveform";
 
-import { EMOJI_MIN_FILTER_LENGTH, EMOJI_TRIGGER_RE, searchEmoji, type EmojiEntry } from "@/domains/chat/components/chat-composer/emoji-catalog.js";
-import { EmojiPickerPopup } from "@/domains/chat/components/chat-composer/emoji-picker-popup.js";
-import { SlashCommandPopup } from "@/domains/chat/components/chat-composer/slash-command-popup.js";
+import { EMOJI_MIN_FILTER_LENGTH, EMOJI_TRIGGER_RE, searchEmoji, type EmojiEntry } from "@/domains/chat/components/chat-composer/emoji-catalog";
+import { EmojiPickerPopup } from "@/domains/chat/components/chat-composer/emoji-picker-popup";
+import { SlashCommandPopup } from "@/domains/chat/components/chat-composer/slash-command-popup";
 import {
   applyMarkdownFormatting,
   matchFormattingShortcut,
-} from "@/domains/chat/components/chat-composer/markdown-formatting.js";
+} from "@/domains/chat/components/chat-composer/markdown-formatting";
 import {
   SLASH_PREFIX_RE,
   filteredCommands,
   type SlashCommand,
   selectedInputText,
-} from "@/domains/chat/components/chat-composer/slash-command-catalog.js";
-import { useTextPopup } from "@/domains/chat/components/chat-composer/use-text-popup.js";
+} from "@/domains/chat/components/chat-composer/slash-command-catalog";
+import { useTextPopup } from "@/domains/chat/components/chat-composer/use-text-popup";
 
 // ---------------------------------------------------------------------------
 // Keyboard policy

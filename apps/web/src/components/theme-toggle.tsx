@@ -3,14 +3,14 @@ import { useEffect, useState } from "react";
 
 import { cn, SegmentControl } from "@vellum/design-library";
 
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
-import { watchDeviceSetting } from "@/lib/device-settings.js";
+import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
+import { watchDeviceSetting } from "@/lib/device-settings";
 import {
   applyThemePreference,
   readStoredThemePreference,
   type ThemePreference,
   writeStoredThemePreference,
-} from "@/domains/settings/utils/theme-preferences.js";
+} from "@/domains/settings/utils/theme-preferences";
 
 const BASE_THEME_OPTIONS: ReadonlyArray<{
   value: ThemePreference;

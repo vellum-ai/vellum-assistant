@@ -48,14 +48,14 @@
 
 import { create } from "zustand";
 
-import { createSelectors } from "@/utils/create-selectors.js";
+import { createSelectors } from "@/utils/create-selectors";
 import {
   getLocalBool,
   removeLocalSetting,
   setLocalBool,
   watchSetting,
-} from "@/lib/local-settings.js";
-import { deviceKey } from "@/lib/device-settings.js";
+} from "@/lib/local-settings";
+import { deviceKey } from "@/lib/device-settings";
 
 // ---------------------------------------------------------------------------
 // Storage keys — shared with other surfaces

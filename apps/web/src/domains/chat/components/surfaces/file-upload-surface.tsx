@@ -1,9 +1,9 @@
 import { AlertTriangle, File, Loader2, Upload, X } from "lucide-react";
 import { type ChangeEvent, type DragEvent, useCallback, useRef, useState } from "react";
 
-import type { Surface } from "@/domains/chat/types/types.js";
+import type { Surface } from "@/domains/chat/types/types";
 
-import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message.js";
+import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 
 // ---------------------------------------------------------------------------
 // Types

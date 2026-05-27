@@ -1,4 +1,4 @@
-import type { DiskPressureStatus } from "@/assistant/api.js";
+import type { DiskPressureStatus } from "@/assistant/api";
 
 export type DiskPressureMonitorMode =
   | "inactive"

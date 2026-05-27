@@ -13,8 +13,8 @@ import { Button } from "@vellum/design-library";
 import {
   postSttTranscribe,
   type SttFailureReason,
-} from "@/domains/voice/stt-api.js";
-import { useVoiceRecordingStore } from "@/domains/voice/voice-recording-store.js";
+} from "@/domains/voice/stt-api";
+import { useVoiceRecordingStore } from "@/domains/voice/voice-recording-store";
 
 // ---------------------------------------------------------------------------
 // MIME type selection

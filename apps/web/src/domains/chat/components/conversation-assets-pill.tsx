@@ -9,12 +9,12 @@ import {
   Typography,
 } from "@vellum/design-library";
 
-import { useIsMobile } from "@/hooks/use-is-mobile.js";
-import { listApps, type AppSummary } from "@/domains/chat/api/apps.js";
+import { useIsMobile } from "@/hooks/use-is-mobile";
+import { listApps, type AppSummary } from "@/domains/chat/api/apps";
 import {
   listDocuments,
   type DocumentSummary,
-} from "@/domains/chat/api/documents.js";
+} from "@/domains/chat/api/documents";
 
 interface ConversationAsset {
   id: string;

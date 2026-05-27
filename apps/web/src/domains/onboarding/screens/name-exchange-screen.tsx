@@ -2,11 +2,11 @@ import { ChevronLeft } from "lucide-react";
 
 import { Button } from "@vellum/design-library/components/button";
 import { Input } from "@vellum/design-library/components/input";
-import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout.js";
+import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import {
   PERSONALITY_GROUPS,
   type PersonalityGroup,
-} from "@/domains/onboarding/prechat-names.js";
+} from "@/domains/onboarding/prechat-names";
 
 interface NameExchangeScreenProps {
   userName: string;

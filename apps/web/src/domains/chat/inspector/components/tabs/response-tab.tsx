@@ -6,7 +6,7 @@ import type {
   LLMCallSummary,
   LLMContextSection,
   LLMRequestLogEntry,
-} from "@/domains/chat/types/inspector-types.js";
+} from "@/domains/chat/types/inspector-types";
 
 interface ResponseTabProps {
   entry: LLMRequestLogEntry;

@@ -3,7 +3,7 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 
-import type { CharacterComponents, CharacterTraits } from "@/types/avatar.js";
+import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 
 const components: CharacterComponents = {
   bodyShapes: [
@@ -42,7 +42,7 @@ mock.module("@/assistant/avatar-api", () => ({
   fetchAvatarImageUrl,
 }));
 
-const { useAssistantAvatar } = await import("@/hooks/use-assistant-avatar.js");
+const { useAssistantAvatar } = await import("@/hooks/use-assistant-avatar");
 
 function createWrapper() {
   const queryClient = new QueryClient({

@@ -18,7 +18,7 @@ import { cleanup, fireEvent, render } from "@testing-library/react";
 import {
   ToolProgressCardShell,
   type ToolProgressCardState,
-} from "@/domains/chat/components/tool-progress-card/tool-progress-card-shell.js";
+} from "@/domains/chat/components/tool-progress-card/tool-progress-card-shell";
 
 afterEach(() => {
   cleanup();

@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 
-import { isNativePlatform } from "@/runtime/native-auth.js";
+import { isNativePlatform } from "@/runtime/native-auth";
 
 /**
  * Returns true when the current browser is running on iOS (iPhone, iPod, or iPad).

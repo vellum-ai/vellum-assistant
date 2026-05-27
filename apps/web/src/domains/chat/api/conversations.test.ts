@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
-import { client } from "@/domains/chat/api/client.js";
-import { listConversations, parseConversation } from "@/domains/chat/api/conversations.js";
+import { client } from "@/domains/chat/api/client";
+import { listConversations, parseConversation } from "@/domains/chat/api/conversations";
 
 describe("parseConversation — originChannel plumbing", () => {
   test("returns null for non-object input", () => {

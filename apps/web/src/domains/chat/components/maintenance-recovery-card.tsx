@@ -2,7 +2,7 @@ import { WrenchIcon } from "lucide-react";
 
 import { Link } from "react-router";
 
-import { routes } from "@/utils/routes.js";
+import { routes } from "@/utils/routes";
 
 /**
  * In-chat card shown in place of the empty state when the assistant is in

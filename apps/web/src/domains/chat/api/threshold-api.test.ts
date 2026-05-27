@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
-import { client } from "@/domains/chat/api/client.js";
-import { getConversationOverride } from "@/domains/chat/api/threshold-api.js";
+import { client } from "@/domains/chat/api/client";
+import { getConversationOverride } from "@/domains/chat/api/threshold-api";
 
 // ---------------------------------------------------------------------------
 // getConversationOverride — gateway-compat for the "no override" signal

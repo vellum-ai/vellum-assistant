@@ -2,10 +2,10 @@
 import { useCallback, useState } from "react";
 import type { FC } from "react";
 
-import type { DisplayAttachment } from "@/domains/chat/utils/reconcile.js";
+import type { DisplayAttachment } from "@/domains/chat/utils/reconcile";
 
-import { AttachmentPreviewModal } from "@/domains/chat/components/chat-attachments/attachment-preview-modal.js";
-import { MessageAttachmentSquare } from "@/domains/chat/components/chat-attachments/message-attachment-square.js";
+import { AttachmentPreviewModal } from "@/domains/chat/components/chat-attachments/attachment-preview-modal";
+import { MessageAttachmentSquare } from "@/domains/chat/components/chat-attachments/message-attachment-square";
 
 interface MessageAttachmentsProps {
   attachments: DisplayAttachment[];

@@ -3,17 +3,17 @@ import { Pencil } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Button, ConfirmDialog } from "@vellum/design-library";
-import { ConstellationView } from "@/domains/intelligence/components/constellation-view/constellation-view.js";
-import { SkillDetail } from "@/domains/intelligence/components/skills/skill-detail.js";
-import { AvatarManagementModal } from "@/components/avatar/avatar-management-modal.js";
-import { ChatAvatar } from "@/components/avatar/chat-avatar.js";
-import { deleteAvatar } from "@/assistant/avatar-api.js";
-import { useAssistantAvatar } from "@/hooks/use-assistant-avatar.js";
-import type { CharacterComponents, CharacterTraits } from "@/types/avatar.js";
-import { fetchSkills, installSkill, uninstallSkill } from "@/domains/intelligence/skills/api.js";
-import type { SkillInfo } from "@/domains/intelligence/skills/types.js";
-import { getAssistant } from "@/assistant/api.js";
-import { type AssistantIdentity, fetchAssistantIdentity } from "@/assistant/identity.js";
+import { ConstellationView } from "@/domains/intelligence/components/constellation-view/constellation-view";
+import { SkillDetail } from "@/domains/intelligence/components/skills/skill-detail";
+import { AvatarManagementModal } from "@/components/avatar/avatar-management-modal";
+import { ChatAvatar } from "@/components/avatar/chat-avatar";
+import { deleteAvatar } from "@/assistant/avatar-api";
+import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
+import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
+import { fetchSkills, installSkill, uninstallSkill } from "@/domains/intelligence/skills/api";
+import type { SkillInfo } from "@/domains/intelligence/skills/types";
+import { getAssistant } from "@/assistant/api";
+import { type AssistantIdentity, fetchAssistantIdentity } from "@/assistant/identity";
 
 export interface IdentityCardProps {
   assistantName: string;

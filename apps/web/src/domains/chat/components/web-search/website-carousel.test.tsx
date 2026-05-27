@@ -17,7 +17,7 @@ import { act } from "react";
 
 import { cleanup, render } from "@testing-library/react";
 
-import { WebsiteCarousel } from "@/domains/chat/components/web-search/website-carousel.js";
+import { WebsiteCarousel } from "@/domains/chat/components/web-search/website-carousel";
 
 // ---------------------------------------------------------------------------
 // setInterval harness
@@ -213,7 +213,7 @@ describe("WebsiteCarousel — reduced motion", () => {
     });
 
     const { WebsiteCarousel: PatchedCarousel } = await import(
-      "./website-carousel.js"
+      "./website-carousel"
     );
     render(<PatchedCarousel items={ITEMS} intervalMs={500} />);
 

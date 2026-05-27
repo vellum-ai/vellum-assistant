@@ -6,7 +6,7 @@ import {
   type Ref,
 } from "react";
 
-import { cn } from "../utils/cn.js";
+import { cn } from "../utils/cn";
 
 /**
  * Generic collapsible section group — a styled

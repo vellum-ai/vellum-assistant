@@ -1,5 +1,5 @@
-import { useCurrentPlatformAssistant } from "@/hooks/use-current-platform-assistant.js";
-import { EmailsTab } from "@/domains/logs/components/emails-tab.js";
+import { useCurrentPlatformAssistant } from "@/hooks/use-current-platform-assistant";
+import { EmailsTab } from "@/domains/logs/components/emails-tab";
 
 export function EmailsPage() {
   const { assistantId } = useCurrentPlatformAssistant();

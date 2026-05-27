@@ -3,47 +3,47 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
-import { useIsIOSWeb, useIsMacOSWeb } from "@/utils/platform-detection.js";
-import { readIOSAppDownloaded } from "@/hooks/use-ios-app-nudge.js";
-import { readMacOsAppDownloaded } from "@/hooks/use-macos-app-nudge.js";
-import { persistContentAutomationPreChatHandoff } from "@/domains/onboarding/content-automation.js";
-import { GetIOSAppScreen } from "@/domains/onboarding/screens/get-ios-app-screen.js";
-import { GetMacOSAppScreen } from "@/domains/onboarding/screens/get-macos-app-screen.js";
-import { GoogleConnectScreen } from "@/domains/onboarding/screens/google-connect-screen.js";
-import { NameExchangeScreen } from "@/domains/onboarding/screens/name-exchange-screen.js";
-import { PriorAssistantSelectionScreen } from "@/domains/onboarding/screens/prior-assistant-selection-screen.js";
-import { NameStepScreen } from "@/domains/onboarding/screens/name-step-screen.js";
-import { TaskToneSelectionScreen } from "@/domains/onboarding/screens/task-tone-selection-screen.js";
-import { ToolSelectionScreen } from "@/domains/onboarding/screens/tool-selection-screen.js";
-import { VibeStepScreen } from "@/domains/onboarding/screens/vibe-step-screen.js";
-import { assistantsActiveRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen.js";
-import { usePrefilledInput } from "@/hooks/use-prefilled-input.js";
+import { useIsIOSWeb, useIsMacOSWeb } from "@/utils/platform-detection";
+import { readIOSAppDownloaded } from "@/hooks/use-ios-app-nudge";
+import { readMacOsAppDownloaded } from "@/hooks/use-macos-app-nudge";
+import { persistContentAutomationPreChatHandoff } from "@/domains/onboarding/content-automation";
+import { GetIOSAppScreen } from "@/domains/onboarding/screens/get-ios-app-screen";
+import { GetMacOSAppScreen } from "@/domains/onboarding/screens/get-macos-app-screen";
+import { GoogleConnectScreen } from "@/domains/onboarding/screens/google-connect-screen";
+import { NameExchangeScreen } from "@/domains/onboarding/screens/name-exchange-screen";
+import { PriorAssistantSelectionScreen } from "@/domains/onboarding/screens/prior-assistant-selection-screen";
+import { NameStepScreen } from "@/domains/onboarding/screens/name-step-screen";
+import { TaskToneSelectionScreen } from "@/domains/onboarding/screens/task-tone-selection-screen";
+import { ToolSelectionScreen } from "@/domains/onboarding/screens/tool-selection-screen";
+import { VibeStepScreen } from "@/domains/onboarding/screens/vibe-step-screen";
+import { assistantsActiveRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
+import { usePrefilledInput } from "@/hooks/use-prefilled-input";
 import {
   setPendingAssistantName,
   setPendingPreChatContext,
   type PreChatOnboardingContext,
-} from "@/domains/onboarding/prechat.js";
+} from "@/domains/onboarding/prechat";
 import {
   DEFAULT_GROUP_ID,
   sampleSuggestionNames,
-} from "@/domains/onboarding/prechat-names.js";
+} from "@/domains/onboarding/prechat-names";
 import {
   GOOGLE_TOOL_IDS,
   stripOtherPrefix,
-} from "@/domains/onboarding/prechat-tools.js";
+} from "@/domains/onboarding/prechat-tools";
 import {
   readOnboardingCompleted,
   readTosAccepted,
   useOnboardingCompleted,
-} from "@/domains/onboarding/prefs.js";
+} from "@/domains/onboarding/prefs";
 import {
   clearPrivacyConsent,
   hasRecentPrivacyConsent,
-} from "@/domains/onboarding/signals.js";
-import { resolveUserCohort } from "@/domains/onboarding/utm-cohort.js";
-import { useIsNativePlatform } from "@/runtime/native-auth.js";
-import { useAuthStore } from "@/stores/auth-store.js";
-import { routes } from "@/utils/routes.js";
+} from "@/domains/onboarding/signals";
+import { resolveUserCohort } from "@/domains/onboarding/utm-cohort";
+import { useIsNativePlatform } from "@/runtime/native-auth";
+import { useAuthStore } from "@/stores/auth-store";
+import { routes } from "@/utils/routes";
 
 /**
  * Screen indices for the PreChat flow:

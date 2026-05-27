@@ -10,12 +10,12 @@ import { toast } from "@vellum/design-library/components/toast";
 import {
   assistantsUpgradePolicyDetailReadOptions,
   assistantsUpgradePolicyDetailReadQueryKey,
-} from "@/generated/api/@tanstack/react-query.gen.js";
-import { assistantsUpgradePolicyDetailPartialUpdate } from "@/generated/api/sdk.gen.js";
+} from "@/generated/api/@tanstack/react-query.gen";
+import { assistantsUpgradePolicyDetailPartialUpdate } from "@/generated/api/sdk.gen";
 import type {
   FrequencyEnum,
   UpgradePolicy,
-} from "@/generated/api/types.gen.js";
+} from "@/generated/api/types.gen";
 
 const DAY_ENTRIES: ReadonlyArray<[label: string, backendIndex: number]> = [
   ["Mon", 0],

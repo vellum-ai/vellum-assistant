@@ -2,8 +2,8 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Globe, Lock, Users } from "lucide-react";
 import { useState } from "react";
 
-import { Dropdown, type DropdownOption, type DropdownProps } from "./dropdown.js";
-import { Tag } from "./tag.js";
+import { Dropdown, type DropdownOption, type DropdownProps } from "./dropdown";
+import { Tag } from "./tag";
 
 const fruits: DropdownOption<string>[] = [
   { value: "apple", label: "Apple" },

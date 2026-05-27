@@ -6,7 +6,7 @@ import { Typography } from "@vellum/design-library";
 import {
   useAssistantContext,
   type AssistantContextValue,
-} from "@/components/layout/assistant-context.js";
+} from "@/components/layout/assistant-context";
 
 /**
  * Narrowed outlet context for routes mounted inside `ActiveAssistantGate`.

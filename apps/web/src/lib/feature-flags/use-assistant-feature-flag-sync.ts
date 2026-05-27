@@ -1,14 +1,14 @@
 import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 
-import { client } from "@/generated/api/client.gen.js";
-import { assertHasResponse } from "@/lib/api-errors.js";
-import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
+import { client } from "@/generated/api/client.gen";
+import { assertHasResponse } from "@/lib/api-errors";
+import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
 import {
   ASSISTANT_FLAG_DEFAULTS,
   flagKeyToStoreKey,
-} from "@/lib/feature-flags/feature-flag-catalog.js";
-import { useFlagQueryFreshness } from "@/lib/backwards-compat/flag-query-freshness.js";
+} from "@/lib/feature-flags/feature-flag-catalog";
+import { useFlagQueryFreshness } from "@/lib/backwards-compat/flag-query-freshness";
 
 interface FeatureFlagEntry {
   key: string;

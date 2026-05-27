@@ -4,8 +4,8 @@ import {
   buildContentAutomationPreChatContext,
   CONTENT_AUTOMATION_INITIAL_MESSAGE,
   persistContentAutomationPreChatHandoff,
-} from "@/domains/onboarding/content-automation.js";
-import { STORAGE_KEY } from "@/domains/onboarding/prechat.js";
+} from "@/domains/onboarding/content-automation";
+import { STORAGE_KEY } from "@/domains/onboarding/prechat";
 
 class MemoryStorage implements Storage {
   private store = new Map<string, string>();

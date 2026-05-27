@@ -1,7 +1,7 @@
 
 import { Star } from "lucide-react";
 
-import { NudgeChatBanner } from "@/components/nudges/nudge-chat-banner.js";
+import { NudgeChatBanner } from "@/components/nudges/nudge-chat-banner";
 
 function GitHubIcon({ size = 16 }: { size?: number }) {
   return (

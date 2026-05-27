@@ -4,12 +4,12 @@
  * /v1/assistants/{id}/trust-rules/* and are not part of the Django OpenAPI
  * schema.
  */
-import { client } from "@/generated/api/client.gen.js";
+import { client } from "@/generated/api/client.gen";
 import {
   ApiError,
   assertHasResponse,
   extractErrorMessage,
-} from "@/lib/api-errors.js";
+} from "@/lib/api-errors";
 
 import type {
   AddTrustRuleBody,
@@ -17,7 +17,7 @@ import type {
   TrustRuleOrigin,
   TrustRulesListResponse,
   UpdateTrustRuleBody,
-} from "@/domains/settings/types/trust-rules.js";
+} from "@/domains/settings/types/trust-rules";
 
 export { ApiError };
 

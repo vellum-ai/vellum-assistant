@@ -3,8 +3,8 @@ import { ArrowUp, ChevronUp, Globe, Loader2, Pencil, X } from "lucide-react";
 
 import { Button } from "@vellum/design-library";
 import { Typography } from "@vellum/design-library";
-import { useIsMobile } from "@/hooks/use-is-mobile.js";
-import { cn } from "@/utils/misc.js";
+import { useIsMobile } from "@/hooks/use-is-mobile";
+import { cn } from "@/utils/misc";
 
 export interface AppNavBarProps {
   appName: string;

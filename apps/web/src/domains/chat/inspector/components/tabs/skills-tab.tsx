@@ -5,8 +5,8 @@ import { Card } from "@vellum/design-library";
 import {
   aggregateSkillLoads,
   type SkillLoad,
-} from "@/domains/chat/inspector/skill-load-aggregator.js";
-import type { LLMRequestLogEntry } from "@/domains/chat/types/inspector-types.js";
+} from "@/domains/chat/inspector/skill-load-aggregator";
+import type { LLMRequestLogEntry } from "@/domains/chat/types/inspector-types";
 
 interface SkillsTabProps {
   logs: LLMRequestLogEntry[];

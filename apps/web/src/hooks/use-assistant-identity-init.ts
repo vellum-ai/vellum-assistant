@@ -28,10 +28,10 @@
 import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 
-import { fetchAssistantIdentity } from "@/assistant/identity.js";
-import { consumePendingAssistantName } from "@/domains/onboarding/prechat.js";
-import { useAssistantIdentityStore } from "@/stores/assistant-identity-store.js";
-import type { AssistantState } from "@/domains/chat/hooks/use-assistant-lifecycle.js";
+import { fetchAssistantIdentity } from "@/assistant/identity";
+import { consumePendingAssistantName } from "@/domains/onboarding/prechat";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import type { AssistantState } from "@/domains/chat/hooks/use-assistant-lifecycle";
 
 export const ASSISTANT_IDENTITY_QUERY_KEY = "assistant-identity" as const;
 

@@ -1,36 +1,36 @@
 import { X } from "lucide-react";
 import { Fragment, useState } from "react";
 
-import { ToolCallChip } from "@/domains/chat/components/tool-call-chip/tool-call-chip.js";
+import { ToolCallChip } from "@/domains/chat/components/tool-call-chip/tool-call-chip";
 import {
   WebSearchProgressCard,
   type StepDescriptor,
-} from "@/domains/chat/components/web-search/web-search-progress-card.js";
+} from "@/domains/chat/components/web-search/web-search-progress-card";
 import {
   WebSearchErrorRow,
   WebSearchStepRow,
-} from "@/domains/chat/components/web-search/web-search-step-row.js";
+} from "@/domains/chat/components/web-search/web-search-step-row";
 import {
   DefaultStepPill,
   PhaseGroupedStepList,
-} from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list.js";
+} from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
 import {
   ToolProgressCardShell,
   type ToolProgressCardState,
-} from "@/domains/chat/components/tool-progress-card/tool-progress-card-shell.js";
+} from "@/domains/chat/components/tool-progress-card/tool-progress-card-shell";
 import {
   useToolCallCardData,
   WEB_TOOL_NAMES,
   type ToolCallCardData,
   type ToolCallCardStep,
-} from "@/domains/chat/hooks/use-tool-call-card-data.js";
+} from "@/domains/chat/hooks/use-tool-call-card-data";
 import type {
   AllowlistOption,
   ChatMessageToolCall,
   ConfirmationDecision,
   DirectoryScopeOption,
   ScopeOption,
-} from "@/domains/chat/api/event-types.js";
+} from "@/domains/chat/api/event-types";
 
 export interface ToolCallProgressCardProps {
   toolCalls: ChatMessageToolCall[];

@@ -10,18 +10,18 @@ import {
   type ReactNode,
 } from "react";
 
-import { partitionLatestTurn } from "@/domains/chat/transcript/partition-latest-turn.js";
-import type { TranscriptItem } from "@/domains/chat/transcript/types.js";
+import { partitionLatestTurn } from "@/domains/chat/transcript/partition-latest-turn";
+import type { TranscriptItem } from "@/domains/chat/transcript/types";
 
-import { LatestTurnRow } from "@/domains/chat/transcript/latest-turn-row.js";
-import { PullRefreshSpinner } from "@/domains/chat/transcript/pull-refresh-spinner.js";
-import { TranscriptRow } from "@/domains/chat/transcript/transcript-row.js";
+import { LatestTurnRow } from "@/domains/chat/transcript/latest-turn-row";
+import { PullRefreshSpinner } from "@/domains/chat/transcript/pull-refresh-spinner";
+import { TranscriptRow } from "@/domains/chat/transcript/transcript-row";
 import {
   PULL_THRESHOLD_PX,
   usePullToRefresh,
-} from "@/domains/chat/transcript/use-pull-to-refresh.js";
-import { useViewportMinHeight } from "@/domains/chat/transcript/use-viewport-min-height.js";
-import type { ConfirmationDecision } from "@/domains/chat/api/event-types.js";
+} from "@/domains/chat/transcript/use-pull-to-refresh";
+import { useViewportMinHeight } from "@/domains/chat/transcript/use-viewport-min-height";
+import type { ConfirmationDecision } from "@/domains/chat/api/event-types";
 
 /** Outcome of a pull-to-refresh, returned by the consumer's
  *  `onPullRefresh` handler so the page can render the right feedback
@@ -68,9 +68,9 @@ export interface TranscriptProps {
     riskLevel?: string;
     riskReason?: string;
     input?: Record<string, unknown>;
-    allowlistOptions: import("@/domains/chat/api/event-types.js").AllowlistOption[];
-    scopeOptions: import("@/domains/chat/api/event-types.js").ScopeOption[];
-    directoryScopeOptions: import("@/domains/chat/api/event-types.js").DirectoryScopeOption[];
+    allowlistOptions: import("@/domains/chat/api/event-types").AllowlistOption[];
+    scopeOptions: import("@/domains/chat/api/event-types").ScopeOption[];
+    directoryScopeOptions: import("@/domains/chat/api/event-types").DirectoryScopeOption[];
   }) => void;
   /** Set of tool-call ids that should display the "command not recognized"
    *  nudge below their chip. */

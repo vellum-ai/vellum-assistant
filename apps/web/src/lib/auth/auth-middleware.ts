@@ -14,7 +14,7 @@ import {
   type MiddlewareFunction,
 } from "react-router";
 
-import { useAuthStore, type AuthUser } from "@/stores/auth-store.js";
+import { useAuthStore, type AuthUser } from "@/stores/auth-store";
 
 export const authUserContext = createRouterContext<AuthUser | null>(null);
 

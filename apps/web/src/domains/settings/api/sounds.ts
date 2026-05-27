@@ -7,8 +7,8 @@
  * read from the exact same on-disk format.
  */
 
-import { client } from "@/generated/api/client.gen.js";
-import { assertHasResponse } from "@/lib/api-errors.js";
+import { client } from "@/generated/api/client.gen";
+import { assertHasResponse } from "@/lib/api-errors";
 
 import {
   defaultSoundsConfig,
@@ -17,7 +17,7 @@ import {
   normaliseSoundsConfig,
   validateSoundFilename,
   type SoundsConfig,
-} from "@/domains/settings/types/sounds.js";
+} from "@/domains/settings/types/sounds";
 
 const CONFIG_PATH = "data/sounds/config.json";
 const SOUNDS_DIR = "data/sounds";

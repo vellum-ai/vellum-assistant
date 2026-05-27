@@ -4,12 +4,12 @@ import type { MutableRefObject } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createElement, type ReactNode } from "react";
 
-import type { AssistantEvent } from "@/domains/chat/api/event-types.js";
+import type { AssistantEvent } from "@/domains/chat/api/event-types";
 
 const handlerCalls: Array<{ kind: string; conversationId?: string }> = [];
 
 mock.module(
-  "@/domains/chat/utils/stream-handlers/message-handlers.js",
+  "@/domains/chat/utils/stream-handlers/message-handlers",
   () => ({
     handleAssistantTextDelta: (event: { conversationId?: string }) => {
       handlerCalls.push({ kind: "assistant_text_delta", conversationId: event.conversationId });
@@ -29,7 +29,7 @@ mock.module(
   }),
 );
 mock.module(
-  "@/domains/chat/utils/stream-handlers/home-handlers.js",
+  "@/domains/chat/utils/stream-handlers/home-handlers",
   () => ({
     handleHomeFeedUpdated: () => {
       handlerCalls.push({ kind: "home_feed_updated" });
@@ -41,7 +41,7 @@ mock.module(
 );
 
 const { useStreamEventHandler } = await import(
-  "@/domains/chat/hooks/use-stream-event-handler.js"
+  "@/domains/chat/hooks/use-stream-event-handler"
 );
 
 function noopRefs() {

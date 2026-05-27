@@ -4,7 +4,7 @@
  * and the CDN build can import them.
  */
 
-import type { ChatMessageToolCall } from "@/domains/chat/api/event-types.js";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 
 /** Display metadata for a file attachment (user-uploaded or assistant-generated),
  *  used to render the chip inside a message bubble. For live sessions, populated

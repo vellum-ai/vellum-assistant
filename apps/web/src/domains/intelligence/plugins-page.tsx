@@ -1,9 +1,9 @@
 import { Navigate } from "react-router";
 
-import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate.js";
-import { PluginsTab } from "@/domains/intelligence/components/plugins/plugins-tab.js";
-import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
-import { routes } from "@/utils/routes.js";
+import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate";
+import { PluginsTab } from "@/domains/intelligence/components/plugins/plugins-tab";
+import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
+import { routes } from "@/utils/routes";
 
 /**
  * Plugins tab for the "About Assistant" pages.

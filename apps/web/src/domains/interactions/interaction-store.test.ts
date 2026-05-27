@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "bun:test";
 import {
   useInteractionStore,
   hasActiveInteraction,
-} from "@/domains/interactions/interaction-store.js";
+} from "@/domains/interactions/interaction-store";
 
 // Reset store between tests to avoid cross-contamination
 beforeEach(() => {

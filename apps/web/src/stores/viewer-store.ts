@@ -22,9 +22,9 @@
 import * as Sentry from "@sentry/react";
 import { create } from "zustand";
 
-import { openApp, primeAppHtmlCache } from "@/domains/chat/api/apps.js";
-import { fetchDocumentContent } from "@/domains/chat/api/documents.js";
-import { createSelectors } from "@/utils/create-selectors.js";
+import { openApp, primeAppHtmlCache } from "@/domains/chat/api/apps";
+import { fetchDocumentContent } from "@/domains/chat/api/documents";
+import { createSelectors } from "@/utils/create-selectors";
 
 // ---------------------------------------------------------------------------
 // Types

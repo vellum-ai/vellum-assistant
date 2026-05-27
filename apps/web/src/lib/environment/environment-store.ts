@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-import { createSelectors } from "@/utils/create-selectors.js";
+import { createSelectors } from "@/utils/create-selectors";
 
 export interface EnvironmentConfig {
   emailRootDomain: string;

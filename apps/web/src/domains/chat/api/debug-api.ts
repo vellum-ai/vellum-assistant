@@ -18,11 +18,11 @@
 import type {
   SseDebugClient,
   SseDebugEventEntry,
-} from "@/domains/chat/api/stream-debug.js";
+} from "@/domains/chat/api/stream-debug";
 import {
   getSseClients,
   getSseEvents,
-} from "@/domains/chat/api/stream-debug.js";
+} from "@/domains/chat/api/stream-debug";
 
 export interface ChatDebugEventsApi {
   /** Snapshot of currently-live SSE clients. */

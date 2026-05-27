@@ -8,54 +8,54 @@ import {
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { useConversationStore } from "@/domains/conversations/conversation-store.js";
-import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
-import { tailIsStreamingAssistant } from "@/domains/chat/hooks/stream-message-updaters.js";
-import { useTurnStore } from "@/domains/messaging/turn-store.js";
-import { useViewerStore } from "@/stores/viewer-store.js";
-import type { DiskPressureStatusEventPayload } from "@/assistant/use-disk-pressure-monitor.js";
+import { useConversationStore } from "@/domains/conversations/conversation-store";
+import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import { tailIsStreamingAssistant } from "@/domains/chat/hooks/stream-message-updaters";
+import { useTurnStore } from "@/domains/messaging/turn-store";
+import { useViewerStore } from "@/stores/viewer-store";
+import type { DiskPressureStatusEventPayload } from "@/assistant/use-disk-pressure-monitor";
 import {
   recordChatDiagnostic,
   summarizeAssistantEvent,
-} from "@/domains/chat/utils/diagnostics.js";
-import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat-utils.js";
+} from "@/domains/chat/utils/diagnostics";
+import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat-utils";
 import {
   handleHomeFeedUpdated,
   handleRelationshipStateUpdated,
-} from "@/domains/chat/utils/stream-handlers/home-handlers.js";
+} from "@/domains/chat/utils/stream-handlers/home-handlers";
 import {
   handleOpenUrl,
   handleNavigateSettings,
-} from "@/domains/chat/utils/stream-handlers/navigation-handlers.js";
+} from "@/domains/chat/utils/stream-handlers/navigation-handlers";
 import {
   handleAssistantTextDelta,
   handleAssistantActivityState,
   handleMessageComplete,
   handleGenerationHandoff,
   handleGenerationCancelled,
-} from "@/domains/chat/utils/stream-handlers/message-handlers.js";
+} from "@/domains/chat/utils/stream-handlers/message-handlers";
 import {
   handleStreamError,
   handleConversationErrorEvent,
-} from "@/domains/chat/utils/stream-handlers/error-handlers.js";
+} from "@/domains/chat/utils/stream-handlers/error-handlers";
 import {
   handleSecretRequest,
   handleConfirmationRequest,
   handleContactRequest,
   handleQuestionRequest,
-} from "@/domains/chat/utils/stream-handlers/interaction-handlers.js";
+} from "@/domains/chat/utils/stream-handlers/interaction-handlers";
 import {
   handleUISurfaceShow,
   handleUISurfaceUpdate,
   handleUISurfaceDismiss,
   handleUISurfaceComplete,
-} from "@/domains/chat/utils/stream-handlers/surface-handlers.js";
+} from "@/domains/chat/utils/stream-handlers/surface-handlers";
 import {
   handleToolUseStart,
   handleToolProgress,
   handleToolResult,
-} from "@/domains/chat/utils/stream-handlers/tool-call-handlers.js";
+} from "@/domains/chat/utils/stream-handlers/tool-call-handlers";
 import {
   handleUsageUpdate,
   handleConversationTitleUpdated,
@@ -66,33 +66,33 @@ import {
   handleIdentityChanged,
   handleAvatarUpdated,
   handleTurnProfileAutoRouted,
-} from "@/domains/chat/utils/stream-handlers/metadata-handlers.js";
+} from "@/domains/chat/utils/stream-handlers/metadata-handlers";
 import {
   handleMessageQueued,
   handleMessageDequeued,
   handleMessageQueuedDeleted,
   handleMessageRequestComplete,
-} from "@/domains/chat/utils/stream-handlers/queue-handlers.js";
+} from "@/domains/chat/utils/stream-handlers/queue-handlers";
 import {
   handleSubagentSpawned,
   handleSubagentStatusChanged,
   handleSubagentEvent,
-} from "@/domains/chat/utils/stream-handlers/subagent-handlers.js";
+} from "@/domains/chat/utils/stream-handlers/subagent-handlers";
 import type {
   StreamHandlerContext,
   StreamContext,
-} from "@/domains/chat/utils/stream-handlers/types.js";
+} from "@/domains/chat/utils/stream-handlers/types";
 
 export type {
   ChatError,
   PendingConfirmationState,
   PendingContactRequestState,
   PendingSecretState,
-} from "@/domains/chat/types.js";
+} from "@/domains/chat/types";
 
-import type { ChatError } from "@/domains/chat/types.js";
-import type { AssistantEvent, AssistantSyncChangedEvent } from "@/domains/chat/api/event-types.js";
-import type { ChatEventStream } from "@/domains/chat/api/stream.js";
+import type { ChatError } from "@/domains/chat/types";
+import type { AssistantEvent, AssistantSyncChangedEvent } from "@/domains/chat/api/event-types";
+import type { ChatEventStream } from "@/domains/chat/api/stream";
 
 // ---------------------------------------------------------------------------
 // Params & return types

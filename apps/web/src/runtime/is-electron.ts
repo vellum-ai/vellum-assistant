@@ -1,15 +1,26 @@
 /**
  * Minimal ambient declaration of the `window.vellum` bridge exposed by the
- * Electron preload script (see `apps/macos/src/preload/index.ts`). Only the
- * `platform` discriminator is declared here — additional bridge surfaces
- * (`auth`, `settings`, `helper`, etc.) are added in the follow-up tickets
- * that wire each feature so the renderer's view of the bridge stays honest
- * about what's actually implemented at any given commit.
+ * Electron preload script (see `apps/macos/src/preload/index.ts`). Surface is
+ * expanded here as each follow-up ticket wires a real implementation, keeping
+ * the renderer's view of the bridge honest about what's actually available
+ * at any given commit.
+ *
+ * Feature code in `apps/web/` should NOT call `window.vellum.*` directly.
+ * Instead, wrap each persisted capability in a per-feature module under
+ * `apps/web/src/runtime/` with named functions (see `native-biometric.ts`
+ * for the established shape: `isBiometricEnabled()` / `setBiometricEnabled()`).
+ * The module owns the cross-platform branch — `isElectron()` calls into
+ * `window.vellum`, `isNativePlatform()` calls Capacitor, and the web branch
+ * uses `localStorage` — so consumers stay platform-agnostic.
  */
 declare global {
   interface Window {
     vellum?: {
       platform: "electron";
+      settings: {
+        get<T = unknown>(key: string): Promise<T | null>;
+        set<T = unknown>(key: string, value: T): Promise<void>;
+      };
     };
   }
 }

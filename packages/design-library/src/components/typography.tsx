@@ -5,7 +5,7 @@ import {
   type Ref,
 } from "react";
 
-import { cn } from "../utils/cn.js";
+import { cn } from "../utils/cn";
 
 export type TypographyVariant =
   | "title-large"

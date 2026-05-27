@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Clipboard, Pencil, Trash2 } from "lucide-react";
 import { useState } from "react";
 
-import { ContextMenu } from "./context-menu.js";
+import { ContextMenu } from "./context-menu";
 
 const meta: Meta = {
   title: "Components/ContextMenu",

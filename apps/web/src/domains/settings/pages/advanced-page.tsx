@@ -1,6 +1,6 @@
-import { DetailCard } from "@/components/detail-card.js";
-import { UpdateWindowPolicy } from "@/domains/settings/components/update-window-policy.js";
-import { useAssistantWithHealthz } from "@/domains/settings/components/assistant-status-panel.js";
+import { DetailCard } from "@/components/detail-card";
+import { UpdateWindowPolicy } from "@/domains/settings/components/update-window-policy";
+import { useAssistantWithHealthz } from "@/domains/settings/components/assistant-status-panel";
 
 export function AdvancedPage() {
   const { assistant } = useAssistantWithHealthz();

@@ -1,4 +1,4 @@
-import type { DisplayMessage } from "@/domains/chat/types/types.js";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 
 /**
  * Maximum number of characters from the preceding assistant text delta to

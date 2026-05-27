@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { ApiError } from "@/lib/api-errors.js";
+import { ApiError } from "@/lib/api-errors";
 
 import {
   fetchLatestHistoryPage,
   fetchOlderHistoryPage,
-} from "@/domains/chat/api/history.js";
+} from "@/domains/chat/api/history";
 
 // ---------------------------------------------------------------------------
 // Test helpers

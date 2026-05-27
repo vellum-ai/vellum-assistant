@@ -3,7 +3,7 @@
  * from the assistant daemon's config endpoint. Not in the OpenAPI schema.
  */
 
-import { client } from "@/generated/api/client.gen.js";
+import { client } from "@/generated/api/client.gen";
 
 export interface UsageProfileMetadata {
   id: string;

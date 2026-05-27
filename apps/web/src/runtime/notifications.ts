@@ -17,8 +17,8 @@ import {
   type LocalNotificationSchema,
 } from "@capacitor/local-notifications";
 
-import { client } from "@/generated/api/client.gen.js";
-import { isNativePlatform } from "@/runtime/native-auth.js";
+import { client } from "@/generated/api/client.gen";
+import { isNativePlatform } from "@/runtime/native-auth";
 
 const SDK_BASE_OPTIONS =
   typeof window === "undefined"

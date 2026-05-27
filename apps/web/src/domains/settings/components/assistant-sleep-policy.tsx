@@ -8,7 +8,7 @@ import {
   assistantsSleepPolicyDetailReadOptions,
   assistantsSleepPolicyDetailReadQueryKey,
   assistantsSleepPolicyDetailPartialUpdateMutation,
-} from "@/generated/api/@tanstack/react-query.gen.js";
+} from "@/generated/api/@tanstack/react-query.gen";
 
 const PRESET_OPTIONS: ReadonlyArray<{ label: string; seconds: number }> = [
   { label: "Never", seconds: 0 },

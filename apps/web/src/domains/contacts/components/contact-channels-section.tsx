@@ -17,7 +17,7 @@ import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog"
 import type {
   ChannelInfo,
   ContactChannelPayload,
-} from "@/domains/contacts/types.js";
+} from "@/domains/contacts/types";
 
 /** Discriminated union describing what action/badge to render for a channel row. */
 export type ChannelActionState =

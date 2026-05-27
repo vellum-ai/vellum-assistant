@@ -1,7 +1,7 @@
 import {
   buildVellumHeaders,
   buildVellumMutatingHeaders,
-} from "@/lib/auth/request-headers.js";
+} from "@/lib/auth/request-headers";
 
 /** Custom OAuth app stored on the daemon (encrypted on-disk). */
 export interface OAuthApp {

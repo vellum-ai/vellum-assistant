@@ -18,7 +18,7 @@ import remarkMath from "remark-math";
 import type { Components } from "react-markdown";
 import "katex/dist/katex.min.css";
 
-import { cn } from "../utils/cn.js";
+import { cn } from "../utils/cn";
 
 const MAX_CODE_BLOCK_HEIGHT = 400;
 

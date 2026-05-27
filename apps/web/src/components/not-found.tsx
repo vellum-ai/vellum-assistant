@@ -1,6 +1,6 @@
 import { Link } from "react-router";
 
-import { routes } from "@/utils/routes.js";
+import { routes } from "@/utils/routes";
 
 export function NotFound() {
   return (

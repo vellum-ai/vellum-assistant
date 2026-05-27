@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { clearUserScopedStorage } from "./session-cleanup.js";
+import { clearUserScopedStorage } from "./session-cleanup";
 
 beforeEach(() => {
   localStorage.clear();

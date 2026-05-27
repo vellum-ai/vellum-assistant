@@ -34,9 +34,9 @@ import { Button } from "@vellum/design-library/components/button";
 import { Input } from "@vellum/design-library/components/input";
 import { PanelItem } from "@vellum/design-library/components/panel-item";
 import { Popover } from "@vellum/design-library/components/popover";
-import { client } from "@/generated/api/client.gen.js";
-import { useIsMobile } from "@/hooks/use-is-mobile.js";
-import { formatFileSize } from "@/domains/workspace/utils/format-file-size.js";
+import { client } from "@/generated/api/client.gen";
+import { useIsMobile } from "@/hooks/use-is-mobile";
+import { formatFileSize } from "@/domains/workspace/utils/format-file-size";
 
 // ---------------------------------------------------------------------------
 // API helpers

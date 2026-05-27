@@ -2,12 +2,12 @@ import { ArrowDownToLine, Loader2, Trash2 } from "lucide-react";
 import type { KeyboardEvent } from "react";
 
 import { Button, Card } from "@vellum/design-library";
-import { SkillOriginBadge } from "@/domains/intelligence/components/skills/skill-origin-badge.js";
+import { SkillOriginBadge } from "@/domains/intelligence/components/skills/skill-origin-badge";
 import {
   isAvailableSkill,
   isRemovableSkill,
   type SkillInfo,
-} from "@/domains/intelligence/skills/types.js";
+} from "@/domains/intelligence/skills/types";
 
 interface SkillRowProps {
   skill: SkillInfo;

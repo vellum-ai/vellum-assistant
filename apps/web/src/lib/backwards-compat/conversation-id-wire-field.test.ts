@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { pickConversationIdWireField } from "@/lib/backwards-compat/conversation-id-wire-field.js";
-import { useAssistantIdentityStore } from "@/stores/assistant-identity-store.js";
+import { pickConversationIdWireField } from "@/lib/backwards-compat/conversation-id-wire-field";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 function setVersion(version: string | null) {
   useAssistantIdentityStore.getState().setIdentity("test-asst", version);

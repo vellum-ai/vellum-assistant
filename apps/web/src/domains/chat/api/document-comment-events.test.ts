@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 
-import type { DocumentComment } from "@/domains/chat/api/document-comments.js";
+import type { DocumentComment } from "@/domains/chat/api/document-comments";
 import {
   type CommentStateMap,
   type DocumentCommentCreatedEvent,
@@ -12,7 +12,7 @@ import {
   handleDocumentCommentDeleted,
   handleDocumentCommentReopened,
   handleDocumentCommentResolved,
-} from "@/domains/chat/api/document-comment-events.js";
+} from "@/domains/chat/api/document-comment-events";
 
 // ---------------------------------------------------------------------------
 // Helpers

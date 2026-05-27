@@ -1,13 +1,13 @@
 import { useMemo } from "react";
 import { Outlet, useLocation } from "react-router";
 
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
-import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
-import { routes } from "@/utils/routes.js";
-import { SETTINGS_SIDEBAR } from "@/domains/settings/navigation.js";
-import { SidebarShell } from "@/components/sidebar-shell.js";
-import { SidebarTree } from "@/components/sidebar-tree.js";
-import { useSettingsSync } from "@/domains/settings/hooks/use-settings-sync.js";
+import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
+import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
+import { routes } from "@/utils/routes";
+import { SETTINGS_SIDEBAR } from "@/domains/settings/navigation";
+import { SidebarShell } from "@/components/sidebar-shell";
+import { SidebarTree } from "@/components/sidebar-tree";
+import { useSettingsSync } from "@/domains/settings/hooks/use-settings-sync";
 
 /**
  * React Router layout route for `/assistant/settings/*`.

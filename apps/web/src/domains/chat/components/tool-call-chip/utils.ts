@@ -3,7 +3,7 @@
  * Ported from the macOS desktop app's ChatBubbleToolHelpers.swift.
  */
 
-import { truncate as truncateShared } from "@/domains/chat/utils/truncate.js";
+import { truncate as truncateShared } from "@/domains/chat/utils/truncate";
 
 /** Extract just the filename from a file path string. */
 function extractFileName(path: string): string | null {

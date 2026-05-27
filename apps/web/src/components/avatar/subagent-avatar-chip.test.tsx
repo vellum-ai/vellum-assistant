@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { SubagentAvatarChip } from "@/components/avatar/subagent-avatar-chip.js";
-import { subagentTraits } from "@/utils/avatar-subagent.js";
+import { SubagentAvatarChip } from "@/components/avatar/subagent-avatar-chip";
+import { subagentTraits } from "@/utils/avatar-subagent";
 
 describe("SubagentAvatarChip", () => {
   test("is deterministic: same subagentId renders identical DOM", () => {

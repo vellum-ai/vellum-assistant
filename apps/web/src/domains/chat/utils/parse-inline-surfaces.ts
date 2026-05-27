@@ -1,4 +1,4 @@
-import type { Surface } from "@/domains/chat/types/types.js";
+import type { Surface } from "@/domains/chat/types/types";
 
 export type InlineSegment =
   | { type: "text"; content: string }

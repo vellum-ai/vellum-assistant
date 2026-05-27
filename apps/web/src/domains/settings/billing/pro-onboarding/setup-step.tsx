@@ -7,21 +7,21 @@ import { Button } from "@vellum/design-library/components/button";
 import { Modal } from "@vellum/design-library/components/modal";
 import { Notice } from "@vellum/design-library/components/notice";
 import { Typography } from "@vellum/design-library/components/typography";
-import type { MachineSizeEnum, MachineTierEnum } from "@/generated/api/types.gen.js";
+import type { MachineSizeEnum, MachineTierEnum } from "@/generated/api/types.gen";
 import {
   assistantsActiveRetrieveOptions,
   assistantsResizeMutation,
-} from "@/generated/api/@tanstack/react-query.gen.js";
+} from "@/generated/api/@tanstack/react-query.gen";
 import {
   SIZE_DESCRIPTION,
   SIZE_LABEL,
-} from "@/lib/billing/machine-sizes.js";
+} from "@/lib/billing/machine-sizes";
 
-import { IconBadge, StepDots } from "./primitives.js";
+import { IconBadge, StepDots } from "./primitives";
 import {
   allowedMachineSizesForTier,
   extractOnboardingErrorMessage,
-} from "./utils.js";
+} from "./utils";
 
 function ResourceCard({
   icon: Icon,

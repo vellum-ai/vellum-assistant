@@ -20,12 +20,12 @@ import { describe, expect, test } from "bun:test";
 import {
   computeToolCallCardData,
   hasWebTool,
-} from "@/domains/chat/hooks/use-tool-call-card-data.js";
-import type { ChatMessageToolCall } from "@/domains/chat/api/event-types.js";
+} from "@/domains/chat/hooks/use-tool-call-card-data";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type {
   ToolActivityMetadata,
   WebSearchResultItem,
-} from "@/assistant/web-activity-types.js";
+} from "@/assistant/web-activity-types";
 
 function makeResult(
   i: number,

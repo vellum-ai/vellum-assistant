@@ -2,13 +2,13 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
 import { useRef, type MutableRefObject } from "react";
 
-import type { ChatEventStream } from "@/domains/chat/api/stream.js";
+import type { ChatEventStream } from "@/domains/chat/api/stream";
 import {
   __resetEventBusForTesting,
   useEventBusStore,
-} from "@/stores/event-bus-store.js";
+} from "@/stores/event-bus-store";
 
-import { useEventStream } from "@/domains/chat/hooks/use-event-stream.js";
+import { useEventStream } from "@/domains/chat/hooks/use-event-stream";
 
 type StreamContext = { assistantId: string; conversationId: string };
 

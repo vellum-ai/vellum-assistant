@@ -6,8 +6,8 @@ import {
 import type { ReactNode } from "react";
 
 import { cn } from "@vellum/design-library";
-import { isConversationPinned } from "@/domains/chat/utils/group-conversations.js";
-import type { Conversation } from "@/domains/chat/api/conversations.js";
+import { isConversationPinned } from "@/domains/chat/utils/group-conversations";
+import type { Conversation } from "@/domains/chat/api/conversations";
 
 // ---------------------------------------------------------------------------
 // ThreadPinToggle — leading pin icon for thread rows

@@ -9,14 +9,14 @@ import { PanelItem } from "@vellum/design-library/components/panel-item";
 import { Popover } from "@vellum/design-library/components/popover";
 import { toast } from "@vellum/design-library/components/toast";
 import { Button } from "@vellum/design-library/components/button";
-import { useIsMobile } from "@/hooks/use-is-mobile.js";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import {
   assistantsOauthConnectionsListQueryKey,
   assistantsOauthDisconnectByConnectionCreateMutation,
-} from "@/generated/api/@tanstack/react-query.gen.js";
-import type { OAuthConnection } from "@/generated/api/types.gen.js";
+} from "@/generated/api/@tanstack/react-query.gen";
+import type { OAuthConnection } from "@/generated/api/types.gen";
 
-import { IntegrationIcon } from "@/domains/settings/components/integration-icon.js";
+import { IntegrationIcon } from "@/domains/settings/components/integration-icon";
 
 function extractErrorDetail(error: unknown, fallback: string): string {
   if (typeof error === "object" && error !== null && "detail" in error) {

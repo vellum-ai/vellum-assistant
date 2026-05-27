@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { parseAttachmentSummariesFromContent } from "@/domains/chat/utils/parse-attachment-summaries.js";
+import { parseAttachmentSummariesFromContent } from "@/domains/chat/utils/parse-attachment-summaries";
 
 describe("parseAttachmentSummariesFromContent", () => {
   test("returns input unchanged when no attachment marker is present", () => {

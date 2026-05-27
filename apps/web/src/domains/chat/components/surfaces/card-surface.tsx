@@ -1,11 +1,11 @@
 import { Circle, CircleCheck, CircleX, Clock, Loader2 } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
-import type { Surface } from "@/domains/chat/types/types.js";
+import type { Surface } from "@/domains/chat/types/types";
 
-import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message.js";
-import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container.js";
-import { WeatherForecastDisplay } from "@/domains/chat/components/surfaces/weather-forecast-display.js";
+import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
+import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container";
+import { WeatherForecastDisplay } from "@/domains/chat/components/surfaces/weather-forecast-display";
 
 // ---------------------------------------------------------------------------
 // Types

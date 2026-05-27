@@ -1,10 +1,10 @@
 import type { ReactNode } from "react";
 
-import { CollapsibleNavSection } from "@/components/collapsible-nav-section.js";
+import { CollapsibleNavSection } from "@/components/collapsible-nav-section";
 import { PanelItem, SideMenu } from "@vellum/design-library";
-import type { Conversation } from "@/domains/chat/api/conversations.js";
-import type { SubGroup } from "@/domains/chat/utils/sub-group-utils.js";
-import { countBadge } from "@/domains/chat/components/sidebar-count-badge.js";
+import type { Conversation } from "@/domains/chat/api/conversations";
+import type { SubGroup } from "@/domains/chat/utils/sub-group-utils";
+import { countBadge } from "@/domains/chat/components/sidebar-count-badge";
 
 // ---------------------------------------------------------------------------
 // SubGroupAccordion — shared sub-accordion for Background + Scheduled

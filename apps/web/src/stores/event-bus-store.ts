@@ -20,8 +20,8 @@
 
 import { create } from "zustand";
 
-import { createSelectors } from "@/utils/create-selectors.js";
-import type { AssistantEvent } from "@/domains/chat/api/event-types.js";
+import { createSelectors } from "@/utils/create-selectors";
+import type { AssistantEvent } from "@/domains/chat/api/event-types";
 
 /**
  * Source of a synthetic `"app.resume"` event.

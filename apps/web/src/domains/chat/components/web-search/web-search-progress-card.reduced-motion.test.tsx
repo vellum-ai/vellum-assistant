@@ -73,7 +73,7 @@ describe("WebSearchProgressCard — reduced motion", () => {
     });
 
     const { WebSearchProgressCard: PatchedCard } = await import(
-      "./web-search-progress-card.js"
+      "./web-search-progress-card"
     );
     render(
       <PatchedCard

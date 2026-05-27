@@ -5,9 +5,9 @@
  * (retire assistant, debug controls), and are extracted here so domain
  * code doesn't reach into `domains/onboarding/` directly.
  */
-import { removeLocalSetting } from "@/lib/local-settings.js";
-import { getDeviceSetting, setDeviceSetting } from "@/lib/device-settings.js";
-import { useOnboardingStore } from "@/domains/onboarding/onboarding-store.js";
+import { removeLocalSetting } from "@/lib/local-settings";
+import { getDeviceSetting, setDeviceSetting } from "@/lib/device-settings";
+import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
 
 const KEY_SELECTED_VERSION = "onboarding.selectedVersion";
 

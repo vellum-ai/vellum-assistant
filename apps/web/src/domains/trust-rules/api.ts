@@ -3,12 +3,12 @@
 // /v1/assistants/{id}/trust-rules/*) and are not part of the Django OpenAPI
 // schema, so no generated HeyAPI hooks exist for them. Mirrors the pattern used
 // by web/src/lib/memories/api.ts.
-import { client } from "@/generated/api/client.gen.js";
+import { client } from "@/generated/api/client.gen";
 import {
   ApiError,
   assertHasResponse,
   extractErrorMessage,
-} from "@/lib/api-errors.js";
+} from "@/lib/api-errors";
 
 import type {
   AddTrustRuleBody,
@@ -16,7 +16,7 @@ import type {
   TrustRuleOrigin,
   TrustRulesListResponse,
   UpdateTrustRuleBody,
-} from "@/domains/trust-rules/types.js";
+} from "@/domains/trust-rules/types";
 
 export { ApiError };
 

@@ -12,22 +12,22 @@ import { useNavigate, useParams } from "react-router";
 import { Loader2 } from "lucide-react";
 import { Typography } from "@vellum/design-library";
 
-import { useAssistantContext } from "@/components/layout/assistant-context.js";
-import { getEditChatConversationId, setEditChatConversationId } from "@/domains/chat/utils/edit-chat-session.js";
-import { useViewerStore } from "@/stores/viewer-store.js";
-import { routes } from "@/utils/routes.js";
+import { useAssistantContext } from "@/components/layout/assistant-context";
+import { getEditChatConversationId, setEditChatConversationId } from "@/domains/chat/utils/edit-chat-session";
+import { useViewerStore } from "@/stores/viewer-store";
+import { routes } from "@/utils/routes";
 import {
   type DocumentContent,
   exportDocumentPDF,
   fetchDocumentContent,
   linkDocumentConversation,
-} from "./api/documents.js";
-import { useDocumentCommentEvents } from "./hooks/use-document-comment-events.js";
-import { useBusSubscription } from "@/hooks/use-bus-subscription.js";
+} from "./api/documents";
+import { useDocumentCommentEvents } from "./hooks/use-document-comment-events";
+import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import {
   DocumentViewerContainer,
   type DocumentViewerContainerHandle,
-} from "./components/document-viewer-container.js";
+} from "./components/document-viewer-container";
 
 // ---------------------------------------------------------------------------
 // Component

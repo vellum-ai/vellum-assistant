@@ -1,4 +1,4 @@
-import { client } from "@/generated/api/client.gen.js";
+import { client } from "@/generated/api/client.gen";
 
 const UTM_CAMPAIGN_TO_COHORT: Record<string, string> = {
   "content-automation": "content-automation",

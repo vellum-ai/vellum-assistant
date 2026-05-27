@@ -4,7 +4,7 @@ import type { FC } from "react";
 
 import { Button } from "@vellum/design-library";
 
-import { formatAttachmentSize, middleTruncate } from "@/domains/chat/components/chat-attachments/utils.js";
+import { formatAttachmentSize, middleTruncate } from "@/domains/chat/components/chat-attachments/utils";
 
 interface AttachmentLoadingChipProps {
   localId: string;

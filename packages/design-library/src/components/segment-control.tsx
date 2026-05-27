@@ -1,7 +1,7 @@
 import { type KeyboardEvent, type ReactNode, useCallback, useRef } from "react";
 
-import { Button } from "./button.js";
-import { cn } from "../utils/cn.js";
+import { Button } from "./button";
+import { cn } from "../utils/cn";
 
 export interface SegmentControlItem<T extends string> {
   value: T;

@@ -1,6 +1,6 @@
 import * as Sentry from "@sentry/react";
 
-import { getDeviceBool, watchDeviceSetting } from "@/lib/device-settings.js";
+import { getDeviceBool, watchDeviceSetting } from "@/lib/device-settings";
 
 /**
  * Gates the browser-side Sentry client on the user's Share Diagnostics

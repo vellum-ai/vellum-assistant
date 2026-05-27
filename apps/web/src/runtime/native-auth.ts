@@ -4,11 +4,11 @@ import { useSyncExternalStore } from "react";
 import {
   type ProviderRedirectOptions,
   startProviderRedirect,
-} from "@/domains/account/social-auth.js";
-import { sanitizeReturnTo } from "@/domains/account/return-to.js";
-import { getSession } from "@/lib/auth/allauth-client.js";
-import { isBiometricEnabled, storeBiometricToken } from "@/runtime/native-biometric.js";
-import { routes } from "@/utils/routes.js";
+} from "@/domains/account/social-auth";
+import { sanitizeReturnTo } from "@/domains/account/return-to";
+import { getSession } from "@/lib/auth/allauth-client";
+import { isBiometricEnabled, storeBiometricToken } from "@/runtime/native-biometric";
+import { routes } from "@/utils/routes";
 
 /**
  * JS ↔ native bridge for the `NativeAuth` Capacitor plugin registered by

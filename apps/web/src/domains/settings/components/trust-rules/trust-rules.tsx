@@ -5,9 +5,9 @@ import { useQuery } from "@tanstack/react-query";
 
 import { Button } from "@vellum/design-library/components/button";
 import { Card } from "@vellum/design-library/components/card";
-import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen.js";
+import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen";
 
-import { TrustRulesModal } from "@/domains/settings/components/trust-rules/trust-rules-modal.js";
+import { TrustRulesModal } from "@/domains/settings/components/trust-rules/trust-rules-modal";
 
 export function TrustRules() {
   const { data: assistantList } = useQuery(assistantsListOptions());

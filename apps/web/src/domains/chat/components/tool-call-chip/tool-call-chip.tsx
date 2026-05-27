@@ -1,5 +1,5 @@
 
-import { BusyIndicator } from "@/domains/chat/components/busy-indicator.js";
+import { BusyIndicator } from "@/domains/chat/components/busy-indicator";
 import {
   Camera,
   CheckCircle2,
@@ -20,16 +20,16 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
-import { getRiskBadgeStyle, getProvenanceText, wasExpected } from "@/domains/chat/utils/risk-utils.js";
-import { formatStartTime, useElapsedTime } from "@/domains/chat/hooks/use-elapsed-time.js";
+import { getRiskBadgeStyle, getProvenanceText, wasExpected } from "@/domains/chat/utils/risk-utils";
+import { formatStartTime, useElapsedTime } from "@/domains/chat/hooks/use-elapsed-time";
 
-import type { AllowlistOption, ChatMessageToolCall, ConfirmationDecision, DirectoryScopeOption, ScopeOption } from "@/domains/chat/api/event-types.js";
+import type { AllowlistOption, ChatMessageToolCall, ConfirmationDecision, DirectoryScopeOption, ScopeOption } from "@/domains/chat/api/event-types";
 import {
   extractInputSummary,
   friendlyRunningLabel,
   friendlyToolIcon,
   friendlyToolLabel,
-} from "@/domains/chat/components/tool-call-chip/utils.js";
+} from "@/domains/chat/components/tool-call-chip/utils";
 
 export interface ToolCallChipProps {
   toolCall: ChatMessageToolCall;

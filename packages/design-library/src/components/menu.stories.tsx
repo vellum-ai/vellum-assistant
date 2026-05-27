@@ -9,8 +9,8 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 
-import { Button } from "./button.js";
-import { Menu } from "./menu.js";
+import { Button } from "./button";
+import { Menu } from "./menu";
 
 const meta: Meta = {
   title: "Components/Menu",

@@ -12,14 +12,14 @@ import {
   client,
   extractErrorMessage,
   SDK_BASE_OPTIONS,
-} from "@/domains/intelligence/client.js";
+} from "@/domains/intelligence/client";
 
 import type {
   SkillFileContentResponse,
   SkillFilesResponse,
   SkillInfo,
   SkillsListResponse,
-} from "./types.js";
+} from "./types";
 
 export { ApiError };
 

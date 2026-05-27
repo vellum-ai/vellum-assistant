@@ -33,27 +33,27 @@ import {
   useRef,
 } from "react";
 
-import type { AssistantEvent } from "@/domains/chat/api/event-types.js";
-import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat-utils.js";
+import type { AssistantEvent } from "@/domains/chat/api/event-types";
+import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat-utils";
 import {
   bucketMessagesAdded,
   recordChatDiagnostic,
   resolvePlatformTag,
-} from "@/domains/chat/utils/diagnostics.js";
+} from "@/domains/chat/utils/diagnostics";
 import type {
   ActiveConversationMessagesRefreshResult,
   WebSyncRouter,
-} from "@/lib/sync/web-sync-router.js";
+} from "@/lib/sync/web-sync-router";
 
-import { useConversationStore } from "@/domains/conversations/conversation-store.js";
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
+import { useConversationStore } from "@/domains/conversations/conversation-store";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import {
   isSending,
   useTurnStore,
-} from "@/domains/messaging/turn-store.js";
-import type { ChatEventStream } from "@/domains/chat/api/stream.js";
-import { useEventBusStore } from "@/stores/event-bus-store.js";
-import type { UseAssistantReachabilityResult } from "@/assistant/use-assistant-reachability.js";
+} from "@/domains/messaging/turn-store";
+import type { ChatEventStream } from "@/domains/chat/api/stream";
+import { useEventBusStore } from "@/stores/event-bus-store";
+import type { UseAssistantReachabilityResult } from "@/assistant/use-assistant-reachability";
 
 // ---------------------------------------------------------------------------
 // Types

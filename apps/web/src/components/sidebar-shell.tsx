@@ -3,7 +3,7 @@ import { type ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 
 import { Button, Typography } from "@vellum/design-library";
-import { routes } from "@/utils/routes.js";
+import { routes } from "@/utils/routes";
 
 interface SidebarShellProps {
   sidebar: ReactNode;

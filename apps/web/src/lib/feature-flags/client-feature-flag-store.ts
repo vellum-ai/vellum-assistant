@@ -1,7 +1,7 @@
 import { create } from "zustand";
 
-import { createSelectors } from "@/utils/create-selectors.js";
-import { CLIENT_FLAG_DEFAULTS } from "@/lib/feature-flags/feature-flag-catalog.js";
+import { createSelectors } from "@/utils/create-selectors";
+import { CLIENT_FLAG_DEFAULTS } from "@/lib/feature-flags/feature-flag-catalog";
 
 const LS_PREFIX = "ff:client:";
 

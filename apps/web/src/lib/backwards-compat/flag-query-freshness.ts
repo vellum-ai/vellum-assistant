@@ -9,7 +9,7 @@
  * Assistants on 0.8.4 or older have no push path for flags. They still
  * need the poll to stay live.
  */
-import { useAssistantSupports } from "@/lib/backwards-compat/utils.js";
+import { useAssistantSupports } from "@/lib/backwards-compat/utils";
 
 const MIN_VERSION = "0.8.5";
 

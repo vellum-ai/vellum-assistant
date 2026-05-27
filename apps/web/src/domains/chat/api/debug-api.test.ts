@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { eventsDebugApi } from "@/domains/chat/api/debug-api.js";
+import { eventsDebugApi } from "@/domains/chat/api/debug-api";
 
 describe("eventsDebugApi", () => {
   test("exposes getClients and getEvents callable accessors", () => {

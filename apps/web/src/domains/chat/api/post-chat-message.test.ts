@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { postChatMessage } from "@/domains/chat/api/messages.js";
-import { useAssistantIdentityStore } from "@/stores/assistant-identity-store.js";
+import { postChatMessage } from "@/domains/chat/api/messages";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 describe("postChatMessage onboarding payload", () => {
   let originalFetch: typeof fetch;
