@@ -58,7 +58,7 @@ mock.module("../../config/loader.js", () => ({
   setNestedValue: () => {},
 }));
 
-const { buildSystemPrompt, maybeReseedBootstrapForCohort } =
+const { buildSystemPrompt, maybeReseedBootstrap } =
   await import("../system-prompt.js");
 
 describe("buildSystemPrompt — tool routing guidance", () => {
@@ -73,12 +73,12 @@ describe("buildSystemPrompt — tool routing guidance", () => {
   });
 });
 
-describe("maybeReseedBootstrapForCohort — content-automation template", () => {
+describe("maybeReseedBootstrap — content-automation template", () => {
   const templatesDir = join(import.meta.dirname!, "..", "templates");
 
   beforeEach(() => {
     mkdirSync(TEST_DIR, { recursive: true });
-    // Seed the workspace with the generic BOOTSTRAP.md so the cohort
+    // Seed the workspace with the generic BOOTSTRAP.md so the bootstrap
     // reseed detects it as an unmodified template and overwrites it.
     copyFileSync(
       join(templatesDir, "BOOTSTRAP.md"),
@@ -87,7 +87,7 @@ describe("maybeReseedBootstrapForCohort — content-automation template", () => 
   });
 
   function reseedAndRead(): string {
-    maybeReseedBootstrapForCohort("content-automation");
+    maybeReseedBootstrap("BOOTSTRAP-CONTENT-AUTOMATION.md");
     return readFileSync(join(TEST_DIR, "BOOTSTRAP.md"), "utf-8");
   }
 
