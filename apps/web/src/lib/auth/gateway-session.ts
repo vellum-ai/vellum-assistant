@@ -1,8 +1,7 @@
 import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
 import {
   isLocalMode,
-  getSelectedAssistant,
-  gatewayProxyUrl,
+  getLocalGatewayUrl,
 } from "@/lib/local-mode";
 
 const LS_TOKEN_KEY = "gw:token";
@@ -13,12 +12,7 @@ let cachedExpiresAt: number = 0;
 
 export function isGatewayAuthEnabled(): boolean {
   if (isLocalMode()) {
-    const assistant = getSelectedAssistant();
-    return (
-      assistant !== undefined &&
-      assistant.cloud !== "vellum" &&
-      assistant.resources?.gatewayPort != null
-    );
+    return getLocalGatewayUrl() != null;
   }
   return useClientFeatureFlagStore.getState().gatewayWebAuth === true;
 }
@@ -81,10 +75,9 @@ export async function ensureGatewayToken(tokenUrl?: string): Promise<string> {
 }
 
 export function getLocalTokenUrl(): string | undefined {
-  if (!isLocalMode()) return undefined;
-  const assistant = getSelectedAssistant();
-  if (!assistant?.resources?.gatewayPort) return undefined;
-  return `${gatewayProxyUrl(assistant.resources.gatewayPort)}/auth/token`;
+  const gatewayUrl = getLocalGatewayUrl();
+  if (!gatewayUrl) return undefined;
+  return `${gatewayUrl}/auth/token`;
 }
 
 export function clearGatewayToken(): void {

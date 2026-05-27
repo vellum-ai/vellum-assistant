@@ -308,7 +308,6 @@ function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
       void connectToLocal(localAssistants[0]!);
     }
     // localAssistants excluded: new array ref each render, guarded by hasLocal
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasLocal, hasPlatform, connectingId, connectError, connectToLocal]);
 
   // No assistants at all

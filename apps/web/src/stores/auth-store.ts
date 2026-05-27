@@ -187,17 +187,19 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
   refreshSession: async () => {
     if (isGatewayAuthMode()) {
       try {
-        await ensureGatewayToken();
+        await ensureGatewayToken(getLocalTokenUrl());
         set({ isLoggedIn: true });
       } catch {
         set({ isLoggedIn: false, user: null, hasPlatformSession: false });
         return false;
       }
-      getSession()
-        .then((result) => {
-          set({ hasPlatformSession: !!(result.ok && result.data.user) });
-        })
-        .catch(() => set({ hasPlatformSession: false }));
+      if (!isLocalMode() || getPlatformAssistants().length > 0) {
+        getSession()
+          .then((result) => {
+            set({ hasPlatformSession: !!(result.ok && result.data.user) });
+          })
+          .catch(() => set({ hasPlatformSession: false }));
+      }
       return true;
     }
 
