@@ -94,7 +94,11 @@ import { isChannelConversation } from "@/domains/chat/utils/conversation-channel
 import { buildMoveToGroupTargets } from "@/domains/chat/utils/group-conversations";
 import { ConversationActionsMenu } from "@/domains/chat/components/conversation-actions-menu";
 import { ConversationAssetsPill } from "@/domains/chat/components/conversation-assets-pill";
-import { AddCreditsModal } from "@/components/add-credits-modal";
+const AddCreditsModal = lazy(() =>
+  import("@/components/add-credits-modal").then((m) => ({
+    default: m.AddCreditsModal,
+  })),
+);
 // Vercel token dialog is only shown when the deploy flow needs a token, and
 // CommandPalette only renders when the user opens it (Cmd+K / Ctrl+K). Defer
 // loading to keep their form/list deps out of the chat-critical bundle.
@@ -1593,10 +1597,14 @@ export function ChatPage() {
   return (
     <>
       <ChatRouteContent {...chatRouteProps} />
-      <AddCreditsModal
-        open={showAddCreditsModal}
-        onOpenChange={setShowAddCreditsModal}
-      />
+      {showAddCreditsModal ? (
+        <Suspense fallback={null}>
+          <AddCreditsModal
+            open={showAddCreditsModal}
+            onOpenChange={setShowAddCreditsModal}
+          />
+        </Suspense>
+      ) : null}
       <ConnectingToAssistant
         state={reachability.state}
         onRetry={() => reachability.probe({ showConnectingImmediately: true })}
