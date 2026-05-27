@@ -1,7 +1,7 @@
 /**
  * Shared localStorage helpers for platform-specific app-nudge modules.
  *
- * Both `mac-app-nudge/prefs.ts` and `ios-app-nudge/prefs.ts` use these
+ * Both `use-ios-app-nudge.ts` and `use-macos-app-nudge.ts` use these
  * to read/write boolean and number preferences. Extracting them avoids
  * duplicating identical helpers across nudge modules.
  */

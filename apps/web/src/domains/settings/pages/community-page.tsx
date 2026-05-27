@@ -19,9 +19,8 @@ import { DiscordLogo } from "@/components/icons/discord-logo.js";
 import { GitHubLogo } from "@/components/icons/github-logo.js";
 import { YouTubeLogo } from "@/components/icons/youtube-logo.js";
 import { XLogo } from "@/components/icons/x-logo.js";
-import { GITHUB_REPO_URL } from "@/domains/nudges/github-constants.js";
-import { useGitHubNudgeState } from "@/domains/nudges/github-prefs.js";
-import { joinDiscord } from "@/domains/nudges/discord-prefs.js";
+import { GITHUB_REPO_URL, useGitHubNudgeState } from "@/hooks/use-github-nudge.js";
+import { joinDiscord } from "@/hooks/use-discord-nudge.js";
 
 function HeroBanner() {
   return (

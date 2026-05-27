@@ -6,7 +6,7 @@ import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-lay
 import {
   writeMacOsAppDownloaded,
   openMacOsDownload,
-} from "@/domains/nudges/mac-app-prefs.js";
+} from "@/hooks/use-macos-app-nudge.js";
 
 interface GetMacOSAppScreenProps {
   onComplete: () => void;

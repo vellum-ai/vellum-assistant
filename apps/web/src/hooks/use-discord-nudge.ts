@@ -8,17 +8,36 @@
 
 import { useCallback } from "react";
 
-import { useNudgeStore } from "@/domains/nudges/nudge-store.js";
+import { useNudgeStore } from "@/stores/nudge-store.js";
 import {
   readGitHubNudgeStarred,
   readGitHubBannerDismissedAt,
-} from "@/domains/nudges/github-prefs.js";
-import {
-  DISCORD_INVITE_URL,
-  DISCORD_MIN_CONVERSATION_COUNT,
-  DISCORD_MIN_ACCOUNT_AGE_MS,
-  DISCORD_GITHUB_DISMISS_COOLDOWN_MS,
-} from "@/domains/nudges/discord-constants.js";
+} from "@/hooks/use-github-nudge.js";
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/** Public Discord invite URL for the Vellum community. */
+export const DISCORD_INVITE_URL = "https://discord.gg/ZABd9V2zM8";
+
+/**
+ * Minimum number of conversations (sidebar threads) the user must have
+ * before the Discord nudge becomes eligible. Aggressive: 2.
+ */
+export const DISCORD_MIN_CONVERSATION_COUNT = 2;
+
+/**
+ * Minimum account age (milliseconds since `firstSeenAt`) before the
+ * Discord nudge becomes eligible. 0 = no minimum age gate.
+ */
+export const DISCORD_MIN_ACCOUNT_AGE_MS = 0;
+
+/**
+ * Cooldown (milliseconds) after the GitHub nudge banner is dismissed
+ * before the Discord nudge can surface. 24 hours.
+ */
+export const DISCORD_GITHUB_DISMISS_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
 // First-seen timestamp

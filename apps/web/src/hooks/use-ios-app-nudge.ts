@@ -1,3 +1,11 @@
+/**
+ * iOS app-download nudge module.
+ *
+ * Manages whether the user has downloaded the iOS app, banner
+ * dismissal state, and assistant turn counting for the minimum-turn
+ * threshold before the nudge banner surfaces.
+ */
+
 import { useCallback, useEffect, useState } from "react";
 
 import {
@@ -5,14 +13,27 @@ import {
   writeBooleanPref,
   readNumberPref,
   writeNumberPref,
-} from "@/domains/nudges/nudge-prefs.js";
+} from "@/utils/nudge-prefs.js";
 
-import {
-  KEY_IOS_APP_DOWNLOADED,
-  KEY_IOS_APP_BANNER_DISMISSED,
-  KEY_IOS_APP_ASSISTANT_TURNS_SEEN,
-  IOS_APP_STORE_URL,
-} from "@/domains/nudges/ios-app-constants.js";
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/** localStorage key: user tapped "Download" on any iOS nudge surface. */
+export const KEY_IOS_APP_DOWNLOADED = "app.iosNudge.downloaded";
+
+/** localStorage key: user dismissed the in-chat floating banner. */
+export const KEY_IOS_APP_BANNER_DISMISSED = "app.iosNudge.bannerDismissed";
+
+/** localStorage key: cumulative completed assistant turns observed on web. */
+export const KEY_IOS_APP_ASSISTANT_TURNS_SEEN =
+  "app.iosNudge.assistantTurnsSeen";
+
+export const IOS_APP_BANNER_MIN_TURNS = 5;
+
+/** App Store listing for Vellum Assistant (id6759934423). */
+export const IOS_APP_STORE_URL =
+  "https://apps.apple.com/us/app/vellum-assistant/id6759934423";
 
 // ---------------------------------------------------------------------------
 // Public readers / writers
@@ -45,7 +66,7 @@ export function incrementIOSAssistantTurnsSeen(delta = 1): void {
 }
 
 // ---------------------------------------------------------------------------
-// Hooks
+// Hook
 // ---------------------------------------------------------------------------
 
 export function useIOSNudgeState(): {
@@ -86,16 +107,3 @@ export function useIOSNudgeState(): {
 export function openIOSAppStore(): void {
   window.open(IOS_APP_STORE_URL, "_blank", "noopener,noreferrer");
 }
-
-// ---------------------------------------------------------------------------
-// Internals exported for tests only. Not part of the public API.
-// ---------------------------------------------------------------------------
-
-export const __testing = {
-  readBooleanPref,
-  writeBooleanPref,
-  readNumberPref,
-  writeNumberPref,
-  readIOSAppBannerDismissed,
-  writeIOSAppBannerDismissed,
-};

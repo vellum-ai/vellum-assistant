@@ -52,20 +52,56 @@ export function isSafariBrowser(): boolean {
 }
 
 /**
- * iOS web user who should see our custom nudge surfaces.
+ * Returns true when the current browser is running on macOS (not iOS).
+ * Uses `navigator.userAgentData` where available (Chrome/Edge), falls back
+ * to `navigator.platform` for Safari and Firefox.
  *
- * Excludes Safari because Safari users already see the native Smart App Banner
- * (via the <meta name="apple-itunes-app"> tag in layout.tsx), which provides a
- * better, Apple-native download experience. Our custom nudge surfaces only
- * target non-Safari iOS browsers (Chrome, Firefox, Edge, etc.) that don't
- * support the Smart App Banner.
+ * iPadOS 13+ sends a macOS user agent by default, so this function
+ * explicitly excludes iOS devices (detected via `isIOSBrowser()`) to
+ * prevent iPads from seeing the macOS download nudge.
+ *
+ * Always returns `false` during SSR (no `navigator`).
  */
-function isIOSWeb(): boolean {
-  return isIOSBrowser() && !isNativePlatform() && !isSafariBrowser();
+export function isMacOSBrowser(): boolean {
+  if (typeof navigator === "undefined") return false;
+  if (isIOSBrowser()) return false;
+  const uaData = (
+    navigator as Navigator & {
+      userAgentData?: { platform?: string };
+    }
+  ).userAgentData;
+  if (uaData?.platform) {
+    return uaData.platform.toLowerCase().includes("mac");
+  }
+  return navigator.platform.toLowerCase().includes("mac");
 }
+
+// ---------------------------------------------------------------------------
+// React hooks — safe thin wrappers for use in component render bodies
+// ---------------------------------------------------------------------------
 
 const noop = () => () => {};
 
+/**
+ * iOS web user who should see custom nudge surfaces.
+ *
+ * Excludes Safari because Safari users already see the native Smart App Banner
+ * (via the `<meta name="apple-itunes-app">` tag), which provides a better,
+ * Apple-native download experience. Custom nudge surfaces only target
+ * non-Safari iOS browsers (Chrome, Firefox, Edge, etc.).
+ */
 export function useIsIOSWeb(): boolean {
-  return useSyncExternalStore(noop, isIOSWeb, () => false);
+  return useSyncExternalStore(
+    noop,
+    () => isIOSBrowser() && !isNativePlatform() && !isSafariBrowser(),
+    () => false,
+  );
+}
+
+export function useIsMacOSWeb(): boolean {
+  return useSyncExternalStore(
+    noop,
+    () => isMacOSBrowser() && !isNativePlatform(),
+    () => false,
+  );
 }

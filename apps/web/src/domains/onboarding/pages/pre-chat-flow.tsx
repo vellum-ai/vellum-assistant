@@ -3,10 +3,9 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
-import { useIsIOSWeb } from "@/domains/nudges/ios-app-platform.js";
-import { readIOSAppDownloaded } from "@/domains/nudges/ios-app-prefs.js";
-import { useIsMacOSWeb } from "@/domains/nudges/mac-app-platform.js";
-import { readMacOsAppDownloaded } from "@/domains/nudges/mac-app-prefs.js";
+import { useIsIOSWeb, useIsMacOSWeb } from "@/utils/platform-detection.js";
+import { readIOSAppDownloaded } from "@/hooks/use-ios-app-nudge.js";
+import { readMacOsAppDownloaded } from "@/hooks/use-macos-app-nudge.js";
 import { persistContentAutomationPreChatHandoff } from "@/domains/onboarding/content-automation.js";
 import { GetIOSAppScreen } from "@/domains/onboarding/screens/get-ios-app-screen.js";
 import { GetMacOSAppScreen } from "@/domains/onboarding/screens/get-macos-app-screen.js";

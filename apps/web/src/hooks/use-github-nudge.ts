@@ -1,15 +1,22 @@
 /**
  * GitHub-nudge public API.
  *
- * Backed by `useNudgeStore`; this file just exposes the GitHub-specific
+ * Backed by `useNudgeStore`; this file exposes the GitHub-specific
  * derived state, click handlers, and a few non-React readers used by the
  * Discord-nudge prerequisite checks.
  */
 
 import { useCallback } from "react";
 
-import { useNudgeStore } from "@/domains/nudges/nudge-store.js";
-import { GITHUB_REPO_URL } from "@/domains/nudges/github-constants.js";
+import { useNudgeStore } from "@/stores/nudge-store.js";
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/** Public GitHub repository for Vellum Assistant. */
+export const GITHUB_REPO_URL =
+  "https://github.com/vellum-ai/vellum-assistant";
 
 // ---------------------------------------------------------------------------
 // Public readers (non-React, for cross-module prerequisite checks)

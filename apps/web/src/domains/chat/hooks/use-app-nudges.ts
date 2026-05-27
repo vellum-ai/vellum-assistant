@@ -1,24 +1,21 @@
 import { type MutableRefObject, useEffect, useState } from "react";
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
-import { useIsIOSWeb } from "@/domains/nudges/ios-app-platform.js";
+import { useIsIOSWeb, useIsMacOSWeb } from "@/utils/platform-detection.js";
 import {
   readIOSAssistantTurnsSeen,
   incrementIOSAssistantTurnsSeen,
   useIOSNudgeState,
-} from "@/domains/nudges/ios-app-prefs.js";
-import { IOS_APP_BANNER_MIN_TURNS } from "@/domains/nudges/ios-app-constants.js";
-import { useIsMacOSWeb } from "@/domains/nudges/mac-app-platform.js";
+  IOS_APP_BANNER_MIN_TURNS,
+} from "@/hooks/use-ios-app-nudge.js";
 import {
   readMacOsAssistantTurnsSeen,
   incrementMacOsAssistantTurnsSeen,
   useMacOsNudgeState,
-} from "@/domains/nudges/mac-app-prefs.js";
-import { MAC_APP_BANNER_MIN_TURNS } from "@/domains/nudges/mac-app-constants.js";
-import { useGitHubNudgeState } from "@/domains/nudges/github-prefs.js";
-import type { GitHubNudgeState } from "@/domains/nudges/github-prefs.js";
-import { useDiscordNudgeState, ensureFirstSeenAt } from "@/domains/nudges/discord-prefs.js";
-import type { DiscordNudgeState } from "@/domains/nudges/discord-prefs.js";
+  MAC_APP_BANNER_MIN_TURNS,
+} from "@/hooks/use-macos-app-nudge.js";
+import { useGitHubNudgeState, type GitHubNudgeState } from "@/hooks/use-github-nudge.js";
+import { useDiscordNudgeState, ensureFirstSeenAt, type DiscordNudgeState } from "@/hooks/use-discord-nudge.js";
 
 // ---------------------------------------------------------------------------
 // Types
