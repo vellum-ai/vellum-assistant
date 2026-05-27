@@ -38,7 +38,7 @@ import { formatMs } from "@/domains/chat/hooks/use-tool-call-card-data";
 import type { IconName } from "@/domains/chat/components/tool-progress-card/derive-step-label";
 
 /** Concrete lucide icon for each `IconName` produced by `deriveStepLabel`. */
-const ICON_MAP: Record<IconName, LucideIcon> = {
+export const ICON_MAP: Record<IconName, LucideIcon> = {
   code: Code,
   file: FileText,
   pen: Pen,
