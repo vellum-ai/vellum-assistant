@@ -19,8 +19,8 @@ import {
   writeUsage,
 } from "../metrics";
 import type { TestDef } from "../test-def";
-import scoreAssistantCost from "../../../tests/timeline-recall/metrics/assistant-cost";
-import scoreDateMentioned from "../../../tests/timeline-recall/metrics/date-mentioned";
+import scoreAssistantCost from "../../../benchmarks/personal-intelligence/tests/timeline-recall/metrics/assistant-cost";
+import scoreDateMentioned from "../../../benchmarks/personal-intelligence/tests/timeline-recall/metrics/date-mentioned";
 
 const testDef: TestDef = {
   id: "timeline-recall",

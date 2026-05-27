@@ -2,7 +2,7 @@ import {
   readTranscript,
   type MetricInput,
   type MetricResult,
-} from "../../../src/lib/metrics";
+} from "../../../../../src/lib/metrics";
 import { PEANUT_ALLERGY_DATE } from "../constants";
 
 export default async function scoreDateMentioned(
