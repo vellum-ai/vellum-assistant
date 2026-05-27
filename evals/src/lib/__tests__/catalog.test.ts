@@ -4,18 +4,27 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { listProfileIds, listTestIds } from "../catalog";
+import {
+  listBenchmarkIds,
+  listBenchmarkUnitIds,
+  listProfileIds,
+  listTestIds,
+} from "../catalog";
 import { loadProfile } from "../profile";
 import { loadTestDef } from "../test-def";
 
 const originalProfilesDir = process.env.EVALS_PROFILES_DIR;
 const originalTestsDir = process.env.EVALS_TESTS_DIR;
+const originalBenchmarksDir = process.env.EVALS_BENCHMARKS_DIR;
 
 afterEach(() => {
   if (originalProfilesDir === undefined) delete process.env.EVALS_PROFILES_DIR;
   else process.env.EVALS_PROFILES_DIR = originalProfilesDir;
   if (originalTestsDir === undefined) delete process.env.EVALS_TESTS_DIR;
   else process.env.EVALS_TESTS_DIR = originalTestsDir;
+  if (originalBenchmarksDir === undefined)
+    delete process.env.EVALS_BENCHMARKS_DIR;
+  else process.env.EVALS_BENCHMARKS_DIR = originalBenchmarksDir;
 });
 
 describe("eval catalog discovery", () => {
@@ -73,6 +82,36 @@ describe("eval catalog discovery", () => {
       id: "timeline-recall",
       setupCommands: [{ type: "seed-conversation", messages: [] }],
       metricPaths: [join(dir, "timeline-recall", "metrics", "score.ts")],
+    });
+  });
+
+  test("lists benchmark directories alphabetically", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "evals-benchmarks-"));
+    process.env.EVALS_BENCHMARKS_DIR = dir;
+
+    await mkdir(join(dir, "personal-intelligence"), { recursive: true });
+    await mkdir(join(dir, "longmemeval-v2"), { recursive: true });
+    await mkdir(join(dir, ".hidden"), { recursive: true });
+
+    expect(await listBenchmarkIds()).toEqual([
+      "longmemeval-v2",
+      "personal-intelligence",
+    ]);
+  });
+
+  test("loads units from an explicit benchmark units directory", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "evals-units-"));
+    await mkdir(join(dir, "session-a"), { recursive: true });
+    await mkdir(join(dir, "session-b"), { recursive: true });
+    await writeFile(join(dir, "session-a", "SPEC.md"), "# a", "utf8");
+    await writeFile(join(dir, "session-b", "SPEC.md"), "# b", "utf8");
+
+    expect(await listBenchmarkUnitIds(dir)).toEqual([
+      "session-a",
+      "session-b",
+    ]);
+    await expect(loadTestDef("session-a", dir)).resolves.toMatchObject({
+      id: "session-a",
     });
   });
 });

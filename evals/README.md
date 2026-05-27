@@ -16,23 +16,29 @@ cp .env.example .env
 
 bun run src/cli.ts run \
   --profiles p1,p2 \
-  --tests t1 \
+  --benchmark personal-intelligence \
+  --filter timeline-recall \
   --label "baseline-after-cache-fix"
 
 bun run src/cli.ts server
 ```
 
-`--label` is optional and tags every (profile, test) execution in the
-invocation with the same `sessionId`, so the report server can show them
-as a single grouped run.
+`--benchmark` defaults to `personal-intelligence`; omit `--filter` to run
+every unit in the benchmark. `--label` tags every (profile, unit) execution
+in the invocation with the same `sessionId`, so the report server can show
+them as a single grouped run.
+
+The legacy `--tests <ids>` flag is accepted as a deprecated alias for
+`--filter <ids>` against the personal-intelligence benchmark.
 
 ## Commands
 
-| Command                                    | Description                                                     |
-| ------------------------------------------ | --------------------------------------------------------------- |
-| `evals run --profiles <ids> --tests <ids>` | Cartesian profile × test runner. `--label <text>` tags the run. |
-| `evals export --session <id> --out <path>` | Export a report session as JSONL for diffing and notebooks.     |
-| `evals server`                             | Local report-card server for `.runs` at `localhost:3005`.       |
+| Command                                                       | Description                                                                 |
+| ------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `evals run --profiles <ids> [--benchmark <id>] [--filter <ids>]` | Cartesian profile × benchmark-unit runner. `--label <text>` tags the run. |
+| `evals benchmarks list`                                       | List available benchmarks with their unit noun and unit count.             |
+| `evals export --session <id> --out <path>`                    | Export a report session as JSONL for diffing and notebooks.                 |
+| `evals server`                                                | Local report-card server for `.runs` at `localhost:3005`.                   |
 
 The report server is organized as a hierarchy:
 
@@ -64,7 +70,8 @@ evals/
 │       └── manifest.json
 ├── benchmarks/              # One subdirectory per benchmark
 │   └── personal-intelligence/
-│       └── tests/           # Test definitions for this benchmark
+│       ├── manifest.json    # displayName + unitDirName + unitNoun
+│       └── tests/           # Unit definitions (`unitDirName` per manifest)
 │           └── timeline-recall/
 │               ├── SPEC.md  # simulator briefing
 │               └── metrics/ # (optional) per-metric `.ts` scorers
@@ -89,6 +96,26 @@ A profile lives at `profiles/<id>/`. The directory name is the profile id.
 Run `evals profiles list` to see all committed profiles and their setup.
 
 `workspace/` (optional) holds files dropped into the agent's workspace before the run starts.
+
+## Benchmark
+
+A benchmark lives at `benchmarks/<id>/`. The directory name is the benchmark id.
+
+`manifest.json` declares display metadata and where its units live:
+
+```json
+{
+  "displayName": "Personal Intelligence",
+  "unitDirName": "tests",
+  "unitNoun": "test"
+}
+```
+
+- `displayName` — human-readable name shown in `evals benchmarks list` and help text.
+- `unitDirName` — directory under the benchmark root holding individual units (e.g. `tests`, `items`, `questions`).
+- `unitNoun` — singular noun for one unit (`test`, `item`, `question`); used in CLI output so each benchmark speaks its own vocabulary.
+
+Run `evals benchmarks list` to see all committed benchmarks.
 
 ## Test
 

@@ -1,7 +1,13 @@
 /** Catalog list commands. */
 import type { Command } from "commander";
 
-import { listProfileIds, listTestIds } from "../lib/catalog";
+import { loadBenchmark } from "../lib/benchmark";
+import {
+  listBenchmarkIds,
+  listBenchmarkUnitIds,
+  listProfileIds,
+  listTestIds,
+} from "../lib/catalog";
 import { loadProfile } from "../lib/profile";
 import { loadTestDef } from "../lib/test-def";
 
@@ -71,11 +77,53 @@ export function registerListCommands(program: Command): void {
       );
     });
 
-  const tests = program.command("tests").description("Inspect eval tests");
+  const benchmarks = program
+    .command("benchmarks")
+    .description("Inspect eval benchmarks");
+
+  benchmarks
+    .command("list")
+    .description("List available benchmarks")
+    .option("--json", "Print JSON")
+    .action(async (opts: ListOptions) => {
+      const items = await Promise.all(
+        (await listBenchmarkIds()).map(async (id) => {
+          const benchmark = await loadBenchmark(id);
+          const units = await listBenchmarkUnitIds(benchmark.unitsDir);
+          return {
+            id: benchmark.id,
+            displayName: benchmark.manifest.displayName,
+            unitNoun: benchmark.manifest.unitNoun,
+            units: units.length,
+          };
+        }),
+      );
+
+      if (opts.json) {
+        console.log(JSON.stringify({ benchmarks: items }, null, 2));
+        return;
+      }
+
+      printRows(
+        ["benchmark", "display", "unit", "count"],
+        items.map((item) => [
+          item.id,
+          item.displayName,
+          item.unitNoun,
+          String(item.units),
+        ]),
+      );
+    });
+
+  const tests = program
+    .command("tests")
+    .description(
+      `Inspect eval tests (personal-intelligence benchmark only — see \`evals benchmarks list\` for other benchmarks)`,
+    );
 
   tests
     .command("list")
-    .description("List available eval tests")
+    .description("List available eval tests for the personal-intelligence benchmark")
     .option("--json", "Print JSON")
     .action(async (opts: ListOptions) => {
       const items = await Promise.all(
