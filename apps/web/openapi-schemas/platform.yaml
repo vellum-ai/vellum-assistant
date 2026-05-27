@@ -6717,8 +6717,13 @@ components:
         url:
           type: string
           readOnly: true
+        commit_sha:
+          type: string
+          nullable: true
+          readOnly: true
       required:
       - assistant_image_ref
+      - commit_sha
       - credential_executor_image_ref
       - description
       - gateway_image_ref
