@@ -3,6 +3,8 @@ import { Database } from "bun:sqlite";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
+
+import { assertNotLiveDb } from "./assert-not-live-db.js";
 const originalBunTest = process.env.BUN_TEST;
 
 mock.module("../util/logger.js", () => ({
@@ -68,6 +70,7 @@ function bootstrapPreLineageConversations(raw: Database): void {
 function removeTestDbFiles(): void {
   resetDbForTesting();
   const dbPath = getDbPath();
+  assertNotLiveDb(dbPath);
   rmSync(dbPath, { force: true });
   rmSync(`${dbPath}-shm`, { force: true });
   rmSync(`${dbPath}-wal`, { force: true });
