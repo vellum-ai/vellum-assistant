@@ -108,6 +108,7 @@ mock.module("../conversation-crud.js", () => ({
     deletedIds.push(id);
     mockConversations = mockConversations.filter((c) => c.id !== id);
   },
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 import { sweepOrphanMemoryRetrospectiveConversations } from "../memory-retrospective-startup-cleanup.js";

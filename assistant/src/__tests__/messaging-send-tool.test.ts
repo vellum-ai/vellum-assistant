@@ -79,6 +79,7 @@ const getBindingByChannelChatMock = mock(
 mock.module("../memory/conversation-crud.js", () => ({
   addMessage: addMessageMock,
   getConversation: getConversationMock,
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 mock.module("../memory/conversation-disk-view.js", () => ({

@@ -1978,6 +1978,104 @@ interface WipeConversationResult extends DeletedMemoryIds {
 }
 
 /**
+ * Reserve an empty message row at a known id, so the agent loop can stamp
+ * outbound streaming events with a stable identity before any content is
+ * produced. The returned row has `content: "[]"` and no metadata-side
+ * effects beyond `addMessage`'s usual conversation-row bump.
+ *
+ * Intentionally skips both Qdrant indexing and attention projection — an
+ * empty placeholder is not meaningful for either. The caller will later
+ * write final content via {@link updateMessageContent} (and is responsible
+ * for triggering any indexing/projection at that point if it cares).
+ *
+ * Mirrors {@link addMessage}'s SQLITE_BUSY/SQLITE_IOERR retry shape so the
+ * primitives behave consistently under WAL contention.
+ */
+export async function reserveMessage(
+  conversationId: string,
+  role: string,
+  metadata?: Record<string, unknown>,
+) {
+  const db = getDb();
+  const messageId = uuid();
+
+  if (metadata) {
+    const result = messageMetadataSchema.safeParse(metadata);
+    if (!result.success) {
+      log.warn(
+        { conversationId, messageId, issues: result.error.issues },
+        "Invalid message metadata, storing as-is",
+      );
+    }
+  }
+
+  const metadataStr = metadata ? JSON.stringify(metadata) : undefined;
+  const originChannelCandidate =
+    metadata && isChannelId(metadata.userMessageChannel)
+      ? metadata.userMessageChannel
+      : null;
+
+  const MAX_RETRIES = 3;
+  let now!: number;
+  for (let attempt = 0; ; attempt++) {
+    now = monotonicNow();
+    try {
+      const values = {
+        id: messageId,
+        conversationId,
+        role,
+        content: "[]",
+        createdAt: now,
+        ...(metadataStr ? { metadata: metadataStr } : {}),
+      };
+      db.transaction((tx) => {
+        tx.insert(messages).values(values).run();
+        if (originChannelCandidate) {
+          tx.update(conversations)
+            .set({ originChannel: originChannelCandidate })
+            .where(
+              and(
+                eq(conversations.id, conversationId),
+                isNull(conversations.originChannel),
+              ),
+            )
+            .run();
+        }
+        tx.update(conversations)
+          .set({ updatedAt: now, lastMessageAt: now })
+          .where(eq(conversations.id, conversationId))
+          .run();
+      });
+      break;
+    } catch (err) {
+      const errCode = (err as { code?: string }).code ?? "";
+      if (
+        attempt < MAX_RETRIES &&
+        (errCode.startsWith("SQLITE_BUSY") ||
+          errCode.startsWith("SQLITE_IOERR"))
+      ) {
+        log.warn(
+          { attempt, conversationId, code: errCode },
+          "reserveMessage: transient SQLite error, retrying",
+        );
+        await Bun.sleep(50 * (attempt + 1));
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  return {
+    id: messageId,
+    conversationId,
+    role,
+    content: "[]",
+    createdAt: now,
+    ...(metadataStr ? { metadata: metadataStr } : {}),
+  };
+}
+
+/**
  * Update the content of an existing message. Used when consolidating
  * multiple assistant messages into one.
  */

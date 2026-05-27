@@ -139,6 +139,7 @@ mock.module("../memory/conversation-crud.js", () => ({
       : { provenanceTrustClass: "unknown" },
   setConversationOriginChannelIfUnset: () => {},
   setConversationOriginInterfaceIfUnset: () => {},
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 mock.module("../daemon/conversation-process.js", () => ({

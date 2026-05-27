@@ -26,6 +26,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   getConversationOriginChannel: () => null,
   getMessages: () => null,
   createConversation: () => ({ id: "mock-conv" }),
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 import {

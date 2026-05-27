@@ -36,6 +36,7 @@ mock.module("../memory/conversation-crud.js", () => ({
       estimatedCost,
     });
   },
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 import { recordUsage } from "../daemon/conversation-usage.js";

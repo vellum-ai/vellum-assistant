@@ -322,6 +322,14 @@ jobs:
           path: clients/chrome-extension/vellum-browser-relay.crx
           retention-days: 90
 
+      - name: Upload extension CRX (zipped for download)
+        if: hashFiles('clients/chrome-extension/vellum-browser-relay.crx.zip') != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: chrome-extension-crx-zip
+          path: clients/chrome-extension/vellum-browser-relay.crx.zip
+          retention-days: 90
+
       - name: Upload extension zip
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -348,10 +356,10 @@ jobs:
         id: read-extension-id
         run: echo "id=$(jq -r '.production.extensionId' clients/chrome-extension/extension-environments.json)" >> "$GITHUB_OUTPUT"
 
-      - name: Download extension zip
+      - name: Download extension CRX
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: chrome-extension-zip
+          name: chrome-extension-crx
           path: /tmp/chrome-extension
 
       - name: Install chrome-webstore-upload-cli
@@ -366,8 +374,8 @@ jobs:
           PUBLISHER_ID: ${{ vars.CWS_PUBLISHER_ID }}
           E2E_BLOCKS_RELEASE: ${{ inputs.playwright_blocks_release }}
         run: |
-          # CWS API requires a zip — it handles signing server-side
-          UPLOAD_FILE=$(ls /tmp/chrome-extension/*.zip)
+          # Extension has CRX Verified Uploads enabled — CWS requires a signed .crx
+          UPLOAD_FILE=$(ls /tmp/chrome-extension/*.crx)
           echo "Uploading: $UPLOAD_FILE"
           set +e
           OUTPUT=$(chrome-webstore-upload upload \
@@ -2446,11 +2454,11 @@ jobs:
           name: chrome-extension-zip
           path: chrome-extension-artifacts
 
-      - name: Download Chrome extension CRX
+      - name: Download Chrome extension CRX (zipped)
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         continue-on-error: true
         with:
-          name: chrome-extension-crx
+          name: chrome-extension-crx-zip
           path: chrome-extension-artifacts
 
       - name: Create GitHub Releases
@@ -2484,8 +2492,8 @@ jobs:
           if [ -d "chrome-extension-artifacts" ]; then
             CRX_ZIP=$(find chrome-extension-artifacts -name "vellum-browser-relay.zip" -type f | head -1)
             [ -n "$CRX_ZIP" ] && ASSETS+=("$CRX_ZIP#vellum-browser-relay-${VERSION}.zip")
-            CRX_FILE=$(find chrome-extension-artifacts -name "vellum-browser-relay.crx" -type f | head -1)
-            [ -n "$CRX_FILE" ] && ASSETS+=("$CRX_FILE#vellum-browser-relay-${VERSION}.crx")
+            CRX_FILE_ZIP=$(find chrome-extension-artifacts -name "vellum-browser-relay.crx.zip" -type f | head -1)
+            [ -n "$CRX_FILE_ZIP" ] && ASSETS+=("$CRX_FILE_ZIP#vellum-browser-relay-${VERSION}.crx.zip")
           fi
 
           echo "Release assets: ${ASSETS[*]}"

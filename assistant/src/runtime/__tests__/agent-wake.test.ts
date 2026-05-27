@@ -29,6 +29,7 @@ import type { DiskPressureStatus } from "../../daemon/disk-pressure-guard.js";
 mock.module("../../memory/conversation-crud.js", () => ({
   getConversationOverrideProfile: () => undefined,
   getConversation: () => ({ archivedAt: null }),
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 const mockGetOrCreateConversationCalls: Array<{

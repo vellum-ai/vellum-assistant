@@ -152,6 +152,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   setLastNotifiedInferenceProfile: mock(() => {}),
   setConversationHistoryStrippedAt: mock(() => {}),
   wipeConversation: mock(() => ({ memoryIds: [] })),
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 mock.module("../memory/conversation-title-service.js", () => ({

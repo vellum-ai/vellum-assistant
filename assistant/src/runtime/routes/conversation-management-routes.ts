@@ -55,6 +55,7 @@ import {
   publishConversationListChanged,
   publishConversationTitleChanged,
 } from "../sync/resource-sync-events.js";
+import { conversationSummarySchema } from "./conversation-list-routes.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import { setInferenceProfileSession } from "./inference-profile-session-handler.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -477,6 +478,9 @@ export const ROUTES: RouteDefinition[] = [
         .describe("Truncate the fork at this message")
         .optional(),
     }),
+    responseBody: z.object({
+      conversation: conversationSummarySchema,
+    }),
     handler: handleForkConversation,
   },
   {
@@ -546,6 +550,7 @@ export const ROUTES: RouteDefinition[] = [
     requestBody: z.object({
       name: z.string(),
     }),
+    responseBody: z.object({ ok: z.boolean() }),
     handler: handleRenameConversation,
   },
   {
@@ -598,6 +603,10 @@ export const ROUTES: RouteDefinition[] = [
     description: "Move a conversation to the archived state.",
     tags: ["conversations"],
     pathParams: [{ name: "id", type: "uuid" }],
+    responseBody: z.object({
+      ok: z.boolean(),
+      conversationId: z.string(),
+    }),
     handler: handleArchiveConversation,
   },
   {
@@ -610,6 +619,10 @@ export const ROUTES: RouteDefinition[] = [
       "Restore an archived conversation back to the default sidebar.",
     tags: ["conversations"],
     pathParams: [{ name: "id", type: "uuid" }],
+    responseBody: z.object({
+      ok: z.boolean(),
+      conversationId: z.string(),
+    }),
     handler: handleUnarchiveConversation,
   },
   {
@@ -667,12 +680,16 @@ export const ROUTES: RouteDefinition[] = [
     description: "Batch-update display order and pin state for conversations.",
     tags: ["conversations"],
     requestBody: z.object({
-      updates: z
-        .array(z.unknown())
-        .describe(
-          "Array of { conversationId, displayOrder?, isPinned? } objects",
-        ),
+      updates: z.array(
+        z.object({
+          conversationId: z.string(),
+          displayOrder: z.number().optional(),
+          isPinned: z.boolean().optional(),
+          groupId: z.string().nullable().optional(),
+        }),
+      ),
     }),
+    responseBody: z.object({ ok: z.boolean() }),
     handler: handleReorderConversations,
   },
 ];

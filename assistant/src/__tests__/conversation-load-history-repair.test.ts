@@ -104,6 +104,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   },
   setConversationOriginChannelIfUnset: () => {},
   setConversationOriginInterfaceIfUnset: () => {},
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 mock.module("../memory/conversation-queries.js", () => ({

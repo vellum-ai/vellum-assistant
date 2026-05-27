@@ -50,6 +50,7 @@ mock.module("../memory/conversation-crud.js", () => ({
     trustContext: undefined,
   }),
   addMessage: () => ({ id: "msg-mock" }),
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 mock.module("../memory/canonical-guardian-store.js", () => ({

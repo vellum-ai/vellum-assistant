@@ -83,7 +83,7 @@ const slackThreadSchema = z.object({
   threadTs: z.string(),
   link: z
     .object({
-      desktopUrl: z.string().optional(),
+      appUrl: z.string().optional(),
       webUrl: z.string().optional(),
     })
     .optional(),
@@ -100,7 +100,7 @@ const channelBindingSchema = z.object({
   externalChatId: z.string(),
   externalChatName: z.string().optional(),
   externalThreadId: z.string().optional(),
-  externalUserId: z.string(),
+  externalUserId: z.string().nullable(),
   displayName: z.string().nullable(),
   username: z.string().nullable(),
   slackThread: slackThreadSchema.optional(),
@@ -113,7 +113,7 @@ const forkParentSchema = z.object({
   title: z.string(),
 });
 
-const conversationSummarySchema = z.object({
+export const conversationSummarySchema = z.object({
   id: z.string(),
   title: z.string(),
   createdAt: z.number(),

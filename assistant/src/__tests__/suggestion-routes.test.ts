@@ -52,6 +52,7 @@ const mockGetMessages = mock((_conversationId: string) => [
 mock.module("../memory/conversation-crud.js", () => ({
   getMessages: mockGetMessages,
   getConversation: (_id: string) => null,
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 const mockGetConfiguredProvider = mock(async () => ({

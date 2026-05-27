@@ -128,6 +128,7 @@ mock.module("../memory/conversation-crud.js", () => ({
         : {};
     row.metadata = JSON.stringify({ ...existing, ...updates });
   },
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 mock.module("../memory/attachments-store.js", () => ({

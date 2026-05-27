@@ -23,6 +23,7 @@ mock.module("../util/logger.js", () => ({
 
 mock.module("../memory/conversation-crud.js", () => ({
   getMessages: () => [],
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 mock.module("../memory/attachments-store.js", () => ({

@@ -92,6 +92,7 @@ mock.module("../runtime/pending-interactions.js", () => ({
 
 mock.module("../memory/conversation-crud.js", () => ({
   addMessage: mock(async () => ({ id: "persisted-message-id" })),
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 mock.module("../config/loader.js", () => ({

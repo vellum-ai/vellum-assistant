@@ -111,6 +111,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   // The handler treats provenance as a flat spread; returning {} keeps the
   // metadata snapshot focused on the fields under test.
   provenanceFromTrustContext: () => ({}),
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 mock.module("../memory/llm-request-log-store.js", () => ({

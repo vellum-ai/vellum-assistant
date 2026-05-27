@@ -24,6 +24,7 @@ const addMessageSpy = mock(
 );
 mock.module("../../../memory/conversation-crud.js", () => ({
   addMessage: addMessageSpy,
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 const wakeAgentSpy = mock(

@@ -30,6 +30,7 @@ mock.module("../../memory/conversation-crud.js", () => ({
     }
     return conversationRow;
   },
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 const { writeHomeFeedItemForSignal } =

@@ -34,6 +34,7 @@ mock.module("../../home/feed-writer.js", () => ({
 // home-feed-side-effect.ts only consumes `getConversation`.
 mock.module("../../memory/conversation-crud.js", () => ({
   getConversation: () => conversationRow,
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 // Stub the broadcaster so emit-signal's `getBroadcaster()` does not need
