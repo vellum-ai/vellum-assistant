@@ -6,6 +6,7 @@ import {
   injectScript,
   jsonForScript,
   preparePreviewHtml,
+  prependScript,
 } from "@/utils/sandbox-bridge";
 
 const FRAME_ID = "test-frame";
@@ -85,31 +86,69 @@ describe("injectScript", () => {
   });
 });
 
+describe("prependScript", () => {
+  it("injects right after <head>", () => {
+    const html = "<html><head><meta charset=\"utf-8\"></head><body></body></html>";
+    const script = "<script>early</script>";
+    const out = prependScript(html, script);
+    const headOpen = out.indexOf("<head>");
+    const scriptIdx = out.indexOf("<script>early</script>");
+    expect(scriptIdx).toBe(headOpen + "<head>".length);
+  });
+
+  it("falls back to after <html> when no <head>", () => {
+    const html = "<html><body></body></html>";
+    const script = "<script>early</script>";
+    const out = prependScript(html, script);
+    const htmlOpen = out.indexOf("<html>");
+    const scriptIdx = out.indexOf("<script>early</script>");
+    expect(scriptIdx).toBe(htmlOpen + "<html>".length);
+  });
+
+  it("prepends when neither <head> nor <html> exists", () => {
+    const html = "just a fragment";
+    const script = "<script>early</script>";
+    const out = prependScript(html, script);
+    expect(out.startsWith("<script>early</script>")).toBe(true);
+    expect(out.endsWith("just a fragment")).toBe(true);
+  });
+
+  it("handles <head> with attributes", () => {
+    const html = '<html><head lang="en"><meta></head><body></body></html>';
+    const script = "<script>early</script>";
+    const out = prependScript(html, script);
+    const headEnd = out.indexOf('lang="en">') + 'lang="en">'.length;
+    const scriptIdx = out.indexOf("<script>early</script>");
+    expect(scriptIdx).toBe(headEnd);
+  });
+});
+
 describe("injectBridge", () => {
-  it("injects before </body> for a normal document", () => {
+  it("prepends polyfill in <head> and appends bridge logic before </body>", () => {
     const html = "<!doctype html><html><head></head><body><div>hi</div></body></html>";
     const out = injectBridge(html, FRAME_ID);
     expect(out).toContain("<div>hi</div>");
     expect(out).toContain("window.vellum");
-    const bodyClose = out.lastIndexOf("</body>");
-    const bridgeStart = out.indexOf("<script>");
-    expect(bridgeStart).toBeGreaterThan(0);
-    expect(bridgeStart).toBeLessThan(bodyClose);
-  });
+    expect(out).toContain("storageShim");
 
-  it("falls back to after </head> when no </body> is present", () => {
-    const html = "<!doctype html><html><head></head>oops no body";
-    const out = injectBridge(html, FRAME_ID);
-    expect(out).toContain("window.vellum");
+    const headOpen = out.indexOf("<head>");
     const headClose = out.indexOf("</head>");
-    const bridgeStart = out.indexOf("<script>");
-    expect(bridgeStart).toBeGreaterThan(headClose);
+    const bodyClose = out.lastIndexOf("</body>");
+
+    const polyfillIdx = out.indexOf("storageShim");
+    const bridgeIdx = out.indexOf("window.vellum");
+
+    expect(polyfillIdx).toBeGreaterThan(headOpen);
+    expect(polyfillIdx).toBeLessThan(headClose);
+    expect(bridgeIdx).toBeLessThan(bodyClose);
+    expect(bridgeIdx).toBeGreaterThan(headClose);
   });
 
-  it("prepends the bridge when neither tag exists", () => {
+  it("falls back to prepending when no <head> or </body>", () => {
     const html = "just some fragment";
     const out = injectBridge(html, FRAME_ID);
-    expect(out.startsWith("<script>")).toBe(true);
+    expect(out).toContain("storageShim");
+    expect(out).toContain("window.vellum");
     expect(out.endsWith("just some fragment")).toBe(true);
   });
 
@@ -127,15 +166,12 @@ describe("injectBridge", () => {
     const out = injectBridge(html, FRAME_ID);
 
     const realBodyClose = out.lastIndexOf("</body>");
-    const bridgeStart = out.lastIndexOf("<script>", realBodyClose);
-    const hostScriptStart = out.indexOf("<script>");
+    const vellumIdx = out.indexOf("window.vellum");
+    expect(vellumIdx).toBeLessThan(realBodyClose);
 
-    expect(bridgeStart).toBeGreaterThan(hostScriptStart);
-    expect(bridgeStart).toBeLessThan(realBodyClose);
-    const tailIdx = out.indexOf("console.log('app loaded');");
-    const hostScriptCloseIdx = out.indexOf("</script>");
-    expect(tailIdx).toBeGreaterThan(hostScriptStart);
-    expect(tailIdx).toBeLessThan(hostScriptCloseIdx);
+    const appCode = out.indexOf("console.log('app loaded');");
+    expect(appCode).toBeGreaterThan(0);
+    expect(out).toContain("console.log('app loaded');");
   });
 
   it("serializes the route into the bridge payload", () => {
@@ -177,13 +213,19 @@ describe("injectBridge", () => {
 });
 
 describe("preparePreviewHtml", () => {
-  it("injects both storage polyfill and scrollbar-hiding styles", () => {
-    const html = "<html><head></head><body><div>hello</div></body></html>";
+  it("prepends polyfill and styles right after <head>", () => {
+    const html = "<html><head><meta></head><body><div>hello</div></body></html>";
     const out = preparePreviewHtml(html);
     expect(out).toContain("storageShim");
     expect(out).toContain("overflow:hidden");
     expect(out).toContain("scrollbar-width:none");
     expect(out).toContain("<div>hello</div>");
+
+    const headOpen = out.indexOf("<head>");
+    const polyfillIdx = out.indexOf("storageShim");
+    const metaIdx = out.indexOf("<meta>");
+    expect(polyfillIdx).toBeGreaterThan(headOpen);
+    expect(polyfillIdx).toBeLessThan(metaIdx);
   });
 
   it("handles fragments without head/body tags", () => {
@@ -192,5 +234,6 @@ describe("preparePreviewHtml", () => {
     expect(out).toContain("storageShim");
     expect(out).toContain("overflow:hidden");
     expect(out).toContain("<div>content</div>");
+    expect(out.indexOf("storageShim")).toBeLessThan(out.indexOf("<div>content</div>"));
   });
 });

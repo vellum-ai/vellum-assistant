@@ -92,13 +92,14 @@ export interface BridgeOptions {
 }
 
 /**
- * Build the full JS bridge script injected into sandboxed app iframes.
+ * Build the bridge logic script (action sender, fetch proxy, `window.vellum`
+ * namespace) WITHOUT the storage polyfill.
  *
- * Includes the storage polyfill, action sender, and optionally the fetch
- * proxy. The `frameId` is embedded in all `postMessage` payloads so the
- * parent can route messages when multiple sandboxed iframes coexist.
+ * This is injected at the end of the document via `injectScript`. The
+ * storage polyfill is prepended separately via `prependScript` so that it
+ * runs before any app code that accesses `localStorage` during parsing.
  */
-export function buildBridgeScript(frameId: string, options?: BridgeOptions): string {
+function buildBridgeLogicScript(frameId: string, options?: BridgeOptions): string {
   const enableFetch = options?.fetch ?? false;
   const route = options?.route ?? null;
 
@@ -157,22 +158,6 @@ export function buildBridgeScript(frameId: string, options?: BridgeOptions): str
 
   return `<script>
 (function() {
-  var store = {};
-  var storageShim = {
-    getItem: function(k) { return store.hasOwnProperty(k) ? store[k] : null; },
-    setItem: function(k, v) { store[k] = String(v); },
-    removeItem: function(k) { delete store[k]; },
-    clear: function() { store = {}; },
-    get length() { return Object.keys(store).length; },
-    key: function(i) { return Object.keys(store)[i] || null; }
-  };
-  try {
-    Object.defineProperty(window, 'localStorage', { value: storageShim, writable: true, configurable: true });
-  } catch(e) { window.localStorage = storageShim; }
-  try {
-    Object.defineProperty(window, 'sessionStorage', { value: storageShim, writable: true, configurable: true });
-  } catch(e) { window.sessionStorage = storageShim; }
-
   window.vellum = {
     route: ${jsonForScript(route)},
     sendAction: function(actionId, data) {
@@ -188,12 +173,23 @@ export function buildBridgeScript(frameId: string, options?: BridgeOptions): str
 </script>`;
 }
 
+/**
+ * Build the complete bridge script (polyfill + logic) as a single string.
+ *
+ * Useful for tests that want to inspect the full output. In production,
+ * `injectBridge` is preferred because it places the polyfill and bridge
+ * logic at separate positions in the HTML.
+ */
+export function buildBridgeScript(frameId: string, options?: BridgeOptions): string {
+  return buildStoragePolyfill() + buildBridgeLogicScript(frameId, options);
+}
+
 // ---------------------------------------------------------------------------
 // HTML injection
 // ---------------------------------------------------------------------------
 
 /**
- * Safely inject a script string into HTML.
+ * Safely inject a script string into HTML at the end of the document.
  *
  * Insertion priority: before the last `</body>`, then after the last
  * `</head>`, then prepended. Uses `lastIndexOf` so that literal close-tag
@@ -216,21 +212,54 @@ export function injectScript(html: string, script: string): string {
   return script + html;
 }
 
+const HEAD_OPEN_RE = /<head(\s[^>]*)?>/i;
+const HTML_OPEN_RE = /<html(\s[^>]*)?>/i;
+
+/**
+ * Prepend a script to the beginning of an HTML document so it executes
+ * before any other scripts during HTML parsing.
+ *
+ * Insertion priority: right after `<head>`, then after `<html>`, then
+ * prepended to the raw string. This ensures the script runs before any
+ * inline `<script>` tags in the body.
+ */
+export function prependScript(html: string, script: string): string {
+  const headMatch = HEAD_OPEN_RE.exec(html);
+  if (headMatch) {
+    const after = headMatch.index + headMatch[0].length;
+    return html.slice(0, after) + script + html.slice(after);
+  }
+  const htmlMatch = HTML_OPEN_RE.exec(html);
+  if (htmlMatch) {
+    const after = htmlMatch.index + htmlMatch[0].length;
+    return html.slice(0, after) + script + html.slice(after);
+  }
+  return script + html;
+}
+
 /**
  * Inject the full bridge into app HTML.
+ *
+ * The storage polyfill is prepended (runs before any app scripts) while
+ * the bridge logic is appended before `</body>` (app code calls
+ * `window.vellum` APIs asynchronously after mount, not during parsing).
  */
 export function injectBridge(html: string, frameId: string, options?: BridgeOptions): string {
-  return injectScript(html, buildBridgeScript(frameId, options));
+  return prependScript(
+    injectScript(html, buildBridgeLogicScript(frameId, options)),
+    buildStoragePolyfill(),
+  );
 }
 
 /**
  * Prepare HTML for a non-interactive preview iframe.
  *
- * Injects the storage polyfill (prevents `SecurityError` when app code
- * accesses `localStorage` during initialization) and hides scrollbars.
+ * Prepends the storage polyfill so it executes before any inline app
+ * scripts that might access `localStorage` during parsing. Also hides
+ * scrollbars for the thumbnail viewport.
  */
 export function preparePreviewHtml(html: string): string {
   const HIDE_SCROLLBARS =
     "<style>html,body{overflow:hidden!important;scrollbar-width:none!important;}::-webkit-scrollbar{display:none!important;}</style>";
-  return injectScript(html, buildStoragePolyfill() + HIDE_SCROLLBARS);
+  return prependScript(html, buildStoragePolyfill() + HIDE_SCROLLBARS);
 }
