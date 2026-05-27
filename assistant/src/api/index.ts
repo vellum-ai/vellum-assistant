@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { AssistantTurnStartEventSchema } from "./events/assistant-turn-start.js";
+import { OpenUrlEventSchema } from "./events/open-url.js";
 import { RelationshipStateUpdatedEventSchema } from "./events/relationship-state-updated.js";
 import { ToolUseStartEventSchema } from "./events/tool-use-start.js";
 
@@ -8,6 +9,10 @@ export {
   type AssistantTurnStartEvent,
   AssistantTurnStartEventSchema,
 } from "./events/assistant-turn-start.js";
+export {
+  type OpenUrlEvent,
+  OpenUrlEventSchema,
+} from "./events/open-url.js";
 export {
   type RelationshipStateUpdatedEvent,
   RelationshipStateUpdatedEventSchema,
@@ -27,10 +32,12 @@ export {
  * rather than maintaining their own dispatch table.
  *
  * Add new events by exporting their schema from `./events/` and
- * appending them to the union below.
+ * appending them to the union below. See `./README.md` for the full
+ * migration recipe.
  */
 export const AssistantEventSchema = z.discriminatedUnion("type", [
   AssistantTurnStartEventSchema,
+  OpenUrlEventSchema,
   RelationshipStateUpdatedEventSchema,
   ToolUseStartEventSchema,
 ]);

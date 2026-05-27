@@ -8,6 +8,7 @@
 
 import type {
   AssistantTurnStartEvent,
+  OpenUrlEvent,
   RelationshipStateUpdatedEvent,
   ToolUseStartEvent,
 } from "@vellumai/assistant-api";
@@ -416,13 +417,6 @@ export interface AssistantActivityStateEvent {
   reason: AssistantActivityReason;
   requestId?: string;
   statusText?: string;
-  conversationId?: string;
-}
-
-export interface OpenUrlEvent {
-  type: "open_url";
-  url: string;
-  title?: string;
   conversationId?: string;
 }
 
