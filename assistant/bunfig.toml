@@ -3,4 +3,9 @@ exact = true
 
 [test]
 root = "./src"
-preload = ["./src/__tests__/test-preload.ts"]
+# Order matters: the verifier reads state set by the main preload, so it
+# MUST be listed second. See test-preload-verifier.ts for context.
+preload = [
+  "./src/__tests__/test-preload.ts",
+  "./src/__tests__/test-preload-verifier.ts",
+]
