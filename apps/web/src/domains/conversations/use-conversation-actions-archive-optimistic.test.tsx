@@ -32,7 +32,7 @@ import { createElement, type ReactNode } from "react";
 
 import * as sdkGen from "@/generated/daemon/sdk.gen";
 import type { Conversation } from "@/lib/conversations-api";
-import { chatContextQueryKey } from "@/lib/sync/query-tags";
+import { conversationsQueryKey } from "@/lib/sync/query-tags";
 
 // ---------------------------------------------------------------------------
 // Module mocks. Archive/unarchive impls are pulled from module-level holders
@@ -84,10 +84,7 @@ function seedClient(conversations: Conversation[]): QueryClient {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
-  client.setQueryData(chatContextQueryKey(ASSISTANT_ID), {
-    conversations,
-    conversationGroups: [],
-  });
+  client.setQueryData(conversationsQueryKey(ASSISTANT_ID), conversations);
   return client;
 }
 
@@ -136,10 +133,10 @@ function readArchived(
   client: QueryClient,
   conversationId: string,
 ): number | undefined {
-  const ctx = client.getQueryData<{ conversations: Conversation[] }>(
-    chatContextQueryKey(ASSISTANT_ID),
+  const list = client.getQueryData<Conversation[]>(
+    conversationsQueryKey(ASSISTANT_ID),
   );
-  return ctx?.conversations.find((c) => c.conversationId === conversationId)?.archivedAt;
+  return list?.find((c) => c.conversationId === conversationId)?.archivedAt;
 }
 
 /** Manually-controlled promise for staging in-flight API states in tests. */

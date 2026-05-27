@@ -156,7 +156,6 @@ export function ChatPage() {
     checkAssistant,
     retryAssistant,
     hatchVersion,
-    setAssistantId,
     setTopBarCenter,
     setTopBarRightSlot,
     setOnSearchClick,
@@ -173,7 +172,7 @@ export function ChatPage() {
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [error, setError] = useState<ChatError | null>(null);
   // Seed with `true` so the chat scroll area renders the skeleton on the very
-  // first frame. The conversation loader bootstrap (`getChatContext` →
+  // first frame. The conversation loader bootstrap (conversation list query →
   // `SET_ACTIVE_KEY` → `use-conversation-history`) is asynchronous, and
   // without this seed the brief window between mount and the history effect
   // dispatching `setIsLoadingHistory(true)` leaves the user staring at a
@@ -452,7 +451,6 @@ export function ChatPage() {
     autoGreetRef,
     conversationListInvalidatedTimerRef,
     pendingInitialMessageRef,
-    setAssistantId,
     setMessages,
     setTranscriptPagination: setTranscriptPagination as Dispatch<SetStateAction<Omit<TranscriptPaginationState, "items">>>,
     setIsLoadingHistory,
@@ -671,7 +669,7 @@ export function ChatPage() {
 
   // Kick off a background reachability probe immediately when a pending
   // onboarding message exists, instead of waiting for a 502 from
-  // getChatContext to trigger the unreachable-bus.
+  // the conversation list query to trigger the unreachable-bus.
   useEffect(() => {
     if (!assistantId) return;
     const message = peekPendingPreChatContext()?.initialMessage;

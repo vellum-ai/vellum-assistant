@@ -4,8 +4,8 @@ import { QueryClient } from "@tanstack/react-query";
 
 import {
   appendGroup,
-  chatContextQueryKey,
   conversationGroupsQueryKey,
+  conversationsQueryKey,
   deleteGroupAndResetConversations,
   markConversationSeenLocal,
   patchConversation,
@@ -20,7 +20,6 @@ import type {
   Conversation,
   ConversationGroup,
 } from "@/lib/conversations-api";
-import type { ChatContext } from "@/domains/chat/api/assistant";
 import type { GroupsGetResponse } from "@/generated/daemon/types.gen";
 
 const ASSISTANT_ID = "ast-1";
@@ -46,21 +45,19 @@ function makeGroup(
   };
 }
 
-function seedChatContext(
+function seedConversations(
   qc: QueryClient,
   conversations: Conversation[],
 ): void {
-  qc.setQueryData<ChatContext | null>(chatContextQueryKey(ASSISTANT_ID), {
-    assistantId: ASSISTANT_ID,
-    conversationId: conversations[0]?.conversationId ?? "",
+  qc.setQueryData<Conversation[]>(
+    conversationsQueryKey(ASSISTANT_ID),
     conversations,
-  });
+  );
 }
 
 function getConversations(qc: QueryClient): Conversation[] {
   return (
-    qc.getQueryData<ChatContext | null>(chatContextQueryKey(ASSISTANT_ID))
-      ?.conversations ?? []
+    qc.getQueryData<Conversation[]>(conversationsQueryKey(ASSISTANT_ID)) ?? []
   );
 }
 
@@ -84,9 +81,9 @@ function seedGroups(qc: QueryClient, groups: ConversationGroup[]): void {
 // ---------------------------------------------------------------------------
 
 describe("patchConversation", () => {
-  it("patches the matching conversation in the chat context cache", () => {
+  it("patches the matching conversation in the cache", () => {
     const qc = new QueryClient();
-    seedChatContext(qc, [
+    seedConversations(qc, [
       makeConversation("a", { title: "old" }),
       makeConversation("b"),
     ]);
@@ -94,11 +91,11 @@ describe("patchConversation", () => {
     expect(getConversations(qc)[0]!.title).toBe("new");
   });
 
-  it("is a no-op when no chat context is cached", () => {
+  it("is a no-op when no conversations are cached", () => {
     const qc = new QueryClient();
     patchConversation(qc, ASSISTANT_ID, "a", { title: "x" });
     expect(
-      qc.getQueryData<ChatContext | null>(chatContextQueryKey(ASSISTANT_ID)),
+      qc.getQueryData<Conversation[]>(conversationsQueryKey(ASSISTANT_ID)),
     ).toBeUndefined();
   });
 });
@@ -106,7 +103,7 @@ describe("patchConversation", () => {
 describe("markConversationSeenLocal", () => {
   it("clears the unseen flag and stamps lastSeenAssistantMessageAt", () => {
     const qc = new QueryClient();
-    seedChatContext(qc, [
+    seedConversations(qc, [
       makeConversation("a", {
         hasUnseenLatestAssistantMessage: true,
         latestAssistantMessageAt: "2024-01-01T00:00:00Z",
@@ -123,7 +120,7 @@ describe("markConversationSeenLocal", () => {
 
   it("uses the explicit lastSeenAssistantMessageAt when provided", () => {
     const qc = new QueryClient();
-    seedChatContext(qc, [
+    seedConversations(qc, [
       makeConversation("a", { hasUnseenLatestAssistantMessage: true }),
     ]);
     markConversationSeenLocal(qc, ASSISTANT_ID, "a", "2024-06-01T00:00:00Z");
@@ -136,7 +133,7 @@ describe("markConversationSeenLocal", () => {
 describe("prependConversation", () => {
   it("adds to the front of the list", () => {
     const qc = new QueryClient();
-    seedChatContext(qc, [makeConversation("b")]);
+    seedConversations(qc, [makeConversation("b")]);
     prependConversation(qc, ASSISTANT_ID, makeConversation("a"));
     expect(getConversations(qc).map((c) => c.conversationId)).toEqual([
       "a",
@@ -148,7 +145,7 @@ describe("prependConversation", () => {
 describe("removeConversation", () => {
   it("removes the matching conversation", () => {
     const qc = new QueryClient();
-    seedChatContext(qc, [makeConversation("a"), makeConversation("b")]);
+    seedConversations(qc, [makeConversation("a"), makeConversation("b")]);
     removeConversation(qc, ASSISTANT_ID, "a");
     expect(getConversations(qc).map((c) => c.conversationId)).toEqual(["b"]);
   });
@@ -157,7 +154,7 @@ describe("removeConversation", () => {
 describe("resolveDraftKey", () => {
   it("remaps the conversation key and clears the draft flag", () => {
     const qc = new QueryClient();
-    seedChatContext(qc, [makeConversation("draft-1", { draft: true })]);
+    seedConversations(qc, [makeConversation("draft-1", { draft: true })]);
     resolveDraftKey(qc, ASSISTANT_ID, "draft-1", "real-1");
     expect(getConversations(qc)[0]!.conversationId).toBe("real-1");
     expect(getConversations(qc)[0]!.draft).toBe(false);
@@ -214,7 +211,7 @@ describe("removeGroup", () => {
 describe("deleteGroupAndResetConversations", () => {
   it("removes the group and clears groupId on affected conversations", () => {
     const qc = new QueryClient();
-    seedChatContext(qc, [
+    seedConversations(qc, [
       makeConversation("a", { groupId: "g1" }),
       makeConversation("b", { groupId: "g2" }),
     ]);
