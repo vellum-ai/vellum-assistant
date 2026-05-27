@@ -371,20 +371,22 @@ export type PostMessageResult =
       ok: true;
       queued?: false;
       assistantId: string;
-      /** Caller's input id, echoed back. `null` when the caller asked the
-       *  assistant to mint a fresh conversation (server-minted flow). */
-      conversationId: string | null;
+      /** The authoritative conversation id from the assistant. Always
+       *  populated regardless of whether the caller supplied an id on
+       *  input — on the server-minted flow this is the freshly minted
+       *  id, on the legacy flow it's the resolved/echoed id. */
+      conversationId: string;
       messageId: string;
-      resolvedConversationId?: string;
     }
   | {
       ok: true;
       queued: true;
       assistantId: string;
-      /** Caller's input id, echoed back. `null` when the caller asked the
-       *  assistant to mint a fresh conversation (server-minted flow). */
-      conversationId: string | null;
-      resolvedConversationId?: string;
+      /** The authoritative conversation id from the assistant. Always
+       *  populated regardless of whether the caller supplied an id on
+       *  input — on the server-minted flow this is the freshly minted
+       *  id, on the legacy flow it's the resolved/echoed id. */
+      conversationId: string;
       requestId?: string;
     }
   | { ok: false; status: number; error: { code?: string; detail?: string } };
@@ -499,10 +501,14 @@ export async function postChatMessage(
   //     `handleSendMessage`). Callers must gate this on
   //     `supportsServerMintedConversation()` — older assistant builds
   //     fall through to the shared `default:vellum:<interface>` thread.
-  //   - non-null — `pickConversationIdWireField()` decides whether the
-  //     value is sent as `conversationId` (strict lookup on 0.8.6+
-  //     assistants that mint server-side) or `conversationKey`
-  //     (create-or-lookup on older assistants). See
+  //   - non-null — always send `conversationKey` so pre-0.8.6 assistants
+  //     (which don't read `conversationId`) still resolve the id via
+  //     external-key lookup. Additionally, on 0.8.6+ assistants where
+  //     `pickConversationIdWireField()` returns `"conversationId"`,
+  //     also send the value as `conversationId` to trigger the strict
+  //     internal-id lookup. The duplicated id on the wire is harmless:
+  //     pre-0.8.6 ignores the unknown `conversationId` key; 0.8.6+
+  //     reads `conversationId` first when present. See
   //     `lib/backwards-compat/conversation-id-wire-field.ts`.
   const body: Record<string, unknown> = {
     content,
@@ -510,7 +516,10 @@ export async function postChatMessage(
     interface: "vellum",
   };
   if (conversationId !== null) {
-    body[pickConversationIdWireField()] = conversationId;
+    body.conversationKey = conversationId;
+    if (pickConversationIdWireField() === "conversationId") {
+      body.conversationId = conversationId;
+    }
   }
   if (attachmentIds.length > 0) {
     body.attachmentIds = attachmentIds;
@@ -612,18 +621,22 @@ export async function postChatMessage(
     };
   }
 
+  // The assistant is the source of truth for the conversation id —
+  // `handleSendMessage` returns it on every success path (echoed when
+  // the caller supplied one, minted when both wire fields were
+  // omitted). Treat a missing id as a contract violation so the caller
+  // never threads `undefined` through downstream code (chat history,
+  // URL navigation, draft resolution).
+  //
+  // Followup: once `PostMessageResult` lives in the assistant API
+  // schema, swap this for a zod parse — at that point `conversationId`
+  // will be guaranteed-present by the schema and this branch becomes
+  // unreachable.
   const resolvedConversationId =
     typeof sendData.conversationId === "string"
       ? sendData.conversationId
       : undefined;
-
-  // Server-minted flow contract: when the caller omits both wire fields,
-  // the assistant MUST echo the freshly minted id back so the caller
-  // can navigate to its URL. An assistant that returns 202 + accepted
-  // without an id is broken; surface as a failure rather than letting
-  // the caller try to thread a `null` conversation id through downstream
-  // code.
-  if (conversationId === null && resolvedConversationId === undefined) {
+  if (resolvedConversationId === undefined) {
     return {
       ok: false,
       status: 422,
@@ -639,8 +652,7 @@ export async function postChatMessage(
       ok: true,
       queued: true,
       assistantId,
-      conversationId,
-      resolvedConversationId,
+      conversationId: resolvedConversationId,
       requestId:
         typeof sendData.requestId === "string" ? sendData.requestId : undefined,
     };
@@ -657,9 +669,8 @@ export async function postChatMessage(
   return {
     ok: true,
     assistantId,
-    conversationId,
+    conversationId: resolvedConversationId,
     messageId: sendData.messageId,
-    resolvedConversationId,
   };
 }
 

@@ -16,6 +16,7 @@ import {
   type MutableRefObject,
   type SetStateAction,
   useCallback,
+  useRef,
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { NavigateFunction } from "react-router";
@@ -185,6 +186,31 @@ export function useSendMessage({
   const queryClient = useQueryClient();
 
   // -------------------------------------------------------------------------
+  // Server-mint race guard
+  // -------------------------------------------------------------------------
+  // Tracks the in-flight server-mint POST for the active draft (when
+  // the FIRST message in a brand-new conversation is sent and the
+  // assistant supports `supportsServerMintedConversation()`).
+  //
+  // The queue path on `sendMessage` posts with `activeConversationId`,
+  // which is still the local draft key until the first POST returns
+  // and `resolveDraftKey` runs. Without this guard, a follow-up
+  // message submitted during that window would post the draft key to
+  // a 0.8.6+ assistant's strict-lookup endpoint and 404 (the assistant
+  // minted a different id). The queue path awaits this promise so it
+  // posts with the assistant-resolved id instead.
+  //
+  // Cleared after the in-flight POST resolves (or fails). Only the
+  // `sendMessageViaStream` invocation that set the ref ever clears
+  // it — a stale ref left over from a different draft is impossible
+  // because new drafts get new ids and the ref carries the originating
+  // `draftId`.
+  const pendingDraftMintRef = useRef<{
+    draftId: string;
+    promise: Promise<string>;
+  } | null>(null);
+
+  // -------------------------------------------------------------------------
   // Queue management (delegated to useMessageQueue)
   // -------------------------------------------------------------------------
   const {
@@ -260,13 +286,40 @@ export function useSendMessage({
       // Server-minted flow: when the conversation is a fresh client-side
       // draft AND the assistant supports server-side minting, send the
       // POST without any conversation id wire field. The assistant mints
-      // a row and echoes its id back as `resolvedConversationId`; the
+      // a row and returns its id as `postResult.conversationId`; the
       // existing draft-key-resolution code path below swaps the
       // optimistic state and navigates the URL. Falling back to the
       // assistant-known `requestConversationId` for non-drafts or
       // pre-0.8.6 assistants preserves the legacy `conversationKey`
       // create-or-lookup behavior through `pickConversationIdWireField()`.
       const useServerMint = isDraft && supportsServerMintedConversation();
+      // Race guard: if this is a server-mint send, expose a deferred
+      // that resolves to the assistant's minted id so the queue path
+      // on `sendMessage` can await it before posting follow-up
+      // messages with what would otherwise be the still-unresolved
+      // draft id. See `pendingDraftMintRef` declaration above.
+      //
+      // Definite-assignment (`!:`) on the inner resolve/reject vars is
+      // required because TS can't narrow let-bindings through a
+      // closure, even though the Promise constructor runs its callback
+      // synchronously.
+      const mintDeferred = useServerMint
+        ? (() => {
+            let resolveMint!: (id: string) => void;
+            let rejectMint!: (err: Error) => void;
+            const promise = new Promise<string>((res, rej) => {
+              resolveMint = res;
+              rejectMint = rej;
+            });
+            return { promise, resolve: resolveMint, reject: rejectMint };
+          })()
+        : null;
+      if (mintDeferred) {
+        pendingDraftMintRef.current = {
+          draftId: requestConversationId,
+          promise: mintDeferred.promise,
+        };
+      }
       const postResult = await postChatMessage(
         requestAssistantId,
         useServerMint ? null : requestConversationId,
@@ -274,6 +327,21 @@ export function useSendMessage({
         attachmentIds,
         onboardingContext ?? undefined,
       );
+      if (mintDeferred) {
+        if (postResult.ok) {
+          mintDeferred.resolve(postResult.conversationId);
+        } else {
+          mintDeferred.reject(
+            new Error(postResult.error.detail ?? "Server-mint POST failed"),
+          );
+        }
+        // Only clear the ref if it still points at THIS send's draft —
+        // a re-mount or scope flip during the await could have already
+        // replaced it.
+        if (pendingDraftMintRef.current?.draftId === requestConversationId) {
+          pendingDraftMintRef.current = null;
+        }
+      }
       if (!postResult.ok) {
         if (!isCurrentSendScope()) {
           recordChatDiagnostic("send_error_ignored_inactive_conversation", {
@@ -308,18 +376,14 @@ export function useSendMessage({
         useTurnStore.getState().acceptSend(turnId);
       }
 
-      const effectiveConversationId =
-        postResult.resolvedConversationId ?? postResult.conversationId;
-      // postChatMessage's success contract guarantees at least one of these
-      // is non-null — the server-mint path explicitly fails when the
-      // assistant accepts the message without echoing a conversation id
-      // back. Surface as a runtime error if the invariant ever breaks
-      // so it lands in Sentry rather than propagating null downstream.
-      if (!effectiveConversationId) {
-        throw new Error(
-          "postChatMessage returned success without a conversation id",
-        );
-      }
+      // `postChatMessage`'s success contract guarantees a non-empty
+      // `conversationId` — the server-mint path explicitly returns a
+      // failure when the assistant accepts the message without echoing
+      // a conversation id back, so by the time we get here it must be
+      // a real id. The typecheck enforces this; the explicit
+      // `effectiveConversationId` alias preserves the existing names
+      // used downstream.
+      const effectiveConversationId = postResult.conversationId;
 
       if (!isCurrentSendScope(effectiveConversationId)) {
         recordChatDiagnostic("send_result_ignored_inactive_conversation", {
@@ -331,9 +395,7 @@ export function useSendMessage({
         });
         return {
           status: "ok",
-          ...(postResult.resolvedConversationId
-            ? { resolvedConversationId: postResult.resolvedConversationId }
-            : {}),
+          resolvedConversationId: postResult.conversationId,
         };
       }
 
@@ -351,18 +413,14 @@ export function useSendMessage({
       if (postResult.queued) {
         return {
           status: "ok",
-          ...(postResult.resolvedConversationId
-            ? { resolvedConversationId: postResult.resolvedConversationId }
-            : {}),
+          resolvedConversationId: postResult.conversationId,
         };
       }
       if (hasMatchingActiveStream) {
         return {
           status: "ok",
           userMessageId: postResult.messageId,
-          ...(postResult.resolvedConversationId
-            ? { resolvedConversationId: postResult.resolvedConversationId }
-            : {}),
+          resolvedConversationId: postResult.conversationId,
         };
       }
 
@@ -468,9 +526,7 @@ export function useSendMessage({
       return {
         status: "ok",
         userMessageId: postResult.messageId,
-        ...(postResult.resolvedConversationId
-          ? { resolvedConversationId: postResult.resolvedConversationId }
-          : {}),
+        resolvedConversationId: postResult.conversationId,
       };
     },
     [activeConversationId, assistantId, startReconciliationLoop],
@@ -531,15 +587,35 @@ export function useSendMessage({
       };
       setMessages((prev) => [...prev, userMessage]);
 
-      // Queue path: POST to daemon (it queues internally) but don't
+      // Queue path: POST to assistant (it queues internally) but don't
       // disrupt the active turn.
       if (willQueue) {
         pendingQueuedMessageIdsRef.current.push(userMessage.id);
         const attachmentIds = attachments.map((att) => att.id);
         try {
+          // Server-mint race guard: if the FIRST message in this draft
+          // conversation is still in flight (mint hasn't returned),
+          // wait for the assistant's resolved id before posting. Posting
+          // the local draft key to a 0.8.6+ assistant's strict-lookup
+          // endpoint would 404 because the assistant minted a different
+          // id. See `pendingDraftMintRef` declaration.
+          const pendingMint = pendingDraftMintRef.current;
+          let conversationIdForPost = activeConversationId;
+          if (pendingMint && pendingMint.draftId === activeConversationId) {
+            try {
+              conversationIdForPost = await pendingMint.promise;
+            } catch {
+              revertQueuedMessage(userMessage.id);
+              setError({
+                message:
+                  "Previous message failed to send. Please retry.",
+              });
+              return;
+            }
+          }
           const postResult = await postChatMessage(
             assistantId,
-            activeConversationId,
+            conversationIdForPost,
             content,
             attachmentIds,
           );
