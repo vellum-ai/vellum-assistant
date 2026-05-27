@@ -53,6 +53,20 @@ export interface LLMContextSection {
 }
 
 /**
+ * Logical call site marker the daemon writes to a row when the entry
+ * represents a *synthetic* assistant error message (no underlying LLM
+ * call). All such events cause the agent loop to exit — the existing
+ * `agentLoopExitReason` field tells you WHICH error fired
+ * (`budget_yield_unrecovered`, future out-of-funds, etc.).
+ *
+ * Must match
+ * `CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE` in
+ * `assistant/src/memory/llm-request-log-store.ts`.
+ */
+export const SYNTHETIC_AGENT_ERROR_MESSAGE_CALL_SITE =
+  "syntheticAgentErrorMessage";
+
+/**
  * One LLM request log row. `requestPayload` / `responsePayload` are
  * always `null` on the list endpoint — the raw JSON is fetched
  * lazily through `/v1/llm-request-logs/{logId}/payload` (added in a
@@ -68,6 +82,14 @@ export interface LLMRequestLogEntry {
   requestSections?: LLMContextSection[] | null;
   responseSections?: LLMContextSection[] | null;
   agentLoopExitReason?: string | null;
+  /**
+   * Logical call site that produced this row — `mainAgent`,
+   * `compactionAgent`, `syntheticAgentErrorMessage`, etc. `null` on
+   * pre-migration-264 rows or callers that hadn't been wired through
+   * yet. The inspector branches on this value alone to distinguish
+   * real LLM calls from synthetic error-message rows.
+   */
+  callSite?: string | null;
 }
 
 /**

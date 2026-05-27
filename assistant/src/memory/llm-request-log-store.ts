@@ -106,6 +106,97 @@ export function recordRequestLog(
 }
 
 /**
+ * Marker stored in a row's `call_site` column when the row represents
+ * a *synthetic* assistant error message — one the agent loop emitted
+ * because something went wrong (out of funds, budget yield, etc.)
+ * with no underlying LLM call. All such events cause the loop to exit,
+ * so a single generic bucket plus the existing `agent_loop_exit_reason`
+ * column is enough to discriminate which kind of error fired.
+ *
+ * Note: this value is intentionally *not* a member of `LLMCallSite`.
+ * Per the enum's doc comment, `LLMCallSite` binds config lookup, not
+ * the shape of the `call_site` column. Compaction-route filters that
+ * match `call_site = 'compactionAgent'` already treat this value as a
+ * non-compaction call, which is the desired floor-lookup behavior.
+ */
+export const CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE =
+  "syntheticAgentErrorMessage";
+
+/**
+ * Insert a synthetic `llm_request_logs` row for an agent-loop error
+ * message that has no LLM call backing it but should appear in the
+ * inspector rail. Today the only caller is the
+ * `budget_yield_unrecovered` persistence path
+ * (`conversation-agent-loop.ts`); the helper is named generically so
+ * the next out-of-funds / provider-error / etc. path can route through
+ * the same primitive.
+ *
+ * The caller persists the user-visible assistant message separately
+ * via the `persistence` pipeline; this helper only writes the synthetic
+ * call row. `messageId` should be the id of the just-persisted notice
+ * so `getRequestLogsByMessageId` surfaces both together.
+ *
+ * Payload semantics mirror real LLM-call rows:
+ *  - `requestPayload`: the best-known LLM request body the loop was
+ *    about to send when it yielded — typically the prepared messages
+ *    snapshot and any input-token budget context. Stored as JSON so
+ *    the Raw tab renders it consistently with real calls.
+ *  - `responsePayload`: the synthetic notice text the user saw plus
+ *    the exit reason. This is the "response" from the user's point of
+ *    view — what came back from a call that never actually happened.
+ *
+ * Stamps `agent_loop_exit_reason` directly so the row already carries
+ * the reason at insert time — the post-loop
+ * `setAgentLoopExitReasonOnLatestLog` query then skips it (its IS NULL
+ * guard) and stamps the prior real LLM call instead, preserving the
+ * existing "latest LLM call carries the exit reason" invariant that
+ * other consumers depend on.
+ */
+export function recordSyntheticAgentErrorMessageLog(args: {
+  conversationId: string;
+  messageId: string;
+  exitReason: string;
+  /** User-visible notice text — goes into `response_payload`. */
+  noticeText: string;
+  /**
+   * Best-known LLM request state at the moment the loop gave up.
+   * `null` when no prepared request was available (rare — generally
+   * we know at least the conversation history we were about to send).
+   */
+  preparedRequest: unknown | null;
+  createdAt: number;
+}): string {
+  const db = getDb();
+  const id = uuid();
+  const requestPayload = JSON.stringify({
+    syntheticAgentErrorMessage: {
+      exitReason: args.exitReason,
+      preparedRequest: args.preparedRequest,
+    },
+  });
+  const responsePayload = JSON.stringify({
+    syntheticAgentErrorMessage: {
+      exitReason: args.exitReason,
+      noticeText: args.noticeText,
+    },
+  });
+  db.insert(llmRequestLogs)
+    .values({
+      id,
+      conversationId: args.conversationId,
+      messageId: args.messageId,
+      provider: null,
+      requestPayload,
+      responsePayload,
+      createdAt: args.createdAt,
+      agentLoopExitReason: args.exitReason,
+      callSite: CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE,
+    })
+    .run();
+  return id;
+}
+
+/**
  * Stamp an `agent_loop_exit_reason` onto the most-recent unstamped
  * `llm_request_logs` row for the given conversation. Called by the
  * agent-loop event dispatch (both `dispatchAgentEvent` and the wake's

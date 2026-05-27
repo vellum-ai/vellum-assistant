@@ -67,7 +67,7 @@ import { getConversationByKey } from "../../memory/conversation-key-store.js";
 import { getDb } from "../../memory/db-connection.js";
 import { clearEmbeddingBackendCache } from "../../memory/embedding-backend.js";
 import { getLlmRequestLogSource } from "../../memory/llm-request-log-source.js";
-import type { LogRow } from "../../memory/llm-request-log-store.js";
+import { type LogRow } from "../../memory/llm-request-log-store.js";
 import { getMemoryRecallLogByMessageIds } from "../../memory/memory-recall-log-store.js";
 import { getMemoryV2ActivationLogByMessageIds } from "../../memory/memory-v2-activation-log-store.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../memory/v2/constants.js";
@@ -239,6 +239,7 @@ function normalizeLlmContextLog(log: LogRow): LlmContextRouteResult & {
   responsePayload: null;
   createdAt: number;
   agentLoopExitReason: string | null;
+  callSite: string | null;
 } {
   let requestPayload: unknown;
   try {
@@ -269,6 +270,12 @@ function normalizeLlmContextLog(log: LogRow): LlmContextRouteResult & {
     // terminal call in each loop iteration carries a value; non-terminal calls
     // land here as `null`.
     agentLoopExitReason: log.agentLoopExitReason ?? null,
+    // Logical call site (`mainAgent`, `compactionAgent`,
+    // `syntheticAgentErrorMessage`, …). Exposed to the inspector so synthetic
+    // rows can be rendered distinctly without re-deriving the kind from
+    // other fields — the frontend branches on this value alone, and the
+    // existing `agent_loop_exit_reason` column tells it WHICH error fired.
+    callSite: log.callSite ?? null,
     ...result,
   };
 }

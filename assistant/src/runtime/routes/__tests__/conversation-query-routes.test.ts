@@ -477,6 +477,104 @@ describe("GET /v1/messages/:id/llm-context — agentLoopExitReason", () => {
   });
 });
 
+describe("GET /v1/messages/:id/llm-context — synthetic call_site projection", () => {
+  beforeEach(() => {
+    clearTables();
+  });
+
+  test("projects callSite='syntheticAgentErrorMessage' and the stamped exit reason for a synthetic row", async () => {
+    const messageId = "msg-yield";
+    seedConversationAndMessage({
+      conversationId: "conv-1",
+      messageId,
+      source: "user",
+      conversationType: "standard",
+    });
+    // Mirror what `recordSyntheticAgentErrorMessageLog` writes: synthetic
+    // envelope in BOTH payload columns (request = prepared LLM body the
+    // loop was about to send; response = the notice text the user saw),
+    // `call_site = "syntheticAgentErrorMessage"`, exit reason stamped at
+    // insert time.
+    getDb()
+      .insert(llmRequestLogs)
+      .values({
+        id: "log-yield",
+        conversationId: "conv-1",
+        messageId,
+        provider: null,
+        requestPayload: JSON.stringify({
+          syntheticAgentErrorMessage: {
+            exitReason: "budget_yield_unrecovered",
+            preparedRequest: { messages: [], maxInputTokensBudget: 200000 },
+          },
+        }),
+        responsePayload: JSON.stringify({
+          syntheticAgentErrorMessage: {
+            exitReason: "budget_yield_unrecovered",
+            noticeText:
+              "I tried to compact this but couldn't fit the next step.",
+          },
+        }),
+        createdAt: 1_700_000_000_000,
+        agentLoopExitReason: "budget_yield_unrecovered",
+        callSite: "syntheticAgentErrorMessage",
+      })
+      .run();
+
+    const body = (await dispatchLlmContext(messageId)) as {
+      logs: Array<{
+        id: string;
+        callSite: string | null;
+        agentLoopExitReason: string | null;
+      }>;
+    };
+
+    expect(body.logs).toHaveLength(1);
+    const row = body.logs[0]!;
+    expect(row.callSite).toBe("syntheticAgentErrorMessage");
+    expect(row.agentLoopExitReason).toBe("budget_yield_unrecovered");
+    // Frontend branches on `callSite` alone — no separate syntheticEvent
+    // field needs to be projected.
+    expect(row).not.toHaveProperty("syntheticEvent");
+  });
+
+  test("projects callSite='mainAgent' for regular LLM-call rows", async () => {
+    const messageId = "msg-regular";
+    seedConversationAndMessage({
+      conversationId: "conv-1",
+      messageId,
+      source: "user",
+      conversationType: "standard",
+    });
+    getDb()
+      .insert(llmRequestLogs)
+      .values({
+        id: "log-regular",
+        conversationId: "conv-1",
+        messageId,
+        provider: "openai",
+        requestPayload: JSON.stringify({ model: "gpt-4.1", messages: [] }),
+        responsePayload: JSON.stringify({
+          choices: [{ message: { content: "hi" } }],
+        }),
+        createdAt: 1_700_000_000_000,
+        callSite: "mainAgent",
+      })
+      .run();
+
+    const body = (await dispatchLlmContext(messageId)) as {
+      logs: Array<{
+        id: string;
+        callSite: string | null;
+      }>;
+    };
+
+    expect(body.logs[0]!.callSite).toBe("mainAgent");
+    // No leftover syntheticEvent projection field on regular rows either.
+    expect(body.logs[0]!).not.toHaveProperty("syntheticEvent");
+  });
+});
+
 describe("PUT /v1/config/llm/profiles/:name", () => {
   beforeEach(() => {
     savedRawConfig = null;
