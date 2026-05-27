@@ -20,6 +20,7 @@ import {
   logout as allauthLogout,
 } from "@/lib/auth/allauth-client";
 import {
+  isGatewayAuthEnabled,
   isGatewayAuthMode,
   ensureGatewayToken,
   clearGatewayToken,
@@ -116,7 +117,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
   hasPlatformSession: false,
 
   initSession: async () => {
-    if (isGatewayAuthMode()) {
+    if (isGatewayAuthEnabled()) {
       try {
         await ensureGatewayToken();
         set({ isLoggedIn: true, isLoading: false, user: GATEWAY_LOCAL_USER });

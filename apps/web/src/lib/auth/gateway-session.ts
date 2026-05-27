@@ -6,8 +6,12 @@ const LS_EXPIRES_KEY = "gw:expiresAt";
 let cachedToken: string | null = null;
 let cachedExpiresAt: number = 0;
 
-export function isGatewayAuthMode(): boolean {
+export function isGatewayAuthEnabled(): boolean {
   return useClientFeatureFlagStore.getState().gatewayWebAuth === true;
+}
+
+export function isGatewayAuthMode(): boolean {
+  return isGatewayAuthEnabled() && getGatewayToken() !== null;
 }
 
 function isTokenExpired(expiresAt: number): boolean {
