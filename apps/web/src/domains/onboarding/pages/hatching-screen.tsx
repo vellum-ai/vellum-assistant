@@ -242,7 +242,7 @@ export function HatchingScreen() {
             }
           }
           handleHatchReady();
-        } catch (err) {
+        } catch {
           if (cancelled) return;
           setError("Failed to hatch local assistant. Check CLI logs for details.");
         }
