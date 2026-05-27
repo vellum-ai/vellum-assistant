@@ -98,9 +98,10 @@ mock.module("../skills/tool-manifest.js", () => ({
 }));
 
 mock.module("../tools/skills/skill-tool-factory.js", () => ({
+  // Mirrors the real factory: no skillId in/out — ownership is recorded by
+  // the registry at `registerSkillTools(skillId, tools)` time.
   createSkillToolsFromManifest: (
     entries: SkillToolManifest["tools"],
-    skillId: string,
     _skillDir: string,
     _versionHash: string,
     _bundled?: boolean,
@@ -112,25 +113,20 @@ mock.module("../tools/skills/skill-tool-factory.js", () => ({
       defaultRiskLevel: RiskLevel.Medium,
       executionTarget: "sandbox" as const,
       origin: "skill" as const,
-      ownerSkillId: skillId,
       input_schema: entry.input_schema as object,
       execute: async () => ({ content: "", isError: false }),
     })),
 }));
 
 mock.module("../tools/registry.js", () => ({
-  registerSkillTools: (tools: Tool[]) => {
-    const skillIds = new Set<string>();
-    for (const tool of tools) {
-      const skillId = tool.ownerSkillId!;
-      skillIds.add(skillId);
-      const existing = mockRegisteredTools.get(skillId) ?? [];
-      existing.push(tool);
-      mockRegisteredTools.set(skillId, existing);
-    }
-    for (const id of skillIds) {
-      mockSkillRefCount.set(id, (mockSkillRefCount.get(id) ?? 0) + 1);
-    }
+  // Matches the new signature: `registerSkillTools(skillId, tools)`. The
+  // skillId comes from the caller (conversation-skill-tools) and is the
+  // sole source of truth for ownership.
+  registerSkillTools: (skillId: string, tools: Tool[]) => {
+    const existing = mockRegisteredTools.get(skillId) ?? [];
+    existing.push(...tools);
+    mockRegisteredTools.set(skillId, existing);
+    mockSkillRefCount.set(skillId, (mockSkillRefCount.get(skillId) ?? 0) + 1);
     return tools;
   },
   unregisterSkillTools: (skillId: string) => {
@@ -150,6 +146,23 @@ mock.module("../tools/registry.js", () => ({
       }
     }
     return found;
+  },
+  // Mirrors the registry's `ownersByName` accessor: derives the owning
+  // skillId from `mockRegisteredTools` keying so the production
+  // `getToolOwner(name)` call in `conversation-skill-tools.ts` resolves to
+  // the same shape the real registry would return.
+  getToolOwner: (
+    name: string,
+  ): { kind: "skill" | "plugin" | "mcp"; id: string } | undefined => {
+    let ownerSkillId: string | undefined;
+    for (const [skillId, tools] of mockRegisteredTools.entries()) {
+      for (const tool of tools) {
+        if (tool.name === name) ownerSkillId = skillId;
+      }
+    }
+    return ownerSkillId === undefined
+      ? undefined
+      : { kind: "skill", id: ownerSkillId };
   },
   getSkillToolNames: () => {
     const names: string[] = [];

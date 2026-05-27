@@ -106,7 +106,7 @@ describe("markConversationSeenLocal", () => {
     seedConversations(qc, [
       makeConversation("a", {
         hasUnseenLatestAssistantMessage: true,
-        latestAssistantMessageAt: "2024-01-01T00:00:00Z",
+        latestAssistantMessageAt: 1704067200000,
       }),
     ]);
     markConversationSeenLocal(qc, ASSISTANT_ID, "a");
@@ -114,7 +114,7 @@ describe("markConversationSeenLocal", () => {
       false,
     );
     expect(getConversations(qc)[0]!.lastSeenAssistantMessageAt).toBe(
-      "2024-01-01T00:00:00Z",
+      1704067200000,
     );
   });
 
@@ -123,9 +123,9 @@ describe("markConversationSeenLocal", () => {
     seedConversations(qc, [
       makeConversation("a", { hasUnseenLatestAssistantMessage: true }),
     ]);
-    markConversationSeenLocal(qc, ASSISTANT_ID, "a", "2024-06-01T00:00:00Z");
+    markConversationSeenLocal(qc, ASSISTANT_ID, "a", 1717200000000);
     expect(getConversations(qc)[0]!.lastSeenAssistantMessageAt).toBe(
-      "2024-06-01T00:00:00Z",
+      1717200000000,
     );
   });
 });

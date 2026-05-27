@@ -123,12 +123,14 @@ describe("computer-use skill manifest regression", () => {
         category: "computer-use",
         defaultRiskLevel: RiskLevel.Low,
         origin: "skill" as const,
-        ownerSkillId: "computer-use",
         execute: async () => ({ content: "stub", isError: false }),
       }),
     );
 
-    expect(() => registerSkillTools(skillTools)).not.toThrow();
+    // Owner flows in through `registerSkillTools(skillId, tools)` and lands
+    // in the registry's `ownersByName` map — the tools themselves carry no
+    // per-tool owner field.
+    expect(() => registerSkillTools("computer-use", skillTools)).not.toThrow();
 
     // Clean up
     unregisterSkillTools("computer-use");

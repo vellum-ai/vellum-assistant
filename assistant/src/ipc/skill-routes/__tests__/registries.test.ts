@@ -19,6 +19,7 @@ import {
   __clearExternalToolProvidersForTesting,
   __clearRegistryForTesting,
   getTool,
+  getToolOwner,
 } from "../../../tools/registry.js";
 import {
   __getActiveSessionCountForTesting,
@@ -55,7 +56,12 @@ afterEach(() => {
 
 describe("host.registries.register_tools", () => {
   test("installs proxy tools into the daemon's external tool registry", async () => {
+    // `skillId` lives at the top of the params object (one frame = one
+    // skill's batch). The per-tool manifest schema no longer carries an
+    // `owner` field — ownership flows in through this top-level key and
+    // is recorded in the registry's `ownersByName` map.
     const result = (await registerToolsRoute.handler({
+      skillId: "demo-skill",
       tools: [
         {
           name: "skill_demo_tool",
@@ -64,7 +70,6 @@ describe("host.registries.register_tools", () => {
           defaultRiskLevel: "low",
           category: "skill",
           executionTarget: "sandbox",
-          ownerSkillId: "demo-skill",
         },
       ],
     })) as { registered: string[] };
@@ -73,12 +78,16 @@ describe("host.registries.register_tools", () => {
     const installed = getTool("skill_demo_tool");
     expect(installed).toBeDefined();
     expect(installed!.origin).toBe("skill");
-    expect(installed!.ownerSkillId).toBe("demo-skill");
+    expect(getToolOwner("skill_demo_tool")).toEqual({
+      kind: "skill",
+      id: "demo-skill",
+    });
     expect(installed!.executionMode).toBe("proxy");
   });
 
   test("proxy execute throws when no supervisor is attached", async () => {
     await registerToolsRoute.handler({
+      skillId: "stub-skill",
       tools: [
         {
           name: "skill_stub_tool",
@@ -86,7 +95,6 @@ describe("host.registries.register_tools", () => {
           input_schema: { type: "object" },
           defaultRiskLevel: "medium",
           category: "skill",
-          ownerSkillId: "stub-skill",
         },
       ],
     });
@@ -106,13 +114,34 @@ describe("host.registries.register_tools", () => {
   });
 
   test("rejects empty tool list", async () => {
-    await expect(registerToolsRoute.handler({ tools: [] })).rejects.toThrow();
+    await expect(
+      registerToolsRoute.handler({ skillId: "any-skill", tools: [] }),
+    ).rejects.toThrow();
   });
 
   test("rejects missing required fields", async () => {
     await expect(
       registerToolsRoute.handler({
+        skillId: "any-skill",
         tools: [{ name: "missing_rest" }],
+      }),
+    ).rejects.toThrow();
+  });
+
+  test("rejects missing skillId", async () => {
+    // skillId is the only place ownership flows in over IPC — without it
+    // the registry can't claim the tools, so the handler must reject.
+    await expect(
+      registerToolsRoute.handler({
+        tools: [
+          {
+            name: "skill_orphan_tool",
+            description: "no owner",
+            input_schema: { type: "object" },
+            defaultRiskLevel: "low",
+            category: "skill",
+          },
+        ],
       }),
     ).rejects.toThrow();
   });
@@ -302,6 +331,7 @@ describe("lazy-external short-circuit", () => {
 
     const result = (await registerToolsRoute.handler(
       {
+        skillId: "demo-skill",
         tools: [
           {
             name: "skill_demo_tool",
@@ -309,7 +339,6 @@ describe("lazy-external short-circuit", () => {
             input_schema: {},
             defaultRiskLevel: "low",
             category: "skill",
-            ownerSkillId: "demo-skill",
           },
         ],
       },

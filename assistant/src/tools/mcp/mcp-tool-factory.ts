@@ -49,7 +49,6 @@ export function createMcpTool(
     category: "mcp",
     defaultRiskLevel: riskLevel,
     origin: "mcp",
-    ownerMcpServerId: serverId,
     executionTarget: "host",
 
     input_schema: metadata.inputSchema as object,

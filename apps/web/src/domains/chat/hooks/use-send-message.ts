@@ -558,7 +558,7 @@ export function useSendMessage({
                 .getState()
                 .addProcessingConversationId(
                   activeConversationId,
-                  currentConv?.latestAssistantMessageAt as string | undefined,
+                  currentConv?.latestAssistantMessageAt,
                 );
             }
             return;
@@ -585,13 +585,13 @@ export function useSendMessage({
         .getState()
         .addProcessingConversationId(
           activeConversationId,
-          currentConv?.latestAssistantMessageAt as string | undefined,
+          currentConv?.latestAssistantMessageAt,
         );
 
       // Optimistically add a stub conversation to the sidebar for draft
       // conversations that don't exist on the server yet.
       if (!currentConv) {
-        prependConversation(queryClient, assistantId, { conversationId: activeConversationId, lastMessageAt: new Date().toISOString(), draft: true } as Conversation);
+        prependConversation(queryClient, assistantId, { conversationId: activeConversationId, lastMessageAt: Date.now(), draft: true } as Conversation);
       }
 
       cancelReconciliation();

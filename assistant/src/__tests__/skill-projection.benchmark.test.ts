@@ -111,7 +111,7 @@ mock.module("../tools/skills/skill-tool-factory.js", () => ({
       category: "skill",
       defaultRiskLevel: "low",
       origin: "skill" as const,
-      ownerSkillId: skillId,
+      owner: { kind: "skill" as const, id: skillId },
       input_schema: e.input_schema,
       execute: async () => ({ content: "", isError: false }),
     })),
@@ -164,7 +164,8 @@ mock.module("../tools/registry.js", () => ({
   },
   unregisterSkillTools: (skillId: string) => {
     for (const [name, t] of benchmarkRegistry) {
-      if ((t as { ownerSkillId?: string }).ownerSkillId === skillId)
+      const owner = (t as { owner?: { kind: string; id: string } }).owner;
+      if (owner?.kind === "skill" && owner.id === skillId)
         benchmarkRegistry.delete(name);
     }
   },

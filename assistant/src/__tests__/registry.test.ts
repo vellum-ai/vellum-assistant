@@ -9,6 +9,7 @@ import {
   getSkillRefCount,
   getSkillToolNames,
   getTool,
+  getToolOwner,
   initializeTools,
   registerSkillTools,
   registerTool,
@@ -40,11 +41,10 @@ function makeFakeTool(name: string): Tool {
   };
 }
 
-function makeSkillTool(name: string, ownerSkillId: string): Tool {
+function makeSkillTool(name: string): Tool {
   return {
     ...makeFakeTool(name),
     origin: "skill" as const,
-    ownerSkillId,
   };
 }
 
@@ -222,11 +222,10 @@ describe("tool origin metadata", () => {
     __resetRegistryForTesting();
   });
 
-  test("registers a skill-origin tool and preserves metadata via getTool()", () => {
+  test("registers a skill-origin tool and preserves origin via getTool()", () => {
     const skillTool: Tool = {
       ...makeFakeTool("test-skill-origin-tool"),
       origin: "skill",
-      ownerSkillId: "test-skill",
     };
 
     registerTool(skillTool);
@@ -234,16 +233,20 @@ describe("tool origin metadata", () => {
     const retrieved = getTool("test-skill-origin-tool");
     expect(retrieved).toBeDefined();
     expect(retrieved?.origin).toBe("skill");
-    expect(retrieved?.ownerSkillId).toBe("test-skill");
+    // `registerTool` is the bare-install path used by tests + core
+    // bootstraps; it does not record ownership. Tools that need an owner
+    // must go through `registerSkillTools(skillId, ...)` or its sibling
+    // entry points so the registry populates `ownersByName`.
+    expect(getToolOwner("test-skill-origin-tool")).toBeUndefined();
   });
 
-  test("core tools default to no origin metadata (undefined)", async () => {
+  test("core tools have no origin metadata and no owner", async () => {
     await initializeTools();
 
     const coreTool = getTool("host_file_read");
     expect(coreTool).toBeDefined();
     expect(coreTool?.origin).toBeUndefined();
-    expect(coreTool?.ownerSkillId).toBeUndefined();
+    expect(getToolOwner("host_file_read")).toBeUndefined();
   });
 });
 
@@ -252,66 +255,64 @@ describe("dynamic skill tool registry", () => {
     __resetRegistryForTesting();
   });
 
-  test("registers skill tools and retrieves them", () => {
-    const tools = [
-      makeSkillTool("sk_tool_a", "my-skill"),
-      makeSkillTool("sk_tool_b", "my-skill"),
-    ];
-    registerSkillTools(tools);
+  test("registers skill tools and retrieves them with owner via getToolOwner", () => {
+    registerSkillTools("my-skill", [
+      makeSkillTool("sk_tool_a"),
+      makeSkillTool("sk_tool_b"),
+    ]);
 
     expect(getTool("sk_tool_a")).toBeDefined();
     expect(getTool("sk_tool_a")?.origin).toBe("skill");
-    expect(getTool("sk_tool_a")?.ownerSkillId).toBe("my-skill");
+    expect(getToolOwner("sk_tool_a")).toEqual({ kind: "skill", id: "my-skill" });
 
     expect(getTool("sk_tool_b")).toBeDefined();
     expect(getTool("sk_tool_b")?.origin).toBe("skill");
+    expect(getToolOwner("sk_tool_b")).toEqual({ kind: "skill", id: "my-skill" });
   });
 
   test("skips skill tool that collides with a core tool without throwing", async () => {
     await initializeTools();
 
     // host_file_read is a core tool registered during init
-    const colliding = makeSkillTool("host_file_read", "rogue-skill");
-    const accepted = registerSkillTools([colliding]);
+    const accepted = registerSkillTools("rogue-skill", [
+      makeSkillTool("host_file_read"),
+    ]);
 
     // The colliding tool should be silently skipped
     expect(accepted).toHaveLength(0);
     // The core tool should still be in place (not overwritten)
     const retrieved = getTool("host_file_read");
     expect(retrieved?.origin).toBeUndefined(); // core tools have no origin
+    expect(getToolOwner("host_file_read")).toBeUndefined();
   });
 
   test("allows replacement within the same owning skill", () => {
-    const original = makeSkillTool("sk_replaceable", "owner-skill");
-    registerSkillTools([original]);
+    registerSkillTools("owner-skill", [makeSkillTool("sk_replaceable")]);
 
     const replacement: Tool = {
-      ...makeSkillTool("sk_replaceable", "owner-skill"),
+      ...makeSkillTool("sk_replaceable"),
       description: "Updated description",
     };
     // Should not throw
-    registerSkillTools([replacement]);
+    registerSkillTools("owner-skill", [replacement]);
 
     const retrieved = getTool("sk_replaceable");
     expect(retrieved?.description).toBe("Updated description");
   });
 
   test("rejects replacement from a different owning skill", () => {
-    const original = makeSkillTool("sk_owned", "skill-alpha");
-    registerSkillTools([original]);
+    registerSkillTools("skill-alpha", [makeSkillTool("sk_owned")]);
 
-    const intruder = makeSkillTool("sk_owned", "skill-beta");
-    expect(() => registerSkillTools([intruder])).toThrow(
-      'already registered by skill "skill-alpha"',
-    );
+    expect(() =>
+      registerSkillTools("skill-beta", [makeSkillTool("sk_owned")]),
+    ).toThrow('already registered by skill "skill-alpha"');
   });
 
   test("unregisterSkillTools removes all tools for a skill", () => {
-    const tools = [
-      makeSkillTool("sk_rm_1", "removable-skill"),
-      makeSkillTool("sk_rm_2", "removable-skill"),
-    ];
-    registerSkillTools(tools);
+    registerSkillTools("removable-skill", [
+      makeSkillTool("sk_rm_1"),
+      makeSkillTool("sk_rm_2"),
+    ]);
     expect(getTool("sk_rm_1")).toBeDefined();
     expect(getTool("sk_rm_2")).toBeDefined();
 
@@ -319,24 +320,29 @@ describe("dynamic skill tool registry", () => {
 
     expect(getTool("sk_rm_1")).toBeUndefined();
     expect(getTool("sk_rm_2")).toBeUndefined();
+    // Ownership map is cleared in lockstep with the tools map.
+    expect(getToolOwner("sk_rm_1")).toBeUndefined();
+    expect(getToolOwner("sk_rm_2")).toBeUndefined();
   });
 
   test("unregisterSkillTools does not affect tools from other skills", () => {
-    registerSkillTools([makeSkillTool("sk_keep", "keep-skill")]);
-    registerSkillTools([makeSkillTool("sk_remove", "nuke-skill")]);
+    registerSkillTools("keep-skill", [makeSkillTool("sk_keep")]);
+    registerSkillTools("nuke-skill", [makeSkillTool("sk_remove")]);
 
     unregisterSkillTools("nuke-skill");
 
     expect(getTool("sk_keep")).toBeDefined();
     expect(getTool("sk_remove")).toBeUndefined();
+    expect(getToolOwner("sk_keep")).toEqual({ kind: "skill", id: "keep-skill" });
+    expect(getToolOwner("sk_remove")).toBeUndefined();
   });
 
   test("getSkillToolNames returns only skill tool names", async () => {
     await initializeTools();
 
-    registerSkillTools([
-      makeSkillTool("sk_names_a", "names-skill"),
-      makeSkillTool("sk_names_b", "names-skill"),
+    registerSkillTools("names-skill", [
+      makeSkillTool("sk_names_a"),
+      makeSkillTool("sk_names_b"),
     ]);
 
     const skillNames = getSkillToolNames();
@@ -350,19 +356,22 @@ describe("dynamic skill tool registry", () => {
   test("registerSkillTools skips core-colliding tools but registers the rest", async () => {
     await initializeTools();
 
-    const tools = [
-      makeSkillTool("sk_atomic_ok", "atomic-skill"),
-      makeSkillTool("host_file_read", "atomic-skill"), // collides with core
-    ];
-
-    const accepted = registerSkillTools(tools);
+    const accepted = registerSkillTools("atomic-skill", [
+      makeSkillTool("sk_atomic_ok"),
+      makeSkillTool("host_file_read"), // collides with core
+    ]);
     // Only the non-colliding tool should be accepted
     expect(accepted).toHaveLength(1);
     expect(accepted[0].name).toBe("sk_atomic_ok");
-    // The non-colliding tool should be registered
+    // The non-colliding tool should be registered with the correct owner
     expect(getTool("sk_atomic_ok")).toBeDefined();
+    expect(getToolOwner("sk_atomic_ok")).toEqual({
+      kind: "skill",
+      id: "atomic-skill",
+    });
     // The core tool should be untouched
     expect(getTool("host_file_read")?.origin).toBeUndefined();
+    expect(getToolOwner("host_file_read")).toBeUndefined();
   });
 });
 
@@ -372,17 +381,17 @@ describe("skill tool reference counting", () => {
   });
 
   test("ref count increments on each registerSkillTools call", () => {
-    registerSkillTools([makeSkillTool("rc_a", "rc-skill")]);
+    registerSkillTools("rc-skill", [makeSkillTool("rc_a")]);
     expect(getSkillRefCount("rc-skill")).toBe(1);
 
-    // Second session registers the same skill (same ownerSkillId allows replacement)
-    registerSkillTools([makeSkillTool("rc_a", "rc-skill")]);
+    // Second session registers the same skill (same owner id allows replacement)
+    registerSkillTools("rc-skill", [makeSkillTool("rc_a")]);
     expect(getSkillRefCount("rc-skill")).toBe(2);
   });
 
   test("unregister decrements ref count but keeps tools when count > 0", () => {
-    registerSkillTools([makeSkillTool("rc_keep", "rc-multi")]);
-    registerSkillTools([makeSkillTool("rc_keep", "rc-multi")]);
+    registerSkillTools("rc-multi", [makeSkillTool("rc_keep")]);
+    registerSkillTools("rc-multi", [makeSkillTool("rc_keep")]);
     expect(getSkillRefCount("rc-multi")).toBe(2);
 
     unregisterSkillTools("rc-multi");
@@ -392,8 +401,8 @@ describe("skill tool reference counting", () => {
   });
 
   test("tools are removed only when last reference is unregistered", () => {
-    registerSkillTools([makeSkillTool("rc_last", "rc-final")]);
-    registerSkillTools([makeSkillTool("rc_last", "rc-final")]);
+    registerSkillTools("rc-final", [makeSkillTool("rc_last")]);
+    registerSkillTools("rc-final", [makeSkillTool("rc_last")]);
 
     unregisterSkillTools("rc-final");
     expect(getTool("rc_last")).toBeDefined();

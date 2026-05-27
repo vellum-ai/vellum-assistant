@@ -75,7 +75,6 @@ describe("createSkillTool", () => {
   test("produces a tool with correct name, description, and category", () => {
     const tool = createSkillTool(
       makeEntry(),
-      "my-skill",
       "/skills/my-skill",
       "v1:test",
     );
@@ -85,16 +84,14 @@ describe("createSkillTool", () => {
     expect(tool.category).toBe("testing");
   });
 
-  test("sets origin to skill and ownerSkillId", () => {
+  test("sets origin to skill (ownership recorded by registry, not factory)", () => {
     const tool = createSkillTool(
       makeEntry(),
-      "weather-skill",
       "/skills/weather",
       "v1:test",
     );
 
     expect(tool.origin).toBe("skill");
-    expect(tool.ownerSkillId).toBe("weather-skill");
   });
 
   test.each([
@@ -104,7 +101,6 @@ describe("createSkillTool", () => {
   ] as const)('maps risk "%s" to RiskLevel.%s', (risk, expected) => {
     const tool = createSkillTool(
       makeEntry({ risk }),
-      "sk",
       "/skills/sk",
       "v1:test",
     );
@@ -128,7 +124,6 @@ describe("createSkillTool", () => {
         description: "Scrape a URL",
         input_schema: schema,
       }),
-      "scraper",
       "/skills/scraper",
       "v1:test",
     );
@@ -148,7 +143,6 @@ describe("createSkillTool", () => {
     const hash = computeSkillVersionHash(tempDir);
     const tool = createSkillTool(
       makeEntry({ executor: "echo.ts" }),
-      "my-skill",
       tempDir,
       hash,
     );
@@ -167,7 +161,6 @@ describe("createSkillTool", () => {
     const hash = computeSkillVersionHash(tempDir);
     const tool = createSkillTool(
       makeEntry({ executor: "nonexistent.ts" }),
-      "my-skill",
       tempDir,
       hash,
     );
@@ -193,7 +186,6 @@ describe("createSkillToolsFromManifest", () => {
 
     const tools = createSkillToolsFromManifest(
       entries,
-      "multi-skill",
       "/skills/multi",
       "v1:test",
     );
@@ -207,7 +199,7 @@ describe("createSkillToolsFromManifest", () => {
     ]);
   });
 
-  test("all created tools share the same skillId and origin", () => {
+  test("all created tools share the same origin (ownership is recorded by the registry, not the factory)", () => {
     const entries: SkillToolEntry[] = [
       makeEntry({ name: "alpha" }),
       makeEntry({ name: "beta" }),
@@ -215,21 +207,18 @@ describe("createSkillToolsFromManifest", () => {
 
     const tools = createSkillToolsFromManifest(
       entries,
-      "shared-skill",
       "/skills/shared",
       "v1:test",
     );
 
     for (const tool of tools) {
       expect(tool.origin).toBe("skill");
-      expect(tool.ownerSkillId).toBe("shared-skill");
     }
   });
 
   test("returns an empty array when given no entries", () => {
     const tools = createSkillToolsFromManifest(
       [],
-      "empty-skill",
       "/skills/empty",
       "v1:test",
     );
@@ -248,7 +237,6 @@ describe("createSkillTool — unknown parameter validation", () => {
     const hash = computeSkillVersionHash(tempDir);
     const tool = createSkillTool(
       makeEntry({ executor: "echo.ts" }),
-      "my-skill",
       tempDir,
       hash,
     );
@@ -268,7 +256,6 @@ describe("createSkillTool — unknown parameter validation", () => {
     const hash = computeSkillVersionHash(tempDir);
     const tool = createSkillTool(
       makeEntry({ executor: "echo.ts" }),
-      "my-skill",
       tempDir,
       hash,
     );
@@ -288,7 +275,6 @@ describe("createSkillTool — unknown parameter validation", () => {
     const hash = computeSkillVersionHash(tempDir);
     const tool = createSkillTool(
       makeEntry({ executor: "echo.ts" }),
-      "my-skill",
       tempDir,
       hash,
     );
@@ -308,7 +294,6 @@ describe("createSkillTool — unknown parameter validation", () => {
           properties: { query: { type: "string" } },
         },
       }),
-      "my-skill",
       tempDir,
       hash,
     );
@@ -325,7 +310,6 @@ describe("createSkillTool — unknown parameter validation", () => {
         executor: "echo.ts",
         input_schema: { type: "object" },
       }),
-      "my-skill",
       tempDir,
       hash,
     );
@@ -346,7 +330,6 @@ describe("createSkillTool — version hash plumbing to runner", () => {
     const hash = computeSkillVersionHash(tempDir);
     const tool = createSkillTool(
       makeEntry({ executor: "echo.ts" }),
-      "my-skill",
       tempDir,
       hash,
     );

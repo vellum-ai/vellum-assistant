@@ -138,15 +138,11 @@ export function buildMoveToGroupTargets(
 }
 
 /**
- * Parse the `lastMessageAt` ISO string into a millisecond timestamp suitable
- * for a numeric comparator. Unknown / unparseable values fall back to `0` so
- * the caller's sort is stable and the row still renders.
+ * Read the `lastMessageAt` epoch-ms timestamp for numeric comparison.
+ * Missing values fall back to `0` so the caller's sort is stable.
  */
 function parseLastMessageAt(conversation: Conversation): number {
-  const value = conversation.lastMessageAt;
-  if (!value) return 0;
-  const parsed = new Date(value).getTime();
-  return Number.isFinite(parsed) ? parsed : 0;
+  return conversation.lastMessageAt ?? 0;
 }
 
 /**

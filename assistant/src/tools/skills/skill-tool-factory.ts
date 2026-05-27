@@ -42,11 +42,13 @@ function validateNoUnknownParams(
 /**
  * Create a runtime Tool object from a manifest entry.
  * Maps SkillToolEntry metadata to the Tool interface and routes execution
- * through the skill script runner.
+ * through the skill script runner. Ownership (the originating skill id) is
+ * recorded by the tool registry at `registerSkillTools(skillId, tools)`
+ * time, not stamped on the `Tool` object — see
+ * {@link ../../tools/registry.getToolOwner}.
  */
 export function createSkillTool(
   entry: SkillToolEntry,
-  skillId: string,
   skillDir: string,
   versionHash: string,
   bundled?: boolean,
@@ -57,7 +59,6 @@ export function createSkillTool(
     category: entry.category,
     defaultRiskLevel: riskMap[entry.risk],
     origin: "skill",
-    ownerSkillId: skillId,
     executionTarget: entry.execution_target as ExecutionTarget,
 
     input_schema: entry.input_schema as object,
@@ -84,15 +85,17 @@ export function createSkillTool(
 
 /**
  * Create runtime Tool objects from all entries in a manifest.
+ * The caller is responsible for passing the resulting array to
+ * `registerSkillTools(skillId, tools)`, which is where ownership is
+ * recorded.
  */
 export function createSkillToolsFromManifest(
   entries: SkillToolEntry[],
-  skillId: string,
   skillDir: string,
   versionHash: string,
   bundled?: boolean,
 ): Tool[] {
   return entries.map((entry) =>
-    createSkillTool(entry, skillId, skillDir, versionHash, bundled),
+    createSkillTool(entry, skillDir, versionHash, bundled),
   );
 }

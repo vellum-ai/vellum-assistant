@@ -237,7 +237,7 @@ export function markConversationSeenLocal(
   queryClient: QueryClient,
   assistantId: string | null,
   key: string,
-  lastSeenAssistantMessageAt?: string,
+  lastSeenAssistantMessageAt?: number,
 ): void {
   updateConversationsCache(queryClient, assistantId, (conversations) => {
     let changed = false;

@@ -255,6 +255,7 @@ export function useConversationLoader({
     assistantStateKind === "active",
   );
   const queryConversations = conversationListQuery.conversations;
+  const conversationListIsPending = conversationListQuery.isPending;
   const conversationListError = conversationListQuery.error;
   const conversationListIsError = conversationListQuery.isError;
 
@@ -370,7 +371,7 @@ export function useConversationLoader({
   useEffect(() => {
     if (assistantStateKind !== "active") return;
     if (!assistantId) return;
-    if (queryConversations.length === 0 && !conversationListIsError) return;
+    if (conversationListIsPending) return;
 
     const explicitConversationId = urlConversationId;
 
@@ -419,7 +420,7 @@ export function useConversationLoader({
     }
   }, [
     queryConversations,
-    conversationListIsError,
+    conversationListIsPending,
     assistantId,
     assistantStateKind,
     urlConversationId,

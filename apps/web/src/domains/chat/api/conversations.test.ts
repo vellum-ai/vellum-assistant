@@ -36,23 +36,23 @@ describe("toConversation — field mapping", () => {
     expect(result.conversationId).toBe("conv-123");
   });
 
-  test("converts epoch timestamps to ISO strings", () => {
+  test("passes through epoch-ms timestamps", () => {
     const result = toConversation(
       makeRaw({ id: "c", createdAt: 1710000000000, updatedAt: 1710000060000 }),
     );
-    expect(result.createdAt).toBe(new Date(1710000000000).toISOString());
+    expect(result.createdAt).toBe(1710000000000);
   });
 
   test("uses lastMessageAt falling back to updatedAt", () => {
     const result = toConversation(
       makeRaw({ id: "c", lastMessageAt: 1710000000000, updatedAt: 1 }),
     );
-    expect(result.lastMessageAt).toBe(new Date(1710000000000).toISOString());
+    expect(result.lastMessageAt).toBe(1710000000000);
 
     const fallback = toConversation(
       makeRaw({ id: "c", lastMessageAt: null, updatedAt: 1710000060000 }),
     );
-    expect(fallback.lastMessageAt).toBe(new Date(1710000060000).toISOString());
+    expect(fallback.lastMessageAt).toBe(1710000060000);
   });
 
   test("flattens assistantAttention fields", () => {
@@ -67,12 +67,8 @@ describe("toConversation — field mapping", () => {
       }),
     );
     expect(result.hasUnseenLatestAssistantMessage).toBe(true);
-    expect(result.latestAssistantMessageAt).toBe(
-      new Date(1710000000000).toISOString(),
-    );
-    expect(result.lastSeenAssistantMessageAt).toBe(
-      new Date(1709999000000).toISOString(),
-    );
+    expect(result.latestAssistantMessageAt).toBe(1710000000000);
+    expect(result.lastSeenAssistantMessageAt).toBe(1709999000000);
   });
 
   test("passes through scalar fields", () => {
