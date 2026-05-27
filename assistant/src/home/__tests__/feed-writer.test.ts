@@ -35,6 +35,7 @@ mock.module("../../runtime/assistant-event-hub.js", () => ({
     // hub's real shape has more fields. Tests never call them.
     subscribe: () => () => {},
   },
+  broadcastMessage: async () => {},
 }));
 
 // Dynamic import so the module resolves after the mock above is in

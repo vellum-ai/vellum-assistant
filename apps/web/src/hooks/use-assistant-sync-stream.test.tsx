@@ -13,6 +13,7 @@ import {
   assistantSoundsConfigQueryKey,
   avatarQueryKey,
   chatContextQueryKey,
+  conversationGroupsQueryKey,
 } from "@/lib/sync/query-tags";
 import { SYNC_TAGS, type SyncChangedEvent } from "@/lib/sync/types";
 import {
@@ -456,9 +457,39 @@ describe("useAssistantSyncStream", () => {
     emitOpened("watchdog");
     emitOpened("resume");
     await waitFor(() => {
-      // 2 emits × 2 query keys = 4 invalidate calls.
-      expect(spy).toHaveBeenCalledTimes(4);
+      // 2 emits × 2 flag query keys = 4 flag invalidation calls
+      // (conversation list calls are debounced and fire later).
+      expect(spy).toHaveBeenCalledWith({ queryKey: CLIENT_FLAG_QUERY_KEY });
+      expect(spy).toHaveBeenCalledWith({
+        queryKey: [ASSISTANT_FLAG_VALUES_QUERY_KEY],
+      });
     });
+  });
+
+  test("invalidates conversation list queries on sse.opened reconnect (debounced)", async () => {
+    const queryClient = freshQueryClient();
+    const spy = mock(() => Promise.resolve());
+    queryClient.invalidateQueries = spy as never;
+    renderHook(() => useAssistantSyncStream("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    emitOpened("error");
+    // Wait past the 250ms debounce window.
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    const chatCtxCalls = (spy.mock.calls as unknown as Array<[unknown]>).filter(
+      (call) => {
+        const arg = call[0] as { queryKey: readonly unknown[] } | undefined;
+        return arg?.queryKey?.[0] === chatContextQueryKey("asst-1")[0];
+      },
+    );
+    const groupsCalls = (spy.mock.calls as unknown as Array<[unknown]>).filter(
+      (call) => {
+        const arg = call[0] as { queryKey: readonly unknown[] } | undefined;
+        return arg?.queryKey?.[0] === conversationGroupsQueryKey("asst-1")[0];
+      },
+    );
+    expect(chatCtxCalls.length).toBe(1);
+    expect(groupsCalls.length).toBe(1);
   });
 
   test("does NOT invalidate on sse.opened (cause=fresh) — initial mount fetch covers it", async () => {

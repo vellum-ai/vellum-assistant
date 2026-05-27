@@ -8,7 +8,7 @@ import {
   projectAssistantMessage,
   recordConversationSeenSignal,
 } from "../memory/conversation-attention-store.js";
-import { createConversation } from "../memory/conversation-crud.js";
+import { addMessage, createConversation } from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import type { AssistantEvent } from "../runtime/assistant-event.js";
@@ -108,9 +108,9 @@ describe("conversation sync tags", () => {
     // Defense-in-depth: the umbrella `conversationsList` tag would force
     // web to redrain the full paginated list — we deliberately omit it
     // for content-only reasons.
-    expect(
-      (received[1]!.message as { tags: string[] }).tags,
-    ).not.toContain(SYNC_TAGS.conversationsList);
+    expect((received[1]!.message as { tags: string[] }).tags).not.toContain(
+      SYNC_TAGS.conversationsList,
+    );
     // The legacy invalidation broadcast is macOS-scoped and must not
     // reach this process-type subscriber.
     expect(
@@ -247,9 +247,9 @@ describe("conversation sync tags", () => {
     // Defense-in-depth: the umbrella `conversationsList` tag would
     // force the very paginated-list drain this redesign exists to
     // avoid. It must not appear here.
-    expect(
-      (received[0]!.message as { tags: string[] }).tags,
-    ).not.toContain(SYNC_TAGS.conversationsList);
+    expect((received[0]!.message as { tags: string[] }).tags).not.toContain(
+      SYNC_TAGS.conversationsList,
+    );
     expect(
       received.some(
         (event) => event.message.type === "conversation_list_invalidated",
@@ -291,13 +291,110 @@ describe("conversation sync tags", () => {
       type: "sync_changed",
       tags: [conversationMetadataSyncTag(conversation.id)],
     });
-    expect(
-      (received[0]!.message as { tags: string[] }).tags,
-    ).not.toContain(SYNC_TAGS.conversationsList);
+    expect((received[0]!.message as { tags: string[] }).tags).not.toContain(
+      SYNC_TAGS.conversationsList,
+    );
     expect(
       received.some(
         (event) => event.message.type === "conversation_list_invalidated",
       ),
     ).toBe(false);
+  });
+
+  test("addMessage('assistant') emits a metadata sync tag when attention state transitions", async () => {
+    // When an assistant message transitions a conversation from seen to
+    // unseen, `addMessage` emits `conversation:<id>:metadata` so the web
+    // sidebar picks up the attention state change without a full list
+    // refetch. This is the fix for LUM-1907: background processes that
+    // add assistant messages (notification delivery, proactive artifacts)
+    // now automatically notify clients.
+    const conversation = createConversation("Attention sync");
+
+    const received = await captureEvents(async () => {
+      await addMessage(
+        conversation.id,
+        "assistant",
+        JSON.stringify([{ type: "text", text: "hello" }]),
+      );
+    }, 1);
+
+    expect(received.map((event) => event.message.type)).toEqual([
+      "sync_changed",
+    ]);
+    expect(received[0]!.message).toEqual({
+      type: "sync_changed",
+      tags: [conversationMetadataSyncTag(conversation.id)],
+    });
+  });
+
+  test("addMessage('assistant') does not emit a metadata sync tag when already unseen", async () => {
+    // When the conversation is already unseen (attention cursor was
+    // already past the seen cursor), a subsequent assistant message
+    // should NOT emit a metadata tag — no state transition occurred.
+    const conversation = createConversation("Already unseen");
+    await addMessage(
+      conversation.id,
+      "assistant",
+      JSON.stringify([{ type: "text", text: "first" }]),
+    );
+
+    const received: AssistantEvent[] = [];
+    const subscription = assistantEventHub.subscribe({
+      type: "process",
+      callback: (event) => {
+        received.push(event);
+      },
+    });
+    try {
+      await addMessage(
+        conversation.id,
+        "assistant",
+        JSON.stringify([{ type: "text", text: "second" }]),
+      );
+      // Brief wait to ensure no event is emitted
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const metadataEvents = received.filter(
+        (event) =>
+          event.message.type === "sync_changed" &&
+          (event.message as { tags: string[] }).tags.some((tag: string) =>
+            tag.includes(":metadata"),
+          ),
+      );
+      expect(metadataEvents).toHaveLength(0);
+    } finally {
+      subscription.dispose();
+    }
+  });
+
+  test("addMessage('user') does not emit a metadata sync tag", async () => {
+    // User messages never affect attention state — only assistant
+    // messages advance the attention cursor via projectAssistantMessage.
+    const conversation = createConversation("User message");
+
+    const received: AssistantEvent[] = [];
+    const subscription = assistantEventHub.subscribe({
+      type: "process",
+      callback: (event) => {
+        received.push(event);
+      },
+    });
+    try {
+      await addMessage(
+        conversation.id,
+        "user",
+        JSON.stringify([{ type: "text", text: "hello" }]),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const metadataEvents = received.filter(
+        (event) =>
+          event.message.type === "sync_changed" &&
+          (event.message as { tags: string[] }).tags.some((tag: string) =>
+            tag.includes(":metadata"),
+          ),
+      );
+      expect(metadataEvents).toHaveLength(0);
+    } finally {
+      subscription.dispose();
+    }
   });
 });
