@@ -25,8 +25,10 @@ async function boot() {
   setupOrganizationStore();
   if (isLocalMode()) {
     await loadLockfile();
+    await useAuthStore.getState().initSession();
+  } else {
+    useAuthStore.getState().initSession();
   }
-  useAuthStore.getState().initSession();
   setupAuthListeners();
 
   const rootEl = document.getElementById("root");

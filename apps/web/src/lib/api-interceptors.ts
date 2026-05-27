@@ -119,11 +119,14 @@ export async function rewriteForSelfHostedIngress(
     headers.delete("Authorization");
   }
 
-  // Read the body as an ArrayBuffer so the rewritten Request carries a
-  // finite-length body instead of a ReadableStream.  Chrome refuses to
-  // send a streaming (duplex: "half") body over plain HTTP (it tries
-  // to negotiate HTTP/2 via ALPN, which fails without TLS).
-  const body = request.body ? await request.arrayBuffer() : null;
+  // In local mode the gateway proxy runs over plain HTTP, and Chrome
+  // refuses to send a streaming (duplex: "half") body without TLS
+  // (ERR_ALPN_NEGOTIATION_FAILED). Buffer the body as an ArrayBuffer so
+  // the Request carries a finite-length payload. Platform self-hosted
+  // uses TLS, so keep the streaming body to avoid buffering large uploads.
+  const body = isLocalMode()
+    ? (request.body ? await request.arrayBuffer() : null)
+    : request.body;
 
   const init: RequestInit = {
     method: request.method,
@@ -135,6 +138,9 @@ export async function rewriteForSelfHostedIngress(
     redirect: request.redirect,
     signal: request.signal,
   };
+  if (!isLocalMode() && request.body) {
+    (init as RequestInit & { duplex: "half" }).duplex = "half";
+  }
   return new Request(rewrittenUrl.toString(), init);
 }
 

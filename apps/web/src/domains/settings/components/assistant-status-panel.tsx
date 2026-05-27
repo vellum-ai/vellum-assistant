@@ -11,15 +11,12 @@ import {
   getAssistant,
   getAssistantHealthz,
 } from "@/assistant/api";
-import { getSelectedAssistant, isLocalMode, isLocalAssistant } from "@/lib/local-mode";
 import { useAuthStore } from "@/stores/auth-store";
 import { reportError } from "@/lib/errors/report";
 import { useEnvironmentStore } from "@/lib/environment/environment-store";
 import { DevModeVersionUnlock } from "@/domains/settings/components/dev-mode-version-unlock";
 
-function currentAssistantQueryKey() {
-  return ["currentAssistant", isLocalMode() ? "local" : "platform"] as const;
-}
+const CURRENT_ASSISTANT_QUERY_KEY = ["currentAssistant"] as const;
 
 // A resize rolls the assistant pod, so the new allocation only appears once it
 // comes back up. Poll /v1/health for a bounded window, tolerating the restart
@@ -63,20 +60,8 @@ export function useAssistantWithHealthz(): AssistantWithHealthz {
     isLoading: assistantLoading,
     refetch: refetchAssistant,
   } = useQuery({
-    queryKey: currentAssistantQueryKey(),
+    queryKey: CURRENT_ASSISTANT_QUERY_KEY,
     queryFn: async () => {
-      if (isLocalMode()) {
-        const la = getSelectedAssistant();
-        if (la && isLocalAssistant(la)) {
-          return {
-            id: la.assistantId,
-            name: la.name ?? la.assistantId,
-            status: "active",
-            is_local: true,
-            created: la.hatchedAt ?? "",
-          } as Assistant;
-        }
-      }
       const result = await getAssistant();
       return result.ok ? result.data : null;
     },
