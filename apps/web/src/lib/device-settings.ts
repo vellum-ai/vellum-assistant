@@ -17,8 +17,6 @@
  */
 
 import {
-  getLocalBool,
-  getLocalSetting,
   setLocalBool,
   setLocalSetting,
   watchSetting,
@@ -52,7 +50,15 @@ export function deviceKey(name: DeviceSettingName): string {
 
 /** Read a device-scoped setting, returning `fallback` when absent or unreadable. */
 export function getDeviceSetting(name: DeviceSettingName, fallback: string): string {
-  return getLocalSetting(DEVICE_SETTINGS[name].key, fallback);
+  if (typeof window === "undefined") return fallback;
+  const entry = DEVICE_SETTINGS[name];
+  try {
+    return localStorage.getItem(entry.key)
+      ?? localStorage.getItem(entry.legacy)
+      ?? fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 /** Write a device-scoped setting. Fires the `vellum:pref-changed` event for same-tab observers. */
@@ -62,7 +68,17 @@ export function setDeviceSetting(name: DeviceSettingName, value: string): void {
 
 /** Read a boolean device setting. */
 export function getDeviceBool(name: DeviceSettingName, fallback: boolean): boolean {
-  return getLocalBool(DEVICE_SETTINGS[name].key, fallback);
+  if (typeof window === "undefined") return fallback;
+  const entry = DEVICE_SETTINGS[name];
+  try {
+    const raw = localStorage.getItem(entry.key)
+      ?? localStorage.getItem(entry.legacy);
+    if (raw === "true") return true;
+    if (raw === "false") return false;
+  } catch {
+    // Storage unavailable
+  }
+  return fallback;
 }
 
 /** Write a boolean device setting. */

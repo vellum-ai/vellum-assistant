@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
   deviceKey,
+  getDeviceBool,
   getDeviceSetting,
   migrateDeviceSettings,
   setDeviceSetting,
@@ -33,6 +34,40 @@ describe("getDeviceSetting / setDeviceSetting", () => {
 
   test("returns fallback when key is absent", () => {
     expect(getDeviceSetting("theme", "system")).toBe("system");
+  });
+
+  test("falls back to legacy key when device: key is absent", () => {
+    localStorage.setItem("vellum_theme", "dark");
+    expect(getDeviceSetting("theme", "system")).toBe("dark");
+  });
+
+  test("prefers device: key over legacy key", () => {
+    localStorage.setItem("device:theme", "light");
+    localStorage.setItem("vellum_theme", "dark");
+    expect(getDeviceSetting("theme", "system")).toBe("light");
+  });
+});
+
+describe("getDeviceBool", () => {
+  test("reads device: key as boolean", () => {
+    localStorage.setItem("device:share_analytics", "true");
+    expect(getDeviceBool("shareAnalytics", false)).toBe(true);
+  });
+
+  test("returns fallback when absent", () => {
+    expect(getDeviceBool("shareAnalytics", true)).toBe(true);
+    expect(getDeviceBool("shareAnalytics", false)).toBe(false);
+  });
+
+  test("falls back to legacy key when device: key is absent", () => {
+    localStorage.setItem("vellum_share_analytics", "false");
+    expect(getDeviceBool("shareAnalytics", true)).toBe(false);
+  });
+
+  test("prefers device: key over legacy key", () => {
+    localStorage.setItem("device:share_analytics", "true");
+    localStorage.setItem("vellum_share_analytics", "false");
+    expect(getDeviceBool("shareAnalytics", false)).toBe(true);
   });
 });
 
