@@ -2,7 +2,6 @@ import { Trash2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@vellum/design-library/components/button";
-import { Toggle } from "@vellum/design-library/components/toggle";
 import { Modal } from "@vellum/design-library/components/modal";
 import { Tag } from "@vellum/design-library/components/tag";
 import { Typography } from "@vellum/design-library/components/typography";
@@ -12,7 +11,6 @@ import {
   type ProviderConnection,
   deleteConnection,
   listConnections,
-  updateConnection,
 } from "@/domains/settings/ai/provider-connections-client";
 import { ProviderEditorContent } from "@/domains/settings/ai/provider-editor-modal";
 import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
@@ -182,37 +180,6 @@ export function ManageProvidersModal({
             onConnectionDeleted={(name) => {
               setConnections((prev) => prev.filter((c) => c.name !== name));
             }}
-            onStatusToggle={async (conn, active) => {
-              // Optimistic update; the inner roll-back swap happens on
-              // failure via the returned-null path.
-              const newStatus = active ? "active" : "disabled";
-              setConnections((prev) =>
-                prev.map((c) =>
-                  c.name === conn.name ? { ...c, status: newStatus } : c,
-                ),
-              );
-              // Invalidate any pending list refresh so the optimistic state
-              // isn't clobbered.
-              listVersionRef.current++;
-              try {
-                const updated = await updateConnection(assistantId, conn.name, {
-                  auth: conn.auth,
-                  status: newStatus,
-                });
-                setConnections((prev) =>
-                  prev.map((c) => (c.name === conn.name ? updated : c)),
-                );
-                return updated;
-              } catch {
-                // Roll back.
-                setConnections((prev) =>
-                  prev.map((c) =>
-                    c.name === conn.name ? { ...c, status: conn.status } : c,
-                  ),
-                );
-                return null;
-              }
-            }}
           />
         )
       ) : null}
@@ -233,13 +200,6 @@ interface ManageProvidersModalInnerProps {
   onEditClick: (conn: ProviderConnection) => void;
   onNewClick: () => void;
   onConnectionDeleted: (name: string) => void;
-  /// Optimistic status update from the inline row toggle. Returns a Promise
-  /// so the row can roll back on failure; resolves with the daemon's echoed
-  /// row on success.
-  onStatusToggle: (
-    conn: ProviderConnection,
-    active: boolean,
-  ) => Promise<ProviderConnection | null>;
 }
 
 function ManageProvidersModalInner({
@@ -251,29 +211,9 @@ function ManageProvidersModalInner({
   onEditClick,
   onNewClick,
   onConnectionDeleted,
-  onStatusToggle,
 }: ManageProvidersModalInnerProps) {
   const [deleteErrors, setDeleteErrors] = useState<Record<string, string>>({});
   const [deleting, setDeleting] = useState<Record<string, boolean>>({});
-  const [togglingNames, setTogglingNames] = useState<Set<string>>(new Set());
-  const [toggleError, setToggleError] = useState<string | null>(null);
-
-  async function handleStatusToggle(conn: ProviderConnection, active: boolean) {
-    setTogglingNames((prev) => new Set(prev).add(conn.name));
-    setToggleError(null);
-    try {
-      const result = await onStatusToggle(conn, active);
-      if (result === null) {
-        setToggleError(`Couldn't update "${conn.name}". Please try again.`);
-      }
-    } finally {
-      setTogglingNames((prev) => {
-        const next = new Set(prev);
-        next.delete(conn.name);
-        return next;
-      });
-    }
-  }
 
   async function handleDelete(name: string) {
     setDeleting((prev) => ({ ...prev, [name]: true }));
@@ -349,21 +289,10 @@ function ManageProvidersModalInner({
           </Typography>
         ) : (
           <div className="space-y-1">
-            {toggleError ? (
-              <Typography
-                variant="body-small-default"
-                as="p"
-                className="px-2 py-1 text-(--system-negative-strong)"
-              >
-                {toggleError}
-              </Typography>
-            ) : null}
             {connections.map((conn) => {
               const isDeleting = deleting[conn.name] ?? false;
               const deleteError = deleteErrors[conn.name];
               const isManaged = conn.isManaged ?? false;
-              const isToggling = togglingNames.has(conn.name);
-              const isActive = conn.status === "active";
 
               return (
                 <div key={conn.name}>
@@ -381,7 +310,7 @@ function ManageProvidersModalInner({
                         {isManaged && (
                           <Tag
                             tone="positive"
-                            title="Managed by Platform — auth is locked, but you can rename or disable this connection."
+                            title="Managed by Platform — auth is locked, but you can rename this connection."
                           >
                             Platform
                           </Tag>
@@ -401,26 +330,6 @@ function ManageProvidersModalInner({
 
                     {/* Actions */}
                     <div className="flex shrink-0 items-center gap-2">
-                      {/* Inline status toggle — works for managed
-                          connections too. Auth-related fields stay locked
-                          in the editor, but status + label are PATCH-able
-                          on every row. */}
-                      <span
-                        title={
-                          isActive
-                            ? "Active — toggle to disable"
-                            : "Disabled — toggle to activate"
-                        }
-                      >
-                        <Toggle
-                          checked={isActive}
-                          onChange={(next) =>
-                            void handleStatusToggle(conn, next)
-                          }
-                          disabled={isToggling}
-                          aria-label={`${isActive ? "Disable" : "Enable"} ${conn.label ?? conn.name}`}
-                        />
-                      </span>
                       <Button
                         variant="ghost"
                         size="compact"

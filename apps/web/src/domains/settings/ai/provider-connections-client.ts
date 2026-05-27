@@ -14,8 +14,6 @@ export type ConnectionProvider =
   | "openrouter"
   | "openai-compatible";
 
-export type ConnectionStatus = "active" | "disabled";
-
 export interface ConnectionModel {
   id: string;
   displayName?: string;
@@ -31,7 +29,6 @@ export interface ProviderConnection {
   name: string;
   provider: ConnectionProvider;
   auth: Auth;
-  status: ConnectionStatus;
   label: string | null;
   createdAt: number;
   updatedAt: number;
@@ -45,7 +42,6 @@ export interface CreateConnectionInput {
   provider: ConnectionProvider;
   auth: Auth;
   label?: string | null;
-  status?: ConnectionStatus;
   base_url?: string | null;
   models?: ConnectionModel[] | null;
 }
@@ -53,7 +49,6 @@ export interface CreateConnectionInput {
 export interface UpdateConnectionInput {
   auth: Auth;
   label?: string | null;
-  status?: ConnectionStatus;
   base_url?: string | null;
   models?: ConnectionModel[] | null;
 }
@@ -99,8 +94,7 @@ function throwHttpError(response: Response | undefined): never {
 
 function normalizeConnection(raw: Record<string, unknown>): ProviderConnection {
   return {
-    ...(raw as Omit<ProviderConnection, "status" | "label" | "baseUrl" | "models">),
-    status: (raw.status as ConnectionStatus | undefined) ?? "active",
+    ...(raw as Omit<ProviderConnection, "label" | "baseUrl" | "models">),
     label: (raw.label as string | null | undefined) ?? null,
     baseUrl: (raw.baseUrl as string | null | undefined) ?? null,
     models: (raw.models as ConnectionModel[] | null | undefined) ?? null,
