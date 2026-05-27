@@ -232,6 +232,46 @@ describe("finalizeMessageComplete", () => {
     expect(result[1]!.content).toBe("second call done");
   });
 
+  it("adopts the server messageId for an optimistic streaming tail (first message_complete)", () => {
+    // The live streaming bubble is created optimistic (text deltas carry no
+    // messageId). The first message_complete must swap its client UUID for the
+    // server id so the post-turn reconcile matches by id — otherwise a
+    // multi-LLM-call turn (e.g. subagent spawn) whose collapsed server content
+    // diverges from the bubble text reconciles to a duplicate row.
+    const optimistic = makeAssistantMsg({
+      id: "client-uuid",
+      content: "Spawning a researcher on this now.",
+      isOptimistic: true,
+    });
+    const result = finalizeMessageComplete([userMsg, optimistic], {
+      type: "message_complete",
+      conversationId: "c-1",
+      messageId: "server-row-id",
+      content: "Spawning a researcher on this now.",
+    });
+
+    expect(result).toHaveLength(2);
+    expect(result[1]!.id).toBe("server-row-id");
+    expect(result[1]!.isOptimistic).toBe(false);
+    expect(result[1]!.isStreaming).toBe(false);
+  });
+
+  it("keeps the optimistic id when message_complete carries no messageId", () => {
+    const optimistic = makeAssistantMsg({
+      id: "client-uuid",
+      isOptimistic: true,
+    });
+    const result = finalizeMessageComplete([userMsg, optimistic], {
+      type: "message_complete",
+      conversationId: "c-1",
+      content: "done",
+    });
+
+    expect(result[1]!.id).toBe("client-uuid");
+    expect(result[1]!.isOptimistic).toBe(true);
+    expect(result[1]!.isStreaming).toBe(false);
+  });
+
   it("ignores legacy displayMessageId on the wire", () => {
     // Inbound from an older daemon: a `displayMessageId` field on
     // message_complete must be silently ignored — the new contract is
