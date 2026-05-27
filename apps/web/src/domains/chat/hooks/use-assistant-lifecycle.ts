@@ -18,6 +18,7 @@ import {
 } from "@/assistant/lifecycle";
 import { resolveOnboardingRedirect } from "@/domains/onboarding/gate";
 import { isGatewayAuthMode, getGatewayToken } from "@/lib/auth/gateway-session";
+import { isLocalMode, getSelectedAssistant, gatewayProxyUrl } from "@/lib/local-mode";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 import { routes } from "@/utils/routes";
 
@@ -404,11 +405,22 @@ export function useAssistantLifecycle({
       return;
     }
     if (isGatewayAuthMode()) {
+      let ingressUrl = window.location.origin;
+      let assistantId = "self";
+
+      if (isLocalMode()) {
+        const assistant = getSelectedAssistant();
+        if (assistant?.resources?.gatewayPort) {
+          ingressUrl = `${window.location.origin}${gatewayProxyUrl(assistant.resources.gatewayPort)}`;
+          assistantId = assistant.assistantId;
+        }
+      }
+
       setSelfHostedConnection({
-        url: window.location.origin,
+        url: ingressUrl,
         token: getGatewayToken(),
       });
-      setAssistantId("self");
+      setAssistantId(assistantId);
       setAssistantState({ kind: "active", isLocal: true });
       return;
     }
