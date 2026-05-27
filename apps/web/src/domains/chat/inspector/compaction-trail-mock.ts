@@ -29,7 +29,7 @@
 import type {
   CompactionTrailEvent,
   CompactionTrailResponse,
-} from "./compaction-trail-types.js";
+} from "./compaction-trail-types";
 
 const MOCK_LATENCY_MS = 250;
 

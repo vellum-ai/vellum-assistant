@@ -4,18 +4,18 @@ import {
   assertHasResponse,
   client,
   extractErrorMessage,
-} from "@/domains/chat/api/client.js";
+} from "@/domains/chat/api/client";
 import {
   fetchConversationMessages,
   type RuntimeMessage,
-} from "@/domains/chat/api/messages.js";
+} from "@/domains/chat/api/messages";
 
 import type {
   LlmContextResponse,
   LLMRequestLogEntry,
   MemoryRecallLog,
   MemoryV2ActivationLog,
-} from "@/domains/chat/types/inspector-types.js";
+} from "@/domains/chat/types/inspector-types";
 
 /**
  * Query helpers for the inspector. Two fetch modes:

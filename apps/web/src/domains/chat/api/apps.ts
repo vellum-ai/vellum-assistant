@@ -1,8 +1,8 @@
-import { client } from "@/generated/api/client.gen.js";
+import { client } from "@/generated/api/client.gen";
 
 
-import { ApiError, assertHasResponse, extractErrorMessage } from "@/lib/api-errors.js";
-import { saveFile } from "@/runtime/native-file.js";
+import { ApiError, assertHasResponse, extractErrorMessage } from "@/lib/api-errors";
+import { saveFile } from "@/runtime/native-file";
 
 // ---------------------------------------------------------------------------
 // Types

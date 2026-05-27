@@ -15,7 +15,7 @@
 import type {
   LLMContextSection,
   LLMRequestLogEntry,
-} from "@/domains/chat/types/inspector-types.js";
+} from "@/domains/chat/types/inspector-types";
 
 export interface SkillLoad {
   skill: string;

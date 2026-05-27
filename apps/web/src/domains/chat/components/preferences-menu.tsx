@@ -18,11 +18,12 @@ import {
   SideMenu,
 } from "@vellum/design-library";
 
-import { useIsMobile } from "@/hooks/use-is-mobile.js";
-import { useAuthStore } from "@/stores/auth-store.js";
-import { adminUrl, routes } from "@/utils/routes.js";
-import { ShareFeedbackModal } from "@/components/share-feedback-modal.js";
-import { ThemeToggle } from "@/components/theme-toggle.js";
+import { useIsMobile } from "@/hooks/use-is-mobile";
+import { hardNavigate } from "@/lib/auth/hard-navigate";
+import { useAuthStore } from "@/stores/auth-store";
+import { adminUrl, routes } from "@/utils/routes";
+import { ShareFeedbackModal } from "@/components/share-feedback-modal";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 export interface PreferencesMenuProps {
   assistantId?: string | null;
@@ -162,7 +163,7 @@ function PreferencesMenuContent({
         onSelect={async () => {
           await logout();
           onClose();
-          navigate(routes.account.login);
+          hardNavigate(routes.account.login);
         }}
       />
     </>

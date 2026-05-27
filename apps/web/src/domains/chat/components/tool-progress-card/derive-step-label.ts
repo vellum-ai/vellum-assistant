@@ -11,9 +11,9 @@
  * the tool call payload; outputs are deterministic strings + icon name.
  */
 
-import type { ChatMessageToolCall } from "@/domains/chat/api/event-types.js";
-import { titleCaseToolName } from "@/domains/chat/components/tool-call-chip/utils.js";
-import { truncate } from "@/domains/chat/utils/truncate.js";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import { titleCaseToolName } from "@/domains/chat/components/tool-call-chip/utils";
+import { truncate } from "@/domains/chat/utils/truncate";
 
 /**
  * Canonical icon names used by the unified tool-call progress card.

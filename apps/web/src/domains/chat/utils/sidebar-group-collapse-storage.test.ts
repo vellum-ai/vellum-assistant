@@ -3,7 +3,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } fr
 import {
   loadOpenCategories,
   saveOpenCategories,
-} from "@/domains/chat/utils/sidebar-group-collapse-storage.js";
+} from "@/domains/chat/utils/sidebar-group-collapse-storage";
 
 const ASSISTANT_ID = "asst_123";
 const STORAGE_KEY = `vellum:sidebar-open-categories:${ASSISTANT_ID}`;

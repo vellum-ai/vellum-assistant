@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
-import { deriveStepLabel } from "@/domains/chat/components/tool-progress-card/derive-step-label.js";
+import { deriveStepLabel } from "@/domains/chat/components/tool-progress-card/derive-step-label";
 
-import type { ChatMessageToolCall } from "@/domains/chat/api/event-types.js";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 
 /**
  * Builds a minimal `ChatMessageToolCall` fixture for testing `deriveStepLabel`.

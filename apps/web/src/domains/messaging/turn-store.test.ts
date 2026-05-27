@@ -7,7 +7,7 @@ import {
   canStopGeneration,
   isSendDisabled,
   type UIContext,
-} from "@/domains/messaging/turn-selectors.js";
+} from "@/domains/messaging/turn-selectors";
 import {
   type TurnState,
   type DomainEvent,
@@ -15,7 +15,7 @@ import {
   turnReducer,
   isSending,
   isThinking,
-} from "@/domains/messaging/turn-store.js";
+} from "@/domains/messaging/turn-store";
 
 // ---------------------------------------------------------------------------
 // Helpers

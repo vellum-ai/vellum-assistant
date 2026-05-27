@@ -1,14 +1,14 @@
 import { useEffect, useRef } from "react";
-import { useNavigate, useSearchParams } from "react-router";
+import { useSearchParams } from "react-router";
 
-import { AccountHeading } from "@/components/account/account-form.js";
-import { AccountShell } from "@/components/account/account-shell.js";
-import { sanitizeReturnTo } from "@/domains/account/return-to.js";
-import { useAuthStore } from "@/stores/auth-store.js";
-import { routes } from "@/utils/routes.js";
+import { AccountHeading } from "@/components/account/account-form";
+import { AccountShell } from "@/components/account/account-shell";
+import { sanitizeReturnTo } from "@/domains/account/return-to";
+import { hardNavigate } from "@/lib/auth/hard-navigate";
+import { useAuthStore } from "@/stores/auth-store";
+import { routes } from "@/utils/routes";
 
 export function LogoutPage() {
-  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const logout = useAuthStore.use.logout();
   const logoutInitiated = useRef(false);
@@ -29,21 +29,13 @@ export function LogoutPage() {
         ? returnTo
         : `${routes.account.login}?returnTo=${encodeURIComponent(returnTo)}`;
 
-    const redirect = (url: string) => {
-      if (url.startsWith("http")) {
-        window.location.href = url;
-      } else {
-        navigate(url);
-      }
-    };
-
     let cancelled = false;
     logout().then(
-      () => { if (!cancelled) redirect(target); },
-      () => { if (!cancelled) redirect(target); },
+      () => { if (!cancelled) hardNavigate(target); },
+      () => { if (!cancelled) hardNavigate(target); },
     );
     return () => { cancelled = true; };
-  }, [logout, navigate, searchParams]);
+  }, [logout, searchParams]);
 
   return (
     <AccountShell>

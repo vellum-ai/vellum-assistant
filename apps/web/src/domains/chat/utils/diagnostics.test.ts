@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { bucketMessagesAdded } from "@/domains/chat/utils/diagnostics.js";
+import { bucketMessagesAdded } from "@/domains/chat/utils/diagnostics";
 
 describe("bucketMessagesAdded", () => {
   // Buckets must stay low-cardinality so the values are aggregable

@@ -18,15 +18,15 @@ import {
   useRef,
 } from "react";
 
-import { useTurnStore } from "@/domains/messaging/turn-store.js";
-import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
-import { useConversationStore } from "@/domains/conversations/conversation-store.js";
-import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics.js";
-import { loadDismissedSurfaceIds } from "@/domains/chat/utils/dismissed-surfaces-storage.js";
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
-import type { TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
-import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
-import type { AssistantStateKind, ChatError } from "@/domains/chat/types.js";
+import { useTurnStore } from "@/domains/messaging/turn-store";
+import { useInteractionStore } from "@/domains/interactions/interaction-store";
+import { useConversationStore } from "@/domains/conversations/conversation-store";
+import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics";
+import { loadDismissedSurfaceIds } from "@/domains/chat/utils/dismissed-surfaces-storage";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { TranscriptPaginationState } from "@/domains/chat/transcript/types";
+import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
+import type { AssistantStateKind, ChatError } from "@/domains/chat/types";
 
 // ---------------------------------------------------------------------------
 // Types

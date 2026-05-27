@@ -7,18 +7,18 @@ import { Button } from "@vellum/design-library/components/button";
 import { Modal } from "@vellum/design-library/components/modal";
 import { Notice } from "@vellum/design-library/components/notice";
 import { toast } from "@vellum/design-library/components/toast";
-import { extractResizeError } from "@/domains/settings/components/resize-errors.js";
+import { extractResizeError } from "@/domains/settings/components/resize-errors";
 import {
   assistantsActiveRetrieveOptions,
   assistantsResizeMutation,
   organizationsBillingSubscriptionOnboardingRetrieveOptions,
-} from "@/generated/api/@tanstack/react-query.gen.js";
-import type { MachineSizeEnum } from "@/generated/api/types.gen.js";
+} from "@/generated/api/@tanstack/react-query.gen";
+import type { MachineSizeEnum } from "@/generated/api/types.gen";
 import {
   allowedMachineSizesForTier,
   SIZE_DESCRIPTION,
   SIZE_LABEL,
-} from "@/lib/billing/machine-sizes.js";
+} from "@/lib/billing/machine-sizes";
 
 export interface TierUpgradeResizeModalProps {
   open: boolean;

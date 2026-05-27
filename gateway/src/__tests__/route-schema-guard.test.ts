@@ -175,6 +175,9 @@ const EXCLUDED_FROM_SCHEMA = new Set([
   "/.well-known/agent-card.json",
   // Internal-only: reachable only via vembda's trusted gateway-query proxy
   "/v1/contacts/guardian/channel",
+  // BFF session auth — loopback-only, not part of the public gateway API
+  "/auth/session",
+  "/auth/state",
 ]);
 
 // ── Schema paths that don't map to a discrete route definition ──

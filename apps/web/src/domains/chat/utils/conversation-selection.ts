@@ -1,4 +1,4 @@
-import type { Conversation } from "@/domains/chat/api/conversations.js";
+import type { Conversation } from "@/domains/chat/api/conversations";
 
 interface ResolveBootstrappedConversationIdArgs {
   queryParamKey: string | null;

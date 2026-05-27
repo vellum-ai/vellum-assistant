@@ -48,7 +48,10 @@ export type PrincipalType = "actor" | "svc_gateway" | "svc_daemon" | "local";
 // Token audience — which service the JWT is intended for
 // ---------------------------------------------------------------------------
 
-export type TokenAudience = "vellum-gateway" | "vellum-daemon";
+export type TokenAudience =
+  | "vellum-gateway"
+  | "vellum-daemon"
+  | "vellum-gateway-session";
 
 // ---------------------------------------------------------------------------
 // JWT claims — the payload inside the token

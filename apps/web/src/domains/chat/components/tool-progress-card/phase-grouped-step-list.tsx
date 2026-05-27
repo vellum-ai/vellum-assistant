@@ -32,10 +32,10 @@ import { Fragment, type ReactNode } from "react";
 
 import { Typography } from "@vellum/design-library";
 
-import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator.js";
-import type { ToolCallCardStep } from "@/domains/chat/hooks/use-tool-call-card-data.js";
-import { formatMs } from "@/domains/chat/hooks/use-tool-call-card-data.js";
-import type { IconName } from "@/domains/chat/components/tool-progress-card/derive-step-label.js";
+import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
+import type { ToolCallCardStep } from "@/domains/chat/hooks/use-tool-call-card-data";
+import { formatMs } from "@/domains/chat/hooks/use-tool-call-card-data";
+import type { IconName } from "@/domains/chat/components/tool-progress-card/derive-step-label";
 
 /** Concrete lucide icon for each `IconName` produced by `deriveStepLabel`. */
 const ICON_MAP: Record<IconName, LucideIcon> = {

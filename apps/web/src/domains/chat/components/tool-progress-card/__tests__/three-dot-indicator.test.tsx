@@ -12,7 +12,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import { cleanup, render } from "@testing-library/react";
 
-import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator.js";
+import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
 
 afterEach(() => {
   cleanup();

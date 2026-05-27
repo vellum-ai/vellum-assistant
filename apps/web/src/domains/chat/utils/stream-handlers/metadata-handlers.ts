@@ -1,13 +1,13 @@
-import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
-import { saveContextWindowUsage } from "@/domains/chat/utils/context-window-storage.js";
+import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
+import { saveContextWindowUsage } from "@/domains/chat/utils/context-window-storage";
 import {
   extractConversationId,
   postLocalNotification,
   sendNotificationIntentAck,
-} from "@/runtime/notifications.js";
-import { patchConversation } from "@/domains/conversations/conversation-queries.js";
-import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types.js";
-import type { AvatarUpdatedEvent, CompactionCircuitClosedEvent, CompactionCircuitOpenEvent, ConversationTitleUpdatedEvent, DiskPressureStatusChangedEvent, IdentityChangedEvent, NotificationIntentEvent, TurnProfileAutoRoutedEvent, UsageUpdateEvent } from "@/domains/chat/api/event-types.js";
+} from "@/runtime/notifications";
+import { patchConversation } from "@/domains/conversations/conversation-queries";
+import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
+import type { AvatarUpdatedEvent, CompactionCircuitClosedEvent, CompactionCircuitOpenEvent, ConversationTitleUpdatedEvent, DiskPressureStatusChangedEvent, IdentityChangedEvent, NotificationIntentEvent, TurnProfileAutoRoutedEvent, UsageUpdateEvent } from "@/domains/chat/api/event-types";
 
 export function handleUsageUpdate(
   event: UsageUpdateEvent,

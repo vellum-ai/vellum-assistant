@@ -4,38 +4,38 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { useMemo, useState, type ReactNode } from "react";
 
 import { Button } from "@vellum/design-library";
-import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate.js";
-import type { RuntimeMessage } from "@/domains/chat/api/messages.js";
-import { canUseLlmInspector } from "@/domains/chat/inspector/access.js";
+import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate";
+import type { RuntimeMessage } from "@/domains/chat/api/messages";
+import { canUseLlmInspector } from "@/domains/chat/inspector/access";
 import {
   useConversationMessageList,
   useLlmContext,
-} from "@/domains/chat/inspector/inspector-api.js";
+} from "@/domains/chat/inspector/inspector-api";
 import {
   buildInspectorExportFilename,
   buildInspectorExportZipBlob,
   downloadBlob,
-} from "@/domains/chat/inspector/inspector-export.js";
+} from "@/domains/chat/inspector/inspector-export";
 import {
   llmLogPayloadQueryOptions,
   type LlmLogPayload,
-} from "@/domains/chat/inspector/inspector-payload-api.js";
+} from "@/domains/chat/inspector/inspector-payload-api";
 import type {
   LlmContextResponse,
   LLMRequestLogEntry,
-} from "@/domains/chat/types/inspector-types.js";
-import { useAuthStore } from "@/stores/auth-store.js";
-import { routes } from "@/utils/routes.js";
+} from "@/domains/chat/types/inspector-types";
+import { useAuthStore } from "@/stores/auth-store";
+import { routes } from "@/utils/routes";
 
-import { CallRail } from "./components/call-rail.js";
-import { TabBar, type InspectorTab } from "./components/tab-bar.js";
-import { CompactionTab } from "./components/tabs/compaction-tab.js";
-import { MemoryTab } from "./components/tabs/memory-tab.js";
-import { SkillsTab } from "./components/tabs/skills-tab.js";
-import { OverviewTab } from "./components/tabs/overview-tab.js";
-import { PromptTab } from "./components/tabs/prompt-tab.js";
-import { RawTab } from "./components/tabs/raw-tab.js";
-import { ResponseTab } from "./components/tabs/response-tab.js";
+import { CallRail } from "./components/call-rail";
+import { TabBar, type InspectorTab } from "./components/tab-bar";
+import { CompactionTab } from "./components/tabs/compaction-tab";
+import { MemoryTab } from "./components/tabs/memory-tab";
+import { SkillsTab } from "./components/tabs/skills-tab";
+import { OverviewTab } from "./components/tabs/overview-tab";
+import { PromptTab } from "./components/tabs/prompt-tab";
+import { RawTab } from "./components/tabs/raw-tab";
+import { ResponseTab } from "./components/tabs/response-tab";
 
 /**
  * `/assistant/conversations/:conversationId/inspect` page. The conversation

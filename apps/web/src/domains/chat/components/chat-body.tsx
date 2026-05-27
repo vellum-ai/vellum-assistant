@@ -2,13 +2,13 @@ import { type DragEventHandler, type ReactNode } from "react";
 
 import { Eye, Paperclip, Square } from "lucide-react";
 
-import { ChatScrollArea, type ChatScrollAreaProps } from "@/domains/chat/components/chat-scroll-area.js";
+import { ChatScrollArea, type ChatScrollAreaProps } from "@/domains/chat/components/chat-scroll-area";
 import {
   RefreshFeedbackPill,
   type RefreshFeedback,
-} from "@/domains/chat/refresh-feedback-pill.js";
-import { ScrollToLatestButton } from "@/domains/chat/components/scroll-to-latest-button.js";
-import { ChatComposer, type ChatComposerProps } from "@/domains/chat/components/chat-composer/chat-composer.js";
+} from "@/domains/chat/refresh-feedback-pill";
+import { ScrollToLatestButton } from "@/domains/chat/components/scroll-to-latest-button";
+import { ChatComposer, type ChatComposerProps } from "@/domains/chat/components/chat-composer/chat-composer";
 import { Button, Notice } from "@vellum/design-library";
 
 /**

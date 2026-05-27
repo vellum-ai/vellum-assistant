@@ -2,9 +2,9 @@ import { mock } from "bun:test";
 
 import { QueryClient } from "@tanstack/react-query";
 
-import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types.js";
-import type { TurnActions, TurnState } from "@/domains/messaging/turn-store.js";
-import { INITIAL_TURN_STATE } from "@/domains/messaging/turn-store.js";
+import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
+import type { TurnActions, TurnState } from "@/domains/messaging/turn-store";
+import { INITIAL_TURN_STATE } from "@/domains/messaging/turn-store";
 
 /** Build a minimal mock StreamHandlerContext with spies on every callback. */
 export function makeCtx(

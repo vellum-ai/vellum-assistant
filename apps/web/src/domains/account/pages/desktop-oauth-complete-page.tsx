@@ -4,7 +4,7 @@ import { useSearchParams } from "react-router";
 import {
   oauthCompletionStorageKey,
   type OAuthCompletePayload,
-} from "@/lib/auth/oauth-popup.js";
+} from "@/lib/auth/oauth-popup";
 
 // ── SVG icons ────────────────────────────────────────────────────────────────
 

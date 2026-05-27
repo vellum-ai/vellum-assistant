@@ -1,8 +1,8 @@
 import { ExternalLink } from "lucide-react";
 
-import type { Surface } from "@/domains/chat/types/types.js";
+import type { Surface } from "@/domains/chat/types/types";
 
-import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container.js";
+import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container";
 
 interface BrowserViewSurfaceData {
   url: string;

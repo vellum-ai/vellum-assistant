@@ -9,15 +9,15 @@ import {
   organizationsBillingAutoTopUpRetrieveOptions,
   organizationsBillingAutoTopUpRetrieveQueryKey,
   organizationsBillingAutoTopUpUpdateMutation,
-} from "@/generated/api/@tanstack/react-query.gen.js";
-import type { AutoTopUpConfigResponse } from "@/generated/api/types.gen.js";
-import { brandLabel, formatBrandLast4 } from "@/domains/settings/utils/payment-method-brand.js";
+} from "@/generated/api/@tanstack/react-query.gen";
+import type { AutoTopUpConfigResponse } from "@/generated/api/types.gen";
+import { brandLabel, formatBrandLast4 } from "@/domains/settings/utils/payment-method-brand";
 
 import {
   AutoTopUpForm,
   type AutoTopUpFormValues,
-} from "@/domains/settings/components/auto-top-up-form.js";
-import { AutoTopUpDisableConfirm } from "@/domains/settings/components/auto-top-up-disable-confirm.js";
+} from "@/domains/settings/components/auto-top-up-form";
+import { AutoTopUpDisableConfirm } from "@/domains/settings/components/auto-top-up-disable-confirm";
 
 type Mode = "view" | "form";
 

@@ -12,14 +12,14 @@
 
 import { create } from "zustand";
 
-import { createSelectors } from "@/utils/create-selectors.js";
+import { createSelectors } from "@/utils/create-selectors";
 
 import type {
   PendingSecretState,
   PendingConfirmationState,
   PendingContactRequestState,
   PendingQuestionState,
-} from "@/domains/chat/types/chat-ui-types.js";
+} from "@/domains/chat/types/chat-ui-types";
 
 // ---------------------------------------------------------------------------
 // State

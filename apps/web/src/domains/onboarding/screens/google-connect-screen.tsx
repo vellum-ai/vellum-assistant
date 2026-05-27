@@ -6,22 +6,22 @@ import { Button } from "@vellum/design-library/components/button";
 import {
   assistantsOauthConnectionsListOptions,
   assistantsOauthStartCreateMutation,
-} from "@/generated/api/@tanstack/react-query.gen.js";
-import type { OAuthConnection } from "@/generated/api/types.gen.js";
-import { useOAuthCompleteDeepLinkListener } from "@/hooks/use-oauth-complete-deep-link-listener.js";
+} from "@/generated/api/@tanstack/react-query.gen";
+import type { OAuthConnection } from "@/generated/api/types.gen";
+import { useOAuthCompleteDeepLinkListener } from "@/hooks/use-oauth-complete-deep-link-listener";
 import {
   getOAuthCompleteMessagePayload,
   getOAuthCompleteStoragePayload,
   isOAuthCompletePayloadForRequest,
   oauthCompletionStorageKey,
   type OAuthCompletePayload,
-} from "@/lib/auth/oauth-popup.js";
-import { PRECHAT_TOOLS } from "@/domains/onboarding/prechat-tools.js";
-import type { OAuthCompleteDeepLinkPayload } from "@/runtime/native-deep-link.js";
-import { useIsNativePlatform } from "@/runtime/native-auth.js";
-import { openUrl, openUrlFinishedListener } from "@/runtime/browser.js";
-import { routes } from "@/utils/routes.js";
-import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout.js";
+} from "@/lib/auth/oauth-popup";
+import { PRECHAT_TOOLS } from "@/domains/onboarding/prechat-tools";
+import type { OAuthCompleteDeepLinkPayload } from "@/runtime/native-deep-link";
+import { useIsNativePlatform } from "@/runtime/native-auth";
+import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
+import { routes } from "@/utils/routes";
+import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 
 const GOOGLE_PROVIDER_KEY = "google";
 

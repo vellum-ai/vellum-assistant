@@ -10,11 +10,11 @@ import {
   formattedCreatedAt,
   isProviderOnlySummary,
   summaryFallbackMessage,
-} from "@/domains/chat/inspector/inspector-formatters.js";
+} from "@/domains/chat/inspector/inspector-formatters";
 import type {
   LLMCallSummary,
   LLMRequestLogEntry,
-} from "@/domains/chat/types/inspector-types.js";
+} from "@/domains/chat/types/inspector-types";
 
 interface OverviewTabProps {
   entry: LLMRequestLogEntry;

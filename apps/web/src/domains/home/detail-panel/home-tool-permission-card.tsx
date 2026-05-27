@@ -1,5 +1,5 @@
 import { Typography } from "@vellum/design-library";
-import type { FeedItem } from "../types.js";
+import type { FeedItem } from "../types";
 
 type CredentialStatus =
   | "revoked"

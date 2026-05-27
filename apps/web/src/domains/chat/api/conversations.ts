@@ -13,11 +13,11 @@ import {
   client,
   extractErrorMessage,
   SDK_BASE_OPTIONS,
-} from "@/domains/chat/api/client.js";
+} from "@/domains/chat/api/client";
 import {
   parseSlackMessageLink,
   type SlackMessageLink,
-} from "@/domains/chat/types/types.js";
+} from "@/domains/chat/types/types";
 
 // ---------------------------------------------------------------------------
 // Conversations

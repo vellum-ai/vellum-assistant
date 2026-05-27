@@ -15,8 +15,8 @@ import {
   sendTerminalInput,
   subscribeTerminalEvents,
   type TerminalOutputStream,
-} from "@/domains/terminal/api.js";
-import { useTerminalStore } from "@/domains/terminal/terminal-store.js";
+} from "@/domains/terminal/api";
+import { useTerminalStore } from "@/domains/terminal/terminal-store";
 
 // ---------------------------------------------------------------------------
 // Constants

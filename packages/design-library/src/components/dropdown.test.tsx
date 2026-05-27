@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { Dropdown, type DropdownOption } from "./dropdown.js";
+import { Dropdown, type DropdownOption } from "./dropdown";
 
 const options: DropdownOption<"a" | "b">[] = [
   { value: "a", label: "Option A" },

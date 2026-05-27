@@ -14,11 +14,11 @@ import {
   CHART_AXIS_LINE,
   CHART_AXIS_TICK,
   CHART_GRID_PROPS,
-} from "@/components/charts/chart-config.js";
-import { formatDateLabel } from "@/components/charts/format-date-label.js";
-import { StackedBarTooltip } from "@/components/charts/stacked-bar-tooltip.js";
-import type { UsageBucket } from "@/generated/api/types.gen.js";
-import { useIsMobile } from "@/hooks/use-is-mobile.js";
+} from "@/components/charts/chart-config";
+import { formatDateLabel } from "@/components/charts/format-date-label";
+import { StackedBarTooltip } from "@/components/charts/stacked-bar-tooltip";
+import type { UsageBucket } from "@/generated/api/types.gen";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 
 export type ChartMetric = "spend" | "events";
 

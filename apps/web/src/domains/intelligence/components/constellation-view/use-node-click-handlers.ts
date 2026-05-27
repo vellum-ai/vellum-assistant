@@ -6,7 +6,7 @@ import {
   useState,
 } from "react";
 
-import { useDoubleClick } from "@/hooks/use-double-click.js";
+import { useDoubleClick } from "@/hooks/use-double-click";
 
 /**
  * Bundles hover state + click/pointer handlers for interactive constellation

@@ -2,12 +2,12 @@
 import * as Sentry from "@sentry/react";
 import { useCallback, useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 
-import { extractErrorMessage } from "@/lib/api-errors.js";
+import { extractErrorMessage } from "@/lib/api-errors";
 import {
   getAssistant,
   hatchAssistant,
   retireAssistantById,
-} from "@/assistant/api.js";
+} from "@/assistant/api";
 import {
   buildInitializingTimeoutError,
   INITIALIZING_TIMEOUT_MS,
@@ -15,10 +15,10 @@ import {
   PLATFORM_HOSTED_DISABLED_MESSAGE,
   resolveAssistantLifecycleState,
   shouldRecoverFromHatchFailure,
-} from "@/assistant/lifecycle.js";
-import { resolveOnboardingRedirect } from "@/domains/onboarding/gate.js";
-import { setSelfHostedConnection } from "@/lib/self-hosted/connection.js";
-import { routes } from "@/utils/routes.js";
+} from "@/assistant/lifecycle";
+import { resolveOnboardingRedirect } from "@/domains/onboarding/gate";
+import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
+import { routes } from "@/utils/routes";
 
 const POLL_INTERVAL_MS = 3000;
 const MAX_HATCH_RETRIES = 3;

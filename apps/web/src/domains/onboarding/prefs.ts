@@ -10,7 +10,7 @@
  * (`onboarding.selectedVersion`, `onboarding.lastUserId`).
  *
  * Storage keys are documented in `onboarding-store.ts`. The privacy
- * settings page and the Sentry consent gate read `vellum_share_*`
+ * settings page and the Sentry consent gate read `device:share_*`
  * directly — that contract is preserved by the per-key adapter.
  */
 import { useCallback } from "react";
@@ -19,8 +19,9 @@ import {
   getLocalSetting,
   removeLocalSetting,
   setLocalSetting,
-} from "@/lib/local-settings.js";
-import { useOnboardingStore } from "@/domains/onboarding/onboarding-store.js";
+} from "@/lib/local-settings";
+import { getDeviceSetting, setDeviceSetting } from "@/lib/device-settings";
+import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
 
 // ---------------------------------------------------------------------------
 // Storage keys (non-boolean — boolean keys live in onboarding-store.ts)
@@ -36,13 +37,6 @@ const KEY_COMPLETED = "onboarding.completed";
  * string / absent means "latest" (the normal managed default).
  */
 const KEY_SELECTED_VERSION = "onboarding.selectedVersion";
-/**
- * Onboarding-only: last user id observed signed in on this browser. Used to
- * invalidate stale `onboarding.*` flags when a different user signs in on
- * the same machine without the previous user ever logging out (e.g. session
- * expiry, cookie clear, browser profile share).
- */
-const KEY_LAST_USER_ID = "onboarding.lastUserId";
 
 // ---------------------------------------------------------------------------
 // Public hooks — thin wrappers around the Zustand store
@@ -145,7 +139,7 @@ export function readAiDataConsent(): boolean {
 export function hasReturningUserSignal(): boolean {
   if (typeof window === "undefined") return false;
   try {
-    return getLocalSetting(KEY_LAST_USER_ID, "") !== "";
+    return getDeviceSetting("lastUserId", "") !== "";
   } catch {
     return false;
   }
@@ -232,14 +226,14 @@ export function syncOnboardingUser(userId: string | null): void {
   // which matches how the rest of the onboarding surface treats storage
   // failures (see `onStart` and the hatch-success write).
   try {
-    const stored = getLocalSetting(KEY_LAST_USER_ID, "");
+    const stored = getDeviceSetting("lastUserId", "");
     if (stored === userId) return;
     // New user id (either different from stored, or storage was empty).
     // Any flags still in localStorage belong to a prior user — drop them
     // and remember the current user id for next time.
     useOnboardingStore.getState().resetOnboardingFlags();
     removeLocalSetting(KEY_SELECTED_VERSION);
-    setLocalSetting(KEY_LAST_USER_ID, userId);
+    setDeviceSetting("lastUserId", userId);
   } catch {
     // Storage unavailable — nothing to reconcile.
   }

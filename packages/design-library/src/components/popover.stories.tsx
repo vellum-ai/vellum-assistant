@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
-import { Button } from "./button.js";
-import { Popover } from "./popover.js";
+import { Button } from "./button";
+import { Popover } from "./popover";
 
 interface PopoverStoryArgs {
   side: "top" | "right" | "bottom" | "left";

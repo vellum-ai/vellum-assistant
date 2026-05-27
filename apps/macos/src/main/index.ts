@@ -1,8 +1,10 @@
-import { app, BrowserWindow, net, protocol, session, shell } from "electron";
+import { app, BrowserWindow, ipcMain, net, protocol, session, shell } from "electron";
 import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
+
+import { readSetting, writeSetting } from "./settings.js";
 
 const DEV_SERVER_URL = "http://localhost:5173";
 const DEV_SERVER_ORIGIN = new URL(DEV_SERVER_URL).origin;
@@ -152,6 +154,16 @@ const installPermissionHandler = (): void => {
   );
 };
 
+// IPC bridge for the `window.vellum.settings.*` API exposed by preload.
+// Errors from electron-store's schema validator (thrown as SyntaxError from
+// `set`) propagate as rejected Promises to the renderer.
+const installSettingsIpc = (): void => {
+  ipcMain.handle("vellum:settings:get", (_event, key: string) => readSetting(key));
+  ipcMain.handle("vellum:settings:set", (_event, key: string, value: unknown) => {
+    writeSetting(key, value);
+  });
+};
+
 // ---------------------------------------------------------------------------
 // Daemon supervisor
 // ---------------------------------------------------------------------------
@@ -258,6 +270,7 @@ app
       registerAppProtocol();
     }
     installPermissionHandler();
+    installSettingsIpc();
     spawnDaemon();
     createWindow();
 

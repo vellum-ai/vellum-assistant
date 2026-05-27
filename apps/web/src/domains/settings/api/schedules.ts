@@ -3,12 +3,12 @@
  * These endpoints are served via RuntimeProxyView under
  * /v1/assistants/{id}/schedules/* and are not part of the Django OpenAPI schema.
  */
-import { client } from "@/generated/api/client.gen.js";
+import { client } from "@/generated/api/client.gen";
 import {
   ApiError,
   assertHasResponse,
   extractErrorMessage,
-} from "@/lib/api-errors.js";
+} from "@/lib/api-errors";
 
 import type {
   ConsolidationConfigResponse,
@@ -18,7 +18,7 @@ import type {
   Schedule,
   ScheduleRunsResponse,
   SchedulesListResponse,
-} from "@/domains/settings/types/schedules.js";
+} from "@/domains/settings/types/schedules";
 
 export { ApiError };
 
@@ -75,7 +75,7 @@ export async function fetchScheduleRuns(
   assistantId: string,
   scheduleId: string,
   limit = 10,
-): Promise<import("@/domains/settings/types/schedules.js").ScheduleRun[]> {
+): Promise<import("@/domains/settings/types/schedules").ScheduleRun[]> {
   const { data, error, response } = await client.get<
     ScheduleRunsResponse,
     unknown
@@ -155,7 +155,7 @@ export async function runScheduleNow(
 export async function fetchHeartbeatRuns(
   assistantId: string,
   limit = 10,
-): Promise<import("@/domains/settings/types/schedules.js").ScheduleRun[]> {
+): Promise<import("@/domains/settings/types/schedules").ScheduleRun[]> {
   const { data, error, response } = await client.get<
     HeartbeatRunsResponse,
     unknown

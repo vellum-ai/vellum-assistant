@@ -1,7 +1,7 @@
 import { Tag } from "@vellum/design-library/components/tag";
 import { Toggle } from "@vellum/design-library/components/toggle";
-import { SettingsCard } from "@/domains/settings/components/settings-card.js";
-import { useEnvironmentStore } from "@/lib/environment/environment-store.js";
+import { DetailCard } from "@/components/detail-card";
+import { useEnvironmentStore } from "@/lib/environment/environment-store";
 
 export function EnvironmentConfigPanel() {
   const emailRootDomain = useEnvironmentStore.use.emailRootDomain();
@@ -9,7 +9,7 @@ export function EnvironmentConfigPanel() {
   const setEnvironment = useEnvironmentStore.use.setEnvironment();
 
   return (
-    <SettingsCard
+    <DetailCard
       title="Environment"
       subtitle="Environment configuration overrides for this session."
     >
@@ -47,6 +47,6 @@ export function EnvironmentConfigPanel() {
           </div>
         </div>
       </div>
-    </SettingsCard>
+    </DetailCard>
   );
 }

@@ -4,8 +4,8 @@ import {
   type ReactNode,
 } from "react";
 
-import { cn } from "../utils/cn.js";
-import { Typography } from "./typography.js";
+import { cn } from "../utils/cn";
+import { Typography } from "./typography";
 
 type CardPadding = "sm" | "md" | "lg";
 

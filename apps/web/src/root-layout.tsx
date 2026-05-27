@@ -1,18 +1,18 @@
 import { Outlet, useNavigate, useOutletContext } from "react-router";
 
-import { useAppTheme } from "@/hooks/use-app-theme.js";
-import { useEventBusInit } from "@/hooks/use-event-bus-init.js";
-import { useIsMobile } from "@/hooks/use-is-mobile.js";
-import { useVisibleViewport } from "@/hooks/use-visible-viewport.js";
+import { useAppTheme } from "@/hooks/use-app-theme";
+import { useEventBusInit } from "@/hooks/use-event-bus-init";
+import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useVisibleViewport } from "@/hooks/use-visible-viewport";
 import {
   useAssistantLifecycle,
   type UseAssistantLifecycleReturn,
-} from "@/domains/chat/hooks/use-assistant-lifecycle.js";
-import { useAuthStore } from "@/stores/auth-store.js";
-import { useEnvironmentStore } from "@/lib/environment/environment-store.js";
-import { useAssistantSyncStream } from "@/hooks/use-assistant-sync-stream.js";
-import { useClientFeatureFlagSync } from "@/lib/feature-flags/use-client-feature-flag-sync.js";
-import { useAssistantFeatureFlagSync } from "@/lib/feature-flags/use-assistant-feature-flag-sync.js";
+} from "@/domains/chat/hooks/use-assistant-lifecycle";
+import { useAuthStore } from "@/stores/auth-store";
+import { useEnvironmentStore } from "@/lib/environment/environment-store";
+import { useAssistantSyncStream } from "@/hooks/use-assistant-sync-stream";
+import { useClientFeatureFlagSync } from "@/lib/feature-flags/use-client-feature-flag-sync";
+import { useAssistantFeatureFlagSync } from "@/lib/feature-flags/use-assistant-feature-flag-sync";
 
 /**
  * Threshold (in px) below which a `innerHeight − visualViewport.height` delta

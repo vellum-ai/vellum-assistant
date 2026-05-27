@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { AssistantEvent } from "@/domains/chat/api/event-types.js";
+import type { AssistantEvent } from "@/domains/chat/api/event-types";
 import {
   __resetEventBusForTesting,
   useEventBusStore,
-} from "@/stores/event-bus-store.js";
+} from "@/stores/event-bus-store";
 
 function avatarEvent(): AssistantEvent {
   return { type: "avatar_updated" } as AssistantEvent;

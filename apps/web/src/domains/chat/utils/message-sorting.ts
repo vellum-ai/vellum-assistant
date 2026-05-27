@@ -1,4 +1,4 @@
-import type { DisplayMessage } from "@/domains/chat/types/types.js";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 
 /**
  * Returns the most recent activity timestamp inside a message — the max

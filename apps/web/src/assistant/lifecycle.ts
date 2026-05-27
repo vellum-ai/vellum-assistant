@@ -1,6 +1,6 @@
-import { extractErrorMessage } from "@/lib/api-errors.js";
+import { extractErrorMessage } from "@/lib/api-errors";
 
-import type { GetAssistantResult } from "@/assistant/api.js";
+import type { GetAssistantResult } from "@/assistant/api";
 
 export type ResolvedAssistantLifecycleState =
   | { kind: "active" }

@@ -6,7 +6,7 @@
  * wire these into the main SSE stream processor.
  */
 
-import type { DocumentComment } from "@/domains/chat/api/document-comments.js";
+import type { DocumentComment } from "@/domains/chat/api/document-comments";
 
 // ---------------------------------------------------------------------------
 // SSE event shapes — mirrors daemon message-types/document-comments.ts

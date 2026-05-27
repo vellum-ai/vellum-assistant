@@ -13,7 +13,7 @@ import { Button } from "@vellum/design-library/components/button";
 import { Modal } from "@vellum/design-library/components/modal";
 import { Notice } from "@vellum/design-library/components/notice";
 import { toast } from "@vellum/design-library/components/toast";
-import { organizationsBillingAutoTopUpSetupIntentCreateMutation } from "@/generated/api/@tanstack/react-query.gen.js";
+import { organizationsBillingAutoTopUpSetupIntentCreateMutation } from "@/generated/api/@tanstack/react-query.gen";
 
 // Stripe publishable key — injected at build time by the deployment pipeline.
 // This is Stripe's *publishable* key (pk_live_* / pk_test_*), designed to be

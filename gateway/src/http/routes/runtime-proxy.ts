@@ -6,6 +6,7 @@ import {
   stripHopByHop,
 } from "@vellumai/assistant-client";
 
+import { validateSessionCookie } from "../../auth/session-cookie.js";
 import {
   validateEdgeToken,
   mintExchangeToken,
@@ -61,26 +62,35 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
     const authHeader = req.headers.get("authorization");
 
     if (config.runtimeProxyRequireAuth && req.method !== "OPTIONS") {
-      if (!authHeader || !authHeader.toLowerCase().startsWith("bearer ")) {
-        log.warn(
-          { method: req.method, path: url.pathname },
-          "Runtime proxy auth rejected: missing or malformed Authorization header",
+      if (authHeader && authHeader.toLowerCase().startsWith("bearer ")) {
+        const edgeJwt = authHeader.slice(7);
+        const result = validateEdgeToken(edgeJwt);
+        if (!result.ok) {
+          log.warn(
+            { method: req.method, path: url.pathname, reason: result.reason },
+            "Runtime proxy auth rejected: edge token validation failed",
+          );
+          return Response.json({ error: "Unauthorized" }, { status: 401 });
+        }
+        exchangeToken = mintExchangeToken(
+          result.claims,
+          result.claims.scope_profile,
         );
-        return Response.json({ error: "Unauthorized" }, { status: 401 });
+      } else {
+        const cookieResult = validateSessionCookie(req);
+        if (cookieResult.ok) {
+          exchangeToken = mintExchangeToken(
+            cookieResult.claims,
+            cookieResult.claims.scope_profile,
+          );
+        } else {
+          log.warn(
+            { method: req.method, path: url.pathname },
+            "Runtime proxy auth rejected: no valid bearer token or session cookie",
+          );
+          return Response.json({ error: "Unauthorized" }, { status: 401 });
+        }
       }
-      const edgeJwt = authHeader.slice(7);
-      const result = validateEdgeToken(edgeJwt);
-      if (!result.ok) {
-        log.warn(
-          { method: req.method, path: url.pathname, reason: result.reason },
-          "Runtime proxy auth rejected: edge token validation failed",
-        );
-        return Response.json({ error: "Unauthorized" }, { status: 401 });
-      }
-      exchangeToken = mintExchangeToken(
-        result.claims,
-        result.claims.scope_profile,
-      );
     } else {
       exchangeToken = mintServiceToken();
     }

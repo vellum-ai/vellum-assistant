@@ -13,11 +13,11 @@
 import { describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import type { ChatScrollAreaProps } from "@/domains/chat/components/chat-scroll-area.js";
+import type { ChatScrollAreaProps } from "@/domains/chat/components/chat-scroll-area";
 
 // Stub heavy children that aren't relevant to the layout assertions.
 mock.module(
-  "@/domains/chat/transcript/transcript.js",
+  "@/domains/chat/transcript/transcript",
   () => ({
     Transcript: () => <div data-testid="transcript">TRANSCRIPT</div>,
   }),
@@ -30,12 +30,12 @@ mock.module(
   }),
 );
 
-mock.module("@/domains/chat/components/chat-skeleton.js", () => ({
+mock.module("@/domains/chat/components/chat-skeleton", () => ({
   ChatSkeleton: () => <div>SKELETON</div>,
 }));
 
 // Import after mocks are registered (bun:test hoists mock.module).
-import { ChatScrollArea } from "@/domains/chat/components/chat-scroll-area.js";
+import { ChatScrollArea } from "@/domains/chat/components/chat-scroll-area";
 
 function baseProps(
   overrides: Partial<ChatScrollAreaProps> = {},

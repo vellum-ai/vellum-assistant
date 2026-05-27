@@ -4,22 +4,22 @@ import { useMemo, useState } from "react";
 
 import { Tag, type TagTone } from "@vellum/design-library/components/tag";
 import { Toggle } from "@vellum/design-library/components/toggle";
-import { SettingsCard } from "@/domains/settings/components/settings-card.js";
-import { assistantsActiveRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen.js";
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
-import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
+import { DetailCard } from "@/components/detail-card";
+import { assistantsActiveRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
+import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
+import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
 import {
   ALL_FLAGS,
   flagKeyToStoreKey,
   scopeIncludes,
   type FlagScope,
   type SingleScope,
-} from "@/lib/feature-flags/feature-flag-catalog.js";
-import { useFlagQueryFreshness } from "@/lib/backwards-compat/flag-query-freshness.js";
+} from "@/lib/feature-flags/feature-flag-catalog";
+import { useFlagQueryFreshness } from "@/lib/backwards-compat/flag-query-freshness";
 import {
   assistantFlagValuesQueryKey,
   fetchAssistantFlagValues,
-} from "@/lib/feature-flags/use-assistant-feature-flag-sync.js";
+} from "@/lib/feature-flags/use-assistant-feature-flag-sync";
 
 const SCOPE_TONE: Record<SingleScope, TagTone> = {
   client: "warning",
@@ -100,7 +100,7 @@ export function FeatureFlagsPanel() {
   }, [flags, searchText]);
 
   return (
-    <SettingsCard
+    <DetailCard
       title="Feature Flags"
       subtitle="Active feature flags evaluated for the current session."
     >
@@ -134,7 +134,7 @@ export function FeatureFlagsPanel() {
           </div>
         )}
       </div>
-    </SettingsCard>
+    </DetailCard>
   );
 }
 

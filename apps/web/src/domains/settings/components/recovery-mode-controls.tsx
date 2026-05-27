@@ -6,9 +6,9 @@ import { Notice } from "@vellum/design-library/components/notice";
 import {
   assistantsMaintenanceModeEnterCreate,
   assistantsMaintenanceModeExitCreate,
-} from "@/generated/api/sdk.gen.js";
-import type { MaintenanceMode } from "@/generated/api/types.gen.js";
-import { reportError } from "@/lib/errors/report.js";
+} from "@/generated/api/sdk.gen";
+import type { MaintenanceMode } from "@/generated/api/types.gen";
+import { reportError } from "@/lib/errors/report";
 
 interface RecoveryModeControlsProps {
   assistantId: string;

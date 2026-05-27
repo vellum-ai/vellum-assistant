@@ -15,8 +15,8 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-import { cn } from "../utils/cn.js";
-import { usePortalContainer } from "../utils/portal-container.js";
+import { cn } from "../utils/cn";
+import { usePortalContainer } from "../utils/portal-container";
 
 export interface DropdownMenuPosition {
   readonly left: number;

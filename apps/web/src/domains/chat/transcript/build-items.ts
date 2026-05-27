@@ -5,13 +5,13 @@
 // forthcoming Transcript component can render a single flat list
 // without re-implementing those projection rules.
 
-import { dedupeDisplayMessages, type DisplayMessage } from "@/domains/chat/utils/reconcile.js";
+import { dedupeDisplayMessages, type DisplayMessage } from "@/domains/chat/utils/reconcile";
 import type {
   MessageItem,
   PendingContactRequestItem,
   QueuedMarkerItem,
   TranscriptItem,
-} from "@/domains/chat/transcript/types.js";
+} from "@/domains/chat/transcript/types";
 
 export interface BuildTranscriptItemsInput {
   messages: DisplayMessage[];

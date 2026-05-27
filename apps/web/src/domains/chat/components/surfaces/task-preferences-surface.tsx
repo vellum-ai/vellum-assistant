@@ -3,9 +3,9 @@ import { useRef, useState, type CSSProperties } from "react";
 
 import { Button } from "@vellum/design-library";
 
-import { TASK_ICONS } from "@/components/prechat-task-icons.js";
-import type { Surface } from "@/domains/chat/types/types.js";
-import { PRECHAT_TASKS } from "@/types/prechat-tasks.js";
+import { TASK_ICONS } from "@/components/prechat-task-icons";
+import type { Surface } from "@/domains/chat/types/types";
+import { PRECHAT_TASKS } from "@/types/prechat-tasks";
 
 // ---------------------------------------------------------------------------
 // Types

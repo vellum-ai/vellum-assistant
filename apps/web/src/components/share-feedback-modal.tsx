@@ -31,12 +31,13 @@ import { Dropdown, type DropdownOption } from "@vellum/design-library/components
 import { Input, Textarea } from "@vellum/design-library/components/input";
 import { Notice } from "@vellum/design-library/components/notice";
 import { Toggle } from "@vellum/design-library/components/toggle";
-import { feedbackCreateMutation } from "@/generated/api/@tanstack/react-query.gen.js";
-import type { ClassificationEnum } from "@/generated/api/types.gen.js";
-import { buildVellumMutatingHeaders } from "@/lib/auth/request-headers.js";
-import type { ChatDebugApi } from "@/domains/chat/utils/debug-api.js";
-import { buildChatDiagnosticsSnapshot } from "@/domains/chat/utils/diagnostics.js";
-import { useAuthStore } from "@/stores/auth-store.js";
+import { feedbackCreateMutation } from "@/generated/api/@tanstack/react-query.gen";
+import type { ClassificationEnum } from "@/generated/api/types.gen";
+import { buildVellumMutatingHeaders } from "@/lib/auth/request-headers";
+import type { ChatDebugApi } from "@/domains/chat/utils/debug-api";
+import { buildChatDiagnosticsSnapshot } from "@/domains/chat/utils/diagnostics";
+import { isElectron } from "@/runtime/is-electron";
+import { useAuthStore } from "@/stores/auth-store";
 
 type Reason = "bug_report" | "feature_request" | "other";
 
@@ -85,7 +86,12 @@ const CLASSIFICATION_MAP: Record<Reason, ClassificationEnum> = {
   other: "other",
 };
 
-function getFeedbackClient(): "ios" | "web" {
+function getFeedbackClient(): "macos" | "ios" | "web" {
+  // The Electron shell wraps apps/web on macOS. Backend ClientEnum doesn't
+  // have a separate `electron` value; reporting `macos` keeps the
+  // platform-level signal accurate and matches the slot vacated by the
+  // retiring Swift macOS app.
+  if (isElectron()) return "macos";
   return Capacitor.getPlatform() === "ios" ? "ios" : "web";
 }
 

@@ -13,17 +13,17 @@
 
 import { describe, expect, mock, test } from "bun:test";
 
-mock.module("@/domains/chat/components/chat-markdown-message.js", () => ({
+mock.module("@/domains/chat/components/chat-markdown-message", () => ({
   ChatMarkdownMessage: ({ content }: { content: string }) => (
     <div data-testid="markdown">{content}</div>
   ),
 }));
 
-mock.module("@/domains/chat/components/message-hover-actions/message-hover-actions.js", () => ({
+mock.module("@/domains/chat/components/message-hover-actions/message-hover-actions", () => ({
   MessageHoverActions: () => <div data-testid="hover-actions" />,
 }));
 
-mock.module("@/domains/chat/components/tool-call-chip/tool-call-chip.js", () => ({
+mock.module("@/domains/chat/components/tool-call-chip/tool-call-chip", () => ({
   ToolCallChip: () => <div data-testid="tool-call-chip" />,
 }));
 
@@ -31,7 +31,7 @@ mock.module("@/components/assistant/surfaces", () => ({
   SurfaceRouter: () => <div data-testid="surface-router" />,
 }));
 
-mock.module("@/domains/chat/components/chat-attachments/message-attachments.js", () => ({
+mock.module("@/domains/chat/components/chat-attachments/message-attachments", () => ({
   MessageAttachments: () => <div data-testid="message-attachments" />,
 }));
 
@@ -41,14 +41,14 @@ mock.module("@/domains/chat/components/chat-attachments/message-attachments.js",
 
 import { renderToStaticMarkup } from "react-dom/server";
 
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import type {
   MessageItem,
   ThinkingItem,
   TranscriptItem,
-} from "@/domains/chat/transcript/types.js";
+} from "@/domains/chat/transcript/types";
 
-import { LatestTurnRow } from "@/domains/chat/transcript/latest-turn-row.js";
+import { LatestTurnRow } from "@/domains/chat/transcript/latest-turn-row";
 
 function userMessageItem(id: string, content: string): MessageItem {
   const msg: DisplayMessage = {

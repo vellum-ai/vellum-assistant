@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
-import type { LlmLogPayload } from "@/domains/chat/inspector/inspector-payload-api.js";
-import type { LlmContextResponse } from "@/domains/chat/types/inspector-types.js";
+import type { LlmLogPayload } from "@/domains/chat/inspector/inspector-payload-api";
+import type { LlmContextResponse } from "@/domains/chat/types/inspector-types";
 
 import {
   buildInspectorExportFilename,
   buildInspectorExportFiles,
-} from "@/domains/chat/inspector/inspector-export.js";
+} from "@/domains/chat/inspector/inspector-export";
 
 function makeContext(): LlmContextResponse {
   return {

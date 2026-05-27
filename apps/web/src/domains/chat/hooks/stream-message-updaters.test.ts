@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 
 import {
   appendTextDelta,
@@ -12,9 +12,9 @@ import {
   handleConversationError,
   stopStreaming,
   upsertToolCall,
-} from "@/domains/chat/hooks/stream-message-updaters.js";
-import type { ToolActivityMetadata } from "@/assistant/web-activity-types.js";
-import type { ChatMessageToolCall } from "@/domains/chat/api/event-types.js";
+} from "@/domains/chat/hooks/stream-message-updaters";
+import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 
 function makeAssistantMsg(
   overrides: Partial<DisplayMessage> = {},

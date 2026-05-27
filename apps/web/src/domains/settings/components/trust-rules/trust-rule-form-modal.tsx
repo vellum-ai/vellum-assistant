@@ -12,8 +12,8 @@ import { createPortal } from "react-dom";
 import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { Input } from "@vellum/design-library/components/input";
 import { Notice } from "@vellum/design-library/components/notice";
-import { updateTrustRule } from "@/domains/settings/api/trust-rules.js";
-import type { TrustRuleItem, TrustRuleRisk } from "@/domains/settings/types/trust-rules.js";
+import { updateTrustRule } from "@/domains/settings/api/trust-rules";
+import type { TrustRuleItem, TrustRuleRisk } from "@/domains/settings/types/trust-rules";
 
 const TOOL_OPTIONS = [
   "bash",

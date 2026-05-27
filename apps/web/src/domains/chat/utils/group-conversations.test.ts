@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
 
-import type { Conversation, ConversationGroup } from "@/domains/chat/api/conversations.js";
+import type { Conversation, ConversationGroup } from "@/domains/chat/api/conversations";
 import {
   buildMoveToGroupTargets,
   getEffectiveGroupId,
   groupConversations,
-} from "@/domains/chat/utils/group-conversations.js";
+} from "@/domains/chat/utils/group-conversations";
 
 function makeConversation(overrides: Partial<Conversation>): Conversation {
   return {

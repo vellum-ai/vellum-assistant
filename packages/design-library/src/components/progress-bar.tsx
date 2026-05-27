@@ -1,6 +1,6 @@
 import { type Ref } from "react";
 
-import { cn } from "../utils/cn.js";
+import { cn } from "../utils/cn";
 
 export interface ProgressBarProps {
   value: number;

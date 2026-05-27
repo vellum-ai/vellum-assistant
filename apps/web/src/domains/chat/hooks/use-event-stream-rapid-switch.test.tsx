@@ -3,13 +3,13 @@ import { cleanup, renderHook } from "@testing-library/react";
 import { act } from "react";
 import { useRef, type MutableRefObject } from "react";
 
-import type { AssistantEvent } from "@/domains/chat/api/event-types.js";
-import type { ChatEventStream } from "@/domains/chat/api/stream.js";
+import type { AssistantEvent } from "@/domains/chat/api/event-types";
+import type { ChatEventStream } from "@/domains/chat/api/stream";
 import {
   __resetEventBusForTesting,
   useEventBusStore,
-} from "@/stores/event-bus-store.js";
-import { useEventStream } from "@/domains/chat/hooks/use-event-stream.js";
+} from "@/stores/event-bus-store";
+import { useEventStream } from "@/domains/chat/hooks/use-event-stream";
 
 type StreamContext = { assistantId: string; conversationId: string };
 

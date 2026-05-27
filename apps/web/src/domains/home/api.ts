@@ -4,14 +4,14 @@
  * These endpoints are not in the Django OpenAPI schema, so we use the
  * HeyAPI client singleton directly rather than generated hooks.
  */
-import { client } from "@/generated/api/client.gen.js";
-import { assertHasResponse } from "@/lib/api-errors.js";
+import { client } from "@/generated/api/client.gen";
+import { assertHasResponse } from "@/lib/api-errors";
 import type {
   FeedItem,
   FeedItemStatus,
   HomeFeedResponse,
   RelationshipState,
-} from "./types.js";
+} from "./types";
 
 export async function fetchHomeFeed(
   assistantId: string,

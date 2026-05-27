@@ -1,9 +1,9 @@
 import { ArrowUpRight, FileText } from "lucide-react";
 import type { KeyboardEvent } from "react";
 
-import type { Surface } from "@/domains/chat/types/types.js";
+import type { Surface } from "@/domains/chat/types/types";
 
-import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container.js";
+import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container";
 
 interface DocumentPreviewSurfaceData {
   documentName: string;

@@ -11,10 +11,10 @@ import {
   patchGroup,
   removeGroup,
   replaceOptimisticGroup,
-} from "@/domains/conversations/conversation-queries.js";
+} from "@/domains/conversations/conversation-queries";
 
-import { haptic } from "@/utils/haptics.js";
-import { type ConversationGroup, createGroup, deleteGroup, updateGroup } from "@/domains/chat/api/conversations.js";
+import { haptic } from "@/utils/haptics";
+import { type ConversationGroup, createGroup, deleteGroup, updateGroup } from "@/domains/chat/api/conversations";
 
 // ---------------------------------------------------------------------------
 // Hook

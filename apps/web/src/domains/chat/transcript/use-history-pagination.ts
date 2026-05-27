@@ -23,9 +23,9 @@ import { useCallback, useMemo } from "react";
 import {
   fetchLatestHistoryPage,
   fetchOlderHistoryPage,
-} from "@/domains/chat/api/history.js";
-import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types.js";
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
+} from "@/domains/chat/api/history";
+import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 
 // ---------------------------------------------------------------------------
 // Query key

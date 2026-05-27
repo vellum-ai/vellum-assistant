@@ -10,9 +10,9 @@ import {
   type Ref,
 } from "react";
 
-import { cn } from "../../utils/cn.js";
+import { cn } from "../../utils/cn";
 
-import { MarqueeText } from "./marquee-text.js";
+import { MarqueeText } from "./marquee-text";
 
 /**
  * Sidepanel / navigation row primitive. One row you can drop into a sidebar,

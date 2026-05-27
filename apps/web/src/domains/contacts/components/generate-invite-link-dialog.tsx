@@ -7,8 +7,8 @@ import { Input } from "@vellum/design-library/components/input";
 import { Modal } from "@vellum/design-library/components/modal";
 import { Typography } from "@vellum/design-library/components/typography";
 
-import { buildA2AInviteLink } from "@/domains/contacts/a2a-invite.js";
-import { createA2AInvite } from "@/domains/contacts/api.js";
+import { buildA2AInviteLink } from "@/domains/contacts/a2a-invite";
+import { createA2AInvite } from "@/domains/contacts/api";
 
 export interface GenerateInviteLinkDialogProps {
   open: boolean;

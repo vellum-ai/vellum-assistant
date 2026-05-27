@@ -2,7 +2,7 @@ import {
   CATEGORY_CONFIGS,
   type OrbitItem,
   type TreeNode,
-} from "@/domains/intelligence/components/constellation-layout.js";
+} from "@/domains/intelligence/components/constellation-layout";
 
 export interface NodeVisibility {
   visible: boolean;

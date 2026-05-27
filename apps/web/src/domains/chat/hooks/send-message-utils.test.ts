@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 
 import {
   clearPendingConfirmationsFromMessages,
@@ -10,7 +10,7 @@ import {
   parsePendingSecretState,
   resolvePostError,
   stopStreamingAndClearConfirmations,
-} from "@/domains/chat/hooks/send-message-utils.js";
+} from "@/domains/chat/hooks/send-message-utils";
 
 // ---------------------------------------------------------------------------
 // Helpers

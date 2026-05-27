@@ -1,5 +1,5 @@
-import type { Flow } from "@/generated/auth/types.gen.js";
-import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf.js";
+import type { Flow } from "@/generated/auth/types.gen";
+import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf";
 
 // ---------------------------------------------------------------------------
 // Provider registry

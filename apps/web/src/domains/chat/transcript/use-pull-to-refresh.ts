@@ -24,7 +24,7 @@
 
 import { useEffect, useRef, useState, type RefObject } from "react";
 
-import { haptic } from "@/utils/haptics.js";
+import { haptic } from "@/utils/haptics";
 
 /** Drag distance (in raw pixels) at which the refresh commits on
  *  release. Matches `PINNED_THRESHOLD_PX` from the scroll coordinator

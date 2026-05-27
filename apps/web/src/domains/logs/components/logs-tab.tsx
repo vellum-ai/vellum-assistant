@@ -13,19 +13,19 @@ import { Dropdown } from "@vellum/design-library";
 import {
   listConversations,
   type Conversation,
-} from "@/domains/chat/api/conversations.js";
+} from "@/domains/chat/api/conversations";
 import {
   loadLastViewedConversationId,
   saveLastViewedConversationId,
-} from "@/domains/chat/utils/last-viewed-conversation-storage.js";
+} from "@/domains/chat/utils/last-viewed-conversation-storage";
 import {
   formatLatency,
   formatTimelineTimestamp,
   formatTokens,
   formatTokensCombined,
-} from "@/domains/logs/format.js";
-import { fetchTraceEvents } from "@/domains/logs/trace-events-api.js";
-import type { TraceEventRow } from "@/domains/logs/trace-events-types.js";
+} from "@/domains/logs/format";
+import { fetchTraceEvents } from "@/domains/logs/trace-events-api";
+import type { TraceEventRow } from "@/domains/logs/trace-events-types";
 import {
   calculateMetrics,
   determineGroupStatus,
@@ -35,7 +35,7 @@ import {
   groupEventsByRequest,
   stringifyAttributeValue,
   type ConversationMetrics,
-} from "@/domains/logs/trace-event-processing.js";
+} from "@/domains/logs/trace-event-processing";
 
 interface LogsTabProps {
   assistantId: string;

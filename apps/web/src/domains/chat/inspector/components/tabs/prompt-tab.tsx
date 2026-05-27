@@ -5,8 +5,8 @@ import { Button, Card, SegmentControl } from "@vellum/design-library";
 import type {
   LLMContextSection,
   LLMRequestLogEntry,
-} from "@/domains/chat/types/inspector-types.js";
-import { FileMarkdown } from "@/components/file-markdown.js";
+} from "@/domains/chat/types/inspector-types";
+import { FileMarkdown } from "@/components/file-markdown";
 
 interface PromptTabProps {
   entry: LLMRequestLogEntry;

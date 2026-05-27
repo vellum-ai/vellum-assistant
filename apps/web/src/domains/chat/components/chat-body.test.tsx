@@ -16,14 +16,14 @@ import { describe, expect, mock, test } from "bun:test";
 import { type ButtonHTMLAttributes, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import type { ChatBodyProps } from "@/domains/chat/components/chat-body.js";
+import type { ChatBodyProps } from "@/domains/chat/components/chat-body";
 
 // Stub child components that require browser APIs or complex hooks.
 // NOTE: Do NOT mock chat-scroll-area itself — that leaks across test
 // files via bun's shared module registry and breaks chat-scroll-area's
 // own tests. Instead, mock ChatScrollArea's deep dependencies.
 mock.module(
-  "@/domains/chat/transcript/transcript.js",
+  "@/domains/chat/transcript/transcript",
   () => ({
     Transcript: () => <div data-testid="transcript">TRANSCRIPT</div>,
   }),
@@ -36,7 +36,7 @@ mock.module(
   }),
 );
 
-mock.module("@/domains/chat/components/chat-skeleton.js", () => ({
+mock.module("@/domains/chat/components/chat-skeleton", () => ({
   ChatSkeleton: () => <div>SKELETON</div>,
 }));
 
@@ -52,7 +52,7 @@ mock.module(
 );
 
 mock.module(
-  "@/domains/chat/components/chat-composer/chat-composer.js",
+  "@/domains/chat/components/chat-composer/chat-composer",
   () => ({
     ChatComposer: () => <div data-testid="composer">COMPOSER</div>,
   }),
@@ -79,14 +79,14 @@ mock.module("@vellum/design-library", () => ({
 }));
 
 mock.module(
-  "@/domains/chat/refresh-feedback-pill.js",
+  "@/domains/chat/refresh-feedback-pill",
   () => ({
     RefreshFeedbackPill: () => <div>REFRESH_PILL</div>,
   }),
 );
 
 // Import after mocks are registered.
-const { ChatBody } = await import("@/domains/chat/components/chat-body.js");
+const { ChatBody } = await import("@/domains/chat/components/chat-body");
 
 const noop = () => {};
 const noopDrag = () => {};

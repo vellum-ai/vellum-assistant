@@ -4,17 +4,17 @@ import { type ReactNode, useCallback, useEffect, useRef, useState } from "react"
 import { useQuery } from "@tanstack/react-query";
 
 import { Tag } from "@vellum/design-library/components/tag";
-import { CapacityBar } from "@/domains/settings/components/capacity-bar.js";
+import { CapacityBar } from "@/domains/settings/components/capacity-bar";
 import {
   type Assistant,
   type AssistantHealthz,
   getAssistant,
   getAssistantHealthz,
-} from "@/assistant/api.js";
-import { useAuthStore } from "@/stores/auth-store.js";
-import { reportError } from "@/lib/errors/report.js";
-import { useEnvironmentStore } from "@/lib/environment/environment-store.js";
-import { DevModeVersionUnlock } from "@/domains/settings/components/dev-mode-version-unlock.js";
+} from "@/assistant/api";
+import { useAuthStore } from "@/stores/auth-store";
+import { reportError } from "@/lib/errors/report";
+import { useEnvironmentStore } from "@/lib/environment/environment-store";
+import { DevModeVersionUnlock } from "@/domains/settings/components/dev-mode-version-unlock";
 
 const CURRENT_ASSISTANT_QUERY_KEY = ["currentAssistant"] as const;
 

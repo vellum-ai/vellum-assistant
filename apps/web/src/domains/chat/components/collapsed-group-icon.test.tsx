@@ -22,12 +22,12 @@ mock.module("@vellum/design-library", () => ({
   },
 }));
 
-import type { Conversation } from "@/domains/chat/api/conversations.js";
+import type { Conversation } from "@/domains/chat/api/conversations";
 import { Pin } from "lucide-react";
 import {
   CollapsedGroupIcon,
   getGroupIndicatorState,
-} from "@/domains/chat/components/collapsed-group-icon.js";
+} from "@/domains/chat/components/collapsed-group-icon";
 
 function makeConversation(
   overrides: Partial<Conversation> & { conversationId: string },

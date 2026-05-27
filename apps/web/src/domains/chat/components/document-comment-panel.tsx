@@ -10,16 +10,16 @@ import {
 import { MessageSquareText, Send, X } from "lucide-react";
 import { Button, Tag, Typography } from "@vellum/design-library";
 
-import type { DocumentComment } from "@/domains/chat/api/document-comments.js";
+import type { DocumentComment } from "@/domains/chat/api/document-comments";
 import {
   createComment,
   deleteComment,
   fetchComments,
   reopenComment,
   resolveComment,
-} from "@/domains/chat/api/document-comments.js";
-import { DocumentCommentForm } from "./document-comment-form.js";
-import { DocumentCommentThread } from "./document-comment-thread.js";
+} from "@/domains/chat/api/document-comments";
+import { DocumentCommentForm } from "./document-comment-form";
+import { DocumentCommentThread } from "./document-comment-thread";
 
 // ---------------------------------------------------------------------------
 // Public API

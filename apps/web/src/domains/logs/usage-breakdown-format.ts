@@ -1,6 +1,6 @@
-import type { UsageGroupBreakdown } from "./usage-types.js";
+import type { UsageGroupBreakdown } from "./usage-types";
 
-import { formatTokens } from "./format.js";
+import { formatTokens } from "./format";
 
 export function formatBreakdownTokens(group: UsageGroupBreakdown): string {
   return [

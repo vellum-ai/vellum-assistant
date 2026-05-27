@@ -5,8 +5,8 @@ import { useState, type ReactNode } from "react";
 
 import { Button, Typography } from "@vellum/design-library";
 
-import { HeaderStepCarousel } from "@/domains/chat/components/tool-progress-card/header-step-carousel.js";
-import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator.js";
+import { HeaderStepCarousel } from "@/domains/chat/components/tool-progress-card/header-step-carousel";
+import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
 
 /**
  * Visual state that drives the shell's leading status indicator.
@@ -330,5 +330,5 @@ export function ToolProgressCardShell({
   );
 }
 
-export { HeaderStepCarousel } from "@/domains/chat/components/tool-progress-card/header-step-carousel.js";
-export { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator.js";
+export { HeaderStepCarousel } from "@/domains/chat/components/tool-progress-card/header-step-carousel";
+export { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";

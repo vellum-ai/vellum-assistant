@@ -1,7 +1,7 @@
 
 import { useEffect } from "react";
 
-import { usePinnedAppsStore } from "@/domains/chat/pinned-apps-store.js";
+import { usePinnedAppsStore } from "@/domains/chat/pinned-apps-store";
 
 /**
  * Subscribes to the pinned-apps store's unpin event stream and fires

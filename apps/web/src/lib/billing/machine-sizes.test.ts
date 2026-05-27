@@ -7,7 +7,7 @@ import {
   SIZE_DESCRIPTION,
   SIZE_LABEL,
   TIER_TO_SIZES,
-} from "@/lib/billing/machine-sizes.js";
+} from "@/lib/billing/machine-sizes";
 
 describe("machine-sizes", () => {
   test("TIER_TO_SIZES maps medium→[small,medium]", () => {

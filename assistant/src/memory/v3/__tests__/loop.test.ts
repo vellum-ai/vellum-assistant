@@ -96,7 +96,10 @@ const laneCalls = {
     nowText: string;
     scouts: ScoutResult[];
   }>,
-  edges: [] as Array<{ seeds: string[] }>,
+  edges: [] as Array<{
+    seeds: string[];
+    extraAdjacency?: ReadonlyMap<string, ReadonlySet<string>>;
+  }>,
   gate: [] as Array<{
     nowText: string;
     passNumber: number;
@@ -114,6 +117,14 @@ let scoutCallCount = 0;
 let walkCallCount = 0;
 let edgeCallCount = 0;
 let gateCallCount = 0;
+
+// Learned-adjacency mock state: what `aboveThreshold` returns, and a recorder of
+// the thresholds the loop read it at (empty when the loop never reads it).
+let aboveThresholdCalls: Array<{ threshold: number }> = [];
+let learnedAdjacencyResult: ReadonlyMap<
+  string,
+  ReadonlySet<string>
+> = new Map();
 
 mock.module("../scouts.js", () => ({
   runScouts: async (input: RetrievalInput): Promise<RunScoutsResult> => {
@@ -156,9 +167,20 @@ mock.module("../tree-walk.js", () => ({
 mock.module("../edges.js", () => ({
   expandEdges: async (args: {
     seeds: Iterable<string>;
+    extraAdjacency?: ReadonlyMap<string, ReadonlySet<string>>;
   }): Promise<ExpandResult> => {
-    laneCalls.edges.push({ seeds: [...args.seeds] });
+    laneCalls.edges.push({
+      seeds: [...args.seeds],
+      extraAdjacency: args.extraAdjacency,
+    });
     return nextOf(lane.edges, edgeCallCount++);
+  },
+}));
+
+mock.module("../auto-edges.js", () => ({
+  aboveThreshold: (_db: unknown, threshold: number) => {
+    aboveThresholdCalls.push({ threshold });
+    return learnedAdjacencyResult;
   },
 }));
 
@@ -225,6 +247,7 @@ function makeInput(opts?: {
   nowText?: string;
   passCap?: number;
   lanes?: LaneConfig;
+  edgesThreshold?: number;
 }): RetrievalInput {
   const lanes = {
     hot: true,
@@ -240,7 +263,13 @@ function makeInput(opts?: {
     nowText: opts?.nowText ?? "NOW",
     priorEverInjected: [],
     config: {
-      memory: { v3: { passCap: opts?.passCap ?? 3, lanes } },
+      memory: {
+        v3: {
+          passCap: opts?.passCap ?? 3,
+          lanes,
+          edges: { learnedAdjacencyThreshold: opts?.edgesThreshold ?? 0 },
+        },
+      },
     } as unknown as RetrievalInput["config"],
   };
 }
@@ -272,6 +301,8 @@ function reset(): void {
   walkCallCount = 0;
   edgeCallCount = 0;
   gateCallCount = 0;
+  aboveThresholdCalls = [];
+  learnedAdjacencyResult = new Map();
 }
 
 beforeEach(reset);
@@ -697,5 +728,48 @@ describe("runRetrievalLoop — failure + cost", () => {
 
     expect(out.trace?.passes).toHaveLength(3);
     expect(out.cost?.ms).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe("runRetrievalLoop — learned edge adjacency", () => {
+  /** Minimal single-pass fixture; the edge lane is the subject under test. */
+  function singlePassFixture(): void {
+    lane.scouts = [
+      {
+        scouts: [scout("hot", ["seed-x"])],
+        sticky: new Set(),
+        bypass: new Set(),
+      },
+    ];
+    lane.filter = [{ kept: [], trace: { judged: [], dropped: [] } }];
+    lane.walk = [{ pages: new Set(), levels: [] }];
+    lane.edges = [
+      {
+        pulled: new Set(["learned-y"]),
+        expansions: [{ from: "seed-x", pulled: ["learned-y"] }],
+      },
+    ];
+    lane.gate = [readyGate(["seed-x", "learned-y"])];
+  }
+
+  test("reads and merges learned adjacency into edge expansion when threshold > 0", async () => {
+    singlePassFixture();
+    learnedAdjacencyResult = new Map([["seed-x", new Set(["learned-y"])]]);
+
+    await runRetrievalLoop(makeInput({ edgesThreshold: 1.5 }), { db });
+
+    // The loop reads the learned graph once at the configured threshold and
+    // hands it to the edge lane as extraAdjacency.
+    expect(aboveThresholdCalls).toEqual([{ threshold: 1.5 }]);
+    expect(laneCalls.edges[0].extraAdjacency).toBe(learnedAdjacencyResult);
+  });
+
+  test("does not read or pass learned adjacency when the threshold is 0", async () => {
+    singlePassFixture();
+
+    await runRetrievalLoop(makeInput({ edgesThreshold: 0 }), { db });
+
+    expect(aboveThresholdCalls).toHaveLength(0);
+    expect(laneCalls.edges[0].extraAdjacency).toBeUndefined();
   });
 });

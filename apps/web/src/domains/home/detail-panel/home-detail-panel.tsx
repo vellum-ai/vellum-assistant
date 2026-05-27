@@ -8,10 +8,10 @@ import {
 } from "lucide-react";
 
 import { Button, Menu, Typography } from "@vellum/design-library";
-import { CATEGORY_STYLES } from "../home-feed-filter-bar.js";
-import { HomeGenericDetail } from "./home-generic-detail.js";
-import { HomeToolPermissionCard } from "./home-tool-permission-card.js";
-import type { FeedItem, FeedItemCategory, FeedItemStatus } from "../types.js";
+import { CATEGORY_STYLES } from "../home-feed-filter-bar";
+import { HomeGenericDetail } from "./home-generic-detail";
+import { HomeToolPermissionCard } from "./home-tool-permission-card";
+import type { FeedItem, FeedItemCategory, FeedItemStatus } from "../types";
 
 function resolveCategoryStyle(category?: FeedItemCategory) {
   if (category && CATEGORY_STYLES[category]) {

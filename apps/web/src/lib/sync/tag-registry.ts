@@ -1,7 +1,7 @@
 import type {
   SyncChangedEvent,
   SyncInvalidationTag,
-} from "@/lib/sync/types.js";
+} from "@/lib/sync/types";
 
 export type SyncInvalidationReason = "live" | "reconnect";
 

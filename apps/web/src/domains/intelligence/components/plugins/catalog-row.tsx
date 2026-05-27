@@ -1,5 +1,5 @@
 import { Card } from "@vellum/design-library";
-import type { PluginCatalogMatch } from "@/domains/intelligence/plugins/types.js";
+import type { PluginCatalogMatch } from "@/domains/intelligence/plugins/types";
 
 interface CatalogRowProps {
   match: PluginCatalogMatch;

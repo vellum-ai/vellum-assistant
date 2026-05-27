@@ -10,6 +10,7 @@ let sessionUser: MockSessionUser | null = null;
 let getSessionCallCount = 0;
 let getSessionFailFirstCall = false;
 const syncOnboardingUserMock = mock((_userId: string | null) => {});
+const clearOnboardingFlagsMock = mock(() => {});
 const clearOrganizationMock = mock(() => {});
 const logoutMock = mock(async () => {});
 const deleteBiometricTokenMock = mock(async () => {});
@@ -20,7 +21,7 @@ let mockBiometricToken: string | null = null;
 const installSessionCookiesMock = mock((_token: string) => {});
 const retrieveBiometricTokenMock = mock(async () => mockBiometricToken);
 
-mock.module("@/lib/auth/allauth-client.js", () => ({
+mock.module("@/lib/auth/allauth-client", () => ({
   getSession: async () => {
     getSessionCallCount++;
     if (getSessionFailFirstCall && getSessionCallCount === 1) {
@@ -34,27 +35,34 @@ mock.module("@/lib/auth/allauth-client.js", () => ({
   logout: logoutMock,
 }));
 
-mock.module("@/runtime/native-auth.js", () => ({
+mock.module("@/runtime/native-auth", () => ({
   isNativePlatform: () => mockIsNativePlatform,
   installSessionCookies: installSessionCookiesMock,
   waitForNativeSessionCookie: async () => {},
 }));
 
-mock.module("@/runtime/native-biometric.js", () => ({
+mock.module("@/runtime/native-biometric", () => ({
   deleteBiometricToken: deleteBiometricTokenMock,
   isBiometricEnabled: () => mockIsBiometricEnabled,
   retrieveBiometricToken: retrieveBiometricTokenMock,
 }));
 
-mock.module("@/domains/onboarding/prefs.js", () => ({
+const clearUserScopedStorageMock = mock(() => {});
+
+mock.module("@/domains/onboarding/prefs", () => ({
   syncOnboardingUser: syncOnboardingUserMock,
+  clearOnboardingFlags: clearOnboardingFlagsMock,
 }));
 
-mock.module("@/stores/organization-store.js", () => ({
+mock.module("@/lib/auth/session-cleanup", () => ({
+  clearUserScopedStorage: clearUserScopedStorageMock,
+}));
+
+mock.module("@/stores/organization-store", () => ({
   clearOrganization: clearOrganizationMock,
 }));
 
-mock.module("@/stores/event-bus-store.js", () => ({
+mock.module("@/stores/event-bus-store", () => ({
   useEventBusStore: {
     getState: () => ({
       subscribe: () => () => {},
@@ -62,7 +70,7 @@ mock.module("@/stores/event-bus-store.js", () => ({
   },
 }));
 
-const { useAuthStore } = await import("@/stores/auth-store.js");
+const { useAuthStore } = await import("@/stores/auth-store");
 
 function resetAuthStore(): void {
   useAuthStore.setState({
@@ -80,7 +88,9 @@ beforeEach(() => {
   mockIsBiometricEnabled = false;
   mockBiometricToken = null;
   syncOnboardingUserMock.mockClear();
+  clearOnboardingFlagsMock.mockClear();
   clearOrganizationMock.mockClear();
+  clearUserScopedStorageMock.mockClear();
   logoutMock.mockClear();
   deleteBiometricTokenMock.mockClear();
   installSessionCookiesMock.mockClear();
@@ -108,20 +118,32 @@ describe("auth store onboarding flag reconciliation", () => {
     expect(useAuthStore.getState().user?.id).toBe("user-2");
   });
 
-  test("logout keeps onboarding reconciliation on the shared auth path", async () => {
+  test("logout clears onboarding flags directly", async () => {
     await useAuthStore.getState().logout();
 
     expect(logoutMock).toHaveBeenCalled();
-    expect(syncOnboardingUserMock).toHaveBeenCalledWith(null);
+    expect(clearOnboardingFlagsMock).toHaveBeenCalled();
     expect(useAuthStore.getState().isLoggedIn).toBe(false);
   });
 });
 
-describe("biometric cleanup on logout", () => {
+describe("session cleanup on logout", () => {
   test("logout clears biometric token", async () => {
     await useAuthStore.getState().logout();
 
     expect(deleteBiometricTokenMock).toHaveBeenCalled();
+  });
+
+  test("logout clears organization state", async () => {
+    await useAuthStore.getState().logout();
+
+    expect(clearOrganizationMock).toHaveBeenCalled();
+  });
+
+  test("logout clears user-scoped browser storage", async () => {
+    await useAuthStore.getState().logout();
+
+    expect(clearUserScopedStorageMock).toHaveBeenCalled();
   });
 });
 

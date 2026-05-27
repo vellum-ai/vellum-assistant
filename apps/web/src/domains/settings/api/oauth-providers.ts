@@ -1,4 +1,4 @@
-import { buildVellumHeaders } from "@/lib/auth/request-headers.js";
+import { buildVellumHeaders } from "@/lib/auth/request-headers";
 
 /** Provider summary returned by the runtime catalog endpoint. */
 export interface OAuthProviderSummary {

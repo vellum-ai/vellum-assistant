@@ -3,8 +3,8 @@ import { Check, Monitor } from "lucide-react";
 import { Button } from "@vellum/design-library/components/button";
 import { Tag } from "@vellum/design-library/components/tag";
 import { toast } from "@vellum/design-library/components/toast";
-import { SettingsCard } from "@/domains/settings/components/settings-card.js";
-import { useCurrentPlatformAssistant } from "@/domains/settings/hooks/use-current-platform-assistant.js";
+import { DetailCard } from "@/components/detail-card";
+import { useCurrentPlatformAssistant } from "@/hooks/use-current-platform-assistant";
 
 export function AssistantPicker() {
   const {
@@ -19,7 +19,7 @@ export function AssistantPicker() {
   }
 
   return (
-    <SettingsCard
+    <DetailCard
       title="Switch Assistant"
       subtitle="Choose which assistant is active for this account."
     >
@@ -74,6 +74,6 @@ export function AssistantPicker() {
           );
         })}
       </div>
-    </SettingsCard>
+    </DetailCard>
   );
 }

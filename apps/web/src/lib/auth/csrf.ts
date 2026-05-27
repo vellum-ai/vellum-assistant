@@ -8,7 +8,7 @@
  *
  * Reference: https://docs.djangoproject.com/en/5.1/howto/csrf/#acquiring-the-token-if-csrf-use-sessions-and-csrf-cookie-httponly-are-not-in-use
  */
-import { getAllauthByClientV1AuthSession } from "@/generated/auth/sdk.gen.js";
+import { getAllauthByClientV1AuthSession } from "@/generated/auth/sdk.gen";
 
 const CSRF_COOKIE_NAME = import.meta.env.PROD
   ? "__Secure-csrftoken"

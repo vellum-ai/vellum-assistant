@@ -1,5 +1,5 @@
-import { DocumentViewerContainer } from "@/domains/chat/components/document-viewer-container.js";
-import type { OpenedDocumentState } from "@/stores/viewer-store.js";
+import { DocumentViewerContainer } from "@/domains/chat/components/document-viewer-container";
+import type { OpenedDocumentState } from "@/stores/viewer-store";
 
 interface MobileDocumentOverlayProps {
   /** When `null`, the overlay renders nothing. */

@@ -1,12 +1,12 @@
 import { describe, expect, it, beforeEach } from "bun:test";
 
-import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
-import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers.js";
+import { useInteractionStore } from "@/domains/interactions/interaction-store";
+import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers";
 import {
   handleSecretRequest,
   handleConfirmationRequest,
   handleContactRequest,
-} from "@/domains/chat/utils/stream-handlers/interaction-handlers.js";
+} from "@/domains/chat/utils/stream-handlers/interaction-handlers";
 
 beforeEach(() => {
   useInteractionStore.getState().resetAll();

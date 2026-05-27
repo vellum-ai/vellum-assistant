@@ -33,9 +33,9 @@ import {
 import { act, cleanup, renderHook } from "@testing-library/react";
 import type { MutableRefObject } from "react";
 
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 
-import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types.js";
+import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
 
 // ---------------------------------------------------------------------------
 // Mocked daemon clients. `mock.module` is process-global in bun:test, so we
@@ -100,7 +100,7 @@ import {
   classifyRefreshLatestOutcome,
   type RefreshLatestOutcome,
   useRefreshLatestMessages,
-} from "@/domains/chat/hooks/use-refresh-latest-messages.js";
+} from "@/domains/chat/hooks/use-refresh-latest-messages";
 
 // ---------------------------------------------------------------------------
 // Helpers

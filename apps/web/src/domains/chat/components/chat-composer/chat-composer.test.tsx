@@ -13,13 +13,13 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import { createRef } from "react";
 import { cleanup, render } from "@testing-library/react";
 
-import type { ChatAttachment } from "@/domains/chat/components/chat-attachments/use-chat-attachments.js";
-import { INITIAL_TURN_STATE, type TurnState, useTurnStore } from "@/domains/messaging/turn-store.js";
+import type { ChatAttachment } from "@/domains/chat/components/chat-attachments/use-chat-attachments";
+import { INITIAL_TURN_STATE, type TurnState, useTurnStore } from "@/domains/messaging/turn-store";
 
-import { ChatComposer, computeGhostSuffix, shouldSubmitOnEnter } from "@/domains/chat/components/chat-composer/chat-composer.js";
+import { ChatComposer, computeGhostSuffix, shouldSubmitOnEnter } from "@/domains/chat/components/chat-composer/chat-composer";
 
 let mockIsMobile = false;
-mock.module("@/hooks/use-is-mobile.js", () => ({
+mock.module("@/hooks/use-is-mobile", () => ({
   useIsMobile: () => mockIsMobile,
   MOBILE_MEDIA_QUERY: "(max-width: 767px)",
 }));

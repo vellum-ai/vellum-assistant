@@ -9,7 +9,7 @@ import {
   parseBrowserOperation,
   progressiveLabels,
   toolCategory,
-} from "@/domains/chat/components/tool-call-chip/utils.js";
+} from "@/domains/chat/components/tool-call-chip/utils";
 
 // ---------------------------------------------------------------------------
 // parseBrowserOperation

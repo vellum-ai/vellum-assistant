@@ -5,8 +5,8 @@ import {
   CATEGORY_DISPLAY_NAMES,
   CATEGORY_ICONS,
   SKILL_CATEGORIES,
-} from "@/domains/intelligence/skills/category.js";
-import type { SkillCategory } from "@/domains/intelligence/skills/types.js";
+} from "@/domains/intelligence/skills/category";
+import type { SkillCategory } from "@/domains/intelligence/skills/types";
 
 interface CategorySidebarProps {
   selected: SkillCategory | null;

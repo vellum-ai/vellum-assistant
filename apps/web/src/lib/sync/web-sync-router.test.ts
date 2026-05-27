@@ -18,14 +18,14 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { createWebSyncRouter } from "@/lib/sync/web-sync-router.js";
+import { createWebSyncRouter } from "@/lib/sync/web-sync-router";
 import {
   conversationMessagesSyncTag,
   conversationMetadataSyncTag,
   SYNC_TAGS,
   type SyncChangedEvent,
-} from "@/lib/sync/types.js";
-import { getClientId } from "@/lib/telemetry/client-identity.js";
+} from "@/lib/sync/types";
+import { getClientId } from "@/lib/telemetry/client-identity";
 
 const OTHER_CLIENT_ID = "22222222-2222-2222-2222-222222222222";
 

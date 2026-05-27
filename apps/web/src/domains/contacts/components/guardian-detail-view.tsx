@@ -3,11 +3,11 @@ import { useState } from "react";
 import { Button } from "@vellum/design-library/components/button";
 import { Input } from "@vellum/design-library/components/input";
 
-import { ContactChannelsSection } from "@/domains/contacts/components/contact-channels-section.js";
-import { ContactTypeBadge } from "@/domains/contacts/components/contact-type-badge.js";
-import { ShareConnectionLinkButton } from "@/domains/contacts/components/share-connection-link-button.js";
-import { SettingsCard } from "@/domains/settings/components/settings-card.js";
-import type { ChannelInfo, ContactPayload } from "@/domains/contacts/types.js";
+import { ContactChannelsSection } from "@/domains/contacts/components/contact-channels-section";
+import { ContactTypeBadge } from "@/domains/contacts/components/contact-type-badge";
+import { ShareConnectionLinkButton } from "@/domains/contacts/components/share-connection-link-button";
+import { DetailCard } from "@/components/detail-card";
+import type { ChannelInfo, ContactPayload } from "@/domains/contacts/types";
 
 interface GuardianDetailViewProps {
   contact: ContactPayload;
@@ -63,7 +63,7 @@ function GuardianDetailViewInner({
 
   return (
     <div className="flex flex-col gap-6">
-      <SettingsCard
+      <DetailCard
         title={headerName}
         accessory={<ContactTypeBadge role="guardian" />}
         compactAccessory
@@ -121,9 +121,9 @@ function GuardianDetailViewInner({
             ) : null}
           </div>
         </div>
-      </SettingsCard>
+      </DetailCard>
 
-      <SettingsCard
+      <DetailCard
         title="Channels"
         subtitle="Once verified, your assistant will recognize you when you message from these channels."
       >
@@ -137,7 +137,7 @@ function GuardianDetailViewInner({
           onVerifyChannel={onVerifyChannel}
           onRevokeChannel={onRevokeChannel}
         />
-      </SettingsCard>
+      </DetailCard>
 
       {onGenerateInviteLink ? <ShareConnectionLinkButton onClick={onGenerateInviteLink} /> : null}
     </div>

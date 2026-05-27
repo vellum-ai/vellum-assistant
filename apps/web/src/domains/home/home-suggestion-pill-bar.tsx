@@ -2,7 +2,7 @@ import { icons, Sparkles, X } from "lucide-react";
 import { useState } from "react";
 
 import { Typography } from "@vellum/design-library";
-import type { SuggestedPrompt } from "./types.js";
+import type { SuggestedPrompt } from "./types";
 
 function toPascalCase(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);

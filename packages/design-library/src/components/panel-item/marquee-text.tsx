@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
-import { cn } from "../../utils/cn.js";
+import { cn } from "../../utils/cn";
 
 /**
  * Single-line text wrapper that scrolls (marquee-style) when the parent

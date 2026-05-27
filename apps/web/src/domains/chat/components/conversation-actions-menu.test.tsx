@@ -19,7 +19,7 @@ import { createElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 let mockIsMobile = false;
-mock.module("@/hooks/use-is-mobile.js", () => ({
+mock.module("@/hooks/use-is-mobile", () => ({
   useIsMobile: () => mockIsMobile,
   MOBILE_MEDIA_QUERY: "(max-width: 767px)",
 }));
@@ -92,7 +92,7 @@ import {
   ConversationActionsMenu,
   renderConversationMenuItems,
   type ConversationMenuPrimitive,
-} from "@/domains/chat/components/conversation-actions-menu.js";
+} from "@/domains/chat/components/conversation-actions-menu";
 
 beforeEach(() => {
   mockIsMobile = false;

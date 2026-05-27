@@ -2,21 +2,21 @@ import { ChevronRight } from "lucide-react";
 import { useState } from "react";
 
 import { Collapsible, Typography } from "@vellum/design-library";
-import { HomeFeedFilterBar } from "./home-feed-filter-bar.js";
-import { HomeRecapRow } from "./home-recap-row.js";
+import { HomeFeedFilterBar } from "./home-feed-filter-bar";
+import { HomeRecapRow } from "./home-recap-row";
 import {
   excludeHighUrgency,
   filterByCategory,
   getPresentCategories,
   groupByTime,
   sortFeedItems,
-} from "./utils/feed-utils.js";
+} from "./utils/feed-utils";
 import type {
   FeedItem,
   FeedItemCategory,
   FeedItemStatus,
   FeedTimeGroup,
-} from "./types.js";
+} from "./types";
 
 const TIME_GROUP_LABELS: Record<FeedTimeGroup, string> = {
   today: "Today",

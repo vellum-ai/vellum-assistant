@@ -4,8 +4,8 @@ import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { cn } from "@vellum/design-library";
-import { openUrl } from "@/runtime/browser.js";
-import { isNativePlatform } from "@/runtime/native-auth.js";
+import { openUrl } from "@/runtime/browser";
+import { isNativePlatform } from "@/runtime/native-auth";
 
 interface HomeMarkdownContentProps {
   content: string;

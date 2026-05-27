@@ -4,7 +4,7 @@ import {
   getSelfHostedActorToken,
   getSelfHostedIngressUrl,
   setSelfHostedConnection,
-} from "@/lib/self-hosted/connection.js";
+} from "@/lib/self-hosted/connection";
 
 describe("self-hosted connection slot", () => {
   afterEach(() => {

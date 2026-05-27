@@ -24,15 +24,15 @@ import {
 } from "lucide-react";
 import { Button, Typography } from "@vellum/design-library";
 
-import type { DocumentComment } from "@/domains/chat/api/document-comments.js";
-import { createComment, fetchComments } from "@/domains/chat/api/document-comments.js";
-import { saveDocumentContent } from "@/domains/chat/api/documents.js";
-import type { CommentAnchor } from "@/domains/chat/utils/tiptap-position-map.js";
-import { TiptapDocumentEditor } from "./tiptap-document-editor.js";
+import type { DocumentComment } from "@/domains/chat/api/document-comments";
+import { createComment, fetchComments } from "@/domains/chat/api/document-comments";
+import { saveDocumentContent } from "@/domains/chat/api/documents";
+import type { CommentAnchor } from "@/domains/chat/utils/tiptap-position-map";
+import { TiptapDocumentEditor } from "./tiptap-document-editor";
 import {
   DocumentCommentPanel,
   type DocumentCommentPanelHandle,
-} from "./document-comment-panel.js";
+} from "./document-comment-panel";
 
 // ---------------------------------------------------------------------------
 // Public API

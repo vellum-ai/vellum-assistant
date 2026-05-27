@@ -1,7 +1,7 @@
 
-import { cn } from "@/utils/misc.js";
+import { cn } from "@/utils/misc";
 
-import { LEGEND_SHAPE_CLASSES, type LegendShape } from "@/domains/intelligence/components/constellation-view/constants.js";
+import { LEGEND_SHAPE_CLASSES, type LegendShape } from "@/domains/intelligence/components/constellation-view/constants";
 
 function LegendRow({ shape, label }: { shape: LegendShape; label: string }) {
   return (

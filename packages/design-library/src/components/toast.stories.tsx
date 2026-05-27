@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
-import { Button } from "./button.js";
-import { toast, Toaster, type ToastVariant } from "./toast.js";
+import { Button } from "./button";
+import { toast, Toaster, type ToastVariant } from "./toast";
 
 interface ToastStoryArgs {
   variant: ToastVariant;

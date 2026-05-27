@@ -60,8 +60,8 @@ wrap with `createSelectors` for auto-generated per-field hooks:
 ```ts
 import { create } from "zustand";
 
-import { createSelectors } from "@/utils/create-selectors.js";
-import type { Message } from "./types.js";
+import { createSelectors } from "@/utils/create-selectors";
+import type { Message } from "./types";
 
 // State — the data
 export interface MessageState {
@@ -122,6 +122,62 @@ References:
 - [Zustand — Reading/writing state outside components](https://zustand.docs.pmnd.rs/guides/reading-and-writing-state-outside-components)
 - [React Router — Middleware](https://reactrouter.com/how-to/middleware)
 
+## Logout destroys the JS context via hard navigation
+
+Logout uses `hardNavigate()` from `lib/auth/hard-navigate.ts`, not
+React Router's `navigate()`. `hardNavigate()` calls
+`window.location.replace()`, which destroys the entire JavaScript
+execution context — every Zustand module-level singleton, every
+closure, every in-flight timer — guaranteeing no in-memory state
+leaks across auth boundaries. Using `replace` instead of assigning
+`location.href` removes the pre-logout page from session history,
+preventing back-navigation and bfcache restoration of stale state.
+React Router intentionally does not provide a "destroy everything"
+helper because SPA routers are designed to *preserve* state across
+navigations; for logout, preservation is the problem.
+
+Before the hard navigation, the auth store's `logout()` action
+clears user-scoped browser storage (`lib/auth/session-cleanup.ts`).
+The cleanup preserves any key starting with `device:` (device-scoped
+settings managed by `lib/device-settings.ts`) and removes all other
+keys matching app prefixes (`vellum`, `onboarding.`, `ff:client:`,
+`voice:`, `integrations.`). New app keys are cleared by default; new
+device settings are preserved by default — no manual list to maintain.
+
+### Device-scoped localStorage (`device:` namespace)
+
+Settings that describe the physical device rather than a user account
+use the `device:` key prefix and are managed via `lib/device-settings.ts`.
+To add a new device setting, add an entry to the `DEVICE_SETTINGS`
+registry in that file and use `getDeviceSetting` / `setDeviceSetting`
+in your component — session-cleanup.ts automatically preserves it.
+
+Current device settings:
+
+| Setting            | Key                          |
+|--------------------|------------------------------|
+| Theme              | `device:theme`               |
+| Share analytics    | `device:share_analytics`     |
+| Share diagnostics  | `device:share_diagnostics`   |
+| Biometric enabled  | `device:biometric_enabled`   |
+| LLM log retention  | `device:llm_log_retention`   |
+| Timezone           | `device:timezone`            |
+| Media embeds       | `device:media_embeds_enabled`|
+| Embed domains      | `device:media_embed_domains` |
+| Last user ID       | `device:last_user_id`        |
+
+Cross-tab logout uses `BroadcastChannel` → `clearUserScopedStorage()`
++ `window.location.reload()` so other tabs also destroy their JS
+context and clean storage.
+
+**Do not replace `hardNavigate()` with `navigate()` on logout call
+sites.** SPA navigation preserves module-level Zustand state, which
+is a privacy/security concern on shared devices.
+
+References:
+- [web.dev — Sign-out best practices](https://web.dev/articles/sign-out-best-practices)
+- [React — Preserving and Resetting State](https://react.dev/learn/preserving-and-resetting-state)
+
 ## Turn state lives in `domains/messaging/turn-store.ts`
 
 Turn lifecycle (sending, thinking, streaming, idle, errored), queue
@@ -178,7 +234,7 @@ for reducing boilerplate while keeping per-field re-render optimization.
 
 ```ts
 import { create } from "zustand";
-import { createSelectors } from "@/utils/create-selectors.js";
+import { createSelectors } from "@/utils/create-selectors";
 
 interface BearState {
   bears: number;
@@ -271,7 +327,7 @@ Query wraps, so switching from `useQuery(optionsFn())` to a direct
 
 ```ts
 // Infrastructure store — direct SDK call
-import { organizationsList } from "@/generated/api/sdk.gen.js";
+import { organizationsList } from "@/generated/api/sdk.gen";
 
 const useOrgStoreBase = create<OrgStore>()((set) => ({
   organizations: [],

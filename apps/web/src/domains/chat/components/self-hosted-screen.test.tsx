@@ -10,7 +10,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { StaticRouter } from "react-router";
 
-import { SelfHostedScreen } from "@/domains/chat/components/self-hosted-screen.js";
+import { SelfHostedScreen } from "@/domains/chat/components/self-hosted-screen";
 
 function render() {
   return renderToStaticMarkup(

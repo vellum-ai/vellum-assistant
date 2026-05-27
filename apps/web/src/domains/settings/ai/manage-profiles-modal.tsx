@@ -7,15 +7,15 @@ import { Toggle } from "@vellum/design-library/components/toggle";
 import { Modal } from "@vellum/design-library/components/modal";
 import { Tag } from "@vellum/design-library/components/tag";
 import { Typography } from "@vellum/design-library/components/typography";
-import { client } from "@/generated/api/client.gen.js";
-import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
+import { client } from "@/generated/api/client.gen";
+import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
 
-import { type ProfileEntry } from "@/domains/settings/ai/ai-page.js";
-import { ProfileEditorModal } from "@/domains/settings/ai/profile-editor-modal.js";
+import { type ProfileEntry } from "@/domains/settings/ai/ai-page";
+import { ProfileEditorModal } from "@/domains/settings/ai/profile-editor-modal";
 import {
   listConnections,
   type ProviderConnection,
-} from "@/domains/settings/ai/provider-connections-client.js";
+} from "@/domains/settings/ai/provider-connections-client";
 
 function filterFlaggedConnections(
   connections: ProviderConnection[],

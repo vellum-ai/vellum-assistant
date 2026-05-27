@@ -1,5 +1,5 @@
-import { AppViewerContainer } from "@/domains/chat/components/app-viewer-container.js";
-import type { OpenedAppState } from "@/stores/viewer-store.js";
+import { AppViewerContainer } from "@/domains/chat/components/app-viewer-container";
+import type { OpenedAppState } from "@/stores/viewer-store";
 
 interface MobileAppOverlayProps {
   /** When `null`, the overlay renders nothing. */

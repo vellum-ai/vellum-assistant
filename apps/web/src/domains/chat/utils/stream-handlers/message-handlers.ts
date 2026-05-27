@@ -1,12 +1,12 @@
-import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics.js";
+import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics";
 import {
   appendTextDelta,
   finalizeMessageComplete,
   finalizeOnIdle,
   stopStreaming,
-} from "@/domains/chat/hooks/stream-message-updaters.js";
-import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types.js";
-import type { AssistantActivityStateEvent, AssistantTextDeltaEvent, GenerationCancelledEvent, GenerationHandoffEvent, MessageCompleteEvent } from "@/domains/chat/api/event-types.js";
+} from "@/domains/chat/hooks/stream-message-updaters";
+import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
+import type { AssistantActivityStateEvent, AssistantTextDeltaEvent, GenerationCancelledEvent, GenerationHandoffEvent, MessageCompleteEvent } from "@/domains/chat/api/event-types";
 
 export function handleAssistantTextDelta(
   event: AssistantTextDeltaEvent,

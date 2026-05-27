@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
 
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
-import { partitionLatestTurn } from "@/domains/chat/transcript/partition-latest-turn.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import { partitionLatestTurn } from "@/domains/chat/transcript/partition-latest-turn";
 import type {
   ErrorItem,
   MessageItem,
   ThinkingItem,
   TranscriptItem,
-} from "@/domains/chat/transcript/types.js";
+} from "@/domains/chat/transcript/types";
 
 function makeMessage(
   overrides: Omit<DisplayMessage, "id"> & { id?: string },

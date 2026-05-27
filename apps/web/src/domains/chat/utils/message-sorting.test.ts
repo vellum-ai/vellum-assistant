@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import { sortByTimestamp, sortedByTimestamp } from "@/domains/chat/utils/message-sorting.js";
-import type { DisplayMessage } from "@/domains/chat/types/types.js";
+import { sortByTimestamp, sortedByTimestamp } from "@/domains/chat/utils/message-sorting";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 function make(overrides: Partial<DisplayMessage> & { timestamp?: number }): DisplayMessage {
   return {
     id: crypto.randomUUID(),

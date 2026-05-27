@@ -10,11 +10,11 @@ import { describe, expect, test } from "bun:test";
 import {
   computeSubagentCardData,
   mapToolEventToStep,
-} from "@/domains/chat/hooks/use-subagent-card-data.js";
+} from "@/domains/chat/hooks/use-subagent-card-data";
 import type {
   SubagentEntry,
   SubagentTimelineEvent,
-} from "@/domains/subagents/subagent-store.js";
+} from "@/domains/subagents/subagent-store";
 
 const NOW = 1700000000000;
 

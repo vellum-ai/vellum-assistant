@@ -12,7 +12,7 @@ import {
 import {
   openMarkdownOAuthLinkInPopup,
   shouldOpenMarkdownLinkInOAuthPopup,
-} from "@/domains/chat/utils/oauth-popup-links.js";
+} from "@/domains/chat/utils/oauth-popup-links";
 
 function OAuthAwareLink({
   href,

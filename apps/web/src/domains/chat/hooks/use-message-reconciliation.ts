@@ -8,10 +8,10 @@ import {
   resolvePlatformTag,
   summarizeDisplayMessages,
   summarizeRuntimeMessages,
-} from "@/domains/chat/utils/diagnostics.js";
-import { type DisplayMessage, reconcileMessages } from "@/domains/chat/utils/reconcile.js";
-import { isSending, useTurnStore } from "@/domains/messaging/turn-store.js";
-import { fetchConversationMessages, type RuntimeMessage } from "@/domains/chat/api/messages.js";
+} from "@/domains/chat/utils/diagnostics";
+import { type DisplayMessage, reconcileMessages } from "@/domains/chat/utils/reconcile";
+import { isSending, useTurnStore } from "@/domains/messaging/turn-store";
+import { fetchConversationMessages, type RuntimeMessage } from "@/domains/chat/api/messages";
 
 const RECONCILE_DELAY_MS = 5000;
 const RECONCILE_MAX_MS = 60_000;

@@ -8,37 +8,22 @@
  */
 import { useEffect } from "react";
 
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
+import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
 import {
   applyThemePreference,
-  normalizeThemePreference,
-  THEME_STORAGE_KEY,
-} from "@/domains/settings/utils/theme-preferences.js";
-
-function readRawStoredTheme(): string | null {
-  try {
-    return window.localStorage.getItem(THEME_STORAGE_KEY);
-  } catch {
-    return null;
-  }
-}
+  readStoredThemePreference,
+} from "@/domains/settings/utils/theme-preferences";
 
 export function useAppTheme() {
   const velvet = useClientFeatureFlagStore.use.velvet();
 
   useEffect(() => {
-    const stored = readRawStoredTheme();
-    const theme = normalizeThemePreference(stored, {
-      velvetEnabled: velvet,
-    });
-
+    const theme = readStoredThemePreference({ velvetEnabled: velvet });
     applyThemePreference(theme);
 
     const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
     const handleMediaChange = () => {
-      const next = normalizeThemePreference(readRawStoredTheme(), {
-        velvetEnabled: velvet,
-      });
+      const next = readStoredThemePreference({ velvetEnabled: velvet });
       if (next === "system") {
         applyThemePreference(next);
       }

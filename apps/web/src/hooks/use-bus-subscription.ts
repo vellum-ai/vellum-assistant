@@ -26,7 +26,7 @@ import {
   type BusEventName,
   type BusHandler,
   useEventBusStore,
-} from "@/stores/event-bus-store.js";
+} from "@/stores/event-bus-store";
 
 export function useBusSubscription<K extends BusEventName>(
   event: K,

@@ -13,8 +13,8 @@
 
 import { create } from "zustand";
 
-import { createSelectors } from "@/utils/create-selectors.js";
-import type { TerminalStatus } from "@/domains/terminal/types.js";
+import { createSelectors } from "@/utils/create-selectors";
+import type { TerminalStatus } from "@/domains/terminal/types";
 
 // ---------------------------------------------------------------------------
 // State

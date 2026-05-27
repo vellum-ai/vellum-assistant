@@ -5,11 +5,11 @@ import { useCallback, useRef, useState } from "react";
 
 import { Button } from "@vellum/design-library";
 
-import { AttachmentChip } from "@/domains/chat/components/chat-attachments/attachment-chip.js";
-import { AttachmentLoadingChip } from "@/domains/chat/components/chat-attachments/attachment-loading-chip.js";
-import { AttachmentPreviewModal } from "@/domains/chat/components/chat-attachments/attachment-preview-modal.js";
-import type { ChatAttachment, UploadedAttachment } from "@/domains/chat/components/chat-attachments/use-chat-attachments.js";
-import { formatAttachmentSize, middleTruncate } from "@/domains/chat/components/chat-attachments/utils.js";
+import { AttachmentChip } from "@/domains/chat/components/chat-attachments/attachment-chip";
+import { AttachmentLoadingChip } from "@/domains/chat/components/chat-attachments/attachment-loading-chip";
+import { AttachmentPreviewModal } from "@/domains/chat/components/chat-attachments/attachment-preview-modal";
+import type { ChatAttachment, UploadedAttachment } from "@/domains/chat/components/chat-attachments/use-chat-attachments";
+import { formatAttachmentSize, middleTruncate } from "@/domains/chat/components/chat-attachments/utils";
 
 interface ChatAttachmentsStripProps {
   attachments: ChatAttachment[];

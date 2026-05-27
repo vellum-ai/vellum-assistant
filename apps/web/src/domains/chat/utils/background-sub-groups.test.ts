@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
 
-import type { Conversation } from "@/domains/chat/api/conversations.js";
+import type { Conversation } from "@/domains/chat/api/conversations";
 import {
   formatBackgroundSubGroupLabel,
   groupBackgroundConversationsBySource,
-} from "@/domains/chat/utils/background-sub-groups.js";
+} from "@/domains/chat/utils/background-sub-groups";
 
 function makeConversation(
   conversationId: string,

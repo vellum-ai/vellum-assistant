@@ -3,22 +3,22 @@ import type { ReactNode } from "react";
 
 import { Card } from "@vellum/design-library";
 
-import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate.js";
-import { canUseLlmInspector } from "@/domains/chat/inspector/access.js";
+import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate";
+import { canUseLlmInspector } from "@/domains/chat/inspector/access";
 import {
   useCurrentNowText,
   useDefaultRouterPromptTemplate,
   useLlmProfiles,
   useSimulateMemoryRouter,
-} from "@/domains/chat/inspector/memory-router-simulator-api.js";
+} from "@/domains/chat/inspector/memory-router-simulator-api";
 import type {
   MemoryRouterSimulateRequest,
   MemoryRouterSimulateResponse,
   RecentTurnPair,
   RouterSource,
-} from "@/domains/chat/inspector/memory-router-simulator-api.js";
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
-import { useAuthStore } from "@/stores/auth-store.js";
+} from "@/domains/chat/inspector/memory-router-simulator-api";
+import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
+import { useAuthStore } from "@/stores/auth-store";
 
 /**
  * Developer-only page for dry-running the v4 memory router with custom

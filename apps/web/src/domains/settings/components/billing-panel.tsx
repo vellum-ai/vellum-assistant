@@ -3,8 +3,8 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { AddCreditsModal } from "@/components/add-credits-modal.js";
-import { AutoTopUpCard } from "@/domains/settings/components/auto-top-up-card.js";
+import { AddCreditsModal } from "@/components/add-credits-modal";
+import { AutoTopUpCard } from "@/domains/settings/components/auto-top-up-card";
 import { Button } from "@vellum/design-library/components/button";
 import { Card } from "@vellum/design-library/components/card";
 import { Notice } from "@vellum/design-library/components/notice";
@@ -14,7 +14,7 @@ import {
   organizationsBillingSummaryCreateMutation,
   organizationsBillingSummaryRetrieveOptions,
   organizationsBillingSummaryRetrieveQueryKey,
-} from "@/generated/api/@tanstack/react-query.gen.js";
+} from "@/generated/api/@tanstack/react-query.gen";
 
 /** Maximum number of bootstrap retry attempts after transient failures. */
 export const BOOTSTRAP_MAX_RETRIES = 3;

@@ -11,9 +11,9 @@ import {
   client,
   extractErrorMessage,
   SDK_BASE_OPTIONS,
-} from "@/domains/intelligence/client.js";
+} from "@/domains/intelligence/client";
 
-import type { ConceptPageSummary, ListConceptPagesResult } from "./types.js";
+import type { ConceptPageSummary, ListConceptPagesResult } from "./types";
 
 export { ApiError };
 

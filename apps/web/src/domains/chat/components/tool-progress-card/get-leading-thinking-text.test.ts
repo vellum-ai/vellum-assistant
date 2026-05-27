@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import { getLeadingThinkingText } from "@/domains/chat/components/tool-progress-card/get-leading-thinking-text.js";
-import type { DisplayMessage } from "@/domains/chat/types/types.js";
+import { getLeadingThinkingText } from "@/domains/chat/components/tool-progress-card/get-leading-thinking-text";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 
 function makeMessage(
   contentOrder: Array<{ type: string; id: string }>,

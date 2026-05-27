@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import type { RuntimeMessage } from "@/domains/chat/api/messages.js";
+import type { RuntimeMessage } from "@/domains/chat/api/messages";
 import {
   mapRuntimeToDisplayMessage,
   prepareServerMessage,
-} from "@/domains/chat/utils/map-runtime-message.js";
+} from "@/domains/chat/utils/map-runtime-message";
 
 function makeMessage(overrides: Partial<RuntimeMessage>): RuntimeMessage {
   return {

@@ -13,18 +13,18 @@ import {
   EMOJI_MIN_FILTER_LENGTH,
   EMOJI_TRIGGER_RE,
   searchEmoji,
-} from "@/domains/chat/components/chat-composer/emoji-catalog.js";
+} from "@/domains/chat/components/chat-composer/emoji-catalog";
 import {
   SLASH_PREFIX_RE,
   filteredCommands,
   selectedInputText,
   SLASH_COMMANDS,
-} from "@/domains/chat/components/chat-composer/slash-command-catalog.js";
+} from "@/domains/chat/components/chat-composer/slash-command-catalog";
 import {
   derivePopupState,
   listIndexDown,
   listIndexUp,
-} from "@/domains/chat/components/chat-composer/use-text-popup.js";
+} from "@/domains/chat/components/chat-composer/use-text-popup";
 
 // ---------------------------------------------------------------------------
 // Slash command catalog

@@ -6,12 +6,10 @@
     "messaging"
   ],
   "src/domains/chat/chat-layout.tsx": [
-    "avatar",
     "conversations",
     "subagents"
   ],
   "src/domains/chat/chat-page.tsx": [
-    "avatar",
     "conversations",
     "interactions",
     "messaging",
@@ -26,24 +24,18 @@
     "voice"
   ],
   "src/domains/chat/components/chat-route-content.tsx": [
-    "avatar",
     "interactions",
     "messaging",
-    "nudges",
     "subagents"
   ],
   "src/domains/chat/components/mobile-subagent-detail-overlay.tsx": [
     "subagents"
   ],
   "src/domains/chat/components/subagent-detail-panel.tsx": [
-    "avatar",
     "subagents"
   ],
   "src/domains/chat/components/subagent-inline-progress-card/subagent-inline-progress-card.test.tsx": [
     "subagents"
-  ],
-  "src/domains/chat/components/subagent-inline-progress-card/subagent-inline-progress-card.tsx": [
-    "avatar"
   ],
   "src/domains/chat/components/subagent-status-badge.tsx": [
     "subagents"
@@ -53,9 +45,6 @@
   ],
   "src/domains/chat/components/voice-input-button.tsx": [
     "voice"
-  ],
-  "src/domains/chat/hooks/use-app-nudges.ts": [
-    "nudges"
   ],
   "src/domains/chat/hooks/use-assistant-lifecycle.ts": [
     "onboarding"
@@ -148,15 +137,6 @@
   "src/domains/chat/utils/stream-handlers/types.ts": [
     "messaging"
   ],
-  "src/domains/contacts/components/assistant-channels-detail.tsx": [
-    "settings"
-  ],
-  "src/domains/contacts/components/contact-detail-view.tsx": [
-    "settings"
-  ],
-  "src/domains/contacts/components/guardian-detail-view.tsx": [
-    "settings"
-  ],
   "src/domains/conversations/conversation-queries.test.ts": [
     "chat"
   ],
@@ -181,12 +161,6 @@
   "src/domains/conversations/use-conversation-loader.ts": [
     "chat"
   ],
-  "src/domains/home/home-greeting-header.tsx": [
-    "avatar"
-  ],
-  "src/domains/home/home-page.tsx": [
-    "avatar"
-  ],
   "src/domains/intelligence/components/apps/app-viewer-container.tsx": [
     "chat"
   ],
@@ -195,15 +169,6 @@
   ],
   "src/domains/intelligence/components/apps/library-view.tsx": [
     "chat"
-  ],
-  "src/domains/intelligence/components/constellation-view/constellation-view.tsx": [
-    "avatar"
-  ],
-  "src/domains/intelligence/components/constellation-view/node-view.tsx": [
-    "avatar"
-  ],
-  "src/domains/intelligence/components/identity-tab.tsx": [
-    "avatar"
   ],
   "src/domains/interactions/interaction-store.ts": [
     "chat"
@@ -221,38 +186,8 @@
   "src/domains/logs/components/usage-tab.tsx": [
     "chat"
   ],
-  "src/domains/logs/logs-layout.tsx": [
-    "settings"
-  ],
-  "src/domains/logs/pages/emails-page.tsx": [
-    "settings"
-  ],
-  "src/domains/logs/pages/system-events-page.tsx": [
-    "settings"
-  ],
-  "src/domains/logs/pages/trace-page.tsx": [
-    "settings"
-  ],
-  "src/domains/logs/pages/usage-page.tsx": [
-    "settings"
-  ],
-  "src/domains/onboarding/pages/hatching-screen.tsx": [
-    "avatar"
-  ],
-  "src/domains/onboarding/pages/pre-chat-flow.tsx": [
-    "nudges"
-  ],
-  "src/domains/onboarding/screens/get-ios-app-screen.tsx": [
-    "nudges"
-  ],
-  "src/domains/onboarding/screens/get-macos-app-screen.tsx": [
-    "nudges"
-  ],
   "src/domains/settings/ai/ai-page.tsx": [
     "voice"
-  ],
-  "src/domains/settings/components/ios-app-card.tsx": [
-    "nudges"
   ],
   "src/domains/settings/components/panels/assistant-terminal-panel.tsx": [
     "terminal"
@@ -274,9 +209,6 @@
   ],
   "src/domains/settings/pages/archive-page.tsx": [
     "chat"
-  ],
-  "src/domains/settings/pages/community-page.tsx": [
-    "nudges"
   ],
   "src/domains/settings/pages/voice-page.tsx": [
     "voice"

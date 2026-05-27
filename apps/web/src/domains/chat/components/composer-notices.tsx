@@ -1,13 +1,13 @@
 import { type ReactNode } from "react";
 
-import { CompactionCircuitOpenBanner } from "@/domains/chat/components/compaction-circuit-open-banner.js";
-import { MaintenanceModeBanner } from "@/domains/chat/components/maintenance-mode-banner.js";
-import { MissingApiKeyBanner } from "@/domains/chat/components/missing-api-key-banner.js";
+import { CompactionCircuitOpenBanner } from "@/domains/chat/components/compaction-circuit-open-banner";
+import { MaintenanceModeBanner } from "@/domains/chat/components/maintenance-mode-banner";
+import { MissingApiKeyBanner } from "@/domains/chat/components/missing-api-key-banner";
 import { Button, Notice } from "@vellum/design-library";
 import {
   formatVoiceError,
   isMicPermissionError,
-} from "@/domains/chat/utils/chat-utils.js";
+} from "@/domains/chat/utils/chat-utils";
 
 /**
  * Banner/notice stack rendered immediately above the chat composer's form

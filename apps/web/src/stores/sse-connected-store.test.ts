@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "bun:test";
 
-import { useSSEConnectedStore, getSSEConnectedSnapshot } from "@/stores/sse-connected-store.js";
+import { useSSEConnectedStore, getSSEConnectedSnapshot } from "@/stores/sse-connected-store";
 
 beforeEach(() => {
   useSSEConnectedStore.setState({ isConnected: false });

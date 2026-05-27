@@ -2,16 +2,16 @@ import { useEffect, useState } from "react";
 
 import { ExternalLink, Hash, MessageCircle } from "lucide-react";
 
-import { resolveSlackChannelName } from "@/domains/chat/api/slack-channel-name.js";
+import { resolveSlackChannelName } from "@/domains/chat/api/slack-channel-name";
 import type {
   Conversation,
   ConversationChannelBinding,
-} from "@/domains/chat/api/conversations.js";
+} from "@/domains/chat/api/conversations";
 import {
   getSlackLinkUrl,
   type DisplayMessage,
   type SlackMessageLink,
-} from "@/domains/chat/types/types.js";
+} from "@/domains/chat/types/types";
 
 type SlackFooterConversation = Pick<
   Conversation,

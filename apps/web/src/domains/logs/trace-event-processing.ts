@@ -21,7 +21,7 @@ import type {
   TraceEventKind,
   TraceEventRow,
   TraceEventStatus,
-} from "./trace-events-types.js";
+} from "./trace-events-types";
 
 export type RequestGroupStatus =
   | "active"

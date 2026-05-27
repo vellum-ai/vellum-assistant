@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 
-import { sanitizeUrl } from "@/lib/sentry/url-sanitize.js";
+import { sanitizeUrl } from "@/lib/sentry/url-sanitize";
 
 describe("sanitizeUrl", () => {
   it("redacts known sensitive query params", () => {

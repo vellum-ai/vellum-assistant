@@ -3,11 +3,11 @@ import { Loader2 } from "lucide-react";
 import { memo, type ReactNode } from "react";
 
 import { Notice } from "@vellum/design-library";
-import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router.js";
-import type { TranscriptItem } from "@/domains/chat/transcript/types.js";
+import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router";
+import type { TranscriptItem } from "@/domains/chat/transcript/types";
 
-import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body.js";
-import type { ConfirmationDecision } from "@/domains/chat/api/event-types.js";
+import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
+import type { ConfirmationDecision } from "@/domains/chat/api/event-types";
 
 /**
  * Thin dispatcher: render one `TranscriptItem` using the matching existing
@@ -49,9 +49,9 @@ export interface TranscriptRowProps {
     riskLevel?: string;
     riskReason?: string;
     input?: Record<string, unknown>;
-    allowlistOptions: import("@/domains/chat/api/event-types.js").AllowlistOption[];
-    scopeOptions: import("@/domains/chat/api/event-types.js").ScopeOption[];
-    directoryScopeOptions: import("@/domains/chat/api/event-types.js").DirectoryScopeOption[];
+    allowlistOptions: import("@/domains/chat/api/event-types").AllowlistOption[];
+    scopeOptions: import("@/domains/chat/api/event-types").ScopeOption[];
+    directoryScopeOptions: import("@/domains/chat/api/event-types").DirectoryScopeOption[];
   }) => void;
   unknownNudgeToolCallIds?: Set<string>;
   onDismissUnknownNudge?: (toolCallId: string) => void;

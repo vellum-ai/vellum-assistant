@@ -2,10 +2,10 @@ import { Terminal } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Dropdown } from "@vellum/design-library/components/dropdown";
-import { TerminalPanel } from "@/domains/terminal/components/terminal-panel.js";
-import type { MaintenanceMode } from "@/generated/api/types.gen.js";
-import { getAssistant } from "@/assistant/api.js";
-import { reportError } from "@/lib/errors/report.js";
+import { TerminalPanel } from "@/domains/terminal/components/terminal-panel";
+import type { MaintenanceMode } from "@/generated/api/types.gen";
+import { getAssistant } from "@/assistant/api";
+import { reportError } from "@/lib/errors/report";
 
 type TerminalService = "assistant" | "gateway" | "credential-executor";
 

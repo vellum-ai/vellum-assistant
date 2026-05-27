@@ -8,19 +8,18 @@
 
 import * as Sentry from "@sentry/browser";
 
-import { client, SDK_BASE_OPTIONS } from "@/domains/chat/api/client.js";
-import { recordChatDiagnostic, resolvePlatformTag } from "@/domains/chat/utils/diagnostics.js";
-import { parseAssistantEvent, readEventConversationId } from "@/domains/chat/api/event-parser.js";
-import type { AssistantEvent } from "@/domains/chat/api/event-types.js";
-import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat-utils.js";
-import { pickConversationIdWireField } from "@/lib/backwards-compat/conversation-id-wire-field.js";
-import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity.js";
+import { client, SDK_BASE_OPTIONS } from "@/domains/chat/api/client";
+import { recordChatDiagnostic, resolvePlatformTag } from "@/domains/chat/utils/diagnostics";
+import { parseAssistantEvent } from "@/domains/chat/api/event-parser";
+import type { AssistantEvent } from "@/domains/chat/api/event-types";
+import { pickConversationIdWireField } from "@/lib/backwards-compat/conversation-id-wire-field";
+import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
 import {
   markClientEstablished,
   pushSseEvent,
   registerSseClient,
   unregisterSseClient,
-} from "@/domains/chat/api/stream-debug.js";
+} from "@/domains/chat/api/stream-debug";
 
 // ---------------------------------------------------------------------------
 // SSE stream transport
@@ -427,35 +426,11 @@ export function subscribeChatEvents(
             reconnectCount = 0;
           }
 
-          // Support envelope format: { message: { type, ...fields } }
-          // with fallback to flat format: { type, ...fields }
-          let eventData = data;
-          if (
-            data.message &&
-            typeof data.message === "object" &&
-            !Array.isArray(data.message) &&
-            typeof (data.message as Record<string, unknown>).type === "string"
-          ) {
-            eventData = data.message as Record<string, unknown>;
-          }
-
-          const envelopeConversationId = readEventConversationId(data);
-          const eventType = typeof eventData.type === "string" ? eventData.type : "message";
-          const parsed = parseAssistantEvent(eventType, eventData);
-          // Coerce conversationId onto the parsed event from (in order): the
-          // event payload itself, the AssistantEvent envelope's
-          // `conversationId` field, and finally the requestedConversationId
-          // passed into this subscription. Skipped for global events whose
-          // wire schemas do not declare the field (e.g.
-          // `relationship_state_updated`) — broadcasting an envelope-derived
-          // conversationId onto those would falsely scope a global event
-          // to whatever subscription happened to receive it.
-          if (isConversationScopedStreamEvent(parsed)) {
-            parsed.conversationId =
-              parsed.conversationId ??
-              envelopeConversationId ??
-              requestedConversationId;
-          }
+          // `parseAssistantEvent` owns the full path: envelope/flat
+          // unwrap, canonical-schema dispatch, legacy-event coercion, and
+          // envelope-conversationId stamping. This handler is the
+          // transport — keep it thin.
+          const parsed = parseAssistantEvent(data);
           pushSseEvent(sseDebugClientId, parsed);
           try {
             onEvent(parsed);

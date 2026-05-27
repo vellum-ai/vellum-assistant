@@ -2,8 +2,8 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
 
-import { useFlagQueryFreshness } from "@/lib/backwards-compat/flag-query-freshness.js";
-import { useAssistantIdentityStore } from "@/stores/assistant-identity-store.js";
+import { useFlagQueryFreshness } from "@/lib/backwards-compat/flag-query-freshness";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 function wrapper({ children }: { children: ReactNode }) {
   return <>{children}</>;

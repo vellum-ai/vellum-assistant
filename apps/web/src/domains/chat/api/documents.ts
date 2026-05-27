@@ -1,5 +1,5 @@
-import { client } from "@/generated/api/client.gen.js";
-import { ApiError, assertHasResponse, extractErrorMessage } from "@/lib/api-errors.js";
+import { client } from "@/generated/api/client.gen";
+import { ApiError, assertHasResponse, extractErrorMessage } from "@/lib/api-errors";
 
 // ---------------------------------------------------------------------------
 // Types

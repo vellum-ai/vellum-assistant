@@ -11,11 +11,11 @@ import { Link } from "react-router";
 import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { Toggle } from "@vellum/design-library/components/toggle";
 
-import { SettingsCard } from "@/domains/settings/components/settings-card.js";
+import { DetailCard } from "@/components/detail-card";
 import {
   getLocalSetting,
   setLocalSetting,
-} from "@/lib/local-settings.js";
+} from "@/lib/local-settings";
 import {
   LS_PTT_ACTIVATION_KEY,
   activatorDisplayName,
@@ -26,8 +26,8 @@ import {
   sortModifiers,
   type PTTActivator,
   type PTTModifier,
-} from "@/domains/voice/ptt-activator.js";
-import { routes } from "@/utils/routes.js";
+} from "@/domains/voice/ptt-activator";
+import { routes } from "@/utils/routes";
 
 const LS_CONVERSATION_TIMEOUT = "voice:conversationTimeoutSeconds";
 
@@ -216,7 +216,7 @@ function PushToTalkCard() {
     !PTT_PRESETS.some((p) => activatorsEqual(p.activator, activator));
 
   return (
-    <SettingsCard
+    <DetailCard
       title="Push to Talk"
       subtitle="Hold the activation key to dictate text or start a voice conversation."
     >
@@ -290,7 +290,7 @@ function PushToTalkCard() {
           </div>
         )}
       </div>
-    </SettingsCard>
+    </DetailCard>
   );
 }
 
@@ -347,7 +347,7 @@ function ConversationTimeoutCard() {
   }, []);
 
   return (
-    <SettingsCard
+    <DetailCard
       title="Conversation Timeout"
       subtitle="How long the assistant waits for you to start speaking before ending a voice conversation turn."
     >
@@ -359,6 +359,6 @@ function ConversationTimeoutCard() {
           aria-label="Conversation timeout"
         />
       </div>
-    </SettingsCard>
+    </DetailCard>
   );
 }

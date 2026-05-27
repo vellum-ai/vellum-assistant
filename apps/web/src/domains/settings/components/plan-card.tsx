@@ -9,16 +9,16 @@ import { Button } from "@vellum/design-library/components/button";
 import { Card } from "@vellum/design-library/components/card";
 import { Notice } from "@vellum/design-library/components/notice";
 import { Typography } from "@vellum/design-library/components/typography";
-import { InvoicesModal } from "./invoices-modal.js";
-import { PlanFeatureList } from "./plan-feature-list.js";
+import { InvoicesModal } from "./invoices-modal";
+import { PlanFeatureList } from "./plan-feature-list";
 import {
   organizationsBillingPlansRetrieveOptions,
   organizationsBillingSubscriptionRetrieveOptions,
-} from "@/generated/api/@tanstack/react-query.gen.js";
+} from "@/generated/api/@tanstack/react-query.gen";
 import {
   formatGraceDate,
   getEffectiveCancelDate,
-} from "@/domains/settings/hooks/use-billing-portal-session.js";
+} from "@/domains/settings/hooks/use-billing-portal-session";
 
 interface PlanDisplay {
   icon: LucideIcon;

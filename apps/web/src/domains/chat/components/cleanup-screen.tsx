@@ -1,7 +1,7 @@
 
 import { type ReactNode, useEffect, useState } from "react";
 
-import { useHintRotation } from "@/domains/chat/hooks/use-hint-rotation.js";
+import { useHintRotation } from "@/domains/chat/hooks/use-hint-rotation";
 
 const CLEANUP_HINTS = [
   "Cleaning up your assistant\u2026",

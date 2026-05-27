@@ -16,8 +16,8 @@ import { PanelItem } from "@vellum/design-library/components/panel-item";
 import { Tag } from "@vellum/design-library/components/tag";
 import { Toggle } from "@vellum/design-library/components/toggle";
 import { toast } from "@vellum/design-library/components/toast";
-import { SettingsCard } from "@/domains/settings/components/settings-card.js";
-import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen.js";
+import { DetailCard } from "@/components/detail-card";
+import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen";
 import {
   deleteSchedule,
   fetchConsolidationConfig,
@@ -29,14 +29,14 @@ import {
   runHeartbeatNow,
   runScheduleNow,
   toggleSchedule,
-} from "@/domains/settings/api/schedules.js";
-import { reportError } from "@/lib/errors/report.js";
+} from "@/domains/settings/api/schedules";
+import { reportError } from "@/lib/errors/report";
 import {
   assistantScheduleRunsQueryKey,
   assistantSchedulesQueryKey,
-} from "@/lib/sync/query-tags.js";
+} from "@/lib/sync/query-tags";
 
-import { CreateScheduleModal } from "@/domains/settings/components/create-schedule-modal.js";
+import { CreateScheduleModal } from "@/domains/settings/components/create-schedule-modal";
 
 import type {
   ConsolidationConfigResponse,
@@ -44,7 +44,7 @@ import type {
   Schedule,
   ScheduleRun,
   SystemTaskKind,
-} from "@/domains/settings/types/schedules.js";
+} from "@/domains/settings/types/schedules";
 import type { TagTone } from "@vellum/design-library/components/tag";
 
 // ---------------------------------------------------------------------------
@@ -158,7 +158,7 @@ function RunLogView({ run, onBack }: { run: ScheduleRun; onBack: () => void }) {
         Back to runs
       </button>
 
-      <SettingsCard title="Run details">
+      <DetailCard title="Run details">
         <div className="space-y-3 text-body-medium-lighter">
           <div className="flex items-center justify-between">
             <span className="text-[var(--content-secondary)]">Status</span>
@@ -176,30 +176,30 @@ function RunLogView({ run, onBack }: { run: ScheduleRun; onBack: () => void }) {
             <span>{formatDuration(run.durationMs)}</span>
           </div>
         </div>
-      </SettingsCard>
+      </DetailCard>
 
       {run.output && (
-        <SettingsCard title="Output">
+        <DetailCard title="Output">
           <pre className="max-h-80 overflow-auto rounded-md bg-[var(--surface-sunken)] p-3 text-body-small-default font-mono text-[var(--content-default)] whitespace-pre-wrap break-all">
             {run.output}
           </pre>
-        </SettingsCard>
+        </DetailCard>
       )}
 
       {run.error && (
-        <SettingsCard title="Error">
+        <DetailCard title="Error">
           <pre className="max-h-80 overflow-auto rounded-md bg-[var(--system-negative-weak)] p-3 text-body-small-default font-mono text-[var(--system-negative-strong)] whitespace-pre-wrap break-all">
             {run.error}
           </pre>
-        </SettingsCard>
+        </DetailCard>
       )}
 
       {!run.output && !run.error && (
-        <SettingsCard>
+        <DetailCard>
           <p className="text-body-medium-lighter text-[var(--content-tertiary)] italic">
             No output or errors captured for this run.
           </p>
-        </SettingsCard>
+        </DetailCard>
       )}
     </div>
   );
@@ -219,7 +219,7 @@ function RecentRunsCard({
   emptyMessage = "No runs yet.",
 }: RecentRunsCardProps) {
   return (
-    <SettingsCard title="Recent runs">
+    <DetailCard title="Recent runs">
       {isLoading ? (
         <div className="flex items-center justify-center py-8">
           <Loader2 className="h-5 w-5 animate-spin text-stone-400" />
@@ -261,7 +261,7 @@ function RecentRunsCard({
           ))}
         </div>
       )}
-    </SettingsCard>
+    </DetailCard>
   );
 }
 
@@ -343,7 +343,7 @@ export function ScheduleDetailView({
         Back to schedules
       </button>
 
-      <SettingsCard
+      <DetailCard
         title={schedule.name}
         subtitle={schedule.description}
         accessory={
@@ -400,7 +400,7 @@ export function ScheduleDetailView({
             </div>
           )}
         </div>
-      </SettingsCard>
+      </DetailCard>
 
       <RecentRunsCard
         runs={runs}
@@ -408,7 +408,7 @@ export function ScheduleDetailView({
         onSelectRun={setSelectedRun}
       />
 
-      <SettingsCard title="Danger zone">
+      <DetailCard title="Danger zone">
         <div className="flex items-center justify-between gap-4">
           <div>
             <p className="text-body-medium-default text-[var(--content-default)]">
@@ -449,7 +449,7 @@ export function ScheduleDetailView({
             </div>
           )}
         </div>
-      </SettingsCard>
+      </DetailCard>
     </div>
   );
 }
@@ -596,7 +596,7 @@ function SystemTaskDetailView({
         Back to schedules
       </button>
 
-      <SettingsCard
+      <DetailCard
         title={name}
         subtitle={subtitle}
         accessory={
@@ -634,7 +634,7 @@ function SystemTaskDetailView({
             <span>{formatTimestamp(lastRunAt)}</span>
           </div>
         </div>
-      </SettingsCard>
+      </DetailCard>
 
       <RecentRunsCard
         runs={kind === "heartbeat" ? runs : []}
@@ -768,7 +768,7 @@ function SystemTasksSection({
   }
 
   return (
-    <SettingsCard
+    <DetailCard
       title="System"
       subtitle="Built-in jobs managed by the assistant runtime."
     >
@@ -829,7 +829,7 @@ function SystemTasksSection({
           ) : null}
         </div>
       )}
-    </SettingsCard>
+    </DetailCard>
   );
 }
 
@@ -1094,7 +1094,7 @@ export function SchedulesPage() {
       </div>
 
       {recurring.length > 0 && (
-        <SettingsCard
+        <DetailCard
           title="Schedules"
           subtitle="Recurring automations managed by your assistant."
         >
@@ -1108,7 +1108,7 @@ export function SchedulesPage() {
               />
             ))}
           </div>
-        </SettingsCard>
+        </DetailCard>
       )}
 
       <SystemTasksSection
@@ -1126,7 +1126,7 @@ export function SchedulesPage() {
       />
 
       {oneTime.length > 0 && (
-        <SettingsCard
+        <DetailCard
           title="One-time"
           subtitle="One-shot automations that run once at a scheduled time."
         >
@@ -1140,7 +1140,7 @@ export function SchedulesPage() {
               />
             ))}
           </div>
-        </SettingsCard>
+        </DetailCard>
       )}
 
       {assistantId ? (

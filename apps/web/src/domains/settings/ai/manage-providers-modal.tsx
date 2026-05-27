@@ -13,9 +13,9 @@ import {
   deleteConnection,
   listConnections,
   updateConnection,
-} from "@/domains/settings/ai/provider-connections-client.js";
-import { ProviderEditorContent } from "@/domains/settings/ai/provider-editor-modal.js";
-import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
+} from "@/domains/settings/ai/provider-connections-client";
+import { ProviderEditorContent } from "@/domains/settings/ai/provider-editor-modal";
+import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
 
 // ---------------------------------------------------------------------------
 // Helpers

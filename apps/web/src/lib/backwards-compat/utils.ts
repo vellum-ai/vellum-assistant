@@ -24,8 +24,8 @@
  *   (Hook name follows React's rules-of-hooks since the active
  *   assistant version is read off the identity store.)
  */
-import { useAssistantIdentityStore } from "@/stores/assistant-identity-store.js";
-import { compareParsed, parseSemver } from "@/utils/semver.js";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { compareParsed, parseSemver } from "@/utils/semver";
 
 /**
  * Returns `true` when the active assistant's version is at or above

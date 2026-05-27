@@ -33,14 +33,14 @@ import { type QueryClient, useQuery } from "@tanstack/react-query";
 import {
   type ChatContext,
   getChatContext,
-} from "@/domains/chat/api/assistant.js";
+} from "@/domains/chat/api/assistant";
 import {
   CONVERSATION_NOT_FOUND,
   type Conversation,
   type ConversationGroup,
   fetchConversationDetail,
   fetchGroups,
-} from "@/domains/chat/api/conversations.js";
+} from "@/domains/chat/api/conversations";
 
 // ---------------------------------------------------------------------------
 // Query keys
@@ -51,7 +51,7 @@ import {
   CONVERSATION_GROUPS_QUERY_KEY,
   chatContextQueryKey,
   conversationGroupsQueryKey,
-} from "@/lib/sync/query-tags.js";
+} from "@/lib/sync/query-tags";
 
 export {
   CHAT_CONTEXT_QUERY_KEY,

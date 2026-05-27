@@ -10,10 +10,10 @@
 
 import { type MutableRefObject, useCallback, useEffect, useRef, useState } from "react";
 
-import type { RefreshOutcome } from "@/domains/chat/transcript/transcript.js";
+import type { RefreshOutcome } from "@/domains/chat/transcript/transcript";
 
-import { haptic } from "@/utils/haptics.js";
-import { isPointerCoarse } from "@/utils/pointer.js";
+import { haptic } from "@/utils/haptics";
+import { isPointerCoarse } from "@/utils/pointer";
 
 // ---------------------------------------------------------------------------
 // Constants

@@ -31,31 +31,31 @@ import {
 import {
   type DisplayMessage,
   reconcileDisplayMessagesWithLatestHistory,
-} from "@/domains/chat/utils/reconcile.js";
-import { filterDismissedSurfaces } from "@/domains/chat/utils/dismissed-surfaces-storage.js";
+} from "@/domains/chat/utils/reconcile";
+import { filterDismissedSurfaces } from "@/domains/chat/utils/dismissed-surfaces-storage";
 import {
   recordChatDiagnostic,
   summarizeDisplayMessages,
-} from "@/domains/chat/utils/diagnostics.js";
-import type { TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
-import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
-import { useConversationStore } from "@/domains/conversations/conversation-store.js";
-import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
-import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
-import type { SubagentStatus } from "@/domains/chat/api/event-types.js";
+} from "@/domains/chat/utils/diagnostics";
+import type { TranscriptPaginationState } from "@/domains/chat/transcript/types";
+import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
+import { useConversationStore } from "@/domains/conversations/conversation-store";
+import { useInteractionStore } from "@/domains/interactions/interaction-store";
+import { useSubagentStore } from "@/domains/subagents/subagent-store";
+import type { SubagentStatus } from "@/domains/chat/api/event-types";
 
 import {
   parsePendingSecretState,
   parsePendingConfirmationData,
-} from "@/domains/chat/hooks/use-send-message.js";
-import { useConversationSwitch } from "@/domains/chat/hooks/use-conversation-switch.js";
-import type { AssistantStateKind, ChatError } from "@/domains/chat/types.js";
-import { getPendingInteractions } from "@/domains/chat/api/interactions.js";
-import { fetchSurfaceContent } from "@/domains/chat/api/surfaces.js";
+} from "@/domains/chat/hooks/use-send-message";
+import { useConversationSwitch } from "@/domains/chat/hooks/use-conversation-switch";
+import type { AssistantStateKind, ChatError } from "@/domains/chat/types";
+import { getPendingInteractions } from "@/domains/chat/api/interactions";
+import { fetchSurfaceContent } from "@/domains/chat/api/surfaces";
 import {
   useHistoryPagination,
   type HistoryPaginationResult,
-} from "@/domains/chat/transcript/use-history-pagination.js";
+} from "@/domains/chat/transcript/use-history-pagination";
 
 // ---------------------------------------------------------------------------
 // Types

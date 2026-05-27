@@ -1,5 +1,5 @@
-import { SubagentDetailPanel } from "@/domains/chat/components/subagent-detail-panel.js";
-import type { SubagentEntry } from "@/domains/subagents/subagent-store.js";
+import { SubagentDetailPanel } from "@/domains/chat/components/subagent-detail-panel";
+import type { SubagentEntry } from "@/domains/subagents/subagent-store";
 
 interface MobileSubagentDetailOverlayProps {
   /** When `null`, the overlay renders nothing. */

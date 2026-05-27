@@ -3,7 +3,7 @@ import { ExternalLink, Pin, PinOff, Puzzle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@vellum/design-library";
-import { cn } from "@/utils/misc.js";
+import { cn } from "@/utils/misc";
 
 export interface AppCardProps {
   name: string;

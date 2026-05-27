@@ -2,19 +2,17 @@ import { useState } from "react";
 
 import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { Toggle } from "@vellum/design-library/components/toggle";
-import { SettingsCard } from "@/domains/settings/components/settings-card.js";
-import { BiometricSettingsCard } from "@/domains/settings/components/biometric-settings-card.js";
-import { AccessConsentSetting } from "@/domains/settings/components/access-consent-setting.js";
-import { RiskToleranceSettings } from "@/domains/settings/components/risk-tolerance-settings.js";
-import { TrustRules } from "@/domains/settings/components/trust-rules/trust-rules.js";
+import { DetailCard } from "@/components/detail-card";
+import { BiometricSettingsCard } from "@/domains/settings/components/biometric-settings-card";
+import { AccessConsentSetting } from "@/domains/settings/components/access-consent-setting";
+import { RiskToleranceSettings } from "@/domains/settings/components/risk-tolerance-settings";
+import { TrustRules } from "@/domains/settings/components/trust-rules/trust-rules";
 import {
-  getLocalSetting,
-  setLocalSetting,
-} from "@/lib/local-settings.js";
-
-const LS_SHARE_ANALYTICS = "vellum_share_analytics";
-const LS_SHARE_DIAGNOSTICS = "vellum_share_diagnostics";
-const LS_LLM_LOG_RETENTION = "vellum_llm_log_retention";
+  getDeviceBool,
+  getDeviceSetting,
+  setDeviceBool,
+  setDeviceSetting,
+} from "@/lib/device-settings";
 
 const RETENTION_OPTIONS: { value: string; label: string }[] = [
   { value: "dontRetain", label: "Don't retain" },
@@ -62,30 +60,30 @@ function Divider() {
 
 export function PrivacyPage() {
   const [shareAnalytics, setShareAnalytics] = useState(
-    () => getLocalSetting(LS_SHARE_ANALYTICS, "true") === "true",
+    () => getDeviceBool("shareAnalytics", true),
   );
   const [shareDiagnostics, setShareDiagnostics] = useState(
-    () => getLocalSetting(LS_SHARE_DIAGNOSTICS, "true") === "true",
+    () => getDeviceBool("shareDiagnostics", true),
   );
   const [retentionId, setRetentionId] = useState(() =>
-    getLocalSetting(LS_LLM_LOG_RETENTION, DEFAULT_RETENTION_ID),
+    getDeviceSetting("llmLogRetention", DEFAULT_RETENTION_ID),
   );
 
   const handleAnalyticsToggle = () => {
     const next = !shareAnalytics;
     setShareAnalytics(next);
-    setLocalSetting(LS_SHARE_ANALYTICS, String(next));
+    setDeviceBool("shareAnalytics", next);
   };
 
   const handleDiagnosticsToggle = () => {
     const next = !shareDiagnostics;
     setShareDiagnostics(next);
-    setLocalSetting(LS_SHARE_DIAGNOSTICS, String(next));
+    setDeviceBool("shareDiagnostics", next);
   };
 
   const handleRetentionChange = (value: string) => {
     setRetentionId(value);
-    setLocalSetting(LS_LLM_LOG_RETENTION, value);
+    setDeviceSetting("llmLogRetention", value);
   };
 
   return (
@@ -93,7 +91,7 @@ export function PrivacyPage() {
       <BiometricSettingsCard />
       <TrustRules />
       <RiskToleranceSettings />
-      <SettingsCard title="Privacy">
+      <DetailCard title="Privacy">
         <div className="space-y-4">
           <SettingRow
             label="Share Analytics"
@@ -133,7 +131,7 @@ export function PrivacyPage() {
             </p>
           </div>
         </div>
-      </SettingsCard>
+      </DetailCard>
     </div>
   );
 }

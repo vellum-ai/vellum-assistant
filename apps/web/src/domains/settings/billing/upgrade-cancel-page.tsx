@@ -5,7 +5,7 @@ import { useNavigate } from "react-router";
 import { Card } from "@vellum/design-library/components/card";
 import { toast } from "@vellum/design-library/components/toast";
 import { Typography } from "@vellum/design-library/components/typography";
-import { routes } from "@/utils/routes.js";
+import { routes } from "@/utils/routes";
 
 /**
  * Stripe Checkout `cancel_url` landing page.

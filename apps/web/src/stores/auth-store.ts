@@ -13,18 +13,21 @@
  */
 import { create } from "zustand";
 
-import { createSelectors } from "@/utils/create-selectors.js";
+import { createSelectors } from "@/utils/create-selectors";
 
 import {
   getSession,
   logout as allauthLogout,
-} from "@/lib/auth/allauth-client.js";
-import { deleteBiometricToken } from "@/runtime/native-biometric.js";
-import { syncOnboardingUser } from "@/domains/onboarding/prefs.js";
-import { clearOrganization } from "@/stores/organization-store.js";
-import { useEventBusStore } from "@/stores/event-bus-store.js";
-import { isNativePlatform, installSessionCookies, waitForNativeSessionCookie } from "@/runtime/native-auth.js";
-import { isBiometricEnabled, retrieveBiometricToken } from "@/runtime/native-biometric.js";
+} from "@/lib/auth/allauth-client";
+import { probeGatewayAuthState } from "@/lib/auth/gateway-session";
+import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
+import { deleteBiometricToken } from "@/runtime/native-biometric";
+import { syncOnboardingUser, clearOnboardingFlags } from "@/domains/onboarding/prefs";
+import { clearOrganization } from "@/stores/organization-store";
+import { clearUserScopedStorage } from "@/lib/auth/session-cleanup";
+import { useEventBusStore } from "@/stores/event-bus-store";
+import { isNativePlatform, installSessionCookies, waitForNativeSessionCookie } from "@/runtime/native-auth";
+import { isBiometricEnabled, retrieveBiometricToken } from "@/runtime/native-biometric";
 
 export interface AuthUser {
   id: string | null;
@@ -134,6 +137,14 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
 
     syncUserScopedState(null);
     set({ isLoggedIn: false, isLoading: false, user: null });
+
+    if (useClientFeatureFlagStore.getState().gatewayWebAuth) {
+      probeGatewayAuthState()
+        .then((s) => console.debug("[gateway-auth] state:", s))
+        .catch((e: unknown) =>
+          console.debug("[gateway-auth] probe failed:", e),
+        );
+    }
   },
 
   refreshSession: async () => {
@@ -158,7 +169,9 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       await allauthLogout();
     } finally {
       void deleteBiometricToken();
-      syncUserScopedState(null);
+      clearOnboardingFlags();
+      clearOrganization();
+      clearUserScopedStorage();
       set({ isLoggedIn: false, user: null });
       broadcastAuthChange();
     }
@@ -193,7 +206,10 @@ export function setupAuthListeners(): () => void {
 
   if (typeof BroadcastChannel !== "undefined") {
     broadcastChannel = new BroadcastChannel("auth");
-    broadcastChannel.onmessage = () => safeRefresh();
+    broadcastChannel.onmessage = () => {
+      clearUserScopedStorage();
+      window.location.reload();
+    };
     cleanups.push(() => {
       broadcastChannel?.close();
       broadcastChannel = null;

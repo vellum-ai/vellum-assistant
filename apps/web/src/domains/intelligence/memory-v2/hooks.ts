@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
-import { listConceptPages, readConceptPage } from "./api.js";
-import type { ListConceptPagesResult } from "./types.js";
+import { listConceptPages, readConceptPage } from "./api";
+import type { ListConceptPagesResult } from "./types";
 
 export function useListConceptPages(assistantId: string) {
   return useQuery<ListConceptPagesResult>({

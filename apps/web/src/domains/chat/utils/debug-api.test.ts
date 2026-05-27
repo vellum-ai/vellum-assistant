@@ -5,25 +5,25 @@
 import { describe, expect, test } from "bun:test";
 import type { MutableRefObject } from "react";
 
-import type { ChatEventStream } from "@/domains/chat/api/stream.js";
-import type { TranscriptHandle } from "@/domains/chat/transcript/use-deprecated-transcript-scroll.js";
-import type { TranscriptItem } from "@/domains/chat/transcript/types.js";
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
-import type { RuntimeMessage } from "@/domains/chat/api/messages.js";
-import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation.js";
+import type { ChatEventStream } from "@/domains/chat/api/stream";
+import type { TranscriptHandle } from "@/domains/chat/transcript/use-deprecated-transcript-scroll";
+import type { TranscriptItem } from "@/domains/chat/transcript/types";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { RuntimeMessage } from "@/domains/chat/api/messages";
+import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation";
 import type {
   ChatDebugRefs,
   PendingInteractionsSnapshot,
-} from "@/domains/chat/utils/debug-api.js";
+} from "@/domains/chat/utils/debug-api";
 import {
   createChatDebugApi,
   installVellumDebugApi,
-} from "@/domains/chat/utils/debug-api.js";
+} from "@/domains/chat/utils/debug-api";
 import {
   INITIAL_TURN_STATE,
   type TurnState,
-} from "@/domains/messaging/turn-store.js";
-import type { UIContext } from "@/domains/messaging/turn-selectors.js";
+} from "@/domains/messaging/turn-store";
+import type { UIContext } from "@/domains/messaging/turn-selectors";
 
 // ---------------------------------------------------------------------------
 //  Helpers

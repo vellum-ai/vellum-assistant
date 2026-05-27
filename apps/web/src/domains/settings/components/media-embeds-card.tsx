@@ -4,15 +4,14 @@ import { useMemo, useState } from "react";
 import { Button } from "@vellum/design-library/components/button";
 import { Input } from "@vellum/design-library/components/input";
 import { Toggle } from "@vellum/design-library/components/toggle";
-import { SettingsCard } from "@/domains/settings/components/settings-card.js";
-import { SettingsDivider } from "@/domains/settings/components/settings-divider.js";
+import { DetailCard } from "@/components/detail-card";
+import { SettingsDivider } from "@/domains/settings/components/settings-divider";
 import {
-  getLocalSetting,
-  setLocalSetting,
-} from "@/lib/local-settings.js";
-
-const ENABLED_KEY = "vellum_media_embeds_enabled";
-const ALLOWLIST_KEY = "vellum_media_embed_domains";
+  getDeviceBool,
+  getDeviceSetting,
+  setDeviceBool,
+  setDeviceSetting,
+} from "@/lib/device-settings";
 
 const DEFAULT_VIDEO_ALLOWLIST: ReadonlyArray<string> = [
   "youtube.com",
@@ -34,11 +33,11 @@ function parseAllowlist(raw: string): string[] {
 }
 
 function loadEnabled(): boolean {
-  return getLocalSetting(ENABLED_KEY, "true") === "true";
+  return getDeviceBool("mediaEmbedsEnabled", true);
 }
 
 function loadAllowlist(): string[] {
-  const raw = getLocalSetting(ALLOWLIST_KEY, "");
+  const raw = getDeviceSetting("mediaEmbedDomains", "");
   if (!raw) return [...DEFAULT_VIDEO_ALLOWLIST];
   return parseAllowlist(raw);
 }
@@ -56,12 +55,12 @@ export function MediaEmbedsCard() {
 
   const handleToggle = (next: boolean) => {
     setEnabled(next);
-    setLocalSetting(ENABLED_KEY, next ? "true" : "false");
+    setDeviceBool("mediaEmbedsEnabled", next);
   };
 
   const persistDomains = (next: string[]) => {
     setDomains(next);
-    setLocalSetting(ALLOWLIST_KEY, JSON.stringify(next));
+    setDeviceSetting("mediaEmbedDomains", JSON.stringify(next));
   };
 
   const addDomain = () => {
@@ -87,7 +86,7 @@ export function MediaEmbedsCard() {
     domains.every((d, i) => d === DEFAULT_VIDEO_ALLOWLIST[i]);
 
   return (
-    <SettingsCard
+    <DetailCard
       title="Media Embeds"
       subtitle="Automatically embed images, videos, and other media shared in chat messages."
     >
@@ -192,6 +191,6 @@ export function MediaEmbedsCard() {
           )}
         </>
       )}
-    </SettingsCard>
+    </DetailCard>
   );
 }
