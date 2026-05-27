@@ -6,10 +6,10 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrateCreateProviderConnections } from "../../../memory/migrations/243-provider-connections.js";
 import { migrateProviderConnectionStatusLabel } from "../../../memory/migrations/244-provider-connection-status-label.js";
 import { migrateProviderConnectionBaseUrlAndModels } from "../../../memory/migrations/250-provider-connection-base-url-and-models.js";
+import { migrateDropProviderConnectionStatus } from "../../../memory/migrations/265-drop-provider-connection-status.js";
 import * as schema from "../../../memory/schema.js";
 import {
   createConnection,
-  disableManagedConnectionsForByokHatch,
   getConnection,
   listConnections,
   seedCanonicalConnections,
@@ -25,13 +25,17 @@ function createTestDb() {
 function bootDb() {
   const db = createTestDb();
   migrateCreateProviderConnections(db);
+  // 244 adds status + label columns. 265 drops status. This mirrors the
+  // production migration sequence so the Drizzle schema (which no longer
+  // declares status) stays consistent with the DB shape.
   migrateProviderConnectionStatusLabel(db);
+  migrateDropProviderConnectionStatus(db);
   migrateProviderConnectionBaseUrlAndModels(db);
   return db;
 }
 
-describe("connection CRUD status + label defaults", () => {
-  test("new connection without status/label gets status=active and label=null", () => {
+describe("connection CRUD label defaults", () => {
+  test("new connection without label gets label=null", () => {
     const db = bootDb();
     const result = createConnection(db, {
       name: "my-conn",
@@ -40,59 +44,36 @@ describe("connection CRUD status + label defaults", () => {
     });
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.connection.status).toBe("active");
       expect(result.connection.label).toBeNull();
     }
   });
 
-  test("createConnection passes explicit status and label", () => {
+  test("createConnection passes explicit label", () => {
     const db = bootDb();
     const result = createConnection(db, {
-      name: "disabled-conn",
+      name: "labeled-conn",
       provider: "openai",
       auth: { type: "platform" },
-      status: "disabled",
       label: "My OpenAI",
     });
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.connection.status).toBe("disabled");
       expect(result.connection.label).toBe("My OpenAI");
     }
   });
 
-  test("getConnection returns status and label from DB", () => {
+  test("getConnection returns label from DB", () => {
     const db = bootDb();
     createConnection(db, {
       name: "get-me",
       provider: "gemini",
       auth: { type: "platform" },
-      status: "disabled",
       label: "Gemini Pro",
     });
 
     const conn = getConnection(db, "get-me");
     expect(conn).not.toBeNull();
-    expect(conn!.status).toBe("disabled");
     expect(conn!.label).toBe("Gemini Pro");
-  });
-
-  test("updateConnection updates status", () => {
-    const db = bootDb();
-    createConnection(db, {
-      name: "toggle-me",
-      provider: "anthropic",
-      auth: { type: "platform" },
-    });
-
-    const result = updateConnection(db, "toggle-me", {
-      auth: { type: "platform" },
-      status: "disabled",
-    });
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.connection.status).toBe("disabled");
-    }
   });
 
   test("updateConnection clears label when set to null", () => {
@@ -116,7 +97,7 @@ describe("connection CRUD status + label defaults", () => {
 });
 
 describe("seedCanonicalConnections labels", () => {
-  test("first boot seeds default labels on all three managed connections", () => {
+  test("first boot seeds default labels on all managed connections", () => {
     const db = bootDb();
     seedCanonicalConnections(db);
 
@@ -162,7 +143,7 @@ describe("seedCanonicalConnections labels", () => {
     expect(after?.label).toBe("Anthropic");
   });
 
-  test("backfill leaves explicit empty-overwrite null untouched on subsequent boot", () => {
+  test("backfill fills null label on subsequent boot", () => {
     const db = bootDb();
     seedCanonicalConnections(db);
 
@@ -181,85 +162,5 @@ describe("seedCanonicalConnections labels", () => {
 
     const conn = getConnection(db, "openai-managed");
     expect(conn?.label).toBe("OpenAI");
-  });
-});
-
-describe("disableManagedConnectionsForByokHatch", () => {
-  test("flips all three canonical managed connections to status='disabled'", () => {
-    const db = bootDb();
-    seedCanonicalConnections(db);
-
-    // Sanity: seeded rows default to active.
-    expect(getConnection(db, "anthropic-managed")?.status).toBe("active");
-    expect(getConnection(db, "openai-managed")?.status).toBe("active");
-    expect(getConnection(db, "gemini-managed")?.status).toBe("active");
-
-    disableManagedConnectionsForByokHatch(db);
-
-    expect(getConnection(db, "anthropic-managed")?.status).toBe("disabled");
-    expect(getConnection(db, "openai-managed")?.status).toBe("disabled");
-    expect(getConnection(db, "gemini-managed")?.status).toBe("disabled");
-  });
-
-  test("leaves an excluded managed connection active", () => {
-    const db = bootDb();
-    seedCanonicalConnections(db);
-
-    disableManagedConnectionsForByokHatch(db, {
-      excludeConnection: "anthropic-managed",
-    });
-
-    expect(getConnection(db, "anthropic-managed")?.status).toBe("active");
-    expect(getConnection(db, "openai-managed")?.status).toBe("disabled");
-    expect(getConnection(db, "gemini-managed")?.status).toBe("disabled");
-  });
-
-  test("subsequent seedCanonicalConnections call does NOT re-flip a user-re-enabled connection", () => {
-    // Models the post-hatch lifecycle: at hatch we disable; the user
-    // later flips one back to active (e.g. after Vellum login). Every
-    // subsequent daemon boot runs seedCanonicalConnections — and that
-    // boot must NOT revert the user's choice. The hatch-disable helper
-    // is only ever called from the seedInferenceProfiles hatch branch,
-    // so it does not run on a non-hatch boot; this test confirms the
-    // ambient seed pass leaves status alone.
-    const db = bootDb();
-    seedCanonicalConnections(db);
-    disableManagedConnectionsForByokHatch(db);
-
-    // User re-enables anthropic post-hatch.
-    updateConnection(db, "anthropic-managed", {
-      auth: { type: "platform" },
-      status: "active",
-    });
-    expect(getConnection(db, "anthropic-managed")?.status).toBe("active");
-
-    // Simulate a normal restart: seedCanonicalConnections runs every boot,
-    // disableManagedConnectionsForByokHatch does NOT.
-    seedCanonicalConnections(db);
-
-    expect(getConnection(db, "anthropic-managed")?.status).toBe("active");
-    // The two the user didn't touch stay disabled.
-    expect(getConnection(db, "openai-managed")?.status).toBe("disabled");
-    expect(getConnection(db, "gemini-managed")?.status).toBe("disabled");
-  });
-
-  test("idempotent re-hatch leaves all three at disabled", () => {
-    // Workspace reset / re-hatch scenario: helper runs again and any
-    // user re-enable from before the reset is intentionally undone —
-    // re-hatch means re-onboard.
-    const db = bootDb();
-    seedCanonicalConnections(db);
-    disableManagedConnectionsForByokHatch(db);
-
-    updateConnection(db, "anthropic-managed", {
-      auth: { type: "platform" },
-      status: "active",
-    });
-
-    disableManagedConnectionsForByokHatch(db);
-
-    expect(getConnection(db, "anthropic-managed")?.status).toBe("disabled");
-    expect(getConnection(db, "openai-managed")?.status).toBe("disabled");
-    expect(getConnection(db, "gemini-managed")?.status).toBe("disabled");
   });
 });

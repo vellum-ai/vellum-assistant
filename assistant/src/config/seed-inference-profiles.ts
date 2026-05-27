@@ -1,7 +1,6 @@
 import type { DrizzleDb } from "../memory/db-connection.js";
 import {
   createConnection,
-  disableManagedConnectionsForByokHatch,
   getConnection,
   MANAGED_CONNECTION_NAMES,
   PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
@@ -294,18 +293,6 @@ export function seedInferenceProfiles(
   // 2. User profiles — only at hatch time for off-platform installations.
   let userConnectionName: string | undefined;
   if (options.isHatch && !isPlatform) {
-    // BYOK hatch: disable canonical managed connections so the picker doesn't
-    // surface unusable platform-auth options on day one. If the hatch overlay
-    // selected a managed profile, leave that connection active; the user has
-    // already chosen managed inference. Runs only here, only at hatch —
-    // `seedCanonicalConnections` leaves `status` alone on subsequent boots so
-    // a post-hatch user re-enable persists.
-    if (options.db) {
-      disableManagedConnectionsForByokHatch(options.db, {
-        excludeConnection: hatchSelectedManagedConnection,
-      });
-    }
-
     const hatchProvider = readString(readObject(llm.default)?.provider);
     if (
       hatchProvider &&

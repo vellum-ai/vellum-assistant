@@ -119,9 +119,8 @@ export async function tryResolveProviderForConnectionName(
     try {
       const db = getDb();
       const candidates = listConnections(db, { provider: expectedProvider });
-      const active = candidates.find(
-        (c) =>
-          c.status === "active" && isConnectionCompatibleWithModel(c, model),
+      const active = candidates.find((c) =>
+        isConnectionCompatibleWithModel(c, model),
       );
       if (active) {
         log.info(
@@ -130,7 +129,7 @@ export async function tryResolveProviderForConnectionName(
             resolvedConnection: active.name,
             expectedProvider,
           },
-          "Auto-resolved stale provider_connection to matching active connection",
+          "Auto-resolved stale provider_connection to matching connection",
         );
         connection = active;
         resolved = true;
@@ -145,13 +144,6 @@ export async function tryResolveProviderForConnectionName(
         `provider_connection "${connectionName}" has provider="${connection.provider}" but resolving profile declared provider="${expectedProvider}" — set the profile's provider_connection to a row matching its provider`,
       );
     }
-  }
-  if (connection.status === "disabled") {
-    log.debug(
-      { connectionName, provider: connection.provider },
-      "provider_connection is disabled — returning null",
-    );
-    return null;
   }
   // `resolveProviderFromConnection` reaches into auth resolution (credential
   // reads, managed-proxy context). A transient failure there is a soft
@@ -201,10 +193,8 @@ export async function resolveDefaultProvider(
         const candidates = listConnections(getDb(), {
           provider: resolved.provider,
         });
-        const active = candidates.find(
-          (c) =>
-            c.status === "active" &&
-            isConnectionCompatibleWithModel(c, resolved.model),
+        const active = candidates.find((c) =>
+          isConnectionCompatibleWithModel(c, resolved.model),
         );
         if (active) {
           log.info(

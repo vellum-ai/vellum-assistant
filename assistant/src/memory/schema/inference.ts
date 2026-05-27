@@ -15,7 +15,6 @@ export const providerConnections = sqliteTable(
     name: text("name").primaryKey(),
     provider: text("provider").notNull(),
     auth: text("auth").notNull(),
-    status: text("status").notNull().default("active"),
     label: text("label"),
     baseUrl: text("base_url"),
     models: text("models"),

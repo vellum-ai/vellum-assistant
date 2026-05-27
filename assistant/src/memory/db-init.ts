@@ -196,6 +196,7 @@ import {
   migrateUsageLlmCallCount,
   migrateVoiceInviteColumns,
   migrateVoiceInviteDisplayMetadata,
+  migrateDropProviderConnectionStatus,
   recoverCrashedMigrations,
   runComplexMigrations,
   runLateMigrations,
@@ -462,6 +463,7 @@ export function initializeDb(): void {
     migrateMemoryV3Coactivation,
     migrateMemoryV3AutoEdges,
     migrateLlmRequestLogCallSite,
+    migrateDropProviderConnectionStatus,
   ];
 
   // Run each migration step, catching and logging individual failures so one

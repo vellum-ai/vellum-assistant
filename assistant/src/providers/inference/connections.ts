@@ -11,8 +11,6 @@ import {
   ConnectionModelSchema,
   type ConnectionProvider,
   ConnectionProviderSchema,
-  type ConnectionStatus,
-  ConnectionStatusSchema,
   type ProviderConnection,
   VALID_CONNECTION_PROVIDERS,
 } from "./auth.js";
@@ -55,16 +53,11 @@ export function listConnections(
     if (!auth.success) return [];
     const provider = ConnectionProviderSchema.safeParse(row.provider);
     if (!provider.success) return [];
-    const statusResult = ConnectionStatusSchema.safeParse(row.status);
-    const status: ConnectionStatus = statusResult.success
-      ? statusResult.data
-      : "active";
     return [
       {
         ...row,
         auth: auth.data,
         provider: provider.data,
-        status,
         label: row.label ?? null,
         baseUrl: row.baseUrl ?? null,
         models: parseModelsColumn(row.models),
@@ -89,15 +82,10 @@ export function getConnection(
   if (!auth.success) return null;
   const provider = ConnectionProviderSchema.safeParse(row.provider);
   if (!provider.success) return null;
-  const statusResult = ConnectionStatusSchema.safeParse(row.status);
-  const status: ConnectionStatus = statusResult.success
-    ? statusResult.data
-    : "active";
   return {
     ...row,
     auth: auth.data,
     provider: provider.data,
-    status,
     label: row.label ?? null,
     baseUrl: row.baseUrl ?? null,
     models: parseModelsColumn(row.models),
@@ -113,7 +101,6 @@ export type CreateConnectionInput = {
   name: string;
   provider: string;
   auth: Auth;
-  status?: ConnectionStatus;
   label?: string | null;
   baseUrl?: string | null;
   models?: ConnectionModel[] | null;
@@ -121,7 +108,6 @@ export type CreateConnectionInput = {
 
 export type UpdateConnectionInput = {
   auth: Auth;
-  status?: ConnectionStatus;
   label?: string | null;
   baseUrl?: string | null;
   models?: ConnectionModel[] | null;
@@ -173,7 +159,6 @@ export function createConnection(
     return { ok: false, error: { code: "already_exists" } };
   }
 
-  const status = input.status ?? "active";
   const label = input.label ?? null;
   const baseUrl = input.baseUrl ?? null;
   const models = input.models ?? null;
@@ -191,7 +176,6 @@ export function createConnection(
       name: input.name,
       provider,
       auth: JSON.stringify(authResult.data),
-      status,
       label,
       baseUrl,
       models: models === null ? null : JSON.stringify(models),
@@ -210,7 +194,6 @@ export function createConnection(
       name: input.name,
       provider,
       auth: authResult.data,
-      status,
       label,
       baseUrl,
       models,
@@ -255,12 +238,10 @@ export function updateConnection(
   const setClause: {
     auth: string;
     updatedAt: number;
-    status?: string;
     label?: string | null;
     baseUrl?: string | null;
     models?: string | null;
   } = { auth: JSON.stringify(authResult.data), updatedAt: now };
-  if (input.status !== undefined) setClause.status = input.status;
   if (input.label !== undefined) setClause.label = input.label;
   if (input.baseUrl !== undefined) setClause.baseUrl = input.baseUrl;
   if (input.models !== undefined)
@@ -280,7 +261,6 @@ export function updateConnection(
     connection: {
       ...existing,
       auth: authResult.data,
-      status: input.status !== undefined ? input.status : existing.status,
       label: input.label !== undefined ? input.label : existing.label,
       baseUrl: nextBaseUrl,
       models: nextModels,
@@ -376,10 +356,9 @@ const CANONICAL_CONNECTIONS: Array<{
  *     blocking prevents a confusing delete → re-appear loop).
  *   - PATCH that changes `auth` is blocked (auth is locked to `{type:"platform"}`
  *     so any other value would be reverted on the next boot upsert).
- *   - PATCH that changes `label` and/or `status` is allowed — users may legitimately
- *     disable or relabel the managed connection. `status` is never touched by the
- *     boot upsert. `label` is seeded on initial INSERT and backfilled when null
- *     on subsequent boots so pre-seed installs pick up the default; a non-null
+ *   - PATCH that changes `label` is allowed — users may legitimately relabel the
+ *     managed connection. `label` is seeded on initial INSERT and backfilled when
+ *     null on subsequent boots so pre-seed installs pick up the default; a non-null
  *     user-customized label is preserved (see `seedCanonicalConnections`).
  *
  * Mirrors `MANAGED_PROFILE_NAMES` (config/seed-inference-profiles.ts).
@@ -399,14 +378,6 @@ export const MANAGED_CONNECTION_NAMES: ReadonlySet<string> = new Set(
  * customization is preserved; the separate backfill step below assigns the
  * default only when the existing row has `label IS NULL`, covering installs
  * that pre-date the label seed.
- *
- * Status handling: the upsert never touches `status` so user customization
- * is preserved across reboots. New rows default to `status: "active"` via the
- * column default. Off-platform installs flip canonical managed rows to
- * `status: "disabled"` ONCE at hatch time via
- * `disableManagedConnectionsForByokHatch` (called from `seedInferenceProfiles`
- * when `isHatch && !isPlatform`); subsequent boots leave whatever the user
- * has chosen alone, so a post-hatch re-enable persists.
  */
 export function seedCanonicalConnections(db: DrizzleDb): void {
   const now = Date.now();
@@ -445,37 +416,3 @@ export function seedCanonicalConnections(db: DrizzleDb): void {
   }
 }
 
-/**
- * Flip canonical managed connections to `status: "disabled"` at
- * hatch time on BYOK (off-platform) installs.
- *
- * Why hatch-time only: managed connections need platform auth that a fresh
- * BYOK user doesn't have yet, so surfacing them as enabled in the picker
- * would let users pick an unusable option on day one. But this is a
- * first-time-only default — the moment the user explicitly flips one
- * back to active (e.g. after logging into Vellum), we never want a daemon
- * restart to revert that. `seedCanonicalConnections` leaves `status` alone
- * on the UPDATE path, and this helper is invoked ONLY from
- * `seedInferenceProfiles`'s `isHatch && !isPlatform` branch. Subsequent
- * non-hatch boots never call it.
- *
- * Idempotent: a second hatch (workspace reset) re-disables the rows, which
- * is the right call — re-hatch means re-onboard.
- *
- * When onboarding explicitly selected a managed profile, callers may exclude
- * that selected connection so the managed route remains usable for the first
- * post-onboarding message.
- */
-export function disableManagedConnectionsForByokHatch(
-  db: DrizzleDb,
-  options: { excludeConnection?: string } = {},
-): void {
-  const now = Date.now();
-  for (const name of MANAGED_CONNECTION_NAMES) {
-    if (name === options.excludeConnection) continue;
-    db.update(providerConnections)
-      .set({ status: "disabled", updatedAt: now })
-      .where(eq(providerConnections.name, name))
-      .run();
-  }
-}
