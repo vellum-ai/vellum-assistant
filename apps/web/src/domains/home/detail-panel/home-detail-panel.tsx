@@ -98,7 +98,7 @@ export function HomeDetailPanel({
         </div>
 
         {/* Detail header */}
-        <div className="flex items-start gap-3 px-4 py-3">
+        <div className="flex items-start justify-center gap-3 px-4 py-3">
           <span
             className="mt-0.5 flex shrink-0 items-center justify-center rounded-full"
             style={{
@@ -116,7 +116,7 @@ export function HomeDetailPanel({
           </span>
           <Typography
             variant="title-small"
-            className="min-w-0 flex-1 text-[var(--content-default)]"
+            className="min-w-0 text-[var(--content-default)]"
           >
             {item.title ?? item.summary}
           </Typography>
