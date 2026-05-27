@@ -20,16 +20,16 @@ Secondary: competitive benchmarking against OpenClaw, Claude Code, Codex, and He
 **Run shape, parameterized cartesian:**
 
 ```
-evals run --profiles <p1>[,<p2>...] --tests <t1>[,<t2>...]
+evals run --profiles <p1>[,<p2>...] [--benchmark <id>] [--filter <u1>[,<u2>...]]
 ```
 
-Single (1×1), suite (1×M), ablation (N×1), full matrix (N×M). Same codepath.
+Single (1×1), suite (1×M), ablation (N×1), full matrix (N×M). Same codepath. `--benchmark` defaults to `personal-intelligence`; omitting `--filter` runs every unit in the benchmark. `--tests <ids>` is a deprecated alias for `--filter` and emits a one-line warning.
+
+**Benchmark:** declarative directory under `benchmarks/`. `manifest.json` declares `displayName`, `unitDirName` (directory holding units, e.g. `tests` for personal-intelligence, `items` for longmemeval-v2), and `unitNoun` (singular noun used in CLI output). Personal-Intelligence is a peer of every public benchmark we run.
 
 **Profile:** declarative directory under `profiles/`. `manifest.json` declares species, optional version, optional setup commands. Optional `workspace/` subdirectory provides initial files for the agent. Plugins are installed via setup commands like `vellum exec -- assistant plugins install simple-memory`.
 
-**Benchmark:** top-level directory under `benchmarks/`. Each benchmark groups a coherent set of units (tests, items, tasks, …) that share a definition shape. `personal-intelligence/` is our in-house benchmark and is currently the only one. Public benchmarks (e.g. `longmemeval-v2/`) will live as peers.
-
-**Test:** declarative directory under `benchmarks/personal-intelligence/tests/`. `SPEC.md` briefs the simulator agent. Optional `metrics/` subdirectory holds per-metric `.ts` scorers. The on-disk root is resolved via `getTestsDir()` (overridable via `EVALS_TESTS_DIR`).
+**Test (personal-intelligence unit):** declarative directory under `benchmarks/personal-intelligence/tests/<id>/`. `SPEC.md` briefs the simulator agent. Optional `metrics/` subdirectory holds per-metric `.ts` scorers. The on-disk root is resolved via `loadBenchmark("personal-intelligence").unitsDir` (or the legacy `getTestsDir()`, overridable via `EVALS_TESTS_DIR`). Other benchmarks define their own unit shape under their own `unitDirName`.
 
 **Agent adapter (per species):** thin CLI process wrapper. Owns invocation, stdin/stdout format, session resume, cost extraction. Each test gets a fresh process — no sharing across tests (parallelization-ready). The Vellum adapter hatches a fresh Docker instance, sends user messages via `vellum message`, and reads assistant output from `vellum events --json`.
 
@@ -46,7 +46,8 @@ Single (1×1), suite (1×M), ablation (N×1), full matrix (N×M). Same codepath.
 - **Adapters:** shared interface in `src/lib/adapter.ts`; species implementations in `src/lib/adapters/`. Keep adapters CLI-boundary-oriented rather than importing CLI internals.
 - **Egress:** Docker jail helpers live in `src/lib/egress/`. Keep policy testable without requiring Docker in unit tests.
 - **Schemas:** zod, co-located with their loader in `src/lib/*.ts`.
-- **Profile/Test ids:** lowercase alphanumeric + hyphens (`^[a-z0-9][a-z0-9-]*$`). Match the directory name.
+- **Benchmark/Profile/Test ids:** lowercase alphanumeric + hyphens (`^[a-z0-9][a-z0-9-]*$`). Match the directory name.
+- **Benchmark loader:** prefer `loadBenchmark(id).unitsDir` for new code. `getTestsDir()` / `listTestIds()` stay as personal-intelligence shortcuts for legacy callers and the back-compat `evals tests list` surface.
 - **Environment:** `.env` (gitignored) — copy from `.env.example`.
 - **Test fixtures:** committed in-repo for reproducibility.
 - **Each test runs in its own fresh agent process.** No sharing — parallelization-ready by construction.

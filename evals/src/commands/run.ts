@@ -15,6 +15,8 @@ import {
   abandonAllRunningRunsSync,
   scavengeAbandonedRuns,
 } from "../lib/metrics";
+import { loadBenchmark } from "../lib/benchmark";
+import { DEFAULT_BENCHMARK_ID, listBenchmarkUnitIds } from "../lib/catalog";
 import { loadProfile } from "../lib/profile";
 import { loadTestDef } from "../lib/test-def";
 import { openInBrowser, startReportServer } from "./server";
@@ -75,18 +77,27 @@ function runId(profileId: string, testId: string, timestamp: string): string {
 export function registerRunCommand(program: Command): void {
   program
     .command("run")
-    .description("Run profile × test combinations")
+    .description("Run profile × benchmark-unit combinations")
     .requiredOption(
       "--profiles <ids>",
       "Comma-separated profile ids (each maps to profiles/<id>/manifest.json)",
     )
-    .requiredOption(
+    .option(
+      "--benchmark <id>",
+      `Benchmark id under benchmarks/ (defaults to ${DEFAULT_BENCHMARK_ID})`,
+      DEFAULT_BENCHMARK_ID,
+    )
+    .option(
+      "--filter <ids>",
+      "Comma-separated unit ids to run within the benchmark. Omit to run every unit.",
+    )
+    .option(
       "--tests <ids>",
-      "Comma-separated test ids (each maps to tests/<id>/SPEC.md)",
+      "[DEPRECATED] Alias for --filter. Use --benchmark <id> --filter <ids> instead.",
     )
     .option(
       "--label <label>",
-      "Human-readable tag stamped onto every (profile, test) execution in this run, so they cluster together in the report server",
+      "Human-readable tag stamped onto every (profile, unit) execution in this run, so they cluster together in the report server",
     )
     .option("--max-turns <n>", "Maximum simulator turns per run", (value) =>
       Number(value),
@@ -102,7 +113,9 @@ export function registerRunCommand(program: Command): void {
     .action(
       async (opts: {
         profiles: string;
-        tests: string;
+        benchmark: string;
+        filter?: string;
+        tests?: string;
         label?: string;
         maxTurns?: number;
         quiet?: boolean;
@@ -139,17 +152,45 @@ export function registerRunCommand(program: Command): void {
         // `docker container prune` / `docker volume prune`) rather than
         // a prerequisite for forward progress.
 
+        // `--tests` is the legacy spelling of `--filter`. Treat it as an
+        // alias against the benchmark's units, but reject the ambiguous
+        // case where both are supplied with different values — we don't
+        // want to silently pick one.
+        let filter = opts.filter;
+        if (opts.tests !== undefined) {
+          console.warn(
+            "[evals] --tests is deprecated; use --benchmark <id> --filter <ids>.",
+          );
+          if (filter !== undefined && filter !== opts.tests) {
+            throw new Error(
+              "Pass either --filter or the deprecated --tests, not both.",
+            );
+          }
+          filter = filter ?? opts.tests;
+        }
+
         const profiles = await Promise.all(
           splitCsv(opts.profiles).map((id) => loadProfile(id)),
         );
-        const tests = await Promise.all(
-          splitCsv(opts.tests).map((id) => loadTestDef(id)),
-        );
-
         if (profiles.length === 0)
           throw new Error("--profiles is empty after splitting on commas");
-        if (tests.length === 0)
-          throw new Error("--tests is empty after splitting on commas");
+
+        const benchmark = await loadBenchmark(opts.benchmark);
+        const filterIds = filter !== undefined ? splitCsv(filter) : [];
+        const unitIds =
+          filterIds.length > 0
+            ? filterIds
+            : await listBenchmarkUnitIds(benchmark.unitsDir);
+        if (unitIds.length === 0) {
+          throw new Error(
+            filter !== undefined
+              ? "--filter is empty after splitting on commas"
+              : `Benchmark "${benchmark.id}" has no ${benchmark.manifest.unitNoun} units at ${benchmark.unitsDir}`,
+          );
+        }
+        const tests = await Promise.all(
+          unitIds.map((id) => loadTestDef(id, benchmark.unitsDir)),
+        );
 
         // `--quiet` still lets the per-run `result` summary and any
         // `status: "error"` events through so operators get one line per

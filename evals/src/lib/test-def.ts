@@ -1,14 +1,15 @@
 /**
  * Test definition — directory layout describing what the harness runs.
  *
- * Each test lives at `benchmarks/personal-intelligence/tests/<id>/` with:
+ * Each test lives at `<unitsDir>/<id>/` with:
  *   - `SPEC.md`  — markdown briefing for the simulator agent.
  *   - `setup.ts` — optional deterministic setup commands.
  *   - `metrics/` — directory of `.ts` files. Each file exports a scorer.
  *
- * The test id is the directory name. The on-disk root is resolved via
- * `getTestsDir()` so a future `--benchmark` flag (or env override) can
- * point at a different benchmark's units.
+ * The test id is the directory name. The on-disk root is supplied by the
+ * caller (typically `loadBenchmark(id).unitsDir`); when omitted it falls
+ * back to the personal-intelligence benchmark via `getTestsDir()` so the
+ * legacy `evals tests list` surface keeps working.
  */
 import { readdir, stat } from "node:fs/promises";
 import { assertSafeId, getTestsDir, resolveUnder } from "./catalog";
@@ -16,15 +17,15 @@ import { assertSafeId, getTestsDir, resolveUnder } from "./catalog";
 import type { TestSetupCommand } from "./setup-command";
 
 export interface TestDef {
-  /** Directory name under the benchmark's `tests/` root. */
+  /** Directory name under the supplied units root. */
   id: string;
-  /** Absolute path to `<benchmark>/tests/<id>/SPEC.md`. */
+  /** Absolute path to `<unitsDir>/<id>/SPEC.md`. */
   specPath: string;
-  /** Absolute path to optional `<benchmark>/tests/<id>/setup.ts`. */
+  /** Absolute path to optional `<unitsDir>/<id>/setup.ts`. */
   setupPath: string;
   /** Deterministic commands run before the simulator starts. */
   setupCommands: TestSetupCommand[];
-  /** Absolute path to `<benchmark>/tests/<id>/metrics/` — may be empty or absent. */
+  /** Absolute path to `<unitsDir>/<id>/metrics/` — may be empty or absent. */
   metricsDir: string;
   /** Absolute paths to each `.ts` file in the metrics directory, sorted. */
   metricPaths: string[];
@@ -55,12 +56,14 @@ async function loadSetupCommands(
   return imported.default;
 }
 
-export async function loadTestDef(id: string): Promise<TestDef> {
+export async function loadTestDef(
+  id: string,
+  unitsDir: string = getTestsDir(),
+): Promise<TestDef> {
   assertSafeId("test", id);
-  const base = getTestsDir();
-  const specPath = resolveUnder(base, id, "SPEC.md");
-  const setupPath = resolveUnder(base, id, "setup.ts");
-  const metricsDir = resolveUnder(base, id, "metrics");
+  const specPath = resolveUnder(unitsDir, id, "SPEC.md");
+  const setupPath = resolveUnder(unitsDir, id, "setup.ts");
+  const metricsDir = resolveUnder(unitsDir, id, "metrics");
 
   try {
     await stat(specPath);
@@ -79,7 +82,7 @@ export async function loadTestDef(id: string): Promise<TestDef> {
     const entries = await readdir(metricsDir);
     metricPaths = entries
       .filter((e) => e.endsWith(".ts"))
-      .map((e) => resolveUnder(base, id, "metrics", e))
+      .map((e) => resolveUnder(unitsDir, id, "metrics", e))
       .sort();
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
