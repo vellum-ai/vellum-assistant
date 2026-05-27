@@ -278,6 +278,16 @@ export function ChatPage() {
   // the actual `<Transcript />` instance there.
   const transcriptRef = useRef<TranscriptHandle | null>(null);
 
+  // Composer focus from the Electron host's File > Current Conversation
+  // command. The command is dispatched in `chat-layout.tsx` via the
+  // `useVellumCommands` hook; the textarea ref lives here, so we listen
+  // for a window event rather than threading the ref upward through
+  // props/context just for this one cross-cutting capability.
+  useEffect(() => {
+    const handler = () => inputRef.current?.focus();
+    window.addEventListener("vellum:focus-composer", handler);
+    return () => window.removeEventListener("vellum:focus-composer", handler);
+  }, []);
 
   const activeConversationIdRef = useRef<string | null>(activeConversationId);
   useEffect(() => { activeConversationIdRef.current = activeConversationId; }, [activeConversationId]);

@@ -20,6 +20,7 @@ import { useDynamicFavicon } from "@/hooks/use-dynamic-favicon";
 import { useHomeUnreadBadge } from "@/hooks/use-home-unread-badge";
 import type { AssistantContextValue } from "@/components/layout/assistant-context";
 
+import { useVellumCommands } from "@/runtime/vellum-commands";
 import { useConversationStore } from "@/domains/conversations/conversation-store";
 import {
   conversationsQueryKey,
@@ -509,6 +510,28 @@ export function ChatLayout() {
     switchConversation: handleSelectConversation,
     startNewConversation,
     prePinGroupIdsRef,
+  });
+
+  // Electron host commands (File menu / future global hotkeys). The hook
+  // is a no-op on the web host. Handlers close over the latest state via
+  // an internal ref, so we don't need to memoize them. Composer focus is
+  // routed to ChatPage via a window event because the textarea ref lives
+  // there, not here — see the matching `vellum:focus-composer` listener
+  // in `chat-page.tsx`.
+  useVellumCommands({
+    newConversation: () => {
+      startNewConversation();
+    },
+    currentConversation: () => {
+      window.dispatchEvent(new Event("vellum:focus-composer"));
+    },
+    markCurrentUnread: () => {
+      if (!activeConversationId) return;
+      const conversation = conversations.find(
+        (c) => c.conversationId === activeConversationId,
+      );
+      if (conversation) handleMarkConversationUnread(conversation);
+    },
   });
 
   const handleOpenLibrary = useCallback(() => {
