@@ -140,28 +140,12 @@ export function parseAssistantEvent(
   // `@vellumai/assistant-api` is the source of truth for any event
   // type it covers — when a member matches the `type` discriminator
   // and the shape validates, the parser is done. The schema sees the
-  // pure inner message (no envelope merge) so strict shapes stay
-  // strict: for events whose wire contract doesn't declare
-  // `conversationId` (e.g. `relationship_state_updated`), the
-  // envelope-level routing key never leaks onto the parsed event.
+  // pure inner message (no envelope merge): every wire-contract
+  // schema declares the fields it requires (including
+  // `conversationId` for conversation-scoped events), so the
+  // envelope-level routing key never needs to be grafted on.
   const schemaResult = AssistantEventSchema.safeParse(inner);
-  if (schemaResult.success) {
-    const parsed = schemaResult.data as AssistantEvent;
-    // For conversation-scoped events whose schemas declare
-    // `conversationId` as optional, graft the envelope routing key
-    // when the daemon didn't put one on the inner message. The
-    // schema is the wire contract (daemon emit shape); the parser
-    // augments with transport metadata so downstream filters (per-
-    // conversation SSE handlers, defense-in-depth gates) can route.
-    if (
-      envelopeConversationId &&
-      isConversationScopedStreamEvent(parsed) &&
-      !("conversationId" in parsed && typeof parsed.conversationId === "string")
-    ) {
-      return { ...parsed, conversationId: envelopeConversationId };
-    }
-    return parsed;
-  }
+  if (schemaResult.success) return schemaResult.data as AssistantEvent;
 
   // Legacy fallback. Merge the envelope conversationId in so legacy
   // case bodies just read `data.conversationId` — daemon emit sites
