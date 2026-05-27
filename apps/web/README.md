@@ -79,6 +79,34 @@ bun run typecheck  # bunx tsc --noEmit
 bun run lint       # eslint
 ```
 
+## Storybook
+
+[Storybook](https://storybook.js.org/) provides isolated component
+development for `apps/web` components — the ones tied to the app
+(routing, stores, layout) that don't belong in
+`@vellum/design-library`. Design-system primitives live in their own
+Storybook (`packages/design-library`, port 6006).
+
+```bash
+cd apps/web
+bun run storybook          # dev server → http://localhost:6007
+bun run build-storybook    # static build → storybook-static/
+```
+
+Stories are colocated next to their components (`*.stories.tsx`).
+Autodocs generates prop tables from TypeScript types automatically.
+
+Use the **Theme** toolbar to switch between Light, Dark, and Velvet —
+the wiring matches the design library Storybook so components render
+with the same `data-theme` tokens they get in the running app. A
+`MemoryRouter` decorator wraps every story so components using
+`react-router` work without setup.
+
+The Storybook also runs automatically as part of `vel up` (alongside
+the design library Storybook on `:6006`) — see the
+[`vel` README](https://github.com/vellum-ai/vellum-assistant-platform/blob/main/vel/README.md)
+for the multi-service workflow.
+
 ## Testing
 
 ```bash

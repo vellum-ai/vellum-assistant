@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Clock, MessageSquare, Pin, Star } from "lucide-react";
 import type { ReactNode } from "react";
 
-import { CollapsibleNavSection } from "./collapsible-nav-section.js";
+import { CollapsibleNavSection } from "./collapsible-nav-section";
 
 interface NavSectionStoryArgs {
   label: string;
