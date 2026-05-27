@@ -23,19 +23,22 @@ const SENSITIVE_FIELDS = [
  * - Non-production: `$XDG_CONFIG_HOME/vellum-{env}/lockfile.json`
  * - `VELLUM_LOCKFILE_DIR` overrides the directory in both cases.
  */
-function resolveLockfilePath(env: Record<string, string>): string {
+function resolveLockfilePaths(env: Record<string, string>): string[] {
   const vellumEnv = env.VELLUM_ENVIRONMENT || PRODUCTION_ENVIRONMENT_NAME;
   const lockfileDir = env.VELLUM_LOCKFILE_DIR;
 
   if (vellumEnv === PRODUCTION_ENVIRONMENT_NAME) {
     const dir = lockfileDir ?? os.homedir();
-    return path.join(dir, ".vellum.lock.json");
+    return [
+      path.join(dir, ".vellum.lock.json"),
+      path.join(dir, ".vellum.lockfile.json"),
+    ];
   }
 
   const xdgConfigHome =
     env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config");
   const dir = lockfileDir ?? path.join(xdgConfigHome, `vellum-${vellumEnv}`);
-  return path.join(dir, "lockfile.json");
+  return [path.join(dir, "lockfile.json")];
 }
 
 /**
@@ -46,8 +49,15 @@ function stripSensitiveFields(data: Record<string, unknown>): void {
   if (!Array.isArray(assistants)) return;
   for (const assistant of assistants) {
     if (assistant && typeof assistant === "object") {
+      const entry = assistant as Record<string, unknown>;
       for (const field of SENSITIVE_FIELDS) {
-        delete (assistant as Record<string, unknown>)[field];
+        delete entry[field];
+      }
+      const resources = entry.resources;
+      if (resources && typeof resources === "object") {
+        for (const field of SENSITIVE_FIELDS) {
+          delete (resources as Record<string, unknown>)[field];
+        }
       }
     }
   }
@@ -58,13 +68,12 @@ function stripSensitiveFields(data: Record<string, unknown>): void {
  * for local-mode development.
  */
 export function localModePlugin(env: Record<string, string>): Plugin {
-  const lockfilePath = resolveLockfilePath(env);
+  const lockfilePaths = resolveLockfilePaths(env);
 
   return {
     name: "vellum-local-mode",
     configureServer(server) {
-      // Runs before Vite's built-in middleware
-      server.middlewares.use(lockfileMiddleware(lockfilePath));
+      server.middlewares.use(lockfileMiddleware(lockfilePaths));
       server.middlewares.use(gatewayProxyMiddleware());
     },
   };
@@ -74,13 +83,13 @@ export function localModePlugin(env: Record<string, string>): Plugin {
  * Connect middleware for the lockfile read endpoint.
  */
 function lockfileMiddleware(
-  lockfilePath: string,
+  lockfilePaths: string[],
 ): Connect.NextHandleFunction {
   return (req, res, next) => {
     if (req.url !== "/__local/lockfile") return next();
 
     if (req.method === "GET") {
-      handleGetLockfile(lockfilePath, res);
+      handleGetLockfile(lockfilePaths, res);
     } else {
       res.statusCode = 405;
       res.end();
@@ -89,20 +98,26 @@ function lockfileMiddleware(
 }
 
 function handleGetLockfile(
-  lockfilePath: string,
+  lockfilePaths: string[],
   res: http.ServerResponse,
 ): void {
-  let raw: string;
-  try {
-    raw = fs.readFileSync(lockfilePath, "utf-8");
-  } catch (err: unknown) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-      res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ assistants: [], activeAssistant: null }));
-      return;
+  let raw: string | undefined;
+  for (const candidate of lockfilePaths) {
+    try {
+      raw = fs.readFileSync(candidate, "utf-8");
+      break;
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+        res.statusCode = 500;
+        res.end();
+        return;
+      }
     }
-    res.statusCode = 500;
-    res.end();
+  }
+
+  if (!raw) {
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify({ assistants: [], activeAssistant: null }));
     return;
   }
 

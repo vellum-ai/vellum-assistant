@@ -45,8 +45,12 @@ const SELECTED_ASSISTANT_STORAGE_KEY = "local:selectedAssistantId";
 // Core helpers
 // ---------------------------------------------------------------------------
 
+const LOCAL_MODE_FALSY = new Set(["", "0", "false", "no"]);
+
 export function isLocalMode(): boolean {
-  return !!import.meta.env.VITE_LOCAL_MODE;
+  const raw = import.meta.env.VITE_LOCAL_MODE;
+  if (!raw) return false;
+  return !LOCAL_MODE_FALSY.has(raw.toLowerCase());
 }
 
 export async function loadLockfile(): Promise<Lockfile> {
@@ -140,6 +144,6 @@ export function gatewayProxyUrl(port: number): string {
 export function getLocalGatewayUrl(): string | undefined {
   if (!isLocalMode()) return undefined;
   const assistant = getSelectedAssistant();
-  if (!assistant?.resources?.gatewayPort) return undefined;
-  return gatewayProxyUrl(assistant.resources.gatewayPort);
+  if (!assistant || !isLocalAssistant(assistant)) return undefined;
+  return gatewayProxyUrl(assistant.resources!.gatewayPort);
 }
