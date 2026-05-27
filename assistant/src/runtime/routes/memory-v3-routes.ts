@@ -29,6 +29,11 @@ import type {
 } from "../../memory/v2/harness/retriever.js";
 import type { DescentTrace } from "../../memory/v2/harness/trace.js";
 import { loadNowText } from "../../memory/v2/now-text.js";
+import {
+  DEFAULT_SEED_OPTIONS,
+  seedCoretrievalEdges,
+  type SeedCoretrievalResult,
+} from "../../memory/v3/coretrieval-seed.js";
 import type { LlmCallRecord } from "../../memory/v3/llm-capture.js";
 import { runRetrievalLoop } from "../../memory/v3/loop.js";
 import type {
@@ -63,6 +68,7 @@ export type {
   SlugFrequency,
   UnpairedShadowTurn,
 };
+export type { SeedCoretrievalResult };
 
 // ── Validate ────────────────────────────────────────────────────────────
 
@@ -353,6 +359,58 @@ async function handleShadowDiff({
   });
 }
 
+// ── Seed co-retrieval edges ───────────────────────────────────────────────
+
+const MemoryV3SeedEdgesParams = z
+  .object({
+    /** A pair must co-occur on at least this many router turns to earn an edge. */
+    minCount: z
+      .number()
+      .int("memory.v3.seed-edges minCount must be an integer")
+      .positive("memory.v3.seed-edges minCount must be positive")
+      .optional(),
+    /** Neighbors kept per source node, ranked by NPMI descending. */
+    topK: z
+      .number()
+      .int("memory.v3.seed-edges topK must be an integer")
+      .positive("memory.v3.seed-edges topK must be positive")
+      .optional(),
+    /** Exclude neighbors selected on more than this fraction of all turns. */
+    maxNeighborFreqRatio: z
+      .number()
+      .positive("memory.v3.seed-edges maxNeighborFreqRatio must be positive")
+      .max(1, "memory.v3.seed-edges maxNeighborFreqRatio must be <= 1")
+      .optional(),
+    /** Flat weight each seeded edge is written at. */
+    seedWeight: z
+      .number()
+      .positive("memory.v3.seed-edges seedWeight must be positive")
+      .optional(),
+  })
+  .strict();
+
+/**
+ * Build the co-retrieval graph from the v2 router's selection history and
+ * persist it into `memory_v3_auto_edges`. This is the one write surface among
+ * the v3 routes — it warm-starts the learned edge graph that the edge-expansion
+ * lane merges (when `memory.v3.edges.learnedAdjacencyThreshold > 0`). Idempotent:
+ * re-running upserts each seeded edge to the flat seed weight without unbounded
+ * growth. Runs no LLM.
+ */
+async function handleSeedEdges({
+  body = {},
+}: RouteHandlerArgs): Promise<SeedCoretrievalResult> {
+  const { minCount, topK, maxNeighborFreqRatio, seedWeight } =
+    MemoryV3SeedEdgesParams.parse(body);
+  return seedCoretrievalEdges(getDb(), {
+    minCount: minCount ?? DEFAULT_SEED_OPTIONS.minCount,
+    topK: topK ?? DEFAULT_SEED_OPTIONS.topK,
+    maxNeighborFreqRatio:
+      maxNeighborFreqRatio ?? DEFAULT_SEED_OPTIONS.maxNeighborFreqRatio,
+    seedWeight: seedWeight ?? DEFAULT_SEED_OPTIONS.seedWeight,
+  });
+}
+
 // ── Route definitions ───────────────────────────────────────────────────
 
 export const ROUTES: RouteDefinition[] = [
@@ -401,5 +459,16 @@ export const ROUTES: RouteDefinition[] = [
       "Compares the v3 shadow-mode selections against the live v2 router selections turn-for-turn, from the memory activation log. Pairs each v3_shadow row with the nearest v2 router row in the same conversation (by timestamp, within a tolerance — the turn columns use different counters), then reports per-turn and aggregate overlap, what v3 surfaced that v2 did not, and what v2 had that v3 dropped, broken down by v3 provenance lane. The v2 comparand is the router's fresh per-turn pick (status='injected'), not its accumulated in-context set. Requires that v3 shadow mode has been running so v3_shadow rows exist; the route runs no LLM and writes nothing.",
     tags: ["memory"],
     requestBody: MemoryV3ShadowDiffParams,
+  },
+  {
+    operationId: "memory_v3_seed_edges",
+    method: "POST",
+    endpoint: "memory/v3/seed-edges",
+    handler: handleSeedEdges,
+    summary: "Seed the learned co-retrieval edge graph from v2 router history",
+    description:
+      "Builds an NPMI-scored co-retrieval graph from the v2 router's per-turn selections (memory_v2_activation_logs, status='injected') and persists it into memory_v3_auto_edges, warm-starting the learned edge graph that the v3 edge-expansion lane merges with curated edges when memory.v3.edges.learnedAdjacencyThreshold > 0. NPMI plus a min co-occurrence floor and an always-on frequency ceiling keep the neighborhoods associative rather than base-rate noise. Idempotent (upserts to a flat seed weight). Runs no LLM; the only write among the v3 routes.",
+    tags: ["memory"],
+    requestBody: MemoryV3SeedEdgesParams,
   },
 ];

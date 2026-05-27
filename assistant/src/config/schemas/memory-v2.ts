@@ -522,6 +522,22 @@ export const MemoryV3ConfigSchema = z
       .describe(
         "Per-lane on/off toggles for the v3 multi-lane retrieval fanout. All lanes on by default.",
       ),
+    edges: z
+      .object({
+        learnedAdjacencyThreshold: z
+          .number({
+            error: "memory.v3.edges.learnedAdjacencyThreshold must be a number",
+          })
+          .min(0, "memory.v3.edges.learnedAdjacencyThreshold must be >= 0")
+          .default(0)
+          .describe(
+            "Weight cutoff for merging the learned co-retrieval graph (memory_v3_auto_edges) into the edge-expansion lane. When > 0, edges at or above this weight are read via aboveThreshold() and merged with the curated frontmatter graph as expandEdges' extraAdjacency. 0 (default) = OFF: the edge lane uses curated edges only and behavior is unchanged. Seed the learned graph with `assistant memory v3 seed-edges`.",
+          ),
+      })
+      .default({ learnedAdjacencyThreshold: 0 })
+      .describe(
+        "Edge-expansion lane configuration. Gates whether the learned co-retrieval graph augments the curated edge graph.",
+      ),
     ks: z
       .array(z.number({ error: "memory.v3.ks entries must be numbers" }))
       .default([5, 10, 25, 50])
@@ -599,6 +615,7 @@ export const MemoryV3ConfigSchema = z
     denseQuota: { activeDomain: 30, offDomain: 8 },
     hotLimit: 50,
     lanes: { hot: true, sparse: true, dense: true, tree: true, edges: true },
+    edges: { learnedAdjacencyThreshold: 0 },
     ks: [5, 10, 25, 50],
     write: {
       enabled: false,

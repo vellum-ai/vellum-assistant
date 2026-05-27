@@ -59,6 +59,7 @@ import type {
   GateDecision,
 } from "../v2/harness/trace.js";
 import { getPageIndex } from "../v2/page-index.js";
+import { aboveThreshold } from "./auto-edges.js";
 import {
   type CoactivationRow,
   recordCoactivations,
@@ -112,6 +113,15 @@ export async function runRetrievalLoop(
   const v3 = input.config.memory.v3;
   const passCap = Math.max(1, v3.passCap);
   const lanes = v3.lanes;
+
+  // Learned co-retrieval adjacency (memory_v3_auto_edges), read once and merged
+  // into the edge lane's curated graph when the threshold is set. At threshold 0
+  // (the default) this is undefined and edge behavior is identical to before.
+  const learnedAdjacencyThreshold = v3.edges?.learnedAdjacencyThreshold ?? 0;
+  const learnedAdjacency =
+    learnedAdjacencyThreshold > 0
+      ? aboveThreshold(deps.db, learnedAdjacencyThreshold)
+      : undefined;
 
   // Cross-pass accumulators.
   const sourceBySlug = new Map<string, LaneSource>();
@@ -226,6 +236,9 @@ export async function runRetrievalLoop(
         // hot) so the seed cap spends its budget on query-relevant seeds, not
         // recency. `sourceBySlug` holds each candidate's first-seen lane.
         laneBySlug: sourceBySlug,
+        // Merge the learned co-retrieval graph with the curated edges when
+        // enabled (undefined = curated-only, the default).
+        ...(learnedAdjacency ? { extraAdjacency: learnedAdjacency } : {}),
       });
       edgeExpansions = expansion.expansions;
       for (const slug of expansion.pulled) {

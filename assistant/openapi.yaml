@@ -11833,6 +11833,45 @@ paths:
               type: object
               properties: {}
               additionalProperties: false
+  /v1/memory/v3/seed-edges:
+    post:
+      operationId: memory_v3_seededges_post
+      summary: Seed the learned co-retrieval edge graph from v2 router history
+      description:
+        Builds an NPMI-scored co-retrieval graph from the v2 router's per-turn selections
+        (memory_v2_activation_logs, status='injected') and persists it into memory_v3_auto_edges, warm-starting the
+        learned edge graph that the v3 edge-expansion lane merges with curated edges when
+        memory.v3.edges.learnedAdjacencyThreshold > 0. NPMI plus a min co-occurrence floor and an always-on frequency
+        ceiling keep the neighborhoods associative rather than base-rate noise. Idempotent (upserts to a flat seed
+        weight). Runs no LLM; the only write among the v3 routes.
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                minCount:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                topK:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                maxNeighborFreqRatio:
+                  type: number
+                  exclusiveMinimum: 0
+                  maximum: 1
+                seedWeight:
+                  type: number
+                  exclusiveMinimum: 0
+              additionalProperties: false
   /v1/memory/v3/shadow-diff:
     post:
       operationId: memory_v3_shadowdiff_post

@@ -32,12 +32,14 @@ import type {
   MemoryV3SimulateResult,
   MemoryV3TreeResult,
   MemoryV3ValidateResult,
+  SeedCoretrievalResult,
   ShadowDiffResult,
 } from "../../runtime/routes/memory-v3-routes.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 import {
   renderLlmCalls,
+  renderSeedEdges,
   renderShadowDiff,
   renderSimulation,
   renderTree,
@@ -439,6 +441,125 @@ Examples:
               return;
             }
             log.info(renderShadowDiff(payload));
+          },
+        );
+
+      // ── seed-edges ────────────────────────────────────────────────────────
+
+      v3.command("seed-edges")
+        .description(
+          "Seed the learned co-retrieval edge graph from v2 router history",
+        )
+        .option(
+          "--min-count <n>",
+          "Min co-occurrence turns for an edge (positive integer, default: 5)",
+        )
+        .option(
+          "--top-k <n>",
+          "Neighbors kept per source node (positive integer, default: 20)",
+        )
+        .option(
+          "--max-neighbor-freq-ratio <n>",
+          "Exclude neighbors selected on more than this fraction of turns (0-1, default: 0.4)",
+        )
+        .option(
+          "--seed-weight <n>",
+          "Weight each seeded edge is written at (positive, default: 2.0)",
+        )
+        .option("--json", "Emit raw JSON instead of a formatted summary")
+        .addHelpText(
+          "after",
+          `
+Builds an NPMI-scored co-retrieval graph from the v2 router's per-turn
+selections (memory_v2_activation_logs, status='injected') and writes it into
+memory_v3_auto_edges, warm-starting the learned edge graph. This is the only
+'memory v3' subcommand that WRITES. Idempotent — re-running refreshes the
+seeded edges to the seed weight. Runs no LLM.
+
+The edge-expansion lane only merges the learned graph once
+memory.v3.edges.learnedAdjacencyThreshold is set above 0 (default off); seed
+first, then enable the threshold to A/B via 'memory v3 simulate'.
+
+Examples:
+  $ assistant memory v3 seed-edges
+  $ assistant memory v3 seed-edges --min-count 8 --top-k 15
+  $ assistant memory v3 seed-edges --json | jq '.edgesWritten'`,
+        )
+        .action(
+          async (opts: {
+            minCount?: string;
+            topK?: string;
+            maxNeighborFreqRatio?: string;
+            seedWeight?: string;
+            json?: boolean;
+          }) => {
+            const minCount = parsePositiveFlag(opts.minCount, { int: true });
+            if (minCount.error) {
+              log.error(
+                `--min-count must be a positive integer (got "${opts.minCount}")`,
+              );
+              process.exitCode = 1;
+              return;
+            }
+            const topK = parsePositiveFlag(opts.topK, { int: true });
+            if (topK.error) {
+              log.error(
+                `--top-k must be a positive integer (got "${opts.topK}")`,
+              );
+              process.exitCode = 1;
+              return;
+            }
+            const ratio = parsePositiveFlag(opts.maxNeighborFreqRatio, {
+              int: false,
+            });
+            if (ratio.error || (ratio.value !== undefined && ratio.value > 1)) {
+              log.error(
+                `--max-neighbor-freq-ratio must be a number in (0, 1] (got "${opts.maxNeighborFreqRatio}")`,
+              );
+              process.exitCode = 1;
+              return;
+            }
+            const seedWeight = parsePositiveFlag(opts.seedWeight, {
+              int: false,
+            });
+            if (seedWeight.error) {
+              log.error(
+                `--seed-weight must be a positive number (got "${opts.seedWeight}")`,
+              );
+              process.exitCode = 1;
+              return;
+            }
+
+            const result = await cliIpcCall<SeedCoretrievalResult>(
+              "memory_v3_seed_edges",
+              {
+                body: {
+                  ...(minCount.value !== undefined
+                    ? { minCount: minCount.value }
+                    : {}),
+                  ...(topK.value !== undefined ? { topK: topK.value } : {}),
+                  ...(ratio.value !== undefined
+                    ? { maxNeighborFreqRatio: ratio.value }
+                    : {}),
+                  ...(seedWeight.value !== undefined
+                    ? { seedWeight: seedWeight.value }
+                    : {}),
+                },
+              },
+            );
+
+            if (!result.ok) {
+              log.error(result.error ?? "Failed to seed co-retrieval edges");
+              process.exitCode = 1;
+              return;
+            }
+
+            const payload = result.result!;
+            if (opts.json === true) {
+              log.info(JSON.stringify(payload, null, 2));
+              return;
+            }
+            log.info(renderSeedEdges(payload));
           },
         );
     },

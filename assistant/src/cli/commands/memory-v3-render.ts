@@ -14,6 +14,7 @@ import type {
   MemoryV3SimulateResult,
   MemoryV3TreeResult,
   MemoryV3ValidateResult,
+  SeedCoretrievalResult,
   ShadowDiffResult,
   ShadowDiffTurn,
 } from "../../runtime/routes/memory-v3-routes.js";
@@ -472,4 +473,19 @@ export function renderLlmCalls(
     );
   }
   return lines.join("\n");
+}
+
+/**
+ * Render a {@link SeedCoretrievalResult} into a one-block summary of the seeding
+ * run: how many router turns were scanned and how many nodes/edges were written.
+ */
+export function renderSeedEdges(result: SeedCoretrievalResult): string {
+  return [
+    "Memory v3 Co-Retrieval Edge Seed",
+    "================================",
+    `Router turns scanned: ${result.turnsScanned}`,
+    `Nodes (sources):      ${result.nodes}`,
+    `Edges written:        ${result.edgesWritten}`,
+    `Avg out-degree:       ${result.avgDegree.toFixed(1)}`,
+  ].join("\n");
 }
