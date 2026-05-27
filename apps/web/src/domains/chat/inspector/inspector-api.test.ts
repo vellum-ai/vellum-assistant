@@ -10,10 +10,8 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type {
-  LlmContextResponse,
-  LLMRequestLogEntry,
-} from "@/domains/chat/types/inspector-types";
+import type { LLMRequestLogEntry } from "@vellumai/assistant-api";
+import type { LlmContextResponse } from "@/domains/chat/types/inspector-types";
 
 interface FakeRequest {
   url: string;

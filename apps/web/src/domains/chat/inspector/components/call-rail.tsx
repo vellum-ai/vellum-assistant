@@ -9,9 +9,9 @@ import {
   MISSING_VALUE,
 } from "@/domains/chat/inspector/inspector-formatters";
 import {
+  CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE,
   type LLMRequestLogEntry,
-  SYNTHETIC_AGENT_ERROR_MESSAGE_CALL_SITE,
-} from "@/domains/chat/types/inspector-types";
+} from "@vellumai/assistant-api";
 
 interface CallRailProps {
   logs: LLMRequestLogEntry[];
@@ -155,7 +155,7 @@ function CallRow({
 }
 
 function isSyntheticAgentErrorMessage(entry: LLMRequestLogEntry): boolean {
-  return entry.callSite === SYNTHETIC_AGENT_ERROR_MESSAGE_CALL_SITE;
+  return entry.callSite === CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE;
 }
 
 /**

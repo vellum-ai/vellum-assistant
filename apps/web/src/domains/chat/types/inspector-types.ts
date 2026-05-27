@@ -6,91 +6,13 @@
  * route is reachable on web through the gateway's runtime-proxy
  * wildcard at
  * `/v1/assistants/{assistantId}/conversations/llm-context/`.
- */
-
-/**
- * Provider-normalized summary the daemon attaches to each request log.
- * `null` / missing fields are common and the formatters fall back to a
- * shared "Unavailable" placeholder.
- */
-export interface LLMCallSummary {
-  provider?: string | null;
-  model?: string | null;
-  status?: string | null;
-  inputTokens?: number | null;
-  outputTokens?: number | null;
-  cacheCreationInputTokens?: number | null;
-  cacheReadInputTokens?: number | null;
-  stopReason?: string | null;
-  requestMessageCount?: number | null;
-  requestToolCount?: number | null;
-  responseMessageCount?: number | null;
-  responseToolCallCount?: number | null;
-  responsePreview?: string | null;
-  toolCallNames?: string[] | null;
-  estimatedCostUsd?: number | null;
-  /**
-   * Wall-clock duration in milliseconds. Not in the macOS reference
-   * shape today but the daemon already populates it for some providers
-   * — surfaced when present so web debugging gets the extra signal.
-   */
-  durationMs?: number | null;
-}
-
-/**
- * A single normalized request- or response-side section. The daemon
- * splits a provider payload into kind-tagged blocks before returning;
- * each block becomes one card in the Prompt / Response tabs.
- */
-export interface LLMContextSection {
-  kind: string;
-  label?: string | null;
-  role?: string | null;
-  text?: string | null;
-  toolName?: string | null;
-  data?: unknown;
-  language?: string | null;
-}
-
-/**
- * Logical call site marker the daemon writes to a row when the entry
- * represents a *synthetic* assistant error message (no underlying LLM
- * call). All such events cause the agent loop to exit — the existing
- * `agentLoopExitReason` field tells you WHICH error fired
- * (`budget_yield_unrecovered`, future out-of-funds, etc.).
  *
- * Must match
- * `CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE` in
- * `assistant/src/memory/llm-request-log-store.ts`.
+ * The per-row shape (`LLMRequestLogEntry`, `LLMCallSummary`,
+ * `LLMContextSection`) is the canonical wire contract and lives in the
+ * `@vellumai/assistant-api` package; import those types from there.
  */
-export const SYNTHETIC_AGENT_ERROR_MESSAGE_CALL_SITE =
-  "syntheticAgentErrorMessage";
 
-/**
- * One LLM request log row. `requestPayload` / `responsePayload` are
- * always `null` on the list endpoint — the raw JSON is fetched
- * lazily through `/v1/llm-request-logs/{logId}/payload` (added in a
- * follow-up PR).
- */
-export interface LLMRequestLogEntry {
-  id: string;
-  createdAt: number;
-  requestPayload: null;
-  responsePayload: null;
-  provider?: string | null;
-  summary?: LLMCallSummary | null;
-  requestSections?: LLMContextSection[] | null;
-  responseSections?: LLMContextSection[] | null;
-  agentLoopExitReason?: string | null;
-  /**
-   * Logical call site that produced this row — `mainAgent`,
-   * `compactionAgent`, `syntheticAgentErrorMessage`, etc. `null` on
-   * pre-migration-264 rows or callers that hadn't been wired through
-   * yet. The inspector branches on this value alone to distinguish
-   * real LLM calls from synthetic error-message rows.
-   */
-  callSite?: string | null;
-}
+import type { LLMRequestLogEntry } from "@vellumai/assistant-api";
 
 /**
  * A single recalled memory candidate, normalized by the daemon from the
