@@ -8,6 +8,7 @@ import { ConversationRedirect } from "@/domains/chat/conversation-redirect";
 import { NotFound } from "@/components/not-found";
 import { RootErrorBoundary } from "@/components/root-error-boundary";
 import { RootHydrateFallback } from "@/components/root-hydrate-fallback";
+import { LazyRouteErrorBoundary } from "@/components/lazy-route-error-boundary";
 import { ActiveAssistantGate } from "@/components/layout/active-assistant-gate";
 
 // Route tree — no basename, routes are absolute browser paths.
@@ -34,20 +35,28 @@ export const router = createBrowserRouter(
       ErrorBoundary: RootErrorBoundary,
       HydrateFallback: RootHydrateFallback,
       children: [
-        { index: true, lazy: { Component: () => import("@/domains/account/pages/account-page").then((m) => m.AccountPage) } },
-        { path: "login", lazy: { Component: () => import("@/domains/account/pages/login-page").then((m) => m.LoginPage) } },
-        { path: "signup", lazy: { Component: () => import("@/domains/account/pages/signup-page").then((m) => m.SignupPage) } },
-        { path: "provider/callback", lazy: { Component: () => import("@/domains/account/pages/provider-callback-page").then((m) => m.ProviderCallbackPage) } },
-        { path: "provider/signup", lazy: { Component: () => import("@/domains/account/pages/provider-signup-page").then((m) => m.ProviderSignupPage) } },
-        { path: "oauth/popup-complete", lazy: { Component: () => import("@/domains/account/pages/oauth-popup-complete-page").then((m) => m.OAuthPopupCompletePage) } },
-        { path: "oauth/desktop-complete", lazy: { Component: () => import("@/domains/account/pages/desktop-oauth-complete-page").then((m) => m.DesktopOAuthCompletePage) } },
-        { path: "password/reset", lazy: { Component: () => import("@/domains/account/pages/password-reset-page").then((m) => m.PasswordResetPage) } },
-        { path: "password/reset/key/:key", lazy: { Component: () => import("@/domains/account/pages/password-reset-page").then((m) => m.PasswordResetPage) } },
+        // Pathless wrapper so lazy-chunk failures render inline (no chrome
+        // to preserve here, but it gives a friendlier "blip / stale deploy"
+        // message vs. the generic RootErrorBoundary copy).
+        {
+          ErrorBoundary: LazyRouteErrorBoundary,
+          children: [
+            { index: true, lazy: { Component: () => import("@/domains/account/pages/account-page").then((m) => m.AccountPage) } },
+            { path: "login", lazy: { Component: () => import("@/domains/account/pages/login-page").then((m) => m.LoginPage) } },
+            { path: "signup", lazy: { Component: () => import("@/domains/account/pages/signup-page").then((m) => m.SignupPage) } },
+            { path: "provider/callback", lazy: { Component: () => import("@/domains/account/pages/provider-callback-page").then((m) => m.ProviderCallbackPage) } },
+            { path: "provider/signup", lazy: { Component: () => import("@/domains/account/pages/provider-signup-page").then((m) => m.ProviderSignupPage) } },
+            { path: "oauth/popup-complete", lazy: { Component: () => import("@/domains/account/pages/oauth-popup-complete-page").then((m) => m.OAuthPopupCompletePage) } },
+            { path: "oauth/desktop-complete", lazy: { Component: () => import("@/domains/account/pages/desktop-oauth-complete-page").then((m) => m.DesktopOAuthCompletePage) } },
+            { path: "password/reset", lazy: { Component: () => import("@/domains/account/pages/password-reset-page").then((m) => m.PasswordResetPage) } },
+            { path: "password/reset/key/:key", lazy: { Component: () => import("@/domains/account/pages/password-reset-page").then((m) => m.PasswordResetPage) } },
+          ],
+        },
       ],
     },
 
     // Logout — standalone page, no app chrome
-    { path: "/logout", ErrorBoundary: RootErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/domains/account/pages/logout-page").then((m) => m.LogoutPage) } },
+    { path: "/logout", ErrorBoundary: LazyRouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/domains/account/pages/logout-page").then((m) => m.LogoutPage) } },
 
     // Assistant routes — auth-protected app with layout
     {
@@ -57,6 +66,13 @@ export const router = createBrowserRouter(
       HydrateFallback: RootHydrateFallback,
       Component: RootLayout,
       children: [
+        // Pathless wrapper: catches lazy-chunk failures so they render
+        // *inside* RootLayout's chrome instead of replacing the whole app
+        // shell with `RootErrorBoundary`. `RootErrorBoundary` still fires
+        // for genuine render errors that escape this layer.
+        {
+          ErrorBoundary: LazyRouteErrorBoundary,
+          children: [
         // Onboarding routes — full-screen (no ChatLayout sidebar).
         // Lazy-loaded: one-time flow, not revisited.
         {
@@ -121,6 +137,13 @@ export const router = createBrowserRouter(
         {
           Component: ChatLayout,
           children: [
+            // Inner pathless wrapper: lazy-chunk failures for chat-side
+            // routes (home, library, identity, inspector, etc.) render
+            // *inside* ChatLayout so the sidebar stays visible and the
+            // user can navigate elsewhere instead of reloading.
+            {
+              ErrorBoundary: LazyRouteErrorBoundary,
+              children: [
             // ChatPage / DocumentViewerPage own their own lifecycle UI
             // (loading screens, hatching, version-selection, errors) and
             // must render in every assistant state — they are NOT placed
@@ -162,11 +185,15 @@ export const router = createBrowserRouter(
                 },
               ],
             },
+              ], // end inner LazyRouteErrorBoundary children (chat-side)
+            },
           ],
         },
 
         // Catch-all within /assistant/*
         { path: "*", Component: NotFound },
+          ], // end outer LazyRouteErrorBoundary children (/assistant)
+        },
       ],
     },
 

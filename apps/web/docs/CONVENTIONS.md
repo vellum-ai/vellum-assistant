@@ -116,8 +116,15 @@ When adding a new route, default to `lazy` unless it's on the primary
 landing path. Use `Component`, not `element` — they are mutually
 exclusive and `lazy` returns `Component`.
 
-The `RouterProvider.onError` handler in `main.tsx` catches chunk load
-failures (stale deploys, network errors) and triggers a page reload.
+Lazy-chunk fetch failures (stale deploys, network errors) are caught by
+the `LazyRouteErrorBoundary` mounted via pathless wrappers inside
+`/account`, `/assistant`, and `ChatLayout`. It renders an inline
+"section couldn't load" message with a reload affordance, leaving the
+parent layout chrome (sidebar, header) visible so the user can navigate
+elsewhere instead of being stranded on a full-page error. Non-chunk
+render errors keep bubbling up to `RootErrorBoundary`. The
+`RouterProvider.onError` handler in `main.tsx` reports every router
+error to Sentry independently.
 
 References:
 - [React Router — Route Object (`Component`)](https://reactrouter.com/start/data/route-object#component)
