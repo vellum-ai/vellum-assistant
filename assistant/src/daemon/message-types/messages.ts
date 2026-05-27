@@ -1,9 +1,9 @@
 // User/assistant messages, tool results, confirmations, secrets, errors, and generation lifecycle.
 
 import type { AssistantTurnStartEvent } from "../../api/events/assistant-turn-start.js";
+import type { ToolUseStartEvent } from "../../api/events/tool-use-start.js";
 import type { ChannelId, InterfaceId } from "../../channels/types.js";
 import type { CommandIntent, UserMessageAttachment } from "./shared.js";
-import type { ToolUseStartEvent } from "../../api/events/tool-use-start.js";
 import type { ToolActivityMetadata } from "./web-activity.js";
 
 /**
