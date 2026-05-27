@@ -1,5 +1,6 @@
-import { lazy, Suspense } from "react";
+import { lazy } from "react";
 
+import { LazyBoundary } from "@/components/lazy-boundary";
 import type { SubagentEntry } from "@/domains/subagents/subagent-store";
 
 const SubagentDetailPanel = lazy(() =>
@@ -42,14 +43,14 @@ export function MobileSubagentDetailOverlay({
 
   return (
     <div className="fixed inset-x-0 bottom-0 z-30 h-[100dvh]">
-      <Suspense fallback={null}>
+      <LazyBoundary>
         <SubagentDetailPanel
           entry={entry}
           onClose={onClose}
           onStop={onStop}
           onRequestDetail={onRequestDetail}
         />
-      </Suspense>
+      </LazyBoundary>
     </div>
   );
 }

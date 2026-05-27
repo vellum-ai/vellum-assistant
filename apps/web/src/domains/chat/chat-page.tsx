@@ -9,7 +9,6 @@ import {
   type Dispatch,
   type SetStateAction,
   lazy,
-  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -53,6 +52,7 @@ import type { WebSyncRouter } from "@/lib/sync/web-sync-router";
 import type { SyncChangedEvent } from "@/lib/sync/types";
 
 import { Button, ConfirmDialog } from "@vellum/design-library";
+import { LazyBoundary } from "@/components/lazy-boundary";
 import { useSyncChatStore } from "@/domains/chat/chat-store";
 import { useChatAttachments } from "@/domains/chat/components/chat-attachments/use-chat-attachments";
 import { useVoiceInput } from "@/domains/chat/hooks/use-voice-input";
@@ -1598,12 +1598,12 @@ export function ChatPage() {
     <>
       <ChatRouteContent {...chatRouteProps} />
       {showAddCreditsModal ? (
-        <Suspense fallback={null}>
+        <LazyBoundary>
           <AddCreditsModal
             open={showAddCreditsModal}
             onOpenChange={setShowAddCreditsModal}
           />
-        </Suspense>
+        </LazyBoundary>
       ) : null}
       <ConnectingToAssistant
         state={reachability.state}
@@ -1611,7 +1611,7 @@ export function ChatPage() {
         onDismiss={reachability.reset}
       />
       {commandPalette.isOpen ? (
-        <Suspense fallback={null}>
+        <LazyBoundary>
           <CommandPalette
             isOpen={commandPalette.isOpen}
             onClose={commandPalette.close}
@@ -1623,10 +1623,10 @@ export function ChatPage() {
             onItemSelect={handleItemSelect}
             onKeyDown={commandPalette.handleKeyDown}
           />
-        </Suspense>
+        </LazyBoundary>
       ) : null}
       {assistantId && isTokenDialogOpen ? (
-        <Suspense fallback={null}>
+        <LazyBoundary>
           <VercelTokenDialog
             open={isTokenDialogOpen}
             onOpenChange={(open) => {
@@ -1637,7 +1637,7 @@ export function ChatPage() {
               void useDeployStore.getState().deployAfterTokenSaved(assistantId);
             }}
           />
-        </Suspense>
+        </LazyBoundary>
       ) : null}
       <ConfirmDialog
         open={complexDeployApp !== null}

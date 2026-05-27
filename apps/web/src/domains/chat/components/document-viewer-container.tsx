@@ -8,7 +8,6 @@
 
 import {
   lazy,
-  Suspense,
   useCallback,
   useEffect,
   useImperativeHandle,
@@ -16,6 +15,8 @@ import {
   useState,
   type Ref,
 } from "react";
+
+import { LazyBoundary } from "@/components/lazy-boundary";
 import {
   ArrowLeft,
   Check,
@@ -328,7 +329,7 @@ export function DocumentViewerContainer({
       <div className="relative flex min-h-0 flex-1">
         {/* Tiptap editor */}
         <div className="relative min-w-0 flex-1">
-          <Suspense
+          <LazyBoundary
             fallback={
               <div className="flex h-full items-center justify-center">
                 <Loader2 className="size-5 animate-spin text-fg-tertiary" />
@@ -363,7 +364,7 @@ export function DocumentViewerContainer({
               commentSubmitting={addingInlineComment}
               className="h-full"
             />
-          </Suspense>
+          </LazyBoundary>
         </div>
 
         {/* Comment panel sidebar */}

@@ -19,7 +19,9 @@
  */
 
 import * as Sentry from "@sentry/react";
-import { type Dispatch, type FormEvent, type MutableRefObject, type ReactNode, type RefObject, type SetStateAction, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type Dispatch, type FormEvent, type MutableRefObject, type ReactNode, type RefObject, type SetStateAction, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+import { LazyBoundary } from "@/components/lazy-boundary";
 
 import { ChatBody } from "@/domains/chat/components/chat-body";
 import { SlackChannelFooter } from "@/domains/chat/components/slack-channel-footer";
@@ -1515,14 +1517,14 @@ export function ChatRouteContent({
             minRightWidth={400}
             left={chatContent}
             right={
-              <Suspense fallback={null}>
+              <LazyBoundary>
                 <SubagentDetailPanel
                   entry={activeEntry}
                   onClose={onCloseSubagentDetail}
                   onStop={onStopSubagent}
                   onRequestDetail={onRequestSubagentDetail}
                 />
-              </Suspense>
+              </LazyBoundary>
             }
           />
           {sendErrorModalNode}

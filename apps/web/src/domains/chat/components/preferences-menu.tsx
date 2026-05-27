@@ -8,7 +8,7 @@ import {
   Shield,
   SlidersHorizontal,
 } from "lucide-react";
-import { lazy, Suspense, useState } from "react";
+import { lazy, useState } from "react";
 import { useNavigate } from "react-router";
 
 import {
@@ -18,6 +18,7 @@ import {
   SideMenu,
 } from "@vellum/design-library";
 
+import { LazyBoundary } from "@/components/lazy-boundary";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { hardNavigate } from "@/lib/auth/hard-navigate";
 import { useAuthStore } from "@/stores/auth-store";
@@ -98,7 +99,7 @@ export function PreferencesMenu({
       )}
 
       {isFeedbackOpen ? (
-        <Suspense fallback={null}>
+        <LazyBoundary>
           <ShareFeedbackModal
             open={isFeedbackOpen}
             onClose={() => setIsFeedbackOpen(false)}
@@ -106,7 +107,7 @@ export function PreferencesMenu({
             assistantVersion={assistantVersion}
             activeConversationId={activeConversationId}
           />
-        </Suspense>
+        </LazyBoundary>
       ) : null}
     </>
   );

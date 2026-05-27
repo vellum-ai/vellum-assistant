@@ -1,9 +1,10 @@
-import { lazy, Suspense } from "react";
+import { lazy } from "react";
 import { Circle, CircleCheck, CircleX, Clock, Loader2 } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 import type { Surface } from "@/domains/chat/types/types";
 
+import { LazyBoundary } from "@/components/lazy-boundary";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container";
 
@@ -224,8 +225,14 @@ export function CardSurface({ surface, onAction }: CardSurfaceProps) {
         )}
 
         {isWeather ? (
-          <Suspense
+          <LazyBoundary
             fallback={
+              <ChatMarkdownMessage
+                content={data.body}
+                className="mt-2 text-body-medium-lighter text-[var(--content-tertiary)]"
+              />
+            }
+            errorFallback={
               <ChatMarkdownMessage
                 content={data.body}
                 className="mt-2 text-body-medium-lighter text-[var(--content-tertiary)]"
@@ -238,7 +245,7 @@ export function CardSurface({ surface, onAction }: CardSurfaceProps) {
                 className="mt-2 text-body-medium-lighter text-[var(--content-tertiary)]"
               />
             } />
-          </Suspense>
+          </LazyBoundary>
         ) : (
           <>
             <ChatMarkdownMessage
