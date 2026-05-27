@@ -365,6 +365,7 @@ export class SubagentManager {
       label: config.label,
       objective: config.objective,
       isFork: config.fork ?? false,
+      parentToolUseId: config.parentToolUseId,
     } as ServerMessage);
 
     log.info(
