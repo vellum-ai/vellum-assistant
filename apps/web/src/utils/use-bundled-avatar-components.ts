@@ -10,11 +10,20 @@ let loadPromise: Promise<CharacterComponents> | null = null;
 function loadBundledComponents(): Promise<CharacterComponents> {
   if (cached) return Promise.resolve(cached);
   if (loadPromise) return loadPromise;
-  loadPromise = import("@/utils/avatar-bundled-components").then((m) => {
-    cached = m.BUNDLED_COMPONENTS;
-    loadPromise = null;
-    return cached;
-  });
+  loadPromise = import("@/utils/avatar-bundled-components")
+    .then((m) => {
+      cached = m.BUNDLED_COMPONENTS;
+      loadPromise = null;
+      return cached;
+    })
+    .catch((err) => {
+      // Don't leave a rejected promise cached — that would permanently
+      // poison every future caller (re-mounts, new subagent spawns, etc.)
+      // and avatars would silently stay blank for the rest of the session.
+      // Clearing it here lets the next consumer kick off a fresh import.
+      loadPromise = null;
+      throw err;
+    });
   return loadPromise;
 }
 
