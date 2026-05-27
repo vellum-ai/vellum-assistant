@@ -1,4 +1,9 @@
 import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
+import {
+  isLocalMode,
+  getSelectedAssistant,
+  gatewayProxyUrl,
+} from "@/lib/local-mode";
 
 const LS_TOKEN_KEY = "gw:token";
 const LS_EXPIRES_KEY = "gw:expiresAt";
@@ -7,6 +12,14 @@ let cachedToken: string | null = null;
 let cachedExpiresAt: number = 0;
 
 export function isGatewayAuthEnabled(): boolean {
+  if (isLocalMode()) {
+    const assistant = getSelectedAssistant();
+    return (
+      assistant !== undefined &&
+      assistant.cloud !== "vellum" &&
+      assistant.resources?.gatewayPort != null
+    );
+  }
   return useClientFeatureFlagStore.getState().gatewayWebAuth === true;
 }
 
@@ -40,8 +53,9 @@ export function getGatewayToken(): string | null {
   return null;
 }
 
-async function acquireGatewayToken(): Promise<string> {
-  const res = await fetch("/auth/token", { method: "POST" });
+async function acquireGatewayToken(tokenUrl?: string): Promise<string> {
+  const url = tokenUrl ?? "/auth/token";
+  const res = await fetch(url, { method: "POST" });
   if (!res.ok) {
     throw new Error(`Gateway token request failed: ${res.status}`);
   }
@@ -60,10 +74,17 @@ async function acquireGatewayToken(): Promise<string> {
   return token;
 }
 
-export async function ensureGatewayToken(): Promise<string> {
+export async function ensureGatewayToken(tokenUrl?: string): Promise<string> {
   const existing = getGatewayToken();
   if (existing) return existing;
-  return acquireGatewayToken();
+  return acquireGatewayToken(tokenUrl);
+}
+
+export function getLocalTokenUrl(): string | undefined {
+  if (!isLocalMode()) return undefined;
+  const assistant = getSelectedAssistant();
+  if (!assistant?.resources?.gatewayPort) return undefined;
+  return `${gatewayProxyUrl(assistant.resources.gatewayPort)}/auth/token`;
 }
 
 export function clearGatewayToken(): void {
