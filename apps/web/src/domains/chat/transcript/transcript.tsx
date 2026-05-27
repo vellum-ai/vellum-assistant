@@ -40,10 +40,7 @@ export type RefreshOutcome =
 
 export interface TranscriptProps {
   items: TranscriptItem[];
-  /** Active conversation id. Drives the scroll container's React key so
-   *  the DOM element re-attaches on conversation switch — that attach
-   *  is the DOM lifecycle event the scroll utilities listen for. */
-  conversationId?: string | null;
+  conversationId: string | null;
   assistantDisplayName?: string | null;
   onSecretSubmit: (requestId: string, value: string) => void;
   onConfirmationDecision: (requestId: string, decision: string) => void;
