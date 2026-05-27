@@ -65,11 +65,19 @@ export const router = createBrowserRouter(
       HydrateFallback: RootHydrateFallback,
       Component: RootLayout,
       children: [
-        // Pathless wrapper: lazy-chunk failures are caught here so the
-        // chunk-fail UI renders *inside* RootLayout's chrome (sidebar
-        // remains visible). Non-chunk render errors escape to the
-        // outer boundary on `/assistant`, which replaces RootLayout
-        // with the full-page variant.
+        // Pathless wrapper attaching `RouteErrorBoundary` at the layer
+        // *inside* RootLayout. Any error from a child route (chunk-fetch
+        // failure or genuine render bug) is caught here — React Router
+        // doesn't support selective bubbling. The boundary picks a UI
+        // variant based on the error shape:
+        //   - chunk fail  → inline "section couldn't load" within
+        //                   RootLayout's chrome (sidebar stays visible)
+        //   - other error → full-page "Something went wrong" treatment
+        //                   (full-viewport `min-h-svh` so it reads as a
+        //                   takeover even when mounted inside chrome)
+        // The outer boundary on `/assistant` only fires for errors that
+        // happen *during* the resolution of `/assistant` itself (loader,
+        // middleware, RootLayout render) — not for child-route errors.
         {
           ErrorBoundary: RouteErrorBoundary,
           children: [
@@ -137,10 +145,14 @@ export const router = createBrowserRouter(
         {
           Component: ChatLayout,
           children: [
-            // Inner pathless wrapper: lazy-chunk failures for chat-side
-            // routes (home, library, identity, inspector, etc.) render
-            // *inside* ChatLayout so the sidebar stays visible and the
-            // user can navigate elsewhere instead of reloading.
+            // Inner pathless wrapper: catches every error from chat-side
+            // routes (home, library, identity, inspector, etc.) one layer
+            // deeper than the `/assistant` boundary so the chunk-fail UI
+            // variant renders *inside* ChatLayout's chrome (sidebar stays
+            // visible). Non-chunk render errors are caught here too —
+            // `RouteErrorBoundary` shows the full-page variant in that
+            // case (`min-h-svh`), which visually takes over the route
+            // content area.
             {
               ErrorBoundary: RouteErrorBoundary,
               children: [
