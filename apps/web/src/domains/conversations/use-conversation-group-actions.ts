@@ -18,7 +18,7 @@ import type {
 import {
   appendGroup,
   conversationGroupsQueryKey,
-  chatContextQueryKey,
+  conversationsQueryKey,
   deleteGroupAndResetConversations,
   patchGroup,
   removeGroup,
@@ -145,7 +145,7 @@ export function useConversationGroupActions({
         } as Options<GroupsByGroupIdDeleteData>);
       } catch {
         void queryClient.invalidateQueries({
-          queryKey: chatContextQueryKey(assistantId),
+          queryKey: conversationsQueryKey(assistantId),
         });
         void queryClient.invalidateQueries({
           queryKey: conversationGroupsQueryKey(assistantId),

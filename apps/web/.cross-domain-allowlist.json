@@ -137,12 +137,6 @@
   "src/domains/chat/utils/stream-handlers/types.ts": [
     "messaging"
   ],
-  "src/domains/conversations/conversation-queries.test.ts": [
-    "chat"
-  ],
-  "src/domains/conversations/conversation-queries.ts": [
-    "chat"
-  ],
   "src/domains/conversations/use-attention-tracking.ts": [
     "chat"
   ],
