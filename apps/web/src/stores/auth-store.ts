@@ -70,6 +70,7 @@ interface AuthState {
   isLoggedIn: boolean;
   isLoading: boolean;
   user: AuthUser | null;
+  hasPlatformSession: boolean;
 }
 
 interface AuthActions {
@@ -112,6 +113,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
   isLoggedIn: false,
   isLoading: true,
   user: null,
+  hasPlatformSession: false,
 
   initSession: async () => {
     if (isGatewayAuthMode()) {
@@ -121,6 +123,13 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       } catch {
         set({ isLoggedIn: false, isLoading: false, user: null });
       }
+      getSession()
+        .then((result) => {
+          if (result.ok && result.data.user) {
+            set({ hasPlatformSession: true });
+          }
+        })
+        .catch(() => {});
       return;
     }
 
@@ -129,7 +138,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       if (result.ok && result.data.user) {
         const user = toAuthUser(result.data.user);
         syncUserScopedState(user?.id ?? null);
-        set({ isLoggedIn: true, isLoading: false, user });
+        set({ isLoggedIn: true, isLoading: false, user, hasPlatformSession: true });
         return;
       }
     } catch (err) {
@@ -148,7 +157,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
           if (retryResult.ok && retryResult.data.user) {
             const user = toAuthUser(retryResult.data.user);
             syncUserScopedState(user?.id ?? null);
-            set({ isLoggedIn: true, isLoading: false, user });
+            set({ isLoggedIn: true, isLoading: false, user, hasPlatformSession: true });
             return;
           }
         }
@@ -166,11 +175,16 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       try {
         await ensureGatewayToken();
         set({ isLoggedIn: true });
-        return true;
       } catch {
-        set({ isLoggedIn: false, user: null });
+        set({ isLoggedIn: false, user: null, hasPlatformSession: false });
         return false;
       }
+      getSession()
+        .then((result) => {
+          set({ hasPlatformSession: !!(result.ok && result.data.user) });
+        })
+        .catch(() => set({ hasPlatformSession: false }));
+      return true;
     }
 
     try {
@@ -178,14 +192,14 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       if (result.ok && result.data.user) {
         const user = toAuthUser(result.data.user);
         syncUserScopedState(user?.id ?? null);
-        set({ isLoggedIn: true, user });
+        set({ isLoggedIn: true, user, hasPlatformSession: true });
         return true;
       }
     } catch (err) {
       console.warn("auth.refreshSession failed", err);
     }
     syncUserScopedState(null);
-    set({ isLoggedIn: false, user: null });
+    set({ isLoggedIn: false, user: null, hasPlatformSession: false });
     return false;
   },
 
@@ -195,7 +209,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       clearOnboardingFlags();
       clearOrganization();
       clearUserScopedStorage();
-      set({ isLoggedIn: false, user: null });
+      set({ isLoggedIn: false, user: null, hasPlatformSession: false });
       broadcastAuthChange();
       return;
     }
@@ -207,7 +221,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       clearOnboardingFlags();
       clearOrganization();
       clearUserScopedStorage();
-      set({ isLoggedIn: false, user: null });
+      set({ isLoggedIn: false, user: null, hasPlatformSession: false });
       broadcastAuthChange();
     }
   },
