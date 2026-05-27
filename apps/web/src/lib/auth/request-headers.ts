@@ -22,6 +22,7 @@
  * modes. This whole file is deleted once that lands.
  */
 import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf";
+import { isGatewayAuthMode, getGatewayToken } from "@/lib/auth/gateway-session";
 import { getActiveOrganizationIdForRequests } from "@/stores/organization-store";
 
 /**
@@ -33,6 +34,13 @@ export function buildVellumHeaders(
   extra?: Record<string, string>,
 ): Record<string, string> {
   const headers: Record<string, string> = { ...(extra ?? {}) };
+  if (isGatewayAuthMode()) {
+    const token = getGatewayToken();
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+    return headers;
+  }
   const organizationId = getActiveOrganizationIdForRequests();
   if (organizationId) {
     headers["Vellum-Organization-Id"] = organizationId;
@@ -49,6 +57,7 @@ export async function buildVellumMutatingHeaders(
   extra?: Record<string, string>,
 ): Promise<Record<string, string>> {
   const headers = buildVellumHeaders(extra);
+  if (isGatewayAuthMode()) return headers;
   await ensureCsrfCookie();
   const csrfToken = getCsrfToken();
   if (csrfToken) {
