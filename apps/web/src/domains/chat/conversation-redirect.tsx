@@ -4,6 +4,7 @@
  * Otherwise renders `ChatPage` (new/default conversation).
  */
 import * as Sentry from "@sentry/react";
+import { useEffect } from "react";
 import { Navigate, useSearchParams } from "react-router";
 
 import { ChatPage } from "@/domains/chat/chat-page";
@@ -15,10 +16,14 @@ export function ConversationRedirect() {
   // `conversationId` cutover. Ancient saved/shared URLs only have `conversationKey`.
   const target =
     searchParams.get("conversationId") ?? searchParams.get("conversationKey");
-  if (target) {
-    const param = searchParams.has("conversationId")
+  const param = target
+    ? searchParams.has("conversationId")
       ? "conversationId"
-      : "conversationKey";
+      : "conversationKey"
+    : null;
+
+  useEffect(() => {
+    if (!param) return;
     Sentry.withScope((scope) => {
       scope.setTag("legacy_param", param);
       Sentry.captureMessage(
@@ -26,7 +31,9 @@ export function ConversationRedirect() {
         "warning",
       );
     });
+  }, [param]);
 
+  if (target) {
     const remaining = new URLSearchParams(searchParams);
     remaining.delete("conversationId");
     remaining.delete("conversationKey");
