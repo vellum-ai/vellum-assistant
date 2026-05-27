@@ -1,25 +1,36 @@
-import { client } from "@/generated/api/client.gen";
+/**
+ * Vercel publish / unpublish operations via the generated daemon SDK.
+ *
+ * Types are re-exported from the generated SDK so consumers don't need
+ * to reach into `@/generated/daemon/` directly.
+ */
 
-
+import {
+  appsByIdPublishPost,
+  appsByIdPublishstatusGet,
+  appsByIdUnpublishPost,
+  integrationsVercelConfigGet,
+  integrationsVercelConfigPost,
+} from "@/generated/daemon/sdk.gen";
+import type {
+  AppsByIdPublishPostResponse,
+  AppsByIdPublishstatusGetResponse,
+  AppsByIdUnpublishPostResponse,
+  IntegrationsVercelConfigGetResponse,
+} from "@/generated/daemon/types.gen";
 import { ApiError, assertHasResponse, extractErrorMessage } from "@/lib/api-errors";
 
 // ---------------------------------------------------------------------------
-// Types
+// Types — re-exported from generated daemon SDK
 // ---------------------------------------------------------------------------
 
-export interface VercelConfigResponse {
-  hasToken: boolean;
-  success: boolean;
-  error?: string;
-}
+export type VercelConfigResponse = IntegrationsVercelConfigGetResponse;
 
-export interface PublishPageResponse {
-  success: boolean;
-  publicUrl?: string;
-  deploymentId?: string;
-  error?: string;
-  errorCode?: string;
-}
+export type PublishPageResponse = AppsByIdPublishPostResponse;
+
+export type UnpublishPageResponse = AppsByIdUnpublishPostResponse;
+
+export type PublishStatusResponse = AppsByIdPublishstatusGetResponse;
 
 export function isCredentialError(result: PublishPageResponse): boolean {
   return (
@@ -30,42 +41,14 @@ export function isCredentialError(result: PublishPageResponse): boolean {
   );
 }
 
-export interface UnpublishPageResponse {
-  success: boolean;
-  error?: string;
-}
-
-export interface PublishStatusResponse {
-  published: boolean;
-  publicUrl?: string;
-  deploymentId?: string;
-  publishedAt?: number;
-}
-
-// ---------------------------------------------------------------------------
-// SDK base options — same pattern as chat/api.ts
-// ---------------------------------------------------------------------------
-
-const SDK_BASE_OPTIONS =
-  typeof window === "undefined"
-    ? ({ baseUrl: "http://localhost" } as const)
-    : ({} as const);
-
 // ---------------------------------------------------------------------------
 // API functions
 // ---------------------------------------------------------------------------
 
-/**
- * Check whether the assistant has a Vercel API token configured.
- *
- * Hits `GET /v1/assistants/{assistant_id}/integrations/vercel/config`.
- */
 export async function getVercelConfig(
   assistantId: string,
 ): Promise<VercelConfigResponse> {
-  const { data, error, response } = await client.get<VercelConfigResponse, unknown>({
-    ...SDK_BASE_OPTIONS,
-    url: "/v1/assistants/{assistant_id}/integrations/vercel/config",
+  const { data, error, response } = await integrationsVercelConfigGet({
     path: { assistant_id: assistantId },
     throwOnError: false,
   });
@@ -74,24 +57,15 @@ export async function getVercelConfig(
     const msg = extractErrorMessage(error, response, "Failed to get Vercel config.");
     throw new ApiError(response.status, msg);
   }
-  return data as VercelConfigResponse;
+  return data!;
 }
 
-/**
- * Store a Vercel API token for the assistant.
- *
- * Hits `POST /v1/assistants/{assistant_id}/integrations/vercel/config`
- * with body `{ action: "set", apiToken }`.
- */
 export async function setVercelToken(
   assistantId: string,
   apiToken: string,
 ): Promise<void> {
-  const { error, response } = await client.post<{ success: boolean }, unknown>({
-    ...SDK_BASE_OPTIONS,
-    url: "/v1/assistants/{assistant_id}/integrations/vercel/config",
+  const { error, response } = await integrationsVercelConfigPost({
     path: { assistant_id: assistantId },
-    headers: { "Content-Type": "application/json" },
     body: { action: "set", apiToken },
     throwOnError: false,
   });
@@ -102,20 +76,12 @@ export async function setVercelToken(
   }
 }
 
-/**
- * Publish an app to the web via Vercel.
- *
- * Hits `POST /v1/assistants/{assistant_id}/apps/{app_id}/publish`.
- */
 export async function publishApp(
   assistantId: string,
   appId: string,
 ): Promise<PublishPageResponse> {
-  const { data, error, response } = await client.post<PublishPageResponse, unknown>({
-    ...SDK_BASE_OPTIONS,
-    url: "/v1/assistants/{assistant_id}/apps/{app_id}/publish",
-    path: { assistant_id: assistantId, app_id: appId },
-    headers: { "Content-Type": "application/json" },
+  const { data, error, response } = await appsByIdPublishPost({
+    path: { assistant_id: assistantId, id: appId },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to publish app.");
@@ -123,7 +89,7 @@ export async function publishApp(
     const msg = extractErrorMessage(error, response, "Failed to publish app.");
     throw new ApiError(response.status, msg);
   }
-  const result = data as PublishPageResponse;
+  const result = { ...data! };
 
   if (result.success && !result.publicUrl) {
     try {
@@ -142,20 +108,12 @@ export async function publishApp(
   return result;
 }
 
-/**
- * Unpublish an app (remove the Vercel deployment).
- *
- * Hits `POST /v1/assistants/{assistant_id}/apps/{app_id}/unpublish`.
- */
 export async function unpublishApp(
   assistantId: string,
   appId: string,
 ): Promise<UnpublishPageResponse> {
-  const { data, error, response } = await client.post<UnpublishPageResponse, unknown>({
-    ...SDK_BASE_OPTIONS,
-    url: "/v1/assistants/{assistant_id}/apps/{app_id}/unpublish",
-    path: { assistant_id: assistantId, app_id: appId },
-    headers: { "Content-Type": "application/json" },
+  const { data, error, response } = await appsByIdUnpublishPost({
+    path: { assistant_id: assistantId, id: appId },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to unpublish app.");
@@ -163,22 +121,15 @@ export async function unpublishApp(
     const msg = extractErrorMessage(error, response, "Failed to unpublish app.");
     throw new ApiError(response.status, msg);
   }
-  return data as UnpublishPageResponse;
+  return data!;
 }
 
-/**
- * Check the publish status of an app.
- *
- * Hits `GET /v1/assistants/{assistant_id}/apps/{app_id}/publish-status`.
- */
 export async function getPublishStatus(
   assistantId: string,
   appId: string,
 ): Promise<PublishStatusResponse> {
-  const { data, error, response } = await client.get<PublishStatusResponse, unknown>({
-    ...SDK_BASE_OPTIONS,
-    url: "/v1/assistants/{assistant_id}/apps/{app_id}/publish-status",
-    path: { assistant_id: assistantId, app_id: appId },
+  const { data, error, response } = await appsByIdPublishstatusGet({
+    path: { assistant_id: assistantId, id: appId },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to get publish status.");
@@ -186,5 +137,5 @@ export async function getPublishStatus(
     const msg = extractErrorMessage(error, response, "Failed to get publish status.");
     throw new ApiError(response.status, msg);
   }
-  return data as PublishStatusResponse;
+  return data!;
 }

@@ -1,14 +1,18 @@
-import { client } from "@/generated/api/client.gen";
+/**
+ * Permission threshold CRUD for global and per-conversation overrides.
+ *
+ * These endpoints live on the gateway (`/v1/assistants/{id}/permissions/…`),
+ * not the daemon, and are not yet part of any generated OpenAPI spec. The
+ * functions here use the raw HeyAPI client until gateway codegen is wired up.
+ */
+
 import {
   ApiError,
   assertHasResponse,
+  client,
   extractErrorMessage,
-} from "@/lib/api-errors";
-
-const SDK_BASE_OPTIONS =
-  typeof window === "undefined"
-    ? ({ baseUrl: "http://localhost" } as const)
-    : ({} as const);
+  SDK_BASE_OPTIONS,
+} from "@/domains/chat/api/client";
 
 export interface GlobalThresholds {
   interactive: string;
