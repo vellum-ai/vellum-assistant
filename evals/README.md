@@ -31,6 +31,7 @@ as a single grouped run.
 | Command                                    | Description                                                     |
 | ------------------------------------------ | --------------------------------------------------------------- |
 | `evals run --profiles <ids> --tests <ids>` | Cartesian profile × test runner. `--label <text>` tags the run. |
+| `evals export --session <id> --out <path>` | Export a report session as JSONL for diffing and notebooks.     |
 | `evals server`                             | Local report-card server for `.runs` at `localhost:3005`.       |
 
 The report server is organized as a hierarchy:
@@ -41,6 +42,11 @@ The report server is organized as a hierarchy:
 - `/sessions/<id>/tests/<testId>/profiles/<profileId>` – execution detail
   with the metric card, transcript, container event log, and test-runner
   progress log for that specific run.
+
+Use `evals export --session <id> --out runs/<label>.jsonl` when you want a
+portable artifact for comparing eval runs outside the report server. The JSONL
+contains the session summary, per-test aggregate rows, and per-profile execution
+metric summaries without embedding full transcripts or raw event logs.
 
 ## Layout
 
