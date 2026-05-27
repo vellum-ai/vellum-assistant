@@ -106,6 +106,85 @@ export function recordRequestLog(
 }
 
 /**
+ * Synthetic-event marker stored in a row's `call_site` column when the
+ * row represents an agent-loop event that has *no underlying LLM call*
+ * but should still appear in the inspector's call rail.
+ *
+ * Today the only kind is `"agentLoopYield"`, recorded when the agent
+ * loop emits its `budget_yield_unrecovered` user-visible notice after
+ * one or more successful tool-use iterations. The synthetic row makes
+ * that yield a clickable, distinctly-rendered entry in the rail and
+ * anchors the compaction trail's "what led to this failure?" lookup.
+ *
+ * Note: `"agentLoopYield"` is *not* a member of `LLMCallSite` (the enum
+ * binds config lookup, not the column shape, per its doc comment).
+ * Sibling helpers filtering by `call_site = 'compactionAgent'`
+ * already treat the synthetic value as a non-compaction call, which is
+ * the desired behavior for floor lookups in the compaction route.
+ */
+export const SYNTHETIC_CALL_SITE_AGENT_LOOP_YIELD = "agentLoopYield";
+
+/**
+ * Wire-shape persisted under the synthetic row's `request_payload`. The
+ * inspector parses this directly when projecting the row, so the
+ * frontend never has to cross-reference the `messages` table to render
+ * the yield's user-visible text.
+ */
+export interface SyntheticAgentLoopYieldPayload {
+  syntheticEventKind: "agentLoopYield";
+  exitReason: string;
+  userMessageText: string;
+}
+
+/**
+ * Insert a synthetic `llm_request_logs` row for an agent-loop event
+ * that has no LLM call backing it but should appear in the inspector
+ * rail. Currently only emitted from the `budget_yield_unrecovered`
+ * persistence path — see `conversation-agent-loop.ts`.
+ *
+ * The caller persists the user-visible assistant message separately
+ * via the `persistence` pipeline; this helper only writes the synthetic
+ * call row. `messageId` should be the id of the just-persisted notice
+ * so `getRequestLogsByMessageId` surfaces both together.
+ *
+ * Stamps `agent_loop_exit_reason` directly so the row already carries
+ * the reason at insert time — the post-loop
+ * `setAgentLoopExitReasonOnLatestLog` query then skips it (its IS NULL
+ * guard) and stamps the prior real LLM call instead, preserving the
+ * existing "latest LLM call carries the exit reason" invariant that
+ * other consumers depend on.
+ */
+export function recordAgentLoopYieldLog(args: {
+  conversationId: string;
+  messageId: string;
+  exitReason: string;
+  userMessageText: string;
+  createdAt: number;
+}): string {
+  const db = getDb();
+  const id = uuid();
+  const payload: SyntheticAgentLoopYieldPayload = {
+    syntheticEventKind: "agentLoopYield",
+    exitReason: args.exitReason,
+    userMessageText: args.userMessageText,
+  };
+  db.insert(llmRequestLogs)
+    .values({
+      id,
+      conversationId: args.conversationId,
+      messageId: args.messageId,
+      provider: null,
+      requestPayload: JSON.stringify(payload),
+      responsePayload: "",
+      createdAt: args.createdAt,
+      agentLoopExitReason: args.exitReason,
+      callSite: SYNTHETIC_CALL_SITE_AGENT_LOOP_YIELD,
+    })
+    .run();
+  return id;
+}
+
+/**
  * Stamp an `agent_loop_exit_reason` onto the most-recent unstamped
  * `llm_request_logs` row for the given conversation. Called by the
  * agent-loop event dispatch (both `dispatchAgentEvent` and the wake's
