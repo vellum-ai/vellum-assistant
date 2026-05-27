@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
@@ -74,6 +75,7 @@ export function localModePlugin(env: Record<string, string>): Plugin {
     name: "vellum-local-mode",
     configureServer(server) {
       server.middlewares.use(lockfileMiddleware(lockfilePaths));
+      server.middlewares.use(hatchMiddleware());
       server.middlewares.use(gatewayProxyMiddleware());
     },
   };
@@ -130,6 +132,120 @@ function handleGetLockfile(
     res.statusCode = 500;
     res.end();
   }
+}
+
+const HATCH_TIMEOUT_MS = 120_000;
+
+/**
+ * Connect middleware for the hatch endpoint.
+ *
+ * Transport: Vite dev middleware (child_process.spawn → CLI binary).
+ * In Electron, replace with IPC call to main process: window.electronAPI.hatchAssistant(species).
+ * The main process has direct access to the hatch-local module without spawning a subprocess.
+ */
+function hatchMiddleware(): Connect.NextHandleFunction {
+  return (req, res, next) => {
+    if (
+      req.url !== "/assistant/__local/hatch" &&
+      req.url !== "/__local/hatch"
+    ) {
+      return next();
+    }
+
+    if (req.method !== "POST") {
+      res.statusCode = 405;
+      res.end();
+      return;
+    }
+
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk: Buffer) => chunks.push(chunk));
+    req.on("end", () => {
+      let species = "vellum";
+      if (chunks.length > 0) {
+        try {
+          const body = JSON.parse(Buffer.concat(chunks).toString()) as {
+            species?: string;
+          };
+          if (body.species) {
+            species = body.species;
+          }
+        } catch {
+          res.statusCode = 400;
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ ok: false, error: "Invalid JSON body" }));
+          return;
+        }
+      }
+
+      handleHatch(species, res);
+    });
+  };
+}
+
+function handleHatch(species: string, res: http.ServerResponse): void {
+  // Resolve CLI entry point in dev mode (Vite runs in Node inside the repo).
+  const repoRoot = path.resolve(import.meta.dirname, "..", "..");
+  const cliPath = path.join(repoRoot, "cli", "src", "index.ts");
+
+  if (!fs.existsSync(cliPath)) {
+    res.statusCode = 500;
+    res.setHeader("Content-Type", "application/json");
+    res.end(
+      JSON.stringify({
+        ok: false,
+        error: `CLI binary not found at ${cliPath}`,
+      }),
+    );
+    return;
+  }
+
+  const child = spawn("bun", ["run", cliPath, "hatch", species], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  let stdout = "";
+  let stderr = "";
+
+  const timeout = setTimeout(() => {
+    child.kill("SIGTERM");
+    stderr += "\nHatch timed out after 120 seconds";
+  }, HATCH_TIMEOUT_MS);
+
+  child.stdout.on("data", (data: Buffer) => {
+    stdout += data.toString();
+  });
+
+  child.stderr.on("data", (data: Buffer) => {
+    stderr += data.toString();
+  });
+
+  child.on("close", (code) => {
+    clearTimeout(timeout);
+
+    res.setHeader("Content-Type", "application/json");
+
+    if (code === 0) {
+      // Parse assistant name from stdout: "🥚 Hatching local assistant: <name>"
+      const match = stdout.match(
+        /Hatching local assistant:\s+(.+)/,
+      );
+      const assistantId = match?.[1]?.trim() ?? "";
+      res.end(JSON.stringify({ ok: true, assistantId }));
+    } else {
+      res.statusCode = 500;
+      res.end(JSON.stringify({ ok: false, error: stderr || stdout }));
+    }
+  });
+
+  child.on("error", (err) => {
+    clearTimeout(timeout);
+    res.statusCode = 500;
+    res.setHeader("Content-Type", "application/json");
+    res.end(
+      JSON.stringify({ ok: false, error: `Failed to spawn CLI: ${err.message}` }),
+    );
+  });
 }
 
 const GATEWAY_PATTERN = /^(?:\/assistant)?\/__gateway\/(\d+)(\/.*)?$/;
