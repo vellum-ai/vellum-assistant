@@ -802,6 +802,21 @@ export const ROUTES: RouteDefinition[] = [
     requestBody: z.object({
       filePath: z.string().describe("Absolute path to the .vbundle file"),
     }),
+    responseBody: z.object({
+      manifest: z.object({}).passthrough(),
+      scanResult: z.object({
+        passed: z.boolean(),
+        blocked: z.array(z.string()),
+        warnings: z.array(z.string()),
+      }),
+      signatureResult: z.object({
+        trustTier: z.string(),
+        signerKeyId: z.string().optional(),
+        signerDisplayName: z.string().optional(),
+        signerAccount: z.string().optional(),
+      }),
+      bundleSizeBytes: z.number(),
+    }),
   },
   {
     operationId: "apps_shared_list",
@@ -828,6 +843,11 @@ export const ROUTES: RouteDefinition[] = [
     requestBody: z.object({
       uuid: z.string().describe("UUID of the shared app to fork"),
     }),
+    responseBody: z.object({
+      success: z.literal(true),
+      appId: z.string(),
+      name: z.string(),
+    }),
   },
   {
     operationId: "apps_gallery_install",
@@ -839,6 +859,11 @@ export const ROUTES: RouteDefinition[] = [
     description: "Install an app from the built-in gallery by its ID.",
     tags: ["apps"],
     requestBody: z.object({ galleryAppId: z.string() }),
+    responseBody: z.object({
+      success: z.literal(true),
+      appId: z.string(),
+      name: z.string(),
+    }),
   },
   {
     operationId: "apps_gallery_list",
@@ -897,6 +922,12 @@ export const ROUTES: RouteDefinition[] = [
       keyId: z.string().optional(),
       publicKey: z.string().optional(),
     }),
+    responseBody: z.object({
+      signed: z.boolean().optional(),
+      signatureJson: z.object({}).passthrough().optional(),
+      payload: z.string().optional(),
+      message: z.string().optional(),
+    }),
   },
   {
     operationId: "apps_signing_identity",
@@ -908,6 +939,7 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Return signing identity info. Signing is managed client-side over HTTP.",
     tags: ["apps"],
+    responseBody: z.object({ message: z.string() }),
   },
 
   // Parameterized `apps/:id/*` routes — must follow all literal routes.
@@ -927,6 +959,10 @@ export const ROUTES: RouteDefinition[] = [
         type: "string",
       },
     ],
+    responseBody: z.object({
+      success: z.boolean(),
+      result: z.unknown(),
+    }),
   },
   {
     operationId: "apps_data_mutate",
@@ -942,6 +978,10 @@ export const ROUTES: RouteDefinition[] = [
       method: z.string().describe("'create', 'update', or 'delete'"),
       recordId: z.string(),
       data: z.object({}).passthrough(),
+    }),
+    responseBody: z.object({
+      success: z.boolean(),
+      result: z.unknown(),
     }),
   },
   {
@@ -969,6 +1009,7 @@ export const ROUTES: RouteDefinition[] = [
     summary: "Delete an app",
     description: "Permanently remove an app and its data.",
     tags: ["apps"],
+    responseBody: z.object({ success: z.boolean() }),
   },
   {
     operationId: "apps_preview_get",
@@ -979,6 +1020,10 @@ export const ROUTES: RouteDefinition[] = [
     summary: "Get app preview",
     description: "Return the preview image or HTML for an app.",
     tags: ["apps"],
+    responseBody: z.object({
+      appId: z.string(),
+      preview: z.string().nullable(),
+    }),
   },
   {
     operationId: "apps_preview_update",
@@ -991,6 +1036,10 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["apps"],
     requestBody: z.object({
       preview: z.string().describe("Base64-encoded image or HTML string"),
+    }),
+    responseBody: z.object({
+      success: z.boolean(),
+      appId: z.string(),
     }),
   },
   {
@@ -1021,6 +1070,10 @@ export const ROUTES: RouteDefinition[] = [
       { name: "fromCommit", type: "string", required: true },
       { name: "toCommit", type: "string" },
     ],
+    responseBody: z.object({
+      appId: z.string(),
+      diff: z.string(),
+    }),
   },
   {
     operationId: "apps_restore",
@@ -1032,6 +1085,7 @@ export const ROUTES: RouteDefinition[] = [
     description: "Restore an app to a previous git commit.",
     tags: ["apps"],
     requestBody: z.object({ commitHash: z.string() }),
+    responseBody: z.object({ success: z.boolean() }),
   },
   {
     operationId: "apps_bundle",
