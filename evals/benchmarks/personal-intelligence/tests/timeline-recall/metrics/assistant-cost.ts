@@ -2,7 +2,7 @@ import {
   readUsage,
   type MetricInput,
   type MetricResult,
-} from "../../../src/lib/metrics";
+} from "../../../../../src/lib/metrics";
 
 /**
  * Cost is reported as a negative number so "higher score = better" — a

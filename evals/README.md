@@ -62,10 +62,12 @@ evals/
 │   │   └── manifest.json
 │   └── p2/
 │       └── manifest.json
-├── tests/                   # Committed test definitions
-│   └── timeline-recall/
-│       ├── SPEC.md          # simulator briefing
-│       └── metrics/         # (optional) per-metric `.ts` scorers
+├── benchmarks/              # One subdirectory per benchmark
+│   └── personal-intelligence/
+│       └── tests/           # Test definitions for this benchmark
+│           └── timeline-recall/
+│               ├── SPEC.md  # simulator briefing
+│               └── metrics/ # (optional) per-metric `.ts` scorers
 ├── .env.example             # API key contract
 ├── package.json
 └── AGENTS.md                # Conventions
@@ -90,7 +92,7 @@ Run `evals profiles list` to see all committed profiles and their setup.
 
 ## Test
 
-A test lives at `tests/<id>/`. The directory name is the test id.
+A test lives at `benchmarks/personal-intelligence/tests/<id>/`. The directory name is the test id. (Other benchmarks live as peers under `benchmarks/` and may use different unit names.)
 
 `SPEC.md` briefs the simulator agent on the role it plays and how it should interact with the assistant. It does not describe assertion behavior.
 

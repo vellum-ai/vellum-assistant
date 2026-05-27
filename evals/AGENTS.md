@@ -27,7 +27,9 @@ Single (1×1), suite (1×M), ablation (N×1), full matrix (N×M). Same codepath.
 
 **Profile:** declarative directory under `profiles/`. `manifest.json` declares species, optional version, optional setup commands. Optional `workspace/` subdirectory provides initial files for the agent. Plugins are installed via setup commands like `vellum exec -- assistant plugins install simple-memory`.
 
-**Test:** declarative directory under `tests/`. `SPEC.md` briefs the simulator agent. Optional `metrics/` subdirectory holds per-metric `.ts` scorers.
+**Benchmark:** top-level directory under `benchmarks/`. Each benchmark groups a coherent set of units (tests, items, tasks, …) that share a definition shape. `personal-intelligence/` is our in-house benchmark and is currently the only one. Public benchmarks (e.g. `longmemeval-v2/`) will live as peers.
+
+**Test:** declarative directory under `benchmarks/personal-intelligence/tests/`. `SPEC.md` briefs the simulator agent. Optional `metrics/` subdirectory holds per-metric `.ts` scorers. The on-disk root is resolved via `getTestsDir()` (overridable via `EVALS_TESTS_DIR`).
 
 **Agent adapter (per species):** thin CLI process wrapper. Owns invocation, stdin/stdout format, session resume, cost extraction. Each test gets a fresh process — no sharing across tests (parallelization-ready). The Vellum adapter hatches a fresh Docker instance, sends user messages via `vellum message`, and reads assistant output from `vellum events --json`.
 
