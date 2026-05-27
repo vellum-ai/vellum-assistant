@@ -14,10 +14,12 @@ import {
   DefaultStepPill,
   PhaseGroupedStepList,
 } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
+import { ToolStepPill } from "@/domains/chat/components/tool-progress-card/tool-step-pill";
 import {
   ToolProgressCardShell,
   type ToolProgressCardState,
 } from "@/domains/chat/components/tool-progress-card/tool-progress-card-shell";
+import { useViewerStore } from "@/stores/viewer-store";
 import {
   useToolCallCardData,
   WEB_TOOL_NAMES,
@@ -217,6 +219,7 @@ function UnifiedToolCallProgressCard({
   onDismissUnknownNudge,
   isStreaming,
 }: ToolCallProgressCardProps & { cardData: ToolCallCardData }) {
+  const openToolDetail = useViewerStore.use.openToolDetail();
   const cardId = toolCalls[0]?.id ?? null;
   const expanded = useCardExpanded(
     cardId,
@@ -228,7 +231,8 @@ function UnifiedToolCallProgressCard({
   const shellState: ToolProgressCardState = cardData.state;
 
   // Nudge rows need the raw call (riskLevel, allowlistOptions, …) which
-  // isn't carried on the step descriptor.
+  // isn't carried on the step descriptor. The pill's click handler also
+  // reads the raw call to build the tool-detail drawer payload.
   const toolCallById = new Map(toolCalls.map((tc) => [tc.id, tc]));
 
   return (
@@ -244,14 +248,43 @@ function UnifiedToolCallProgressCard({
         <PhaseGroupedStepList
           steps={cardData.steps}
           renderStep={(step) => {
-            const nudgeTarget =
-              step.kind === "tool" &&
-              unknownNudgeToolCallIds?.has(step.toolCallId)
-                ? toolCallById.get(step.toolCallId)
-                : undefined;
+            // Non-`tool` kinds (thinking, web_search, web_search_error,
+            // tool_error) keep their dedicated rows via `ExpandedStep`.
+            if (step.kind !== "tool") {
+              return <ExpandedStep step={step} />;
+            }
+
+            const nudgeTarget = unknownNudgeToolCallIds?.has(step.toolCallId)
+              ? toolCallById.get(step.toolCallId)
+              : undefined;
             return (
               <>
-                <ExpandedStep step={step} />
+                <ToolStepPill
+                  iconName={step.iconName}
+                  label={step.activity || step.info || step.title}
+                  riskLevel={step.riskLevel}
+                  tone={
+                    step.status === "error" || step.status === "denied"
+                      ? "error"
+                      : "default"
+                  }
+                  onClick={() => {
+                    const tc = toolCallById.get(step.toolCallId);
+                    if (!tc) return;
+                    openToolDetail({
+                      toolCallId: tc.id,
+                      toolName: tc.toolName,
+                      title: step.title,
+                      activity: step.activity,
+                      input: tc.input ?? {},
+                      result: tc.result,
+                      status: step.status,
+                      riskLevel: tc.riskLevel,
+                      riskReason: tc.riskReason,
+                      durationLabel: step.durationLabel,
+                    });
+                  }}
+                />
                 {nudgeTarget && onOpenRuleEditor && (
                   <UnknownCommandNudge
                     toolCall={nudgeTarget}
