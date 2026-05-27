@@ -28,17 +28,17 @@
  * (`apps/web/src/lib/sentry/sentry-control.ts`) treats absence as the
  * privacy-safe default and ANY explicit `"true"` as opt-in.
  *
- * Instead, each setter writes only its own key via `setLocalSetting`,
+ * Instead, each setter writes only its own key via `setLocalBool`,
  * so a field that was never explicitly set stays absent in localStorage
  * — keeping the privacy-safe default intact. Initial state is read once
  * on module load via `computeInitialFromLS()`.
  *
  * **Cross-tab + cross-surface sync:**
  *
- * - `setLocalSetting` fires a native `storage` event in other tabs and
+ * - `setLocalBool` fires a native `storage` event in other tabs and
  *   a same-tab `vellum:pref-changed` CustomEvent. The store registers
- *   listeners for both and updates its state from localStorage whenever
- *   any of the five tracked keys changes elsewhere.
+ *   `watchSetting` listeners for each tracked key and updates its state
+ *   from localStorage whenever any of the five keys changes elsewhere.
  * - That way a write from the privacy page (same tab, different
  *   surface) and a write from another tab both flow back into the
  *   store and re-render subscribed components.
@@ -50,9 +50,10 @@ import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors.js";
 import {
-  getLocalSetting,
+  getLocalBool,
   removeLocalSetting,
-  setLocalSetting,
+  setLocalBool,
+  watchSetting,
 } from "@/lib/local-settings.js";
 import { deviceKey } from "@/lib/device-settings.js";
 
@@ -70,8 +71,6 @@ const KEY_TOS_ACCEPTED = "onboarding.tosAccepted";
 const KEY_AI_DATA_CONSENT = "onboarding.aiDataConsent";
 /** Onboarding-only: completed flag (gates pre-chat / chat routes). */
 const KEY_COMPLETED = "onboarding.completed";
-
-const PREF_CHANGED_EVENT = "vellum:pref-changed";
 
 /**
  * Lookup table from localStorage key → which state field to refresh.
@@ -124,25 +123,21 @@ export type OnboardingStore = OnboardingState & OnboardingActions;
 // LS helpers
 // ---------------------------------------------------------------------------
 
-function readBooleanFromLS(key: string, defaultValue: boolean): boolean {
-  if (typeof window === "undefined") return defaultValue;
-  try {
-    const raw = getLocalSetting(key, String(defaultValue));
-    if (raw === "true") return true;
-    if (raw === "false") return false;
-    return defaultValue;
-  } catch {
-    return defaultValue;
-  }
-}
+const FIELD_DEFAULTS: Record<keyof OnboardingState, boolean> = {
+  shareAnalytics: true,
+  shareDiagnostics: true,
+  tosAccepted: false,
+  aiDataConsent: false,
+  completed: false,
+};
 
 function computeInitialFromLS(): OnboardingState {
   return {
-    shareAnalytics: readBooleanFromLS(KEY_SHARE_ANALYTICS, true),
-    shareDiagnostics: readBooleanFromLS(KEY_SHARE_DIAGNOSTICS, true),
-    tosAccepted: readBooleanFromLS(KEY_TOS_ACCEPTED, false),
-    aiDataConsent: readBooleanFromLS(KEY_AI_DATA_CONSENT, false),
-    completed: readBooleanFromLS(KEY_COMPLETED, false),
+    shareAnalytics: getLocalBool(KEY_SHARE_ANALYTICS, true),
+    shareDiagnostics: getLocalBool(KEY_SHARE_DIAGNOSTICS, true),
+    tosAccepted: getLocalBool(KEY_TOS_ACCEPTED, false),
+    aiDataConsent: getLocalBool(KEY_AI_DATA_CONSENT, false),
+    completed: getLocalBool(KEY_COMPLETED, false),
   };
 }
 
@@ -155,23 +150,23 @@ const useOnboardingStoreBase = create<OnboardingStore>()((set) => ({
 
   setShareAnalytics: (value) => {
     set({ shareAnalytics: value });
-    setLocalSetting(KEY_SHARE_ANALYTICS, String(value));
+    setLocalBool(KEY_SHARE_ANALYTICS, value);
   },
   setShareDiagnostics: (value) => {
     set({ shareDiagnostics: value });
-    setLocalSetting(KEY_SHARE_DIAGNOSTICS, String(value));
+    setLocalBool(KEY_SHARE_DIAGNOSTICS, value);
   },
   setTosAccepted: (value) => {
     set({ tosAccepted: value });
-    setLocalSetting(KEY_TOS_ACCEPTED, String(value));
+    setLocalBool(KEY_TOS_ACCEPTED, value);
   },
   setAiDataConsent: (value) => {
     set({ aiDataConsent: value });
-    setLocalSetting(KEY_AI_DATA_CONSENT, String(value));
+    setLocalBool(KEY_AI_DATA_CONSENT, value);
   },
   setOnboardingCompleted: (value) => {
     set({ completed: value });
-    setLocalSetting(KEY_COMPLETED, String(value));
+    setLocalBool(KEY_COMPLETED, value);
   },
   resetOnboardingFlags: () => {
     set({
@@ -198,32 +193,10 @@ export const useOnboardingStore = createSelectors(useOnboardingStoreBase);
 function syncFieldFromLS(key: string): void {
   const field = KEY_TO_FIELD.get(key);
   if (!field) return;
-  // Default mirrors the field's defined default — keeps absence semantics
-  // intact (e.g. an absent `device:share_diagnostics` reads as `true` here
-  // for UI display, while sentry-control.ts independently treats absence
-  // as opt-out for its own consent gate).
-  const defaults: Record<keyof OnboardingState, boolean> = {
-    shareAnalytics: true,
-    shareDiagnostics: true,
-    tosAccepted: false,
-    aiDataConsent: false,
-    completed: false,
-  };
-  const next = readBooleanFromLS(key, defaults[field]);
+  const next = getLocalBool(key, FIELD_DEFAULTS[field]);
   useOnboardingStoreBase.setState({ [field]: next } as Partial<OnboardingState>);
 }
 
-if (typeof window !== "undefined") {
-  window.addEventListener("storage", (event) => {
-    if (event.key && KEY_TO_FIELD.has(event.key)) {
-      syncFieldFromLS(event.key);
-    }
-  });
-
-  window.addEventListener(PREF_CHANGED_EVENT, (event) => {
-    const detail = (event as CustomEvent<{ key?: string | null }>).detail;
-    if (detail?.key && KEY_TO_FIELD.has(detail.key)) {
-      syncFieldFromLS(detail.key);
-    }
-  });
+for (const key of KEY_TO_FIELD.keys()) {
+  watchSetting(key, () => syncFieldFromLS(key));
 }

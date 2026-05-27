@@ -4,9 +4,9 @@ import { useEffect, useState } from "react";
 import { cn, SegmentControl } from "@vellum/design-library";
 
 import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
+import { watchDeviceSetting } from "@/lib/device-settings.js";
 import {
   applyThemePreference,
-  normalizeThemePreference,
   readStoredThemePreference,
   type ThemePreference,
   writeStoredThemePreference,
@@ -43,20 +43,9 @@ export function ThemeToggle({ className }: { className?: string } = {}) {
   }, [velvet]);
 
   useEffect(() => {
-    const handleExternalThemeChange = (event: CustomEvent<string>) => {
-      setTheme(
-        normalizeThemePreference(event.detail, { velvetEnabled: velvet }),
-      );
-    };
-    window.addEventListener(
-      "vellumThemeChange",
-      handleExternalThemeChange as EventListener,
-    );
-    return () =>
-      window.removeEventListener(
-        "vellumThemeChange",
-        handleExternalThemeChange as EventListener,
-      );
+    return watchDeviceSetting("theme", () => {
+      setTheme(readStoredThemePreference({ velvetEnabled: velvet }));
+    });
   }, [velvet]);
 
   const handleChange = (next: ThemePreference) => {

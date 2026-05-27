@@ -8,7 +8,9 @@ import { AccessConsentSetting } from "@/domains/settings/components/access-conse
 import { RiskToleranceSettings } from "@/domains/settings/components/risk-tolerance-settings.js";
 import { TrustRules } from "@/domains/settings/components/trust-rules/trust-rules.js";
 import {
+  getDeviceBool,
   getDeviceSetting,
+  setDeviceBool,
   setDeviceSetting,
 } from "@/lib/device-settings.js";
 
@@ -58,10 +60,10 @@ function Divider() {
 
 export function PrivacyPage() {
   const [shareAnalytics, setShareAnalytics] = useState(
-    () => getDeviceSetting("shareAnalytics", "true") === "true",
+    () => getDeviceBool("shareAnalytics", true),
   );
   const [shareDiagnostics, setShareDiagnostics] = useState(
-    () => getDeviceSetting("shareDiagnostics", "true") === "true",
+    () => getDeviceBool("shareDiagnostics", true),
   );
   const [retentionId, setRetentionId] = useState(() =>
     getDeviceSetting("llmLogRetention", DEFAULT_RETENTION_ID),
@@ -70,13 +72,13 @@ export function PrivacyPage() {
   const handleAnalyticsToggle = () => {
     const next = !shareAnalytics;
     setShareAnalytics(next);
-    setDeviceSetting("shareAnalytics", String(next));
+    setDeviceBool("shareAnalytics", next);
   };
 
   const handleDiagnosticsToggle = () => {
     const next = !shareDiagnostics;
     setShareDiagnostics(next);
-    setDeviceSetting("shareDiagnostics", String(next));
+    setDeviceBool("shareDiagnostics", next);
   };
 
   const handleRetentionChange = (value: string) => {

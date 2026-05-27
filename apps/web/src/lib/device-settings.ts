@@ -17,8 +17,11 @@
  */
 
 import {
+  getLocalBool,
   getLocalSetting,
+  setLocalBool,
   setLocalSetting,
+  watchSetting,
 } from "@/lib/local-settings.js";
 
 /** Prefix for all device-scoped localStorage keys. */
@@ -55,6 +58,27 @@ export function getDeviceSetting(name: DeviceSettingName, fallback: string): str
 /** Write a device-scoped setting. Fires the `vellum:pref-changed` event for same-tab observers. */
 export function setDeviceSetting(name: DeviceSettingName, value: string): void {
   setLocalSetting(DEVICE_SETTINGS[name].key, value);
+}
+
+/** Read a boolean device setting. */
+export function getDeviceBool(name: DeviceSettingName, fallback: boolean): boolean {
+  return getLocalBool(DEVICE_SETTINGS[name].key, fallback);
+}
+
+/** Write a boolean device setting. */
+export function setDeviceBool(name: DeviceSettingName, value: boolean): void {
+  setLocalBool(DEVICE_SETTINGS[name].key, value);
+}
+
+/**
+ * Watch a device setting for changes (cross-tab and same-tab).
+ * Returns a cleanup function that removes both listeners.
+ */
+export function watchDeviceSetting(
+  name: DeviceSettingName,
+  callback: () => void,
+): () => void {
+  return watchSetting(DEVICE_SETTINGS[name].key, callback);
 }
 
 /**

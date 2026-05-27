@@ -1,6 +1,6 @@
 import * as Sentry from "@sentry/react";
 
-import { deviceKey } from "@/lib/device-settings.js";
+import { getDeviceBool, watchDeviceSetting } from "@/lib/device-settings.js";
 
 /**
  * Gates the browser-side Sentry client on the user's Share Diagnostics
@@ -14,21 +14,8 @@ import { deviceKey } from "@/lib/device-settings.js";
  * Reference: https://docs.sentry.io/platforms/javascript/guides/react/configuration/options/
  */
 
-const STORAGE_KEY = deviceKey("shareDiagnostics");
-const PREF_CHANGED_EVENT = "vellum:pref-changed";
-
-export interface PrefChangedEventDetail {
-  key: string;
-  value: string;
-}
-
 function readConsent(): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    return window.localStorage.getItem(STORAGE_KEY) === "true";
-  } catch {
-    return false;
-  }
+  return getDeviceBool("shareDiagnostics", false);
 }
 
 function tryInit(options: Sentry.BrowserOptions): void {
@@ -62,29 +49,14 @@ export function syncSentryClient(options: Sentry.BrowserOptions): void {
  * Install listeners so the Sentry client turns on/off whenever the user
  * flips the Share Diagnostics toggle — covering cross-tab writes (via the
  * native `storage` event) and same-tab writes (via the custom event
- * dispatched from the prefs utility).
+ * dispatched by `setLocalSetting`).
  *
  * Returns a cleanup function that removes both listeners.
  */
 export function installSentryControlListeners(
   options: Sentry.BrowserOptions,
 ): () => void {
-  if (typeof window === "undefined") return () => {};
-
-  const onStorage = (event: StorageEvent) => {
-    if (event.key !== STORAGE_KEY) return;
+  return watchDeviceSetting("shareDiagnostics", () => {
     syncSentryClient(options);
-  };
-  const onPrefChanged = (event: Event) => {
-    const detail = (event as CustomEvent<PrefChangedEventDetail>).detail;
-    if (detail?.key !== STORAGE_KEY) return;
-    syncSentryClient(options);
-  };
-
-  window.addEventListener("storage", onStorage);
-  window.addEventListener(PREF_CHANGED_EVENT, onPrefChanged);
-  return () => {
-    window.removeEventListener("storage", onStorage);
-    window.removeEventListener(PREF_CHANGED_EVENT, onPrefChanged);
-  };
+  });
 }

@@ -9,11 +9,11 @@
 import { useCallback, useEffect, useState } from "react";
 
 import {
-  readBooleanPref,
-  writeBooleanPref,
-  readNumberPref,
-  writeNumberPref,
-} from "@/utils/nudge-prefs.js";
+  getLocalBool,
+  setLocalBool,
+  getLocalNumber,
+  setLocalNumber,
+} from "@/lib/local-settings.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -40,29 +40,29 @@ export const IOS_APP_STORE_URL =
 // ---------------------------------------------------------------------------
 
 export function readIOSAppDownloaded(): boolean {
-  return readBooleanPref(KEY_IOS_APP_DOWNLOADED, false);
+  return getLocalBool(KEY_IOS_APP_DOWNLOADED, false);
 }
 
 export function writeIOSAppDownloaded(): void {
-  writeBooleanPref(KEY_IOS_APP_DOWNLOADED, true);
+  setLocalBool(KEY_IOS_APP_DOWNLOADED, true);
 }
 
 function readIOSAppBannerDismissed(): boolean {
-  return readBooleanPref(KEY_IOS_APP_BANNER_DISMISSED, false);
+  return getLocalBool(KEY_IOS_APP_BANNER_DISMISSED, false);
 }
 
 function writeIOSAppBannerDismissed(): void {
-  writeBooleanPref(KEY_IOS_APP_BANNER_DISMISSED, true);
+  setLocalBool(KEY_IOS_APP_BANNER_DISMISSED, true);
 }
 
 export function readIOSAssistantTurnsSeen(): number {
-  return readNumberPref(KEY_IOS_APP_ASSISTANT_TURNS_SEEN, 0);
+  return Math.max(0, getLocalNumber(KEY_IOS_APP_ASSISTANT_TURNS_SEEN, 0));
 }
 
 export function incrementIOSAssistantTurnsSeen(delta = 1): void {
   if (delta <= 0) return;
   const nextValue = readIOSAssistantTurnsSeen() + delta;
-  writeNumberPref(KEY_IOS_APP_ASSISTANT_TURNS_SEEN, nextValue);
+  setLocalNumber(KEY_IOS_APP_ASSISTANT_TURNS_SEEN, nextValue);
 }
 
 // ---------------------------------------------------------------------------
@@ -107,3 +107,12 @@ export function useIOSNudgeState(): {
 export function openIOSAppStore(): void {
   window.open(IOS_APP_STORE_URL, "_blank", "noopener,noreferrer");
 }
+
+// ---------------------------------------------------------------------------
+// Internals exported for tests only. Not part of the public API.
+// ---------------------------------------------------------------------------
+
+export const __testing = {
+  readIOSAppBannerDismissed,
+  writeIOSAppBannerDismissed,
+};

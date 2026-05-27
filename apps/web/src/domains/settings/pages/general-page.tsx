@@ -25,7 +25,6 @@ import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-fl
 import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
 import {
   applyThemePreference,
-  normalizeThemePreference,
   readStoredThemePreference,
   type ThemePreference,
   writeStoredThemePreference,
@@ -33,6 +32,7 @@ import {
 import {
   getDeviceSetting,
   setDeviceSetting,
+  watchDeviceSetting,
 } from "@/lib/device-settings.js";
 
 function ThemeCard() {
@@ -46,21 +46,9 @@ function ThemeCard() {
   }, [velvet]);
 
   useEffect(() => {
-    const handleExternalThemeChange = (event: CustomEvent<string>) => {
-      setTheme(
-        normalizeThemePreference(event.detail, { velvetEnabled: velvet }),
-      );
-    };
-    window.addEventListener(
-      "vellumThemeChange",
-      handleExternalThemeChange as EventListener,
-    );
-    return () => {
-      window.removeEventListener(
-        "vellumThemeChange",
-        handleExternalThemeChange as EventListener,
-      );
-    };
+    return watchDeviceSetting("theme", () => {
+      setTheme(readStoredThemePreference({ velvetEnabled: velvet }));
+    });
   }, [velvet]);
 
   useEffect(() => {

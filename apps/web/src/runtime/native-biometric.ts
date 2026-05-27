@@ -1,7 +1,7 @@
 import { registerPlugin } from "@capacitor/core";
 
 import { isNativePlatform } from "@/runtime/native-auth.js";
-import { deviceKey } from "@/lib/device-settings.js";
+import { getDeviceBool, setDeviceBool } from "@/lib/device-settings.js";
 
 /**
  * JS ↔ native bridge for the `NativeBiometric` Capacitor plugin registered by
@@ -13,7 +13,7 @@ import { deviceKey } from "@/lib/device-settings.js";
  *
  * Biometric login is enabled by default on devices that support it. Users
  * can opt out via Settings → Privacy. The preference is stored in
- * localStorage under `BIOMETRIC_ENABLED_KEY`.
+ * localStorage under the `device:biometric_enabled` key.
  *
  * References:
  * - https://developer.apple.com/documentation/localauthentication/accessing_keychain_items_with_face_id_or_touch_id
@@ -36,7 +36,6 @@ interface NativeBiometricPlugin {
 const NativeBiometric = registerPlugin<NativeBiometricPlugin>("NativeBiometric");
 
 const BIOMETRIC_SERVER = "vellum.ai";
-const BIOMETRIC_ENABLED_KEY = deviceKey("biometricEnabled");
 
 /**
  * Check whether biometric authentication is available on this device.
@@ -122,22 +121,12 @@ export async function deleteBiometricToken(): Promise<void> {
  * native platforms — users must explicitly opt out via Settings → Privacy.
  */
 export function isBiometricEnabled(): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    return localStorage.getItem(BIOMETRIC_ENABLED_KEY) !== "false";
-  } catch {
-    return true;
-  }
+  return getDeviceBool("biometricEnabled", true);
 }
 
 /** Persist the biometric login preference. */
 export function setBiometricEnabled(enabled: boolean): void {
-  if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem(BIOMETRIC_ENABLED_KEY, enabled ? "true" : "false");
-  } catch {
-    // Best-effort persistence.
-  }
+  setDeviceBool("biometricEnabled", enabled);
 }
 
 /** Returns the biometric type label (e.g. "Face ID", "Touch ID"). */

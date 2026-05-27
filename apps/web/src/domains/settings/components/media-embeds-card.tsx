@@ -7,7 +7,9 @@ import { Toggle } from "@vellum/design-library/components/toggle";
 import { DetailCard } from "@/components/detail-card.js";
 import { SettingsDivider } from "@/domains/settings/components/settings-divider.js";
 import {
+  getDeviceBool,
   getDeviceSetting,
+  setDeviceBool,
   setDeviceSetting,
 } from "@/lib/device-settings.js";
 
@@ -31,7 +33,7 @@ function parseAllowlist(raw: string): string[] {
 }
 
 function loadEnabled(): boolean {
-  return getDeviceSetting("mediaEmbedsEnabled", "true") === "true";
+  return getDeviceBool("mediaEmbedsEnabled", true);
 }
 
 function loadAllowlist(): string[] {
@@ -53,7 +55,7 @@ export function MediaEmbedsCard() {
 
   const handleToggle = (next: boolean) => {
     setEnabled(next);
-    setDeviceSetting("mediaEmbedsEnabled", next ? "true" : "false");
+    setDeviceBool("mediaEmbedsEnabled", next);
   };
 
   const persistDomains = (next: string[]) => {
