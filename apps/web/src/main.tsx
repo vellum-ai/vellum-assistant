@@ -5,6 +5,7 @@ import * as Sentry from "@sentry/react";
 
 import { migrateDeviceSettings } from "@/lib/device-settings";
 import { initSentry } from "@/lib/sentry/sentry-init";
+import { isLocalMode, loadLockfile } from "@/lib/local-mode";
 import { useAuthStore, setupAuthListeners } from "@/stores/auth-store";
 import { setupOrganizationStore } from "@/stores/organization-store";
 import { AppProviders } from "@/components/providers";
@@ -22,6 +23,9 @@ async function boot() {
   initSentry();
 
   setupOrganizationStore();
+  if (isLocalMode()) {
+    await loadLockfile();
+  }
   useAuthStore.getState().initSession();
   setupAuthListeners();
 
