@@ -19,6 +19,31 @@ export function getRiskBadgeStyle(riskLevel?: string): { bg: string; text: strin
   }
 }
 
+/**
+ * Weak-background / strong-text variant of the risk badge styling, matching the
+ * macOS `RiskBadgeView` convention (Figma node 5010-103197). This is the style
+ * used by the inline pill + drawer header — distinct from the filled
+ * `getRiskBadgeStyle` that the confirmation chip depends on.
+ */
+export function getRiskBadgeWeakStyle(riskLevel?: string): { bg: string; text: string; label: string } {
+  switch (riskLevel?.toLowerCase()) {
+    case "low":
+      return { bg: "bg-[var(--system-positive-weak)]", text: "text-[var(--system-positive-strong)]", label: "Low" };
+    case "medium":
+      return { bg: "bg-[var(--system-mid-weak)]", text: "text-[var(--system-mid-strong)]", label: "Medium" };
+    case "high":
+      return { bg: "bg-[var(--system-negative-weak)]", text: "text-[var(--system-negative-strong)]", label: "High" };
+    case "workspace":
+      return { bg: "bg-[var(--surface-lift)]", text: "text-[var(--content-secondary)]", label: "Workspace" };
+    default:
+      return {
+        bg: "bg-[var(--surface-lift)]",
+        text: "text-[var(--content-secondary)]",
+        label: riskLevel ? riskLevel.charAt(0).toUpperCase() + riskLevel.slice(1) : "Unknown",
+      };
+  }
+}
+
 // "unknown" maps to 2 (treated as high risk), matching server/Swift semantics.
 // Unrecognized values fall through to the ?? -1 default (treated as no-risk / missing).
 const RISK_ORDINAL: Record<string, number> = { unknown: 2, low: 0, medium: 1, high: 2 };
