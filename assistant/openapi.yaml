@@ -5156,6 +5156,27 @@ paths:
                   - nextOffset
                   - hasMore
                 additionalProperties: false
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Maximum number of conversations to return (default 50).
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Number of conversations to skip (default 0).
+        - name: conversationType
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - background
+          description: Filter by conversation type. Pass "background" to list only background/scheduled conversations.
     post:
       operationId: conversations_post
       summary: Create a conversation

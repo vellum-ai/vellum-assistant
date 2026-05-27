@@ -312,6 +312,28 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Paginated list of conversations with attention state and display metadata.",
     tags: ["conversations"],
+    queryParams: [
+      {
+        name: "limit",
+        type: "integer",
+        required: false,
+        description: "Maximum number of conversations to return (default 50).",
+      },
+      {
+        name: "offset",
+        type: "integer",
+        required: false,
+        description: "Number of conversations to skip (default 0).",
+      },
+      {
+        name: "conversationType",
+        type: "string",
+        required: false,
+        description:
+          'Filter by conversation type. Pass "background" to list only background/scheduled conversations.',
+        schema: { type: "string", enum: ["background"] },
+      },
+    ],
     responseBody: listConversationsResponseSchema,
     handler: handleListConversations,
   },

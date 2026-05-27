@@ -1,9 +1,7 @@
 /**
- * Conversation CRUD operations via the generated daemon SDK.
+ * Conversation data layer: listing, detail, predicates, and parsing.
  *
- * Handles listing, archiving, unarchiving, forking, renaming, reordering,
- * and analyzing conversations.
- *
+ * All daemon calls use the generated SDK (`@/generated/daemon/sdk.gen`).
  * The `Conversation` interface is a normalized client-side representation
  * (timestamps as ISO strings, attention fields flattened, `id` renamed to
  * `conversationId`). `parseConversation` transforms the raw daemon response
@@ -12,14 +10,13 @@
 
 import * as Sentry from "@sentry/browser";
 
-import { client as daemonClient } from "@/generated/daemon/client.gen";
 import {
   conversationsByIdGet,
+  conversationsGet,
   subagentsByIdGet,
 } from "@/generated/daemon/sdk.gen";
 import type {
   ConversationsGetResponse,
-  ConversationsGetResponses,
   GroupsGetResponse,
 } from "@/generated/daemon/types.gen";
 
@@ -295,18 +292,12 @@ async function fetchConversationList(
 
   for (let page = 0; page < CONVERSATION_LIST_MAX_PAGES; page++) {
     const offset = page * CONVERSATION_LIST_PAGE_SIZE;
-    // The daemon route definition doesn't declare query parameters, so the
-    // generated SDK type has `query?: never`. Use the raw daemon client for
-    // the paginated list call.
-    const { data, error, response } = await daemonClient.get<
-      ConversationsGetResponses
-    >({
-      url: "/v1/assistants/{assistant_id}/conversations",
+    const { data, error, response } = await conversationsGet({
       path: { assistant_id: assistantId },
       query: {
-        ...(conversationType ? { conversationType } : {}),
         limit: CONVERSATION_LIST_PAGE_SIZE,
         offset,
+        ...(conversationType ? { conversationType } : {}),
       },
       throwOnError: false,
     });
