@@ -14,9 +14,14 @@ const PREPARE_SLEEP_DEFER_WINDOW_MS = 60_000;
 const HEARTBEAT_DUE_TOLERANCE_MS = 1_000;
 const MIN_DRAIN_START_BUDGET_MS = 5_000;
 const LEASE_RENEW_INTERVAL_MS = 120_000;
-// JS timers use signed 32-bit delays; larger values can overflow or clamp.
-const MAX_SET_TIMEOUT_DELAY_MS = 2_147_483_647;
 const log = getLogger("background-wake-routes");
+
+class DrainDeadlineElapsedError extends Error {
+  constructor() {
+    super("background wake lease deadline elapsed before starting work");
+    this.name = "DrainDeadlineElapsedError";
+  }
+}
 
 type RenewWakeLease = (leaseId: string) => Promise<unknown>;
 type CompleteWakeLease = (args: {
@@ -167,19 +172,17 @@ async function runDrainDueLease(
     }, LEASE_RENEW_INTERVAL_MS);
     renewTimer.unref?.();
 
-    const result = await withDrainDeadline(
-      performDrainDue(request, runtime),
-      request.deadlineAt,
-    );
+    assertDrainCanStart(request.deadlineAt);
+    const result = await performDrainDue(request, runtime);
     await reportLeaseCompletion({
       leaseId: request.leaseId,
-      status: Date.now() >= request.deadlineAt ? "expired" : "completed",
+      status: "completed",
       nextIntent: result.nextIntent,
     });
   } catch (error) {
     await reportLeaseCompletion({
       leaseId: request.leaseId,
-      status: Date.now() >= request.deadlineAt ? "expired" : "failed",
+      status: completionStatusForError(error),
       error: error instanceof Error ? error.message : String(error),
       nextIntent: computeWakeIntent(),
     });
@@ -239,29 +242,14 @@ async function performDrainDue(
   };
 }
 
-async function withDrainDeadline<T>(
-  work: Promise<T>,
-  deadlineAt: number,
-): Promise<T> {
-  const remainingMs = deadlineAt - Date.now();
-  if (remainingMs <= 0) {
-    throw new Error("background wake lease deadline elapsed");
+function assertDrainCanStart(deadlineAt: number): void {
+  if (deadlineAt <= Date.now()) {
+    throw new DrainDeadlineElapsedError();
   }
+}
 
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  const timeoutMs = Math.min(remainingMs, MAX_SET_TIMEOUT_DELAY_MS);
-  const deadline = new Promise<never>((_, reject) => {
-    timeout = setTimeout(() => {
-      reject(new Error("background wake lease deadline elapsed"));
-    }, timeoutMs);
-    timeout.unref?.();
-  });
-
-  try {
-    return await Promise.race([work, deadline]);
-  } finally {
-    if (timeout) clearTimeout(timeout);
-  }
+function completionStatusForError(error: unknown): "failed" | "expired" {
+  return error instanceof DrainDeadlineElapsedError ? "expired" : "failed";
 }
 
 function reasonIncludesSource(
