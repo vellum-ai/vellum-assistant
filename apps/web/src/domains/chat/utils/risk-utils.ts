@@ -1,4 +1,4 @@
-export function getRiskBadgeStyle(riskLevel?: string): { bg: string; text: string; label: string } {
+export function getRiskBadgeStyle(riskLevel?: string): { bg: string; text: string; label: string; border?: string } {
   switch (riskLevel?.toLowerCase()) {
     case "low":
       return { bg: "bg-[var(--system-positive-strong)]", text: "text-white", label: "Low" };
@@ -7,6 +7,13 @@ export function getRiskBadgeStyle(riskLevel?: string): { bg: string; text: strin
       return { bg: "bg-[var(--system-mid-strong)]", text: "text-black", label: "Medium" };
     case "high":
       return { bg: "bg-[var(--system-negative-strong)]", text: "text-white", label: "High" };
+    case "workspace":
+      return {
+        bg: "bg-[var(--surface-lift)]",
+        text: "text-[var(--content-secondary)]",
+        border: "border border-[var(--border-element)]",
+        label: "Workspace",
+      };
     default:
       return { bg: "bg-[var(--content-secondary)]", text: "text-white", label: riskLevel ?? "Unknown" };
   }
@@ -40,8 +47,23 @@ export function wasExpected(
 export function getProvenanceText(approvalReason: string | undefined): string | null {
   switch (approvalReason) {
     case "trust_rule_allowed":    return "· Auto-approved · Trust rule matched";
-    case "sandbox_auto_approve":  return "· Auto-approved · Sandboxed workspace";
+    case "sandbox_auto_approve":  return null;
     case "platform_auto_approve": return "· Auto-approved · Platform session";
     default:                      return null;
   }
+}
+
+/**
+ * Maps an approvalReason to the effective chip display level.
+ * Sandbox-auto-approved tools render a neutral "Workspace" chip instead of
+ * the inherent risk color, while preserving the original risk for tooltips.
+ */
+export function getEffectiveRiskDisplay(
+  approvalReason?: string,
+  riskLevel?: string,
+): { displayLevel: string; inherentRisk?: string } {
+  if (approvalReason === "sandbox_auto_approve") {
+    return { displayLevel: "workspace", inherentRisk: riskLevel };
+  }
+  return { displayLevel: riskLevel ?? "unknown" };
 }
