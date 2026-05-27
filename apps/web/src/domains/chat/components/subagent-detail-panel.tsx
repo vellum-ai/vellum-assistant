@@ -12,7 +12,7 @@ import { type ReactNode, useEffect, useRef } from "react";
 import { AvatarRenderer } from "@/components/avatar-renderer";
 import { Button, Typography } from "@vellum/design-library";
 import { StatusBadge } from "@/domains/chat/components/subagent-status-badge";
-import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
+import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import { subagentTraits } from "@/utils/avatar-subagent";
 import type { SubagentEntry } from "@/domains/subagents/subagent-store";
 import { isActiveStatus } from "@/domains/subagents/status-helpers";
@@ -98,6 +98,7 @@ export function SubagentDetailPanel({
 }: SubagentDetailPanelProps) {
   const isRunning = isActiveStatus(entry.status);
   const requestedRef = useRef<string | null>(null);
+  const components = useBundledAvatarComponents();
 
   useEffect(() => {
     if (
@@ -115,13 +116,17 @@ export function SubagentDetailPanel({
     <div className="flex h-full flex-col overflow-hidden rounded-xl bg-[var(--surface-lift)]">
       {/* Header */}
       <div className="flex shrink-0 items-center gap-3 border-b border-[var(--border-base)] px-5 py-4">
-        <AvatarRenderer
-          components={BUNDLED_COMPONENTS}
-          bodyShapeId={subagentTraits(entry.subagentId).bodyShape}
-          eyeStyleId={subagentTraits(entry.subagentId).eyeStyle}
-          colorId={subagentTraits(entry.subagentId).color}
-          size={32}
-        />
+        {components ? (
+          <AvatarRenderer
+            components={components}
+            bodyShapeId={subagentTraits(entry.subagentId).bodyShape}
+            eyeStyleId={subagentTraits(entry.subagentId).eyeStyle}
+            colorId={subagentTraits(entry.subagentId).color}
+            size={32}
+          />
+        ) : (
+          <div style={{ width: 32, height: 32, flexShrink: 0 }} aria-hidden />
+        )}
         <Typography
           variant="title-medium"
           className="min-w-0 shrink truncate text-[var(--content-default)]"
