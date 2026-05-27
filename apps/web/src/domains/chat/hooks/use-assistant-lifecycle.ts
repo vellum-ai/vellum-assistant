@@ -17,7 +17,7 @@ import {
   shouldRecoverFromHatchFailure,
 } from "@/assistant/lifecycle";
 import { resolveOnboardingRedirect } from "@/domains/onboarding/gate";
-import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
+import { isGatewayAuthMode, getGatewayToken } from "@/lib/auth/gateway-session";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 import { routes } from "@/utils/routes";
 
@@ -399,10 +399,15 @@ export function useAssistantLifecycle({
       return;
     }
     if (hasPlatformSession) {
+      setSelfHostedConnection(null);
       checkAssistant();
       return;
     }
     if (isGatewayAuthMode()) {
+      setSelfHostedConnection({
+        url: window.location.origin,
+        token: getGatewayToken(),
+      });
       setAssistantId("self");
       setAssistantState({ kind: "active", isLocal: true });
       return;

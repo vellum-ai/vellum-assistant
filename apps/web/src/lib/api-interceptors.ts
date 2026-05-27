@@ -35,10 +35,6 @@ import {
 } from "@/lib/self-hosted/connection";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
 import { getActiveOrganizationIdForRequests } from "@/stores/organization-store";
-import {
-  isGatewayAuthMode,
-  getGatewayToken,
-} from "@/lib/auth/gateway-session";
 
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
@@ -150,16 +146,6 @@ export async function requestInterceptor(request: Request): Promise<Request> {
   // Stamped first so it rides on both the platform and self-hosted paths.
   for (const [name, value] of Object.entries(getClientRegistrationHeaders())) {
     newRequest.headers.set(name, value);
-  }
-
-  if (isGatewayAuthMode()) {
-    const token = getGatewayToken();
-    if (token) {
-      newRequest.headers.set("Authorization", `Bearer ${token}`);
-    }
-    newRequest.headers.delete("X-CSRFToken");
-    newRequest.headers.delete("Vellum-Organization-Id");
-    return new Request(newRequest, { credentials: "omit" });
   }
 
   // Self-hosted assistant + runtime-proxied path → talk to the user's
