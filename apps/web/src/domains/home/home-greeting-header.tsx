@@ -10,6 +10,7 @@ interface HomeGreetingHeaderProps {
   avatarImageUrl: string | null;
   /** Optional daemon-supplied dynamic greeting. Falls back to a time-of-day greeting. */
   greeting?: string;
+  isMobile?: boolean;
   onStartNewChat: () => void;
 }
 
@@ -29,6 +30,7 @@ export function HomeGreetingHeader({
   avatarTraits,
   avatarImageUrl,
   greeting,
+  isMobile,
   onStartNewChat,
 }: HomeGreetingHeaderProps) {
   return (
@@ -45,13 +47,23 @@ export function HomeGreetingHeader({
         </Typography>
       </div>
 
-      <Button
-        variant="primary"
-        leftIcon={<SquarePen />}
-        onClick={onStartNewChat}
-      >
-        New Chat
-      </Button>
+      {isMobile ? (
+        <Button
+          variant="primary"
+          iconOnly={<SquarePen />}
+          onClick={onStartNewChat}
+          aria-label="New Chat"
+          className="!rounded-full"
+        />
+      ) : (
+        <Button
+          variant="primary"
+          leftIcon={<SquarePen />}
+          onClick={onStartNewChat}
+        >
+          New Chat
+        </Button>
+      )}
     </div>
   );
 }
