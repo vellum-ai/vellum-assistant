@@ -9,17 +9,20 @@ import WebKit
 ///    App target (no SPM module) so the bridge won't discover them
 ///    automatically.
 ///
-/// 2. Injects a `WKUserScript` at `.atDocumentStart` that pins focusable
-///    fields to a minimum 16px font-size, preventing the iOS auto-zoom
-///    behaviour that otherwise gets stuck after the input loses focus.
+/// 2. Injects `WKUserScript`s at `.atDocumentEnd` to:
+///    a) Pin focusable fields to a minimum 16px font-size, preventing the
+///       iOS auto-zoom behaviour that gets stuck after the input loses focus.
+///    b) Append `maximum-scale=1.0, user-scalable=no` to the viewport meta
+///       tag. This is injected natively (rather than baked into `index.html`)
+///       so regular mobile-browser users keep their default zoom/accessibility
+///       behaviour. Only the Capacitor WKWebView shell receives the lock.
 ///
 /// 3. Resets the WKWebView scroll view zoom scale to 1.0 after device
 ///    rotation completes. Capacitor's built-in zoom prevention only
 ///    disables the pinch gesture recognizer (via `scrollViewWillBeginZooming`),
 ///    which doesn't prevent programmatic zoom changes triggered by rotation.
-///    The viewport meta tag (`maximum-scale=1.0`) is the primary guard;
-///    this reset is a native safety net for any edge case the viewport
-///    constraint doesn't cover.
+///    The viewport `maximum-scale` constraint (item 2b) is the primary guard;
+///    this reset is a native safety net for any edge case it doesn't cover.
 ///
 /// Safe-area handling lives on the web side: `apps/web/index.html` ships
 /// `viewport-fit=cover` in its viewport meta tag, and `initSafeAreaBridge()`
@@ -34,6 +37,7 @@ class MyViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(NativeAuthPlugin())
         bridge?.registerPluginInstance(NativeBiometricPlugin())
         installInputZoomPreventionUserScript()
+        installViewportZoomLockUserScript()
     }
 
     // MARK: - Rotation zoom reset
@@ -50,18 +54,8 @@ class MyViewController: CAPBridgeViewController {
         }
     }
 
-    /// Inject a `WKUserScript` at `.atDocumentStart` that forces all
-    /// `<input>`, `<textarea>`, and `<select>` elements to a minimum
-    /// `font-size` of 16px. iOS Safari / WKWebView automatically zooms
-    /// into any focusable field whose computed `font-size` is below 16px
-    /// — and critically, once it zooms in it never resets the viewport
-    /// scale, leaving the entire app view stuck at a zoomed-in level even
-    /// after the user navigates away from the input.
-    ///
-    /// Pinning to 16px prevents the zoom from triggering in the first
-    /// place. The visual difference between 14px and 16px is negligible
-    /// at standard iOS display densities, and this only affects the
-    /// WKWebView shell — it has no impact on regular browser sessions.
+    /// Pin focusable fields to a minimum 16px font-size so iOS WKWebView
+    /// doesn't auto-zoom into inputs with small text.
     private func installInputZoomPreventionUserScript() {
         guard let contentController = webView?.configuration.userContentController else { return }
         let source = """
@@ -80,6 +74,31 @@ class MyViewController: CAPBridgeViewController {
         let script = WKUserScript(
             source: source,
             injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        )
+        contentController.addUserScript(script)
+    }
+
+    /// Append `maximum-scale=1.0, user-scalable=no` to the existing viewport
+    /// meta tag so WKWebView cannot zoom beyond 1x. Injected natively rather
+    /// than baked into `index.html` so regular mobile-browser users retain
+    /// their default zoom/accessibility behaviour.
+    private func installViewportZoomLockUserScript() {
+        guard let contentController = webView?.configuration.userContentController else { return }
+        let source = """
+        (function() {
+          var viewport = document.querySelector('meta[name="viewport"]');
+          if (viewport) {
+            var content = viewport.getAttribute('content') || '';
+            if (content.indexOf('maximum-scale') === -1) {
+              viewport.setAttribute('content', content + ', maximum-scale=1.0, user-scalable=no');
+            }
+          }
+        })();
+        """
+        let script = WKUserScript(
+            source: source,
+            injectionTime: .atDocumentEnd,
             forMainFrameOnly: true
         )
         contentController.addUserScript(script)
