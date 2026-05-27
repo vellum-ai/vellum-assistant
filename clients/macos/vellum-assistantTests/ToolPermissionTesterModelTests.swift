@@ -73,7 +73,8 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         model.lastResult = SimulationResult(
             decision: "allow", riskLevel: "low", reason: "test",
             matchedTrustRuleId: nil, promptPayload: nil,
-            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: nil
+            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: nil,
+            approvalReason: nil
         )
 
         model.toolName = "host_bash"
@@ -204,7 +205,8 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         model.lastResult = SimulationResult(
             decision: "prompt", riskLevel: "medium", reason: "test",
             matchedTrustRuleId: nil, promptPayload: nil,
-            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: nil
+            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: nil,
+            approvalReason: nil
         )
 
         model.allowOnce()
@@ -223,7 +225,8 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         model.lastResult = SimulationResult(
             decision: "prompt", riskLevel: "medium", reason: "test",
             matchedTrustRuleId: nil, promptPayload: nil,
-            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: nil
+            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: nil,
+            approvalReason: nil
         )
 
         model.denyOnce()
@@ -249,7 +252,8 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         model.lastResult = SimulationResult(
             decision: "prompt", riskLevel: "medium", reason: "test",
             matchedTrustRuleId: nil, promptPayload: nil,
-            snapshotToolName: "host_bash", snapshotInputJSON: "{}", snapshotExecutionTarget: "host"
+            snapshotToolName: "host_bash", snapshotInputJSON: "{}", snapshotExecutionTarget: "host",
+            approvalReason: nil
         )
 
         model.alwaysAllow(pattern: "echo *", scope: "project")
@@ -280,7 +284,8 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         model.lastResult = SimulationResult(
             decision: "prompt", riskLevel: "high", reason: "dangerous",
             matchedTrustRuleId: nil, promptPayload: nil,
-            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: nil
+            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: nil,
+            approvalReason: nil
         )
 
         model.alwaysAllow(pattern: "rm -rf *", scope: "global")
@@ -304,7 +309,8 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         model.lastResult = SimulationResult(
             decision: "prompt", riskLevel: "low", reason: "test",
             matchedTrustRuleId: nil, promptPayload: nil,
-            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: nil
+            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: nil,
+            approvalReason: nil
         )
 
         model.alwaysAllow(pattern: "*", scope: "global")
