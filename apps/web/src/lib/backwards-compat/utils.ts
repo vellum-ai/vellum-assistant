@@ -29,7 +29,8 @@ import { compareParsed, parseSemver } from "@/utils/semver";
 
 /**
  * Returns `true` when the active assistant's version is at or above
- * `minVersion`.
+ * `minVersion`. Subscribes to the identity store via the `use.version()`
+ * selector so React components re-render when the version flips.
  *
  * - Returns `false` while the identity store has no version yet (we
  *   fall back to the old behavior until identity resolves).
@@ -40,6 +41,29 @@ import { compareParsed, parseSemver } from "@/utils/semver";
  */
 export function useAssistantSupports(minVersion: string): boolean {
   const version = useAssistantIdentityStore.use.version();
+  return supportsVersion(version, minVersion);
+}
+
+/**
+ * Non-hook variant of `useAssistantSupports`: reads the version
+ * snapshot via `useAssistantIdentityStore.getState()` so it's safe to
+ * call from non-hook contexts (event handlers, async ops, request
+ * builders). React-render paths that should re-render when the version
+ * flips must use `useAssistantSupports` instead.
+ *
+ * Semantics match `useAssistantSupports`: returns `false` until the
+ * version is hydrated, ignores pre-release suffixes, and returns
+ * `false` for unparseable versions.
+ */
+export function assistantSupports(minVersion: string): boolean {
+  const version = useAssistantIdentityStore.getState().version;
+  return supportsVersion(version, minVersion);
+}
+
+function supportsVersion(
+  version: string | null | undefined,
+  minVersion: string,
+): boolean {
   if (!version) return false;
   const parsed = parseSemver(version);
   const min = parseSemver(minVersion);

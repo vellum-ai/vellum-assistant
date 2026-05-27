@@ -1169,10 +1169,13 @@ export async function handleSendMessage(
   // assistant-minted internal id) when the client supplies it — clients
   // must obtain this id from a prior daemon response, so a missing row
   // is a 404. Otherwise fall through to the external-key path: the
-  // client-supplied `conversationKey` (used by non-vellum channels and
-  // the web idempotency flow) or, when neither is provided, a stable
-  // default keyed on sourceChannel + sourceInterface so repeated calls
-  // from the same channel/interface share a single thread.
+  // client-supplied `conversationKey` (external-key lookup; materializes
+  // on first use) or, when neither is provided, a channel-dependent
+  // default. The vellum channel mints a fresh conversation on every
+  // empty-handed send so first-message-of-a-new-chat surfaces with a
+  // server-minted id; other channels (phone, slack, …) share a stable
+  // `default:<channel>:<interface>` thread so repeated calls from the
+  // same channel/interface stay co-located.
   let mapping: {
     conversationId: string;
     conversationType: string;
@@ -1194,7 +1197,9 @@ export async function handleSendMessage(
     const resolvedConversationKey =
       conversationKey && conversationKey.length > 0
         ? conversationKey
-        : `default:${sourceChannel}:${sourceInterface}`;
+        : sourceChannel === "vellum"
+          ? crypto.randomUUID()
+          : `default:${sourceChannel}:${sourceInterface}`;
     mapping = getOrCreateConversation(resolvedConversationKey, {
       conversationType: "standard",
     });

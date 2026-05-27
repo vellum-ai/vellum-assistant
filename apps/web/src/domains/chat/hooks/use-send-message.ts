@@ -16,6 +16,7 @@ import {
   type MutableRefObject,
   type SetStateAction,
   useCallback,
+  useRef,
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { NavigateFunction } from "react-router";
@@ -65,6 +66,7 @@ import type { Conversation } from "@/lib/conversations-api";
 import { getPendingInteractions } from "@/domains/chat/api/interactions";
 import { type RuntimeMessage, fetchConversationMessages, postChatMessage, pollForResponse } from "@/domains/chat/api/messages";
 import type { ChatEventStream } from "@/domains/chat/api/stream";
+import { supportsServerMintedConversation } from "@/lib/backwards-compat/server-minted-conversation";
 
 // Re-export pure utilities so existing consumers don't break.
 export {
@@ -185,6 +187,24 @@ export function useSendMessage({
   const queryClient = useQueryClient();
 
   // -------------------------------------------------------------------------
+  // Server-mint in-flight gate
+  // -------------------------------------------------------------------------
+  // Holds the draft id of an in-flight server-mint POST (the FIRST
+  // message in a brand-new conversation on an assistant that supports
+  // `supportsServerMintedConversation()`). While set, `sendMessage`
+  // refuses to start a new send — the POST 200s quickly so the window
+  // is brief, and blocking is simpler than threading a deferred
+  // through the queue path.
+  //
+  // Without this gate, a follow-up send during the window would post
+  // the local draft key to a 0.8.6+ assistant's strict-lookup endpoint
+  // and 404 (the assistant minted a different id).
+  //
+  // Cleared after the POST resolves or rejects. The draft-id check on
+  // clear guards against re-mounts overwriting a newer mint.
+  const pendingDraftMintRef = useRef<string | null>(null);
+
+  // -------------------------------------------------------------------------
   // Queue management (delegated to useMessageQueue)
   // -------------------------------------------------------------------------
   const {
@@ -234,7 +254,7 @@ export function useSendMessage({
   // sendMessageViaStream — low-level POST + polling fallback
   // -------------------------------------------------------------------------
   const sendMessageViaStream = useCallback(
-    async (content: string, epoch: number, turnId: string, attachmentIds: string[] = []): Promise<SendStreamResult> => {
+    async (content: string, epoch: number, turnId: string, attachmentIds: string[] = [], isDraft = false): Promise<SendStreamResult> => {
       if (!activeConversationId || !assistantId) {
         return {
           status: "failed",
@@ -257,13 +277,37 @@ export function useSendMessage({
       if (onboardingContext && !pendingOnboardingContextRef.current) {
         pendingOnboardingContextRef.current = onboardingContext;
       }
+      // Server-minted flow: when the conversation is a fresh client-side
+      // draft AND the assistant supports server-side minting, send the
+      // POST without any conversation id wire field. The assistant mints
+      // a row and returns its id as `postResult.conversationId`; the
+      // existing draft-key-resolution code path below swaps the
+      // optimistic state and navigates the URL. Falling back to the
+      // assistant-known `requestConversationId` for non-drafts or
+      // pre-0.8.6 assistants preserves the legacy `conversationKey`
+      // create-or-lookup behavior through `pickConversationIdWireField()`.
+      const useServerMint = isDraft && supportsServerMintedConversation();
+      // While this POST is in flight, `sendMessage` rejects new sends
+      // for this draft — see `pendingDraftMintRef` declaration above.
+      if (useServerMint) {
+        pendingDraftMintRef.current = requestConversationId;
+      }
       const postResult = await postChatMessage(
         requestAssistantId,
-        requestConversationId,
+        useServerMint ? null : requestConversationId,
         content,
         attachmentIds,
         onboardingContext ?? undefined,
       );
+      if (
+        useServerMint &&
+        pendingDraftMintRef.current === requestConversationId
+      ) {
+        // Clear only if we still own the gate. A re-mount or scope flip
+        // during the await could have already replaced it with a newer
+        // draft's mint.
+        pendingDraftMintRef.current = null;
+      }
       if (!postResult.ok) {
         if (!isCurrentSendScope()) {
           recordChatDiagnostic("send_error_ignored_inactive_conversation", {
@@ -298,8 +342,14 @@ export function useSendMessage({
         useTurnStore.getState().acceptSend(turnId);
       }
 
-      const effectiveConversationId =
-        postResult.resolvedConversationId ?? postResult.conversationId;
+      // `postChatMessage`'s success contract guarantees a non-empty
+      // `conversationId` — the server-mint path explicitly returns a
+      // failure when the assistant accepts the message without echoing
+      // a conversation id back, so by the time we get here it must be
+      // a real id. The typecheck enforces this; the explicit
+      // `effectiveConversationId` alias preserves the existing names
+      // used downstream.
+      const effectiveConversationId = postResult.conversationId;
 
       if (!isCurrentSendScope(effectiveConversationId)) {
         recordChatDiagnostic("send_result_ignored_inactive_conversation", {
@@ -311,9 +361,7 @@ export function useSendMessage({
         });
         return {
           status: "ok",
-          ...(postResult.resolvedConversationId
-            ? { resolvedConversationId: postResult.resolvedConversationId }
-            : {}),
+          resolvedConversationId: postResult.conversationId,
         };
       }
 
@@ -331,18 +379,14 @@ export function useSendMessage({
       if (postResult.queued) {
         return {
           status: "ok",
-          ...(postResult.resolvedConversationId
-            ? { resolvedConversationId: postResult.resolvedConversationId }
-            : {}),
+          resolvedConversationId: postResult.conversationId,
         };
       }
       if (hasMatchingActiveStream) {
         return {
           status: "ok",
           userMessageId: postResult.messageId,
-          ...(postResult.resolvedConversationId
-            ? { resolvedConversationId: postResult.resolvedConversationId }
-            : {}),
+          resolvedConversationId: postResult.conversationId,
         };
       }
 
@@ -448,9 +492,7 @@ export function useSendMessage({
       return {
         status: "ok",
         userMessageId: postResult.messageId,
-        ...(postResult.resolvedConversationId
-          ? { resolvedConversationId: postResult.resolvedConversationId }
-          : {}),
+        resolvedConversationId: postResult.conversationId,
       };
     },
     [activeConversationId, assistantId, startReconciliationLoop],
@@ -463,6 +505,16 @@ export function useSendMessage({
     async (content: string, attachments: DisplayAttachment[] = []) => {
       if (!activeConversationId || !assistantId) {
         setError({ message: "No active conversation. Please try again." });
+        return;
+      }
+      // Block any send while a server-mint POST is in flight for the
+      // active draft. The POST 200s quickly so this window is brief;
+      // rejecting is simpler than threading the unresolved id through
+      // the queue path. See `pendingDraftMintRef` declaration.
+      if (pendingDraftMintRef.current === activeConversationId) {
+        setError({
+          message: "Setting up your conversation. Please try again in a moment.",
+        });
         return;
       }
       if (diskPressureChatBlockReason) {
@@ -511,7 +563,7 @@ export function useSendMessage({
       };
       setMessages((prev) => [...prev, userMessage]);
 
-      // Queue path: POST to daemon (it queues internally) but don't
+      // Queue path: POST to assistant (it queues internally) but don't
       // disrupt the active turn.
       if (willQueue) {
         pendingQueuedMessageIdsRef.current.push(userMessage.id);
@@ -605,6 +657,7 @@ export function useSendMessage({
           streamEpochRef.current,
           turnId,
           attachments.map((att) => att.id),
+          isDraft,
         );
 
         if (result.status === "failed") {
