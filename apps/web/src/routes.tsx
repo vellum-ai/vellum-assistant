@@ -7,6 +7,7 @@ import { ChatPage } from "@/domains/chat/chat-page";
 import { ConversationRedirect } from "@/domains/chat/conversation-redirect";
 import { NotFound } from "@/components/not-found";
 import { RootErrorBoundary } from "@/components/root-error-boundary";
+import { RootHydrateFallback } from "@/components/root-hydrate-fallback";
 import { ActiveAssistantGate } from "@/components/layout/active-assistant-gate";
 
 // Route tree — no basename, routes are absolute browser paths.
@@ -31,6 +32,7 @@ export const router = createBrowserRouter(
     {
       path: "/account",
       ErrorBoundary: RootErrorBoundary,
+      HydrateFallback: RootHydrateFallback,
       children: [
         { index: true, lazy: { Component: () => import("@/domains/account/pages/account-page").then((m) => m.AccountPage) } },
         { path: "login", lazy: { Component: () => import("@/domains/account/pages/login-page").then((m) => m.LoginPage) } },
@@ -45,13 +47,14 @@ export const router = createBrowserRouter(
     },
 
     // Logout — standalone page, no app chrome
-    { path: "/logout", ErrorBoundary: RootErrorBoundary, lazy: { Component: () => import("@/domains/account/pages/logout-page").then((m) => m.LogoutPage) } },
+    { path: "/logout", ErrorBoundary: RootErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/domains/account/pages/logout-page").then((m) => m.LogoutPage) } },
 
     // Assistant routes — auth-protected app with layout
     {
       path: "/assistant",
       middleware: [authMiddleware],
       ErrorBoundary: RootErrorBoundary,
+      HydrateFallback: RootHydrateFallback,
       Component: RootLayout,
       children: [
         // Onboarding routes — full-screen (no ChatLayout sidebar).
