@@ -224,7 +224,7 @@ describe("MemoryV3ConfigSchema", () => {
       denseQuota: { activeDomain: 30, offDomain: 8 },
       hotLimit: 50,
       lanes: { hot: true, sparse: true, dense: true, tree: true, edges: true },
-      edges: { learnedAdjacencyThreshold: 0 },
+      edges: { learnedAdjacencyThreshold: 0, maxPulls: 400 },
       ks: [5, 10, 25, 50],
       write: {
         enabled: false,
