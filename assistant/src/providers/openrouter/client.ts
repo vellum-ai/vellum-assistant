@@ -122,6 +122,7 @@ export class OpenRouterProvider extends OpenAIChatCompletionsProvider {
       providerLabel: "OpenRouter",
       streamTimeoutMs: options.streamTimeoutMs,
       requestHeaders: OPENROUTER_APP_ATTRIBUTION_HEADERS,
+      assistantReasoningField: "reasoning",
     });
     this.openRouterApiKey = apiKey;
     this.defaultModel = model;
