@@ -109,8 +109,10 @@ function hoistInlineDefs(
 
     delete obj.$defs;
 
-    // Rewrite $ref pointers within the parent subtree.
-    return rewriteRefs(obj, renameMap, componentSchemas, counter);
+    // Rewrite $ref pointers within the parent subtree, then recurse
+    // to catch any nested $defs in sibling properties.
+    const rewritten = rewriteRefs(obj, renameMap, componentSchemas, counter);
+    return hoistInlineDefs(rewritten, componentSchemas, counter);
   }
 
   // Recurse into all properties.
