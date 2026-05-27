@@ -92,7 +92,8 @@ export async function rewriteForSelfHostedIngress(
   // `/v1/assistants/{id}/...` routes the platform's RuntimeProxyView
   // would otherwise forward to.
   const rewrittenUrl = new URL(ingressUrl);
-  rewrittenUrl.pathname = url.pathname;
+  const prefix = rewrittenUrl.pathname.replace(/\/$/, "");
+  rewrittenUrl.pathname = prefix + url.pathname;
   rewrittenUrl.search = url.search;
 
   // Build a fresh header set. Drop platform-only headers; keep client +

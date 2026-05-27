@@ -151,6 +151,20 @@ describe("api-interceptors / self-hosted rewriting", () => {
     expect(outUrl.search).toBe("?limit=50");
   });
 
+  test("prepends the ingress path prefix when the ingress URL has a path", async () => {
+    const prefixedIngress = "http://localhost:3000/__gateway/20100";
+    setSelfHostedConnection({ url: prefixedIngress, token: ACTOR_TOKEN });
+    const input = new Request(
+      `https://platform.test/v1/assistants/self/conversations`,
+    );
+    const output = await requestInterceptor(input);
+    const outUrl = new URL(output.url);
+    expect(outUrl.origin).toBe("http://localhost:3000");
+    expect(outUrl.pathname).toBe(
+      "/__gateway/20100/v1/assistants/self/conversations",
+    );
+  });
+
   test("strips platform-only headers from the rewritten request", async () => {
     setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
     const input = new Request(`https://platform.test${RUNTIME_PROXIED_PATH}`, {
