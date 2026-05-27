@@ -2,8 +2,8 @@
  * Tests for `assistant/src/memory/v3/gate.ts`.
  *
  * Coverage matrix:
- *   - ready + selection → selection maps from candidates, in model order, and
- *     includes sticky slugs even when the model omits them.
+ *   - ready + selection → numbered `[N]` candidate ids map back to slugs in
+ *     model order, and includes sticky slugs even when the model omits them.
  *   - more + questions → `decision.questions` surfaced; selection still returned.
  *   - more with no/blank questions → decision is `{ decision: "more" }` (no
  *     empty `questions` array).
@@ -12,7 +12,7 @@
  *   - provider throws → fail-safe (ready, all candidates).
  *   - missing tool_use block → fail-safe (ready, all candidates).
  *   - tool input failing schema → fail-safe (ready, all candidates).
- *   - model selecting a slug outside the candidate set → dropped.
+ *   - model returning an out-of-range id (0 / past the end) → dropped.
  *   - request shape: forced tool_choice on `decide_selection`, candidate set in
  *     the user message, abort signal forwarded.
  *
@@ -132,7 +132,7 @@ describe("runGate — ready decision", () => {
     const provider = makeProvider(
       // Model selects b, a (its own order). Sticky `c` is omitted by the
       // model but must survive in the final selection.
-      gateToolResponse({ decision: "ready", selected_slugs: ["b", "a"] }),
+      gateToolResponse({ decision: "ready", selected_ids: [2, 1] }),
       calls,
     );
 
@@ -153,7 +153,7 @@ describe("runGate — ready decision", () => {
   test("forces tool_choice on decide_selection and surfaces candidates", async () => {
     const calls: ProviderCall[] = [];
     const provider = makeProvider(
-      gateToolResponse({ decision: "ready", selected_slugs: ["a"] }),
+      gateToolResponse({ decision: "ready", selected_ids: [1] }),
       calls,
     );
 
@@ -172,18 +172,30 @@ describe("runGate — ready decision", () => {
     });
     expect(call.options?.config?.callSite).toBe("memoryV3Gate");
     expect(call.tools?.[0].name).toBe("decide_selection");
+    // The output schema is candidate-independent: selected_ids is a plain
+    // integer array (no per-candidate enum), so it stays byte-identical per turn.
+    const schema = call.tools![0].input_schema as {
+      properties: Record<
+        string,
+        { type?: string; items?: { type?: string; enum?: unknown } }
+      >;
+    };
+    expect(schema.properties.selected_ids?.type).toBe("array");
+    expect(schema.properties.selected_ids?.items?.type).toBe("integer");
+    expect(schema.properties.selected_ids?.items?.enum).toBeUndefined();
     const userText = call.messages[0].content
       .map((b) => (b.type === "text" ? b.text : ""))
       .join("\n");
     expect(userText).toContain("NOW-MARKER");
-    expect(userText).toContain("a");
-    expect(userText).toContain("b");
+    // Candidates are numbered from 1 in candidate order.
+    expect(userText).toContain("[1] a");
+    expect(userText).toContain("[2] b");
   });
 
   test("includes the just-arrived turn so the selection is query-aware", async () => {
     const calls: ProviderCall[] = [];
     const provider = makeProvider(
-      gateToolResponse({ decision: "ready", selected_slugs: ["a"] }),
+      gateToolResponse({ decision: "ready", selected_ids: [1] }),
       calls,
     );
 
@@ -211,9 +223,9 @@ describe("runGate — ready decision", () => {
     expect(userText).toContain("an earlier reply");
   });
 
-  test("omitted selected_slugs falls back to all candidates (recall-safe)", async () => {
+  test("omitted selected_ids falls back to all candidates (recall-safe)", async () => {
     const calls: ProviderCall[] = [];
-    // `ready` verdict with no `selected_slugs` field at all. A silent omission
+    // `ready` verdict with no `selected_ids` field at all. A silent omission
     // must keep everything surfaced, not drop all non-sticky context.
     const provider = makeProvider(
       gateToolResponse({ decision: "ready" }),
@@ -236,12 +248,12 @@ describe("runGate — ready decision", () => {
     ]);
   });
 
-  test("explicit empty selected_slugs selects nothing but sticky", async () => {
+  test("explicit empty selected_ids selects nothing but sticky", async () => {
     const calls: ProviderCall[] = [];
     // An *explicit* `[]` is the model genuinely choosing nothing — honored as-is
     // (only sticky survives), unlike an omitted field.
     const provider = makeProvider(
-      gateToolResponse({ decision: "ready", selected_slugs: [] }),
+      gateToolResponse({ decision: "ready", selected_ids: [] }),
       calls,
     );
 
@@ -258,10 +270,11 @@ describe("runGate — ready decision", () => {
     expect(result.selectedSlugs).toEqual(["people/bob"]);
   });
 
-  test("drops a model-selected slug outside the candidate set", async () => {
+  test("drops out-of-range ids (0, past the end) without throwing", async () => {
     const calls: ProviderCall[] = [];
     const provider = makeProvider(
-      gateToolResponse({ decision: "ready", selected_slugs: ["a", "ghost"] }),
+      // id 1 -> "a"; 0 and 99 are out of range (1-based, only 2 candidates).
+      gateToolResponse({ decision: "ready", selected_ids: [1, 0, 99] }),
       calls,
     );
 
@@ -281,7 +294,7 @@ describe("runGate — ready decision", () => {
     const controller = new AbortController();
     controller.abort();
     const provider = makeProvider(
-      gateToolResponse({ decision: "ready", selected_slugs: ["a"] }),
+      gateToolResponse({ decision: "ready", selected_ids: [1] }),
       calls,
     );
 
@@ -304,7 +317,8 @@ describe("runGate — candidate summaries", () => {
   test("renders candidates as `slug — summary` when summaryBySlug is provided", async () => {
     const calls: ProviderCall[] = [];
     const provider = makeProvider(
-      gateToolResponse({ decision: "ready", selected_slugs: ["a/one"] }),
+      // id 1 -> "a/one".
+      gateToolResponse({ decision: "ready", selected_ids: [1] }),
       calls,
     );
 
@@ -320,19 +334,20 @@ describe("runGate — candidate summaries", () => {
       provider,
     });
 
-    // The model still answers in bare slugs (the enum is slug-only).
+    // The model answers with the [N] numbers, mapped back to slugs by the gate.
     expect(result.selectedSlugs).toEqual(["a/one"]);
     const userText = calls[0].messages[0].content
       .map((b) => (b.type === "text" ? b.text : ""))
       .join("\n");
-    expect(userText).toContain("a/one — first summary");
-    expect(userText).toContain("b/two — second summary");
+    // Candidates are numbered `[N] slug — summary`, in candidate order.
+    expect(userText).toContain("[1] a/one — first summary");
+    expect(userText).toContain("[2] b/two — second summary");
   });
 
   test("falls back to the bare slug when no summary is available", async () => {
     const calls: ProviderCall[] = [];
     const provider = makeProvider(
-      gateToolResponse({ decision: "ready", selected_slugs: [] }),
+      gateToolResponse({ decision: "ready", selected_ids: [] }),
       calls,
     );
 
@@ -347,7 +362,7 @@ describe("runGate — candidate summaries", () => {
     const userText = calls[0].messages[0].content
       .map((b) => (b.type === "text" ? b.text : ""))
       .join("\n");
-    expect(userText).toContain("a/one");
+    expect(userText).toContain("[1] a/one");
     expect(userText).not.toContain("a/one —");
   });
 });
@@ -358,7 +373,7 @@ describe("runGate — more decision", () => {
     const provider = makeProvider(
       gateToolResponse({
         decision: "more",
-        selected_slugs: ["a"],
+        selected_ids: [1],
         questions: ["What is the user's deadline?", "Who else is involved?"],
       }),
       calls,
@@ -385,7 +400,7 @@ describe("runGate — more decision", () => {
     const provider = makeProvider(
       gateToolResponse({
         decision: "more",
-        selected_slugs: ["a"],
+        selected_ids: [1],
         questions: ["   ", ""],
       }),
       calls,
@@ -407,7 +422,7 @@ describe("runGate — more decision", () => {
     const provider = makeProvider(
       gateToolResponse({
         decision: "more",
-        selected_slugs: ["a"],
+        selected_ids: [1],
         questions: ["follow-up?"],
       }),
       calls,
@@ -429,7 +444,7 @@ describe("runGate — system prompt", () => {
   test("uses the bundled default when no override is configured", async () => {
     const calls: ProviderCall[] = [];
     const provider = makeProvider(
-      gateToolResponse({ decision: "ready", selected_slugs: ["a"] }),
+      gateToolResponse({ decision: "ready", selected_ids: [1] }),
       calls,
     );
 
@@ -447,7 +462,7 @@ describe("runGate — system prompt", () => {
   test("uses the configured inline override as the system prompt", async () => {
     const calls: ProviderCall[] = [];
     const provider = makeProvider(
-      gateToolResponse({ decision: "ready", selected_slugs: ["a"] }),
+      gateToolResponse({ decision: "ready", selected_ids: [1] }),
       calls,
     );
 
@@ -515,10 +530,7 @@ describe("runGate — fail-safe", () => {
       sticky: new Set(),
       passNumber: 1,
       // `decision` is required; missing it fails the Zod schema.
-      provider: makeProvider(
-        gateToolResponse({ selected_slugs: ["a"] }),
-        calls,
-      ),
+      provider: makeProvider(gateToolResponse({ selected_ids: [1] }), calls),
     });
 
     expect(result.decision).toEqual({ decision: "ready" });
@@ -531,7 +543,7 @@ describe("runGate — capture", () => {
     const calls: ProviderCall[] = [];
     const captured: Omit<LlmCallRecord, "pass">[] = [];
     const provider = makeProvider(
-      gateToolResponse({ decision: "ready", selected_slugs: ["a"] }),
+      gateToolResponse({ decision: "ready", selected_ids: [1] }),
       calls,
     );
 
@@ -573,7 +585,7 @@ describe("runGate — reasoning field", () => {
   test("exposes an optional reasoning property in the forced tool schema", async () => {
     const calls: ProviderCall[] = [];
     const provider = makeProvider(
-      gateToolResponse({ decision: "ready", selected_slugs: ["a"] }),
+      gateToolResponse({ decision: "ready", selected_ids: [1] }),
       calls,
     );
 
@@ -599,7 +611,7 @@ describe("runGate — reasoning field", () => {
     const provider = makeProvider(
       gateToolResponse({
         decision: "ready",
-        selected_slugs: ["b", "a"],
+        selected_ids: [2, 1],
         reasoning: "kept the two query-relevant pages, dropped the rest",
       }),
       calls,

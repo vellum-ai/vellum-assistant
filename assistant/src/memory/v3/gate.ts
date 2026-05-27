@@ -79,9 +79,9 @@ export interface RunGateArgs {
    * Per-candidate one-line summaries, keyed by slug. When present, candidates
    * are rendered to the model as `slug — summary` so the gate can judge
    * relevance on page content rather than the slug alone. Missing entries fall
-   * back to the bare slug; the forced tool's `selected_slugs` enum stays
-   * slug-only. The loop passes this only when `memory.v3.gateCandidateSummaries`
-   * is set.
+   * back to the bare slug; the model answers with the candidate's `[N]` number
+   * (`selected_ids`) regardless, so summaries never change the answer format. The
+   * loop passes this only when `memory.v3.gateCandidateSummaries` is set.
    */
   summaryBySlug?: ReadonlyMap<string, string>;
   /** Optional debug sink — emits one record for the gate's LLM call. */
@@ -102,17 +102,20 @@ export interface RunGateResult {
 }
 
 /**
- * Build the forced tool definition. `selected_slugs` is the ordered final
- * selection; `decision` is the ready/more verdict; `questions` carries the
- * generated follow-up queries on "more" (ignored on "ready"). Mirrors the
- * forced-tool pattern of v2's `select_pages_to_inject`.
+ * Build the forced tool definition. `selected_ids` is the list of bracketed
+ * `[N]` candidate numbers to keep; `decision` is the ready/more verdict;
+ * `questions` carries the generated follow-up queries on "more" (ignored on
+ * "ready"). The schema is candidate-independent — no per-turn enum — so it stays
+ * byte-identical across turns (cache-friendly) and the model answers with the
+ * line numbers rather than reproducing exact slug strings, mirroring the
+ * integer-id output of v2's `select_pages_to_inject`.
  */
-function buildGateTool(candidateSlugs: readonly string[]): ToolDefinition {
+function buildGateTool(): ToolDefinition {
   return {
     name: GATE_TOOL_NAME,
     description:
       "Decide whether the accumulated candidate pages are sufficient to answer " +
-      "the next turn. Return decision='ready' with the final ordered selection " +
+      "the next turn. Return decision='ready' with the final selection " +
       "when the candidates cover the turn; return decision='more' with one or " +
       "more generated follow-up questions (NOT the original message) to seed " +
       "another retrieval pass when coverage is incomplete.",
@@ -120,16 +123,14 @@ function buildGateTool(candidateSlugs: readonly string[]): ToolDefinition {
       type: "object",
       properties: {
         decision: { type: "string", enum: ["ready", "more"] },
-        selected_slugs: {
+        selected_ids: {
           type: "array",
-          items: { type: "string", enum: [...candidateSlugs] },
+          items: { type: "integer" },
           description:
-            "Final ordered page slugs to inject. Each candidate is listed as " +
-            "`slug — summary` when summaries are available; return only the slug " +
-            "(left of the em-dash), and only from the candidate set. Prefer keeping " +
-            "a plausibly-relevant page over dropping it; for a list / 'all of X' / " +
-            "breadth request, include every candidate that plausibly applies rather " +
-            "than trimming to the most prominent few.",
+            "The bracketed `[N]` numbers of the candidate pages to keep. Prefer " +
+            "keeping a plausibly-relevant page over dropping it; for a list / " +
+            "'all of X' / breadth request, include every candidate that plausibly " +
+            "applies rather than trimming to the most prominent few.",
         },
         questions: {
           type: "array",
@@ -144,32 +145,33 @@ function buildGateTool(candidateSlugs: readonly string[]): ToolDefinition {
             "candidates were kept or dropped.",
         },
       },
-      required: ["decision", "selected_slugs"],
+      required: ["decision", "selected_ids"],
     },
   };
 }
 
 const GateToolResultSchema = z.object({
   decision: z.enum(["ready", "more"]),
-  selected_slugs: z.array(z.string()).optional(),
+  selected_ids: z.array(z.coerce.number()).optional(),
   questions: z.array(z.string()).optional(),
   reasoning: z.string().optional(),
 });
 
 /**
- * Render the candidate list for the prompt. With summaries available each line
- * is `slug — summary` so the model can judge relevance on content; without them
- * it falls back to the bare slug. The slug (left of the em-dash) is what the
- * `selected_slugs` enum constrains, so the model always answers in slugs.
+ * Render the candidate list for the prompt. Each line is `[N] slug — summary`
+ * (or `[N] slug` without a summary), numbered from 1 in candidate order. The
+ * model answers with the `[N]` numbers via `selected_ids`, which the caller maps
+ * back to slugs by index — so the tool schema stays candidate-independent.
  */
 function renderCandidateLines(
   slugs: readonly string[],
   summaryBySlug: ReadonlyMap<string, string> | undefined,
 ): string {
   return slugs
-    .map((slug) => {
+    .map((slug, i) => {
       const summary = summaryBySlug?.get(slug);
-      return summary ? `${slug} — ${summary}` : slug;
+      const body = summary ? `${slug} — ${summary}` : slug;
+      return `[${i + 1}] ${body}`;
     })
     .join("\n");
 }
@@ -267,7 +269,7 @@ export async function runGate(args: RunGateArgs): Promise<RunGateResult> {
     ],
   };
 
-  const gateTool = buildGateTool(candidateSlugs);
+  const gateTool = buildGateTool();
 
   const startedAt = Date.now();
   let response;
@@ -310,11 +312,17 @@ export async function runGate(args: RunGateArgs): Promise<RunGateResult> {
     return failSafe(candidates, sticky);
   }
 
-  // Recall-safe fallback: an *omitted* `selected_slugs` means the model gave no
+  // Recall-safe fallback: an *omitted* `selected_ids` means the model gave no
   // instruction, so keep everything that was surfaced — dropping all non-sticky
   // context on a silent omission is the worse failure. An *explicit* `[]` is the
-  // model genuinely choosing nothing and is honored as-is.
-  const modelSlugs = parsed.data.selected_slugs ?? [...candidates];
+  // model genuinely choosing nothing and is honored as-is. Ids are 1-based
+  // indices into the rendered candidate list; out-of-range ids are dropped.
+  const modelSlugs =
+    parsed.data.selected_ids === undefined
+      ? [...candidates]
+      : parsed.data.selected_ids
+          .map((id) => candidateSlugs[Math.trunc(id) - 1])
+          .filter((slug): slug is string => slug !== undefined);
   const selectedSlugs = orderSelection(modelSlugs, candidates, sticky);
 
   const reasoning = parsed.data.reasoning?.trim() || undefined;
