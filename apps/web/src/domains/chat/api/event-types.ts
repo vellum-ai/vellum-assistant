@@ -6,11 +6,22 @@
  * consumed by event-parser.ts and the stream handler domain modules.
  */
 
-import type { RelationshipStateUpdatedEvent } from "@vellumai/assistant-api";
+import type {
+  AssistantTurnStartEvent,
+  RelationshipStateUpdatedEvent,
+  ToolUseStartEvent,
+} from "@vellumai/assistant-api";
 import type { DiskPressureStatus } from "@/assistant/types";
 import type { Surface } from "@/domains/chat/types/types";
 import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
 import type { SyncChangedEvent } from "@/lib/sync/types";
+
+// Re-export canonical event types under the web side's existing names so
+// downstream importers continue working unchanged. The canonical schema in
+// `@vellumai/assistant-api` is the source of truth; the inline declarations
+// here that haven't been migrated yet are gradually getting replaced with
+// imports of this shape.
+export type { AssistantTurnStartEvent, ToolUseStartEvent };
 
 /** Data needed to render an inline permission prompt inside a ToolCallChip. */
 export interface PendingToolConfirmation {
@@ -89,24 +100,6 @@ export interface ChatMessage {
 // ---------------------------------------------------------------------------
 // Runtime event types
 // ---------------------------------------------------------------------------
-
-/**
- * Marks the start of an assistant turn — emitted once by the daemon
- * *before* any `assistant_text_delta`, `tool_use_start`, or
- * `assistant_thinking_delta` event for that turn. The `messageId` is the
- * pre-allocated database row id (see B1's `reserveMessage` primitive)
- * that subsequent streaming events stamp on their `messageId` field.
- * Clients use this id to anchor a UI bubble at turn-start instead of
- * waiting for `message_complete`.
- *
- * Types-only addition in B2 — no emit sites yet on the daemon. The
- * agent loop adopts pre-allocation in B3.
- */
-export interface AssistantTurnStartEvent {
-  type: "assistant_turn_start";
-  messageId: string;
-  conversationId?: string;
-}
 
 export interface AssistantTextDeltaEvent {
   type: "assistant_text_delta";
@@ -332,19 +325,6 @@ export interface UISurfaceCompleteEvent {
   summary: string;
   submittedData?: Record<string, unknown>;
   conversationId?: string;
-}
-
-export interface ToolUseStartEvent {
-  type: "tool_use_start";
-  toolName: string;
-  input: Record<string, unknown>;
-  toolUseId?: string;
-  conversationId?: string;
-  /** Database ID of the assistant message that owns this tool_use block.
-   *  Stamped by the agent loop from the pre-allocated turn anchor. Absent
-   *  on streams produced by older daemons that pre-date the anchor
-   *  protocol. */
-  messageId?: string;
 }
 
 export interface ToolResultEvent {

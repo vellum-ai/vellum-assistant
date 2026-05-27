@@ -343,12 +343,12 @@ export function useStreamEventHandler(
           handleNavigateSettings(event, ctx);
           break;
         case "assistant_turn_start":
-          // B2: no-op. The daemon does not emit `assistant_turn_start` yet
-          // — types and parser are in place so a future stream stamped with
-          // the pre-allocated anchor id does not fall through to the
-          // `unknown` branch. B3 will wire this case to seed
-          // `currentAssistantMessageIdRef` so subsequent deltas anchor to
-          // the reserved row from the first event of the turn.
+          // No-op until the daemon adopts pre-allocation. Types and parser
+          // are in place so a stream stamped with the pre-allocated anchor
+          // id does not fall through to the `unknown` branch. A follow-up
+          // will wire this case to seed `currentAssistantMessageIdRef` so
+          // subsequent deltas anchor to the reserved row from the first
+          // event of the turn.
           break;
         case "assistant_text_delta":
           handleAssistantTextDelta(event, ctx);

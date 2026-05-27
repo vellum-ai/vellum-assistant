@@ -869,7 +869,7 @@ describe("parseAssistantEvent", () => {
       }
     });
 
-    test("propagates messageId (B2 anchor protocol)", () => {
+    test("propagates messageId (anchor protocol)", () => {
       const event = parseAssistantEvent({
         type: "tool_result",
         toolName: "bash",
@@ -910,7 +910,7 @@ describe("parseAssistantEvent", () => {
   });
 
   describe("tool_use_start", () => {
-    test("propagates messageId (B2 anchor protocol)", () => {
+    test("propagates messageId (anchor protocol)", () => {
       const event = parseAssistantEvent({
         type: "tool_use_start",
         toolName: "bash",

@@ -1,8 +1,19 @@
 // User/assistant messages, tool results, confirmations, secrets, errors, and generation lifecycle.
 
+import type { AssistantTurnStartEvent } from "../../api/events/assistant-turn-start.js";
 import type { ChannelId, InterfaceId } from "../../channels/types.js";
 import type { CommandIntent, UserMessageAttachment } from "./shared.js";
+import type { ToolUseStartEvent } from "../../api/events/tool-use-start.js";
 import type { ToolActivityMetadata } from "./web-activity.js";
+
+/**
+ * Re-export canonical event types under the daemon's interface naming
+ * convention (`*` vs `*Event`) so existing `_MessagesServerMessages` union
+ * members read consistently. The canonical schemas in
+ * `@vellumai/assistant-api` are the source of truth.
+ */
+export type AssistantTurnStart = AssistantTurnStartEvent;
+export type ToolUseStart = ToolUseStartEvent;
 
 // === Client → Server ===
 
@@ -72,24 +83,6 @@ export interface UserMessageEcho {
   clientMessageId?: string;
 }
 
-/**
- * Marks the start of an assistant turn — emitted once per assistant message
- * the daemon will produce, *before* any `assistant_text_delta`, `tool_use_*`,
- * or `assistant_thinking_delta` event for that turn. The `messageId` is the
- * pre-allocated database row id (see `reserveMessage` in
- * `assistant/src/memory/conversation-crud.ts`) that subsequent streaming
- * events stamp on their `messageId` field. Clients use this id to anchor a
- * UI bubble at turn-start instead of waiting for `message_complete`.
- *
- * Types-only addition in B2 — no emit sites yet. The agent loop adopts
- * pre-allocation in B3.
- */
-export interface AssistantTurnStart {
-  type: "assistant_turn_start";
-  conversationId: string;
-  messageId: string;
-}
-
 export interface AssistantTextDelta {
   type: "assistant_text_delta";
   text: string;
@@ -105,18 +98,6 @@ export interface AssistantThinkingDelta {
   thinking: string;
   conversationId?: string;
   /** Database ID of the assistant message this thinking delta belongs to.
-   *  Same semantics as `AssistantTextDelta.messageId`. */
-  messageId?: string;
-}
-
-export interface ToolUseStart {
-  type: "tool_use_start";
-  toolName: string;
-  input: Record<string, unknown>;
-  conversationId?: string;
-  /** The tool_use block ID for client-side correlation. */
-  toolUseId?: string;
-  /** Database ID of the assistant message that owns this tool_use block.
    *  Same semantics as `AssistantTextDelta.messageId`. */
   messageId?: string;
 }

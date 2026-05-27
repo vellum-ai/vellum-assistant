@@ -1,11 +1,21 @@
 import { z } from "zod";
 
+import { AssistantTurnStartEventSchema } from "./events/assistant-turn-start.js";
 import { RelationshipStateUpdatedEventSchema } from "./events/relationship-state-updated.js";
+import { ToolUseStartEventSchema } from "./events/tool-use-start.js";
 
+export {
+  type AssistantTurnStartEvent,
+  AssistantTurnStartEventSchema,
+} from "./events/assistant-turn-start.js";
 export {
   type RelationshipStateUpdatedEvent,
   RelationshipStateUpdatedEventSchema,
 } from "./events/relationship-state-updated.js";
+export {
+  type ToolUseStartEvent,
+  ToolUseStartEventSchema,
+} from "./events/tool-use-start.js";
 
 /**
  * Canonical SSE event schema for the assistant runtime.
@@ -20,5 +30,7 @@ export {
  * appending them to the union below.
  */
 export const AssistantEventSchema = z.discriminatedUnion("type", [
+  AssistantTurnStartEventSchema,
   RelationshipStateUpdatedEventSchema,
+  ToolUseStartEventSchema,
 ]);
