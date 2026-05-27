@@ -85,8 +85,40 @@ export function getLockfile(): Lockfile {
 }
 
 // ---------------------------------------------------------------------------
+// Hatch
+// ---------------------------------------------------------------------------
+
+export interface LocalHatchResult {
+  ok: boolean;
+  assistantId?: string;
+  error?: string;
+}
+
+/**
+ * Trigger a local assistant hatch via the dev server middleware.
+ *
+ * Transport: fetch to Vite dev middleware endpoint.
+ * In Electron, replace with: window.electronAPI.hatchAssistant(species)
+ */
+export async function hatchLocalAssistant(
+  species: string = "vellum",
+): Promise<LocalHatchResult> {
+  const res = await fetch("/assistant/__local/hatch", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ species }),
+  });
+  return res.json() as Promise<LocalHatchResult>;
+}
+
+// ---------------------------------------------------------------------------
 // Assistant queries
 // ---------------------------------------------------------------------------
+
+/** In Electron, replace with: window.electronAPI.hasAssistants() */
+export function hasAssistants(): boolean {
+  return getLockfile().assistants.length > 0;
+}
 
 export function isLocalAssistant(a: LockfileAssistant): boolean {
   return a.cloud !== "vellum" && a.resources?.gatewayPort != null;
