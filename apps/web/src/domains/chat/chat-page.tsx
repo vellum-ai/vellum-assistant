@@ -18,6 +18,7 @@ import {
 import { createPortal } from "react-dom";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { ChevronDown } from "lucide-react";
+import * as Sentry from "@sentry/react";
 
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useVisibleViewport } from "@/hooks/use-visible-viewport";
@@ -118,6 +119,10 @@ import { abortSubagent, fetchSubagentDetail } from "@/domains/chat/api/conversat
 import { MobileAppOverlay } from "@/domains/chat/components/mobile-app-overlay";
 import { MobileDocumentOverlay } from "@/domains/chat/components/mobile-document-overlay";
 import { MobileSubagentDetailOverlay } from "@/domains/chat/components/mobile-subagent-detail-overlay";
+import {
+  type ChatConnectingReason,
+  resolveChatConnectingReason,
+} from "@/domains/chat/utils/connecting-reason";
 import { getEditChatConversationId, setEditChatConversationId } from "@/domains/chat/utils/edit-chat-session";
 import { routes } from "@/utils/routes";
 import { haptic } from "@/utils/haptics";
@@ -1313,10 +1318,36 @@ export function ChatPage() {
   };
   void _uiContext;
 
+  const connectingReason = resolveChatConnectingReason({
+    authLoading,
+    assistantStateKind: assistantState.kind,
+    autoGreetPending,
+  });
+  const lastConnectingReasonRef = useRef<ChatConnectingReason | null>(null);
+  useEffect(() => {
+    if (connectingReason === null) {
+      lastConnectingReasonRef.current = null;
+      return;
+    }
+    if (lastConnectingReasonRef.current === connectingReason) return;
+    lastConnectingReasonRef.current = connectingReason;
+    Sentry.addBreadcrumb({
+      category: "chat.connecting",
+      level: "info",
+      message: "ChatPage rendered Connecting",
+      data: {
+        reason: connectingReason,
+        assistantStateKind: assistantState.kind,
+        hasAssistantId: assistantId != null,
+        hasActiveConversationId: activeConversationId != null,
+      },
+    });
+  }, [activeConversationId, assistantId, assistantState.kind, connectingReason]);
+
   // -------------------------------------------------------------------------
   // Loading / error guards
   // -------------------------------------------------------------------------
-  if (authLoading || assistantState.kind === "loading" || autoGreetPending) {
+  if (connectingReason !== null) {
     return (
       <div className="flex h-full items-center justify-center">
         <p className="text-[var(--text-secondary)]">Connecting…</p>
