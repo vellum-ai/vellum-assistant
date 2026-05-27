@@ -1045,6 +1045,7 @@ function ProfileEditorModalInner({
             <Button variant="outlined" onClick={onCancel} disabled={saving} data-testid="modal-cancel-btn">
               Close
             </Button>
+            {!isAutoProfile && (
             <Button
               variant="outlined"
               onClick={() => {
@@ -1056,6 +1057,7 @@ function ProfileEditorModalInner({
             >
               Save As New
             </Button>
+            )}
             {/* Save in view mode persists ONLY label and status changes
                 (managed profile policy fields). The button is gated by
                 `hasViewModeChanges` so an unchanged view session can't
