@@ -1,8 +1,12 @@
 import { contextBridge, ipcRenderer } from "electron";
 
-// Surface exposed to the renderer as `window.vellum`. Implementations land in
-// follow-up tickets; for now these are typed stubs so the renderer can
-// feature-detect the Electron host.
+// Surface exposed to the renderer as `window.vellum`. `platform` and the
+// `settings` accessors are wired through IPC; `auth` and `helper` are typed
+// stubs that reject with "not implemented yet" until their feature tickets
+// land. When adding new bridge methods, see the "When to extend the bridge
+// with new methods" section in `apps/macos/README.md` for the convention
+// (generic KV for non-sensitive prefs; dedicated `<capability>.<verb>()`
+// methods for sensitive capabilities).
 export interface VellumBridge {
   platform: "electron";
   auth: {

@@ -4,6 +4,14 @@
  * expanded here as each follow-up ticket wires a real implementation, keeping
  * the renderer's view of the bridge honest about what's actually available
  * at any given commit.
+ *
+ * Feature code in `apps/web/` should NOT call `window.vellum.*` directly.
+ * Instead, wrap each persisted capability in a per-feature module under
+ * `apps/web/src/runtime/` with named functions (see `native-biometric.ts`
+ * for the established shape: `isBiometricEnabled()` / `setBiometricEnabled()`).
+ * The module owns the cross-platform branch — `isElectron()` calls into
+ * `window.vellum`, `isNativePlatform()` calls Capacitor, and the web branch
+ * uses `localStorage` — so consumers stay platform-agnostic.
  */
 declare global {
   interface Window {
