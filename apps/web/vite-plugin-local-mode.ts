@@ -206,10 +206,20 @@ function handleHatch(species: string, res: http.ServerResponse): void {
 
   let stdout = "";
   let stderr = "";
+  let responded = false;
+
+  const respond = (status: number, body: Record<string, unknown>) => {
+    if (responded) return;
+    responded = true;
+    clearTimeout(timeout);
+    res.statusCode = status;
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify(body));
+  };
 
   const timeout = setTimeout(() => {
     child.kill("SIGTERM");
-    stderr += "\nHatch timed out after 120 seconds";
+    respond(500, { ok: false, error: "Hatch timed out after 120 seconds" });
   }, HATCH_TIMEOUT_MS);
 
   child.stdout.on("data", (data: Buffer) => {
@@ -221,30 +231,17 @@ function handleHatch(species: string, res: http.ServerResponse): void {
   });
 
   child.on("close", (code) => {
-    clearTimeout(timeout);
-
-    res.setHeader("Content-Type", "application/json");
-
     if (code === 0) {
-      // Parse assistant name from stdout: "🥚 Hatching local assistant: <name>"
-      const match = stdout.match(
-        /Hatching local assistant:\s+(.+)/,
-      );
+      const match = stdout.match(/Hatching local assistant:\s+(.+)/);
       const assistantId = match?.[1]?.trim() ?? "";
-      res.end(JSON.stringify({ ok: true, assistantId }));
+      respond(200, { ok: true, assistantId });
     } else {
-      res.statusCode = 500;
-      res.end(JSON.stringify({ ok: false, error: stderr || stdout }));
+      respond(500, { ok: false, error: stderr || stdout });
     }
   });
 
   child.on("error", (err) => {
-    clearTimeout(timeout);
-    res.statusCode = 500;
-    res.setHeader("Content-Type", "application/json");
-    res.end(
-      JSON.stringify({ ok: false, error: `Failed to spawn CLI: ${err.message}` }),
-    );
+    respond(500, { ok: false, error: `Failed to spawn CLI: ${err.message}` });
   });
 }
 
