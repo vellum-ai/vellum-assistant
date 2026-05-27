@@ -106,46 +106,44 @@ export function recordRequestLog(
 }
 
 /**
- * Synthetic-event marker stored in a row's `call_site` column when the
- * row represents an agent-loop event that has *no underlying LLM call*
- * but should still appear in the inspector's call rail.
+ * Marker stored in a row's `call_site` column when the row represents
+ * a *synthetic* assistant error message — one the agent loop emitted
+ * because something went wrong (out of funds, budget yield, etc.)
+ * with no underlying LLM call. All such events cause the loop to exit,
+ * so a single generic bucket plus the existing `agent_loop_exit_reason`
+ * column is enough to discriminate which kind of error fired.
  *
- * Today the only kind is `"agentLoopYield"`, recorded when the agent
- * loop emits its `budget_yield_unrecovered` user-visible notice after
- * one or more successful tool-use iterations. The synthetic row makes
- * that yield a clickable, distinctly-rendered entry in the rail and
- * anchors the compaction trail's "what led to this failure?" lookup.
- *
- * Note: `"agentLoopYield"` is *not* a member of `LLMCallSite` (the enum
- * binds config lookup, not the column shape, per its doc comment).
- * Sibling helpers filtering by `call_site = 'compactionAgent'`
- * already treat the synthetic value as a non-compaction call, which is
- * the desired behavior for floor lookups in the compaction route.
+ * Note: this value is intentionally *not* a member of `LLMCallSite`.
+ * Per the enum's doc comment, `LLMCallSite` binds config lookup, not
+ * the shape of the `call_site` column. Compaction-route filters that
+ * match `call_site = 'compactionAgent'` already treat this value as a
+ * non-compaction call, which is the desired floor-lookup behavior.
  */
-export const SYNTHETIC_CALL_SITE_AGENT_LOOP_YIELD = "agentLoopYield";
+export const CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE =
+  "syntheticAgentErrorMessage";
 
 /**
- * Wire-shape persisted under the synthetic row's `request_payload`. The
- * inspector parses this directly when projecting the row, so the
- * frontend never has to cross-reference the `messages` table to render
- * the yield's user-visible text.
- */
-export interface SyntheticAgentLoopYieldPayload {
-  syntheticEventKind: "agentLoopYield";
-  exitReason: string;
-  userMessageText: string;
-}
-
-/**
- * Insert a synthetic `llm_request_logs` row for an agent-loop event
- * that has no LLM call backing it but should appear in the inspector
- * rail. Currently only emitted from the `budget_yield_unrecovered`
- * persistence path — see `conversation-agent-loop.ts`.
+ * Insert a synthetic `llm_request_logs` row for an agent-loop error
+ * message that has no LLM call backing it but should appear in the
+ * inspector rail. Today the only caller is the
+ * `budget_yield_unrecovered` persistence path
+ * (`conversation-agent-loop.ts`); the helper is named generically so
+ * the next out-of-funds / provider-error / etc. path can route through
+ * the same primitive.
  *
  * The caller persists the user-visible assistant message separately
  * via the `persistence` pipeline; this helper only writes the synthetic
  * call row. `messageId` should be the id of the just-persisted notice
  * so `getRequestLogsByMessageId` surfaces both together.
+ *
+ * Payload semantics mirror real LLM-call rows:
+ *  - `requestPayload`: the best-known LLM request body the loop was
+ *    about to send when it yielded — typically the prepared messages
+ *    snapshot and any input-token budget context. Stored as JSON so
+ *    the Raw tab renders it consistently with real calls.
+ *  - `responsePayload`: the synthetic notice text the user saw plus
+ *    the exit reason. This is the "response" from the user's point of
+ *    view — what came back from a call that never actually happened.
  *
  * Stamps `agent_loop_exit_reason` directly so the row already carries
  * the reason at insert time — the post-loop
@@ -154,31 +152,45 @@ export interface SyntheticAgentLoopYieldPayload {
  * existing "latest LLM call carries the exit reason" invariant that
  * other consumers depend on.
  */
-export function recordAgentLoopYieldLog(args: {
+export function recordSyntheticAgentErrorMessageLog(args: {
   conversationId: string;
   messageId: string;
   exitReason: string;
-  userMessageText: string;
+  /** User-visible notice text — goes into `response_payload`. */
+  noticeText: string;
+  /**
+   * Best-known LLM request state at the moment the loop gave up.
+   * `null` when no prepared request was available (rare — generally
+   * we know at least the conversation history we were about to send).
+   */
+  preparedRequest: unknown | null;
   createdAt: number;
 }): string {
   const db = getDb();
   const id = uuid();
-  const payload: SyntheticAgentLoopYieldPayload = {
-    syntheticEventKind: "agentLoopYield",
-    exitReason: args.exitReason,
-    userMessageText: args.userMessageText,
-  };
+  const requestPayload = JSON.stringify({
+    syntheticAgentErrorMessage: {
+      exitReason: args.exitReason,
+      preparedRequest: args.preparedRequest,
+    },
+  });
+  const responsePayload = JSON.stringify({
+    syntheticAgentErrorMessage: {
+      exitReason: args.exitReason,
+      noticeText: args.noticeText,
+    },
+  });
   db.insert(llmRequestLogs)
     .values({
       id,
       conversationId: args.conversationId,
       messageId: args.messageId,
       provider: null,
-      requestPayload: JSON.stringify(payload),
-      responsePayload: "",
+      requestPayload,
+      responsePayload,
       createdAt: args.createdAt,
       agentLoopExitReason: args.exitReason,
-      callSite: SYNTHETIC_CALL_SITE_AGENT_LOOP_YIELD,
+      callSite: CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE,
     })
     .run();
   return id;

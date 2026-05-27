@@ -81,7 +81,7 @@ import { isBackgroundConversationType } from "../memory/conversation-types.js";
 import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import {
   backfillMessageIdOnLogs,
-  recordAgentLoopYieldLog,
+  recordSyntheticAgentErrorMessageLog,
 } from "../memory/llm-request-log-store.js";
 import { recordMemoryRecallLog } from "../memory/memory-recall-log-store.js";
 import { enqueueMemoryRetrospectiveOnCompaction } from "../memory/memory-retrospective-enqueue.js";
@@ -3173,13 +3173,24 @@ export async function runAgentLoopImpl(
       // and stamps the prior real mainAgent call instead — preserving
       // the existing "latest LLM call carries the exit reason"
       // invariant other consumers depend on.
+      //
+      // `preparedRequest` snapshots the best-known LLM request state
+      // at yield time — `updatedHistory` (the conversation state the
+      // next call would have been built from) plus the input-token
+      // budget that just failed. Mirrors the role of `request_payload`
+      // on real LLM-call rows; the notice text lives on
+      // `response_payload`.
       if (yieldNoticePersistedId !== null && budgetYieldClassification) {
         try {
-          recordAgentLoopYieldLog({
+          recordSyntheticAgentErrorMessageLog({
             conversationId: ctx.conversationId,
             messageId: yieldNoticePersistedId,
             exitReason: "budget_yield_unrecovered",
-            userMessageText: budgetYieldClassification.userMessage,
+            noticeText: budgetYieldClassification.userMessage,
+            preparedRequest: {
+              messages: updatedHistory,
+              maxInputTokensBudget: resolveCurrentMaxInputTokens() ?? null,
+            },
             createdAt: Date.now(),
           });
         } catch (err) {

@@ -1,13 +1,12 @@
 /**
- * Tests for the OverviewTab's synthetic agent-loop event branch.
+ * Tests for the OverviewTab.
  *
- * The normalized-summary path is exercised implicitly by other tabs
- * and the inspector page test; the goal here is to lock in that a
- * row with `syntheticEvent` populated renders a yield notice card
- * instead of the normalized metadata + usage cards (which are
- * meaningless for a non-LLM event).
- *
- * Uses the same renderToStaticMarkup pattern as the call-rail tests.
+ * Synthetic agent-error-message rows have no `summary` so they take
+ * the existing fallback path — no dedicated card is rendered for them
+ * because the exit reason is already tracked on the `llm_request_log`
+ * row itself and surfaced upstream (call rail subtitle, raw response
+ * payload). This file pins that behavior so we don't accidentally
+ * regrow a bespoke synthetic Overview surface.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -23,7 +22,6 @@ function makeRealEntry(): LLMRequestLogEntry {
     requestPayload: null,
     responsePayload: null,
     callSite: "mainAgent",
-    syntheticEvent: null,
     summary: {
       provider: "anthropic",
       model: "claude-sonnet-4",
@@ -42,14 +40,8 @@ function makeSyntheticEntry(
     createdAt: Date.parse("2026-05-26T13:31:00Z"),
     requestPayload: null,
     responsePayload: null,
-    callSite: "agentLoopYield",
+    callSite: "syntheticAgentErrorMessage",
     agentLoopExitReason: "budget_yield_unrecovered",
-    syntheticEvent: {
-      kind: "agentLoopYield",
-      exitReason: "budget_yield_unrecovered",
-      userMessageText:
-        "I tried to compact this conversation but couldn't fit the next step into the model's context window.",
-    },
     ...overrides,
   };
 }
@@ -66,37 +58,17 @@ function render(
   );
 }
 
-describe("OverviewTab — synthetic event branch", () => {
-  test("renders the synthetic event card with exit reason + notice text", () => {
+describe("OverviewTab — synthetic rows take the fallback path", () => {
+  test("synthetic row renders the standard 'summary unavailable' fallback (no bespoke card)", () => {
     const html = render(makeSyntheticEntry());
-    // Card heading + helper text identify this as a non-LLM entry.
-    expect(html).toContain("Agent loop yielded");
-    expect(html).toContain("No LLM call was made for this entry");
-    // Exit reason row.
-    expect(html).toContain("Exit reason");
-    expect(html).toContain("budget_yield_unrecovered");
-    // The full user-visible notice from the chat is surfaced verbatim.
-    // Note: apostrophes are HTML-entity-escaped in static markup
-    // (`couldn&#x27;t`), so we assert on apostrophe-free fragments.
-    expect(html).toContain("fit the next step into the model");
-    expect(html).toContain("context window");
-    // Warning icon styling is present.
-    expect(html).toContain("var(--system-negative-strong)");
-  });
-
-  test("suppresses normalized metadata + usage cards for synthetic rows", () => {
-    const html = render(makeSyntheticEntry());
-    // Neither the "Normalized metadata" nor "Usage" card title should
-    // appear — both rely on a real LLM call summary.
-    expect(html).not.toContain("Normalized metadata");
-    expect(html).not.toContain("Token and call counts");
-  });
-
-  test("still renders the conversation totals card when a cost is available", () => {
-    const html = render(makeSyntheticEntry(), 0.42);
-    expect(html).toContain("Total cost so far");
-    // Synthetic card is still rendered alongside the totals.
-    expect(html).toContain("Agent loop yielded");
+    // Standard fallback header, not a synthetic-specific card.
+    expect(html).toContain("Normalized summary unavailable");
+    // The "raw request and response are still available" hint points
+    // the user to the Raw tab for the notice text + prepared request.
+    expect(html).toContain("raw request and response");
+    // No bespoke synthetic surface should sneak back in.
+    expect(html).not.toContain("Agent loop yielded");
+    expect(html).not.toContain("No LLM call was made");
   });
 
   test("real LLM calls render normalized metadata + usage (regression guard)", () => {
@@ -105,23 +77,27 @@ describe("OverviewTab — synthetic event branch", () => {
     // displayProvider title-cases known providers — "Anthropic", not "anthropic".
     expect(html).toContain("Anthropic");
     expect(html).toContain("Token and call counts");
-    // Should NOT render the synthetic card.
-    expect(html).not.toContain("Agent loop yielded");
-    expect(html).not.toContain("No LLM call was made");
+    // Should NOT fall through to the fallback path.
+    expect(html).not.toContain("Normalized summary unavailable");
   });
 
-  test("falls back gracefully when synthetic payload has empty notice text", () => {
-    const html = render(
-      makeSyntheticEntry({
-        syntheticEvent: {
-          kind: "agentLoopYield",
-          exitReason: "budget_yield_unrecovered",
-          userMessageText: "",
-        },
-      }),
-    );
-    // Card still renders with exit reason; just no <p> for empty text.
-    expect(html).toContain("Agent loop yielded");
+  test("real LLM calls with a stamped exit reason surface it in the normalized metadata card", () => {
+    // This is the path that makes the dedicated synthetic Overview card
+    // unnecessary: the `agentLoopExitReason` column is already shown
+    // on real LLM call rows that carry it. Synthetic rows have the
+    // same column populated and the Raw tab covers the rest.
+    const html = render({
+      ...makeRealEntry(),
+      agentLoopExitReason: "budget_yield_unrecovered",
+    });
+    expect(html).toContain("Loop exit reason");
     expect(html).toContain("budget_yield_unrecovered");
+  });
+
+  test("still renders the conversation totals card alongside a synthetic fallback", () => {
+    const html = render(makeSyntheticEntry(), 0.42);
+    expect(html).toContain("Total cost so far");
+    // Synthetic fallback is rendered alongside the totals.
+    expect(html).toContain("Normalized summary unavailable");
   });
 });

@@ -53,27 +53,25 @@ export interface LLMContextSection {
 }
 
 /**
+ * Logical call site marker the daemon writes to a row when the entry
+ * represents a *synthetic* assistant error message (no underlying LLM
+ * call). All such events cause the agent loop to exit — the existing
+ * `agentLoopExitReason` field tells you WHICH error fired
+ * (`budget_yield_unrecovered`, future out-of-funds, etc.).
+ *
+ * Must match
+ * `CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE` in
+ * `assistant/src/memory/llm-request-log-store.ts`.
+ */
+export const SYNTHETIC_AGENT_ERROR_MESSAGE_CALL_SITE =
+  "syntheticAgentErrorMessage";
+
+/**
  * One LLM request log row. `requestPayload` / `responsePayload` are
  * always `null` on the list endpoint — the raw JSON is fetched
  * lazily through `/v1/llm-request-logs/{logId}/payload` (added in a
  * follow-up PR).
  */
-/**
- * Synthetic agent-loop event surfaced as a call rail entry that has no
- * underlying LLM call. The daemon parses the wire shape out of a row's
- * `request_payload` when `callSite === "agentLoopYield"` and exposes it
- * here so the inspector can render a distinct entry (warning styling,
- * no provider/model subtitle) and a dedicated Overview card.
- *
- * Today the only `kind` is `"agentLoopYield"`, recorded when the agent
- * loop emits its `budget_yield_unrecovered` user-visible notice.
- */
-export interface SyntheticCallEvent {
-  kind: "agentLoopYield";
-  exitReason: string;
-  userMessageText: string;
-}
-
 export interface LLMRequestLogEntry {
   id: string;
   createdAt: number;
@@ -86,17 +84,12 @@ export interface LLMRequestLogEntry {
   agentLoopExitReason?: string | null;
   /**
    * Logical call site that produced this row — `mainAgent`,
-   * `compactionAgent`, `agentLoopYield`, etc. `null` on pre-migration-264
-   * rows or callers that hadn't been wired through yet.
+   * `compactionAgent`, `syntheticAgentErrorMessage`, etc. `null` on
+   * pre-migration-264 rows or callers that hadn't been wired through
+   * yet. The inspector branches on this value alone to distinguish
+   * real LLM calls from synthetic error-message rows.
    */
   callSite?: string | null;
-  /**
-   * Populated only for rows that represent an agent-loop event with no
-   * underlying LLM call (e.g. `budget_yield_unrecovered`). When set,
-   * the row should render as a distinct rail entry instead of an LLM
-   * call summary.
-   */
-  syntheticEvent?: SyntheticCallEvent | null;
 }
 
 /**

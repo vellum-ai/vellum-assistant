@@ -5,12 +5,10 @@
  * render to static markup (no DOM), mock `react-router`'s `Link` to a
  * plain `<a>` so the rail doesn't require a router context.
  *
- * Only the rail-row branch is exercised here — the agent-loop /
- * persistence wiring is covered by backend tests in
- * `conversation-query-routes.test.ts` and the broader page wiring is
- * covered by `inspect-page.test.tsx`. The goal of *this* file is to
- * lock in the visual distinction between an LLM call row and a
- * synthetic agent-loop event row.
+ * Synthetic rows are discriminated purely by
+ * `callSite === "syntheticAgentErrorMessage"` — the specific exit
+ * reason flavor (budget yield, out of funds, …) is read from
+ * `agentLoopExitReason`. No separate per-row event field on the wire.
  */
 
 import { describe, expect, mock, test } from "bun:test";
@@ -47,7 +45,6 @@ function makeRealEntry(overrides: Partial<LLMRequestLogEntry> = {}): LLMRequestL
     requestPayload: null,
     responsePayload: null,
     callSite: "mainAgent",
-    syntheticEvent: null,
     summary: {
       provider: "anthropic",
       model: "claude-sonnet-4",
@@ -64,14 +61,8 @@ function makeSyntheticEntry(
     createdAt: Date.parse("2026-05-26T13:31:00Z"),
     requestPayload: null,
     responsePayload: null,
-    callSite: "agentLoopYield",
+    callSite: "syntheticAgentErrorMessage",
     agentLoopExitReason: "budget_yield_unrecovered",
-    syntheticEvent: {
-      kind: "agentLoopYield",
-      exitReason: "budget_yield_unrecovered",
-      userMessageText:
-        "I tried to compact this conversation but couldn't fit the next step.",
-    },
     ...overrides,
   };
 }
@@ -99,9 +90,10 @@ describe("CallRail — synthetic vs real rows", () => {
 
   test("renders a synthetic budget_yield_unrecovered row distinctly", () => {
     const html = render([makeSyntheticEntry()]);
-    // Subtitle is the human-readable yield label, not provider/model.
-    // Note: apostrophes are HTML-entity-escaped in static markup
-    // (`couldn&#x27;t`), so we search for an apostrophe-free substring.
+    // Subtitle is the human-readable yield label derived from the
+    // exitReason column. Apostrophes are HTML-entity-escaped in static
+    // markup (`couldn&#x27;t`), so we search for an apostrophe-free
+    // substring on either side.
     expect(html).toContain("Yield");
     expect(html).toContain("compaction couldn");
     expect(html).toContain("fit next step");
@@ -109,6 +101,18 @@ describe("CallRail — synthetic vs real rows", () => {
     expect(html).toContain("var(--system-negative-strong)");
     // No provider/model leakage when the row is synthetic.
     expect(html).not.toContain("Anthropic");
+  });
+
+  test("renders a generic synthetic error subtitle when exit reason is unknown", () => {
+    // Future error reasons (e.g. `out_of_funds`) should still render
+    // with the warning palette and a recognizable subtitle, even if the
+    // helper doesn't have a bespoke phrase for them yet.
+    const html = render([
+      makeSyntheticEntry({ agentLoopExitReason: "out_of_funds" }),
+    ]);
+    expect(html).toContain("Agent loop error");
+    expect(html).toContain("out_of_funds");
+    expect(html).toContain("var(--system-negative-strong)");
   });
 
   test("keeps numeric Call N labels for synthetic rows so they occupy a call slot", () => {

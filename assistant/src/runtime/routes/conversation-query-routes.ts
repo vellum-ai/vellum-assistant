@@ -67,11 +67,7 @@ import { getConversationByKey } from "../../memory/conversation-key-store.js";
 import { getDb } from "../../memory/db-connection.js";
 import { clearEmbeddingBackendCache } from "../../memory/embedding-backend.js";
 import { getLlmRequestLogSource } from "../../memory/llm-request-log-source.js";
-import {
-  type LogRow,
-  SYNTHETIC_CALL_SITE_AGENT_LOOP_YIELD,
-  type SyntheticAgentLoopYieldPayload,
-} from "../../memory/llm-request-log-store.js";
+import { type LogRow } from "../../memory/llm-request-log-store.js";
 import { getMemoryRecallLogByMessageIds } from "../../memory/memory-recall-log-store.js";
 import { getMemoryV2ActivationLogByMessageIds } from "../../memory/memory-v2-activation-log-store.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../memory/v2/constants.js";
@@ -237,61 +233,6 @@ function applyStoredProviderToLlmContextResult(
   return { ...normalized, summary };
 }
 
-/**
- * Wire-shape for a synthetic call rail entry (no LLM call backing it).
- * Lifted from `request_payload` when `call_site === "agentLoopYield"` —
- * inspector consumers branch on `syntheticEvent` to render distinct UI.
- */
-interface SyntheticEventWireShape {
-  kind: "agentLoopYield";
-  exitReason: string;
-  userMessageText: string;
-}
-
-function parseSyntheticEvent(log: LogRow): SyntheticEventWireShape | null {
-  if (log.callSite !== SYNTHETIC_CALL_SITE_AGENT_LOOP_YIELD) {
-    return null;
-  }
-  // The agent loop writes a `SyntheticAgentLoopYieldPayload` JSON blob to
-  // `request_payload` at insert time. A malformed row (impossible under
-  // normal writes, but defensive against migrations / hand edits) degrades
-  // to a minimal shape so the rail still renders.
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(log.requestPayload);
-  } catch {
-    return {
-      kind: "agentLoopYield",
-      exitReason: log.agentLoopExitReason ?? "",
-      userMessageText: "",
-    };
-  }
-  if (
-    !parsed ||
-    typeof parsed !== "object" ||
-    (parsed as { syntheticEventKind?: unknown }).syntheticEventKind !==
-      "agentLoopYield"
-  ) {
-    return {
-      kind: "agentLoopYield",
-      exitReason: log.agentLoopExitReason ?? "",
-      userMessageText: "",
-    };
-  }
-  const payload = parsed as SyntheticAgentLoopYieldPayload;
-  return {
-    kind: "agentLoopYield",
-    exitReason:
-      typeof payload.exitReason === "string"
-        ? payload.exitReason
-        : (log.agentLoopExitReason ?? ""),
-    userMessageText:
-      typeof payload.userMessageText === "string"
-        ? payload.userMessageText
-        : "",
-  };
-}
-
 function normalizeLlmContextLog(log: LogRow): LlmContextRouteResult & {
   id: string;
   requestPayload: null;
@@ -299,7 +240,6 @@ function normalizeLlmContextLog(log: LogRow): LlmContextRouteResult & {
   createdAt: number;
   agentLoopExitReason: string | null;
   callSite: string | null;
-  syntheticEvent: SyntheticEventWireShape | null;
 } {
   let requestPayload: unknown;
   try {
@@ -330,14 +270,12 @@ function normalizeLlmContextLog(log: LogRow): LlmContextRouteResult & {
     // terminal call in each loop iteration carries a value; non-terminal calls
     // land here as `null`.
     agentLoopExitReason: log.agentLoopExitReason ?? null,
-    // Logical call site (`mainAgent`, `compactionAgent`, `agentLoopYield`, …).
-    // Exposed to the inspector so synthetic rows can be rendered distinctly
-    // without re-deriving the kind from other fields.
+    // Logical call site (`mainAgent`, `compactionAgent`,
+    // `syntheticAgentErrorMessage`, …). Exposed to the inspector so synthetic
+    // rows can be rendered distinctly without re-deriving the kind from
+    // other fields — the frontend branches on this value alone, and the
+    // existing `agent_loop_exit_reason` column tells it WHICH error fired.
     callSite: log.callSite ?? null,
-    // Populated only for synthetic rows (no underlying LLM call). The frontend
-    // branches on this to render a "yield notice" entry in the call rail and
-    // a dedicated card in the Overview tab.
-    syntheticEvent: parseSyntheticEvent(log),
     ...result,
   };
 }

@@ -8,9 +8,9 @@ import {
   formattedCreatedAt,
   MISSING_VALUE,
 } from "@/domains/chat/inspector/inspector-formatters";
-import type {
-  LLMRequestLogEntry,
-  SyntheticCallEvent,
+import {
+  type LLMRequestLogEntry,
+  SYNTHETIC_AGENT_ERROR_MESSAGE_CALL_SITE,
 } from "@/domains/chat/types/inspector-types";
 
 interface CallRailProps {
@@ -81,16 +81,14 @@ function CallRow({
   isLatest,
   href,
 }: CallRowProps): ReactNode {
-  const syntheticEvent = entry.syntheticEvent ?? null;
-  const isSynthetic = syntheticEvent !== null;
-  const subtitle = isSynthetic
-    ? syntheticEventLabel(syntheticEvent)
-    : (buildCallSubtitle(entry) ?? "Unrecognized call");
+  const isSynthetic = isSyntheticAgentErrorMessage(entry);
+  const subtitle = buildCallSubtitle(entry) ?? "Unrecognized call";
 
   // Synthetic rows (e.g. budget_yield_unrecovered) represent agent-loop
-  // events with no LLM call backing them. Render with a warning-tinted
-  // border + icon so Vargas can spot a yield in the rail at a glance,
-  // while still occupying a numbered call slot (his "Call 52" framing).
+  // error messages with no LLM call backing them. Render with a
+  // warning-tinted border + icon so a yielded turn is spottable in the
+  // rail at a glance, while still occupying a numbered call slot so the
+  // "Call N" framing stays consistent with the rest of the conversation.
   const borderColor = isSelected
     ? "var(--border-active)"
     : isSynthetic
@@ -156,7 +154,21 @@ function CallRow({
   );
 }
 
+function isSyntheticAgentErrorMessage(entry: LLMRequestLogEntry): boolean {
+  return entry.callSite === SYNTHETIC_AGENT_ERROR_MESSAGE_CALL_SITE;
+}
+
+/**
+ * Single source of truth for a rail row's subtitle. For real LLM calls
+ * this is `provider · model`; for synthetic error-message rows it's a
+ * recognizable phrase derived from the `agentLoopExitReason` column.
+ * Returns `null` when the row has neither — caller renders a generic
+ * "Unrecognized call" string.
+ */
 function buildCallSubtitle(entry: LLMRequestLogEntry): string | null {
+  if (isSyntheticAgentErrorMessage(entry)) {
+    return syntheticErrorSubtitle(entry.agentLoopExitReason ?? null);
+  }
   const provider = displayProvider(entry.summary?.provider ?? null);
   const model = entry.summary?.model ? displayText(entry.summary.model) : null;
   const parts = [provider !== MISSING_VALUE ? provider : null, model].filter(
@@ -166,21 +178,19 @@ function buildCallSubtitle(entry: LLMRequestLogEntry): string | null {
 }
 
 /**
- * Short human label for the rail row's subtitle when the entry is a
- * synthetic agent-loop event. Maps each `kind` to a recognizable phrase
- * so the rail makes sense at a glance — distinct from the Overview tab,
- * which renders the full user-visible notice text.
+ * Maps the stamped `agent_loop_exit_reason` on a synthetic row to a
+ * recognizable rail subtitle. New exit reasons added in the future
+ * (out_of_funds, …) get their own branch here — the fallback keeps the
+ * row rendering with the raw reason instead of a blank subtitle.
  */
-function syntheticEventLabel(event: SyntheticCallEvent): string {
-  switch (event.kind) {
-    case "agentLoopYield":
-      return event.exitReason === "budget_yield_unrecovered"
-        ? "Yield · compaction couldn't fit next step"
-        : `Yield · ${event.exitReason || "agent loop"}`;
-    default: {
-      // Exhaustiveness check — TS narrows `event.kind` to `never` here.
-      const _exhaustive: never = event.kind;
-      return _exhaustive;
-    }
+function syntheticErrorSubtitle(exitReason: string | null): string {
+  switch (exitReason) {
+    case "budget_yield_unrecovered":
+      return "Yield · compaction couldn't fit next step";
+    case null:
+    case "":
+      return "Agent loop error";
+    default:
+      return `Agent loop error · ${exitReason}`;
   }
 }

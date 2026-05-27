@@ -477,12 +477,12 @@ describe("GET /v1/messages/:id/llm-context — agentLoopExitReason", () => {
   });
 });
 
-describe("GET /v1/messages/:id/llm-context — syntheticEvent", () => {
+describe("GET /v1/messages/:id/llm-context — synthetic call_site projection", () => {
   beforeEach(() => {
     clearTables();
   });
 
-  test("projects callSite and syntheticEvent for an agentLoopYield row", async () => {
+  test("projects callSite='syntheticAgentErrorMessage' and the stamped exit reason for a synthetic row", async () => {
     const messageId = "msg-yield";
     seedConversationAndMessage({
       conversationId: "conv-1",
@@ -490,9 +490,11 @@ describe("GET /v1/messages/:id/llm-context — syntheticEvent", () => {
       source: "user",
       conversationType: "standard",
     });
-    // Mirror what `recordAgentLoopYieldLog` writes: synthetic payload in
-    // requestPayload, `call_site = "agentLoopYield"`, exit reason stamped
-    // at insert time.
+    // Mirror what `recordSyntheticAgentErrorMessageLog` writes: synthetic
+    // envelope in BOTH payload columns (request = prepared LLM body the
+    // loop was about to send; response = the notice text the user saw),
+    // `call_site = "syntheticAgentErrorMessage"`, exit reason stamped at
+    // insert time.
     getDb()
       .insert(llmRequestLogs)
       .values({
@@ -501,14 +503,21 @@ describe("GET /v1/messages/:id/llm-context — syntheticEvent", () => {
         messageId,
         provider: null,
         requestPayload: JSON.stringify({
-          syntheticEventKind: "agentLoopYield",
-          exitReason: "budget_yield_unrecovered",
-          userMessageText: "I tried to compact but couldn't fit the next step.",
+          syntheticAgentErrorMessage: {
+            exitReason: "budget_yield_unrecovered",
+            preparedRequest: { messages: [], maxInputTokensBudget: 200000 },
+          },
         }),
-        responsePayload: "",
+        responsePayload: JSON.stringify({
+          syntheticAgentErrorMessage: {
+            exitReason: "budget_yield_unrecovered",
+            noticeText:
+              "I tried to compact this but couldn't fit the next step.",
+          },
+        }),
         createdAt: 1_700_000_000_000,
         agentLoopExitReason: "budget_yield_unrecovered",
-        callSite: "agentLoopYield",
+        callSite: "syntheticAgentErrorMessage",
       })
       .run();
 
@@ -516,27 +525,20 @@ describe("GET /v1/messages/:id/llm-context — syntheticEvent", () => {
       logs: Array<{
         id: string;
         callSite: string | null;
-        syntheticEvent: {
-          kind: string;
-          exitReason: string;
-          userMessageText: string;
-        } | null;
         agentLoopExitReason: string | null;
       }>;
     };
 
     expect(body.logs).toHaveLength(1);
     const row = body.logs[0]!;
-    expect(row.callSite).toBe("agentLoopYield");
+    expect(row.callSite).toBe("syntheticAgentErrorMessage");
     expect(row.agentLoopExitReason).toBe("budget_yield_unrecovered");
-    expect(row.syntheticEvent).toEqual({
-      kind: "agentLoopYield",
-      exitReason: "budget_yield_unrecovered",
-      userMessageText: "I tried to compact but couldn't fit the next step.",
-    });
+    // Frontend branches on `callSite` alone — no separate syntheticEvent
+    // field needs to be projected.
+    expect(row).not.toHaveProperty("syntheticEvent");
   });
 
-  test("leaves syntheticEvent null on regular mainAgent rows", async () => {
+  test("projects callSite='mainAgent' for regular LLM-call rows", async () => {
     const messageId = "msg-regular";
     seedConversationAndMessage({
       conversationId: "conv-1",
@@ -564,55 +566,12 @@ describe("GET /v1/messages/:id/llm-context — syntheticEvent", () => {
       logs: Array<{
         id: string;
         callSite: string | null;
-        syntheticEvent: unknown;
       }>;
     };
 
     expect(body.logs[0]!.callSite).toBe("mainAgent");
-    expect(body.logs[0]!.syntheticEvent).toBeNull();
-  });
-
-  test("degrades to an empty-text synthetic event when the payload is malformed", async () => {
-    // Defensive path: a synthetic row with a non-JSON request payload
-    // (e.g. hand-edited or corrupted by a migration) should still render
-    // in the rail, falling back to the stamped exit reason.
-    const messageId = "msg-yield-malformed";
-    seedConversationAndMessage({
-      conversationId: "conv-1",
-      messageId,
-      source: "user",
-      conversationType: "standard",
-    });
-    getDb()
-      .insert(llmRequestLogs)
-      .values({
-        id: "log-malformed",
-        conversationId: "conv-1",
-        messageId,
-        provider: null,
-        requestPayload: "not-json",
-        responsePayload: "",
-        createdAt: 1_700_000_000_000,
-        agentLoopExitReason: "budget_yield_unrecovered",
-        callSite: "agentLoopYield",
-      })
-      .run();
-
-    const body = (await dispatchLlmContext(messageId)) as {
-      logs: Array<{
-        syntheticEvent: {
-          kind: string;
-          exitReason: string;
-          userMessageText: string;
-        } | null;
-      }>;
-    };
-
-    expect(body.logs[0]!.syntheticEvent).toEqual({
-      kind: "agentLoopYield",
-      exitReason: "budget_yield_unrecovered",
-      userMessageText: "",
-    });
+    // No leftover syntheticEvent projection field on regular rows either.
+    expect(body.logs[0]!).not.toHaveProperty("syntheticEvent");
   });
 });
 
