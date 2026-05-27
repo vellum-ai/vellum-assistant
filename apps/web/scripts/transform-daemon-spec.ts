@@ -35,7 +35,15 @@ const EXCLUDED_PREFIXES = [
   "/v1/btw",
   "/v1/clients",
   "/v1/conversations/cli/",
+  "/v1/debug",
+  "/v1/diagnostics/",
+  "/v1/host-",
+  "/v1/internal/",
   "/v1/migration",
+  "/v1/notification-intent-result",
+  "/v1/profiler/",
+  "/v1/question-response",
+  "/v1/sanity/",
 ];
 
 const EXCLUDED_SEGMENTS = ["/playground/"];
