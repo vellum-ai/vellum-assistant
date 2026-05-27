@@ -107,14 +107,11 @@ function MetricCard({
   );
 }
 
-function AnimatedTokenCard({ icon, label, target }: { icon: ReactNode; label: string; target: number }) {
+function AnimatedMetricCard({ icon, label, target, format }: {
+  icon: ReactNode; label: string; target: number; format: (n: number) => string;
+}) {
   const animated = useAnimatedNumber(target);
-  return <MetricCard icon={icon} label={label} value={formatNumber(Math.round(animated))} />;
-}
-
-function AnimatedCostCard({ icon, label, target }: { icon: ReactNode; label: string; target: number }) {
-  const animated = useAnimatedNumber(target);
-  return <MetricCard icon={icon} label={label} value={formatCost(animated)} />;
+  return <MetricCard icon={icon} label={label} value={format(animated)} />;
 }
 
 // ---------------------------------------------------------------------------
@@ -199,19 +196,22 @@ export function SubagentDetailPanel({
       <div className="flex-1 overflow-y-auto px-5 py-5">
         {/* Metrics row */}
         <div className="mb-5 grid grid-cols-3 gap-3">
-          <AnimatedTokenCard
+          <AnimatedMetricCard
             icon={<ArrowDownToLine className="h-4 w-4 shrink-0" style={{ color: "var(--content-secondary)" }} />}
             target={entry.inputTokens}
+            format={(n) => formatNumber(Math.round(n))}
             label="Input"
           />
-          <AnimatedTokenCard
+          <AnimatedMetricCard
             icon={<ArrowUpFromLine className="h-4 w-4 shrink-0" style={{ color: "var(--content-secondary)" }} />}
             target={entry.outputTokens}
+            format={(n) => formatNumber(Math.round(n))}
             label="Output"
           />
-          <AnimatedCostCard
+          <AnimatedMetricCard
             icon={<DollarSign className="h-4 w-4 shrink-0" style={{ color: "var(--content-secondary)" }} />}
             target={entry.totalCost}
+            format={formatCost}
             label="Cost"
           />
         </div>
