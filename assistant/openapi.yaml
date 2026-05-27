@@ -460,8 +460,30 @@ paths:
                 properties:
                   apps:
                     type: array
-                    items: {}
-                    description: Array of app summary objects
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                        description:
+                          type: string
+                        icon:
+                          type: string
+                        createdAt:
+                          type: number
+                        version:
+                          type: string
+                        contentId:
+                          type: string
+                      required:
+                        - id
+                        - name
+                        - createdAt
+                        - version
+                        - contentId
+                      additionalProperties: false
                 required:
                   - apps
                 additionalProperties: false
@@ -695,7 +717,20 @@ paths:
                     type: string
                   versions:
                     type: array
-                    items: {}
+                    items:
+                      type: object
+                      properties:
+                        commitHash:
+                          type: string
+                        message:
+                          type: string
+                        timestamp:
+                          type: number
+                      required:
+                        - commitHash
+                        - message
+                        - timestamp
+                      additionalProperties: false
                 required:
                   - appId
                   - versions
@@ -1038,9 +1073,61 @@ paths:
                 type: object
                 properties:
                   gallery:
-                    type: array
-                    items: {}
-                    description: Gallery app entries
+                    type: object
+                    properties:
+                      version:
+                        type: number
+                      updatedAt:
+                        type: string
+                      categories:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            name:
+                              type: string
+                            icon:
+                              type: string
+                          required:
+                            - id
+                            - name
+                            - icon
+                          additionalProperties: false
+                      apps:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            name:
+                              type: string
+                            description:
+                              type: string
+                            icon:
+                              type: string
+                            category:
+                              type: string
+                            version:
+                              type: string
+                            featured:
+                              type: boolean
+                          required:
+                            - id
+                            - name
+                            - description
+                            - icon
+                            - category
+                            - version
+                          additionalProperties: false
+                    required:
+                      - version
+                      - updatedAt
+                      - categories
+                      - apps
+                    additionalProperties: false
                 required:
                   - gallery
                 additionalProperties: false
@@ -1258,8 +1345,43 @@ paths:
                 properties:
                   apps:
                     type: array
-                    items: {}
-                    description: Array of shared app objects
+                    items:
+                      type: object
+                      properties:
+                        uuid:
+                          type: string
+                        name:
+                          type: string
+                        description:
+                          type: string
+                        icon:
+                          type: string
+                        preview:
+                          type: string
+                        entry:
+                          type: string
+                        trustTier:
+                          type: string
+                        signerDisplayName:
+                          type: string
+                        bundleSizeBytes:
+                          type: number
+                        installedAt:
+                          type: string
+                        version:
+                          type: string
+                        contentId:
+                          type: string
+                        forked:
+                          type: boolean
+                      required:
+                        - uuid
+                        - name
+                        - entry
+                        - trustTier
+                        - bundleSizeBytes
+                        - installedAt
+                      additionalProperties: false
                 required:
                   - apps
                 additionalProperties: false
@@ -7701,8 +7823,29 @@ paths:
                 properties:
                   documents:
                     type: array
-                    items: {}
-                    description: Document summary objects
+                    items:
+                      type: object
+                      properties:
+                        surfaceId:
+                          type: string
+                        conversationId:
+                          type: string
+                        title:
+                          type: string
+                        wordCount:
+                          type: number
+                        createdAt:
+                          type: number
+                        updatedAt:
+                          type: number
+                      required:
+                        - surfaceId
+                        - conversationId
+                        - title
+                        - wordCount
+                        - createdAt
+                        - updatedAt
+                      additionalProperties: false
                 required:
                   - documents
                 additionalProperties: false
