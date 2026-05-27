@@ -44,6 +44,7 @@ import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation";
 import { setTranscriptScrollControllerEnabled } from "@/domains/chat/transcript/transcript-scroll-flag";
+import { setImpersonatedAssistantVersion } from "@/lib/backwards-compat/impersonate-version-flag";
 import {
   classifyScrollPosition,
   type TranscriptHandle,
@@ -704,6 +705,18 @@ export interface VellumDebugFlagsApi {
    *  Persists to localStorage and reloads the page. Pass `true`/`false`
    *  to force a specific value; omit to flip the current value. */
   toggleTranscriptScrollController(value?: boolean): boolean;
+  /** Override the assistant's reported version for every version-gated
+   *  code path in the web client (the wire-field cutover, the
+   *  server-mint gate, `useAssistantSupports`, …). Persists to
+   *  localStorage and reloads.
+   *
+   *  - `impersonateVersion("0.8.6")` — set to that version + reload.
+   *  - `impersonateVersion(null)`    — clear override + reload.
+   *  - `impersonateVersion()`        — log + return current value
+   *    (no reload, no mutation).
+   *
+   *  Returns the value in effect after the call. */
+  impersonateVersion(value?: string | null): string | null;
 }
 
 interface VellumDebugRoot extends Record<string, unknown> {
@@ -730,9 +743,9 @@ declare global {
  *   - `api` — the full `@vellumai/assistant-api` namespace, so a developer
  *     can pull canonical SSE schemas (`RelationshipStateUpdatedEventSchema`, …)
  *     out of the shipped bundle from the console.
- *   - `flags` — dev-toggleable feature flags (currently:
- *     `toggleTranscriptScrollController`). Stable singleton; pure
- *     module exports backed by localStorage.
+ *   - `flags` — dev-toggleable feature flags
+ *     (`toggleTranscriptScrollController`, `impersonateVersion`).
+ *     Stable singleton; pure module exports backed by localStorage.
  *
  * Consolidating these into one installer guarantees they're set at the
  * same time and torn down together, so DevTools never sees one namespace
@@ -820,6 +833,7 @@ export function useChatDebugApi(refs: ChatDebugRefs): void {
     const api = createChatDebugApi(stableRefs);
     const flagsApi: VellumDebugFlagsApi = {
       toggleTranscriptScrollController: setTranscriptScrollControllerEnabled,
+      impersonateVersion: setImpersonatedAssistantVersion,
     };
     const uninstall = installVellumDebugApi(api, flagsApi);
     return uninstall;

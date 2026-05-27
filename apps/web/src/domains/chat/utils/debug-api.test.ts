@@ -697,13 +697,17 @@ type DebugWindow = Window & {
   _vellumDebug?: {
     chat?: unknown;
     events?: { getClients: unknown; getEvents: unknown };
-    flags?: { toggleTranscriptScrollController?: (v?: boolean) => boolean };
+    flags?: {
+      toggleTranscriptScrollController?: (v?: boolean) => boolean;
+      impersonateVersion?: (v?: string | null) => string | null;
+    };
     other?: unknown;
   };
 };
 
 const makeFlagsApi = () => ({
   toggleTranscriptScrollController: (_value?: boolean): boolean => false,
+  impersonateVersion: (_value?: string | null): string | null => null,
 });
 
 describe("installVellumDebugApi", () => {
@@ -719,6 +723,7 @@ describe("installVellumDebugApi", () => {
     expect(typeof root?.flags?.toggleTranscriptScrollController).toBe(
       "function",
     );
+    expect(typeof root?.flags?.impersonateVersion).toBe("function");
     uninstall();
   });
 
