@@ -213,6 +213,31 @@ describe("ToolProgressCardShell — headerActionSlot", () => {
     expect(queryByTestId("tool-progress-card-action-slot")).toBeNull();
   });
 
+  test("reserves header space (pr-[88px]) on the title cluster only when an action slot is present", () => {
+    // With an action slot, the title/info cluster gets right-padding so the
+    // helper text truncates to the left of the absolutely-positioned slot
+    // instead of painting under it.
+    const withSlot = renderShell({
+      headerActionSlot: (
+        <button data-testid="action-button" type="button">
+          stop
+        </button>
+      ),
+    });
+    const slotted = withSlot.container.querySelector(".pr-\\[88px\\]");
+    expect(slotted).not.toBeNull();
+    // The reserved-space cluster keeps min-w-0 so the inner truncate applies.
+    expect(slotted?.className).toContain("min-w-0");
+    cleanup();
+
+    // Without an action slot, no extra padding is applied — other tool cards
+    // (web search, skills) stay visually unchanged.
+    const withoutSlot = renderShell();
+    expect(
+      withoutSlot.container.querySelector(".pr-\\[88px\\]"),
+    ).toBeNull();
+  });
+
   test("action-slot children are NOT nested inside the toggle button", () => {
     // Regression guard for the nested-<button> HTML invalidity. The action
     // slot must render as a sibling of the toggle Button, not a descendant.

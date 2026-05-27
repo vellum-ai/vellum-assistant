@@ -1,4 +1,4 @@
-function SkeletonBar({ className }: { className?: string }) {
+export function SkeletonBar({ className }: { className?: string }) {
   return (
     <div
       className={`animate-pulse rounded bg-[var(--surface-active)] ${className ?? ""}`}

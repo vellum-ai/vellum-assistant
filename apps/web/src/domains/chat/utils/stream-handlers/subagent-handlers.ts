@@ -13,6 +13,7 @@ export function handleSubagentSpawned(
     isFork: event.isFork,
     timestamp: Date.now(),
     parentMessageStableId: ctx.currentAssistantMessageIdRef.current,
+    parentToolUseId: event.parentToolUseId,
   });
 }
 
