@@ -141,10 +141,27 @@ export function parseAssistantEvent(
   // type it covers — when a member matches the `type` discriminator
   // and the shape validates, the parser is done. The schema sees the
   // pure inner message (no envelope merge) so strict shapes stay
-  // strict: the envelope-level conversationId is a routing key, not
-  // an event field, and never leaks onto strict-schema events.
+  // strict: for events whose wire contract doesn't declare
+  // `conversationId` (e.g. `relationship_state_updated`), the
+  // envelope-level routing key never leaks onto the parsed event.
   const schemaResult = AssistantEventSchema.safeParse(inner);
-  if (schemaResult.success) return schemaResult.data as AssistantEvent;
+  if (schemaResult.success) {
+    const parsed = schemaResult.data as AssistantEvent;
+    // For conversation-scoped events whose schemas declare
+    // `conversationId` as optional, graft the envelope routing key
+    // when the daemon didn't put one on the inner message. The
+    // schema is the wire contract (daemon emit shape); the parser
+    // augments with transport metadata so downstream filters (per-
+    // conversation SSE handlers, defense-in-depth gates) can route.
+    if (
+      envelopeConversationId &&
+      isConversationScopedStreamEvent(parsed) &&
+      !("conversationId" in parsed && typeof parsed.conversationId === "string")
+    ) {
+      return { ...parsed, conversationId: envelopeConversationId };
+    }
+    return parsed;
+  }
 
   // Legacy fallback. Merge the envelope conversationId in so legacy
   // case bodies just read `data.conversationId` — daemon emit sites
@@ -276,22 +293,6 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
         ...(typeof data.statusText === "string"
           ? { statusText: data.statusText }
           : {}),
-      };
-    }
-
-    case "open_url": {
-      const url = typeof data.url === "string" ? data.url : "";
-      if (!url) {
-        return unknownEvent(rawType, data);
-      }
-      return {
-        type: "open_url",
-        url,
-        title: typeof data.title === "string" ? data.title : undefined,
-        conversationId:
-          typeof data.conversationId === "string"
-            ? data.conversationId
-            : undefined,
       };
     }
 

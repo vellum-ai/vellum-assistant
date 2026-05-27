@@ -1241,6 +1241,41 @@ describe("envelope format parsing", () => {
     });
     expect("conversationId" in event).toBe(false);
   });
+
+  test("envelope-level conversationId is grafted onto schema-parsed conversation-scoped events", () => {
+    // open_url is a conversation-scoped event covered by the canonical
+    // schema. The daemon emits `{ type, url, title? }` with no
+    // conversationId on the inner; the SSE pipe attaches the routing
+    // key at the envelope level. The parser must graft it back onto
+    // the typed event so downstream per-conversation filters see it.
+    const event = parseAssistantEvent({
+      conversationId: "conv-from-envelope",
+      message: {
+        type: "open_url",
+        url: "https://example.com/oauth",
+        title: "Connect Google",
+      },
+    });
+    expect(event).toEqual({
+      type: "open_url",
+      url: "https://example.com/oauth",
+      title: "Connect Google",
+      conversationId: "conv-from-envelope",
+    });
+  });
+
+  test("inner-supplied conversationId wins over envelope on schema-parsed events", () => {
+    const event = parseAssistantEvent({
+      conversationId: "envelope-conv",
+      message: {
+        type: "open_url",
+        url: "https://example.com/oauth",
+        conversationId: "inner-conv",
+      },
+    });
+    if (event.type !== "open_url") throw new Error("expected open_url");
+    expect(event.conversationId).toBe("inner-conv");
+  });
 });
 
 // ---------------------------------------------------------------------------
