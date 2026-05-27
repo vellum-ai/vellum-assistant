@@ -1,12 +1,14 @@
 /**
  * Test definition — directory layout describing what the harness runs.
  *
- * Each test lives at `tests/<id>/` with:
+ * Each test lives at `benchmarks/personal-intelligence/tests/<id>/` with:
  *   - `SPEC.md`  — markdown briefing for the simulator agent.
  *   - `setup.ts` — optional deterministic setup commands.
  *   - `metrics/` — directory of `.ts` files. Each file exports a scorer.
  *
- * The test id is the directory name.
+ * The test id is the directory name. The on-disk root is resolved via
+ * `getTestsDir()` so a future `--benchmark` flag (or env override) can
+ * point at a different benchmark's units.
  */
 import { readdir, stat } from "node:fs/promises";
 import { assertSafeId, getTestsDir, resolveUnder } from "./catalog";
@@ -14,15 +16,15 @@ import { assertSafeId, getTestsDir, resolveUnder } from "./catalog";
 import type { TestSetupCommand } from "./setup-command";
 
 export interface TestDef {
-  /** Directory name under `tests/`. */
+  /** Directory name under the benchmark's `tests/` root. */
   id: string;
-  /** Absolute path to `tests/<id>/SPEC.md`. */
+  /** Absolute path to `<benchmark>/tests/<id>/SPEC.md`. */
   specPath: string;
-  /** Absolute path to optional `tests/<id>/setup.ts`. */
+  /** Absolute path to optional `<benchmark>/tests/<id>/setup.ts`. */
   setupPath: string;
   /** Deterministic commands run before the simulator starts. */
   setupCommands: TestSetupCommand[];
-  /** Absolute path to `tests/<id>/metrics/` — may be empty or absent. */
+  /** Absolute path to `<benchmark>/tests/<id>/metrics/` — may be empty or absent. */
   metricsDir: string;
   /** Absolute paths to each `.ts` file in the metrics directory, sorted. */
   metricPaths: string[];

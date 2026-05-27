@@ -7,7 +7,14 @@ const SAFE_ID = /^[a-z0-9][a-z0-9-]*$/;
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_PROFILES_DIR = join(HERE, "..", "..", "profiles");
-const DEFAULT_TESTS_DIR = join(HERE, "..", "..", "tests");
+const DEFAULT_TESTS_DIR = join(
+  HERE,
+  "..",
+  "..",
+  "benchmarks",
+  "personal-intelligence",
+  "tests",
+);
 
 export function getProfilesDir(): string {
   return process.env.EVALS_PROFILES_DIR ?? DEFAULT_PROFILES_DIR;
