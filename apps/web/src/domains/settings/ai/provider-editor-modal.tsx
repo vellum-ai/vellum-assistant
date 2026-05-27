@@ -3,7 +3,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@vellum/design-library/components/button";
 import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { Input } from "@vellum/design-library/components/input";
-import { Toggle } from "@vellum/design-library/components/toggle";
 import { Modal } from "@vellum/design-library/components/modal";
 import { Typography } from "@vellum/design-library/components/typography";
 import { ChevronRight, Loader2 } from "lucide-react";
@@ -11,7 +10,6 @@ import { ChevronRight, Loader2 } from "lucide-react";
 import {
   type Auth,
   type ConnectionProvider,
-  type ConnectionStatus,
   type CreateConnectionInput,
   type CredentialEntry,
   PROVIDER_DISPLAY_NAMES,
@@ -124,9 +122,6 @@ export function ProviderEditorContent({
     if (!connection) return `credential/anthropic/api_key`;
     return "";
   });
-  const [status, setStatus] = useState<ConnectionStatus>(
-    connection?.status ?? "active",
-  );
   const [baseUrl, setBaseUrl] = useState(connection?.baseUrl ?? "");
   const [connectionModels, setConnectionModels] = useState<string>(() => {
     if (connection?.models) {
@@ -241,7 +236,6 @@ export function ProviderEditorContent({
           name: "chatgpt-subscription",
           provider: "openai",
           auth: { type: "oauth_subscription", credential: "credential/openai/chatgpt-subscription" },
-          status: "active",
           label: "ChatGPT Subscription",
           createdAt: Date.now(),
           updatedAt: Date.now(),
@@ -307,7 +301,6 @@ export function ProviderEditorContent({
     } else {
       setCredential("");
     }
-    setStatus(connection?.status ?? "active");
     keyDirty.current = false;
 
     setError(null);
@@ -385,9 +378,6 @@ export function ProviderEditorContent({
     setHasStoredCredential(false);
     setBaseUrl("");
     setConnectionModels("");
-    // New connection starts active by convention; user can toggle off
-    // before saving if they want it disabled.
-    setStatus("active");
     setError(null);
     // Pre-load the credentials list so the Advanced section's dropdown
     // is populated when the user expands it.
@@ -478,7 +468,6 @@ export function ProviderEditorContent({
           provider,
           auth,
           ...(labelValue !== null && { label: labelValue }),
-          ...(status !== "active" && { status }),
           ...(isOpenAICompatible && {
             base_url: baseUrl.trim() || null,
             models: connectionModels.trim()
@@ -494,7 +483,6 @@ export function ProviderEditorContent({
         const input: UpdateConnectionInput = {
           auth,
           label: labelValue,
-          status,
           ...(isOpenAICompatible && {
             base_url: baseUrl.trim() || null,
             models: connectionModels.trim()
@@ -563,7 +551,7 @@ export function ProviderEditorContent({
           {effectiveMode === "create"
             ? "Define a provider and auth configuration for inference routing."
             : isAuthLocked
-              ? `Managed by Vellum — auth is locked, but you can rename or disable "${connection?.name}".`
+              ? `Managed by Vellum — auth is locked, but you can rename "${connection?.name}".`
               : `Editing "${connection?.name}".`}
         </Modal.Description>
       </Modal.Header>
@@ -1024,13 +1012,6 @@ export function ProviderEditorContent({
             ) : null}
           </div>
         )}
-
-        {/* Status — always editable, including for managed connections. */}
-        <Toggle
-          checked={status === "active"}
-          onChange={(v) => setStatus(v ? "active" : "disabled")}
-          label="Active"
-        />
 
         {error && (
           <Typography

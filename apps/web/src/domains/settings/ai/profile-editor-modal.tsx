@@ -56,10 +56,9 @@ export interface ProfileEditorModalProps {
   assistantId: string;
   existingNames: string[];
   /**
-   * Active and disabled provider connections, supplied by the parent
-   * (`ManageProfilesModal`). Used to render the per-provider Connection
-   * sub-dropdown and filter the Provider picker to providers with at
-   * least one active connection.
+   * Provider connections, supplied by the parent (`ManageProfilesModal`).
+   * Used to render the per-provider Connection sub-dropdown and filter the
+   * Provider picker to providers with at least one connection.
    *
    * `undefined` vs `[]` is meaningful:
    * - `undefined` → caller has not yet loaded connections (pre-load
@@ -188,10 +187,9 @@ function ProfileEditorModalInner({
   const [provider, setProvider] = useState(initialValues?.provider ?? "");
   const [model, setModel] = useState(initialValues?.model ?? "");
   // Per-profile provider-connection binding (audit finding #5). Empty string
-  // is the "any active <provider> connection" sentinel — daemon falls back to
-  // its existing first-active dispatch in that case. Snake_case
-  // `provider_connection` on the wire (matches Zod schema in
-  // `assistant/src/config/schemas/llm.ts`).
+  // means no explicit binding — daemon falls back to its first-connection
+  // dispatch in that case. Snake_case `provider_connection` on the wire
+  // (matches Zod schema in `assistant/src/config/schemas/llm.ts`).
   const [providerConnection, setProviderConnection] = useState(
     initialValues?.provider_connection ?? "",
   );
@@ -256,9 +254,7 @@ function ProfileEditorModalInner({
     [openAICompatibleEndpointsEnabled],
   );
 
-  // Derived: only ACTIVE connections matching the currently selected provider
-  // are valid picks. Disabled connections are excluded so users can't bind a
-  // profile to something the daemon would refuse to dispatch through. During
+  // Derived: connections matching the currently selected provider. During
   // pre-load (`connections === undefined`) there's nothing to pick — the
   // Connection sub-dropdown stays hidden until the fetch resolves. Mirrors
   // macOS `availableConnectionsForProvider` filter.
@@ -268,7 +264,6 @@ function ProfileEditorModalInner({
         ? (connections ?? []).filter(
             (c) =>
               c.provider === provider &&
-              c.status === "active" &&
               (openAICompatibleEndpointsEnabled ||
                 c.provider !== OPENAI_COMPATIBLE_PROVIDER),
           )
@@ -276,37 +271,21 @@ function ProfileEditorModalInner({
     [provider, connections, openAICompatibleEndpointsEnabled],
   );
 
-  // Derived: resolve the "Any active" sentinel for openrouter. The daemon
-  // can't dispatch through the sentinel for openrouter connections, so we
-  // resolve it to the first active connection. This is a derived value rather
-  // than state so it works even when connections arrive after mount (pre-load
-  // window where ManageProfilesModal hasn't resolved listConnections yet).
-  const firstActiveConnection = availableConnectionsForProvider[0] as
-    | (typeof availableConnectionsForProvider)[0]
-    | undefined;
-  const resolvedProviderConnection =
-    providerConnection === "" &&
-    provider === "openrouter" &&
-    firstActiveConnection
-      ? firstActiveConnection.name
-      : providerConnection;
-
   // Derived: providers to show in the Provider dropdown. Filter to only
-  // providers with at least one active connection — picking a provider with
-  // zero active connections binds a profile to a route the daemon can't
+  // providers with at least one connection — picking a provider with
+  // zero connections binds a profile to a route the daemon can't
   // dispatch through, leaving the user stuck. The currently-bound `provider`
   // is always kept in the list so editing/viewing a stale profile (whose
-  // connection was disabled after the binding was saved) still renders
+  // connection was deleted after the binding was saved) still renders
   // a sensible trigger.
   const visibleProviders = useMemo(() => {
-    const activeProviderSet = new Set<string>();
+    const providerSet = new Set<string>();
     for (const c of connections ?? []) {
       if (
-        c.status === "active" &&
-        (openAICompatibleEndpointsEnabled ||
-          c.provider !== OPENAI_COMPATIBLE_PROVIDER)
+        openAICompatibleEndpointsEnabled ||
+        c.provider !== OPENAI_COMPATIBLE_PROVIDER
       ) {
-        activeProviderSet.add(c.provider);
+        providerSet.add(c.provider);
       }
     }
     if (
@@ -314,9 +293,9 @@ function ProfileEditorModalInner({
       (openAICompatibleEndpointsEnabled ||
         provider !== OPENAI_COMPATIBLE_PROVIDER)
     ) {
-      activeProviderSet.add(provider);
+      providerSet.add(provider);
     }
-    return allProvidersForPicker.filter((p) => activeProviderSet.has(p));
+    return allProvidersForPicker.filter((p) => providerSet.has(p));
   }, [
     allProvidersForPicker,
     connections,
@@ -335,9 +314,9 @@ function ProfileEditorModalInner({
   const providerOptionsSource =
     connections === undefined ? allProvidersForPicker : visibleProviders;
 
-  // Derived: saved binding no longer points at any active connection. Either
-  // the connection was deleted or disabled out from under the profile. We
-  // surface a warning AND auto-clear the binding on save so the user can re-pick
+  // Derived: saved binding no longer points at any known connection. Either
+  // the connection was deleted out from under the profile. We surface a
+  // warning AND auto-clear the binding on save so the user can re-pick
   // rather than silently re-persisting a broken binding. Mirrors macOS "Not
   // found" badge — and goes one step further by ensuring the stale value
   // doesn't survive an opens-and-saves round-trip.
@@ -346,11 +325,10 @@ function ProfileEditorModalInner({
     !availableConnectionsForProvider.some((c) => c.name === providerConnection);
 
   // Show the Connection field whenever there's something meaningful to show:
-  //  - matching active connections to pick from, OR
+  //  - matching connections to pick from, OR
   //  - a non-empty saved binding (so the user can see + clear stale state).
-  // Otherwise hide — there's nothing for the user to act on and the daemon's
-  // first-active fallback applies. Provider must be selected; without it
-  // we can't filter or label.
+  // Otherwise hide — there's nothing for the user to act on. Provider must
+  // be selected; without it we can't filter or label.
   const showConnectionField =
     provider !== "" &&
     (availableConnectionsForProvider.length > 0 ||
@@ -382,15 +360,17 @@ function ProfileEditorModalInner({
     if (newProvider === provider) return;
     setProvider(newProvider);
     setModel("");
-    // Default to the first active connection for openrouter — the "Any active"
-    // sentinel doesn't resolve correctly for openrouter connections.
-    const firstActiveForProvider =
-      newProvider === "openrouter"
-        ? (connections ?? []).find(
-            (c) => c.provider === newProvider && c.status === "active",
-          )
-        : undefined;
-    setProviderConnection(firstActiveForProvider?.name ?? "");
+    // Auto-select connection: if exactly one connection exists for the new
+    // provider, select it automatically. If multiple exist, clear so the user
+    // must pick. If zero, clear.
+    const connectionsForProvider = (connections ?? []).filter(
+      (c) => c.provider === newProvider,
+    );
+    setProviderConnection(
+      connectionsForProvider.length === 1
+        ? connectionsForProvider[0].name
+        : "",
+    );
     // Reset all advanced params when provider changes
     setMaxTokens(null);
     setContextWindowMaxInputTokens(null);
@@ -487,11 +467,17 @@ function ProfileEditorModalInner({
       const entry: ProfileEntry = {};
       // Stale bindings are auto-cleared on save (audit finding #5, P1
       // feedback from Codex/Devin on PR #6418): if the saved
-      // provider_connection doesn't match any active connection for the
+      // provider_connection doesn't match any known connection for the
       // current provider, opening-and-saving the profile would silently
-      // re-persist the broken binding. Treat it as cleared instead so the
-      // daemon falls back to its first-active dispatch.
-      const effectiveBinding = connectionNotFound ? "" : resolvedProviderConnection;
+      // re-persist the broken binding. Treat it as cleared instead.
+      // Also: when providerConnection is empty and there's exactly one
+      // available connection, resolve to that connection's name so profiles
+      // always persist with an explicit binding.
+      const resolvedBinding =
+        providerConnection === "" && availableConnectionsForProvider.length === 1
+          ? availableConnectionsForProvider[0].name
+          : providerConnection;
+      const effectiveBinding = connectionNotFound ? "" : resolvedBinding;
       if (effectiveMode === "edit") {
         // In edit mode send null for cleared fields so the server deep-merges
         // them as cleared rather than silently preserving the old value.
@@ -562,7 +548,7 @@ function ProfileEditorModalInner({
 
   // For openai-compatible providers the static catalog is empty — use models
   // from the selected connection instead. When no specific connection is
-  // selected, merge models from all active openai-compatible connections.
+  // selected, merge models from all available openai-compatible connections.
   const availableModels: readonly { id: string; displayName: string }[] = useMemo(() => {
     if (!provider) return [];
     if (
@@ -573,8 +559,8 @@ function ProfileEditorModalInner({
     }
     const catalogModels = getModelsForProvider(provider);
     if (catalogModels.length > 0) {
-      const selectedConn = resolvedProviderConnection
-        ? availableConnectionsForProvider.find((c) => c.name === resolvedProviderConnection)
+      const selectedConn = providerConnection
+        ? availableConnectionsForProvider.find((c) => c.name === providerConnection)
         : undefined;
       if (selectedConn?.auth.type === "oauth_subscription") {
         return catalogModels.filter((m) => CODEX_SUBSCRIPTION_MODEL_IDS.has(m.id));
@@ -587,11 +573,11 @@ function ProfileEditorModalInner({
         id: m.id,
         displayName: m.displayName ?? m.id,
       }));
-    if (resolvedProviderConnection) {
-      const conn = availableConnectionsForProvider.find((c) => c.name === resolvedProviderConnection);
+    if (providerConnection) {
+      const conn = availableConnectionsForProvider.find((c) => c.name === providerConnection);
       return conn ? connectionModelsToCatalog(conn.models) : [];
     }
-    // No specific connection: merge models from all active connections,
+    // No specific connection: merge models from all available connections,
     // deduplicating by id.
     const seen = new Set<string>();
     const merged: { id: string; displayName: string }[] = [];
@@ -607,7 +593,7 @@ function ProfileEditorModalInner({
   }, [
     provider,
     openAICompatibleEndpointsEnabled,
-    resolvedProviderConnection,
+    providerConnection,
     availableConnectionsForProvider,
   ]);
 
@@ -709,7 +695,7 @@ function ProfileEditorModalInner({
               was removed because the inherit pathway encouraged accidental
               fallbacks to the global default model, defeating the point of
               named profiles. The picker is filtered to providers with at
-              least one active connection (see `visibleProviders` above) so
+              least one connection (see `visibleProviders` above) so
               users can't bind a profile to a route the daemon can't
               dispatch through. */}
           <div className="space-y-1">
@@ -743,15 +729,15 @@ function ProfileEditorModalInner({
                 as="p"
                 className="text-[var(--content-tertiary)]"
               >
-                No active provider connections. Open Providers to add or enable one.
+                No provider connections. Open Providers to add one.
               </Typography>
             ) : null}
           </div>
 
-          {/* Connection — visible when (a) active connections match the
+          {/* Connection — visible when (a) connections match the
               selected provider, OR (b) a non-empty saved binding exists
               (even if stale, so the user can see + clear it). Hidden
-              otherwise; the daemon falls back to its first-active dispatch. */}
+              otherwise. Provider must be selected. */}
           {showConnectionField && (
             <div className="space-y-1">
               <label className="block text-body-small-default text-[var(--content-tertiary)]">
@@ -759,20 +745,20 @@ function ProfileEditorModalInner({
                 <span className="text-[var(--content-disabled)]">(optional)</span>
               </label>
               <Dropdown
-                value={resolvedProviderConnection}
+                value={providerConnection}
                 onChange={handleConnectionChange}
                 disabled={isReadOnly}
                 options={[
-                  ...(provider === "openrouter"
-                    ? []
-                    : [
+                  ...(availableConnectionsForProvider.length > 1
+                    ? [
                         {
                           value: "",
-                          label: `Any active ${
+                          label: `Any ${
                             INFERENCE_PROVIDER_DISPLAY_NAMES[provider] ?? provider
                           } connection`,
                         },
-                      ]),
+                      ]
+                    : []),
                   ...availableConnectionsForProvider.map((c) => ({
                     value: c.name,
                     label:
@@ -780,9 +766,8 @@ function ProfileEditorModalInner({
                   })),
                   // Include the stale binding as an explicit (disabled-look)
                   // option so the trigger renders its name. The accompanying
-                  // warning below explains the state; selecting "Any active"
-                  // clears the binding. On save, stale bindings are
-                  // auto-cleared regardless.
+                  // warning below explains the state. On save, stale bindings
+                  // are auto-cleared regardless.
                   ...(connectionNotFound
                     ? [
                         {
