@@ -214,7 +214,7 @@ struct ToolPermissionTesterView: View {
                 HStack(spacing: VSpacing.sm) {
                     decisionBadge(result.decision)
 
-                    VTag(result.riskLevel.capitalized, color: riskColor(result.riskLevel))
+                    RiskBadgeView(riskLevel: result.effectiveDisplayLevel)
 
                     if let ruleId = result.matchedTrustRuleId {
                         Text("Rule: \(ruleId)")
@@ -326,12 +326,4 @@ struct ToolPermissionTesterView: View {
         }
     }
 
-    private func riskColor(_ level: String) -> Color {
-        switch level.lowercased() {
-        case "low": return VColor.contentTertiary
-        case "medium": return VColor.systemMidStrong
-        case "high": return VColor.systemNegativeStrong
-        default: return VColor.contentTertiary
-        }
-    }
 }
