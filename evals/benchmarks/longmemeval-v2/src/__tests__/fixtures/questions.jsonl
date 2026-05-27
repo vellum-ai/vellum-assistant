@@ -1,0 +1,3 @@
+{"question_id": "q_001", "question_type": "static-state-recall", "question": "What is the URL of the project settings page?", "answer": "/settings/project", "question_date": "2026-01-15"}
+{"question_id": "q_002", "question_type": "dynamic-state-tracking", "question": "After the bulk import completed, what was the new total record count?", "answer": "12,481"}
+{"question_id": "q_003", "question_type": "workflow-knowledge", "question": "What sequence of clicks creates a new dashboard?", "answer": "Dashboards > New > template > Save", "extra_field_for_passthrough": true}

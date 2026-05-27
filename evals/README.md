@@ -69,12 +69,17 @@ evals/
 │   └── p2/
 │       └── manifest.json
 ├── benchmarks/              # One subdirectory per benchmark
-│   └── personal-intelligence/
+│   ├── personal-intelligence/
+│   │   ├── manifest.json    # displayName + unitDirName + unitNoun
+│   │   └── tests/           # Unit definitions (`unitDirName` per manifest)
+│   │       └── timeline-recall/
+│   │           ├── SPEC.md  # simulator briefing
+│   │           └── metrics/ # (optional) per-metric `.ts` scorers
+│   └── longmemeval-v2/
 │       ├── manifest.json    # displayName + unitDirName + unitNoun
-│       └── tests/           # Unit definitions (`unitDirName` per manifest)
-│           └── timeline-recall/
-│               ├── SPEC.md  # simulator briefing
-│               └── metrics/ # (optional) per-metric `.ts` scorers
+│       ├── data/            # gitignored; populate via `data/download.sh`
+│       ├── items/           # virtual unit dir — items materialized by `src/loader.ts`
+│       └── src/             # benchmark-local code (loader, fixtures, tests)
 ├── .env.example             # API key contract
 ├── package.json
 └── AGENTS.md                # Conventions
