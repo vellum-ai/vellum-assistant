@@ -60,7 +60,8 @@ import {
   stopStreamingAndClearConfirmations,
 } from "@/domains/chat/hooks/send-message-utils";
 import { useMessageQueue } from "@/domains/chat/hooks/use-message-queue";
-import { type Conversation, cancelGeneration } from "@/lib/conversations-api";
+import { conversationsByIdCancelPost } from "@/generated/daemon/sdk.gen";
+import type { Conversation } from "@/lib/conversations-api";
 import { getPendingInteractions } from "@/domains/chat/api/interactions";
 import { type RuntimeMessage, fetchConversationMessages, postChatMessage, pollForResponse } from "@/domains/chat/api/messages";
 import type { ChatEventStream } from "@/domains/chat/api/stream";
@@ -714,7 +715,10 @@ export function useSendMessage({
     confirmationToolCallMapRef.current.clear();
     useConversationStore.getState().removeProcessingConversationId(activeConversationId);
     try {
-      await cancelGeneration(assistantId, activeConversationId);
+      await conversationsByIdCancelPost({
+        path: { assistant_id: assistantId, id: activeConversationId },
+        throwOnError: true,
+      });
     } catch {
       // Best-effort — the daemon may have already finished
     }

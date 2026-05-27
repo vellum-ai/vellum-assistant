@@ -30,29 +30,35 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createElement, type ReactNode } from "react";
 
-import * as conversationsApi from "@/lib/conversations-api";
 import type { Conversation } from "@/lib/conversations-api";
 import { chatContextQueryKey } from "@/lib/sync/query-tags";
 
 // ---------------------------------------------------------------------------
 // Module mocks. Archive/unarchive impls are pulled from module-level holders
-// so each test can inject a deferred or failing implementation. The mock
-// spreads the real module so unrelated consumers in the import graph (group
-// CRUD, sub-agent fetch, conversation-list query, etc.) keep working — we
-// only override the two functions whose timing the hook is responsible for.
+// so each test can inject a deferred or failing implementation.
 // ---------------------------------------------------------------------------
 
-type ApiImpl = (assistantId: string, conversationId: string) => Promise<void>;
+type ArchiveImpl = (opts: { path: { assistant_id: string; id: string }; throwOnError: boolean }) => Promise<{ data: undefined; response: { ok: boolean } }>;
 
-let archiveImpl: ApiImpl = async () => {};
-let unarchiveImpl: ApiImpl = async () => {};
+let archiveImpl: ArchiveImpl = async () => ({ data: undefined, response: { ok: true } });
+let unarchiveImpl: ArchiveImpl = async () => ({ data: undefined, response: { ok: true } });
 
-mock.module("@/lib/conversations-api", () => ({
-  ...conversationsApi,
-  archiveConversation: (assistantId: string, conversationId: string) =>
-    archiveImpl(assistantId, conversationId),
-  unarchiveConversation: (assistantId: string, conversationId: string) =>
-    unarchiveImpl(assistantId, conversationId),
+mock.module("@/generated/daemon/sdk.gen", () => ({
+  conversationsByIdArchivePost: (opts: { path: { assistant_id: string; id: string }; throwOnError: boolean }) =>
+    archiveImpl(opts),
+  conversationsByIdUnarchivePost: (opts: { path: { assistant_id: string; id: string }; throwOnError: boolean }) =>
+    unarchiveImpl(opts),
+  conversationsSeenPost: async () => ({ data: undefined, response: { ok: true } }),
+  conversationsUnreadPost: async () => ({ data: undefined, response: { ok: true } }),
+  conversationsByIdNamePatch: async () => ({ data: undefined, response: { ok: true } }),
+  conversationsReorderPost: async () => ({ data: undefined, response: { ok: true } }),
+  conversationsByIdGet: async () => ({ data: undefined, response: { ok: true } }),
+  groupsByGroupIdDelete: async () => ({ data: undefined, response: { ok: true } }),
+  groupsByGroupIdPatch: async () => ({ data: undefined, response: { ok: true } }),
+  groupsGet: async () => ({ data: { groups: [] }, response: { ok: true } }),
+  groupsPost: async () => ({ data: undefined, response: { ok: true } }),
+  groupsReorderPost: async () => ({ data: undefined, response: { ok: true } }),
+  subagentsByIdGet: async () => ({ data: undefined, response: { ok: true } }),
 }));
 
 // Stub haptics — Capacitor's web shim works fine in a node test environment,
@@ -144,7 +150,7 @@ function readArchived(
 }
 
 /** Manually-controlled promise for staging in-flight API states in tests. */
-function deferred<T = void>() {
+function deferred<T = { data: undefined; response: { ok: boolean } }>() {
   let resolve!: (value: T) => void;
   let reject!: (err: unknown) => void;
   const promise = new Promise<T>((res, rej) => {
@@ -155,8 +161,8 @@ function deferred<T = void>() {
 }
 
 beforeEach(() => {
-  archiveImpl = async () => {};
-  unarchiveImpl = async () => {};
+  archiveImpl = async () => ({ data: undefined, response: { ok: true } });
+  unarchiveImpl = async () => ({ data: undefined, response: { ok: true } });
 });
 
 afterEach(() => {
@@ -184,7 +190,7 @@ describe("handleArchiveConversation — optimistic update", () => {
     // waiting for the network round trip to complete.
     expect(readArchived(client, "conv-1")).toEqual(expect.any(Number));
 
-    d.resolve(undefined);
+    d.resolve({ data: undefined, response: { ok: true } });
     await archivePromise;
 
     // Post-resolution the row stays archived; in production this value
@@ -212,7 +218,7 @@ describe("handleArchiveConversation — optimistic update", () => {
     // The switch fires synchronously, before the network round trip.
     expect(switchCalls).toEqual(["next"]);
 
-    d.resolve(undefined);
+    d.resolve({ data: undefined, response: { ok: true } });
     await archivePromise;
   });
 
@@ -284,7 +290,7 @@ describe("handleUnarchiveConversation — optimistic update", () => {
     // mirroring the archive path.
     expect(readArchived(client, "conv-1")).toBeUndefined();
 
-    d.resolve(undefined);
+    d.resolve({ data: undefined, response: { ok: true } });
     await unarchivePromise;
 
     expect(readArchived(client, "conv-1")).toBeUndefined();

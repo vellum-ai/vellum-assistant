@@ -44,10 +44,10 @@ mock.module("@/domains/conversations/conversation-queries", () => ({
   markConversationSeenLocal: () => {},
 }));
 
-mock.module("@/lib/conversations-api", () => ({
-  markConversationSeen: (assistantId: string, conversationId: string) => {
-    markConversationSeenCalls.push({ assistantId, conversationId });
-    return markConversationSeenImpl();
+mock.module("@/generated/daemon/sdk.gen", () => ({
+  conversationsSeenPost: (opts: { path: { assistant_id: string }; body: { conversationId: string } }) => {
+    markConversationSeenCalls.push({ assistantId: opts.path.assistant_id, conversationId: opts.body.conversationId });
+    return markConversationSeenImpl().then(() => ({ data: undefined, error: undefined, response: { ok: true } }));
   },
 }));
 

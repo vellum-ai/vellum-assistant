@@ -19,7 +19,7 @@ import {
 import type { NavigateFunction } from "react-router";
 
 import type { Conversation } from "@/lib/conversations-api";
-import { analyzeConversation, forkConversation } from "@/lib/conversations-api";
+import { conversationsByIdAnalyzePost, conversationsForkPost } from "@/generated/daemon/sdk.gen";
 import { routes } from "@/utils/routes";
 import { haptic } from "@/utils/haptics";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
@@ -87,13 +87,13 @@ export function useConversationSecondaryActions({
       haptic.light();
 
       try {
-        const { conversationId: newConversationId } = await forkConversation(
-          assistantId,
-          activeConversationId,
-          throughMessageId,
-        );
+        const { data } = await conversationsForkPost({
+          path: { assistant_id: assistantId },
+          body: { conversationId: activeConversationId, throughMessageId },
+          throwOnError: true,
+        });
         refreshConversations();
-        navigateToConversation(newConversationId);
+        navigateToConversation(data.conversation.id);
       } catch (err) {
         Sentry.captureException(err, {
           tags: { context: "fork_conversation" },
@@ -116,12 +116,23 @@ export function useConversationSecondaryActions({
     async (conversation: Conversation) => {
       if (!assistantId) return;
       try {
-        const result = await analyzeConversation(
-          assistantId,
-          conversation.conversationId,
-        );
+        const { data, response } = await conversationsByIdAnalyzePost({
+          path: { assistant_id: assistantId, id: conversation.conversationId },
+          throwOnError: false,
+        });
+        if (!response?.ok) {
+          throw new Error("Failed to analyze conversation.");
+        }
+        const conversationObj =
+          data && typeof data === "object" && !Array.isArray(data)
+            ? (data as { conversation?: { id?: string } }).conversation
+            : undefined;
+        const newConversationId = conversationObj?.id;
+        if (!newConversationId) {
+          throw new Error("Analyze response did not include a conversation id.");
+        }
         await refreshConversations();
-        switchConversation(result.conversationId);
+        switchConversation(newConversationId);
       } catch (err) {
         const message =
           err instanceof Error ? err.message : "Failed to analyze conversation.";

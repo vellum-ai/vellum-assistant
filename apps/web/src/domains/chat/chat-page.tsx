@@ -115,7 +115,8 @@ const CommandPalette = lazy(() =>
   })),
 );
 import { shouldHandleShortcut } from "@/domains/chat/chat-layout";
-import { abortSubagent, fetchSubagentDetail } from "@/lib/conversations-api";
+import { subagentsByIdAbortPost } from "@/generated/daemon/sdk.gen";
+import { fetchSubagentDetail } from "@/lib/conversations-api";
 import { MobileAppOverlay } from "@/domains/chat/components/mobile-app-overlay";
 import { MobileDocumentOverlay } from "@/domains/chat/components/mobile-document-overlay";
 import { MobileSubagentDetailOverlay } from "@/domains/chat/components/mobile-subagent-detail-overlay";
@@ -1593,7 +1594,11 @@ export function ChatPage() {
     onStopSubagent: async (subagentId: string) => {
       if (!assistantId || !activeConversationId) return;
       try {
-        await abortSubagent(assistantId, activeConversationId, subagentId);
+        await subagentsByIdAbortPost({
+          path: { assistant_id: assistantId, id: subagentId },
+          body: { conversationId: activeConversationId },
+          throwOnError: true,
+        });
       } catch {
         // Best-effort — the daemon may have already completed
       }
@@ -1758,7 +1763,11 @@ export function ChatPage() {
               onStop={async (subagentId: string) => {
                 if (!assistantId || !activeConversationId) return;
                 try {
-                  await abortSubagent(assistantId, activeConversationId, subagentId);
+                  await subagentsByIdAbortPost({
+                    path: { assistant_id: assistantId, id: subagentId },
+                    body: { conversationId: activeConversationId },
+                    throwOnError: true,
+                  });
                 } catch {
                   // Best-effort — the daemon may have already completed
                 }
