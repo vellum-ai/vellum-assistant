@@ -22,7 +22,7 @@ import {
 } from "@/stores/event-bus-store";
 
 // ---------------------------------------------------------------------------
-// Module mock — `@/lib/conversations-api`.
+// Module mock — `@/domains/conversations/fetch-conversation-detail`.
 //
 // `refreshConversationRow` (in `conversation-queries.ts`) calls
 // `fetchConversationDetail` to GET the post-mutation row. We spread the
@@ -31,10 +31,10 @@ import {
 // default `fetchConversationDetailImpl` throws so any test that doesn't
 // set up its own impl fails loudly instead of making a real network call.
 // ---------------------------------------------------------------------------
-const realConversationsModule = await import(
-  "@/lib/conversations-api"
+const realFetchDetailModule = await import(
+  "@/domains/conversations/fetch-conversation-detail"
 );
-const { CONVERSATION_NOT_FOUND } = realConversationsModule;
+const { CONVERSATION_NOT_FOUND } = realFetchDetailModule;
 
 let fetchConversationDetailImpl: (
   assistantId: string,
@@ -50,8 +50,8 @@ const fetchConversationDetailCalls: Array<{
   conversationId: string;
 }> = [];
 
-mock.module("@/lib/conversations-api", () => ({
-  ...realConversationsModule,
+mock.module("@/domains/conversations/fetch-conversation-detail", () => ({
+  ...realFetchDetailModule,
   fetchConversationDetail: (assistantId: string, conversationId: string) => {
     fetchConversationDetailCalls.push({ assistantId, conversationId });
     return fetchConversationDetailImpl(assistantId, conversationId);

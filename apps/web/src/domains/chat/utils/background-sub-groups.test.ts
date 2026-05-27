@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 
-import type { Conversation } from "@/lib/conversations-api";
+import type { Conversation } from "@/types/conversation-types";
 import {
   formatBackgroundSubGroupLabel,
   groupBackgroundConversationsBySource,

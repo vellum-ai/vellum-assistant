@@ -10,10 +10,8 @@ import { createElement, useCallback, useMemo, useState } from "react";
 
 import { Dropdown } from "@vellum/design-library";
 
-import {
-  listConversations,
-  type Conversation,
-} from "@/lib/conversations-api";
+import { listConversations } from "@/domains/conversations/conversation-queries";
+import type { Conversation } from "@/types/conversation-types";
 import {
   loadLastViewedConversationId,
   saveLastViewedConversationId,

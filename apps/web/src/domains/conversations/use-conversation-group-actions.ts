@@ -26,7 +26,7 @@ import {
 } from "@/domains/conversations/conversation-queries";
 
 import { haptic } from "@/utils/haptics";
-import type { ConversationGroup } from "@/lib/conversations-api";
+import type { ConversationGroup } from "@/types/conversation-types";
 
 // ---------------------------------------------------------------------------
 // Hook

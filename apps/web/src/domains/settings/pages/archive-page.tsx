@@ -6,10 +6,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Button } from "@vellum/design-library/components/button";
 import { Card } from "@vellum/design-library/components/card";
 import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen";
-import {
-  type Conversation,
-  listConversations,
-} from "@/lib/conversations-api";
+import { listConversations } from "@/domains/conversations/conversation-queries";
+import type { Conversation } from "@/types/conversation-types";
 import { conversationsByIdUnarchivePost } from "@/generated/daemon/sdk.gen";
 import { reportError } from "@/lib/errors/report";
 

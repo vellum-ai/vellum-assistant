@@ -18,7 +18,7 @@ import {
 
 import type { NavigateFunction } from "react-router";
 
-import type { Conversation } from "@/lib/conversations-api";
+import type { Conversation } from "@/types/conversation-types";
 import { conversationsByIdAnalyzePost, conversationsForkPost } from "@/generated/daemon/sdk.gen";
 import { routes } from "@/utils/routes";
 import { haptic } from "@/utils/haptics";

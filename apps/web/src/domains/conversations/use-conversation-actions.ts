@@ -17,7 +17,8 @@ import {
 import { haptic } from "@/utils/haptics";
 
 import { shouldReturnToBackground } from "@/domains/chat/utils/chat-utils";
-import { type Conversation, isBackgroundConversation } from "@/lib/conversations-api";
+import type { Conversation } from "@/types/conversation-types";
+import { isBackgroundConversation } from "@/utils/conversation-predicates";
 
 // ---------------------------------------------------------------------------
 // Helpers — pure functions, no React state

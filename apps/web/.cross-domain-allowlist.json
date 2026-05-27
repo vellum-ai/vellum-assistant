@@ -1,4 +1,7 @@
 {
+  "src/domains/chat/api/conversations.test.ts": [
+    "conversations"
+  ],
   "src/domains/chat/api/messages.ts": [
     "onboarding"
   ],
@@ -154,5 +157,11 @@
   ],
   "src/domains/conversations/use-conversation-loader.ts": [
     "chat"
+  ],
+  "src/domains/logs/components/logs-tab.tsx": [
+    "conversations"
+  ],
+  "src/domains/settings/pages/archive-page.tsx": [
+    "conversations"
   ]
 }

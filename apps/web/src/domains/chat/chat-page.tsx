@@ -118,7 +118,7 @@ const CommandPalette = lazy(() =>
 );
 import { shouldHandleShortcut } from "@/domains/chat/chat-layout";
 import { subagentsByIdAbortPost } from "@/generated/daemon/sdk.gen";
-import { fetchSubagentDetail } from "@/lib/conversations-api";
+import { fetchSubagentDetail } from "@/utils/fetch-subagent-detail";
 import { MobileAppOverlay } from "@/domains/chat/components/mobile-app-overlay";
 import { MobileDocumentOverlay } from "@/domains/chat/components/mobile-document-overlay";
 import { MobileSubagentDetailOverlay } from "@/domains/chat/components/mobile-subagent-detail-overlay";

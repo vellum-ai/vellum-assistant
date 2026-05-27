@@ -36,10 +36,8 @@ import { useConversationHistory } from "@/domains/chat/hooks/use-conversation-hi
 import { useQueryClient } from "@tanstack/react-query";
 
 import { ApiError } from "@/domains/chat/api/client";
-import {
-  type Conversation,
-  isBackgroundConversation,
-} from "@/lib/conversations-api";
+import type { Conversation } from "@/types/conversation-types";
+import { isBackgroundConversation } from "@/utils/conversation-predicates";
 import {
   conversationGroupsQueryKey,
   conversationsQueryKey,

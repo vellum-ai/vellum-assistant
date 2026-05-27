@@ -9,10 +9,11 @@
  * Two queries cover the surface:
  *
  * - **`useConversationListQuery`** — fetches all conversations
- *   (foreground + background) for a given assistant via
- *   `listConversations()`. The cache stores a flat `Conversation[]`
- *   under `conversationsQueryKey(assistantId)`. All sidebar, loader,
- *   and mutation cache-helper consumers read from this single entry.
+ *   (foreground + background) for a given assistant via the generated
+ *   `conversationsGet()` SDK with pagination and deduplication. The
+ *   cache stores a flat `Conversation[]` under
+ *   `conversationsQueryKey(assistantId)`. All sidebar, loader, and
+ *   mutation cache-helper consumers read from this single entry.
  *
  * - **`useConversationGroupsQuery`** — wraps the generated
  *   `groupsGetOptions()`. Mounted conditionally behind the
@@ -28,28 +29,40 @@
  * - https://tanstack.com/query/latest/docs/framework/react/guides/updates-from-mutation-responses
  */
 
+import * as Sentry from "@sentry/browser";
 import { type QueryClient, useQuery } from "@tanstack/react-query";
 
 import {
   groupsGetOptions,
   groupsGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
-import type { Options } from "@/generated/daemon/sdk.gen";
+import {
+  conversationsGet,
+  type Options,
+} from "@/generated/daemon/sdk.gen";
 import type {
   GroupsGetData,
   GroupsGetResponse,
 } from "@/generated/daemon/types.gen";
 import {
-  CONVERSATION_NOT_FOUND,
-  type Conversation,
-  type ConversationGroup,
-  fetchConversationDetail,
-  listConversations,
-} from "@/lib/conversations-api";
+  ApiError,
+  assertHasResponse,
+  extractErrorMessage,
+} from "@/lib/api-errors";
 import {
   CONVERSATIONS_QUERY_KEY,
   conversationsQueryKey,
 } from "@/lib/sync/query-tags";
+import type { Conversation, ConversationGroup } from "@/types/conversation-types";
+
+import {
+  CONVERSATION_NOT_FOUND,
+  fetchConversationDetail,
+  type FetchConversationDetailResult,
+} from "./fetch-conversation-detail";
+import { toConversation } from "./conversation-transforms";
+
+export { CONVERSATION_NOT_FOUND, type FetchConversationDetailResult };
 
 // ---------------------------------------------------------------------------
 // Query keys
@@ -68,6 +81,95 @@ export function conversationGroupsQueryKey(
   return groupsGetQueryKey({
     path: { assistant_id: assistantId ?? "" },
   } as Options<GroupsGetData>);
+}
+
+// ---------------------------------------------------------------------------
+// Conversation list + detail fetching
+// ---------------------------------------------------------------------------
+
+const CONVERSATION_LIST_PAGE_SIZE = 50;
+const CONVERSATION_LIST_MAX_PAGES = 200;
+
+async function fetchConversationList(
+  assistantId: string,
+  conversationType?: "background",
+): Promise<Conversation[]> {
+  const all: Conversation[] = [];
+
+  for (let page = 0; page < CONVERSATION_LIST_MAX_PAGES; page++) {
+    const offset = page * CONVERSATION_LIST_PAGE_SIZE;
+    const { data, error, response } = await conversationsGet({
+      path: { assistant_id: assistantId },
+      query: {
+        limit: CONVERSATION_LIST_PAGE_SIZE,
+        offset,
+        ...(conversationType ? { conversationType } : {}),
+      },
+      throwOnError: false,
+    });
+    assertHasResponse(response, error, "Failed to list conversations.");
+    if (!response.ok) {
+      const msg = extractErrorMessage(error, response, "Failed to list conversations.");
+      throw new ApiError(response.status, msg);
+    }
+
+    const conversations = data?.conversations ?? [];
+    all.push(...conversations.map(toConversation));
+
+    const hasMore = data?.hasMore ?? false;
+    if (!hasMore) break;
+
+    if (conversations.length === 0) break;
+  }
+
+  return all;
+}
+
+/**
+ * Fetch all conversations (foreground + background) for a given assistant.
+ * Both are fetched in parallel and merged so the sidebar can display every
+ * conversation type. Returns sorted newest-first.
+ *
+ * The background fetch is best-effort: if it fails the foreground list is
+ * still returned so the sidebar remains usable.
+ */
+export async function listConversations(
+  assistantId: string,
+): Promise<Conversation[]> {
+  const [foregroundResult, backgroundResult] = await Promise.allSettled([
+    fetchConversationList(assistantId),
+    fetchConversationList(assistantId, "background"),
+  ]);
+
+  if (foregroundResult.status === "rejected") {
+    throw foregroundResult.reason;
+  }
+
+  const foreground = foregroundResult.value;
+  let background: Conversation[] = [];
+  if (backgroundResult.status === "fulfilled") {
+    background = backgroundResult.value;
+  } else {
+    Sentry.captureException(backgroundResult.reason, {
+      level: "warning",
+      tags: { context: "listConversations.backgroundFetch" },
+      extra: { assistantId },
+    });
+  }
+
+  const seen = new Set<string>();
+  const conversations: Conversation[] = [];
+  for (const conversation of [...foreground, ...background]) {
+    if (seen.has(conversation.conversationId)) {
+      continue;
+    }
+    seen.add(conversation.conversationId);
+    conversations.push(conversation);
+  }
+
+  conversations.sort((a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0));
+
+  return conversations;
 }
 
 // ---------------------------------------------------------------------------
