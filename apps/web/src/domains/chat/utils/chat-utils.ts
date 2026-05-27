@@ -232,8 +232,8 @@ const MINUTES_PER_HOUR = 60;
 const HOURS_PER_DAY = 24;
 const MS_PER_MINUTE = 60_000;
 
-export function formatRelativeTime(timestamp: string): string {
-  const diffMin = Math.floor((Date.now() - new Date(timestamp).getTime()) / MS_PER_MINUTE);
+export function formatRelativeTime(timestamp: number): string {
+  const diffMin = Math.floor((Date.now() - timestamp) / MS_PER_MINUTE);
   if (diffMin < 1) return "just now";
   if (diffMin < MINUTES_PER_HOUR) return `${diffMin}m ago`;
   const diffHr = Math.floor(diffMin / MINUTES_PER_HOUR);

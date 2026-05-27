@@ -253,7 +253,7 @@ describe("useAssistantSyncStream", () => {
       conversationId,
       title: "Old title",
       hasUnseenLatestAssistantMessage: false,
-      lastSeenAssistantMessageAt: "2026-05-25T12:00:00.000Z",
+      lastSeenAssistantMessageAt: 1779710400000,
     });
     const invalidateSpy = mock(() => Promise.resolve());
     queryClient.invalidateQueries = invalidateSpy as never;
@@ -267,15 +267,13 @@ describe("useAssistantSyncStream", () => {
       const list = queryClient.getQueryData(conversationsQueryKey("asst-1")) as Array<{
         conversationId: string;
         hasUnseenLatestAssistantMessage?: boolean;
-        lastSeenAssistantMessageAt?: string;
+        lastSeenAssistantMessageAt?: number;
       }>;
       const conv1 = list.find(
         (c) => c.conversationId === "conv-1",
       );
       expect(conv1?.hasUnseenLatestAssistantMessage).toBe(false);
-      expect(conv1?.lastSeenAssistantMessageAt).toBe(
-        "2026-05-25T12:00:00.000Z",
-      );
+      expect(conv1?.lastSeenAssistantMessageAt).toBe(1779710400000);
     });
 
     // Fetch happened for the right id.
@@ -474,7 +472,7 @@ describe("useAssistantSyncStream", () => {
         return key?._id === (expectedGroupsKey as Record<string, unknown>)._id;
       },
     );
-    expect(chatCtxCalls.length).toBeGreaterThanOrEqual(1);
+    expect(chatCtxCalls.length).toBe(1);
     expect(groupsCalls.length).toBe(1);
   });
 
