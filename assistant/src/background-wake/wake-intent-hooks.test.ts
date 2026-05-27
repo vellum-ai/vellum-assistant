@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { BackgroundWakeIntent } from "./next-wake.js";
@@ -15,6 +16,9 @@ const mockClearBackgroundWakeIntent = mock(
   }),
 );
 let computedIntent: BackgroundWakeIntent | null = intentFixture();
+const testWorkspaceDir =
+  process.env.VELLUM_WORKSPACE_DIR ?? "/tmp/vellum-wake-intent-hooks";
+const workspacePath = (...parts: string[]) => join(testWorkspaceDir, ...parts);
 
 mock.module("./next-wake.js", () => ({
   computeNextBackgroundWakeIntent: () => computedIntent,
@@ -38,26 +42,52 @@ mock.module("../runtime/sync/resource-sync-events.js", () => ({
 }));
 
 mock.module("../util/platform.js", () => ({
-  getWorkspaceDir: () => "/tmp/vellum-wake-intent-hooks",
-  getWorkspacePromptPath: (name: string) =>
-    `/tmp/vellum-wake-intent-hooks/${name}`,
-  vellumRoot: () => "/tmp/vellum-wake-intent-hooks",
-  getDataDir: () => "/tmp/vellum-wake-intent-hooks/data",
-  getConversationsDir: () => "/tmp/vellum-wake-intent-hooks/conversations",
+  getWorkspaceDir: () => testWorkspaceDir,
+  getWorkspaceDirDisplay: () => testWorkspaceDir,
+  getWorkspacePromptPath: (name: string) => workspacePath(name),
+  getWorkspaceConfigPath: () => workspacePath("config.json"),
+  getWorkspaceSkillsDir: () => workspacePath("skills"),
+  getWorkspaceHooksDir: () => workspacePath("hooks"),
+  getWorkspacePluginsDir: () => workspacePath("plugins"),
+  getWorkspaceRoutesDir: () => workspacePath("routes"),
+  vellumRoot: () => testWorkspaceDir,
+  getDataDir: () => workspacePath("data"),
+  getDbPath: () => workspacePath("data", "db", "assistant.db"),
+  ensureDataDir: () => {
+    mkdirSync(workspacePath("data", "db"), { recursive: true });
+  },
+  getLogsDir: () => workspacePath("data", "logs"),
+  getHistoryPath: () => workspacePath("data", "history"),
+  getProtectedDir: () => workspacePath("protected"),
+  getSignalsDir: () => workspacePath("signals"),
+  getPidPath: () => workspacePath("vellum.pid"),
+  getDaemonStderrLogPath: () => workspacePath("logs", "daemon-stderr.log"),
+  getDaemonStartupLockPath: () => workspacePath("daemon-startup.lock"),
+  getExternalDir: () => workspacePath("external"),
+  getBinDir: () => workspacePath("bin"),
+  getDotEnvPath: () => workspacePath(".env"),
+  getEmbedWorkerPidPath: () => workspacePath("embed-worker.pid"),
+  getDeprecatedDir: () => workspacePath("deprecated"),
+  getConversationsDir: () => workspacePath("conversations"),
   isMacOS: () => false,
   isLinux: () => true,
   isWindows: () => false,
   getPlatformName: () => "linux",
   normalizeAssistantId: (id: string) => id,
-  getEmbeddingModelsDir: () => "/tmp/vellum-wake-intent-hooks/models",
-  getSandboxRootDir: () => "/tmp/vellum-wake-intent-hooks/sandbox",
-  getSandboxWorkingDir: () => "/tmp/vellum-wake-intent-hooks/sandbox/work",
-  getSoundsDir: () => "/tmp/vellum-wake-intent-hooks/sounds",
-  getAvatarDir: () => "/tmp/vellum-wake-intent-hooks/avatar",
+  getEmbeddingModelsDir: () => workspacePath("embedding-models"),
+  getSandboxRootDir: () => workspacePath("data", "sandbox"),
+  getSandboxWorkingDir: () => testWorkspaceDir,
+  getSoundsDir: () => workspacePath("data", "sounds"),
+  getAvatarDir: () => workspacePath("data", "avatar"),
   AVATAR_IMAGE_FILENAME: "avatar-image.png",
-  getAvatarImagePath: () =>
-    "/tmp/vellum-wake-intent-hooks/avatar/avatar-image.png",
+  getAvatarImagePath: () => workspacePath("data", "avatar", "avatar-image.png"),
   getXdgVellumConfigDirName: () => ".vellum",
+  getProfilerRootDir: () => workspacePath("data", "profiler"),
+  getProfilerRunsDir: () => workspacePath("data", "profiler", "runs"),
+  getProfilerRunDir: (runId: string) =>
+    workspacePath("data", "profiler", "runs", runId),
+  getSkillRuntimePath: () => undefined,
+  getBundledBunPath: () => undefined,
 }));
 
 const {
