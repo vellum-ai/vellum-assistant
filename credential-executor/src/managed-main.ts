@@ -72,6 +72,7 @@ import {
   parseHandle,
 } from "@vellumai/service-contracts/credential-rpc";
 import {
+  applyManagedCredentialRefs,
   buildLazyGetters,
   type ApiKeyRef,
   type AssistantIdRef,
@@ -723,13 +724,17 @@ async function main(): Promise<void> {
       signal: controller.signal,
       onHandshakeComplete: (hsSessionId, hsApiKey, hsAssistantId) => {
         sessionIdRef.current = hsSessionId;
-        // Reset the credential refs to this handshake's values on every
-        // session. The handler registry persists across reconnects, so a
-        // new session that omits the API key / assistant ID must fail closed
-        // (falling back to the env key, or no key) rather than silently
-        // reusing the previous session's credentials.
-        apiKeyRef.current = hsApiKey ?? "";
-        assistantIdRef.current = hsAssistantId ?? "";
+        // Overwrite the credential refs on every handshake. The handler
+        // registry persists across reconnects, so a new session that omits
+        // the API key / assistant ID must fail closed (falling back to the
+        // env key, or no key) rather than reusing the previous session's
+        // credentials.
+        applyManagedCredentialRefs(
+          apiKeyRef,
+          assistantIdRef,
+          hsApiKey,
+          hsAssistantId,
+        );
         if (hsApiKey) {
           log.info("Received assistant API key via handshake");
         }
@@ -738,10 +743,19 @@ async function main(): Promise<void> {
         }
       },
       onApiKeyUpdate: (newKey, newAssistantId) => {
-        apiKeyRef.current = newKey;
+        // Overwrite both refs on every credential update, for the same
+        // fail-closed reason as the handshake: the assistant sources the
+        // assistant ID from the same place it sources the key, so an update
+        // that omits the ID means it has none — CES must clear the stale ID
+        // rather than keep materializing for the previous session's assistant.
+        applyManagedCredentialRefs(
+          apiKeyRef,
+          assistantIdRef,
+          newKey,
+          newAssistantId,
+        );
         log.info("Assistant API key updated via RPC");
         if (newAssistantId) {
-          assistantIdRef.current = newAssistantId;
           log.info("Assistant ID updated via RPC");
         }
       },
