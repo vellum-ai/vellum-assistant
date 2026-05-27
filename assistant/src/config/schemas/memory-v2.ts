@@ -531,7 +531,7 @@ export const MemoryV3ConfigSchema = z
           .min(0, "memory.v3.edges.learnedAdjacencyThreshold must be >= 0")
           .default(0)
           .describe(
-            "Weight cutoff for merging the learned co-retrieval graph (memory_v3_auto_edges) into the edge-expansion lane. When > 0, edges at or above this weight are read via aboveThreshold() and merged with the curated frontmatter graph as expandEdges' extraAdjacency. 0 (default) = OFF: the edge lane uses curated edges only and behavior is unchanged. Seed the learned graph with `assistant memory v3 seed-edges`.",
+            "Association-strength cutoff for merging the learned co-retrieval graph (memory_v3_auto_edges) into the edge-expansion lane. Seeded edges are weighted seedWeight × NPMI, so this is effectively a minimum-NPMI gate: NPMI ≥ threshold / seedWeight (e.g. with the default seedWeight 2.0, threshold 1.0 ≈ NPMI ≥ 0.5, 1.2 ≈ NPMI ≥ 0.6). When > 0, edges at or above this weight are read via aboveThreshold() and merged with the curated frontmatter graph as expandEdges' extraAdjacency. 0 (default) = OFF: the edge lane uses curated edges only and behavior is unchanged. Seed the learned graph with `assistant memory v3 seed-edges`.",
           ),
       })
       .default({ learnedAdjacencyThreshold: 0 })

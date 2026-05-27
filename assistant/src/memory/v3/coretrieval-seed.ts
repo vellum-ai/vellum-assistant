@@ -38,10 +38,10 @@ export const DEFAULT_MAX_NEIGHBOR_FREQ_RATIO = 0.4;
 /** Neighbors kept per source node, ranked by NPMI descending. */
 export const DEFAULT_TOP_K = 20;
 /**
- * Flat weight each seeded edge is written at. Chosen above a typical read
- * threshold so seeded edges traverse immediately, and above a single live
- * reinforcement so the edge-learning decay doesn't age a fresh seed straight
- * out on its first pass.
+ * Weight of a perfect-association (NPMI = 1) edge. Each edge is persisted at
+ * `seedWeight × its NPMI score`, so the read threshold
+ * (`memory.v3.edges.learnedAdjacencyThreshold`) acts as a minimum-association
+ * cutoff: with the default 2.0, threshold 1.0 ≈ NPMI ≥ 0.5 and 1.2 ≈ NPMI ≥ 0.6.
  */
 export const DEFAULT_SEED_WEIGHT = 2.0;
 
@@ -185,11 +185,17 @@ function readRouterSelections(database: DrizzleDb): string[][] {
 
 /**
  * Build the co-retrieval graph from the v2 router history and persist it into
- * `memory_v3_auto_edges` at a flat seed weight.
+ * `memory_v3_auto_edges`, weighting each edge by its association strength:
+ * `weight = seedWeight × NPMI`. Edges whose weight is non-positive (NPMI ≤ 0 —
+ * not an association) are skipped. This makes the read threshold a real
+ * minimum-association cutoff rather than all-or-nothing.
  *
- * Idempotent: each edge is upserted with `weight = MAX(existing, seedWeight)`, so
- * re-running refreshes seeded edges to the seed weight without unbounded growth
- * and without lowering any weight a live reinforcement already drove higher.
+ * Idempotent: each edge is upserted by OVERWRITING its weight to the current
+ * NPMI-derived value (the seed baseline), so re-running is stable. Tradeoff: the
+ * overwrite resets any reinforcement the edge-learning job accrued between seeds.
+ * That is acceptable while the seed is the dominant signal and organic
+ * co-activation reinforcement is minimal; revisit if/when live reinforcement
+ * becomes load-bearing.
  */
 export function seedCoretrievalEdges(
   database: DrizzleDb,
@@ -207,20 +213,15 @@ export function seedCoretrievalEdges(
          (source_slug, target_slug, weight, last_reinforced_at)
          VALUES (?, ?, ?, ?)
        ON CONFLICT(source_slug, target_slug) DO UPDATE SET
-         weight = MAX(weight, ?),
-         last_reinforced_at = ?`,
+         weight = excluded.weight,
+         last_reinforced_at = excluded.last_reinforced_at`,
     );
     const apply = raw.transaction(() => {
       for (const [source, edges] of graph) {
         for (const edge of edges) {
-          upsert.run(
-            source,
-            edge.target,
-            options.seedWeight,
-            now,
-            options.seedWeight,
-            now,
-          );
+          const weight = options.seedWeight * edge.score;
+          if (weight <= 0) continue;
+          upsert.run(source, edge.target, weight, now);
           edgesWritten += 1;
         }
       }
