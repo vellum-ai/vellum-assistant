@@ -1,8 +1,8 @@
 /**
- * The detail panel shows skeleton Input/Output/Cost cards while a subagent is
- * still active and the daemon has not yet reported usage (all zeros). Once any
- * usage arrives — or the subagent reaches a terminal status — real formatted
- * values render, including a legitimate `0` / `0.00` for a trivial run.
+ * The detail panel's Input/Output/Cost cards always render their real
+ * formatted values. The metrics stream in as the subagent makes LLM calls, so
+ * the cards start at `0` / `0.00` and tick up — there are no skeleton loading
+ * states, even while the subagent is still running with zeroed usage.
  *
  * Heavy children (avatar, status badge, timeline) are stubbed so we can assert
  * the metric-row behavior without depending on their internals.
@@ -46,7 +46,7 @@ function makeEntry(overrides: Partial<SubagentEntry> = {}): SubagentEntry {
   };
 }
 
-/** A skeleton metric value is a pulsing bar; real values are plain text. */
+/** Skeleton bars (if any) pulse; real values are plain text. */
 function skeletonCount(container: HTMLElement): number {
   return container.querySelectorAll(".animate-pulse").length;
 }
@@ -58,8 +58,8 @@ afterAll(() => {
   mock.restore();
 });
 
-describe("SubagentDetailPanel — metric skeletons", () => {
-  test("running with zero usage renders three skeleton metric cards", () => {
+describe("SubagentDetailPanel — metric cards", () => {
+  test("running with zero usage renders real zeros, not skeletons", () => {
     const { container } = render(
       <SubagentDetailPanel
         entry={makeEntry({ status: "running", inputTokens: 0, outputTokens: 0, totalCost: 0 })}
@@ -67,17 +67,16 @@ describe("SubagentDetailPanel — metric skeletons", () => {
       />,
     );
 
-    // One skeleton bar per metric card (Input / Output / Cost).
-    expect(skeletonCount(container)).toBe(3);
-    // Labels (card shape) stay visible so there's no reflow when values land.
+    expect(skeletonCount(container)).toBe(0);
     expect(screen.getByText("Input")).toBeDefined();
     expect(screen.getByText("Output")).toBeDefined();
     expect(screen.getByText("Cost")).toBeDefined();
-    // The literal zeros must NOT be shown while metrics are pending.
-    expect(screen.queryByText("0.00")).toBeNull();
+    // Live values render immediately: two "0" tokens and one "0.00" cost.
+    expect(screen.getAllByText("0").length).toBe(2);
+    expect(screen.getByText("0.00")).toBeDefined();
   });
 
-  test("running with usage renders real values, not skeletons", () => {
+  test("running with usage renders real values", () => {
     const { container } = render(
       <SubagentDetailPanel
         entry={makeEntry({ status: "running", inputTokens: 1200, outputTokens: 340, totalCost: 0.68 })}
@@ -99,7 +98,6 @@ describe("SubagentDetailPanel — metric skeletons", () => {
       />,
     );
 
-    // A completed run is never a skeleton, even with zeroed usage.
     expect(skeletonCount(container)).toBe(0);
     // Two "0" inputs/outputs and one "0.00" cost render as real text.
     expect(screen.getAllByText("0").length).toBe(2);
