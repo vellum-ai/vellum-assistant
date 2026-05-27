@@ -2,7 +2,6 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import crypto from "node:crypto";
 import type { Plugin, Connect } from "vite";
 
 const PRODUCTION_ENVIRONMENT_NAME = "production";
@@ -55,18 +54,6 @@ function stripSensitiveFields(data: Record<string, unknown>): void {
 }
 
 /**
- * Read the full JSON body from an incoming request.
- */
-function readBody(req: Connect.IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    req.on("data", (chunk: Buffer) => chunks.push(chunk));
-    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf-8")));
-    req.on("error", reject);
-  });
-}
-
-/**
  * Vite plugin that serves lockfile endpoints and a dynamic gateway proxy
  * for local-mode development.
  */
@@ -84,7 +71,7 @@ export function localModePlugin(env: Record<string, string>): Plugin {
 }
 
 /**
- * Connect middleware for lockfile read/write endpoints.
+ * Connect middleware for the lockfile read endpoint.
  */
 function lockfileMiddleware(
   lockfilePath: string,
@@ -94,8 +81,6 @@ function lockfileMiddleware(
 
     if (req.method === "GET") {
       handleGetLockfile(lockfilePath, res);
-    } else if (req.method === "POST") {
-      handlePostLockfile(lockfilePath, req, res);
     } else {
       res.statusCode = 405;
       res.end();
@@ -126,42 +111,6 @@ function handleGetLockfile(
     stripSensitiveFields(data);
     res.setHeader("Content-Type", "application/json");
     res.end(JSON.stringify(data));
-  } catch {
-    res.statusCode = 500;
-    res.end();
-  }
-}
-
-async function handlePostLockfile(
-  lockfilePath: string,
-  req: Connect.IncomingMessage,
-  res: http.ServerResponse,
-): Promise<void> {
-  try {
-    const body = await readBody(req);
-    const patch = JSON.parse(body) as Record<string, unknown>;
-
-    let existing: Record<string, unknown> = {};
-    try {
-      existing = JSON.parse(
-        fs.readFileSync(lockfilePath, "utf-8"),
-      ) as Record<string, unknown>;
-    } catch {
-      // If file doesn't exist or is invalid, start from empty object
-    }
-
-    // Merge patch — only activeAssistant for now
-    if ("activeAssistant" in patch) {
-      existing.activeAssistant = patch.activeAssistant;
-    }
-
-    // Atomic write: write to tmp file, then rename
-    const tmpPath = `${lockfilePath}.tmp.${crypto.randomBytes(6).toString("hex")}`;
-    fs.writeFileSync(tmpPath, JSON.stringify(existing, null, 2), "utf-8");
-    fs.renameSync(tmpPath, lockfilePath);
-
-    res.statusCode = 200;
-    res.end();
   } catch {
     res.statusCode = 500;
     res.end();
