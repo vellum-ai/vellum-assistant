@@ -464,7 +464,7 @@ Examples:
         )
         .option(
           "--seed-weight <n>",
-          "Weight each seeded edge is written at (positive, default: 2.0)",
+          "Weight of a perfect-NPMI (1.0) edge; each edge stored at this × its NPMI (positive, default: 2.0)",
         )
         .option("--json", "Emit raw JSON instead of a formatted summary")
         .addHelpText(
