@@ -1130,10 +1130,22 @@ struct ToolCallStepDetailRow: View {
 
     /// Risk badge rendered immediately after the title.
     /// Chat-specific, so it stays at this caller level rather than in the shared row.
+    ///
+    /// For sandbox-auto-approved tool calls, passes `"workspace"` to `RiskBadgeView`
+    /// so it renders the muted Workspace chip. The tooltip shows the inherent risk
+    /// level; the rule editor still receives the original risk for correct rule creation.
     @ViewBuilder
     private var leadingAccessory: some View {
         if let risk = toolCall.riskLevel {
-            let unexpected = !wasExpected(
+            let effective = effectiveRiskDisplay(
+                approvalReason: toolCall.approvalReason,
+                riskLevel: toolCall.riskLevel
+            )
+            let isWorkspace = effective.displayLevel == "workspace"
+
+            // For workspace chips, skip wasExpected/provenance — the chip itself
+            // communicates the sandbox auto-approval provenance.
+            let unexpected = !isWorkspace && !wasExpected(
                 approvalMode: toolCall.approvalMode,
                 riskLevel: toolCall.riskLevel,
                 riskThreshold: toolCall.riskThreshold
@@ -1141,10 +1153,16 @@ struct ToolCallStepDetailRow: View {
             let provenance = unexpected
                 ? approvalProvenanceText(approvalReason: toolCall.approvalReason)
                 : nil
+
+            let tooltip: String? = isWorkspace
+                ? "Workspace · Inherent risk: \(effective.inherentRisk?.capitalized ?? "Unknown")"
+                : nil
+
             RiskBadgeView(
-                riskLevel: risk,
+                riskLevel: effective.displayLevel,
                 hasExistingRule: toolCall.matchedTrustRuleId != nil,
-                provenanceText: provenance
+                provenanceText: provenance,
+                helpText: tooltip
             ) {
                 ruleEditorTask?.cancel()
                 ruleEditorTask = Task { await openRuleEditorForCompletedCall(toolCall) }
