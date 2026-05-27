@@ -35,20 +35,36 @@ function makeStream(chunks: MockChunk[]): AsyncIterable<MockChunk> {
 function stubProvider(chunks: MockChunk[]): {
   provider: OpenAIChatCompletionsProvider;
   events: Array<{ type: string; thinking?: string; text?: string }>;
+  requests: unknown[];
 } {
   const provider = new OpenAIChatCompletionsProvider("test-key", "test-model");
+  return stubExistingProvider(provider, chunks);
+}
+
+function stubExistingProvider(
+  provider: OpenAIChatCompletionsProvider,
+  chunks: MockChunk[],
+): {
+  provider: OpenAIChatCompletionsProvider;
+  events: Array<{ type: string; thinking?: string; text?: string }>;
+  requests: unknown[];
+} {
+  const requests: unknown[] = [];
   // Swap the SDK client for a stub whose chat.completions.create returns our
   // canned async iterable.
   (provider as unknown as { client: unknown }).client = {
     chat: {
       completions: {
-        create: async () => makeStream(chunks),
+        create: async (params: unknown) => {
+          requests.push(params);
+          return makeStream(chunks);
+        },
       },
     },
   };
   const events: Array<{ type: string; thinking?: string; text?: string }> = [];
   (provider as unknown as { __events: typeof events }).__events = events;
-  return { provider, events };
+  return { provider, events, requests };
 }
 
 async function runStream(
@@ -231,5 +247,78 @@ describe("OpenAIChatCompletionsProvider reasoning parsing", () => {
     const deltas = events.filter((e) => e.type === "thinking_delta");
     expect(deltas.map((d) => d.thinking)).toEqual(["it ", "worked", "!"]);
     expect(thinking).toBe("it worked!");
+  });
+
+  test("round-trips prior assistant thinking as reasoning_content for DeepSeek multi-turn", async () => {
+    const { provider, requests } = stubProvider([
+      {
+        choices: [{ delta: { content: "continued" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 4, completion_tokens: 2 },
+      },
+    ]);
+
+    await provider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "first question" }] },
+      {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "hidden chain state", signature: "" },
+          { type: "text", text: "first answer" },
+        ],
+      },
+      { role: "user", content: [{ type: "text", text: "follow up" }] },
+    ]);
+
+    const params = requests[0] as {
+      messages: Array<{
+        role: string;
+        content: string | null;
+        reasoning_content?: string;
+      }>;
+    };
+    const assistantMessage = params.messages.find(
+      (message) => message.role === "assistant",
+    );
+
+    expect(assistantMessage).toEqual({
+      role: "assistant",
+      content: "first answer",
+      reasoning_content: "hidden chain state",
+    });
+  });
+
+  test("can round-trip prior assistant thinking with OpenRouter's reasoning field", async () => {
+    const baseProvider = new OpenAIChatCompletionsProvider(
+      "test-key",
+      "test-model",
+      { assistantReasoningField: "reasoning" },
+    );
+    const { provider, requests } = stubExistingProvider(baseProvider, [
+      {
+        choices: [{ delta: { content: "continued" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 4, completion_tokens: 2 },
+      },
+    ]);
+
+    await provider.sendMessage([
+      {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "visible summary", signature: "" },
+          { type: "text", text: "answer" },
+        ],
+      },
+    ]);
+
+    const params = requests[0] as {
+      messages: Array<{
+        role: string;
+        reasoning?: string;
+        reasoning_content?: string;
+      }>;
+    };
+
+    expect(params.messages[0].reasoning).toBe("visible summary");
+    expect(params.messages[0].reasoning_content).toBeUndefined();
   });
 });
