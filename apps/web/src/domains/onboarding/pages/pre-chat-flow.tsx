@@ -75,6 +75,9 @@ export function PreChatFlow() {
   } = useRootOutletContext();
   const [, setOnboardingCompleted] = useOnboardingCompleted();
   const [recipe, setRecipe] = useState<OnboardingRecipe | null>(null);
+  const [recipeLoadState, setRecipeLoadState] = useState<"loading" | "ready">(
+    "loading",
+  );
 
   const isMacOSWeb = useIsMacOSWeb();
   const isIOSWeb = useIsIOSWeb();
@@ -158,13 +161,31 @@ export function PreChatFlow() {
   }, [consent, isAuthLoading, isLoggedIn, userId]);
 
   useEffect(() => {
-    if (isAuthLoading || !isLoggedIn) return;
+    if (isAuthLoading || !isLoggedIn) {
+      setRecipe(null);
+      setRecipeLoadState("loading");
+      return;
+    }
+    if (isNative) {
+      setRecipe(null);
+      setRecipeLoadState("ready");
+      return;
+    }
     let cancelled = false;
-    void fetchOnboardingRecipe().then((fetched) => {
-      if (!cancelled && fetched) setRecipe(fetched);
-    });
+    setRecipe(null);
+    setRecipeLoadState("loading");
+    void fetchOnboardingRecipe()
+      .then((fetched) => {
+        if (!cancelled) setRecipe(fetched);
+      })
+      .catch(() => {
+        if (!cancelled) setRecipe(null);
+      })
+      .finally(() => {
+        if (!cancelled) setRecipeLoadState("ready");
+      });
     return () => { cancelled = true; };
-  }, [isAuthLoading, isLoggedIn]);
+  }, [isAuthLoading, isLoggedIn, isNative, userId]);
 
   useEffect(() => {
     if (isAuthLoading) return;
@@ -261,10 +282,12 @@ export function PreChatFlow() {
   }
 
   const consentReady = isNative || consentDecision === "ok";
+  const recipeReady = isNative || recipeLoadState === "ready";
   if (
     isAuthLoading ||
     !isLoggedIn ||
     !consentReady ||
+    !recipeReady ||
     readOnboardingCompleted()
   ) {
     return null;
