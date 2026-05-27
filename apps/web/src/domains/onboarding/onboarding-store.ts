@@ -51,7 +51,6 @@ import { create } from "zustand";
 import { createSelectors } from "@/utils/create-selectors";
 import {
   getLocalBool,
-  removeLocalSetting,
   setLocalBool,
   watchSetting,
 } from "@/lib/local-settings";
@@ -108,13 +107,6 @@ export interface OnboardingActions {
   setTosAccepted: (value: boolean) => void;
   setAiDataConsent: (value: boolean) => void;
   setOnboardingCompleted: (value: boolean) => void;
-  /**
-   * Reset the three per-user onboarding flags (tos, ai-consent, completed)
-   * to defaults and remove them from localStorage. Leaves the device-level
-   * `shareAnalytics` / `shareDiagnostics` flags alone — they're framed as
-   * device prefs and carry over between user accounts on a shared browser.
-   */
-  resetOnboardingFlags: () => void;
 }
 
 export type OnboardingStore = OnboardingState & OnboardingActions;
@@ -167,20 +159,6 @@ const useOnboardingStoreBase = create<OnboardingStore>()((set) => ({
   setOnboardingCompleted: (value) => {
     set({ completed: value });
     setLocalBool(KEY_COMPLETED, value);
-  },
-  resetOnboardingFlags: () => {
-    set({
-      tosAccepted: false,
-      aiDataConsent: false,
-      completed: false,
-    });
-    // Remove (not "set to false") to match the prior `clearOnboardingFlags`
-    // behavior — these keys default to false on read when absent, so
-    // removing them is equivalent to clearing them. Keeps localStorage
-    // tidy across logout cycles.
-    removeLocalSetting(KEY_TOS_ACCEPTED);
-    removeLocalSetting(KEY_AI_DATA_CONSENT);
-    removeLocalSetting(KEY_COMPLETED);
   },
 }));
 
