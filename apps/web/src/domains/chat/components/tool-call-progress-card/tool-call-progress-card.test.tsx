@@ -16,15 +16,33 @@
  *    subagents).
  */
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
-import { ToolCallProgressCard } from "@/domains/chat/components/tool-call-progress-card/tool-call-progress-card";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+
+// The viewer store (pulled in transitively for `openToolDetail`) imports the
+// generated daemon SDK, which isn't built in CI/worktree checkouts. Stub the
+// two endpoints it references so the module loads; the card never invokes
+// them. Mirrors the `mock.module` pattern used across the conversations
+// tests. The component + store are imported dynamically below so the mock is
+// registered first.
+mock.module("@/generated/daemon/sdk.gen", () => ({
+  appsByIdOpenPost: async () => ({ data: undefined }),
+  documentsByIdGet: async () => ({ data: undefined }),
+}));
+
+const { ToolCallProgressCard } = await import(
+  "@/domains/chat/components/tool-call-progress-card/tool-call-progress-card"
+);
+const { useViewerStore } = await import("@/stores/viewer-store");
 
 afterEach(() => {
   cleanup();
+  // The pill click writes to the real viewer store — reset the drawer state
+  // between tests so assertions don't bleed across cases.
+  useViewerStore.setState({ activeToolDetail: null, mainView: "chat" });
 });
 
 function makeToolCall(
@@ -113,6 +131,65 @@ describe("ToolCallProgressCard — non-web tool group", () => {
     const indicator = getByTestId("tool-progress-card-status-indicator");
     expect(indicator.tagName.toLowerCase()).toBe("svg");
     expect(indicator.getAttribute("data-state")).toBe("complete");
+  });
+});
+
+describe("ToolCallProgressCard — tool step pill", () => {
+  test("non-web tool step renders a tool-step-pill with activity + risk badge", () => {
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        toolName: "bash",
+        status: "running",
+        input: { command: "git status", activity: "Checking git status" },
+        riskLevel: "high",
+      }),
+    ];
+    const { getByTestId } = renderCard(toolCalls);
+    const pill = getByTestId("tool-step-pill");
+    expect(pill).toBeTruthy();
+    // Activity sentence wins over the terse command info (it also surfaces in
+    // the carousel header, hence the textContent check on the pill itself).
+    expect(pill.textContent).toContain("Checking git status");
+    // Risk badge rides along inside the pill.
+    expect(getByTestId("risk-badge").getAttribute("data-risk-level")).toBe(
+      "high",
+    );
+  });
+
+  test("clicking the pill calls openToolDetail with the matching tool-call snapshot", () => {
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        toolName: "bash",
+        status: "completed",
+        input: { command: "git status", activity: "Checking git status" },
+        result: "On branch main",
+        riskLevel: "high",
+        riskReason: "writes to disk",
+        startedAt: 0,
+        completedAt: 1000,
+        // Keep the card expanded so the pill is in the DOM post-completion.
+      }),
+    ];
+    const { getByTestId } = renderCard(toolCalls, {
+      expandedCardIds: new Map([["tc-1", true]]),
+    });
+    fireEvent.click(getByTestId("tool-step-pill"));
+    const detail = useViewerStore.getState().activeToolDetail;
+    expect(detail).not.toBeNull();
+    expect(detail?.toolCallId).toBe("tc-1");
+    expect(detail?.toolName).toBe("bash");
+    expect(detail?.input).toEqual({
+      command: "git status",
+      activity: "Checking git status",
+    });
+    expect(detail?.result).toBe("On branch main");
+    expect(detail?.status).toBe("completed");
+    expect(detail?.riskLevel).toBe("high");
+    expect(detail?.riskReason).toBe("writes to disk");
+    // Opening the drawer flips the main view to the tool-detail surface.
+    expect(useViewerStore.getState().mainView).toBe("tool-detail");
   });
 });
 
