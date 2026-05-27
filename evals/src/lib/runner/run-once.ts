@@ -166,7 +166,24 @@ export function wasErrorReportedToProgress(err: unknown): boolean {
   );
 }
 
-export const EVENT_QUIET_MS = 5_000;
+/**
+ * Quiet window before the event collector concludes the turn is done.
+ *
+ * Sized for the longest silent phase in the daemon's per-message pipeline,
+ * not for the typical inter-event gap. On a cold-start hatch the
+ * `memoryRetrieval` plugin pipeline runs ~4–5s of work before the agent
+ * loop begins emitting deltas, and the agent loop's first-token latency
+ * adds another ~1–2s on top. None of those phases emit subscriber-visible
+ * events today, so the collector sees raw silence from `user_message_echo`
+ * (or `conversation_title_updated`) until the first `assistant_*_delta`
+ * lands. A 5s window expires mid-pipeline and the harness gives up before
+ * the assistant's real response is even produced.
+ *
+ * Revisit once the daemon emits in-pipeline heartbeat events (e.g. an
+ * `agent_loop_start` signal at the conversation event hub) — at that point
+ * the collector resets on its own and this can drop back toward 5s.
+ */
+export const EVENT_QUIET_MS = 15_000;
 export const EVENT_MAX_MS = 30_000;
 
 export interface EvalRunInput {
