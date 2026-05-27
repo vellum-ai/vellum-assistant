@@ -235,7 +235,7 @@ export function useAssistantLifecycle({
         // The `init` effect below only fetches conversations once
         // `assistantState.kind === "active"`, and that fetch is what
         // the unreachable-bus interceptor is meant to notice. If we
-        // wait until after `getChatContext()` succeeds to set this,
+        // wait until after the conversation list query succeeds to set this,
         // the reachability hook's probe() has no target assistant
         // when the 503 arrives and the connecting overlay never
         // shows.
