@@ -379,6 +379,19 @@ public final class SubagentDetailStore {
             trackMutation()
             #endif
 
+        case .usageProgress(let progress):
+            guard !terminalUsageReceivedIds.contains(subagentId) else { break }
+            let current = stagedUsage[subagentId] ?? subagentStates[subagentId]?.usageStats ?? SubagentUsageStats()
+            stagedUsage[subagentId] = SubagentUsageStats(
+                inputTokens: current.inputTokens + progress.inputTokens,
+                outputTokens: current.outputTokens + progress.outputTokens,
+                estimatedCost: current.estimatedCost + progress.estimatedCost
+            )
+            scheduleFlush()
+            #if DEBUG
+            trackMutation()
+            #endif
+
         default:
             break
         }
