@@ -244,7 +244,19 @@ export function ToolProgressCardShell({
             : "rounded-[var(--radius-lg)]"
         }`}
       >
-        <span className="flex min-w-0 flex-1 items-center gap-1">
+        <span
+          // When an action slot is present it floats over the right end of
+          // the header (absolute, at `right-[56px]`). Reserve horizontal
+          // space here so the carousel's info text truncates to the LEFT of
+          // the slot instead of painting under it (slot offset + the ~20px
+          // Stop button + a gap). `min-w-0` is preserved so
+          // `HeaderStepCarousel`'s inner `truncate` still clips. Applied ONLY
+          // when `headerActionSlot` is set so cards without a slot (web
+          // search, skills) stay visually unchanged.
+          className={`flex min-w-0 flex-1 items-center gap-1 ${
+            headerActionSlot ? "pr-[88px]" : ""
+          }`}
+        >
           <StatusIndicator state={state} testId={statusIndicatorTestId} />
           {leadingIcon ? (
             // `mx-1` adds 4px on each side on top of the parent's `gap-1`
@@ -298,8 +310,12 @@ export function ToolProgressCardShell({
           chrome later only requires a single edit here. */}
       {headerActionSlot ? (
         <div
+          // `right-[56px]` parks the slot just left of the step-count pill
+          // with ~8px of clear space on the pill side; the reserved `pr-[88px]`
+          // on the title cluster guarantees the helper text truncates ~8px to
+          // the left of the button. Net layout: text → gap → Stop → gap → pill.
           data-testid="tool-progress-card-action-slot"
-          className="pointer-events-none absolute right-[64px] top-[14px] flex items-center gap-1"
+          className="pointer-events-none absolute right-[56px] top-[14px] flex items-center gap-1"
         >
           <div className="pointer-events-auto flex items-center gap-1">
             {headerActionSlot}
