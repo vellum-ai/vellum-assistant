@@ -1,10 +1,10 @@
 /**
- * Conversation data layer: listing, detail, predicates, and parsing.
+ * Conversation data layer: listing, detail, predicates, and transforms.
  *
  * All daemon calls use the generated SDK (`@/generated/daemon/sdk.gen`).
  * The `Conversation` interface is a normalized client-side representation
  * (timestamps as ISO strings, attention fields flattened, `id` renamed to
- * `conversationId`). `parseConversation` transforms the raw daemon response
+ * `conversationId`). `toConversation` transforms the typed daemon response
  * into this shape. `ConversationGroup` is re-exported from the generated SDK.
  */
 
@@ -16,15 +16,13 @@ import {
   subagentsByIdGet,
 } from "@/generated/daemon/sdk.gen";
 import type {
+  ConversationsByIdGetResponse,
   ConversationsGetResponse,
   GroupsGetResponse,
 } from "@/generated/daemon/types.gen";
 
 import { ApiError, assertHasResponse, extractErrorMessage } from "@/lib/api-errors";
-import {
-  parseSlackMessageLink,
-  type SlackMessageLink,
-} from "@/utils/slack-message-link";
+import type { SlackMessageLink } from "@/utils/slack-message-link";
 
 // ---------------------------------------------------------------------------
 // Conversations
@@ -78,10 +76,9 @@ export interface ConversationChannelBinding {
 }
 
 export interface ConversationSlackChannel {
-  id?: string;
   channelId?: string;
   name?: string;
-  link?: string | SlackMessageLink;
+  link?: SlackMessageLink;
 }
 
 export interface ConversationSlackThread {
@@ -94,192 +91,124 @@ export interface ConversationSlackThread {
 export type ConversationGroup = GroupsGetResponse["groups"][number];
 
 // ---------------------------------------------------------------------------
-// Parsing helpers — transform raw daemon payloads into Conversation shape
+// Raw daemon conversation type + typed transform
 // ---------------------------------------------------------------------------
 
-function normalizeTimestamp(value: unknown): string | undefined {
-  if (typeof value === "string") return value;
+/** Single conversation row from the generated daemon SDK response. */
+export type RawConversationSummary =
+  ConversationsGetResponse["conversations"][number];
+
+/** Single conversation detail from the generated daemon SDK response. */
+type RawConversationDetail =
+  ConversationsByIdGetResponse["conversation"];
+
+function epochToIso(value: number | unknown): string | undefined {
   if (typeof value === "number" && Number.isFinite(value)) {
     return new Date(value).toISOString();
   }
   return undefined;
 }
 
-function parseSlackChannel(raw: unknown): ConversationSlackChannel | undefined {
-  if (!raw || typeof raw !== "object") return undefined;
-
-  const record = raw as Record<string, unknown>;
-  const id = typeof record.id === "string" ? record.id : undefined;
-  const channelId =
-    typeof record.channelId === "string" ? record.channelId : undefined;
-  if (!id && !channelId) return undefined;
-
-  const link =
-    typeof record.link === "string"
-      ? record.link
-      : parseSlackMessageLink(record.link);
-  const hasLink =
-    typeof link === "string" ||
-    (typeof link === "object" && (Boolean(link.appUrl) || Boolean(link.webUrl)));
-
-  return {
-    ...(id ? { id } : {}),
-    ...(channelId ? { channelId } : {}),
-    name: typeof record.name === "string" ? record.name : undefined,
-    ...(hasLink ? { link } : {}),
-  };
+function asString(value: string | unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
 }
 
-function parseSlackThread(raw: unknown): ConversationSlackThread | undefined {
-  if (!raw || typeof raw !== "object") return undefined;
-
-  const record = raw as Record<string, unknown>;
-  if (
-    typeof record.channelId !== "string" ||
-    typeof record.threadTs !== "string"
-  ) {
-    return undefined;
-  }
-
-  const link = parseSlackMessageLink(record.link);
-
-  return {
-    channelId: record.channelId,
-    threadTs: record.threadTs,
-    ...(link?.appUrl || link?.webUrl ? { link } : {}),
-  };
+function asNumber(value: number | unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
 }
 
-function parseChannelBinding(
-  raw: unknown,
+function mapChannelBinding(
+  raw: RawConversationSummary["channelBinding"],
 ): ConversationChannelBinding | undefined {
-  if (!raw || typeof raw !== "object") return undefined;
-
-  const record = raw as Record<string, unknown>;
-  if (
-    typeof record.sourceChannel !== "string" ||
-    typeof record.externalChatId !== "string"
-  ) {
-    return undefined;
-  }
-
-  const slackChannel = parseSlackChannel(record.slackChannel);
-  const slackThread = parseSlackThread(record.slackThread);
-
+  if (!raw) return undefined;
   return {
-    sourceChannel: record.sourceChannel,
-    externalChatId: record.externalChatId,
-    externalThreadId:
-      typeof record.externalThreadId === "string"
-        ? record.externalThreadId
-        : undefined,
-    externalChatName:
-      typeof record.externalChatName === "string"
-        ? record.externalChatName
-        : undefined,
-    externalUserId:
-      typeof record.externalUserId === "string"
-        ? record.externalUserId
-        : undefined,
-    displayName:
-      typeof record.displayName === "string"
-        ? record.displayName
-        : undefined,
-    username:
-      typeof record.username === "string" ? record.username : undefined,
-    ...(slackChannel ? { slackChannel } : {}),
-    ...(slackThread ? { slackThread } : {}),
+    sourceChannel: raw.sourceChannel,
+    externalChatId: raw.externalChatId,
+    externalThreadId: raw.externalThreadId,
+    externalChatName: raw.externalChatName,
+    externalUserId: asString(raw.externalUserId),
+    displayName: asString(raw.displayName),
+    username: asString(raw.username),
+    slackChannel: raw.slackChannel
+      ? {
+          channelId: raw.slackChannel.channelId,
+          name: raw.slackChannel.name,
+          link: raw.slackChannel.link?.webUrl
+            ? { webUrl: raw.slackChannel.link.webUrl }
+            : undefined,
+        }
+      : undefined,
+    slackThread: raw.slackThread
+      ? {
+          channelId: raw.slackThread.channelId,
+          threadTs: raw.slackThread.threadTs,
+          link:
+            raw.slackThread.link?.appUrl || raw.slackThread.link?.webUrl
+              ? {
+                  appUrl: raw.slackThread.link.appUrl,
+                  webUrl: raw.slackThread.link.webUrl,
+                }
+              : undefined,
+        }
+      : undefined,
   };
 }
 
-export function parseConversation(raw: unknown): Conversation | null {
-  if (!raw || typeof raw !== "object") return null;
-
-  const record = raw as Record<string, unknown>;
-  // Read `conversationId` (the canonical entity field name) with `id` as a
-  // synonym. The daemon's `serializeConversationSummary` emits `id` only
-  // today; `conversationId` exists for forward compatibility (LUM-1890).
-  const conversationId =
-    typeof record.conversationId === "string"
-      ? record.conversationId
-      : typeof record.id === "string"
-        ? record.id
-        : null;
-
-  if (!conversationId) return null;
-
-  const attention =
-    record.assistantAttention &&
-    typeof record.assistantAttention === "object"
-      ? (record.assistantAttention as ConversationAttentionPayload)
-      : undefined;
-
-  const channelBinding =
-    record.channelBinding && typeof record.channelBinding === "object"
-      ? (record.channelBinding as Record<string, unknown>)
-      : null;
-  const parsedChannelBinding = parseChannelBinding(channelBinding);
-  // Read sourceChannel from the raw binding (before strict parsing) so
-  // originChannel is populated even when externalChatId is absent.
-  const bindingSourceChannel =
-    channelBinding && typeof channelBinding.sourceChannel === "string"
-      ? channelBinding.sourceChannel
-      : undefined;
-  const conversationOriginChannel =
-    typeof record.conversationOriginChannel === "string"
-      ? record.conversationOriginChannel
-      : undefined;
+/**
+ * Transform a typed daemon conversation summary into the client-side
+ * `Conversation` shape. Handles `id` → `conversationId` rename,
+ * epoch → ISO timestamp conversion, and attention field flattening.
+ */
+export function toConversation(raw: RawConversationSummary): Conversation {
+  const attention = raw.assistantAttention;
   // Match the macOS coalescing order in ConversationRestorer.swift:
   //   channelBinding?.sourceChannel ?? conversationOriginChannel
-  const originChannel = bindingSourceChannel ?? conversationOriginChannel;
+  const originChannel =
+    raw.channelBinding?.sourceChannel ??
+    asString(raw.conversationOriginChannel);
 
   return {
-    conversationId,
-    title: typeof record.title === "string" ? record.title : undefined,
-    createdAt: normalizeTimestamp(record.createdAt),
-    lastMessageAt: normalizeTimestamp(
-      record.lastMessageAt ?? record.updatedAt,
-    ),
+    conversationId: raw.id,
+    title: raw.title,
+    createdAt: epochToIso(raw.createdAt),
+    lastMessageAt: epochToIso(raw.lastMessageAt ?? raw.updatedAt),
     hasUnseenLatestAssistantMessage:
-      typeof attention?.hasUnseenLatestAssistantMessage === "boolean"
-        ? attention.hasUnseenLatestAssistantMessage
-        : undefined,
-    latestAssistantMessageAt: normalizeTimestamp(
-      attention?.latestAssistantMessageAt,
-    ),
-    lastSeenAssistantMessageAt: normalizeTimestamp(
+      attention?.hasUnseenLatestAssistantMessage,
+    latestAssistantMessageAt: epochToIso(attention?.latestAssistantMessageAt),
+    lastSeenAssistantMessageAt: epochToIso(
       attention?.lastSeenAssistantMessageAt,
     ),
-    archivedAt:
-      typeof record.archivedAt === "number" ? record.archivedAt : undefined,
-    groupId:
-      typeof record.groupId === "string" ? record.groupId : undefined,
-    source:
-      typeof record.source === "string" ? record.source : undefined,
-    isPinned:
-      typeof record.isPinned === "boolean" ? record.isPinned : undefined,
-    conversationType:
-      typeof record.conversationType === "string" ? record.conversationType : undefined,
-    scheduleJobId:
-      typeof record.scheduleJobId === "string" ? record.scheduleJobId : undefined,
-    displayOrder:
-      typeof record.displayOrder === "number" && Number.isFinite(record.displayOrder)
-        ? record.displayOrder
-        : undefined,
-    channelBinding: parsedChannelBinding,
+    archivedAt: raw.archivedAt,
+    groupId: asString(raw.groupId),
+    source: raw.source,
+    isPinned: raw.isPinned,
+    conversationType: raw.conversationType,
+    scheduleJobId: raw.scheduleJobId,
+    displayOrder: asNumber(raw.displayOrder),
+    channelBinding: mapChannelBinding(raw.channelBinding),
     originChannel,
   };
+}
+
+/**
+ * Transform a typed daemon conversation detail into the client-side
+ * `Conversation` shape. The detail response shares the same structure
+ * as summary rows.
+ */
+function detailToConversation(
+  raw: RawConversationDetail,
+): Conversation {
+  // The detail and summary types share the same shape from the daemon
+  // serializer. Cast is safe because both are produced by
+  // `serializeConversationSummary` in the daemon.
+  return toConversation(raw as RawConversationSummary);
 }
 
 // ---------------------------------------------------------------------------
 // Conversation list fetching with pagination
 // ---------------------------------------------------------------------------
-
-interface ConversationAttentionPayload {
-  hasUnseenLatestAssistantMessage?: unknown;
-  latestAssistantMessageAt?: unknown;
-  lastSeenAssistantMessageAt?: unknown;
-}
 
 const CONVERSATION_LIST_PAGE_SIZE = 50;
 const CONVERSATION_LIST_MAX_PAGES = 200;
@@ -307,18 +236,13 @@ async function fetchConversationList(
       throw new ApiError(response.status, msg);
     }
 
-    const payload = data as ConversationsGetResponse | undefined;
-    const rawItems = payload?.conversations ?? [];
-    const pageItems = rawItems
-      .map((conversation) => parseConversation(conversation))
-      .filter((conversation): conversation is Conversation => conversation !== null);
+    const conversations = data?.conversations ?? [];
+    all.push(...conversations.map(toConversation));
 
-    all.push(...pageItems);
-
-    const hasMore = payload?.hasMore ?? false;
+    const hasMore = data?.hasMore ?? false;
     if (!hasMore) break;
 
-    if (pageItems.length === 0) break;
+    if (conversations.length === 0) break;
   }
 
   return all;
@@ -364,18 +288,13 @@ export async function fetchConversationDetail(
     );
     throw new ApiError(response.status, msg);
   }
-  const payload =
-    data && typeof data === "object" && !Array.isArray(data)
-      ? (data as { conversation?: unknown })
-      : null;
-  const parsed = parseConversation(payload?.conversation ?? null);
-  if (!parsed) {
+  if (!data?.conversation) {
     throw new ApiError(
       response.status,
       "Conversation detail payload was malformed.",
     );
   }
-  return parsed;
+  return detailToConversation(data.conversation);
 }
 
 /**
