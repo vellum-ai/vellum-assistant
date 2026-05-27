@@ -17,7 +17,7 @@ Notion supports managed mode (see `assistant oauth providers get notion`). The f
 To check:
 
 ```bash
-assistant oauth mode notion
+assistant oauth mode notion --json | jq -r '.mode'
 ```
 
 - If the result is `managed`, **stop reading this file** and follow [CONNECTING_ACCOUNTS.md](../CONNECTING_ACCOUNTS.md) instead. The user logs in with Notion and is done.

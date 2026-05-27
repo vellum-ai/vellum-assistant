@@ -18,7 +18,7 @@ Google supports managed mode (see `assistant oauth providers get google`). Setti
 To check:
 
 ```bash
-assistant oauth mode google
+assistant oauth mode google --json | jq -r '.mode'
 ```
 
 - If the result is `managed`, **stop reading this file** and follow [CONNECTING_ACCOUNTS.md](../CONNECTING_ACCOUNTS.md) instead.
