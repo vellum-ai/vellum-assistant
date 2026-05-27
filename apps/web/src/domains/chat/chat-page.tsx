@@ -252,7 +252,6 @@ export function ChatPage() {
   // store via atomic selectors per `docs/STATE_MANAGEMENT.md` rather
   // than maintaining its own local copy.
   const assistantName = useAssistantIdentityStore.use.name();
-  const assistantVersion = useAssistantIdentityStore.use.version();
   const queryClient = useQueryClient();
 
   // -------------------------------------------------------------------------
@@ -1435,7 +1434,6 @@ export function ChatPage() {
     assistantId,
     assistantState,
     assistantName,
-    assistantVersion,
     chatPullToRefreshEnabled,
     deployToVercel,
     doctor,

@@ -256,9 +256,8 @@ export interface ChatRouteContentProps {
   // Core
   assistantId: string | null;
   assistantState: AssistantState;
-  /** Identity scalars from `useAssistantIdentityStore` (read at chat-page via atomic selectors). */
+  /** Active assistant's display name from `useAssistantIdentityStore` (read at chat-page via atomic selector). */
   assistantName: string | null;
-  assistantVersion: string | null;
 
   // Feature flags
   chatPullToRefreshEnabled: boolean;
@@ -396,7 +395,6 @@ export function ChatRouteContent({
   assistantId,
   assistantState,
   assistantName,
-  assistantVersion: _assistantVersion,
   chatPullToRefreshEnabled,
   deployToVercel,
   doctor: doctorEnabled,
