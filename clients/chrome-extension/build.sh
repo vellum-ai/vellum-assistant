@@ -258,12 +258,15 @@ if [ "$CMD" = "run" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Packaging: produce a signed .crx for Verified CRX Uploads (CWS) and a .zip
-# for local/fallback use. The private key is expected at privatekey.pem in the
-# chrome-extension directory; CI injects it via secrets.
+# Packaging: produce a signed .crx (wrapped in a zip to prevent browser
+# interception on download) for manual CWS uploads, and a plain .zip of the
+# unpacked extension for the automated CWS API upload and "Load unpacked".
+# The private key is expected at privatekey.pem in the chrome-extension
+# directory; CI injects it via secrets.
 # ---------------------------------------------------------------------------
 CRX_KEY_FILE="${CRX_KEY_PATH:-$SCRIPT_DIR/privatekey.pem}"
 CRX_OUT="$SCRIPT_DIR/vellum-browser-relay.crx"
+CRX_ZIP_OUT="$SCRIPT_DIR/vellum-browser-relay.crx.zip"
 ZIP_OUT="$SCRIPT_DIR/vellum-browser-relay.zip"
 
 # Detect Chrome/Chromium binary (macOS & Linux)
@@ -292,6 +295,10 @@ if [ -f "$CRX_KEY_FILE" ]; then
     if [ -f "$DIST_DIR.crx" ]; then
       mv "$DIST_DIR.crx" "$CRX_OUT"
       echo "  Signed CRX: $CRX_OUT"
+      # Wrap the CRX in a zip so browsers don't intercept the download
+      # when it's served as a GitHub Release asset.
+      (cd "$(dirname "$CRX_OUT")" && zip "$CRX_ZIP_OUT" "$(basename "$CRX_OUT")")
+      echo "  Signed CRX (zipped): $CRX_ZIP_OUT"
     else
       echo "  Warning: Chrome did not produce a .crx file"
     fi
