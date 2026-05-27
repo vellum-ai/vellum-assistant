@@ -1,9 +1,9 @@
 
 import { useEffect, useMemo, useRef } from "react";
 
-import { AppNavBar } from "@/components/app-nav-bar.js";
-import { FETCH_PROXY_ALLOWED_PATH_RE, injectBridge } from "@/domains/chat/utils/app-bridge.js";
-import { client } from "@/generated/api/client.gen.js";
+import { AppNavBar } from "@/components/app-nav-bar";
+import { FETCH_PROXY_ALLOWED_PATH_RE, injectBridge } from "@/domains/chat/utils/app-bridge";
+import { client } from "@/generated/api/client.gen";
 
 // ---------------------------------------------------------------------------
 // Props

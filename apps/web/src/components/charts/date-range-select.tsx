@@ -5,7 +5,7 @@ import {
   type DropdownOption,
 } from "@vellum/design-library/components/dropdown";
 
-import { toLocalDateString } from "@/components/charts/format-date-label.js";
+import { toLocalDateString } from "@/components/charts/format-date-label";
 
 export interface DateRange {
   readonly from: string;

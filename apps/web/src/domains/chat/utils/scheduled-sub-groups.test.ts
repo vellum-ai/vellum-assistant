@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
 
-import type { Conversation } from "@/domains/chat/api/conversations.js";
+import type { Conversation } from "@/domains/chat/api/conversations";
 import {
   formatScheduledSubGroupLabel,
   groupScheduledConversationsByJobId,
-} from "@/domains/chat/utils/scheduled-sub-groups.js";
+} from "@/domains/chat/utils/scheduled-sub-groups";
 
 function makeConversation(
   conversationId: string,

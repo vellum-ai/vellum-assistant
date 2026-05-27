@@ -19,28 +19,28 @@ import {
   ConversationActionsMenu,
   renderConversationMenuItems,
   type ConversationMenuItemsProps,
-} from "@/domains/chat/components/conversation-actions-menu.js";
-import { CollapsedGroupIcon, getGroupIndicatorState } from "@/domains/chat/components/collapsed-group-icon.js";
-import { ThreadPinToggle } from "@/domains/chat/components/thread-pin-toggle.js";
-import { GroupActionsMenu } from "@/domains/chat/components/group-actions-menu.js";
-import { BackgroundSubGroups, ScheduledSubGroups } from "@/domains/chat/components/sub-group-accordion.js";
-import { countBadge } from "@/domains/chat/components/sidebar-count-badge.js";
+} from "@/domains/chat/components/conversation-actions-menu";
+import { CollapsedGroupIcon, getGroupIndicatorState } from "@/domains/chat/components/collapsed-group-icon";
+import { ThreadPinToggle } from "@/domains/chat/components/thread-pin-toggle";
+import { GroupActionsMenu } from "@/domains/chat/components/group-actions-menu";
+import { BackgroundSubGroups, ScheduledSubGroups } from "@/domains/chat/components/sub-group-accordion";
+import { countBadge } from "@/domains/chat/components/sidebar-count-badge";
 import {
   formatBackgroundSubGroupLabel,
   groupBackgroundConversationsBySource,
-} from "@/domains/chat/utils/background-sub-groups.js";
-import { useSidebarState, SIDEBAR_CONVERSATION_LIMIT, type UseSidebarStateParams } from "@/domains/chat/use-sidebar-state.js";
+} from "@/domains/chat/utils/background-sub-groups";
+import { useSidebarState, SIDEBAR_CONVERSATION_LIMIT, type UseSidebarStateParams } from "@/domains/chat/use-sidebar-state";
 import {
   Button,
   ContextMenu,
   PanelItem,
   SideMenu,
 } from "@vellum/design-library";
-import { CollapsibleNavSection } from "@/components/collapsible-nav-section.js";
-import { usePinnedAppsStore } from "@/domains/chat/pinned-apps-store.js";
-import { buildMoveToGroupTargets, isConversationPinned } from "@/domains/chat/utils/group-conversations.js";
-import { isChannelConversation } from "@/domains/chat/utils/conversation-channel.js";
-import { canMarkRead, canMarkUnread, type Conversation } from "@/domains/chat/api/conversations.js";
+import { CollapsibleNavSection } from "@/components/collapsible-nav-section";
+import { usePinnedAppsStore } from "@/domains/chat/pinned-apps-store";
+import { buildMoveToGroupTargets, isConversationPinned } from "@/domains/chat/utils/group-conversations";
+import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
+import { canMarkRead, canMarkUnread, type Conversation } from "@/domains/chat/api/conversations";
 
 /** @deprecated Use {@link SIDEBAR_CONVERSATION_LIMIT} from `use-sidebar-state.ts` */
 export const ASSISTANT_SIDE_MENU_CONVERSATION_LIMIT = SIDEBAR_CONVERSATION_LIMIT;

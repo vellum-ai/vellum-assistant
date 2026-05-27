@@ -8,7 +8,7 @@ import {
 import { type ReactNode } from "react";
 import { toast as sonnerToast, Toaster as SonnerToaster } from "sonner";
 
-import { cn } from "../utils/cn.js";
+import { cn } from "../utils/cn";
 
 /**
  * Toast notification system built on `sonner`.

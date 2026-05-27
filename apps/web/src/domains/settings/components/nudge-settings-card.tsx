@@ -1,7 +1,7 @@
 import type { ComponentType, CSSProperties, ReactNode } from "react";
 
 import { Button } from "@vellum/design-library/components/button";
-import { DetailCard } from "@/components/detail-card.js";
+import { DetailCard } from "@/components/detail-card";
 
 export interface NudgeBenefit {
   icon: ComponentType<{

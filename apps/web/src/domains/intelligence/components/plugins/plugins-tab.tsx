@@ -10,16 +10,16 @@ import {
 } from "react";
 
 import { Card, Input } from "@vellum/design-library";
-import { CatalogRow } from "@/domains/intelligence/components/plugins/catalog-row.js";
-import { PluginRow } from "@/domains/intelligence/components/plugins/plugin-row.js";
+import { CatalogRow } from "@/domains/intelligence/components/plugins/catalog-row";
+import { PluginRow } from "@/domains/intelligence/components/plugins/plugin-row";
 import {
   fetchPluginCatalog,
   fetchPlugins,
-} from "@/domains/intelligence/plugins/api.js";
+} from "@/domains/intelligence/plugins/api";
 import type {
   PluginCatalogMatch,
   PluginInfo,
-} from "@/domains/intelligence/plugins/types.js";
+} from "@/domains/intelligence/plugins/types";
 
 interface PluginsTabProps {
   assistantId: string;

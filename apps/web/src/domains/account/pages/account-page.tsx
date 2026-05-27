@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { Link } from "react-router";
 
-import { AccountHeading } from "@/components/account/account-form.js";
-import { AccountShell } from "@/components/account/account-shell.js";
-import { PROVIDER_CALLBACK_URL, PROVIDER_ID } from "@/domains/account/login-flow.js";
-import { hardNavigate } from "@/lib/auth/hard-navigate.js";
-import { startAuthFlow } from "@/runtime/native-auth.js";
-import { useAuthStore } from "@/stores/auth-store.js";
-import { routes } from "@/utils/routes.js";
+import { AccountHeading } from "@/components/account/account-form";
+import { AccountShell } from "@/components/account/account-shell";
+import { PROVIDER_CALLBACK_URL, PROVIDER_ID } from "@/domains/account/login-flow";
+import { hardNavigate } from "@/lib/auth/hard-navigate";
+import { startAuthFlow } from "@/runtime/native-auth";
+import { useAuthStore } from "@/stores/auth-store";
+import { routes } from "@/utils/routes";
 
 /**
  * Account landing page. Shows a sign-in CTA when unauthenticated,

@@ -41,7 +41,7 @@ import {
   type StateStorage,
 } from "zustand/middleware";
 
-import { createSelectors } from "@/utils/create-selectors.js";
+import { createSelectors } from "@/utils/create-selectors";
 
 export const PLATFORM_ASSISTANT_STORAGE_PREFIX =
   "vellum_current_assistant_id__";

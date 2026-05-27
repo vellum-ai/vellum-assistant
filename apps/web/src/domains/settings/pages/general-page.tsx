@@ -2,38 +2,38 @@ import { Heart, Monitor, Moon, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { SegmentControl } from "@vellum/design-library/components/segment-control";
-import { AssistantPicker } from "@/domains/settings/components/assistant-picker.js";
-import { AssistantSleepPolicy } from "@/domains/settings/components/assistant-sleep-policy.js";
-import { AssistantUpgrades } from "@/domains/settings/components/assistant-upgrades.js";
-import { ResizeCard } from "@/domains/settings/components/resize-card.js";
-import { DeleteAccountSection } from "@/domains/settings/components/delete-account-section.js";
-import { IOSAppCard } from "@/domains/settings/components/ios-app-card.js";
-import { MediaEmbedsCard } from "@/domains/settings/components/media-embeds-card.js";
-import { PreviewReleaseChannel } from "@/domains/settings/components/preview-release-channel.js";
-import { RetireAssistant } from "@/domains/settings/components/retire-assistant.js";
-import { DetailCard } from "@/components/detail-card.js";
-import { TimezonePicker } from "@/domains/settings/components/timezone-picker.js";
-import { ProfileCard } from "@/domains/settings/components/profile-card.js";
-import { AssistantOutOfStorageBanner } from "@/domains/settings/components/assistant-out-of-storage-banner.js";
+import { AssistantPicker } from "@/domains/settings/components/assistant-picker";
+import { AssistantSleepPolicy } from "@/domains/settings/components/assistant-sleep-policy";
+import { AssistantUpgrades } from "@/domains/settings/components/assistant-upgrades";
+import { ResizeCard } from "@/domains/settings/components/resize-card";
+import { DeleteAccountSection } from "@/domains/settings/components/delete-account-section";
+import { IOSAppCard } from "@/domains/settings/components/ios-app-card";
+import { MediaEmbedsCard } from "@/domains/settings/components/media-embeds-card";
+import { PreviewReleaseChannel } from "@/domains/settings/components/preview-release-channel";
+import { RetireAssistant } from "@/domains/settings/components/retire-assistant";
+import { DetailCard } from "@/components/detail-card";
+import { TimezonePicker } from "@/domains/settings/components/timezone-picker";
+import { ProfileCard } from "@/domains/settings/components/profile-card";
+import { AssistantOutOfStorageBanner } from "@/domains/settings/components/assistant-out-of-storage-banner";
 import {
   AssistantStatusPanel,
   useAssistantWithHealthz,
-} from "@/domains/settings/components/assistant-status-panel.js";
+} from "@/domains/settings/components/assistant-status-panel";
 
-import { useAuthStore } from "@/stores/auth-store.js";
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
-import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
+import { useAuthStore } from "@/stores/auth-store";
+import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
+import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
 import {
   applyThemePreference,
   readStoredThemePreference,
   type ThemePreference,
   writeStoredThemePreference,
-} from "@/domains/settings/utils/theme-preferences.js";
+} from "@/domains/settings/utils/theme-preferences";
 import {
   getDeviceSetting,
   setDeviceSetting,
   watchDeviceSetting,
-} from "@/lib/device-settings.js";
+} from "@/lib/device-settings";
 
 function ThemeCard() {
   const velvet = useClientFeatureFlagStore.use.velvet();

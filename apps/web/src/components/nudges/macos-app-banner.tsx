@@ -1,8 +1,8 @@
 
 import { Download } from "lucide-react";
 
-import { AppleLogo } from "@/components/icons/apple-logo.js";
-import { NudgeChatBanner } from "@/components/nudges/nudge-chat-banner.js";
+import { AppleLogo } from "@/components/icons/apple-logo";
+import { NudgeChatBanner } from "@/components/nudges/nudge-chat-banner";
 
 interface MacOSAppBannerProps {
   onDownload: () => void;

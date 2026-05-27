@@ -15,8 +15,8 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import type { CompactionTrailEvent } from "../../compaction-trail-types.js";
-import type { LLMRequestLogEntry } from "../../../types/inspector-types.js";
+import type { CompactionTrailEvent } from "../../compaction-trail-types";
+import type { LLMRequestLogEntry } from "../../../types/inspector-types";
 
 interface HookState {
   data: { conversationId: string; events: CompactionTrailEvent[] } | undefined;
@@ -40,7 +40,7 @@ const hookCallArgs: Array<{
   callId: string | undefined;
 }> = [];
 
-mock.module("@/domains/chat/inspector/compaction-trail-api.js", () => ({
+mock.module("@/domains/chat/inspector/compaction-trail-api", () => ({
   useCompactionTrail: (
     assistantId: string | undefined,
     conversationId: string | undefined,
@@ -52,7 +52,7 @@ mock.module("@/domains/chat/inspector/compaction-trail-api.js", () => ({
 }));
 
 // Imported AFTER the mock so the component picks up the stub.
-import { CompactionTab } from "./compaction-tab.js";
+import { CompactionTab } from "./compaction-tab";
 
 function makeEntry(overrides: Partial<LLMRequestLogEntry> = {}): LLMRequestLogEntry {
   return {

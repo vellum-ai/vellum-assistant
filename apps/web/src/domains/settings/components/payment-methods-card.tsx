@@ -12,12 +12,12 @@ import {
   organizationsBillingAutoTopUpRemovePaymentMethodCreateMutation,
   organizationsBillingAutoTopUpRetrieveOptions,
   organizationsBillingAutoTopUpRetrieveQueryKey,
-} from "@/generated/api/@tanstack/react-query.gen.js";
-import type { AutoTopUpConfigResponse } from "@/generated/api/types.gen.js";
+} from "@/generated/api/@tanstack/react-query.gen";
+import type { AutoTopUpConfigResponse } from "@/generated/api/types.gen";
 
-import { DISABLED_CONFIG } from "@/domains/settings/components/auto-top-up-card.js";
-import { AutoTopUpPaymentMethodModal } from "@/domains/settings/components/auto-top-up-payment-method-modal.js";
-import { brandLabel } from "@/domains/settings/utils/payment-method-brand.js";
+import { DISABLED_CONFIG } from "@/domains/settings/components/auto-top-up-card";
+import { AutoTopUpPaymentMethodModal } from "@/domains/settings/components/auto-top-up-payment-method-modal";
+import { brandLabel } from "@/domains/settings/utils/payment-method-brand";
 
 // ---------------------------------------------------------------------------
 // PaymentMethodsCard — manages exactly the auto-top-up payment method.

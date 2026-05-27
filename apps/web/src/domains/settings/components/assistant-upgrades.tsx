@@ -10,21 +10,21 @@ import {
   assistantsRetrieveOptions,
   assistantsRetrieveQueryKey,
   releasesListOptions,
-} from "@/generated/api/@tanstack/react-query.gen.js";
+} from "@/generated/api/@tanstack/react-query.gen";
 import {
   assistantsRollbackDetailCreate,
   assistantsUpgradeDetailCreate,
-} from "@/generated/api/sdk.gen.js";
+} from "@/generated/api/sdk.gen";
 import type {
   ReleaseChannelEnum,
   ReleaseListItem,
-} from "@/generated/api/types.gen.js";
-import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
+} from "@/generated/api/types.gen";
+import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
+import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
 import {
   compareParsed,
   parseSemver,
-} from "@/utils/semver.js";
+} from "@/utils/semver";
 
 function releaseLabel(
   release: ReleaseListItem,

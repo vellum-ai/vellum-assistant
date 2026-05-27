@@ -60,8 +60,8 @@ wrap with `createSelectors` for auto-generated per-field hooks:
 ```ts
 import { create } from "zustand";
 
-import { createSelectors } from "@/utils/create-selectors.js";
-import type { Message } from "./types.js";
+import { createSelectors } from "@/utils/create-selectors";
+import type { Message } from "./types";
 
 // State — the data
 export interface MessageState {
@@ -234,7 +234,7 @@ for reducing boilerplate while keeping per-field re-render optimization.
 
 ```ts
 import { create } from "zustand";
-import { createSelectors } from "@/utils/create-selectors.js";
+import { createSelectors } from "@/utils/create-selectors";
 
 interface BearState {
   bears: number;
@@ -327,7 +327,7 @@ Query wraps, so switching from `useQuery(optionsFn())` to a direct
 
 ```ts
 // Infrastructure store — direct SDK call
-import { organizationsList } from "@/generated/api/sdk.gen.js";
+import { organizationsList } from "@/generated/api/sdk.gen";
 
 const useOrgStoreBase = create<OrgStore>()((set) => ({
   organizations: [],

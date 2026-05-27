@@ -1,6 +1,6 @@
-import { CATEGORY_STYLES } from "../home-feed-filter-bar.js";
-import { HomeMarkdownContent } from "./home-markdown-content.js";
-import type { FeedItem, FeedItemCategory } from "../types.js";
+import { CATEGORY_STYLES } from "../home-feed-filter-bar";
+import { HomeMarkdownContent } from "./home-markdown-content";
+import type { FeedItem, FeedItemCategory } from "../types";
 
 function resolveStyle(category?: FeedItemCategory) {
   if (category && CATEGORY_STYLES[category]) {

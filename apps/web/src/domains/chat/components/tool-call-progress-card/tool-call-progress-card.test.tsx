@@ -20,8 +20,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
-import { ToolCallProgressCard } from "@/domains/chat/components/tool-call-progress-card/tool-call-progress-card.js";
-import type { ChatMessageToolCall } from "@/domains/chat/api/event-types.js";
+import { ToolCallProgressCard } from "@/domains/chat/components/tool-call-progress-card/tool-call-progress-card";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 
 afterEach(() => {
   cleanup();

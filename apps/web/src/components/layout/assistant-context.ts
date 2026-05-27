@@ -24,7 +24,7 @@ import { useOutletContext } from "react-router";
 import type {
   AssistantState,
   UseAssistantLifecycleReturn,
-} from "@/domains/chat/hooks/use-assistant-lifecycle.js";
+} from "@/domains/chat/hooks/use-assistant-lifecycle";
 
 export interface AssistantContextValue {
   assistantId: string | null;

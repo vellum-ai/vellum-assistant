@@ -31,13 +31,13 @@ import { Dropdown, type DropdownOption } from "@vellum/design-library/components
 import { Input, Textarea } from "@vellum/design-library/components/input";
 import { Notice } from "@vellum/design-library/components/notice";
 import { Toggle } from "@vellum/design-library/components/toggle";
-import { feedbackCreateMutation } from "@/generated/api/@tanstack/react-query.gen.js";
-import type { ClassificationEnum } from "@/generated/api/types.gen.js";
-import { buildVellumMutatingHeaders } from "@/lib/auth/request-headers.js";
-import type { ChatDebugApi } from "@/domains/chat/utils/debug-api.js";
-import { buildChatDiagnosticsSnapshot } from "@/domains/chat/utils/diagnostics.js";
-import { isElectron } from "@/runtime/is-electron.js";
-import { useAuthStore } from "@/stores/auth-store.js";
+import { feedbackCreateMutation } from "@/generated/api/@tanstack/react-query.gen";
+import type { ClassificationEnum } from "@/generated/api/types.gen";
+import { buildVellumMutatingHeaders } from "@/lib/auth/request-headers";
+import type { ChatDebugApi } from "@/domains/chat/utils/debug-api";
+import { buildChatDiagnosticsSnapshot } from "@/domains/chat/utils/diagnostics";
+import { isElectron } from "@/runtime/is-electron";
+import { useAuthStore } from "@/stores/auth-store";
 
 type Reason = "bug_report" | "feature_request" | "other";
 

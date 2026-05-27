@@ -5,8 +5,8 @@ import {
   useId,
 } from "react";
 
-import { Typography } from "./typography.js";
-import { cn } from "../utils/cn.js";
+import { Typography } from "./typography";
+import { cn } from "../utils/cn";
 
 /**
  * Shared text-input primitive backing both `Input` (single-line) and

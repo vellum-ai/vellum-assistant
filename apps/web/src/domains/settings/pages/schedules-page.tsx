@@ -16,8 +16,8 @@ import { PanelItem } from "@vellum/design-library/components/panel-item";
 import { Tag } from "@vellum/design-library/components/tag";
 import { Toggle } from "@vellum/design-library/components/toggle";
 import { toast } from "@vellum/design-library/components/toast";
-import { DetailCard } from "@/components/detail-card.js";
-import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen.js";
+import { DetailCard } from "@/components/detail-card";
+import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen";
 import {
   deleteSchedule,
   fetchConsolidationConfig,
@@ -29,14 +29,14 @@ import {
   runHeartbeatNow,
   runScheduleNow,
   toggleSchedule,
-} from "@/domains/settings/api/schedules.js";
-import { reportError } from "@/lib/errors/report.js";
+} from "@/domains/settings/api/schedules";
+import { reportError } from "@/lib/errors/report";
 import {
   assistantScheduleRunsQueryKey,
   assistantSchedulesQueryKey,
-} from "@/lib/sync/query-tags.js";
+} from "@/lib/sync/query-tags";
 
-import { CreateScheduleModal } from "@/domains/settings/components/create-schedule-modal.js";
+import { CreateScheduleModal } from "@/domains/settings/components/create-schedule-modal";
 
 import type {
   ConsolidationConfigResponse,
@@ -44,7 +44,7 @@ import type {
   Schedule,
   ScheduleRun,
   SystemTaskKind,
-} from "@/domains/settings/types/schedules.js";
+} from "@/domains/settings/types/schedules";
 import type { TagTone } from "@vellum/design-library/components/tag";
 
 // ---------------------------------------------------------------------------

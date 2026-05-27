@@ -1,8 +1,8 @@
 
 import { useMemo } from "react";
 
-import { composeSvg } from "@/utils/avatar-svg-compositor.js";
-import type { CharacterComponents } from "@/types/avatar.js";
+import { composeSvg } from "@/utils/avatar-svg-compositor";
+import type { CharacterComponents } from "@/types/avatar";
 
 export interface AvatarRendererProps {
   components: CharacterComponents;

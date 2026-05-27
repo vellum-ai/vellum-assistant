@@ -5,14 +5,14 @@ import {
   type DisplayMessage,
   reconcileDisplayMessagesWithLatestHistory,
   reconcileMessages,
-} from "@/domains/chat/utils/reconcile.js";
+} from "@/domains/chat/utils/reconcile";
 import {
   classifySurfaceDisplay,
   type SlackRuntimeMessage,
   type Surface,
-} from "@/domains/chat/types/types.js";
-import type { ChatMessageToolCall } from "@/domains/chat/api/event-types.js";
-import type { RuntimeMessage } from "@/domains/chat/api/messages.js";
+} from "@/domains/chat/types/types";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import type { RuntimeMessage } from "@/domains/chat/api/messages";
 
 // Test factory that produces a DisplayMessage with `id` assigned. Every
 // DisplayMessage construction site in production code assigns `id`; tests

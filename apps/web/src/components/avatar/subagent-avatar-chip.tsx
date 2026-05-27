@@ -10,9 +10,9 @@
  * consumed by `SubagentInlineProgressCard`.
  */
 
-import { AvatarRenderer } from "@/components/avatar-renderer.js";
-import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components.js";
-import { subagentTraits } from "@/utils/avatar-subagent.js";
+import { AvatarRenderer } from "@/components/avatar-renderer";
+import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
+import { subagentTraits } from "@/utils/avatar-subagent";
 
 export interface SubagentAvatarChipProps {
   subagentId: string;

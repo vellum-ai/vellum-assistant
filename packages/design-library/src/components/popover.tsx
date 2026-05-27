@@ -1,8 +1,8 @@
 import * as RadixPopover from "@radix-ui/react-popover";
 import { type ComponentProps } from "react";
 
-import { cn } from "../utils/cn.js";
-import { usePortalContainer } from "../utils/portal-container.js";
+import { cn } from "../utils/cn";
+import { usePortalContainer } from "../utils/portal-container";
 
 /**
  * Compound `Popover` primitive built on `@radix-ui/react-popover`.

@@ -10,9 +10,9 @@ import {
   useState,
 } from "react";
 
-import { computeFit, type TreeNode } from "@/domains/intelligence/components/constellation-layout.js";
+import { computeFit, type TreeNode } from "@/domains/intelligence/components/constellation-layout";
 
-import { MAX_ZOOM, MIN_ZOOM, VIRTUAL_CENTER, ZOOM_STEP } from "@/domains/intelligence/components/constellation-view/constants.js";
+import { MAX_ZOOM, MIN_ZOOM, VIRTUAL_CENTER, ZOOM_STEP } from "@/domains/intelligence/components/constellation-view/constants";
 
 interface ViewportState {
   zoom: number;

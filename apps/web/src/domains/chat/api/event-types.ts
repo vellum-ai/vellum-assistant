@@ -7,10 +7,10 @@
  */
 
 import type { RelationshipStateUpdatedEvent } from "@vellumai/assistant-api";
-import type { DiskPressureStatus } from "@/assistant/types.js";
-import type { Surface } from "@/domains/chat/types/types.js";
-import type { ToolActivityMetadata } from "@/assistant/web-activity-types.js";
-import type { SyncChangedEvent } from "@/lib/sync/types.js";
+import type { DiskPressureStatus } from "@/assistant/types";
+import type { Surface } from "@/domains/chat/types/types";
+import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
+import type { SyncChangedEvent } from "@/lib/sync/types";
 
 /** Data needed to render an inline permission prompt inside a ToolCallChip. */
 export interface PendingToolConfirmation {
@@ -518,7 +518,7 @@ import type {
   DocumentCommentDeletedEvent,
   DocumentCommentReopenedEvent,
   DocumentCommentResolvedEvent,
-} from "@/domains/chat/api/document-comment-events.js";
+} from "@/domains/chat/api/document-comment-events";
 
 export type DocumentCommentCreatedSseEvent = DocumentCommentCreatedEvent;
 

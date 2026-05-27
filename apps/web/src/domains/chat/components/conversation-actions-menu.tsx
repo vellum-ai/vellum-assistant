@@ -25,8 +25,8 @@ import {
   Menu,
   PanelItem,
 } from "@vellum/design-library";
-import type { MoveToGroupTarget } from "@/domains/chat/utils/group-conversations.js";
-import { useIsMobile } from "@/hooks/use-is-mobile.js";
+import type { MoveToGroupTarget } from "@/domains/chat/utils/group-conversations";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 
 /**
  * Hover-revealed "more" menu for a conversation row. Renders an ellipsis

@@ -1,6 +1,6 @@
 import { Monitor, Smartphone } from "lucide-react";
 
-import type { Assistant } from "@/generated/api/types.gen.js";
+import type { Assistant } from "@/generated/api/types.gen";
 
 function formatDate(dateStr: string) {
   return new Intl.DateTimeFormat("en", {

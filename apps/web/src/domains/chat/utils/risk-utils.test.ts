@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { getProvenanceText, wasExpected } from "@/domains/chat/utils/risk-utils.js";
+import { getProvenanceText, wasExpected } from "@/domains/chat/utils/risk-utils";
 
 describe("wasExpected", () => {
   test("prompted mode is always expected", () => {

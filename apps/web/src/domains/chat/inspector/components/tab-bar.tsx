@@ -1,6 +1,6 @@
 import { type ReactNode } from "react";
 
-import { cn } from "@/utils/misc.js";
+import { cn } from "@/utils/misc";
 
 export type InspectorTab =
   | "overview"

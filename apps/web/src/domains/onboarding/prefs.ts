@@ -19,9 +19,9 @@ import {
   getLocalSetting,
   removeLocalSetting,
   setLocalSetting,
-} from "@/lib/local-settings.js";
-import { getDeviceSetting, setDeviceSetting } from "@/lib/device-settings.js";
-import { useOnboardingStore } from "@/domains/onboarding/onboarding-store.js";
+} from "@/lib/local-settings";
+import { getDeviceSetting, setDeviceSetting } from "@/lib/device-settings";
+import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
 
 // ---------------------------------------------------------------------------
 // Storage keys (non-boolean — boolean keys live in onboarding-store.ts)

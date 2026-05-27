@@ -2,8 +2,8 @@ import { Mail, MailOpen, MessageSquare, RotateCcw, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import { cn } from "@vellum/design-library";
-import { CATEGORY_STYLES } from "./home-feed-filter-bar.js";
-import type { FeedItem, FeedItemCategory, FeedItemStatus } from "./types.js";
+import { CATEGORY_STYLES } from "./home-feed-filter-bar";
+import type { FeedItem, FeedItemCategory, FeedItemStatus } from "./types";
 
 function HoverIconButton({
   title,

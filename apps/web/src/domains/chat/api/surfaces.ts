@@ -7,7 +7,7 @@ import {
   client,
   extractErrorMessage,
   SDK_BASE_OPTIONS,
-} from "@/domains/chat/api/client.js";
+} from "@/domains/chat/api/client";
 
 export async function submitSurfaceAction(
   assistantId: string,
@@ -96,6 +96,6 @@ export async function downloadArtifact(
     throw new Error("Failed to download artifact");
   }
 
-  const { saveFile } = await import("@/runtime/native-file.js");
+  const { saveFile } = await import("@/runtime/native-file");
   await saveFile(data, filename);
 }

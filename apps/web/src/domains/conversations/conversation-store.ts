@@ -23,7 +23,7 @@
 
 import { create } from "zustand";
 
-import { createSelectors } from "@/utils/create-selectors.js";
+import { createSelectors } from "@/utils/create-selectors";
 
 // ---------------------------------------------------------------------------
 // Set / Map helpers — return the same reference when the mutation is a

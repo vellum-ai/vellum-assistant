@@ -1,5 +1,5 @@
-import { useCurrentPlatformAssistant } from "@/hooks/use-current-platform-assistant.js";
-import { SystemEventsTab } from "@/domains/logs/components/system-events-tab.js";
+import { useCurrentPlatformAssistant } from "@/hooks/use-current-platform-assistant";
+import { SystemEventsTab } from "@/domains/logs/components/system-events-tab";
 
 export function SystemEventsPage() {
   const { assistantId } = useCurrentPlatformAssistant();

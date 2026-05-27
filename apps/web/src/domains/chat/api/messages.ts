@@ -7,24 +7,24 @@
  */
 
 import * as Sentry from "@sentry/react";
-import type { ChatMessageToolCall } from "@/domains/chat/api/event-types.js";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type {
   DisplayMessage,
   SlackRuntimeMessage,
   Surface,
-} from "@/domains/chat/types/types.js";
+} from "@/domains/chat/types/types";
 import {
   assertHasResponse,
   client,
   extractErrorMessage,
   SDK_BASE_OPTIONS,
-} from "@/domains/chat/api/client.js";
+} from "@/domains/chat/api/client";
 import {
   normalizePreChatOnboardingContext,
   type PreChatOnboardingContext,
-} from "@/domains/onboarding/prechat.js";
-import { persistPreChatOnboardingProfile } from "@/domains/onboarding/prechat-profile.js";
-import { pickConversationIdWireField } from "@/lib/backwards-compat/conversation-id-wire-field.js";
+} from "@/domains/onboarding/prechat";
+import { persistPreChatOnboardingProfile } from "@/domains/onboarding/prechat-profile";
+import { pickConversationIdWireField } from "@/lib/backwards-compat/conversation-id-wire-field";
 
 const POLL_INTERVAL_MS = 1000;
 const POLL_TIMEOUT_MS = 120_000;
@@ -324,7 +324,7 @@ export async function getChatHistory(
     }
 
     const { mapRuntimeToDisplayMessage } =
-      await import("@/domains/chat/utils/map-runtime-message.js");
+      await import("@/domains/chat/utils/map-runtime-message");
     const messages = (Array.isArray(data?.messages) ? data.messages : [])
       .filter((m) => m.role === "user" || m.role === "assistant")
       .map(mapRuntimeToDisplayMessage);

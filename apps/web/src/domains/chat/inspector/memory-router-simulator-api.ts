@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 
-import { client } from "@/generated/api/client.gen.js";
+import { client } from "@/generated/api/client.gen";
 
 /**
  * Client for the daemon's read-only memory-router simulator endpoint.

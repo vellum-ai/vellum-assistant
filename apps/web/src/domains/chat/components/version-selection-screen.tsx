@@ -3,8 +3,8 @@ import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Dropdown } from "@vellum/design-library";
-import { releasesList } from "@/generated/api/sdk.gen.js";
-import type { ReleaseListItem } from "@/generated/api/types.gen.js";
+import { releasesList } from "@/generated/api/sdk.gen";
+import type { ReleaseListItem } from "@/generated/api/types.gen";
 
 export interface VersionSelectionScreenProps {
   onHatch: (version?: string) => void;

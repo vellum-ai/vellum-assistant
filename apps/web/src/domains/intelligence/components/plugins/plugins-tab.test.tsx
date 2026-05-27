@@ -18,7 +18,7 @@ import type { ReactNode } from "react";
 import type {
   PluginCatalogResponse,
   PluginsListResponse,
-} from "@/domains/intelligence/plugins/types.js";
+} from "@/domains/intelligence/plugins/types";
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -27,7 +27,7 @@ import type {
 // The api module is mocked so the pre-populated cache wins — no real
 // fetch ever fires. The mock functions stay no-op since useQuery only
 // calls them on cache miss.
-mock.module("@/domains/intelligence/plugins/api.js", () => ({
+mock.module("@/domains/intelligence/plugins/api", () => ({
   fetchPlugins: async (): Promise<PluginsListResponse> => ({ plugins: [] }),
   fetchPluginCatalog: async (): Promise<PluginCatalogResponse> => ({
     query: "",
@@ -44,7 +44,7 @@ mock.module("@/domains/intelligence/plugins/api.js", () => ({
 }));
 
 const { PluginsTab } = await import(
-  "@/domains/intelligence/components/plugins/plugins-tab.js"
+  "@/domains/intelligence/components/plugins/plugins-tab"
 );
 
 // ---------------------------------------------------------------------------

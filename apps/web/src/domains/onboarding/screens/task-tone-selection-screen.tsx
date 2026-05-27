@@ -1,9 +1,9 @@
 import { Check, ChevronLeft } from "lucide-react";
 
 import { Button } from "@vellum/design-library/components/button";
-import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout.js";
-import { TASK_ICONS } from "@/components/prechat-task-icons.js";
-import { PRECHAT_TASKS } from "@/types/prechat-tasks.js";
+import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
+import { TASK_ICONS } from "@/components/prechat-task-icons";
+import { PRECHAT_TASKS } from "@/types/prechat-tasks";
 
 interface TaskToneSelectionScreenProps {
   selectedTasks: Set<string>;

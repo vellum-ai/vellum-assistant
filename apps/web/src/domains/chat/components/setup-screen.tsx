@@ -1,5 +1,5 @@
 
-import { useHintRotation } from "@/domains/chat/hooks/use-hint-rotation.js";
+import { useHintRotation } from "@/domains/chat/hooks/use-hint-rotation";
 
 const SETUP_HINTS = [
   "Preparing your workspace\u2026",

@@ -1,21 +1,21 @@
 
 import { useMemo } from "react";
 
-import type { WebSearchResultItem } from "@/assistant/web-activity-types.js";
-import { WebsiteCarousel } from "@/domains/chat/components/web-search/website-carousel.js";
+import type { WebSearchResultItem } from "@/assistant/web-activity-types";
+import { WebsiteCarousel } from "@/domains/chat/components/web-search/website-carousel";
 import {
   WebSearchErrorRow,
   WebSearchStepRow,
-} from "@/domains/chat/components/web-search/web-search-step-row.js";
+} from "@/domains/chat/components/web-search/web-search-step-row";
 import {
   DefaultStepPill,
   PhaseGroupedStepList,
-} from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list.js";
+} from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
 import {
   ToolProgressCardShell,
   type ToolProgressCardState,
-} from "@/domains/chat/components/tool-progress-card/tool-progress-card-shell.js";
-import type { ToolCallCardStep } from "@/domains/chat/hooks/use-tool-call-card-data.js";
+} from "@/domains/chat/components/tool-progress-card/tool-progress-card-shell";
+import type { ToolCallCardStep } from "@/domains/chat/hooks/use-tool-call-card-data";
 
 /**
  * Live progress card rendered while an assistant turn is actively searching the

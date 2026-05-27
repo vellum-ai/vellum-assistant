@@ -5,12 +5,12 @@
  * `useSendMessage` and suitable for direct unit testing.
  */
 
-import { isSurfaceInteractive } from "@/domains/chat/types/types.js";
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
+import { isSurfaceInteractive } from "@/domains/chat/types/types";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 
-import { attachConfirmationToToolCall, ERROR_MESSAGES } from "@/domains/chat/utils/chat-utils.js";
-import type { PendingConfirmationState, PendingSecretState } from "@/domains/chat/types.js";
-import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/domains/chat/api/event-types.js";
+import { attachConfirmationToToolCall, ERROR_MESSAGES } from "@/domains/chat/utils/chat-utils";
+import type { PendingConfirmationState, PendingSecretState } from "@/domains/chat/types";
+import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/domains/chat/api/event-types";
 
 // ---------------------------------------------------------------------------
 // Pure updater functions — no React state, fully testable

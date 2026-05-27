@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 
-import { client } from "@/generated/api/client.gen.js";
+import { client } from "@/generated/api/client.gen";
 
 /**
  * Resolves the (provider, model) pair currently in effect for a chat

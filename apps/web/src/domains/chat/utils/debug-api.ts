@@ -28,38 +28,38 @@ import * as assistantApi from "@vellumai/assistant-api";
 import {
   type ChatDebugEventsApi,
   eventsDebugApi,
-} from "@/domains/chat/api/debug-api.js";
+} from "@/domains/chat/api/debug-api";
 import {
   fetchConversationMessages as defaultFetchConversationMessages,
   type RuntimeMessage,
-} from "@/domains/chat/api/messages.js";
-import type { ChatEventStream } from "@/domains/chat/api/stream.js";
+} from "@/domains/chat/api/messages";
+import type { ChatEventStream } from "@/domains/chat/api/stream";
 import type {
   PendingConfirmationState,
   PendingContactRequestState,
   PendingQuestionState,
   PendingSecretState,
-} from "@/domains/chat/types/chat-ui-types.js";
-import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics.js";
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
-import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation.js";
-import { setTranscriptScrollControllerEnabled } from "@/domains/chat/transcript/transcript-scroll-flag.js";
+} from "@/domains/chat/types/chat-ui-types";
+import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation";
+import { setTranscriptScrollControllerEnabled } from "@/domains/chat/transcript/transcript-scroll-flag";
 import {
   classifyScrollPosition,
   type TranscriptHandle,
-} from "@/domains/chat/transcript/use-deprecated-transcript-scroll.js";
-import type { TranscriptItem } from "@/domains/chat/transcript/types.js";
+} from "@/domains/chat/transcript/use-deprecated-transcript-scroll";
+import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import {
   type TerminalReason,
   type TurnPhase,
   type TurnState,
   isSending,
   isThinking,
-} from "@/domains/messaging/turn-store.js";
+} from "@/domains/messaging/turn-store";
 import {
   type UIContext,
   shouldShowThinkingIndicator,
-} from "@/domains/messaging/turn-selectors.js";
+} from "@/domains/messaging/turn-selectors";
 
 // ---------------------------------------------------------------------------
 // Public types

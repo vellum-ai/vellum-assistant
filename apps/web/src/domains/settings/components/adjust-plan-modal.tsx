@@ -10,9 +10,9 @@ import { Notice } from "@vellum/design-library/components/notice";
 import { Tag } from "@vellum/design-library/components/tag";
 import { toast } from "@vellum/design-library/components/toast";
 import { Typography } from "@vellum/design-library/components/typography";
-import { DowngradeReconfirmModal } from "./downgrade-reconfirm-modal.js";
-import { PlanFeatureList } from "./plan-feature-list.js";
-import { TierPicker, isTierDisabled } from "./tier-picker.js";
+import { DowngradeReconfirmModal } from "./downgrade-reconfirm-modal";
+import { PlanFeatureList } from "./plan-feature-list";
+import { TierPicker, isTierDisabled } from "./tier-picker";
 import type {
   MachineTier,
   MachineTierEnum,
@@ -20,7 +20,7 @@ import type {
   StorageTier,
   StorageTierEnum,
   SubscriptionStatusEnum,
-} from "@/generated/api/types.gen.js";
+} from "@/generated/api/types.gen";
 import {
   organizationsBillingPlansRetrieveOptions,
   organizationsBillingPlansRetrieveQueryKey,
@@ -31,14 +31,14 @@ import {
   organizationsBillingSubscriptionRetrieveOptions,
   organizationsBillingSubscriptionRetrieveQueryKey,
   organizationsBillingSubscriptionUpgradeCreateMutation,
-} from "@/generated/api/@tanstack/react-query.gen.js";
+} from "@/generated/api/@tanstack/react-query.gen";
 import {
   buildPortalReturnSnapshot,
   formatGraceDate,
   getEffectiveCancelDate,
   useBillingPortalSession,
-} from "@/domains/settings/hooks/use-billing-portal-session.js";
-import { openUrl, openUrlFinishedListener } from "@/runtime/browser.js";
+} from "@/domains/settings/hooks/use-billing-portal-session";
+import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
 
 
 /**

@@ -5,12 +5,12 @@
  * so no generated HeyAPI hooks exist for them.
  */
 
-import { client } from "@/generated/api/client.gen.js";
+import { client } from "@/generated/api/client.gen";
 
 import {
   isLlmUsageDimension,
   toDaemonGroupBy,
-} from "@/utils/llm-dimension.js";
+} from "@/utils/llm-dimension";
 import type {
   UsageBreakdownResponse,
   UsageDailyResponse,
@@ -19,7 +19,7 @@ import type {
   UsageSeriesGroupBy,
   UsageSeriesResponse,
   UsageTotals,
-} from "./usage-types.js";
+} from "./usage-types";
 
 export class UsageRequestError extends Error {
   status: number;

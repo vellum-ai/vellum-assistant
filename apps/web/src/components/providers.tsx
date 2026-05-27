@@ -13,8 +13,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 
-import { useAuthStore } from "@/stores/auth-store.js";
-import { useOrganizationStore } from "@/stores/organization-store.js";
+import { useAuthStore } from "@/stores/auth-store";
+import { useOrganizationStore } from "@/stores/organization-store";
 
 function createQueryClient(): QueryClient {
   return new QueryClient({

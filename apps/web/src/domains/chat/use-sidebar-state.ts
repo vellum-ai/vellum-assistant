@@ -15,13 +15,13 @@
 
 import { useCallback, useEffect, useMemo, useState, startTransition } from "react";
 
-import type { Conversation, ConversationGroup } from "@/domains/chat/api/conversations.js";
-import { groupConversations, type CustomGroup } from "@/domains/chat/utils/group-conversations.js";
-import { groupBackgroundConversationsBySource } from "@/domains/chat/utils/background-sub-groups.js";
-import { groupScheduledConversationsByJobId } from "@/domains/chat/utils/scheduled-sub-groups.js";
-import type { SubGroup } from "@/domains/chat/utils/sub-group-utils.js";
-import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
-import { useSidebarCollapseStore } from "@/domains/chat/sidebar-collapse-store.js";
+import type { Conversation, ConversationGroup } from "@/domains/chat/api/conversations";
+import { groupConversations, type CustomGroup } from "@/domains/chat/utils/group-conversations";
+import { groupBackgroundConversationsBySource } from "@/domains/chat/utils/background-sub-groups";
+import { groupScheduledConversationsByJobId } from "@/domains/chat/utils/scheduled-sub-groups";
+import type { SubGroup } from "@/domains/chat/utils/sub-group-utils";
+import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
+import { useSidebarCollapseStore } from "@/domains/chat/sidebar-collapse-store";
 
 // ---------------------------------------------------------------------------
 // Public constants

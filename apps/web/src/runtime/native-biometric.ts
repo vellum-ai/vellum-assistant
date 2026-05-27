@@ -1,7 +1,7 @@
 import { registerPlugin } from "@capacitor/core";
 
-import { isNativePlatform } from "@/runtime/native-auth.js";
-import { getDeviceBool, setDeviceBool } from "@/lib/device-settings.js";
+import { isNativePlatform } from "@/runtime/native-auth";
+import { getDeviceBool, setDeviceBool } from "@/lib/device-settings";
 
 /**
  * JS ↔ native bridge for the `NativeBiometric` Capacitor plugin registered by

@@ -2,15 +2,15 @@ import {
   createSyncTagRegistry,
   type SyncDispatchResult,
   type SyncHandlerRegistration,
-} from "@/lib/sync/tag-registry.js";
+} from "@/lib/sync/tag-registry";
 import {
   isConversationMessagesSyncTag,
   isConversationMetadataSyncTag,
   parseConversationSyncTag,
   SYNC_TAGS,
   type SyncChangedEvent,
-} from "@/lib/sync/types.js";
-import { getClientId } from "@/lib/telemetry/client-identity.js";
+} from "@/lib/sync/types";
+import { getClientId } from "@/lib/telemetry/client-identity";
 
 export interface ActiveConversationMessagesRefreshResult {
   changed: boolean;

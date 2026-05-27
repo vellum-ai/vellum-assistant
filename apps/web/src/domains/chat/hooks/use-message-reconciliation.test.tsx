@@ -17,8 +17,8 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createElement, type Dispatch, type RefObject, type SetStateAction } from "react";
 
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
-import { INITIAL_TURN_STATE, type TurnState, useTurnStore } from "@/domains/messaging/turn-store.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import { INITIAL_TURN_STATE, type TurnState, useTurnStore } from "@/domains/messaging/turn-store";
 
 // ---------------------------------------------------------------------------
 // Mocks — module mocks MUST come before importing the subject under test.
@@ -115,8 +115,8 @@ mock.module("@/domains/chat/api/messages", () => ({
 // Subject under test (imported AFTER module mocks).
 // ---------------------------------------------------------------------------
 
-import type { useMessageReconciliation } from "@/domains/chat/hooks/use-message-reconciliation.js";
-import type { RuntimeMessage } from "@/domains/chat/api/messages.js";
+import type { useMessageReconciliation } from "@/domains/chat/hooks/use-message-reconciliation";
+import type { RuntimeMessage } from "@/domains/chat/api/messages";
 
 type HookReturn = ReturnType<typeof useMessageReconciliation>;
 
@@ -134,7 +134,7 @@ interface HarnessProps {
 }
 
 // Lazy-import to avoid hoisting above mock.module
-let hookModule: typeof import("./use-message-reconciliation.js") | null = null;
+let hookModule: typeof import("./use-message-reconciliation") | null = null;
 
 function HookHarness(props: HarnessProps): null {
   if (!hookModule) throw new Error("hookModule not loaded");
@@ -206,7 +206,7 @@ function createHarness(overrides?: {
 
 beforeEach(async () => {
   if (!hookModule) {
-    hookModule = await import("./use-message-reconciliation.js");
+    hookModule = await import("./use-message-reconciliation");
   }
   messages = [];
   mockFetchResult = [];

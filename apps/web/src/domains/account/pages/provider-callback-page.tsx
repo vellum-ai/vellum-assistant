@@ -2,13 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import * as Sentry from "@sentry/react";
 
-import { AccountHeading } from "@/components/account/account-form.js";
-import { AccountShell } from "@/components/account/account-shell.js";
-import { getSession } from "@/lib/auth/allauth-client.js";
-import { resolvePostLoginDestination } from "@/domains/account/login-flow.js";
-import { classifyCallbackFlows } from "@/domains/account/social-auth.js";
-import { useAuthStore } from "@/stores/auth-store.js";
-import { routes } from "@/utils/routes.js";
+import { AccountHeading } from "@/components/account/account-form";
+import { AccountShell } from "@/components/account/account-shell";
+import { getSession } from "@/lib/auth/allauth-client";
+import { resolvePostLoginDestination } from "@/domains/account/login-flow";
+import { classifyCallbackFlows } from "@/domains/account/social-auth";
+import { useAuthStore } from "@/stores/auth-store";
+import { routes } from "@/utils/routes";
 
 /**
  * OAuth provider callback handler for the **web** login flow.

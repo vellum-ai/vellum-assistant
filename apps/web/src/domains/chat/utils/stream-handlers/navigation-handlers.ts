@@ -2,11 +2,11 @@ import {
   getHttpUrl,
   getSameOriginRoutePath,
   openOAuthUrlInPopup,
-} from "@/domains/chat/utils/oauth-popup-links.js";
-import { getSettingsRouteForClientTab } from "@/domains/settings/navigation.js";
-import { openUrl } from "@/runtime/browser.js";
-import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types.js";
-import type { NavigateSettingsEvent, OpenUrlEvent } from "@/domains/chat/api/event-types.js";
+} from "@/domains/chat/utils/oauth-popup-links";
+import { getSettingsRouteForClientTab } from "@/domains/settings/navigation";
+import { openUrl } from "@/runtime/browser";
+import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
+import type { NavigateSettingsEvent, OpenUrlEvent } from "@/domains/chat/api/event-types";
 
 export function handleOpenUrl(
   event: OpenUrlEvent,

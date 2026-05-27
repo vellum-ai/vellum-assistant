@@ -10,9 +10,9 @@
 // only have to delete one file when the backend is fixed.
 // -----------------------------------------------------------------------------
 
-import { sortedByTimestamp } from "@/domains/chat/utils/message-sorting.js";
-import type { ChatMessageToolCall } from "@/domains/chat/api/event-types.js";
-import type { DisplayMessage } from "@/domains/chat/types/types.js";
+import { sortedByTimestamp } from "@/domains/chat/utils/message-sorting";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 
 export function sanitizeDisplayMessages(
   messages: DisplayMessage[],

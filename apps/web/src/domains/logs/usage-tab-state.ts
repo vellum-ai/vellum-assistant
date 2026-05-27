@@ -1,12 +1,12 @@
-import { LLM_USAGE_DIMENSION_LABELS } from "@/utils/llm-dimension.js";
-import { UsageRequestError } from "./usage-api.js";
+import { LLM_USAGE_DIMENSION_LABELS } from "@/utils/llm-dimension";
+import { UsageRequestError } from "./usage-api";
 import type {
   UsageGranularity,
   UsageGroupBy,
   UsageSeriesBucket,
   UsageSeriesGroupBy,
   UsageTimeRange,
-} from "./usage-types.js";
+} from "./usage-types";
 
 export const DEFAULT_USAGE_GROUP_BY: UsageGroupBy = "task";
 export const FALLBACK_USAGE_GROUP_BY: UsageGroupBy = "model";

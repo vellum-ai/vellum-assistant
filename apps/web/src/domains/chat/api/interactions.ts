@@ -8,13 +8,13 @@
 import type {
   ConfirmationDecision,
   QuestionSubmission,
-} from "@/domains/chat/api/event-types.js";
+} from "@/domains/chat/api/event-types";
 import {
   assertHasResponse,
   client,
   extractErrorMessage,
   SDK_BASE_OPTIONS,
-} from "@/domains/chat/api/client.js";
+} from "@/domains/chat/api/client";
 
 export async function getPendingInteractions(
   assistantId: string,

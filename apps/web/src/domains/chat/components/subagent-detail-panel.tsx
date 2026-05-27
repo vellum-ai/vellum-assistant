@@ -9,15 +9,15 @@ import {
 
 import { type ReactNode, useEffect, useRef } from "react";
 
-import { AvatarRenderer } from "@/components/avatar-renderer.js";
+import { AvatarRenderer } from "@/components/avatar-renderer";
 import { Button, Typography } from "@vellum/design-library";
-import { StatusBadge } from "@/domains/chat/components/subagent-status-badge.js";
-import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components.js";
-import { subagentTraits } from "@/utils/avatar-subagent.js";
-import type { SubagentEntry } from "@/domains/subagents/subagent-store.js";
-import { isActiveStatus } from "@/domains/subagents/status-helpers.js";
+import { StatusBadge } from "@/domains/chat/components/subagent-status-badge";
+import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
+import { subagentTraits } from "@/utils/avatar-subagent";
+import type { SubagentEntry } from "@/domains/subagents/subagent-store";
+import { isActiveStatus } from "@/domains/subagents/status-helpers";
 
-import { SubagentTimeline } from "@/domains/chat/components/subagent-timeline.js";
+import { SubagentTimeline } from "@/domains/chat/components/subagent-timeline";
 
 /** Format a number compactly (e.g. 257400 -> "257.4K"). */
 function formatNumber(n: number): string {

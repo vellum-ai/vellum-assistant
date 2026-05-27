@@ -1,8 +1,8 @@
 import { Capacitor } from "@capacitor/core";
 
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
-import type { AssistantEvent } from "@/domains/chat/api/event-types.js";
-import type { RuntimeMessage } from "@/domains/chat/api/messages.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { AssistantEvent } from "@/domains/chat/api/event-types";
+import type { RuntimeMessage } from "@/domains/chat/api/messages";
 
 const MAX_EVENTS = 200;
 const STORAGE_KEY = "vellum:chat-diagnostics:v1";

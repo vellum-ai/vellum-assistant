@@ -1,9 +1,9 @@
 import { ChevronLeft, ChevronRight, Dices, Save, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { fetchCharacterComponents, saveCharacterTraits } from "@/assistant/avatar-api.js";
-import type { CharacterComponents, CharacterTraits } from "@/types/avatar.js";
-import { AvatarRenderer } from "@/components/avatar-renderer.js";
+import { fetchCharacterComponents, saveCharacterTraits } from "@/assistant/avatar-api";
+import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
+import { AvatarRenderer } from "@/components/avatar-renderer";
 
 export interface AvatarCustomizationPanelProps {
   assistantId: string;

@@ -17,11 +17,11 @@
  */
 import { create } from "zustand";
 
-import { createSelectors } from "@/utils/create-selectors.js";
-import { organizationsList } from "@/generated/api/sdk.gen.js";
-import type { OrganizationRead } from "@/generated/api/types.gen.js";
-import { useAuthStore } from "@/stores/auth-store.js";
-import { useEventBusStore } from "@/stores/event-bus-store.js";
+import { createSelectors } from "@/utils/create-selectors";
+import { organizationsList } from "@/generated/api/sdk.gen";
+import type { OrganizationRead } from "@/generated/api/types.gen";
+import { useAuthStore } from "@/stores/auth-store";
+import { useEventBusStore } from "@/stores/event-bus-store";
 
 const ACTIVE_ORGANIZATION_STORAGE_KEY = "vellum_active_organization_id";
 

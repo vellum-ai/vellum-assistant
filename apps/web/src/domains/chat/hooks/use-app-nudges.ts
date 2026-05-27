@@ -1,21 +1,21 @@
 import { type MutableRefObject, useEffect, useState } from "react";
 
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
-import { useIsIOSWeb, useIsMacOSWeb } from "@/utils/platform-detection.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import { useIsIOSWeb, useIsMacOSWeb } from "@/utils/platform-detection";
 import {
   readIOSAssistantTurnsSeen,
   incrementIOSAssistantTurnsSeen,
   useIOSNudgeState,
   IOS_APP_BANNER_MIN_TURNS,
-} from "@/hooks/use-ios-app-nudge.js";
+} from "@/hooks/use-ios-app-nudge";
 import {
   readMacOsAssistantTurnsSeen,
   incrementMacOsAssistantTurnsSeen,
   useMacOsNudgeState,
   MAC_APP_BANNER_MIN_TURNS,
-} from "@/hooks/use-macos-app-nudge.js";
-import { useGitHubNudgeState, type GitHubNudgeState } from "@/hooks/use-github-nudge.js";
-import { useDiscordNudgeState, ensureFirstSeenAt, type DiscordNudgeState } from "@/hooks/use-discord-nudge.js";
+} from "@/hooks/use-macos-app-nudge";
+import { useGitHubNudgeState, type GitHubNudgeState } from "@/hooks/use-github-nudge";
+import { useDiscordNudgeState, ensureFirstSeenAt, type DiscordNudgeState } from "@/hooks/use-discord-nudge";
 
 // ---------------------------------------------------------------------------
 // Types

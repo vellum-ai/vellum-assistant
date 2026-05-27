@@ -11,14 +11,14 @@
 
 import { create } from "zustand";
 
-import { createSelectors } from "@/utils/create-selectors.js";
-import type { AppSummary } from "@/domains/chat/api/apps.js";
+import { createSelectors } from "@/utils/create-selectors";
+import type { AppSummary } from "@/domains/chat/api/apps";
 import {
   loadPinnedApps,
   pinApp,
   unpinApp,
   type PinnedAppEntry,
-} from "@/domains/chat/utils/app-pin-storage.js";
+} from "@/domains/chat/utils/app-pin-storage";
 
 // ---------------------------------------------------------------------------
 // Unpin event listeners

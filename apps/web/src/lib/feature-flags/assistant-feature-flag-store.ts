@@ -1,8 +1,8 @@
 import { create } from "zustand";
 
-import { createSelectors } from "@/utils/create-selectors.js";
-import { client } from "@/generated/api/client.gen.js";
-import { ASSISTANT_FLAG_DEFAULTS, storeKeyToFlagKey } from "@/lib/feature-flags/feature-flag-catalog.js";
+import { createSelectors } from "@/utils/create-selectors";
+import { client } from "@/generated/api/client.gen";
+import { ASSISTANT_FLAG_DEFAULTS, storeKeyToFlagKey } from "@/lib/feature-flags/feature-flag-catalog";
 
 /**
  * Internal store fields that are NOT feature flag values. Surfaces that

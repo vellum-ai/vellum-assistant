@@ -3,7 +3,7 @@ import { ArrowUp, Pencil, X } from "lucide-react";
 import { useCallback, type ReactNode } from "react";
 
 import { Button } from "@vellum/design-library";
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 
 // ---------------------------------------------------------------------------
 // Types

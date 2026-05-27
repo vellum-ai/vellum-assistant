@@ -74,7 +74,7 @@ In a React hook or component, use `useBusSubscription` from
 re-register on every render.
 
 ```ts
-import { useBusSubscription } from "@/hooks/use-bus-subscription.js";
+import { useBusSubscription } from "@/hooks/use-bus-subscription";
 
 useBusSubscription("app.resume", ({ signal }) => {
   // Refetch stale-while-revalidate data here.
@@ -87,7 +87,7 @@ store the returned unsubscribe handle alongside the bootstrap's other
 teardown:
 
 ```ts
-import { subscribeBus } from "@/hooks/use-bus-subscription.js";
+import { subscribeBus } from "@/hooks/use-bus-subscription";
 
 const unsubscribeResume = subscribeBus("app.resume", () => {
   refetchIfStale();

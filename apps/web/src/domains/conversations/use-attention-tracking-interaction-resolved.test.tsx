@@ -10,31 +10,31 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { createElement } from "react";
 
-import { useConversationStore } from "@/domains/conversations/conversation-store.js";
+import { useConversationStore } from "@/domains/conversations/conversation-store";
 import {
   __resetEventBusForTesting,
   useEventBusStore,
-} from "@/stores/event-bus-store.js";
+} from "@/stores/event-bus-store";
 
 // The hook fetches the conversation list and runs an initial sweep; stub
 // both so renderHook does not try to hit a real backend.
-mock.module("@/domains/conversations/conversation-queries.js", () => ({
+mock.module("@/domains/conversations/conversation-queries", () => ({
   useConversationListQuery: () => ({ conversations: [] }),
   getConversations: () => [],
   findConversation: () => undefined,
   markConversationSeenLocal: () => {},
 }));
 
-mock.module("@/domains/chat/api/conversations.js", () => ({
+mock.module("@/domains/chat/api/conversations", () => ({
   markConversationSeen: async () => {},
 }));
 
-mock.module("@/domains/chat/api/interactions.js", () => ({
+mock.module("@/domains/chat/api/interactions", () => ({
   listConversationIdsWithPendingInteractions: async () => new Set<string>(),
 }));
 
 const { useAttentionTracking } = await import(
-  "@/domains/conversations/use-attention-tracking.js"
+  "@/domains/conversations/use-attention-tracking"
 );
 
 function wrapper({ children }: { children: ReactNode }) {

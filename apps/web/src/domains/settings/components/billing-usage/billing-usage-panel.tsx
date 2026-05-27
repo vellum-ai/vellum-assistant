@@ -13,19 +13,19 @@ import { Typography } from "@vellum/design-library/components/typography";
 import {
   DateRangeSelect,
   type DateRange,
-} from "@/components/charts/date-range-select.js";
+} from "@/components/charts/date-range-select";
 import {
   DEFAULT_LLM_USAGE_DIMENSION,
   LLM_USAGE_DIMENSION_ITEMS,
   type LlmUsageDimension,
-} from "@/utils/llm-dimension.js";
+} from "@/utils/llm-dimension";
 
-import { BillingUsageChart, type ChartMetric } from "@/domains/settings/components/billing-usage/billing-usage-chart.js";
+import { BillingUsageChart, type ChartMetric } from "@/domains/settings/components/billing-usage/billing-usage-chart";
 import {
   type BillingUsageSourceFilter,
   getDefaultDateRange,
   useBillingUsageData,
-} from "@/domains/settings/components/billing-usage/use-billing-usage-data.js";
+} from "@/domains/settings/components/billing-usage/use-billing-usage-data";
 
 const METRIC_ITEMS: SegmentControlItem<ChartMetric>[] = [
   { value: "spend", label: "Spend ($)" },

@@ -1,4 +1,4 @@
-import type { AllowlistOption, DirectoryScopeOption, QuestionEntry, ScopeOption } from "@/domains/chat/api/event-types.js";
+import type { AllowlistOption, DirectoryScopeOption, QuestionEntry, ScopeOption } from "@/domains/chat/api/event-types";
 /**
  * Pure interface types consumed by the interaction state machine and
  * other state-management modules. Framework-agnostic — no routing or

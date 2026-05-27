@@ -20,8 +20,8 @@ import { cleanup, fireEvent, render } from "@testing-library/react";
 import {
   WebSearchProgressCard,
   type StepDescriptor,
-} from "@/domains/chat/components/web-search/web-search-progress-card.js";
-import type { WebSearchResultItem } from "@/assistant/web-activity-types.js";
+} from "@/domains/chat/components/web-search/web-search-progress-card";
+import type { WebSearchResultItem } from "@/assistant/web-activity-types";
 
 afterEach(() => {
   cleanup();

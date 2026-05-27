@@ -13,18 +13,18 @@ import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog"
 import { toast } from "@vellum/design-library/components/toast";
 import { Button } from "@vellum/design-library/components/button";
 import { Input } from "@vellum/design-library/components/input";
-import { openUrl, openUrlFinishedListener } from "@/runtime/browser.js";
-import { useIsNativePlatform } from "@/runtime/native-auth.js";
-import type { OAuthCompleteDeepLinkPayload } from "@/runtime/native-deep-link.js";
-import { useOAuthCompleteDeepLinkListener } from "@/hooks/use-oauth-complete-deep-link-listener.js";
-import { routes } from "@/utils/routes.js";
+import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
+import { useIsNativePlatform } from "@/runtime/native-auth";
+import type { OAuthCompleteDeepLinkPayload } from "@/runtime/native-deep-link";
+import { useOAuthCompleteDeepLinkListener } from "@/hooks/use-oauth-complete-deep-link-listener";
+import { routes } from "@/utils/routes";
 import {
   assistantsOauthConnectionsListOptions,
   assistantsOauthConnectionsListQueryKey,
   assistantsOauthDisconnectByConnectionCreateMutation,
   assistantsOauthStartCreateMutation,
-} from "@/generated/api/@tanstack/react-query.gen.js";
-import type { OAuthConnection } from "@/generated/api/types.gen.js";
+} from "@/generated/api/@tanstack/react-query.gen";
+import type { OAuthConnection } from "@/generated/api/types.gen";
 import {
   createOAuthApp,
   deleteOAuthApp,
@@ -36,9 +36,9 @@ import {
   startOAuthAppConnect,
   type OAuthApp,
   type OAuthAppConnection,
-} from "@/domains/settings/api/oauth-apps.js";
+} from "@/domains/settings/api/oauth-apps";
 
-import { IntegrationIcon } from "@/domains/settings/components/integration-icon.js";
+import { IntegrationIcon } from "@/domains/settings/components/integration-icon";
 
 function extractErrorDetail(error: unknown, fallback: string): string {
   if (typeof error === "object" && error !== null && "detail" in error) {

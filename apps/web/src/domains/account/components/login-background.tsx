@@ -1,4 +1,4 @@
-import { publicAsset } from "@/lib/public-asset.js";
+import { publicAsset } from "@/lib/public-asset";
 
 /**
  * Decorative background for the branded `/account/login` screen.

@@ -8,11 +8,11 @@
 
 import { useCallback } from "react";
 
-import { useNudgeStore } from "@/stores/nudge-store.js";
+import { useNudgeStore } from "@/stores/nudge-store";
 import {
   readGitHubNudgeStarred,
   readGitHubBannerDismissedAt,
-} from "@/hooks/use-github-nudge.js";
+} from "@/hooks/use-github-nudge";
 
 // ---------------------------------------------------------------------------
 // Constants

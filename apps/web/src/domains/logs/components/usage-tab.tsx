@@ -5,37 +5,37 @@ import { useNavigate } from "react-router";
 
 import { Dropdown } from "@vellum/design-library";
 
-import { storePendingInitialMessage } from "@/domains/chat/utils/initial-message-launch.js";
-import { routes } from "@/utils/routes.js";
-import { formatCost, formatTokens } from "@/domains/logs/format.js";
-import { getBrowserTimezone } from "@/utils/browser-timezone.js";
+import { storePendingInitialMessage } from "@/domains/chat/utils/initial-message-launch";
+import { routes } from "@/utils/routes";
+import { formatCost, formatTokens } from "@/domains/logs/format";
+import { getBrowserTimezone } from "@/utils/browser-timezone";
 import {
   buildCallSiteMetadataMap,
   fetchUsageCallSiteCatalog,
-} from "@/domains/logs/call-site-metadata.js";
-import { decorateUsageBreakdownGroups } from "@/domains/logs/group-labels.js";
-import { fetchUsageProfileMetadata } from "@/domains/logs/profile-metadata.js";
+} from "@/domains/logs/call-site-metadata";
+import { decorateUsageBreakdownGroups } from "@/domains/logs/group-labels";
+import { fetchUsageProfileMetadata } from "@/domains/logs/profile-metadata";
 import type {
   UsageBreakdownResponse,
   UsageGroupBreakdown,
   UsageGroupBy,
   UsageTimeRange,
   UsageTotals,
-} from "@/domains/logs/usage-types.js";
+} from "@/domains/logs/usage-types";
 import {
   fetchUsageBreakdown,
   fetchUsageDaily,
   fetchUsageSeries,
   fetchUsageTotals,
-} from "@/domains/logs/usage-api.js";
+} from "@/domains/logs/usage-api";
 import {
   formatBreakdownTokens,
   formatBreakdownTokensShort,
-} from "@/domains/logs/usage-breakdown-format.js";
+} from "@/domains/logs/usage-breakdown-format";
 import {
   decorateUsageSeriesGroups,
   seriesFromDailyBuckets,
-} from "@/domains/logs/usage-series.js";
+} from "@/domains/logs/usage-series";
 import {
   DEFAULT_USAGE_GROUP_BY,
   FALLBACK_USAGE_GROUP_BY,
@@ -47,11 +47,11 @@ import {
   shouldRetryUsageGroupQuery,
   trendTitle,
   USAGE_GROUP_BY_OPTIONS,
-} from "@/domains/logs/usage-tab-state.js";
+} from "@/domains/logs/usage-tab-state";
 import {
   UsageTrendChart,
   UsageTrendSkeleton,
-} from "@/domains/logs/components/usage-trend-chart.js";
+} from "@/domains/logs/components/usage-trend-chart";
 
 interface UsageTabProps {
   assistantId: string;

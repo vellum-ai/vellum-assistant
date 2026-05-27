@@ -18,7 +18,7 @@
 
 import { describe, expect, mock, test } from "bun:test";
 
-import type { TranscriptItem } from "@/domains/chat/transcript/types.js";
+import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import {
   classifyScrollPosition,
   decideItemsChangeAction,
@@ -27,7 +27,7 @@ import {
   PINNED_THRESHOLD_PX,
   SHOW_SCROLL_BUTTON_THRESHOLD_PX,
   type TranscriptHandle,
-} from "@/domains/chat/transcript/use-deprecated-transcript-scroll.js";
+} from "@/domains/chat/transcript/use-deprecated-transcript-scroll";
 
 // ---------------------------------------------------------------------------
 // Fixtures

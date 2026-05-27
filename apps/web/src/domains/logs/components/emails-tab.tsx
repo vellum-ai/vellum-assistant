@@ -9,12 +9,12 @@ import {
   assistantsEmailAddressesListOptions,
   assistantsEmailAddressesStatusRetrieveOptions,
   assistantsEmailsListOptions,
-} from "@/generated/api/@tanstack/react-query.gen.js";
+} from "@/generated/api/@tanstack/react-query.gen";
 import type {
   EmailAddressUsage,
   EmailMessage,
-} from "@/generated/api/types.gen.js";
-import { routes } from "@/utils/routes.js";
+} from "@/generated/api/types.gen";
+import { routes } from "@/utils/routes";
 
 function formatTimestamp(iso: string): string {
   return new Date(iso).toLocaleString(undefined, {

@@ -3,8 +3,8 @@ import { useState, type ReactNode } from "react";
 
 import { Button, Card } from "@vellum/design-library";
 
-import { useCompactionTrail } from "@/domains/chat/inspector/compaction-trail-api.js";
-import type { CompactionTrailEvent } from "@/domains/chat/inspector/compaction-trail-types.js";
+import { useCompactionTrail } from "@/domains/chat/inspector/compaction-trail-api";
+import type { CompactionTrailEvent } from "@/domains/chat/inspector/compaction-trail-types";
 import {
   displayProvider,
   displayText,
@@ -12,8 +12,8 @@ import {
   formatCount,
   formattedCreatedAt,
   MISSING_VALUE,
-} from "@/domains/chat/inspector/inspector-formatters.js";
-import type { LLMRequestLogEntry } from "@/domains/chat/types/inspector-types.js";
+} from "@/domains/chat/inspector/inspector-formatters";
+import type { LLMRequestLogEntry } from "@/domains/chat/types/inspector-types";
 
 /**
  * Compaction tab — the compaction events that led up to the **selected

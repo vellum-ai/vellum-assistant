@@ -4,12 +4,12 @@ import type {
   SetStateAction,
 } from "react";
 import type { QueryClient } from "@tanstack/react-query";
-import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
-import type { TurnActions, TurnState } from "@/domains/messaging/turn-store.js";
-import type { DiskPressureStatusEventPayload } from "@/assistant/use-disk-pressure-monitor.js";
-import type { ChatError, PendingQuestionState } from "@/domains/chat/types.js";
-import type { ChatEventStream } from "@/domains/chat/api/stream.js";
+import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { TurnActions, TurnState } from "@/domains/messaging/turn-store";
+import type { DiskPressureStatusEventPayload } from "@/assistant/use-disk-pressure-monitor";
+import type { ChatError, PendingQuestionState } from "@/domains/chat/types";
+import type { ChatEventStream } from "@/domains/chat/api/stream";
 
 export type { PendingQuestionState };
 

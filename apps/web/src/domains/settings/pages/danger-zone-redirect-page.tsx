@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router";
 
-import { routes } from "@/utils/routes.js";
+import { routes } from "@/utils/routes";
 
 export function DangerZoneRedirectPage() {
   const navigate = useNavigate();

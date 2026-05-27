@@ -5,14 +5,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { Card } from "@vellum/design-library/components/card";
 import { Toggle } from "@vellum/design-library/components/toggle";
-import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen.js";
+import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen";
 import {
   fetchSoundsConfig,
   listAvailableSounds,
   saveSoundsConfig,
   type AvailableSound,
-} from "@/domains/settings/api/sounds.js";
-import { getSoundManager } from "@/domains/settings/utils/sound-manager.js";
+} from "@/domains/settings/api/sounds";
+import { getSoundManager } from "@/domains/settings/utils/sound-manager";
 import {
   defaultSoundsConfig,
   displayLabelForFilename,
@@ -21,11 +21,11 @@ import {
   type SoundEventConfig,
   type SoundEventId,
   type SoundsConfig,
-} from "@/domains/settings/types/sounds.js";
+} from "@/domains/settings/types/sounds";
 import {
   assistantSoundsAvailableQueryKey,
   assistantSoundsConfigQueryKey,
-} from "@/lib/sync/query-tags.js";
+} from "@/lib/sync/query-tags";
 
 function ToggleRow({
   label,

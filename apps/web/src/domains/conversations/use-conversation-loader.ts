@@ -1,6 +1,6 @@
 
 import * as Sentry from "@sentry/react";
-import { useViewerStore } from "@/stores/viewer-store.js";
+import { useViewerStore } from "@/stores/viewer-store";
 
 import {
   type Dispatch,
@@ -13,35 +13,35 @@ import {
 } from "react";
 
 import { toast } from "@vellum/design-library";
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import {
   createDraftConversationId,
   resolveBootstrappedConversationId,
-} from "@/domains/chat/utils/conversation-selection.js";
+} from "@/domains/chat/utils/conversation-selection";
 import {
   loadLastViewedConversationId,
   saveLastViewedConversationId,
-} from "@/domains/chat/utils/last-viewed-conversation-storage.js";
-import type { TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
-import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
+} from "@/domains/chat/utils/last-viewed-conversation-storage";
+import type { TranscriptPaginationState } from "@/domains/chat/transcript/types";
+import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
 
 
-import { useConversationStore } from "@/domains/conversations/conversation-store.js";
-import { haptic } from "@/utils/haptics.js";
-import { routes } from "@/utils/routes.js";
+import { useConversationStore } from "@/domains/conversations/conversation-store";
+import { haptic } from "@/utils/haptics";
+import { routes } from "@/utils/routes";
 import type { NavigateFunction } from "react-router";
 
-import type { AssistantStateKind, ChatError } from "@/domains/chat/types.js";
-import { useConversationHistory } from "@/domains/chat/hooks/use-conversation-history.js";
+import type { AssistantStateKind, ChatError } from "@/domains/chat/types";
+import { useConversationHistory } from "@/domains/chat/hooks/use-conversation-history";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { ApiError } from "@/domains/chat/api/client.js";
-import { type Conversation } from "@/domains/chat/api/conversations.js";
+import { ApiError } from "@/domains/chat/api/client";
+import { type Conversation } from "@/domains/chat/api/conversations";
 import {
   chatContextQueryKey,
   conversationGroupsQueryKey,
   useChatContextQuery,
-} from "@/domains/conversations/conversation-queries.js";
+} from "@/domains/conversations/conversation-queries";
 
 // ---------------------------------------------------------------------------
 // Module constants

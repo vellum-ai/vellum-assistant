@@ -4,10 +4,10 @@ import { useQuery } from "@tanstack/react-query";
 
 import { Button } from "@vellum/design-library/components/button";
 import { Notice } from "@vellum/design-library/components/notice";
-import { assistantsConnectionStatus } from "@/generated/api/sdk.gen.js";
-import type { AssistantsConnectionStatusResponse } from "@/generated/api/types.gen.js";
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
-import { routes } from "@/utils/routes.js";
+import { assistantsConnectionStatus } from "@/generated/api/sdk.gen";
+import type { AssistantsConnectionStatusResponse } from "@/generated/api/types.gen";
+import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
+import { routes } from "@/utils/routes";
 
 const REFETCH_INTERVAL_MS = 30_000;
 

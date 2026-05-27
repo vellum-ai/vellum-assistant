@@ -4,7 +4,7 @@ export {
   type ButtonProps,
   type ButtonVariant,
   type ButtonSize,
-} from "./components/button.js";
+} from "./components/button";
 export {
   Card,
   CardRoot,
@@ -12,33 +12,33 @@ export {
   CardBody,
   CardFooter,
   type CardRootProps,
-} from "./components/card.js";
+} from "./components/card";
 export {
   Notice,
   type NoticeProps,
   type NoticeTone,
-} from "./components/notice.js";
-export { ProgressBar, type ProgressBarProps } from "./components/progress-bar.js";
+} from "./components/notice";
+export { ProgressBar, type ProgressBarProps } from "./components/progress-bar";
 export {
   ResizablePanel,
   type ResizablePanelProps,
-} from "./components/resizable-panel.js";
+} from "./components/resizable-panel";
 export {
   Tag,
   tagVariants,
   type TagProps,
   type TagTone,
-} from "./components/tag.js";
+} from "./components/tag";
 export {
   Typography,
   type TypographyProps,
   type TypographyVariant,
   type TypographyAs,
-} from "./components/typography.js";
+} from "./components/typography";
 export {
   Popover,
   type PopoverContentProps,
-} from "./components/popover.js";
+} from "./components/popover";
 export {
   Input,
   Textarea,
@@ -46,23 +46,23 @@ export {
   type InputProps,
   type TextareaProps,
   type FieldVariantProps,
-} from "./components/input.js";
+} from "./components/input";
 export {
   Toggle,
   handleToggleClick,
   type ToggleProps,
-} from "./components/toggle.js";
+} from "./components/toggle";
 export {
   Checkbox,
   type CheckboxProps,
   type CheckboxState,
-} from "./components/checkbox.js";
+} from "./components/checkbox";
 export {
   RadioGroup,
   Radio,
   type RadioGroupProps,
   type RadioProps,
-} from "./components/radio.js";
+} from "./components/radio";
 export {
   Tabs,
   TabsRoot,
@@ -73,13 +73,13 @@ export {
   type TabsListProps,
   type TabsTriggerProps,
   type TabsPanelProps,
-} from "./components/tabs.js";
+} from "./components/tabs";
 export {
   SegmentControl,
   resolveSegmentSelection,
   type SegmentControlItem,
   type SegmentControlProps,
-} from "./components/segment-control.js";
+} from "./components/segment-control";
 export {
   Slider,
   isRangeValue,
@@ -88,29 +88,29 @@ export {
   formatDisplayValue,
   type SliderProps,
   type SliderValue,
-} from "./components/slider.js";
+} from "./components/slider";
 export {
   Modal,
   type ModalSize,
   type ModalContentProps,
   type ModalTitleProps,
-} from "./components/modal.js";
+} from "./components/modal";
 export {
   BottomSheet,
   type BottomSheetContentProps,
   type BottomSheetTitleProps,
-} from "./components/bottom-sheet.js";
+} from "./components/bottom-sheet";
 export {
   toast,
   Toaster,
   ToastContent,
   type ToastVariant,
   type ToastOptions,
-} from "./components/toast.js";
+} from "./components/toast";
 export {
   ConfirmDialog,
   type ConfirmDialogProps,
-} from "./components/confirm-dialog.js";
+} from "./components/confirm-dialog";
 export {
   Menu,
   type MenuContentProps,
@@ -123,7 +123,7 @@ export {
   type MenuSubTriggerProps,
   type MenuSubContentProps,
   type MenuTriggerProps,
-} from "./components/menu.js";
+} from "./components/menu";
 export {
   ContextMenu,
   type ContextMenuContentProps,
@@ -136,7 +136,7 @@ export {
   type ContextMenuSubTriggerProps,
   type ContextMenuSubContentProps,
   type ContextMenuTriggerProps,
-} from "./components/context-menu.js";
+} from "./components/context-menu";
 export {
   Dropdown,
   resolveDropdownMenuPosition,
@@ -144,23 +144,23 @@ export {
   type DropdownProps,
   type DropdownMenuPosition,
   type DropdownMenuAlign,
-} from "./components/dropdown.js";
+} from "./components/dropdown";
 export {
   PanelItem,
   ROW_BASE_CLASSES as panelItemRowBaseClasses,
   ACTIVE_DEFAULT_CLASSES as panelItemActiveDefaultClasses,
   ACTIVE_BRANDED_CLASSES as panelItemActiveBrandedClasses,
   type PanelItemProps,
-} from "./components/panel-item/panel-item.js";
+} from "./components/panel-item/panel-item";
 export {
   MarqueeText,
   type MarqueeTextProps,
-} from "./components/panel-item/marquee-text.js";
+} from "./components/panel-item/marquee-text";
 export {
   MarkdownMessage,
   type MarkdownMessageProps,
   type MarkdownLinkComponent,
-} from "./components/markdown-message.js";
+} from "./components/markdown-message";
 export {
   SideMenu,
   SideMenuBody,
@@ -178,26 +178,26 @@ export {
   type SideMenuVariant,
   type SideMenuSectionProps,
   type SideMenuItemProps,
-} from "./components/side-menu/side-menu.js";
+} from "./components/side-menu/side-menu";
 export {
   Collapsible,
   type CollapsibleRootProps,
   type CollapsibleItemProps,
   type CollapsibleTriggerProps,
   type CollapsibleContentProps,
-} from "./components/collapsible.js";
+} from "./components/collapsible";
 export {
   StatSquare,
   type StatSquareProps,
   type StatSquareTone,
-} from "./components/stat-square.js";
+} from "./components/stat-square";
 export {
   SkillRow,
   type SkillRowProps,
-} from "./components/skill-row.js";
-export { cn } from "./utils/cn.js";
+} from "./components/skill-row";
+export { cn } from "./utils/cn";
 export {
   PortalContainerProvider,
   usePortalContainer,
   type PortalContainerProviderProps,
-} from "./utils/portal-container.js";
+} from "./utils/portal-container";

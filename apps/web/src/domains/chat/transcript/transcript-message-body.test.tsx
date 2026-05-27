@@ -2,32 +2,32 @@ import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
-mock.module("@/domains/chat/components/chat-attachments/message-attachments.js", () => ({
+mock.module("@/domains/chat/components/chat-attachments/message-attachments", () => ({
   MessageAttachments: () => <div data-testid="attachments" />,
 }));
 
-mock.module("@/domains/chat/components/chat-markdown-message.js", () => ({
+mock.module("@/domains/chat/components/chat-markdown-message", () => ({
   ChatMarkdownMessage: ({ content }: { content: string }) => (
     <div data-testid="markdown">{content}</div>
   ),
 }));
 
-mock.module("@/domains/chat/components/surfaces/surface-router.js", () => ({
+mock.module("@/domains/chat/components/surfaces/surface-router", () => ({
   SurfaceRouter: ({ surface }: { surface: { surfaceId: string } }) => (
     <div data-testid="surface" data-surface-id={surface.surfaceId} />
   ),
 }));
 
 mock.module(
-  "@/domains/chat/components/tool-call-progress-card/tool-call-progress-card.js",
+  "@/domains/chat/components/tool-call-progress-card/tool-call-progress-card",
   () => ({
     ToolCallProgressCard: () => <div data-testid="tool-progress-card" />,
   }),
 );
 
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 
-import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body.js";
+import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
 
 const noop = () => {};
 

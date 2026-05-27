@@ -15,12 +15,12 @@ import {
   removeGroup,
   replaceOptimisticGroup,
   resolveDraftKey,
-} from "@/domains/conversations/conversation-queries.js";
+} from "@/domains/conversations/conversation-queries";
 import type {
   Conversation,
   ConversationGroup,
-} from "@/domains/chat/api/conversations.js";
-import type { ChatContext } from "@/domains/chat/api/assistant.js";
+} from "@/domains/chat/api/conversations";
+import type { ChatContext } from "@/domains/chat/api/assistant";
 
 const ASSISTANT_ID = "ast-1";
 

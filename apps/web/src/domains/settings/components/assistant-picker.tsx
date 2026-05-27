@@ -3,8 +3,8 @@ import { Check, Monitor } from "lucide-react";
 import { Button } from "@vellum/design-library/components/button";
 import { Tag } from "@vellum/design-library/components/tag";
 import { toast } from "@vellum/design-library/components/toast";
-import { DetailCard } from "@/components/detail-card.js";
-import { useCurrentPlatformAssistant } from "@/hooks/use-current-platform-assistant.js";
+import { DetailCard } from "@/components/detail-card";
+import { useCurrentPlatformAssistant } from "@/hooks/use-current-platform-assistant";
 
 export function AssistantPicker() {
   const {

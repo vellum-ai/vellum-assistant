@@ -2,7 +2,7 @@ import { Loader2, PlugZap, Terminal, Unplug, Wrench, X } from "lucide-react";
 
 import { Button } from "@vellum/design-library/components/button";
 import { Tag, type TagTone } from "@vellum/design-library/components/tag";
-import type { TerminalStatus } from "@/domains/terminal/types.js";
+import type { TerminalStatus } from "@/domains/terminal/types";
 
 interface TerminalToolbarProps {
   status: TerminalStatus;

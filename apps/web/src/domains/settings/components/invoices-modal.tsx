@@ -7,9 +7,9 @@ import { Modal } from "@vellum/design-library/components/modal";
 import { Notice } from "@vellum/design-library/components/notice";
 import { Tag, type TagTone } from "@vellum/design-library/components/tag";
 import { Typography } from "@vellum/design-library/components/typography";
-import { organizationsBillingInvoicesRetrieve } from "@/generated/api/sdk.gen.js";
-import { organizationsBillingInvoicesRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen.js";
-import type { Invoice, InvoiceListResponse } from "@/generated/api/types.gen.js";
+import { organizationsBillingInvoicesRetrieve } from "@/generated/api/sdk.gen";
+import { organizationsBillingInvoicesRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
+import type { Invoice, InvoiceListResponse } from "@/generated/api/types.gen";
 
 const EMPTY_RESPONSE: InvoiceListResponse = { invoices: [] };
 

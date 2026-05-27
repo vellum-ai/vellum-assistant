@@ -22,8 +22,8 @@
 
 import { queryOptions, useQuery } from "@tanstack/react-query";
 
-import { fetchCompactionTrailMock } from "./compaction-trail-mock.js";
-import type { CompactionTrailResponse } from "./compaction-trail-types.js";
+import { fetchCompactionTrailMock } from "./compaction-trail-mock";
+import type { CompactionTrailResponse } from "./compaction-trail-types";
 
 export class CompactionTrailRequestError extends Error {
   status: number;

@@ -4,7 +4,7 @@
  * Shared by subagent-inline-progress-card, subagent-detail-panel, and subagent-status-badge.
  */
 
-import type { SubagentStatus } from "@/domains/chat/api/event-types.js";
+import type { SubagentStatus } from "@/domains/chat/api/event-types";
 
 /** Whether the subagent is in an active (non-terminal) state. */
 export function isActiveStatus(status: SubagentStatus): boolean {

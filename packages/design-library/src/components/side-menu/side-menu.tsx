@@ -13,8 +13,8 @@ import {
   type Ref,
 } from "react";
 
-import { Typography } from "../typography.js";
-import { cn } from "../../utils/cn.js";
+import { Typography } from "../typography";
+import { cn } from "../../utils/cn";
 
 /**
  * SideMenu primitive — a docked application navigation rail.

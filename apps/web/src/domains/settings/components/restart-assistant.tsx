@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Button } from "@vellum/design-library/components/button";
 import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog";
 import { toast } from "@vellum/design-library/components/toast";
-import { restartAssistant } from "@/assistant/api.js";
+import { restartAssistant } from "@/assistant/api";
 
 export function RestartAssistant({ assistantId }: { assistantId: string }) {
   const [restarting, setRestarting] = useState(false);

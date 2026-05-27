@@ -1,7 +1,7 @@
 import * as RadixTabs from "@radix-ui/react-tabs";
 import { type ComponentProps } from "react";
 
-import { cn } from "../utils/cn.js";
+import { cn } from "../utils/cn";
 
 // ---------------------------------------------------------------------------
 // Root

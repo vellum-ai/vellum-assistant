@@ -6,7 +6,7 @@
  * same subagent always renders the same avatar.
  */
 
-import type { CharacterTraits } from "@/types/avatar.js";
+import type { CharacterTraits } from "@/types/avatar";
 
 const BODY_SHAPES = [
   "blob",

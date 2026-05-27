@@ -11,20 +11,20 @@
  * context plumbing.
  */
 
-import type { ChatMessageToolCall } from "@/domains/chat/api/event-types.js";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type {
   ToolActivityMetadata,
   WebSearchResultItem,
-} from "@/assistant/web-activity-types.js";
+} from "@/assistant/web-activity-types";
 import {
   deriveStepLabel,
   type IconName,
-} from "@/domains/chat/components/tool-progress-card/derive-step-label.js";
+} from "@/domains/chat/components/tool-progress-card/derive-step-label";
 import {
   extractDomain,
   parseWebSearchResultText,
-} from "@/domains/chat/utils/web-search-result-text.js";
-import { useTurnStore } from "@/domains/messaging/turn-store.js";
+} from "@/domains/chat/utils/web-search-result-text";
+import { useTurnStore } from "@/domains/messaging/turn-store";
 
 /** Max favicon chips to render inside a single `web_search` step row. */
 const MAX_VISIBLE_RESULTS = 5;

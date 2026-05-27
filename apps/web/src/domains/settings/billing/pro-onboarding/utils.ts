@@ -1,5 +1,5 @@
-import type { MachineSizeEnum, MachineTierEnum } from "@/generated/api/types.gen.js";
-import { TIER_TO_SIZES } from "@/lib/billing/machine-sizes.js";
+import type { MachineSizeEnum, MachineTierEnum } from "@/generated/api/types.gen";
+import { TIER_TO_SIZES } from "@/lib/billing/machine-sizes";
 
 export const DOMAIN_EXIT_DELAY_MS = 800;
 

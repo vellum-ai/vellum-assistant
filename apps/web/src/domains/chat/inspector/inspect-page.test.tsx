@@ -117,11 +117,11 @@ mock.module("react-router", () => ({
   ),
 }));
 
-mock.module("@/components/layout/active-assistant-gate.js", () => ({
+mock.module("@/components/layout/active-assistant-gate", () => ({
   useActiveAssistantContext: () => assistantStub,
 }));
 
-mock.module("@/stores/auth-store.js", () => ({
+mock.module("@/stores/auth-store", () => ({
   useAuthStore: {
     use: {
       user: () => authUserStub,
@@ -130,7 +130,7 @@ mock.module("@/stores/auth-store.js", () => ({
   },
 }));
 
-mock.module("@/domains/chat/inspector/inspector-api.js", () => ({
+mock.module("@/domains/chat/inspector/inspector-api", () => ({
   useLlmContext: () => contextStub,
   useConversationMessageList: () => ({
     data: messageListStub,
@@ -143,7 +143,7 @@ mock.module("@/domains/chat/inspector/inspector-api.js", () => ({
 // Subject (imported AFTER mocks)
 // ---------------------------------------------------------------------------
 
-import { InspectPage } from "@/domains/chat/inspector/inspect-page.js";
+import { InspectPage } from "@/domains/chat/inspector/inspect-page";
 
 function renderInspector(): string {
   const client = new QueryClient({

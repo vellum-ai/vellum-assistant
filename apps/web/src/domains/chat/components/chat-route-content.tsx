@@ -21,89 +21,89 @@
 import * as Sentry from "@sentry/react";
 import { type Dispatch, type FormEvent, type MutableRefObject, type ReactNode, type RefObject, type SetStateAction, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { ChatBody } from "@/domains/chat/components/chat-body.js";
-import { SlackChannelFooter } from "@/domains/chat/components/slack-channel-footer.js";
-import { ConversationStarterGrid } from "@/domains/chat/components/conversation-starter-grid.js";
-import { ComposerNotices } from "@/domains/chat/components/composer-notices.js";
-import { SendErrorModal } from "@/domains/chat/components/send-error-modal.js";
-import { ConfirmationPromptCard } from "@/domains/chat/components/confirmation-prompt-card.js";
-import { ContactPromptCard } from "@/domains/chat/components/contact-prompt-card.js";
-import { QuestionPromptCard } from "@/domains/chat/components/question-prompt-card.js";
-import { SecretPromptCard } from "@/domains/chat/components/secret-prompt-card.js";
-import { usePullRefresh } from "@/domains/chat/hooks/use-pull-refresh.js";
-import { useRefreshLatestMessages as _useRefreshLatestMessages } from "@/domains/chat/hooks/use-refresh-latest-messages.js";
-import { useConversationStarters } from "@/domains/chat/hooks/use-conversation-starters.js";
-import type { TranscriptHandle, TranscriptProps } from "@/domains/chat/transcript/transcript.js";
-import { useDeprecatedTranscriptScroll } from "@/domains/chat/transcript/use-deprecated-transcript-scroll.js";
-import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat-utils.js";
-import type { ChatError } from "@/domains/chat/types.js";
-import type { AssistantState } from "@/domains/chat/hooks/use-assistant-lifecycle.js";
-import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone.js";
-import type { ChatAttachment } from "@/domains/chat/components/chat-attachments/use-chat-attachments.js";
-import type { ChatEmptyStateProps } from "@/domains/chat/components/chat-empty-state.js";
-import { CreditsExhaustedBanner } from "@/domains/chat/components/credits-exhausted-banner.js";
-import { DiscordNudgeBanner } from "@/components/nudges/discord-nudge-banner.js";
-import { GitHubNudgeBanner } from "@/components/nudges/github-nudge-banner.js";
-import { IOSAppBanner } from "@/components/nudges/ios-app-banner.js";
-import { MacOSAppBanner } from "@/components/nudges/macos-app-banner.js";
+import { ChatBody } from "@/domains/chat/components/chat-body";
+import { SlackChannelFooter } from "@/domains/chat/components/slack-channel-footer";
+import { ConversationStarterGrid } from "@/domains/chat/components/conversation-starter-grid";
+import { ComposerNotices } from "@/domains/chat/components/composer-notices";
+import { SendErrorModal } from "@/domains/chat/components/send-error-modal";
+import { ConfirmationPromptCard } from "@/domains/chat/components/confirmation-prompt-card";
+import { ContactPromptCard } from "@/domains/chat/components/contact-prompt-card";
+import { QuestionPromptCard } from "@/domains/chat/components/question-prompt-card";
+import { SecretPromptCard } from "@/domains/chat/components/secret-prompt-card";
+import { usePullRefresh } from "@/domains/chat/hooks/use-pull-refresh";
+import { useRefreshLatestMessages as _useRefreshLatestMessages } from "@/domains/chat/hooks/use-refresh-latest-messages";
+import { useConversationStarters } from "@/domains/chat/hooks/use-conversation-starters";
+import type { TranscriptHandle, TranscriptProps } from "@/domains/chat/transcript/transcript";
+import { useDeprecatedTranscriptScroll } from "@/domains/chat/transcript/use-deprecated-transcript-scroll";
+import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat-utils";
+import type { ChatError } from "@/domains/chat/types";
+import type { AssistantState } from "@/domains/chat/hooks/use-assistant-lifecycle";
+import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone";
+import type { ChatAttachment } from "@/domains/chat/components/chat-attachments/use-chat-attachments";
+import type { ChatEmptyStateProps } from "@/domains/chat/components/chat-empty-state";
+import { CreditsExhaustedBanner } from "@/domains/chat/components/credits-exhausted-banner";
+import { DiscordNudgeBanner } from "@/components/nudges/discord-nudge-banner";
+import { GitHubNudgeBanner } from "@/components/nudges/github-nudge-banner";
+import { IOSAppBanner } from "@/components/nudges/ios-app-banner";
+import { MacOSAppBanner } from "@/components/nudges/macos-app-banner";
 import { Loader2 } from "lucide-react";
 import { Button, Notice, ResizablePanel } from "@vellum/design-library";
-import { ProviderBillingBanner } from "@/domains/chat/components/provider-billing-banner.js";
-import { QueuedMessagesDrawer } from "@/domains/chat/components/queued-messages-drawer.js";
-import { AppViewerContainer } from "@/domains/chat/components/app-viewer-container.js";
-import { DocumentViewerContainer } from "@/domains/chat/components/document-viewer-container.js";
-import { ChatAvatar } from "@/components/avatar/chat-avatar.js";
-import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu.js";
-import { ContextWindowIndicator, type ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
-import { SubagentDetailPanel } from "@/domains/chat/components/subagent-detail-panel.js";
-import { OnboardingChoiceCard } from "@/domains/chat/components/onboarding-choice-card.js";
-import { useOnboardingChoice } from "@/domains/chat/hooks/use-onboarding-choice.js";
-import { useIsNativePlatform } from "@/runtime/native-auth.js";
+import { ProviderBillingBanner } from "@/domains/chat/components/provider-billing-banner";
+import { QueuedMessagesDrawer } from "@/domains/chat/components/queued-messages-drawer";
+import { AppViewerContainer } from "@/domains/chat/components/app-viewer-container";
+import { DocumentViewerContainer } from "@/domains/chat/components/document-viewer-container";
+import { ChatAvatar } from "@/components/avatar/chat-avatar";
+import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu";
+import { ContextWindowIndicator, type ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
+import { SubagentDetailPanel } from "@/domains/chat/components/subagent-detail-panel";
+import { OnboardingChoiceCard } from "@/domains/chat/components/onboarding-choice-card";
+import { useOnboardingChoice } from "@/domains/chat/hooks/use-onboarding-choice";
+import { useIsNativePlatform } from "@/runtime/native-auth";
 
 import { Link, useNavigate } from "react-router";
 
-import { buildEditAppGreeting, buildEditAppStarters } from "@/domains/chat/utils/edit-app-empty-state.js";
-import { pickRandomPlaceholder } from "@/domains/chat/utils/empty-state-constants.js";
-import { useEmptyStateGreeting } from "@/domains/chat/hooks/use-empty-state-greeting.js";
-import { getChatBillingBannerDecision, shouldShowGenericChatErrorNotice } from "@/domains/chat/utils/error-classification.js";
+import { buildEditAppGreeting, buildEditAppStarters } from "@/domains/chat/utils/edit-app-empty-state";
+import { pickRandomPlaceholder } from "@/domains/chat/utils/empty-state-constants";
+import { useEmptyStateGreeting } from "@/domains/chat/hooks/use-empty-state-greeting";
+import { getChatBillingBannerDecision, shouldShowGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
 
-import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
-import { useDeployStore } from "@/domains/chat/deploy-store.js";
-import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
-import type { SubagentState } from "@/domains/subagents/subagent-store.js";
-import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/utils/reconcile.js";
+import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
+import { useDeployStore } from "@/domains/chat/deploy-store";
+import { useInteractionStore } from "@/domains/interactions/interaction-store";
+import type { SubagentState } from "@/domains/subagents/subagent-store";
+import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/utils/reconcile";
 
-import { buildTranscriptItems } from "@/domains/chat/transcript/build-items.js";
-import { sanitizeDisplayMessages } from "@/domains/chat/utils/sanitize-display-messages.js";
-import type { TranscriptItem, TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
-import type { HistoryPaginationResult } from "@/domains/chat/transcript/use-history-pagination.js";
+import { buildTranscriptItems } from "@/domains/chat/transcript/build-items";
+import { sanitizeDisplayMessages } from "@/domains/chat/utils/sanitize-display-messages";
+import type { TranscriptItem, TranscriptPaginationState } from "@/domains/chat/transcript/types";
+import type { HistoryPaginationResult } from "@/domains/chat/transcript/use-history-pagination";
 import {
   canStopGeneration,
   getThinkingStatusText,
   isSendDisabled,
   shouldShowThinkingIndicator,
   type UIContext,
-} from "@/domains/messaging/turn-selectors.js";
-import { isSurfaceInteractive } from "@/domains/chat/types/types.js";
+} from "@/domains/messaging/turn-selectors";
+import { isSurfaceInteractive } from "@/domains/chat/types/types";
 
-import type { MainView, OpenedAppState, OpenedDocumentState } from "@/stores/viewer-store.js";
-import { useActiveProfileModel } from "@/domains/chat/hooks/use-active-profile-model.js";
-import { modelSupportsVision } from "@/assistant/model-capabilities.js";
-import { isPointerCoarse } from "@/utils/pointer.js";
-import { routes } from "@/utils/routes.js";
-import { haptic } from "@/utils/haptics.js";
-import { isChannelConversation as _isChannelConversation } from "@/domains/chat/utils/conversation-channel.js";
-import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure.js";
-import type { DiskPressureStatusEventPayload } from "@/assistant/use-disk-pressure-monitor.js";
-import { type TurnState, useTurnStore } from "@/domains/messaging/turn-store.js";
-import type { QuestionResponseEntry, AllowlistOption, ScopeOption, DirectoryScopeOption, ConfirmationDecision } from "@/domains/chat/api/event-types.js";
-import type { CharacterComponents, CharacterTraits } from "@/types/avatar.js";
-import { DiskPressureBanner, type DiskPressureBannerMode } from "@/domains/chat/components/disk-pressure-banner.js";
-import type { VoiceInputButtonHandle } from "@/domains/chat/components/voice-input-button.js";
-import type { AssistantIdentity } from "@/assistant/identity.js";
-import type { Conversation } from "@/domains/chat/api/conversations.js";
-import { submitQuestionResponse } from "@/domains/chat/api/interactions.js";
-import type { ChatEventStream } from "@/domains/chat/api/stream.js";
+import type { MainView, OpenedAppState, OpenedDocumentState } from "@/stores/viewer-store";
+import { useActiveProfileModel } from "@/domains/chat/hooks/use-active-profile-model";
+import { modelSupportsVision } from "@/assistant/model-capabilities";
+import { isPointerCoarse } from "@/utils/pointer";
+import { routes } from "@/utils/routes";
+import { haptic } from "@/utils/haptics";
+import { isChannelConversation as _isChannelConversation } from "@/domains/chat/utils/conversation-channel";
+import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure";
+import type { DiskPressureStatusEventPayload } from "@/assistant/use-disk-pressure-monitor";
+import { type TurnState, useTurnStore } from "@/domains/messaging/turn-store";
+import type { QuestionResponseEntry, AllowlistOption, ScopeOption, DirectoryScopeOption, ConfirmationDecision } from "@/domains/chat/api/event-types";
+import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
+import { DiskPressureBanner, type DiskPressureBannerMode } from "@/domains/chat/components/disk-pressure-banner";
+import type { VoiceInputButtonHandle } from "@/domains/chat/components/voice-input-button";
+import type { AssistantIdentity } from "@/assistant/identity";
+import type { Conversation } from "@/domains/chat/api/conversations";
+import { submitQuestionResponse } from "@/domains/chat/api/interactions";
+import type { ChatEventStream } from "@/domains/chat/api/stream";
 
 // ---------------------------------------------------------------------------
 // Types

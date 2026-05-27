@@ -11,8 +11,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import { cleanup, render } from "@testing-library/react";
 
-import { PhaseGroupedStepList } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list.js";
-import type { ToolCallCardStep } from "@/domains/chat/hooks/use-tool-call-card-data.js";
+import { PhaseGroupedStepList } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
+import type { ToolCallCardStep } from "@/domains/chat/hooks/use-tool-call-card-data";
 
 afterEach(() => {
   cleanup();

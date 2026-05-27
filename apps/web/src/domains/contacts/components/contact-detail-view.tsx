@@ -4,10 +4,10 @@ import { Button } from "@vellum/design-library/components/button";
 import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog";
 import { Input } from "@vellum/design-library/components/input";
 
-import { ContactChannelsSection } from "@/domains/contacts/components/contact-channels-section.js";
-import { ContactTypeBadge } from "@/domains/contacts/components/contact-type-badge.js";
-import { DetailCard } from "@/components/detail-card.js";
-import type { ChannelInfo, ContactPayload } from "@/domains/contacts/types.js";
+import { ContactChannelsSection } from "@/domains/contacts/components/contact-channels-section";
+import { ContactTypeBadge } from "@/domains/contacts/components/contact-type-badge";
+import { DetailCard } from "@/components/detail-card";
+import type { ChannelInfo, ContactPayload } from "@/domains/contacts/types";
 
 interface ContactDetailViewProps {
   contact: ContactPayload;

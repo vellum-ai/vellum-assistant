@@ -10,12 +10,12 @@
 // We're using the raw `fetch` client here for legacy reasons.
 // You should typically use the tanstack-query provider which ensures the client is configured.
 
-export { client } from "@/generated/api/client.gen.js";
+export { client } from "@/generated/api/client.gen";
 export {
   ApiError,
   assertHasResponse,
   extractErrorMessage,
-} from "@/lib/api-errors.js";
+} from "@/lib/api-errors";
 
 export const SDK_BASE_OPTIONS =
   typeof window === "undefined"

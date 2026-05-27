@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router";
 
 import { Button } from "@vellum/design-library";
-import { routes } from "@/utils/routes.js";
+import { routes } from "@/utils/routes";
 
 export function SelfHostedScreen() {
   const navigate = useNavigate();

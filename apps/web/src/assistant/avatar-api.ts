@@ -6,10 +6,10 @@
  * to `/v1/X` before forwarding to the daemon, which registers avatar
  * and workspace routes flat (`/v1/avatar/...`, `/v1/workspace/...`).
  */
-import { client } from "@/generated/api/client.gen.js";
-import { assertHasResponse } from "@/lib/api-errors.js";
-import type { CharacterComponents, CharacterTraits } from "@/types/avatar.js";
-import { isCharacterTraits } from "@/types/avatar.js";
+import { client } from "@/generated/api/client.gen";
+import { assertHasResponse } from "@/lib/api-errors";
+import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
+import { isCharacterTraits } from "@/types/avatar";
 
 export async function fetchCharacterComponents(
   assistantId: string,

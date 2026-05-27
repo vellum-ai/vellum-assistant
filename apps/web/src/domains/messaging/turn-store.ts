@@ -18,8 +18,8 @@
 
 import { create } from "zustand";
 
-import type { ToolActivityMetadata } from "@/assistant/web-activity-types.js";
-import { createSelectors } from "@/utils/create-selectors.js";
+import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
+import { createSelectors } from "@/utils/create-selectors";
 
 // ---------------------------------------------------------------------------
 // State

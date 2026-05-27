@@ -15,12 +15,12 @@ import type { ComponentType, ReactNode } from "react";
 import { Button } from "@vellum/design-library/components/button";
 import { Card } from "@vellum/design-library/components/card";
 import { Tag } from "@vellum/design-library/components/tag";
-import { DiscordLogo } from "@/components/icons/discord-logo.js";
-import { GitHubLogo } from "@/components/icons/github-logo.js";
-import { YouTubeLogo } from "@/components/icons/youtube-logo.js";
-import { XLogo } from "@/components/icons/x-logo.js";
-import { GITHUB_REPO_URL, useGitHubNudgeState } from "@/hooks/use-github-nudge.js";
-import { joinDiscord } from "@/hooks/use-discord-nudge.js";
+import { DiscordLogo } from "@/components/icons/discord-logo";
+import { GitHubLogo } from "@/components/icons/github-logo";
+import { YouTubeLogo } from "@/components/icons/youtube-logo";
+import { XLogo } from "@/components/icons/x-logo";
+import { GITHUB_REPO_URL, useGitHubNudgeState } from "@/hooks/use-github-nudge";
+import { joinDiscord } from "@/hooks/use-discord-nudge";
 
 function HeroBanner() {
   return (

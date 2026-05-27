@@ -2,9 +2,9 @@ import * as ContextMenuPrimitive from "@radix-ui/react-context-menu";
 import { Check, ChevronRight, Circle } from "lucide-react";
 import { type ComponentProps, type ReactNode } from "react";
 
-import { cn } from "../utils/cn.js";
-import { menuContentBase, menuItemBase } from "../utils/menu-styles.js";
-import { usePortalContainer } from "../utils/portal-container.js";
+import { cn } from "../utils/cn";
+import { menuContentBase, menuItemBase } from "../utils/menu-styles";
+import { usePortalContainer } from "../utils/portal-container";
 
 /**
  * `ContextMenu` is a right-click / long-press menu primitive built on

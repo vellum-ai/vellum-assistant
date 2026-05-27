@@ -12,9 +12,9 @@ import {
   client,
   extractErrorMessage,
   SDK_BASE_OPTIONS,
-} from "@/domains/intelligence/client.js";
+} from "@/domains/intelligence/client";
 
-import type { MemoryItem, MemoryItemsListResponse } from "./types.js";
+import type { MemoryItem, MemoryItemsListResponse } from "./types";
 
 export { ApiError };
 

@@ -2,14 +2,14 @@ import {
   applyToolProgress,
   applyToolResult,
   upsertToolCall,
-} from "@/domains/chat/hooks/stream-message-updaters.js";
-import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types.js";
+} from "@/domains/chat/hooks/stream-message-updaters";
+import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 import type {
   ChatMessageToolCall,
   ToolProgressEvent,
   ToolResultEvent,
   ToolUseStartEvent,
-} from "@/domains/chat/api/event-types.js";
+} from "@/domains/chat/api/event-types";
 
 export function handleToolUseStart(
   event: ToolUseStartEvent,

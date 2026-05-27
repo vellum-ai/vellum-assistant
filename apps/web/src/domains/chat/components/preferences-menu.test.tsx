@@ -14,7 +14,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 const isMobileRef = { value: false };
 
-mock.module("@/hooks/use-is-mobile.js", () => ({
+mock.module("@/hooks/use-is-mobile", () => ({
   useIsMobile: () => isMobileRef.value,
   MOBILE_MEDIA_QUERY: "(max-width: 767px)",
 }));
@@ -25,7 +25,7 @@ const authRef = {
   logout: async () => {},
 };
 
-mock.module("@/stores/auth-store.js", () => {
+mock.module("@/stores/auth-store", () => {
   const store = () => null;
   store.use = {
     isLoggedIn: () => authRef.isLoggedIn,
@@ -38,14 +38,14 @@ mock.module("@/stores/auth-store.js", () => {
 
 const flagsRef = {};
 
-mock.module("@/lib/feature-flags/client-feature-flag-store.js", () => {
+mock.module("@/lib/feature-flags/client-feature-flag-store", () => {
   const store = () => null;
   store.use = {};
   store.getState = () => flagsRef;
   return { useClientFeatureFlagStore: store };
 });
 
-mock.module("@/lib/feature-flags/assistant-feature-flag-store.js", () => {
+mock.module("@/lib/feature-flags/assistant-feature-flag-store", () => {
   const store = () => null;
   store.use = {};
   store.getState = () => flagsRef;
@@ -58,7 +58,7 @@ mock.module("@tanstack/react-query", () => ({
   useQuery: () => ({ data: billingRef.data, isLoading: false, isError: false }),
 }));
 
-mock.module("@/generated/api/@tanstack/react-query.gen.js", () => ({
+mock.module("@/generated/api/@tanstack/react-query.gen", () => ({
   organizationsBillingSummaryRetrieveOptions: () => ({
     queryKey: [{ _id: "organizationsBillingSummaryRetrieve" }],
   }),
@@ -71,19 +71,19 @@ mock.module("react-router", () => ({
   useNavigate: () => () => {},
 }));
 
-mock.module("@/components/share-feedback-modal.js", () => ({
+mock.module("@/components/share-feedback-modal", () => ({
   ShareFeedbackModal: () => null,
 }));
 
-mock.module("@/components/earn-credits-modal.js", () => ({
+mock.module("@/components/earn-credits-modal", () => ({
   EarnCreditsModal: () => null,
 }));
 
-mock.module("@/components/theme-toggle.js", () => ({
+mock.module("@/components/theme-toggle", () => ({
   ThemeToggle: () => createElement("div", { "data-testid": "theme-toggle" }, "Theme"),
 }));
 
-import { PreferencesMenu } from "@/domains/chat/components/preferences-menu.js";
+import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
 
 beforeEach(() => {
   isMobileRef.value = false;

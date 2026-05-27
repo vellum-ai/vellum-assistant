@@ -4,14 +4,14 @@ import { useMemo, useState } from "react";
 import { Button } from "@vellum/design-library/components/button";
 import { Input } from "@vellum/design-library/components/input";
 import { Toggle } from "@vellum/design-library/components/toggle";
-import { DetailCard } from "@/components/detail-card.js";
-import { SettingsDivider } from "@/domains/settings/components/settings-divider.js";
+import { DetailCard } from "@/components/detail-card";
+import { SettingsDivider } from "@/domains/settings/components/settings-divider";
 import {
   getDeviceBool,
   getDeviceSetting,
   setDeviceBool,
   setDeviceSetting,
-} from "@/lib/device-settings.js";
+} from "@/lib/device-settings";
 
 const DEFAULT_VIDEO_ALLOWLIST: ReadonlyArray<string> = [
   "youtube.com",

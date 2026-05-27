@@ -2,8 +2,8 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { type LucideIcon } from "lucide-react";
 import { type ComponentProps, type ReactNode } from "react";
 
-import { cn } from "../utils/cn.js";
-import { usePortalContainer } from "../utils/portal-container.js";
+import { cn } from "../utils/cn";
+import { usePortalContainer } from "../utils/portal-container";
 
 /**
  * `BottomSheet` primitive built on `@radix-ui/react-dialog`.

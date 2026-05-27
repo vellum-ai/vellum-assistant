@@ -1,7 +1,7 @@
 
-import { MAX_CONVERSATION_STARTER_CHIPS } from "@/domains/chat/utils/empty-state-constants.js";
+import { MAX_CONVERSATION_STARTER_CHIPS } from "@/domains/chat/utils/empty-state-constants";
 
-import { ConversationStarterChip } from "@/domains/chat/components/conversation-starter-chip.js";
+import { ConversationStarterChip } from "@/domains/chat/components/conversation-starter-chip";
 
 /**
  * A single conversation starter rendered by {@link ConversationStarterGrid}.

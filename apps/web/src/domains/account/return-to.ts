@@ -1,4 +1,4 @@
-import { isVellumDomain } from "@/utils/domains.js";
+import { isVellumDomain } from "@/utils/domains";
 
 const ABSOLUTE_URL_SCHEME_RE = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//;
 

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { isAsyncChatScopeCurrent } from "@/domains/chat/utils/conversation-scope.js";
+import { isAsyncChatScopeCurrent } from "@/domains/chat/utils/conversation-scope";
 
 describe("isAsyncChatScopeCurrent", () => {
   test("matches the original conversation key", () => {

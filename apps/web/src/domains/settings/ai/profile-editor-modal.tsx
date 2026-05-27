@@ -14,13 +14,13 @@ import {
   getModelsForProvider,
   MODELS_BY_PROVIDER,
   PROVIDER_DISPLAY_NAMES as INFERENCE_PROVIDER_DISPLAY_NAMES,
-} from "@/assistant/llm-model-catalog.js";
+} from "@/assistant/llm-model-catalog";
 
-import { type ProfileEntry, formatCompactTokens } from "@/domains/settings/ai/ai-page.js";
-import { type Profile } from "@/domains/settings/ai/manage-profiles-modal.js";
-import { resolveProfileParamVisibility } from "@/domains/settings/ai/profile-param-visibility.js";
-import { type ConnectionModel, type ProviderConnection } from "@/domains/settings/ai/provider-connections-client.js";
-import { toKebabCase as toKebabCaseImpl } from "@/domains/settings/ai/slugify.js";
+import { type ProfileEntry, formatCompactTokens } from "@/domains/settings/ai/ai-page";
+import { type Profile } from "@/domains/settings/ai/manage-profiles-modal";
+import { resolveProfileParamVisibility } from "@/domains/settings/ai/profile-param-visibility";
+import { type ConnectionModel, type ProviderConnection } from "@/domains/settings/ai/provider-connections-client";
+import { toKebabCase as toKebabCaseImpl } from "@/domains/settings/ai/slugify";
 
 export { toKebabCaseImpl as toKebabCase };
 

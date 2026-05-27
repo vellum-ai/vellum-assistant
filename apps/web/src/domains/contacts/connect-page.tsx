@@ -8,11 +8,11 @@ import { Card } from "@vellum/design-library/components/card";
 import { toast } from "@vellum/design-library/components/toast";
 import { Typography } from "@vellum/design-library/components/typography";
 
-import { parseA2AInviteParams } from "@/domains/contacts/a2a-invite.js";
-import { redeemA2AInvite } from "@/domains/contacts/api.js";
-import type { RedeemA2AInviteResponse } from "@/domains/contacts/types.js";
-import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate.js";
-import { routes } from "@/utils/routes.js";
+import { parseA2AInviteParams } from "@/domains/contacts/a2a-invite";
+import { redeemA2AInvite } from "@/domains/contacts/api";
+import type { RedeemA2AInviteResponse } from "@/domains/contacts/types";
+import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate";
+import { routes } from "@/utils/routes";
 
 function mapErrorCode(errorCode: string | undefined, errorMessage: string | undefined): string {
   switch (errorCode) {

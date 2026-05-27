@@ -1,10 +1,10 @@
 import { useMemo } from "react";
 import { Outlet, useLocation } from "react-router";
 
-import { routes } from "@/utils/routes.js";
-import { LOGS_SIDEBAR } from "@/domains/logs/navigation.js";
-import { SidebarShell } from "@/components/sidebar-shell.js";
-import { SidebarTree } from "@/components/sidebar-tree.js";
+import { routes } from "@/utils/routes";
+import { LOGS_SIDEBAR } from "@/domains/logs/navigation";
+import { SidebarShell } from "@/components/sidebar-shell";
+import { SidebarTree } from "@/components/sidebar-tree";
 
 /**
  * React Router layout route for `/assistant/logs/*`.

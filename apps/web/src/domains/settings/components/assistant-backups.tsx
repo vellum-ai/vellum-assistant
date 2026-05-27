@@ -11,7 +11,7 @@ import {
   createAssistantBackup,
   listAssistantBackups,
   restoreAssistantBackup,
-} from "@/assistant/api.js";
+} from "@/assistant/api";
 
 const MAX_POINT_IN_TIME_BACKUPS = 3;
 

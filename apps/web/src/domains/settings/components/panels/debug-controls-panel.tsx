@@ -4,14 +4,14 @@ import { useNavigate } from "react-router";
 
 import { Button } from "@vellum/design-library/components/button";
 import { toast } from "@vellum/design-library/components/toast";
-import { AssistantBackups } from "@/domains/settings/components/assistant-backups.js";
-import { RestartAssistant } from "@/domains/settings/components/restart-assistant.js";
-import { RecoveryModeControls } from "@/domains/settings/components/recovery-mode-controls.js";
-import { type Assistant, getAssistant } from "@/assistant/api.js";
-import { useAuthStore } from "@/stores/auth-store.js";
-import { reportError } from "@/lib/errors/report.js";
-import { clearOnboardingFlags } from "@/domains/onboarding/prefs.js";
-import { routes } from "@/utils/routes.js";
+import { AssistantBackups } from "@/domains/settings/components/assistant-backups";
+import { RestartAssistant } from "@/domains/settings/components/restart-assistant";
+import { RecoveryModeControls } from "@/domains/settings/components/recovery-mode-controls";
+import { type Assistant, getAssistant } from "@/assistant/api";
+import { useAuthStore } from "@/stores/auth-store";
+import { reportError } from "@/lib/errors/report";
+import { clearOnboardingFlags } from "@/domains/onboarding/prefs";
+import { routes } from "@/utils/routes";
 
 function isInternalUser(email: string | null, isAdmin: boolean): boolean {
   if (isAdmin) return true;

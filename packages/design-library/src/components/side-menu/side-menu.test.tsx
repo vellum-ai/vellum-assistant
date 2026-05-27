@@ -10,7 +10,7 @@ import { Globe } from "lucide-react";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { SideMenu } from "./side-menu.js";
+import { SideMenu } from "./side-menu";
 
 describe("SideMenu root", () => {
   test("renders a <nav> with the provided aria-label and data-slot", () => {

@@ -19,9 +19,9 @@ import {
 } from "react";
 
 import { Button } from "@vellum/design-library";
-import { inferCategory } from "@/domains/intelligence/skills/category.js";
-import type { CharacterComponents, CharacterTraits } from "@/types/avatar.js";
-import type { SkillInfo } from "@/domains/intelligence/skills/types.js";
+import { inferCategory } from "@/domains/intelligence/skills/category";
+import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
+import type { SkillInfo } from "@/domains/intelligence/skills/types";
 
 import {
   buildGroups,
@@ -30,15 +30,15 @@ import {
   CENTER_AVATAR_SIZE,
   type OrbitItem,
   type TreeNode,
-} from "@/domains/intelligence/components/constellation-layout.js";
+} from "@/domains/intelligence/components/constellation-layout";
 
-import { VIRTUAL_CENTER } from "@/domains/intelligence/components/constellation-view/constants.js";
-import { EdgesLayer } from "@/domains/intelligence/components/constellation-view/edge-line.js";
-import { Legend } from "@/domains/intelligence/components/constellation-view/legend.js";
-import { NodePopover } from "@/domains/intelligence/components/constellation-view/node-popover.js";
-import { NodeView } from "@/domains/intelligence/components/constellation-view/node-view.js";
-import { useConstellationViewport } from "@/domains/intelligence/components/constellation-view/use-constellation-viewport.js";
-import { popoverItemForNode } from "@/domains/intelligence/components/constellation-view/utils.js";
+import { VIRTUAL_CENTER } from "@/domains/intelligence/components/constellation-view/constants";
+import { EdgesLayer } from "@/domains/intelligence/components/constellation-view/edge-line";
+import { Legend } from "@/domains/intelligence/components/constellation-view/legend";
+import { NodePopover } from "@/domains/intelligence/components/constellation-view/node-popover";
+import { NodeView } from "@/domains/intelligence/components/constellation-view/node-view";
+import { useConstellationViewport } from "@/domains/intelligence/components/constellation-view/use-constellation-viewport";
+import { popoverItemForNode } from "@/domains/intelligence/components/constellation-view/utils";
 
 export interface ConstellationViewProps {
   skills: SkillInfo[];

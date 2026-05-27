@@ -10,21 +10,21 @@ import {
 import { useMemo, useState } from "react";
 
 import { Button, Card } from "@vellum/design-library";
-import { SkillOriginBadge } from "@/domains/intelligence/components/skills/skill-origin-badge.js";
+import { SkillOriginBadge } from "@/domains/intelligence/components/skills/skill-origin-badge";
 import {
   FileMarkdown,
   isMarkdown,
-} from "@/components/file-markdown.js";
+} from "@/components/file-markdown";
 import {
   fetchSkillFileContent,
   fetchSkillFiles,
-} from "@/domains/intelligence/skills/api.js";
+} from "@/domains/intelligence/skills/api";
 import {
   isAvailableSkill,
   isRemovableSkill,
   type SkillFileEntry,
   type SkillInfo,
-} from "@/domains/intelligence/skills/types.js";
+} from "@/domains/intelligence/skills/types";
 
 interface SkillDetailProps {
   assistantId: string;

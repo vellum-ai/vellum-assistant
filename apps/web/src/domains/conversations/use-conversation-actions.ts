@@ -3,13 +3,13 @@ import * as Sentry from "@sentry/react";
 import { type MutableRefObject, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { patchConversation } from "@/domains/conversations/conversation-queries.js";
-import { isSlackConversation } from "@/domains/chat/utils/group-conversations.js";
+import { patchConversation } from "@/domains/conversations/conversation-queries";
+import { isSlackConversation } from "@/domains/chat/utils/group-conversations";
 
-import { haptic } from "@/utils/haptics.js";
+import { haptic } from "@/utils/haptics";
 
-import { shouldReturnToBackground } from "@/domains/chat/utils/chat-utils.js";
-import { type Conversation, archiveConversation, isBackgroundConversation, markConversationSeen, markConversationUnread, renameConversation, reorderConversations, unarchiveConversation } from "@/domains/chat/api/conversations.js";
+import { shouldReturnToBackground } from "@/domains/chat/utils/chat-utils";
+import { type Conversation, archiveConversation, isBackgroundConversation, markConversationSeen, markConversationUnread, renameConversation, reorderConversations, unarchiveConversation } from "@/domains/chat/api/conversations";
 
 // ---------------------------------------------------------------------------
 // Helpers — pure functions, no React state

@@ -5,14 +5,14 @@ import {
   acknowledgeAssistantDiskPressure,
   getAssistantDiskPressureStatus,
   type DiskPressureStatus,
-} from "@/assistant/api.js";
+} from "@/assistant/api";
 import {
   DISK_PRESSURE_POLL_INTERVAL_MS,
   areDiskPressureStatusesEqual,
   getDiskPressureMonitorMode,
   type DiskPressureMonitorMode,
-} from "@/assistant/disk-pressure.js";
-import { useEventBusStore } from "@/stores/event-bus-store.js";
+} from "@/assistant/disk-pressure";
+import { useEventBusStore } from "@/stores/event-bus-store";
 
 export interface UseDiskPressureMonitorOptions {
   assistantId: string | null;

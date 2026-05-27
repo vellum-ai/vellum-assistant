@@ -9,12 +9,11 @@ Applies to all code under `apps/`. Subordinate to root [`AGENTS.md`](../AGENTS.m
 - No workspaces, no Turborepo. Per-package `bun install`. Exact version
   pinning is enforced repo-wide; see root `AGENTS.md` for the dependency,
   license, and tool-version rules.
-- TypeScript imports use `.js` extensions. Default module resolution is
-  NodeNext; apps that ship with a bundler that handles ESM/CJS interop
-  (currently `apps/macos/` via electron-vite) may use `moduleResolution:
-  "Bundler"` with `module: "ESNext"` so the bundler's resolution rules
-  match TypeScript's view of the import graph. The `.js` extension
-  convention applies regardless.
+- Default module resolution is NodeNext with `.js` extensions on all
+  imports. Apps that ship with a bundler (`apps/web/` via Vite,
+  `apps/macos/` via electron-vite) use `moduleResolution: "Bundler"`
+  with `module: "ESNext"`. Bundler-mode apps omit `.js` extensions;
+  NodeNext apps require them.
 
 ## Adding a new app
 

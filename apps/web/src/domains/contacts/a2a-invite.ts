@@ -1,4 +1,4 @@
-import { routes } from "@/utils/routes.js";
+import { routes } from "@/utils/routes";
 
 export interface A2AInviteParams {
   senderAssistantId: string;

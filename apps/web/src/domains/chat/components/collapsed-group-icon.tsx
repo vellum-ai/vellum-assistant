@@ -3,7 +3,7 @@ import { useCallback, useState, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 
 import { Popover } from "@vellum/design-library";
-import type { Conversation } from "@/domains/chat/api/conversations.js";
+import type { Conversation } from "@/domains/chat/api/conversations";
 
 // ---------------------------------------------------------------------------
 // Indicator state

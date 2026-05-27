@@ -12,18 +12,18 @@ import { describe, expect, mock, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-mock.module("@/hooks/use-is-mobile.js", () => ({
+mock.module("@/hooks/use-is-mobile", () => ({
   useIsMobile: () => false,
   MOBILE_MEDIA_QUERY: "(max-width: 767px)",
 }));
 
 
-import type { Conversation } from "@/domains/chat/api/conversations.js";
+import type { Conversation } from "@/domains/chat/api/conversations";
 import {
   ASSISTANT_SIDE_MENU_CONVERSATION_LIMIT,
   AssistantSideMenu,
-} from "@/domains/chat/components/assistant-side-menu.js";
-import { SIDEBAR_CONVERSATION_LIMIT } from "@/domains/chat/use-sidebar-state.js";
+} from "@/domains/chat/components/assistant-side-menu";
+import { SIDEBAR_CONVERSATION_LIMIT } from "@/domains/chat/use-sidebar-state";
 
 function makeConversation(overrides: Partial<Conversation>): Conversation {
   return {

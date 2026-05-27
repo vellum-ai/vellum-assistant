@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 
 import { PanelItem } from "@vellum/design-library";
 
-import type { EmojiEntry } from "@/domains/chat/components/chat-composer/emoji-catalog.js";
+import type { EmojiEntry } from "@/domains/chat/components/chat-composer/emoji-catalog";
 
 interface EmojiPickerPopupProps {
   entries: EmojiEntry[];

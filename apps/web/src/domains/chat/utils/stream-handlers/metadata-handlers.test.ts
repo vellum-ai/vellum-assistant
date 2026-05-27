@@ -1,9 +1,9 @@
 import { describe, expect, it } from "bun:test";
 
-import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers.js";
-import { chatContextQueryKey } from "@/domains/conversations/conversation-queries.js";
-import type { Conversation } from "@/domains/chat/api/conversations.js";
-import type { ChatContext } from "@/domains/chat/api/assistant.js";
+import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers";
+import { chatContextQueryKey } from "@/domains/conversations/conversation-queries";
+import type { Conversation } from "@/domains/chat/api/conversations";
+import type { ChatContext } from "@/domains/chat/api/assistant";
 import {
   handleUsageUpdate,
   handleConversationTitleUpdated,
@@ -12,7 +12,7 @@ import {
   handleDiskPressureStatusChanged,
   handleIdentityChanged,
   handleAvatarUpdated,
-} from "@/domains/chat/utils/stream-handlers/metadata-handlers.js";
+} from "@/domains/chat/utils/stream-handlers/metadata-handlers";
 
 describe("handleUsageUpdate", () => {
   it("computes fill ratio and updates context window usage", () => {

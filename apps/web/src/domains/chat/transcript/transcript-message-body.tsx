@@ -10,27 +10,27 @@ import {
 } from "react";
 import { ExternalLink } from "lucide-react";
 
-import { MessageAttachments } from "@/domains/chat/components/chat-attachments/message-attachments.js";
-import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message.js";
-import { MessageHoverActions } from "@/domains/chat/components/message-hover-actions/message-hover-actions.js";
-import { SubagentInlineProgressCard } from "@/domains/chat/components/subagent-inline-progress-card/subagent-inline-progress-card.js";
-import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router.js";
-import { ToolCallProgressCard } from "@/domains/chat/components/tool-call-progress-card/tool-call-progress-card.js";
+import { MessageAttachments } from "@/domains/chat/components/chat-attachments/message-attachments";
+import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
+import { MessageHoverActions } from "@/domains/chat/components/message-hover-actions/message-hover-actions";
+import { SubagentInlineProgressCard } from "@/domains/chat/components/subagent-inline-progress-card/subagent-inline-progress-card";
+import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router";
+import { ToolCallProgressCard } from "@/domains/chat/components/tool-call-progress-card/tool-call-progress-card";
 import {
   getLeadingThinkingText,
   getLegacyLeadingThinkingText,
-} from "@/domains/chat/components/tool-progress-card/get-leading-thinking-text.js";
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
-import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces.js";
-import { getSlackLinkUrl, type Surface } from "@/domains/chat/types/types.js";
-import { isPointerCoarse } from "@/utils/pointer.js";
+} from "@/domains/chat/components/tool-progress-card/get-leading-thinking-text";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
+import { getSlackLinkUrl, type Surface } from "@/domains/chat/types/types";
+import { isPointerCoarse } from "@/utils/pointer";
 import { useShallow } from "zustand/shallow";
 import {
   EMPTY_SUBAGENT_ENTRIES,
   useSubagentStore,
   type SubagentEntry,
-} from "@/domains/subagents/subagent-store.js";
-import type { AllowlistOption, ChatMessageToolCall, ConfirmationDecision, DirectoryScopeOption, ScopeOption } from "@/domains/chat/api/event-types.js";
+} from "@/domains/subagents/subagent-store";
+import type { AllowlistOption, ChatMessageToolCall, ConfirmationDecision, DirectoryScopeOption, ScopeOption } from "@/domains/chat/api/event-types";
 
 export interface OpenRuleEditorContext {
   toolName: string;

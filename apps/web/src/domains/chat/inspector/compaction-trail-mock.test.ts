@@ -25,7 +25,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { fetchCompactionTrailMock } from "./compaction-trail-mock.js";
+import { fetchCompactionTrailMock } from "./compaction-trail-mock";
 
 // `call-4` hashes to the max bucket (5 events) and `call-3` hashes to
 // the empty bucket (0 events) — pinned to the current MOCK_EVENTS

@@ -1,20 +1,20 @@
 
 import { CheckCircle, XCircle } from "lucide-react";
 
-import type { Surface } from "@/domains/chat/types/types.js";
+import type { Surface } from "@/domains/chat/types/types";
 
-import { BrowserViewSurface } from "@/domains/chat/components/surfaces/browser-view-surface.js";
-import { CallSummarySurface } from "@/domains/chat/components/surfaces/call-summary-surface.js";
-import { CardSurface } from "@/domains/chat/components/surfaces/card-surface.js";
-import { ConfirmationSurface } from "@/domains/chat/components/surfaces/confirmation-surface.js";
-import { DocumentPreviewSurface } from "@/domains/chat/components/surfaces/document-preview-surface.js";
-import { DynamicPageSurface } from "@/domains/chat/components/surfaces/dynamic-page-surface.js";
-import { FileUploadSurface } from "@/domains/chat/components/surfaces/file-upload-surface.js";
-import { FormSurface } from "@/domains/chat/components/surfaces/form-surface.js";
-import { ListSurface } from "@/domains/chat/components/surfaces/list-surface.js";
-import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container.js";
-import { TableSurface } from "@/domains/chat/components/surfaces/table-surface.js";
-import { TaskPreferencesSurface } from "@/domains/chat/components/surfaces/task-preferences-surface.js";
+import { BrowserViewSurface } from "@/domains/chat/components/surfaces/browser-view-surface";
+import { CallSummarySurface } from "@/domains/chat/components/surfaces/call-summary-surface";
+import { CardSurface } from "@/domains/chat/components/surfaces/card-surface";
+import { ConfirmationSurface } from "@/domains/chat/components/surfaces/confirmation-surface";
+import { DocumentPreviewSurface } from "@/domains/chat/components/surfaces/document-preview-surface";
+import { DynamicPageSurface } from "@/domains/chat/components/surfaces/dynamic-page-surface";
+import { FileUploadSurface } from "@/domains/chat/components/surfaces/file-upload-surface";
+import { FormSurface } from "@/domains/chat/components/surfaces/form-surface";
+import { ListSurface } from "@/domains/chat/components/surfaces/list-surface";
+import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container";
+import { TableSurface } from "@/domains/chat/components/surfaces/table-surface";
+import { TaskPreferencesSurface } from "@/domains/chat/components/surfaces/task-preferences-surface";
 
 export interface SurfaceRouterProps {
   surface: Surface;

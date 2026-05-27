@@ -45,7 +45,7 @@ if (typeof globalThis.window === "undefined") {
 
 // Dynamic import AFTER the shim is installed.
 const { loadDraftsForTest, persistDraftsForTest } = await import(
-  "./use-draft-input-test-helpers.js"
+  "./use-draft-input-test-helpers"
 );
 
 // ---------------------------------------------------------------------------

@@ -45,16 +45,16 @@ mock.module("@sentry/browser", () => ({
 
 import {
   getChatDiagnosticsEvents,
-} from "@/domains/chat/utils/diagnostics.js";
+} from "@/domains/chat/utils/diagnostics";
 import {
   type TurnState,
   INITIAL_TURN_STATE,
   turnReducer,
   isSending,
-} from "@/domains/messaging/turn-store.js";
-import { parseAssistantEvent } from "@/domains/chat/api/event-parser.js";
-import { subscribeChatEvents, type ChatStreamReconnectCause } from "@/domains/chat/api/stream.js";
-import { useAssistantIdentityStore } from "@/stores/assistant-identity-store.js";
+} from "@/domains/messaging/turn-store";
+import { parseAssistantEvent } from "@/domains/chat/api/event-parser";
+import { subscribeChatEvents, type ChatStreamReconnectCause } from "@/domains/chat/api/stream";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 describe("polling reconciliation with state machine", () => {
   /**

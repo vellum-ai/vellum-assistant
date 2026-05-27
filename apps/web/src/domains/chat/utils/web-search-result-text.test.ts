@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { parseWebSearchResultText } from "@/domains/chat/utils/web-search-result-text.js";
+import { parseWebSearchResultText } from "@/domains/chat/utils/web-search-result-text";
 
 describe("parseWebSearchResultText — Anthropic-native format", () => {
   test("extracts title + url pairs separated by a blank line", () => {

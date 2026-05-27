@@ -25,10 +25,10 @@ import {
   startChatgptSubscriptionAuth,
   updateConnection,
   writeSecret,
-} from "@/domains/settings/ai/provider-connections-client.js";
-import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder.js";
-import { toKebabCase } from "@/domains/settings/ai/slugify.js";
-import { providerSupportsPlatformAuth } from "@/assistant/llm-model-catalog.js";
+} from "@/domains/settings/ai/provider-connections-client";
+import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
+import { toKebabCase } from "@/domains/settings/ai/slugify";
+import { providerSupportsPlatformAuth } from "@/assistant/llm-model-catalog";
 
 // ---------------------------------------------------------------------------
 // Constants

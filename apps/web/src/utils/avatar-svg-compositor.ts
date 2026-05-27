@@ -3,7 +3,7 @@ import type {
   CharacterComponents,
   ColorDefinition,
   EyeStyleDefinition,
-} from "@/types/avatar.js";
+} from "@/types/avatar";
 
 export interface AvatarTransforms {
   bodyTransform: string;

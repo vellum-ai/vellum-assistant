@@ -7,8 +7,8 @@
  * initializing, the runtime is unreachable, etc.) so the caller can
  * fall back to a stub.
  */
-import { client } from "@/generated/api/client.gen.js";
-import { assertHasResponse } from "@/lib/api-errors.js";
+import { client } from "@/generated/api/client.gen";
+import { assertHasResponse } from "@/lib/api-errors";
 
 // `client.get` needs a baseUrl when there's no `window` (SSR / unit tests).
 const SDK_BASE_OPTIONS =

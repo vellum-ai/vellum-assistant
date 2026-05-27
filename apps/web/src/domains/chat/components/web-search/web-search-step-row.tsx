@@ -14,8 +14,8 @@ import { AlertCircle } from "lucide-react";
 
 import { Typography } from "@vellum/design-library";
 
-import { FaviconChip } from "@/domains/chat/components/web-search/favicon-chip.js";
-import type { ToolCallCardStep } from "@/domains/chat/hooks/use-tool-call-card-data.js";
+import { FaviconChip } from "@/domains/chat/components/web-search/favicon-chip";
+import type { ToolCallCardStep } from "@/domains/chat/hooks/use-tool-call-card-data";
 
 /**
  * Small "+N more" pill used at the tail of a `web_search` row's result list.

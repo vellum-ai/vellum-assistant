@@ -8,7 +8,7 @@
 
 import { useCallback } from "react";
 
-import { useNudgeStore } from "@/stores/nudge-store.js";
+import { useNudgeStore } from "@/stores/nudge-store";
 
 // ---------------------------------------------------------------------------
 // Constants

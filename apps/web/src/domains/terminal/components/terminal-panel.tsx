@@ -1,10 +1,10 @@
 import { useCallback, useRef } from "react";
 
-import type { MaintenanceMode } from "@/generated/api/types.gen.js";
-import { useTerminalSession } from "@/domains/terminal/use-terminal-session.js";
-import { useTerminalStore } from "@/domains/terminal/terminal-store.js";
-import { TerminalConsole } from "@/domains/terminal/components/terminal-console.js";
-import { TerminalToolbar } from "@/domains/terminal/components/terminal-toolbar.js";
+import type { MaintenanceMode } from "@/generated/api/types.gen";
+import { useTerminalSession } from "@/domains/terminal/use-terminal-session";
+import { useTerminalStore } from "@/domains/terminal/terminal-store";
+import { TerminalConsole } from "@/domains/terminal/components/terminal-console";
+import { TerminalToolbar } from "@/domains/terminal/components/terminal-toolbar";
 
 export interface TerminalPanelProps {
   assistantId: string | null;

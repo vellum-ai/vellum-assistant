@@ -14,9 +14,9 @@ import { createPortal } from "react-dom";
 
 import { Button } from "@vellum/design-library";
 import { Typography } from "@vellum/design-library";
-import { useIsMobile } from "@/hooks/use-is-mobile.js";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 
-import { CommandPaletteItem } from "@/components/command-palette/command-palette-item.js";
+import { CommandPaletteItem } from "@/components/command-palette/command-palette-item";
 
 // ---------------------------------------------------------------------------
 // Types

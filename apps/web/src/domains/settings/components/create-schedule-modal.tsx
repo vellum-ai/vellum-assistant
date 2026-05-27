@@ -6,7 +6,7 @@ import { Modal } from "@vellum/design-library/components/modal";
 import {
   createSchedule,
   type CreateSchedulePayload,
-} from "@/domains/settings/api/schedules.js";
+} from "@/domains/settings/api/schedules";
 
 // ---------------------------------------------------------------------------
 // Cron presets — cover the most common cases without forcing users to learn

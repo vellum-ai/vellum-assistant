@@ -8,7 +8,7 @@ import type {
   MachineTierEnum,
   StorageTier,
   StorageTierEnum,
-} from "@/generated/api/types.gen.js";
+} from "@/generated/api/types.gen";
 
 /**
  * Display labels for the Pro machine tiers. Uses a static label map so casing

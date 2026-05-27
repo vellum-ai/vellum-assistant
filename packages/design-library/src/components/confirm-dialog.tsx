@@ -1,8 +1,8 @@
 import { AlertTriangle } from "lucide-react";
 import type { ReactNode } from "react";
 
-import { Button } from "./button.js";
-import { Modal } from "./modal.js";
+import { Button } from "./button";
+import { Modal } from "./modal";
 
 /**
  * Pre-composed confirmation dialog built on `Modal`.

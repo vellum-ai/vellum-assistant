@@ -5,8 +5,8 @@
  */
 import { Navigate, useSearchParams } from "react-router";
 
-import { ChatPage } from "@/domains/chat/chat-page.js";
-import { routes } from "@/utils/routes.js";
+import { ChatPage } from "@/domains/chat/chat-page";
+import { routes } from "@/utils/routes";
 
 export function ConversationRedirect() {
   const [searchParams] = useSearchParams();

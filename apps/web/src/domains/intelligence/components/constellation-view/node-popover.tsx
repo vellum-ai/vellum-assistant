@@ -2,7 +2,7 @@
 import { FileText, Zap } from "lucide-react";
 
 import { Button, Card } from "@vellum/design-library";
-import type { OrbitItem } from "@/domains/intelligence/components/constellation-layout.js";
+import type { OrbitItem } from "@/domains/intelligence/components/constellation-layout";
 
 export interface NodePopoverProps {
   item: OrbitItem;

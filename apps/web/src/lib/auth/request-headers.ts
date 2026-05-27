@@ -21,8 +21,8 @@
  * hand-attaches these headers — the central interceptor handles both
  * modes. This whole file is deleted once that lands.
  */
-import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf.js";
-import { getActiveOrganizationIdForRequests } from "@/stores/organization-store.js";
+import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf";
+import { getActiveOrganizationIdForRequests } from "@/stores/organization-store";
 
 /**
  * Headers for a safe (GET/HEAD) request against an assistant-scoped

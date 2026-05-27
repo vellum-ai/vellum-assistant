@@ -2,7 +2,7 @@
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect, useState } from "react";
 
-import { FaviconChip } from "@/domains/chat/components/web-search/favicon-chip.js";
+import { FaviconChip } from "@/domains/chat/components/web-search/favicon-chip";
 
 /**
  * Items consumed by `WebsiteCarousel`. The shape matches the inputs `FaviconChip`

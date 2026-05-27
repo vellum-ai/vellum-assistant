@@ -26,12 +26,12 @@ import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { Input } from "@vellum/design-library/components/input";
 import { Notice } from "@vellum/design-library/components/notice";
 import { SegmentControl } from "@vellum/design-library/components/segment-control";
-import { DomainField } from "@/domains/settings/components/domain-field.js";
-import { DetailCard } from "@/components/detail-card.js";
+import { DomainField } from "@/domains/settings/components/domain-field";
+import { DetailCard } from "@/components/detail-card";
 import { Typography } from "@vellum/design-library/components/typography";
 
 import { toast } from "@vellum/design-library/components/toast";
-import { client } from "@/generated/api/client.gen.js";
+import { client } from "@/generated/api/client.gen";
 import {
   assistantsDomainsCreateMutation,
   assistantsDomainsDestroyMutation,
@@ -47,30 +47,30 @@ import {
   assistantsListOptions,
   assistantsListQueryKey,
   organizationsBillingSubscriptionRetrieveOptions,
-} from "@/generated/api/@tanstack/react-query.gen.js";
-import { reportError } from "@/lib/errors/report.js";
-import { useEnvironmentStore } from "@/lib/environment/environment-store.js";
+} from "@/generated/api/@tanstack/react-query.gen";
+import { reportError } from "@/lib/errors/report";
+import { useEnvironmentStore } from "@/lib/environment/environment-store";
 import {
   type LlmCatalogModel,
   PROVIDER_DISPLAY_NAMES,
-} from "@/assistant/llm-model-catalog.js";
+} from "@/assistant/llm-model-catalog";
 import {
   WEB_SEARCH_BYOK_PROVIDER_IDS,
   WEB_SEARCH_PROVIDER_DISPLAY_NAMES,
   WEB_SEARCH_PROVIDER_IDS,
   WEB_SEARCH_PROVIDER_KEY_PLACEHOLDERS,
   WEB_SEARCH_PROVIDER_KEY_STORAGE,
-} from "@/assistant/generated/web-search-provider-catalog.gen.js";
-import { routes } from "@/utils/routes.js";
-import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags.js";
-import { synthesizeTTS } from "@/domains/voice/tts-synthesize.js";
-import { getLocalSetting, removeLocalSetting, setLocalSetting } from "@/lib/local-settings.js";
-import { CallSiteOverridesModal, type CallSiteOverrideDraft } from "@/domains/settings/ai/call-site-overrides-modal.js";
-import { ManageProfilesModal } from "@/domains/settings/ai/manage-profiles-modal.js";
-import { ManageProvidersModal } from "@/domains/settings/ai/manage-providers-modal.js";
-import { profilePickerLabel, visibleProfilesForPicker } from "@/domains/settings/ai/profile-pickers.js";
-import { readSecret } from "@/domains/settings/ai/provider-connections-client.js";
-import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder.js";
+} from "@/assistant/generated/web-search-provider-catalog.gen";
+import { routes } from "@/utils/routes";
+import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
+import { synthesizeTTS } from "@/domains/voice/tts-synthesize";
+import { getLocalSetting, removeLocalSetting, setLocalSetting } from "@/lib/local-settings";
+import { CallSiteOverridesModal, type CallSiteOverrideDraft } from "@/domains/settings/ai/call-site-overrides-modal";
+import { ManageProfilesModal } from "@/domains/settings/ai/manage-profiles-modal";
+import { ManageProvidersModal } from "@/domains/settings/ai/manage-providers-modal";
+import { profilePickerLabel, visibleProfilesForPicker } from "@/domains/settings/ai/profile-pickers";
+import { readSecret } from "@/domains/settings/ai/provider-connections-client";
+import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
 
 // ---------------------------------------------------------------------------
 // Constants (mirrored from desktop SettingsStore)

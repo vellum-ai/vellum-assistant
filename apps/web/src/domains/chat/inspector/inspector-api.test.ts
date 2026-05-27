@@ -13,7 +13,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type {
   LlmContextResponse,
   LLMRequestLogEntry,
-} from "@/domains/chat/types/inspector-types.js";
+} from "@/domains/chat/types/inspector-types";
 
 interface FakeRequest {
   url: string;
@@ -30,7 +30,7 @@ const requests: FakeRequest[] = [];
 let nextResponses: FakeResponse[] = [];
 let mockMessages: Array<{ id: string }> = [];
 
-mock.module("@/generated/api/client.gen.js", () => ({
+mock.module("@/generated/api/client.gen", () => ({
   client: {
     get: async ({
       url,
@@ -63,7 +63,7 @@ mock.module("@/generated/api/client.gen.js", () => ({
   },
 }));
 
-mock.module("@/domains/chat/api/messages.js", () => ({
+mock.module("@/domains/chat/api/messages", () => ({
   fetchConversationMessages: async () => mockMessages,
 }));
 
@@ -71,7 +71,7 @@ mock.module("@/domains/chat/api/messages.js", () => ({
 import {
   fetchConversationLlmContext,
   fetchMessageLlmContextOrThrow,
-} from "@/domains/chat/inspector/inspector-api.js";
+} from "@/domains/chat/inspector/inspector-api";
 
 beforeEach(() => {
   requests.length = 0;

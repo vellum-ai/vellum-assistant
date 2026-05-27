@@ -1,15 +1,15 @@
 import { useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen.js";
-import { useBusSubscription } from "@/hooks/use-bus-subscription.js";
-import { createSyncTagRegistry } from "@/lib/sync/tag-registry.js";
+import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen";
+import { useBusSubscription } from "@/hooks/use-bus-subscription";
+import { createSyncTagRegistry } from "@/lib/sync/tag-registry";
 import {
   invalidateAssistantConfigQueries,
   invalidateAssistantSchedulesQueries,
   invalidateAssistantSoundsQueries,
-} from "@/lib/sync/query-tags.js";
-import { SYNC_TAGS } from "@/lib/sync/types.js";
+} from "@/lib/sync/query-tags";
+import { SYNC_TAGS } from "@/lib/sync/types";
 
 /**
  * Routes settings-related sync events into TanStack Query caches while
@@ -55,7 +55,7 @@ export function useSettingsSync(): void {
 
 import { useMemo } from "react";
 import type { QueryClient } from "@tanstack/react-query";
-import type { SyncTagRegistry } from "@/lib/sync/tag-registry.js";
+import type { SyncTagRegistry } from "@/lib/sync/tag-registry";
 
 function useMemoizedRegistry(
   queryClient: QueryClient,

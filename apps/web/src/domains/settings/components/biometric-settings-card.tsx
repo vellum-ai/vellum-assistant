@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 
 import { Toggle } from "@vellum/design-library/components/toggle";
-import { DetailCard } from "@/components/detail-card.js";
-import { useIsNativePlatform, getSessionTokenFromCookies } from "@/runtime/native-auth.js";
+import { DetailCard } from "@/components/detail-card";
+import { useIsNativePlatform, getSessionTokenFromCookies } from "@/runtime/native-auth";
 import {
   deleteBiometricToken,
   getBiometricTypeLabel,
@@ -10,7 +10,7 @@ import {
   isBiometricEnabled,
   setBiometricEnabled,
   storeBiometricToken,
-} from "@/runtime/native-biometric.js";
+} from "@/runtime/native-biometric";
 
 export function BiometricSettingsCard() {
   const isNative = useIsNativePlatform();

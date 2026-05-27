@@ -7,10 +7,10 @@ import { Button, Modal, Typography } from "@vellum/design-library";
 import type {
   ConnectionServerState,
   ReachabilityState,
-} from "@/assistant/use-assistant-reachability.js";
-import { MAX_ATTEMPTS } from "@/assistant/use-assistant-reachability.js";
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
-import { routes } from "@/utils/routes.js";
+} from "@/assistant/use-assistant-reachability";
+import { MAX_ATTEMPTS } from "@/assistant/use-assistant-reachability";
+import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
+import { routes } from "@/utils/routes";
 
 interface ConnectingToAssistantProps {
   state: ReachabilityState;

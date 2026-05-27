@@ -20,12 +20,12 @@ import {
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { Button } from "@vellum/design-library/components/button";
-import { client } from "@/generated/api/client.gen.js";
-import { FileMarkdown, isMarkdown } from "@/components/file-markdown.js";
-import { isJson, prettifyJson } from "@/domains/workspace/utils/file-json.js";
-import { formatFileSize } from "@/domains/workspace/utils/format-file-size.js";
+import { client } from "@/generated/api/client.gen";
+import { FileMarkdown, isMarkdown } from "@/components/file-markdown";
+import { isJson, prettifyJson } from "@/domains/workspace/utils/file-json";
+import { formatFileSize } from "@/domains/workspace/utils/format-file-size";
 
-import type { WorkspaceViewMode } from "@/domains/workspace/components/workspace-browser.js";
+import type { WorkspaceViewMode } from "@/domains/workspace/components/workspace-browser";
 
 // ---------------------------------------------------------------------------
 // API helpers

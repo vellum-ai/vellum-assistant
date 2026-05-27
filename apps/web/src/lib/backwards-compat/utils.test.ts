@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
 
-import { useAssistantSupports } from "@/lib/backwards-compat/utils.js";
-import { useAssistantIdentityStore } from "@/stores/assistant-identity-store.js";
+import { useAssistantSupports } from "@/lib/backwards-compat/utils";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 function setVersion(version: string | null) {
   useAssistantIdentityStore.getState().setIdentity("test-asst", version);

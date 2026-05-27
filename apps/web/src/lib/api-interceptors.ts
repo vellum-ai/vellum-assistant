@@ -25,15 +25,15 @@
  *
  * Reference: https://heyapi.dev/openapi-ts/clients/fetch#interceptors
  */
-import { client as authClient } from "@/generated/auth/client.gen.js";
-import { client as platformClient } from "@/generated/api/client.gen.js";
-import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf.js";
+import { client as authClient } from "@/generated/auth/client.gen";
+import { client as platformClient } from "@/generated/api/client.gen";
+import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf";
 import {
   getSelfHostedActorToken,
   getSelfHostedIngressUrl,
-} from "@/lib/self-hosted/connection.js";
-import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity.js";
-import { getActiveOrganizationIdForRequests } from "@/stores/organization-store.js";
+} from "@/lib/self-hosted/connection";
+import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
+import { getActiveOrganizationIdForRequests } from "@/stores/organization-store";
 
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 

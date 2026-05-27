@@ -34,17 +34,17 @@ import {
   useSubagentStore,
   type SubagentEntry,
   type SubagentTimelineEvent,
-} from "@/domains/subagents/subagent-store.js";
-import type { SubagentStatus } from "@/domains/chat/api/event-types.js";
-import type { ToolProgressCardState } from "@/domains/chat/components/tool-progress-card/tool-progress-card-shell.js";
-import { deriveStepLabelFromName } from "@/domains/chat/components/tool-progress-card/derive-step-label.js";
-import { titleCaseToolName } from "@/domains/chat/components/tool-call-chip/utils.js";
-import { truncate } from "@/domains/chat/utils/truncate.js";
+} from "@/domains/subagents/subagent-store";
+import type { SubagentStatus } from "@/domains/chat/api/event-types";
+import type { ToolProgressCardState } from "@/domains/chat/components/tool-progress-card/tool-progress-card-shell";
+import { deriveStepLabelFromName } from "@/domains/chat/components/tool-progress-card/derive-step-label";
+import { titleCaseToolName } from "@/domains/chat/components/tool-call-chip/utils";
+import { truncate } from "@/domains/chat/utils/truncate";
 import {
   formatMs,
   type ToolCallCardData,
   type ToolCallCardStep,
-} from "@/domains/chat/hooks/use-tool-call-card-data.js";
+} from "@/domains/chat/hooks/use-tool-call-card-data";
 
 export type { ToolCallCardData, ToolCallCardStep };
 

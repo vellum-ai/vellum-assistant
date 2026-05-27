@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
-import type { Surface } from "@/domains/chat/types/types.js";
-import { buildTranscriptItems } from "@/domains/chat/transcript/build-items.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { Surface } from "@/domains/chat/types/types";
+import { buildTranscriptItems } from "@/domains/chat/transcript/build-items";
 import type {
   MessageItem,
   TranscriptItem,
-} from "@/domains/chat/transcript/types.js";
+} from "@/domains/chat/transcript/types";
 
 function makeMessage(
   overrides: Omit<DisplayMessage, "id"> & { id?: string },

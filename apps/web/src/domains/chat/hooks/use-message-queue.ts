@@ -17,10 +17,10 @@ import {
   useMemo,
 } from "react";
 
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
-import { clearQueueStatus } from "@/domains/chat/hooks/stream-message-updaters.js";
-import { useTurnStore } from "@/domains/messaging/turn-store.js";
-import { deleteQueuedMessage, steerToMessage } from "@/domains/chat/api/messages.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import { clearQueueStatus } from "@/domains/chat/hooks/stream-message-updaters";
+import { useTurnStore } from "@/domains/messaging/turn-store";
+import { deleteQueuedMessage, steerToMessage } from "@/domains/chat/api/messages";
 
 // ---------------------------------------------------------------------------
 // Params

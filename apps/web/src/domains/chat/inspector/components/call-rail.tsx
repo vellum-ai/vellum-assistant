@@ -6,8 +6,8 @@ import {
   displayText,
   formattedCreatedAt,
   MISSING_VALUE,
-} from "@/domains/chat/inspector/inspector-formatters.js";
-import type { LLMRequestLogEntry } from "@/domains/chat/types/inspector-types.js";
+} from "@/domains/chat/inspector/inspector-formatters";
+import type { LLMRequestLogEntry } from "@/domains/chat/types/inspector-types";
 
 interface CallRailProps {
   logs: LLMRequestLogEntry[];

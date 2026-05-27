@@ -8,18 +8,18 @@
 
 import * as Sentry from "@sentry/browser";
 
-import { client, SDK_BASE_OPTIONS } from "@/domains/chat/api/client.js";
-import { recordChatDiagnostic, resolvePlatformTag } from "@/domains/chat/utils/diagnostics.js";
-import { parseAssistantEvent } from "@/domains/chat/api/event-parser.js";
-import type { AssistantEvent } from "@/domains/chat/api/event-types.js";
-import { pickConversationIdWireField } from "@/lib/backwards-compat/conversation-id-wire-field.js";
-import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity.js";
+import { client, SDK_BASE_OPTIONS } from "@/domains/chat/api/client";
+import { recordChatDiagnostic, resolvePlatformTag } from "@/domains/chat/utils/diagnostics";
+import { parseAssistantEvent } from "@/domains/chat/api/event-parser";
+import type { AssistantEvent } from "@/domains/chat/api/event-types";
+import { pickConversationIdWireField } from "@/lib/backwards-compat/conversation-id-wire-field";
+import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
 import {
   markClientEstablished,
   pushSseEvent,
   registerSseClient,
   unregisterSseClient,
-} from "@/domains/chat/api/stream-debug.js";
+} from "@/domains/chat/api/stream-debug";
 
 // ---------------------------------------------------------------------------
 // SSE stream transport

@@ -1,12 +1,12 @@
 import { describe, expect, it } from "bun:test";
 
-import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers.js";
+import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers";
 import {
   handleMessageQueued,
   handleMessageDequeued,
   handleMessageQueuedDeleted,
   handleMessageRequestComplete,
-} from "@/domains/chat/utils/stream-handlers/queue-handlers.js";
+} from "@/domains/chat/utils/stream-handlers/queue-handlers";
 
 describe("handleMessageQueued", () => {
   it("maps requestId to messageId and sets queue position", () => {

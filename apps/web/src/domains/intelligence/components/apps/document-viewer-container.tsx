@@ -2,7 +2,7 @@ import { ChevronDown, Download, FileText, Loader2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button, Menu, Typography } from "@vellum/design-library";
-import { exportDocumentPDF } from "@/domains/chat/api/documents.js";
+import { exportDocumentPDF } from "@/domains/chat/api/documents";
 
 export interface DocumentViewerContainerProps {
   documentName: string;

@@ -6,8 +6,8 @@ import { toast } from "@vellum/design-library/components/toast";
 import {
   assistantsAccessConsentRetrieveOptions,
   assistantsAccessConsentRetrieveQueryKey,
-} from "@/generated/api/@tanstack/react-query.gen.js";
-import { assistantsAccessConsentPartialUpdate } from "@/generated/api/sdk.gen.js";
+} from "@/generated/api/@tanstack/react-query.gen";
+import { assistantsAccessConsentPartialUpdate } from "@/generated/api/sdk.gen";
 
 export function AccessConsentSetting() {
   const queryClient = useQueryClient();

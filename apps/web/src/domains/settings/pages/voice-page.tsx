@@ -11,11 +11,11 @@ import { Link } from "react-router";
 import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { Toggle } from "@vellum/design-library/components/toggle";
 
-import { DetailCard } from "@/components/detail-card.js";
+import { DetailCard } from "@/components/detail-card";
 import {
   getLocalSetting,
   setLocalSetting,
-} from "@/lib/local-settings.js";
+} from "@/lib/local-settings";
 import {
   LS_PTT_ACTIVATION_KEY,
   activatorDisplayName,
@@ -26,8 +26,8 @@ import {
   sortModifiers,
   type PTTActivator,
   type PTTModifier,
-} from "@/domains/voice/ptt-activator.js";
-import { routes } from "@/utils/routes.js";
+} from "@/domains/voice/ptt-activator";
+import { routes } from "@/utils/routes";
 
 const LS_CONVERSATION_TIMEOUT = "voice:conversationTimeoutSeconds";
 

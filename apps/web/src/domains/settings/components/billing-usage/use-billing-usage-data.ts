@@ -1,21 +1,21 @@
 import { useQuery } from "@tanstack/react-query";
 
-import type { DateRange } from "@/components/charts/date-range-select.js";
-import { toLocalDateString } from "@/components/charts/format-date-label.js";
+import type { DateRange } from "@/components/charts/date-range-select";
+import { toLocalDateString } from "@/components/charts/format-date-label";
 import {
   organizationsBillingUsageSeriesRetrieveOptions,
   organizationsBillingUsageTotalsRetrieveOptions,
-} from "@/generated/api/@tanstack/react-query.gen.js";
+} from "@/generated/api/@tanstack/react-query.gen";
 import type {
   OrganizationsBillingUsageSeriesRetrieveData,
   OrganizationsBillingUsageTotalsRetrieveData,
-} from "@/generated/api/types.gen.js";
-import { getBrowserTimezone } from "@/utils/browser-timezone.js";
+} from "@/generated/api/types.gen";
+import { getBrowserTimezone } from "@/utils/browser-timezone";
 import {
   DEFAULT_LLM_USAGE_DIMENSION,
   type LlmUsageDimension,
   toBillingGroupBy,
-} from "@/utils/llm-dimension.js";
+} from "@/utils/llm-dimension";
 
 export function getDefaultDateRange(): DateRange {
   const today = new Date();

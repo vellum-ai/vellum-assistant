@@ -13,22 +13,22 @@ import { Input } from "@vellum/design-library/components/input";
 import { Notice } from "@vellum/design-library/components/notice";
 import { Popover } from "@vellum/design-library/components/popover";
 import { toast } from "@vellum/design-library/components/toast";
-import { IntegrationDetailModal } from "@/domains/settings/components/integration-detail-modal.js";
-import { IntegrationRow } from "@/domains/settings/components/integration-row.js";
-import { assistantsOauthConnectionsListOptions } from "@/generated/api/@tanstack/react-query.gen.js";
-import type { OAuthConnection } from "@/generated/api/types.gen.js";
-import { type Assistant, getAssistant } from "@/assistant/api.js";
+import { IntegrationDetailModal } from "@/domains/settings/components/integration-detail-modal";
+import { IntegrationRow } from "@/domains/settings/components/integration-row";
+import { assistantsOauthConnectionsListOptions } from "@/generated/api/@tanstack/react-query.gen";
+import type { OAuthConnection } from "@/generated/api/types.gen";
+import { type Assistant, getAssistant } from "@/assistant/api";
 import {
   fetchOAuthProviders,
   type OAuthProviderSummary,
-} from "@/domains/settings/api/oauth-providers.js";
-import { reportError } from "@/lib/errors/report.js";
-import { routes } from "@/utils/routes.js";
+} from "@/domains/settings/api/oauth-providers";
+import { reportError } from "@/lib/errors/report";
+import { routes } from "@/utils/routes";
 
 import {
   getLocalSetting,
   setLocalSetting,
-} from "@/lib/local-settings.js";
+} from "@/lib/local-settings";
 
 const BANNER_STORAGE_KEY = "integrations.bannerDismissed";
 

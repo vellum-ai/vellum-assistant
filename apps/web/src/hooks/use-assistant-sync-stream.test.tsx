@@ -3,22 +3,22 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 
-import type { AssistantEvent } from "@/domains/chat/api/event-types.js";
-import { assistantIdentityQueryKey } from "@/hooks/use-assistant-identity-init.js";
-import { ASSISTANT_FLAG_VALUES_QUERY_KEY } from "@/lib/feature-flags/use-assistant-feature-flag-sync.js";
-import { CLIENT_FLAG_QUERY_KEY } from "@/lib/feature-flags/use-client-feature-flag-sync.js";
+import type { AssistantEvent } from "@/domains/chat/api/event-types";
+import { assistantIdentityQueryKey } from "@/hooks/use-assistant-identity-init";
+import { ASSISTANT_FLAG_VALUES_QUERY_KEY } from "@/lib/feature-flags/use-assistant-feature-flag-sync";
+import { CLIENT_FLAG_QUERY_KEY } from "@/lib/feature-flags/use-client-feature-flag-sync";
 import {
   assistantDaemonConfigQueryKey,
   assistantSchedulesQueryKey,
   assistantSoundsConfigQueryKey,
   avatarQueryKey,
   chatContextQueryKey,
-} from "@/lib/sync/query-tags.js";
-import { SYNC_TAGS, type SyncChangedEvent } from "@/lib/sync/types.js";
+} from "@/lib/sync/query-tags";
+import { SYNC_TAGS, type SyncChangedEvent } from "@/lib/sync/types";
 import {
   __resetEventBusForTesting,
   useEventBusStore,
-} from "@/stores/event-bus-store.js";
+} from "@/stores/event-bus-store";
 
 // ---------------------------------------------------------------------------
 // Module mock — `@/domains/chat/api/conversations.js`.
@@ -33,7 +33,7 @@ import {
 // real network call.
 // ---------------------------------------------------------------------------
 const realConversationsModule = await import(
-  "@/domains/chat/api/conversations.js"
+  "@/domains/chat/api/conversations"
 );
 const { CONVERSATION_NOT_FOUND } = realConversationsModule;
 
@@ -51,7 +51,7 @@ const fetchConversationDetailCalls: Array<{
   conversationId: string;
 }> = [];
 
-mock.module("@/domains/chat/api/conversations.js", () => ({
+mock.module("@/domains/chat/api/conversations", () => ({
   ...realConversationsModule,
   fetchConversationDetail: (assistantId: string, conversationId: string) => {
     fetchConversationDetailCalls.push({ assistantId, conversationId });
@@ -60,7 +60,7 @@ mock.module("@/domains/chat/api/conversations.js", () => ({
 }));
 
 const { useAssistantSyncStream } = await import(
-  "@/hooks/use-assistant-sync-stream.js"
+  "@/hooks/use-assistant-sync-stream"
 );
 
 function createWrapper(queryClient: QueryClient) {

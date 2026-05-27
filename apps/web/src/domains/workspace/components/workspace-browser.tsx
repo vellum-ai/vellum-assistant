@@ -8,9 +8,9 @@ import { useCallback, useState } from "react";
 import {
   MobileSidebarDrawer,
   MobileSidebarTrigger,
-} from "@/components/mobile-sidebar-drawer.js";
-import { WorkspaceFileViewer } from "@/domains/workspace/components/workspace-file-viewer.js";
-import { WorkspaceTree } from "@/domains/workspace/components/workspace-tree.js";
+} from "@/components/mobile-sidebar-drawer";
+import { WorkspaceFileViewer } from "@/domains/workspace/components/workspace-file-viewer";
+import { WorkspaceTree } from "@/domains/workspace/components/workspace-tree";
 
 export type WorkspaceViewMode = "preview" | "source";
 

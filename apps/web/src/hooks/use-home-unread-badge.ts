@@ -1,4 +1,4 @@
-import { useHomeFeedQuery } from "@/domains/home/hooks/use-home-feed-query.js";
+import { useHomeFeedQuery } from "@/domains/home/hooks/use-home-feed-query";
 
 export function useHomeUnreadBadge(assistantId: string | null) {
   const homeFeedQuery = useHomeFeedQuery(assistantId);

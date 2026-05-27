@@ -9,8 +9,8 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { client } from "@/domains/chat/api/client.js";
-import { getChatHistory, normalizeContentOrder, normalizeTextSegments, postChatMessage } from "@/domains/chat/api/messages.js";
+import { client } from "@/domains/chat/api/client";
+import { getChatHistory, normalizeContentOrder, normalizeTextSegments, postChatMessage } from "@/domains/chat/api/messages";
 
 // ---------------------------------------------------------------------------
 // Spy setup — replace client.post per-test, restore after

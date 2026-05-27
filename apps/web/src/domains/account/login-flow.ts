@@ -1,5 +1,5 @@
-import { sanitizeReturnTo } from "@/domains/account/return-to.js";
-import { routes } from "@/utils/routes.js";
+import { sanitizeReturnTo } from "@/domains/account/return-to";
+import { routes } from "@/utils/routes";
 
 export const PROVIDER_ID = "workos-oidc";
 export const PROVIDER_CALLBACK_URL = routes.account.providerCallback;

@@ -10,7 +10,7 @@ import {
   PanelItem,
   Popover,
 } from "@vellum/design-library";
-import { useIsMobile } from "@/hooks/use-is-mobile.js";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 
 // ---------------------------------------------------------------------------
 // GroupActionsMenu — rename/delete context menu for custom group headers

@@ -19,17 +19,17 @@ import { useCallback, useMemo, useRef } from "react";
 import {
   type CommandPaletteItemData,
   type CommandPaletteSection,
-} from "@/components/command-palette/command-palette.js";
+} from "@/components/command-palette/command-palette";
 import {
   useCommandPalette,
   type UseCommandPaletteReturn,
-} from "@/components/command-palette/use-command-palette.js";
-import type { GlobalSearchResponse } from "@/domains/chat/api/global-search.js";
-import { haptic } from "@/utils/haptics.js";
-import { routes } from "@/utils/routes.js";
+} from "@/components/command-palette/use-command-palette";
+import type { GlobalSearchResponse } from "@/domains/chat/api/global-search";
+import { haptic } from "@/utils/haptics";
+import { routes } from "@/utils/routes";
 
-import { formatRelativeTime } from "@/domains/chat/utils/chat-utils.js";
-import type { Conversation } from "@/domains/chat/api/conversations.js";
+import { formatRelativeTime } from "@/domains/chat/utils/chat-utils";
+import type { Conversation } from "@/domains/chat/api/conversations";
 
 // ---------------------------------------------------------------------------
 // Helpers — pure functions, no React state

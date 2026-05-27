@@ -1,13 +1,13 @@
 import { describe, expect, it } from "bun:test";
 
-import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers.js";
+import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers";
 import {
   handleAssistantTextDelta,
   handleAssistantActivityState,
   handleMessageComplete,
   handleGenerationHandoff,
   handleGenerationCancelled,
-} from "@/domains/chat/utils/stream-handlers/message-handlers.js";
+} from "@/domains/chat/utils/stream-handlers/message-handlers";
 
 describe("handleAssistantTextDelta", () => {
   it("cancels reconciliation and dispatches ASSISTANT_TEXT_DELTA", () => {

@@ -23,7 +23,7 @@ Defend technical positions with evidence. Don't flip-flop to placate the user â€
 ## Development
 
 - **Bun PATH**: Run `export PATH="$HOME/.bun/bin:$PATH"` before any bun/bunx commands.
-- **Imports**: All imports use `.js` extensions (NodeNext module resolution).
+- **Imports**: Packages that compile to JS (`assistant/`, `gateway/`, `cli/`) use NodeNext module resolution with `.js` extensions on all imports. Bundler-only packages (`apps/web/`, `packages/design-library/`) use `moduleResolution: "Bundler"` and omit `.js` extensions.
 - **Package manager**: Use `bun install` for dependencies (each package has its own `bun.lock`).
 
 ```bash

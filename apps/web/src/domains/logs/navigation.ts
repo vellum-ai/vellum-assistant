@@ -6,7 +6,7 @@ import {
   ScrollText,
 } from "lucide-react";
 
-import { routes } from "@/utils/routes.js";
+import { routes } from "@/utils/routes";
 
 export interface LogsSidebarItem {
   id: string;

@@ -23,8 +23,8 @@ import {
   getSameOriginRoutePath,
   openOAuthUrlInPopup,
   shouldOpenMarkdownLinkInOAuthPopup,
-} from "@/domains/chat/utils/oauth-popup-links.js";
-import { routes } from "@/utils/routes.js";
+} from "@/domains/chat/utils/oauth-popup-links";
+import { routes } from "@/utils/routes";
 
 const originalWindow = globalThis.window;
 

@@ -9,9 +9,9 @@ import { describe, expect, test } from "bun:test";
 import type {
   LLMContextSection,
   LLMRequestLogEntry,
-} from "@/domains/chat/types/inspector-types.js";
+} from "@/domains/chat/types/inspector-types";
 
-import { aggregateSkillLoads } from "@/domains/chat/inspector/skill-load-aggregator.js";
+import { aggregateSkillLoads } from "@/domains/chat/inspector/skill-load-aggregator";
 
 function log(
   id: string,

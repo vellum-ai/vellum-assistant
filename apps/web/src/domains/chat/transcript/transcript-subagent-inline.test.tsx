@@ -11,33 +11,33 @@
 import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, render } from "@testing-library/react";
 
-mock.module("@/domains/chat/components/chat-markdown-message.js", () => ({
+mock.module("@/domains/chat/components/chat-markdown-message", () => ({
   ChatMarkdownMessage: ({ content }: { content: string }) => (
     <div data-testid="markdown">{content}</div>
   ),
 }));
 
-mock.module("@/domains/chat/components/message-hover-actions/message-hover-actions.js", () => ({
+mock.module("@/domains/chat/components/message-hover-actions/message-hover-actions", () => ({
   MessageHoverActions: () => <div data-testid="hover-actions" />,
 }));
 
-mock.module("@/domains/chat/components/chat-attachments/message-attachments.js", () => ({
+mock.module("@/domains/chat/components/chat-attachments/message-attachments", () => ({
   MessageAttachments: () => <div data-testid="message-attachments" />,
 }));
 
-mock.module("@/domains/chat/components/surfaces/surface-router.js", () => ({
+mock.module("@/domains/chat/components/surfaces/surface-router", () => ({
   SurfaceRouter: () => <div data-testid="surface-router" />,
 }));
 
 mock.module(
-  "@/domains/chat/components/tool-call-progress-card/tool-call-progress-card.js",
+  "@/domains/chat/components/tool-call-progress-card/tool-call-progress-card",
   () => ({
     ToolCallProgressCard: () => <div data-testid="tool-call-progress-card" />,
   }),
 );
 
 mock.module(
-  "@/domains/chat/components/subagent-inline-progress-card/subagent-inline-progress-card.js",
+  "@/domains/chat/components/subagent-inline-progress-card/subagent-inline-progress-card",
   () => ({
     SubagentInlineProgressCard: ({ subagentId }: { subagentId: string }) => (
       <div data-testid="subagent-inline-card" data-subagent-id={subagentId} />
@@ -49,10 +49,10 @@ mock.module(
 // Subjects under test — imported AFTER mocks are registered.
 // ---------------------------------------------------------------------------
 
-import { Transcript } from "@/domains/chat/transcript/transcript.js";
-import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
-import type { TranscriptItem } from "@/domains/chat/transcript/types.js";
+import { Transcript } from "@/domains/chat/transcript/transcript";
+import { useSubagentStore } from "@/domains/subagents/subagent-store";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { TranscriptItem } from "@/domains/chat/transcript/types";
 
 const noop = () => {};
 

@@ -1,7 +1,7 @@
 
 import { queryOptions, useQuery } from "@tanstack/react-query";
 
-import { client } from "@/generated/api/client.gen.js";
+import { client } from "@/generated/api/client.gen";
 
 /**
  * Lazy fetch hook for the raw request/response payloads of a single LLM

@@ -1,12 +1,12 @@
 import { useEffect, useRef } from "react";
 import { useSearchParams } from "react-router";
 
-import { AccountHeading } from "@/components/account/account-form.js";
-import { AccountShell } from "@/components/account/account-shell.js";
-import { sanitizeReturnTo } from "@/domains/account/return-to.js";
-import { hardNavigate } from "@/lib/auth/hard-navigate.js";
-import { useAuthStore } from "@/stores/auth-store.js";
-import { routes } from "@/utils/routes.js";
+import { AccountHeading } from "@/components/account/account-form";
+import { AccountShell } from "@/components/account/account-shell";
+import { sanitizeReturnTo } from "@/domains/account/return-to";
+import { hardNavigate } from "@/lib/auth/hard-navigate";
+import { useAuthStore } from "@/stores/auth-store";
+import { routes } from "@/utils/routes";
 
 export function LogoutPage() {
   const [searchParams] = useSearchParams();

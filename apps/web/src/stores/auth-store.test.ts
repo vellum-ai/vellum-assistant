@@ -21,7 +21,7 @@ let mockBiometricToken: string | null = null;
 const installSessionCookiesMock = mock((_token: string) => {});
 const retrieveBiometricTokenMock = mock(async () => mockBiometricToken);
 
-mock.module("@/lib/auth/allauth-client.js", () => ({
+mock.module("@/lib/auth/allauth-client", () => ({
   getSession: async () => {
     getSessionCallCount++;
     if (getSessionFailFirstCall && getSessionCallCount === 1) {
@@ -35,13 +35,13 @@ mock.module("@/lib/auth/allauth-client.js", () => ({
   logout: logoutMock,
 }));
 
-mock.module("@/runtime/native-auth.js", () => ({
+mock.module("@/runtime/native-auth", () => ({
   isNativePlatform: () => mockIsNativePlatform,
   installSessionCookies: installSessionCookiesMock,
   waitForNativeSessionCookie: async () => {},
 }));
 
-mock.module("@/runtime/native-biometric.js", () => ({
+mock.module("@/runtime/native-biometric", () => ({
   deleteBiometricToken: deleteBiometricTokenMock,
   isBiometricEnabled: () => mockIsBiometricEnabled,
   retrieveBiometricToken: retrieveBiometricTokenMock,
@@ -49,20 +49,20 @@ mock.module("@/runtime/native-biometric.js", () => ({
 
 const clearUserScopedStorageMock = mock(() => {});
 
-mock.module("@/domains/onboarding/prefs.js", () => ({
+mock.module("@/domains/onboarding/prefs", () => ({
   syncOnboardingUser: syncOnboardingUserMock,
   clearOnboardingFlags: clearOnboardingFlagsMock,
 }));
 
-mock.module("@/lib/auth/session-cleanup.js", () => ({
+mock.module("@/lib/auth/session-cleanup", () => ({
   clearUserScopedStorage: clearUserScopedStorageMock,
 }));
 
-mock.module("@/stores/organization-store.js", () => ({
+mock.module("@/stores/organization-store", () => ({
   clearOrganization: clearOrganizationMock,
 }));
 
-mock.module("@/stores/event-bus-store.js", () => ({
+mock.module("@/stores/event-bus-store", () => ({
   useEventBusStore: {
     getState: () => ({
       subscribe: () => () => {},
@@ -70,7 +70,7 @@ mock.module("@/stores/event-bus-store.js", () => ({
   },
 }));
 
-const { useAuthStore } = await import("@/stores/auth-store.js");
+const { useAuthStore } = await import("@/stores/auth-store");
 
 function resetAuthStore(): void {
   useAuthStore.setState({

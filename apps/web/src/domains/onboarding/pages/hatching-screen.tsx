@@ -4,20 +4,20 @@ import { useNavigate, useSearchParams } from "react-router";
 
 import { Button } from "@vellum/design-library/components/button";
 import { ProgressBar } from "@vellum/design-library/components/progress-bar";
-import { getAssistant, hatchAssistant } from "@/assistant/api.js";
+import { getAssistant, hatchAssistant } from "@/assistant/api";
 import {
   isPlatformHostedDisabled,
   PLATFORM_HOSTED_DISABLED_MESSAGE,
   resolveAssistantLifecycleState,
   shouldRecoverFromHatchFailure,
-} from "@/assistant/lifecycle.js";
-import { fetchCharacterTraits, saveCharacterTraits } from "@/assistant/avatar-api.js";
-import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components.js";
-import { randomCharacterTraits } from "@/utils/avatar-random.js";
-import { composeSvg } from "@/utils/avatar-svg-compositor.js";
-import type { CharacterTraits } from "@/types/avatar.js";
-import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout.js";
-import { extractErrorMessage } from "@/lib/api-errors.js";
+} from "@/assistant/lifecycle";
+import { fetchCharacterTraits, saveCharacterTraits } from "@/assistant/avatar-api";
+import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
+import { randomCharacterTraits } from "@/utils/avatar-random";
+import { composeSvg } from "@/utils/avatar-svg-compositor";
+import type { CharacterTraits } from "@/types/avatar";
+import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
+import { extractErrorMessage } from "@/lib/api-errors";
 import {
   readAiDataConsent,
   readOnboardingCompleted,
@@ -25,15 +25,15 @@ import {
   readTosAccepted,
   useOnboardingCompleted,
   writeSelectedVersion,
-} from "@/domains/onboarding/prefs.js";
+} from "@/domains/onboarding/prefs";
 import {
   clearPrivacyConsent,
   hasRecentPrivacyConsent,
   markPrivacyConsent,
-} from "@/domains/onboarding/signals.js";
-import { isNativePlatform } from "@/runtime/native-auth.js";
-import { useAuthStore } from "@/stores/auth-store.js";
-import { routes } from "@/utils/routes.js";
+} from "@/domains/onboarding/signals";
+import { isNativePlatform } from "@/runtime/native-auth";
+import { useAuthStore } from "@/stores/auth-store";
+import { routes } from "@/utils/routes";
 
 const POLL_INTERVAL_MS = 3000;
 const COMPLETION_NAVIGATE_DELAY_MS = 800;
