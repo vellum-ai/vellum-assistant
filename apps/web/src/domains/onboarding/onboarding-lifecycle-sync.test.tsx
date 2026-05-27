@@ -167,7 +167,7 @@ mock.module("@/hooks/use-prefilled-input", () => ({
   }),
 }));
 
-mock.module("@/utils/platform-detection", () => ({
+mock.module("@/runtime/platform-detection", () => ({
   useIsIOSWeb: () => false,
   useIsMacOSWeb: () => false,
 }));

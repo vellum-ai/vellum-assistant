@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
-import { useIsIOSWeb, useIsMacOSWeb } from "@/utils/platform-detection";
+import { useIsIOSWeb, useIsMacOSWeb } from "@/runtime/platform-detection";
 import { readIOSAppDownloaded } from "@/hooks/use-ios-app-nudge";
 import { readMacOsAppDownloaded } from "@/hooks/use-macos-app-nudge";
 import {
