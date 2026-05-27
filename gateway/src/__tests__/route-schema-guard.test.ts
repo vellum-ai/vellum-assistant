@@ -178,6 +178,7 @@ const EXCLUDED_FROM_SCHEMA = new Set([
   // BFF session auth — loopback-only, not part of the public gateway API
   "/auth/session",
   "/auth/state",
+  "/auth/token",
 ]);
 
 // ── Schema paths that don't map to a discrete route definition ──

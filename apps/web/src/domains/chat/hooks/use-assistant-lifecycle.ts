@@ -17,6 +17,7 @@ import {
   shouldRecoverFromHatchFailure,
 } from "@/assistant/lifecycle";
 import { resolveOnboardingRedirect } from "@/domains/onboarding/gate";
+import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 import { routes } from "@/utils/routes";
 
@@ -395,7 +396,11 @@ export function useAssistantLifecycle({
     if (!isLoggedIn || isLoading) {
       return;
     }
-    // Async check — setState happens after await, not synchronously
+    if (isGatewayAuthMode()) {
+      setAssistantId("self");
+      setAssistantState({ kind: "active", isLocal: true });
+      return;
+    }
     checkAssistant();
   }, [isLoggedIn, isLoading, checkAssistant]);
 

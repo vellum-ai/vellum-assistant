@@ -13,6 +13,7 @@ import { useEnvironmentStore } from "@/lib/environment/environment-store";
 import { useAssistantSyncStream } from "@/hooks/use-assistant-sync-stream";
 import { useClientFeatureFlagSync } from "@/lib/feature-flags/use-client-feature-flag-sync";
 import { useAssistantFeatureFlagSync } from "@/lib/feature-flags/use-assistant-feature-flag-sync";
+import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
 
 /**
  * Threshold (in px) below which a `innerHeight − visualViewport.height` delta
@@ -69,7 +70,7 @@ export function RootLayout() {
   const isLoggedIn = useAuthStore.use.isLoggedIn();
   const authLoading = useAuthStore.use.isLoading();
   const isNonProduction = useEnvironmentStore.use.isNonProduction();
-  useClientFeatureFlagSync(isLoggedIn && !authLoading);
+  useClientFeatureFlagSync(isLoggedIn && !authLoading && !isGatewayAuthMode());
   const lifecycle = useAssistantLifecycle({
     isLoggedIn,
     isLoading: authLoading,
@@ -78,7 +79,7 @@ export function RootLayout() {
     onRedirect: navigate,
   });
 
-  useAssistantFeatureFlagSync(lifecycle.assistantId);
+  useAssistantFeatureFlagSync(isGatewayAuthMode() ? null : lifecycle.assistantId);
   useAssistantSyncStream(
     lifecycle.assistantId,
     lifecycle.assistantState.kind === "active",

@@ -19,8 +19,11 @@ import {
   getSession,
   logout as allauthLogout,
 } from "@/lib/auth/allauth-client";
-import { probeGatewayAuthState } from "@/lib/auth/gateway-session";
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
+import {
+  isGatewayAuthMode,
+  ensureGatewayToken,
+  clearGatewayToken,
+} from "@/lib/auth/gateway-session";
 import { deleteBiometricToken } from "@/runtime/native-biometric";
 import { syncOnboardingUser, clearOnboardingFlags } from "@/lib/onboarding-cleanup";
 import { clearOrganization } from "@/stores/organization-store";
@@ -80,6 +83,15 @@ type AuthStore = AuthState & AuthActions;
 let previousUserId: string | null = null;
 let broadcastChannel: BroadcastChannel | null = null;
 
+const GATEWAY_LOCAL_USER: AuthUser = {
+  id: "gateway-local",
+  username: "local",
+  email: null,
+  isStaff: false,
+  firstName: "Local",
+  lastName: "User",
+};
+
 function syncOrganizationState(nextUserId: string | null): void {
   if (!nextUserId || (previousUserId && previousUserId !== nextUserId)) {
     clearOrganization();
@@ -102,6 +114,16 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
   user: null,
 
   initSession: async () => {
+    if (isGatewayAuthMode()) {
+      try {
+        await ensureGatewayToken();
+        set({ isLoggedIn: true, isLoading: false, user: GATEWAY_LOCAL_USER });
+      } catch {
+        set({ isLoggedIn: false, isLoading: false, user: null });
+      }
+      return;
+    }
+
     try {
       const result = await getSession();
       if (result.ok && result.data.user) {
@@ -137,17 +159,20 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
 
     syncUserScopedState(null);
     set({ isLoggedIn: false, isLoading: false, user: null });
-
-    if (useClientFeatureFlagStore.getState().gatewayWebAuth) {
-      probeGatewayAuthState()
-        .then((s) => console.debug("[gateway-auth] state:", s))
-        .catch((e: unknown) =>
-          console.debug("[gateway-auth] probe failed:", e),
-        );
-    }
   },
 
   refreshSession: async () => {
+    if (isGatewayAuthMode()) {
+      try {
+        await ensureGatewayToken();
+        set({ isLoggedIn: true });
+        return true;
+      } catch {
+        set({ isLoggedIn: false, user: null });
+        return false;
+      }
+    }
+
     try {
       const result = await getSession();
       if (result.ok && result.data.user) {
@@ -165,6 +190,16 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
   },
 
   logout: async () => {
+    if (isGatewayAuthMode()) {
+      clearGatewayToken();
+      clearOnboardingFlags();
+      clearOrganization();
+      clearUserScopedStorage();
+      set({ isLoggedIn: false, user: null });
+      broadcastAuthChange();
+      return;
+    }
+
     try {
       await allauthLogout();
     } finally {

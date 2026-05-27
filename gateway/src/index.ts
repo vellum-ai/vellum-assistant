@@ -159,6 +159,7 @@ import {
   handleCreateSession,
   handleDeleteSession,
 } from "./http/routes/auth-session.js";
+import { handleCreateToken } from "./http/routes/auth-token.js";
 import {
   createRouter,
   type RouteDefinition,
@@ -1441,6 +1442,12 @@ async function main() {
       method: "DELETE",
       auth: "none",
       handler: handleDeleteSession,
+    },
+    {
+      path: "/auth/token",
+      method: "POST",
+      auth: "custom",
+      handler: (req) => handleCreateToken(req, server),
     },
   );
 
