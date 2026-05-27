@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
-import { getRiskBadgeStyle, getProvenanceText, wasExpected } from "@/domains/chat/utils/risk-utils";
+import { getRiskBadgeStyle, getProvenanceText, wasExpected, getEffectiveRiskDisplay } from "@/domains/chat/utils/risk-utils";
 import { formatStartTime, useElapsedTime } from "@/domains/chat/hooks/use-elapsed-time";
 
 import type { AllowlistOption, ChatMessageToolCall, ConfirmationDecision, DirectoryScopeOption, ScopeOption } from "@/domains/chat/api/event-types";
@@ -302,10 +302,23 @@ export function ToolCallChip({
       {!embedded && getIcon(toolCall.toolName, inputSummary)}
       <span className="min-w-0 truncate text-[var(--content-secondary)]">{label}</span>
       {toolCall.riskLevel && toolCall.status !== "running" && !(hasPendingConfirmation && isActiveConfirmation) && (() => {
-        const badge = getRiskBadgeStyle(toolCall.riskLevel);
-        const unexpected = !wasExpected(toolCall.approvalMode, toolCall.riskLevel, toolCall.riskThreshold);
+        const { displayLevel, inherentRisk } = getEffectiveRiskDisplay(toolCall.approvalReason, toolCall.riskLevel);
+        const badge = getRiskBadgeStyle(displayLevel);
+        const isWorkspace = displayLevel === "workspace";
+
+        // For workspace chips, skip provenance — the chip itself is the provenance indicator.
+        // For normal badges, check wasExpected against the original riskLevel.
+        const unexpected = !isWorkspace && !wasExpected(toolCall.approvalMode, toolCall.riskLevel, toolCall.riskThreshold);
         const provenance = unexpected ? getProvenanceText(toolCall.approvalReason) : null;
-        const displayLabel = provenance ? `${badge.label} ${provenance}` : badge.label;
+
+        let displayLabel: string;
+        if (isWorkspace) {
+          const capitalizedRisk = inherentRisk ? inherentRisk.charAt(0).toUpperCase() + inherentRisk.slice(1) : "Unknown";
+          displayLabel = `Workspace · Inherent risk: ${capitalizedRisk}`;
+        } else {
+          displayLabel = provenance ? `${badge.label} ${provenance}` : badge.label;
+        }
+
         return (
           <button
             type="button"
@@ -322,12 +335,12 @@ export function ToolCallChip({
               });
             }}
             // typography: off-scale — compact risk badge pill
-             
-            className={`${embedded ? "" : "ml-auto "}max-w-[45%] shrink-0 truncate rounded-full px-2 py-0.5 text-[11px] font-medium leading-tight ${badge.bg} ${badge.text} ${onOpenRuleEditor ? "cursor-pointer hover:opacity-80" : "cursor-default"}`}
+
+            className={`${embedded ? "" : "ml-auto "}max-w-[45%] shrink-0 truncate rounded-full px-2 py-0.5 text-[11px] font-medium leading-tight ${badge.bg} ${badge.text} ${badge.border ?? ""} ${onOpenRuleEditor ? "cursor-pointer hover:opacity-80" : "cursor-default"}`}
             title={displayLabel}
           >
             <span className="sm:hidden">{badge.label}</span>
-            <span className="hidden sm:inline">{displayLabel}</span>
+            <span className="hidden sm:inline">{isWorkspace ? badge.label : displayLabel}</span>
           </button>
         );
       })()}
