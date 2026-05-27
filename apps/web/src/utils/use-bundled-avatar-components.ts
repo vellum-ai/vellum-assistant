@@ -13,6 +13,14 @@ let loadPromise: Promise<CharacterComponents> | null = null;
 // instead of staying blank for their lifetime.
 const subscribers = new Set<() => void>();
 
+// One short-delay retry per session if the first import attempt fails (e.g.
+// a transient network blip). If the retry also fails we stop trying and let
+// the placeholder stand — the next re-mount will get a fresh shot via the
+// `loadPromise = null` path below. Keeping this single-shot avoids spamming
+// retries against a stale-deployed chunk that's genuinely gone.
+const RETRY_DELAY_MS = 3000;
+let retryScheduled = false;
+
 function loadBundledComponents(): Promise<CharacterComponents> {
   if (cached) return Promise.resolve(cached);
   if (loadPromise) return loadPromise;
@@ -29,6 +37,20 @@ function loadBundledComponents(): Promise<CharacterComponents> {
       // and avatars would silently stay blank for the rest of the session.
       // Clearing it here lets the next consumer kick off a fresh import.
       loadPromise = null;
+      // Schedule a single retry so already-mounted hooks recover from a
+      // transient failure even when no new consumer arrives to trigger
+      // another attempt. Gated on having active subscribers so we don't
+      // burn the retry on a no-longer-visible UI.
+      if (!retryScheduled && subscribers.size > 0) {
+        retryScheduled = true;
+        setTimeout(() => {
+          if (!cached && subscribers.size > 0) {
+            loadBundledComponents().catch(() => {
+              // Final attempt; placeholder stands.
+            });
+          }
+        }, RETRY_DELAY_MS);
+      }
       throw err;
     });
   return loadPromise;
