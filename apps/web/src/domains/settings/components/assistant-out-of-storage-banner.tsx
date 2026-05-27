@@ -7,6 +7,7 @@ import { Notice } from "@vellum/design-library/components/notice";
 import { assistantsConnectionStatus } from "@/generated/api/sdk.gen";
 import type { AssistantsConnectionStatusResponse } from "@/generated/api/types.gen";
 import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
+import { VELLUM_COMMUNITY_URL } from "@/utils/external-urls";
 import { routes } from "@/utils/routes";
 
 const REFETCH_INTERVAL_MS = 30_000;
@@ -53,18 +54,29 @@ export function AssistantOutOfStorageBanner({
       tone="warning"
       title="Your assistant has run out of storage."
       actions={
-        doctorEnabled ? (
+        <div className="flex gap-2">
+          {doctorEnabled && (
+            <Button asChild variant="outlined" size="compact">
+              <Link to={`${routes.settings.debug}?tab=doctor`}>
+                Vellum Doctor
+              </Link>
+            </Button>
+          )}
           <Button asChild variant="outlined" size="compact">
-            <Link to={`${routes.settings.debug}?tab=doctor`}>
-              Open Doctor
-            </Link>
+            <a
+              href={VELLUM_COMMUNITY_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Community support
+            </a>
           </Button>
-        ) : undefined
+        </div>
       }
     >
       {doctorEnabled
-        ? "Free up disk space with the Doctor, or contact support if the issue persists."
-        : "Contact support to increase your storage quota."}
+        ? "Free up disk space with Vellum Doctor. If the issue persists, ask the community for help."
+        : "Your assistant has run out of disk space. Ask the community for help."}
     </Notice>
   );
 }

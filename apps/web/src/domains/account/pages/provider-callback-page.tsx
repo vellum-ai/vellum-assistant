@@ -11,6 +11,7 @@ import {
 } from "@/domains/account/login-flow";
 import { classifyCallbackFlows } from "@/domains/account/social-auth";
 import { useAuthStore } from "@/stores/auth-store";
+import { VELLUM_COMMUNITY_URL } from "@/utils/external-urls";
 import { routes } from "@/utils/routes";
 
 /**
@@ -89,12 +90,20 @@ export function ProviderCallbackPage() {
       <AccountShell>
         <AccountHeading
           title="Signups are currently closed"
-          subtitle="Please contact support to join the waitlist."
+          subtitle="Join the community to request access or learn when signups reopen."
         />
         <div className="flex flex-col items-center gap-4">
+          <a
+            href={VELLUM_COMMUNITY_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-[var(--primary-base)] px-6 py-3 text-sm font-medium text-white no-underline transition-colors hover:bg-[var(--primary-hover)]"
+          >
+            Join the community
+          </a>
           <Link
             to={routes.account.login}
-            className="inline-flex items-center justify-center gap-2 rounded-lg bg-[var(--primary-base)] px-6 py-3 text-sm font-medium text-white no-underline transition-colors hover:bg-[var(--primary-hover)]"
+            className="text-sm font-medium text-[var(--content-emphasised)] hover:underline"
           >
             Back to sign in
           </Link>

@@ -542,7 +542,7 @@ function OptOutModal({
                 <Notice tone="error" title="Stable requires a safety backup">
                   This Preview release is newer than the latest Stable release,
                   so switching directly is blocked. Wait for a newer Stable
-                  release or contact support if the safety backup is missing.
+                  release, or run Vellum Doctor if the safety backup is missing.
                 </Notice>
               )}
 

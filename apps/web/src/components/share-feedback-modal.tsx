@@ -38,6 +38,7 @@ import type { ChatDebugApi } from "@/domains/chat/utils/debug-api";
 import { buildChatDiagnosticsSnapshot } from "@/domains/chat/utils/diagnostics";
 import { isElectron } from "@/runtime/is-electron";
 import { useAuthStore } from "@/stores/auth-store";
+import { VELLUM_COMMUNITY_URL } from "@/utils/external-urls";
 
 type Reason = "bug_report" | "feature_request" | "other";
 
@@ -587,7 +588,7 @@ export function ShareFeedbackModal({
             <Notice tone="info">
               Tip: Get faster support by posting in our{" "}
               <a
-                href="https://vellum.ai/community"
+                href={VELLUM_COMMUNITY_URL}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="underline text-[var(--content-default)]"
