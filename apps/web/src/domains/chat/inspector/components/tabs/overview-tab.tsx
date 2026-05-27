@@ -14,7 +14,7 @@ import {
 import type {
   LLMCallSummary,
   LLMRequestLogEntry,
-} from "@/domains/chat/types/inspector-types";
+} from "@vellumai/assistant-api";
 
 interface OverviewTabProps {
   entry: LLMRequestLogEntry;
@@ -41,13 +41,6 @@ export function OverviewTab({
   const conversationTotals = renderConversationTotalsCard(
     conversationTotalEstimatedCostUsd,
   );
-
-  // Synthetic agent-error-message rows (no LLM call backing them) land
-  // here without a `summary`, so they take the `showFallback` branch
-  // below alongside any other unnormalized row. The `agentLoopExitReason`
-  // column is already tracked on the row and surfaced by upstream UI
-  // (the call rail subtitle, the raw response payload) — no dedicated
-  // Overview card needed.
 
   if (showFallback) {
     return (

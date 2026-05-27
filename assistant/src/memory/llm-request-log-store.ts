@@ -1,6 +1,21 @@
-import { and, asc, desc, eq, gt, gte, inArray, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  gte,
+  inArray,
+  isNull,
+  lt,
+  lte,
+  ne,
+  or,
+  sql,
+} from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import { CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE } from "../api/constants/call-sites.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { AssistantError, ProviderError } from "../util/errors.js";
 import {
@@ -104,23 +119,6 @@ export function recordRequestLog(
     .run();
   return id;
 }
-
-/**
- * Marker stored in a row's `call_site` column when the row represents
- * a *synthetic* assistant error message — one the agent loop emitted
- * because something went wrong (out of funds, budget yield, etc.)
- * with no underlying LLM call. All such events cause the loop to exit,
- * so a single generic bucket plus the existing `agent_loop_exit_reason`
- * column is enough to discriminate which kind of error fired.
- *
- * Note: this value is intentionally *not* a member of `LLMCallSite`.
- * Per the enum's doc comment, `LLMCallSite` binds config lookup, not
- * the shape of the `call_site` column. Compaction-route filters that
- * match `call_site = 'compactionAgent'` already treat this value as a
- * non-compaction call, which is the desired floor-lookup behavior.
- */
-export const CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE =
-  "syntheticAgentErrorMessage";
 
 /**
  * Insert a synthetic `llm_request_logs` row for an agent-loop error
@@ -299,7 +297,9 @@ function selectLogsByMessageIds(messageIds: string[]): LogRow[] {
  * not apply turn recovery: the `conversation_id` column already includes
  * linked, unlinked, and orphaned rows for the full conversation.
  */
-export function getRequestLogsByConversationId(conversationId: string): LogRow[] {
+export function getRequestLogsByConversationId(
+  conversationId: string,
+): LogRow[] {
   const db = getDb();
   return db
     .select({
@@ -508,7 +508,7 @@ export function getRequestLogById(logId: string): LogRow | null {
         responsePayload: llmRequestLogs.responsePayload,
         createdAt: llmRequestLogs.createdAt,
         agentLoopExitReason: llmRequestLogs.agentLoopExitReason,
-      callSite: llmRequestLogs.callSite,
+        callSite: llmRequestLogs.callSite,
       })
       .from(llmRequestLogs)
       .where(eq(llmRequestLogs.id, logId))

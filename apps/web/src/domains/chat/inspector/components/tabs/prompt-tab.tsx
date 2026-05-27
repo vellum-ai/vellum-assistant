@@ -5,7 +5,7 @@ import { Button, Card, SegmentControl } from "@vellum/design-library";
 import type {
   LLMContextSection,
   LLMRequestLogEntry,
-} from "@/domains/chat/types/inspector-types";
+} from "@vellumai/assistant-api";
 import { FileMarkdown } from "@/components/file-markdown";
 
 interface PromptTabProps {

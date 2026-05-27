@@ -15,7 +15,7 @@
 import type {
   LLMContextSection,
   LLMRequestLogEntry,
-} from "@/domains/chat/types/inspector-types";
+} from "@vellumai/assistant-api";
 
 export interface SkillLoad {
   skill: string;

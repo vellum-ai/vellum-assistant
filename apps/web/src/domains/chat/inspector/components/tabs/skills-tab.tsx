@@ -6,7 +6,7 @@ import {
   aggregateSkillLoads,
   type SkillLoad,
 } from "@/domains/chat/inspector/skill-load-aggregator";
-import type { LLMRequestLogEntry } from "@/domains/chat/types/inspector-types";
+import type { LLMRequestLogEntry } from "@vellumai/assistant-api";
 
 interface SkillsTabProps {
   logs: LLMRequestLogEntry[];

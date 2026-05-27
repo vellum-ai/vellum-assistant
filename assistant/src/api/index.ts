@@ -5,14 +5,12 @@ import { OpenUrlEventSchema } from "./events/open-url.js";
 import { RelationshipStateUpdatedEventSchema } from "./events/relationship-state-updated.js";
 import { ToolUseStartEventSchema } from "./events/tool-use-start.js";
 
+export { CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE } from "./constants/call-sites.js";
 export {
   type AssistantTurnStartEvent,
   AssistantTurnStartEventSchema,
 } from "./events/assistant-turn-start.js";
-export {
-  type OpenUrlEvent,
-  OpenUrlEventSchema,
-} from "./events/open-url.js";
+export { type OpenUrlEvent, OpenUrlEventSchema } from "./events/open-url.js";
 export {
   type RelationshipStateUpdatedEvent,
   RelationshipStateUpdatedEventSchema,
@@ -21,6 +19,11 @@ export {
   type ToolUseStartEvent,
   ToolUseStartEventSchema,
 } from "./events/tool-use-start.js";
+export type {
+  LLMCallSummary,
+  LLMContextSection,
+  LLMRequestLogEntry,
+} from "./responses/llm-request-log-entry.js";
 
 /**
  * Canonical SSE event schema for the assistant runtime.

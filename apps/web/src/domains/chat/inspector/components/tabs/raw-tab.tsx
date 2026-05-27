@@ -3,7 +3,7 @@ import { useState, type ReactNode } from "react";
 
 import { Button, Card } from "@vellum/design-library";
 import { useLlmLogPayload } from "@/domains/chat/inspector/inspector-payload-api";
-import type { LLMRequestLogEntry } from "@/domains/chat/types/inspector-types";
+import type { LLMRequestLogEntry } from "@vellumai/assistant-api";
 
 type RawPane = "request" | "response";
 

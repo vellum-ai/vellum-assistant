@@ -10,9 +10,9 @@ import {
   type RuntimeMessage,
 } from "@/domains/chat/api/messages";
 
+import type { LLMRequestLogEntry } from "@vellumai/assistant-api";
 import type {
   LlmContextResponse,
-  LLMRequestLogEntry,
   MemoryRecallLog,
   MemoryV2ActivationLog,
 } from "@/domains/chat/types/inspector-types";

@@ -20,10 +20,8 @@ import {
   llmLogPayloadQueryOptions,
   type LlmLogPayload,
 } from "@/domains/chat/inspector/inspector-payload-api";
-import type {
-  LlmContextResponse,
-  LLMRequestLogEntry,
-} from "@/domains/chat/types/inspector-types";
+import type { LLMRequestLogEntry } from "@vellumai/assistant-api";
+import type { LlmContextResponse } from "@/domains/chat/types/inspector-types";
 import { useAuthStore } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 
