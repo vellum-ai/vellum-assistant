@@ -1,19 +1,43 @@
 /**
- * Conversation CRUD operations and group management.
+ * Conversation CRUD operations and group management via the generated daemon SDK.
  *
  * Handles listing, archiving, unarchiving, forking, renaming, reordering,
  * and analyzing conversations, as well as conversation group CRUD.
+ *
+ * The `Conversation` interface is a normalized client-side representation
+ * (timestamps as ISO strings, attention fields flattened, `id` renamed to
+ * `conversationId`). `parseConversation` transforms the raw daemon response
+ * into this shape. `ConversationGroup` is re-exported from the generated SDK.
  */
 
 import * as Sentry from "@sentry/browser";
 
-import { client } from "@/generated/api/client.gen";
+import { client as daemonClient } from "@/generated/daemon/client.gen";
 import {
-  ApiError,
-  assertHasResponse,
-  extractErrorMessage,
-  SDK_BASE_OPTIONS,
-} from "@/lib/api-errors";
+  conversationsByIdAnalyzePost,
+  conversationsByIdArchivePost,
+  conversationsByIdCancelPost,
+  conversationsByIdGet,
+  conversationsByIdNamePatch,
+  conversationsByIdUnarchivePost,
+  conversationsForkPost,
+  conversationsReorderPost,
+  conversationsSeenPost,
+  conversationsUnreadPost,
+  groupsByGroupIdDelete,
+  groupsByGroupIdPatch,
+  groupsGet,
+  groupsPost,
+  groupsReorderPost,
+  subagentsByIdAbortPost,
+  subagentsByIdGet,
+} from "@/generated/daemon/sdk.gen";
+import type {
+  ConversationsGetResponse,
+  ConversationsGetResponses,
+  GroupsGetResponse,
+} from "@/generated/daemon/types.gen";
+import { ApiError, assertHasResponse, extractErrorMessage } from "@/lib/api-errors";
 import {
   parseSlackMessageLink,
   type SlackMessageLink,
@@ -83,16 +107,12 @@ export interface ConversationSlackThread {
   link?: SlackMessageLink;
 }
 
-interface ListConversationsResponse {
-  conversations: Conversation[];
-  hasMore?: boolean;
-}
+// Re-export group type from generated SDK
+export type ConversationGroup = GroupsGetResponse["groups"][number];
 
-interface ConversationAttentionPayload {
-  hasUnseenLatestAssistantMessage?: unknown;
-  latestAssistantMessageAt?: unknown;
-  lastSeenAssistantMessageAt?: unknown;
-}
+// ---------------------------------------------------------------------------
+// Parsing helpers — transform raw daemon payloads into Conversation shape
+// ---------------------------------------------------------------------------
 
 function normalizeTimestamp(value: unknown): string | undefined {
   if (typeof value === "string") return value;
@@ -179,7 +199,9 @@ function parseChannelBinding(
         ? record.externalUserId
         : undefined,
     displayName:
-      typeof record.displayName === "string" ? record.displayName : undefined,
+      typeof record.displayName === "string"
+        ? record.displayName
+        : undefined,
     username:
       typeof record.username === "string" ? record.username : undefined,
     ...(slackChannel ? { slackChannel } : {}),
@@ -192,12 +214,8 @@ export function parseConversation(raw: unknown): Conversation | null {
 
   const record = raw as Record<string, unknown>;
   // Read `conversationId` (the canonical entity field name) with `id` as a
-  // synonym. The sole production caller of `parseConversation` is
-  // `listConversations`, which consumes `GET /v1/conversations/` records
-  // built by the daemon's `serializeConversationSummary` — that serializer
-  // emits `id` only today, so the `conversationId` branch exists for
-  // forward compatibility once the daemon migrates to the canonical name
-  // (LUM-1890 Phase 1).
+  // synonym. The daemon's `serializeConversationSummary` emits `id` only
+  // today; `conversationId` exists for forward compatibility (LUM-1890).
   const conversationId =
     typeof record.conversationId === "string"
       ? record.conversationId
@@ -209,18 +227,17 @@ export function parseConversation(raw: unknown): Conversation | null {
 
   const attention =
     record.assistantAttention &&
-      typeof record.assistantAttention === "object"
+    typeof record.assistantAttention === "object"
       ? (record.assistantAttention as ConversationAttentionPayload)
       : undefined;
-
-  const title =
-    typeof record.title === "string" ? record.title : undefined;
 
   const channelBinding =
     record.channelBinding && typeof record.channelBinding === "object"
       ? (record.channelBinding as Record<string, unknown>)
       : null;
   const parsedChannelBinding = parseChannelBinding(channelBinding);
+  // Read sourceChannel from the raw binding (before strict parsing) so
+  // originChannel is populated even when externalChatId is absent.
   const bindingSourceChannel =
     channelBinding && typeof channelBinding.sourceChannel === "string"
       ? channelBinding.sourceChannel
@@ -235,9 +252,11 @@ export function parseConversation(raw: unknown): Conversation | null {
 
   return {
     conversationId,
-    title,
+    title: typeof record.title === "string" ? record.title : undefined,
     createdAt: normalizeTimestamp(record.createdAt),
-    lastMessageAt: normalizeTimestamp(record.lastMessageAt ?? record.updatedAt),
+    lastMessageAt: normalizeTimestamp(
+      record.lastMessageAt ?? record.updatedAt,
+    ),
     hasUnseenLatestAssistantMessage:
       typeof attention?.hasUnseenLatestAssistantMessage === "boolean"
         ? attention.hasUnseenLatestAssistantMessage
@@ -269,20 +288,17 @@ export function parseConversation(raw: unknown): Conversation | null {
   };
 }
 
-/**
- * Daemon default page size for `/v1/assistants/{id}/conversations/`. Used
- * as our explicit page size so pagination state is predictable across daemon
- * versions. See `ConversationListRequest` in
- * `assistant/src/daemon/message-types/conversations.ts`.
- */
-const CONVERSATION_LIST_PAGE_SIZE = 50;
+// ---------------------------------------------------------------------------
+// Conversation list fetching with pagination
+// ---------------------------------------------------------------------------
 
-/**
- * Safety cap on the pagination loop. Multiplied by `CONVERSATION_LIST_PAGE_SIZE`
- * this allows for 10,000 conversations of a single type — far above any
- * realistic user count, but bounded so a malformed `hasMore` from the server
- * can't spin forever.
- */
+interface ConversationAttentionPayload {
+  hasUnseenLatestAssistantMessage?: unknown;
+  latestAssistantMessageAt?: unknown;
+  lastSeenAssistantMessageAt?: unknown;
+}
+
+const CONVERSATION_LIST_PAGE_SIZE = 50;
 const CONVERSATION_LIST_MAX_PAGES = 200;
 
 async function fetchConversationList(
@@ -293,12 +309,13 @@ async function fetchConversationList(
 
   for (let page = 0; page < CONVERSATION_LIST_MAX_PAGES; page++) {
     const offset = page * CONVERSATION_LIST_PAGE_SIZE;
-    const { data, error, response } = await client.get<
-      ListConversationsResponse,
-      unknown
+    // The daemon route definition doesn't declare query parameters, so the
+    // generated SDK type has `query?: never`. Use the raw daemon client for
+    // the paginated list call.
+    const { data, error, response } = await daemonClient.get<
+      ConversationsGetResponses
     >({
-      ...SDK_BASE_OPTIONS,
-      url: "/v1/assistants/{assistant_id}/conversations/",
+      url: "/v1/assistants/{assistant_id}/conversations",
       path: { assistant_id: assistantId },
       query: {
         ...(conversationType ? { conversationType } : {}),
@@ -312,32 +329,18 @@ async function fetchConversationList(
       const msg = extractErrorMessage(error, response, "Failed to list conversations.");
       throw new ApiError(response.status, msg);
     }
-    const payload =
-      data && typeof data === "object" && !Array.isArray(data)
-        ? (data as unknown as {
-            conversations?: unknown;
-            sessions?: unknown;
-            hasMore?: unknown;
-          })
-        : null;
-    const rawItems = Array.isArray(payload?.conversations)
-      ? payload.conversations
-      : Array.isArray(payload?.sessions)
-        ? payload.sessions
-        : [];
 
+    const payload = data as ConversationsGetResponse | undefined;
+    const rawItems = payload?.conversations ?? [];
     const pageItems = rawItems
       .map((conversation) => parseConversation(conversation))
       .filter((conversation): conversation is Conversation => conversation !== null);
 
     all.push(...pageItems);
 
-    const hasMore =
-      typeof payload?.hasMore === "boolean" ? payload.hasMore : false;
+    const hasMore = payload?.hasMore ?? false;
     if (!hasMore) break;
 
-    // Defensive: a malformed `hasMore: true` with an empty page would loop
-    // forever. Treat an empty page as end-of-list regardless of `hasMore`.
     if (pageItems.length === 0) break;
   }
 
@@ -359,29 +362,17 @@ export type FetchConversationDetailResult =
 
 /**
  * Fetch a single conversation row in list-row shape. Used by
- * `refreshConversationRow` to GET-and-patch the cached sidebar list when
- * the assistant emits a per-conversation `sync_changed` metadata tag —
- * much cheaper than refetching the full paginated list
- * (`limit=50&offset=0..N` × foreground + background — ~14 requests per
- * write at a few hundred conversations).
+ * `refreshConversationRow` to GET-and-patch the cached sidebar list.
  *
  * Returns the parsed row, or the `CONVERSATION_NOT_FOUND` sentinel when
  * the server reports the conversation no longer exists.
- *
- * The assistant's `GET /v1/conversations/:id` handler reuses
- * `serializeConversationSummary` — the exact serializer that powers
- * `listConversations` page rows — so the parsed result is structurally
- * compatible with rows already in the cache. See
- * `assistant/src/runtime/services/conversation-serializer.ts`.
  */
 export async function fetchConversationDetail(
   assistantId: string,
   conversationId: string,
 ): Promise<FetchConversationDetailResult> {
-  const { data, error, response } = await client.get<unknown, unknown>({
-    ...SDK_BASE_OPTIONS,
-    url: "/v1/assistants/{assistant_id}/conversations/{conversation_id}/",
-    path: { assistant_id: assistantId, conversation_id: conversationId },
+  const { data, error, response } = await conversationsByIdGet({
+    path: { assistant_id: assistantId, id: conversationId },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to fetch conversation.");
@@ -412,15 +403,11 @@ export async function fetchConversationDetail(
 
 /**
  * Fetch all conversations (foreground + background) for a given assistant.
- * The daemon filters conversation types server-side: the default list excludes
- * background/scheduled conversations, and `?conversationType=background` returns
- * only background/scheduled. Both are fetched in parallel and merged so the
- * sidebar can display every conversation type. Returns sorted newest-first.
+ * Both are fetched in parallel and merged so the sidebar can display every
+ * conversation type. Returns sorted newest-first.
  *
- * The background fetch is best-effort: if it fails (e.g. transient server
- * error, or the daemon predates `?conversationType=background` support), the
- * foreground list is still returned so the sidebar remains usable. A foreground
- * failure continues to throw, since no conversations could be shown anyway.
+ * The background fetch is best-effort: if it fails the foreground list is
+ * still returned so the sidebar remains usable.
  */
 export async function listConversations(
   assistantId: string,
@@ -465,13 +452,10 @@ export async function listConversations(
   return conversations;
 }
 
-/**
- * True when a conversation is a background/scheduled conversation (either by
- * explicit `conversationType` or by legacy `system:background` / `system:scheduled`
- * group id). Background conversations are hidden behind a collapsed-by-default
- * sidebar section, so they should not be auto-selected as the default landing
- * conversation.
- */
+// ---------------------------------------------------------------------------
+// Conversation predicates
+// ---------------------------------------------------------------------------
+
 export function isBackgroundConversation(conversation: Conversation): boolean {
   return (
     conversation.conversationType === "background" ||
@@ -481,13 +465,6 @@ export function isBackgroundConversation(conversation: Conversation): boolean {
   );
 }
 
-/**
- * True when the row's "Mark as unread" action should be enabled. Mirrors
- * the macOS rule: there must be an assistant message to unread, the
- * conversation must not already be unread, must not be a background or
- * scheduled conversation (those don't support unread state), and must
- * have a server-side identifier.
- */
 export function canMarkUnread(conversation: Conversation): boolean {
   return (
     !conversation.hasUnseenLatestAssistantMessage &&
@@ -497,12 +474,6 @@ export function canMarkUnread(conversation: Conversation): boolean {
   );
 }
 
-/**
- * True when the row's "Mark as read" action should be enabled. The
- * conversation must currently be unread and must have a server-side
- * identifier. Background / scheduled conversations are excluded because
- * they already suppress the unread indicator.
- */
 export function canMarkRead(conversation: Conversation): boolean {
   return (
     conversation.hasUnseenLatestAssistantMessage === true &&
@@ -511,21 +482,21 @@ export function canMarkRead(conversation: Conversation): boolean {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Conversation mutations
+// ---------------------------------------------------------------------------
+
 async function postConversationAttentionAction(
   endpoint: "seen" | "unread",
   assistantId: string,
   conversationId: string,
 ): Promise<void> {
-  const request = client.post<unknown, unknown>({
-    ...SDK_BASE_OPTIONS,
-    url: `/v1/assistants/{assistant_id}/conversations/${endpoint}/`,
+  const fn = endpoint === "seen" ? conversationsSeenPost : conversationsUnreadPost;
+  const { error, response } = await fn({
     path: { assistant_id: assistantId },
     body: { conversationId },
-    headers: { "Content-Type": "application/json" },
     throwOnError: false,
   });
-
-  const { error, response } = await request;
   assertHasResponse(
     response,
     error,
@@ -559,23 +530,13 @@ export async function archiveConversation(
   assistantId: string,
   conversationId: string,
 ): Promise<void> {
-  const { error, response } = await client.post<unknown, unknown>({
-    ...SDK_BASE_OPTIONS,
-    url: "/v1/assistants/{assistant_id}/conversations/{conversation_id}/archive",
-    path: { assistant_id: assistantId, conversation_id: conversationId },
+  const { error, response } = await conversationsByIdArchivePost({
+    path: { assistant_id: assistantId, id: conversationId },
     throwOnError: false,
   });
-  assertHasResponse(
-    response,
-    error,
-    "Failed to archive conversation.",
-  );
+  assertHasResponse(response, error, "Failed to archive conversation.");
   if (!response.ok) {
-    const msg = extractErrorMessage(
-      error,
-      response,
-      "Failed to archive conversation.",
-    );
+    const msg = extractErrorMessage(error, response, "Failed to archive conversation.");
     throw new ApiError(response.status, msg);
   }
 }
@@ -584,50 +545,28 @@ export async function unarchiveConversation(
   assistantId: string,
   conversationId: string,
 ): Promise<void> {
-  const { error, response } = await client.post<unknown, unknown>({
-    ...SDK_BASE_OPTIONS,
-    url: "/v1/assistants/{assistant_id}/conversations/{conversation_id}/unarchive",
-    path: { assistant_id: assistantId, conversation_id: conversationId },
+  const { error, response } = await conversationsByIdUnarchivePost({
+    path: { assistant_id: assistantId, id: conversationId },
     throwOnError: false,
   });
-  assertHasResponse(
-    response,
-    error,
-    "Failed to unarchive conversation.",
-  );
+  assertHasResponse(response, error, "Failed to unarchive conversation.");
   if (!response.ok) {
-    const msg = extractErrorMessage(
-      error,
-      response,
-      "Failed to unarchive conversation.",
-    );
+    const msg = extractErrorMessage(error, response, "Failed to unarchive conversation.");
     throw new ApiError(response.status, msg);
   }
 }
 
-// No generated endpoint exists for the analyze route yet; using the legacy client
-// to match the pattern of other conversation operations in this file.
 export async function analyzeConversation(
   assistantId: string,
   conversationId: string,
 ): Promise<{ conversationId: string }> {
-  const { data, error, response } = await client.post<unknown, unknown>({
-    ...SDK_BASE_OPTIONS,
-    url: "/v1/assistants/{assistant_id}/conversations/{conversation_id}/analyze",
-    path: { assistant_id: assistantId, conversation_id: conversationId },
+  const { data, error, response } = await conversationsByIdAnalyzePost({
+    path: { assistant_id: assistantId, id: conversationId },
     throwOnError: false,
   });
-  assertHasResponse(
-    response,
-    error,
-    "Failed to analyze conversation.",
-  );
+  assertHasResponse(response, error, "Failed to analyze conversation.");
   if (!response.ok) {
-    const msg = extractErrorMessage(
-      error,
-      response,
-      "Failed to analyze conversation.",
-    );
+    const msg = extractErrorMessage(error, response, "Failed to analyze conversation.");
     throw new ApiError(response.status, msg);
   }
 
@@ -656,10 +595,8 @@ export async function cancelGeneration(
   assistantId: string,
   conversationId: string,
 ): Promise<void> {
-  const { error, response } = await client.post<unknown, unknown>({
-    ...SDK_BASE_OPTIONS,
-    url: "/v1/assistants/{assistant_id}/conversations/{conversation_id}/cancel",
-    path: { assistant_id: assistantId, conversation_id: conversationId },
+  const { error, response } = await conversationsByIdCancelPost({
+    path: { assistant_id: assistantId, id: conversationId },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to cancel generation.");
@@ -669,21 +606,14 @@ export async function cancelGeneration(
   }
 }
 
-/**
- * Abort a running subagent via the daemon's dedicated subagent abort endpoint.
- * Matches macOS `SubagentClient.abort()`.
- */
 export async function abortSubagent(
   assistantId: string,
   conversationId: string,
   subagentId: string,
 ): Promise<void> {
-  const { error, response } = await client.post<unknown, unknown>({
-    ...SDK_BASE_OPTIONS,
-    url: "/v1/assistants/{assistant_id}/subagents/{subagent_id}/abort",
-    path: { assistant_id: assistantId, subagent_id: subagentId },
+  const { error, response } = await subagentsByIdAbortPost({
+    path: { assistant_id: assistantId, id: subagentId },
     body: { conversationId },
-    headers: { "Content-Type": "application/json" },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to abort subagent.");
@@ -693,44 +623,25 @@ export async function abortSubagent(
   }
 }
 
-// No generated endpoint exists for the fork route yet; using the legacy client
-// to match the pattern of other conversation operations in this file.
 export async function forkConversation(
   assistantId: string,
   conversationId: string,
   throughMessageId?: string,
 ): Promise<{ conversationId: string }> {
-  const { data, error, response } = await client.post<unknown, unknown>({
-    ...SDK_BASE_OPTIONS,
-    url: "/v1/assistants/{assistant_id}/conversations/fork",
+  const { data, error, response } = await conversationsForkPost({
     path: { assistant_id: assistantId },
     body: { conversationId, throughMessageId },
-    headers: { "Content-Type": "application/json" },
     throwOnError: false,
   });
-  assertHasResponse(
-    response,
-    error,
-    "Failed to fork conversation.",
-  );
+  assertHasResponse(response, error, "Failed to fork conversation.");
   if (!response.ok) {
-    const msg = extractErrorMessage(
-      error,
-      response,
-      "Failed to fork conversation.",
-    );
+    const msg = extractErrorMessage(error, response, "Failed to fork conversation.");
     throw new ApiError(response.status, msg);
   }
 
-  const conversationObj =
-    data && typeof data === "object" && !Array.isArray(data)
-      ? (data as { conversation?: unknown }).conversation
-      : undefined;
   const newConversationId =
-    conversationObj &&
-    typeof conversationObj === "object" &&
-    !Array.isArray(conversationObj)
-      ? (conversationObj as { id?: unknown }).id
+    data && typeof data === "object" && "conversation" in data
+      ? (data.conversation as { id?: string })?.id
       : undefined;
 
   if (typeof newConversationId !== "string" || newConversationId.length === 0) {
@@ -743,38 +654,23 @@ export async function forkConversation(
   return { conversationId: newConversationId };
 }
 
-// No generated endpoint exists for the rename route yet; using the legacy client
-// to match the pattern of other conversation operations in this file.
 export async function renameConversation(
   assistantId: string,
   conversationId: string,
   name: string,
 ): Promise<void> {
-  const { error, response } = await client.patch<unknown, unknown>({
-    ...SDK_BASE_OPTIONS,
-    url: "/v1/assistants/{assistant_id}/conversations/{conversation_id}/name",
-    path: { assistant_id: assistantId, conversation_id: conversationId },
+  const { error, response } = await conversationsByIdNamePatch({
+    path: { assistant_id: assistantId, id: conversationId },
     body: { name },
-    headers: { "Content-Type": "application/json" },
     throwOnError: false,
   });
-  assertHasResponse(
-    response,
-    error,
-    "Failed to rename conversation.",
-  );
+  assertHasResponse(response, error, "Failed to rename conversation.");
   if (!response.ok) {
-    const msg = extractErrorMessage(
-      error,
-      response,
-      "Failed to rename conversation.",
-    );
+    const msg = extractErrorMessage(error, response, "Failed to rename conversation.");
     throw new ApiError(response.status, msg);
   }
 }
 
-// No generated endpoint exists for the reorder route yet; using the legacy client
-// to match the pattern of other conversation operations in this file.
 export interface ReorderConversationUpdate {
   conversationId: string;
   isPinned: boolean;
@@ -786,25 +682,14 @@ export async function reorderConversations(
   assistantId: string,
   updates: ReorderConversationUpdate[],
 ): Promise<void> {
-  const { error, response } = await client.post<unknown, unknown>({
-    ...SDK_BASE_OPTIONS,
-    url: "/v1/assistants/{assistant_id}/conversations/reorder/",
+  const { error, response } = await conversationsReorderPost({
     path: { assistant_id: assistantId },
     body: { updates },
-    headers: { "Content-Type": "application/json" },
     throwOnError: false,
   });
-  assertHasResponse(
-    response,
-    error,
-    "Failed to reorder conversations.",
-  );
+  assertHasResponse(response, error, "Failed to reorder conversations.");
   if (!response.ok) {
-    const msg = extractErrorMessage(
-      error,
-      response,
-      "Failed to reorder conversations.",
-    );
+    const msg = extractErrorMessage(error, response, "Failed to reorder conversations.");
     throw new ApiError(response.status, msg);
   }
 }
@@ -813,22 +698,10 @@ export async function reorderConversations(
 // Conversation Groups
 // ---------------------------------------------------------------------------
 
-export interface ConversationGroup {
-  id: string;
-  name: string;
-  sortPosition: number;
-  isSystemGroup: boolean;
-}
-
 export async function fetchGroups(
   assistantId: string,
 ): Promise<ConversationGroup[]> {
-  const { data, error, response } = await client.get<
-    { groups?: unknown },
-    unknown
-  >({
-    ...SDK_BASE_OPTIONS,
-    url: "/v1/assistants/{assistant_id}/groups/",
+  const { data, error, response } = await groupsGet({
     path: { assistant_id: assistantId },
     throwOnError: false,
   });
@@ -837,33 +710,16 @@ export async function fetchGroups(
     const msg = extractErrorMessage(error, response, "Failed to list groups.");
     throw new ApiError(response.status, msg);
   }
-
-  const payload =
-    data && typeof data === "object" && !Array.isArray(data)
-      ? (data as { groups?: unknown })
-      : null;
-  const rawItems = Array.isArray(payload?.groups) ? payload.groups : [];
-  return rawItems.filter(
-    (g): g is ConversationGroup =>
-      !!g &&
-      typeof g === "object" &&
-      typeof (g as Record<string, unknown>).id === "string" &&
-      typeof (g as Record<string, unknown>).name === "string" &&
-      typeof (g as Record<string, unknown>).sortPosition === "number" &&
-      typeof (g as Record<string, unknown>).isSystemGroup === "boolean",
-  );
+  return data?.groups ?? [];
 }
 
 export async function createGroup(
   assistantId: string,
   name: string,
 ): Promise<ConversationGroup> {
-  const { data, error, response } = await client.post<ConversationGroup, unknown>({
-    ...SDK_BASE_OPTIONS,
-    url: "/v1/assistants/{assistant_id}/groups/",
+  const { data, error, response } = await groupsPost({
     path: { assistant_id: assistantId },
     body: { name },
-    headers: { "Content-Type": "application/json" },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to create group.");
@@ -871,10 +727,10 @@ export async function createGroup(
     const msg = extractErrorMessage(error, response, "Failed to create group.");
     throw new ApiError(response.status, msg);
   }
-  if (!data || typeof data !== "object" || typeof (data as unknown as Record<string, unknown>).id !== "string") {
+  if (!data || typeof data !== "object" || typeof (data as Record<string, unknown>).id !== "string") {
     throw new ApiError(response.status, "Create group response did not include a valid group.");
   }
-  return data;
+  return data as unknown as ConversationGroup;
 }
 
 export async function updateGroup(
@@ -882,12 +738,9 @@ export async function updateGroup(
   groupId: string,
   opts: { name?: string; sortPosition?: number },
 ): Promise<void> {
-  const { error, response } = await client.patch<unknown, unknown>({
-    ...SDK_BASE_OPTIONS,
-    url: "/v1/assistants/{assistant_id}/groups/{group_id}/",
-    path: { assistant_id: assistantId, group_id: groupId },
+  const { error, response } = await groupsByGroupIdPatch({
+    path: { assistant_id: assistantId, groupId },
     body: opts,
-    headers: { "Content-Type": "application/json" },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to update group.");
@@ -901,10 +754,8 @@ export async function deleteGroup(
   assistantId: string,
   groupId: string,
 ): Promise<void> {
-  const { error, response } = await client.delete<unknown, unknown>({
-    ...SDK_BASE_OPTIONS,
-    url: "/v1/assistants/{assistant_id}/groups/{group_id}/",
-    path: { assistant_id: assistantId, group_id: groupId },
+  const { error, response } = await groupsByGroupIdDelete({
+    path: { assistant_id: assistantId, groupId },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to delete group.");
@@ -918,12 +769,9 @@ export async function reorderGroups(
   assistantId: string,
   updates: { groupId: string; sortPosition: number }[],
 ): Promise<void> {
-  const { error, response } = await client.post<unknown, unknown>({
-    ...SDK_BASE_OPTIONS,
-    url: "/v1/assistants/{assistant_id}/groups/reorder/",
+  const { error, response } = await groupsReorderPost({
     path: { assistant_id: assistantId },
     body: { updates },
-    headers: { "Content-Type": "application/json" },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to reorder groups.");
@@ -937,42 +785,53 @@ export async function reorderGroups(
 // Subagent detail
 // ---------------------------------------------------------------------------
 
-/** Response shape from the daemon's `GET /subagents/:id` endpoint. */
+/**
+ * Subagent event shape returned by the daemon. The daemon route schema
+ * declares `events: z.array(z.unknown())` so the generated type is
+ * `Array<unknown>`. This interface reflects the actual runtime shape
+ * from `parseSubagentMessages()` in the daemon's subagents-routes.ts.
+ */
+export interface SubagentEvent {
+  type: string;
+  content: string;
+  toolName?: string;
+  isError?: boolean;
+  messageId?: string;
+  text?: string;
+  result?: string;
+  timestamp?: number;
+}
+
 export interface SubagentDetailResponse {
   subagentId: string;
+  objective: string;
   status?: string;
-  objective?: string;
   usage?: {
     inputTokens: number;
     outputTokens: number;
     estimatedCost: number;
   };
-  events: Array<Record<string, unknown>>;
+  events: SubagentEvent[];
 }
 
-/**
- * Fetch subagent detail (objective, usage, events) from the daemon.
- *
- * The wildcard proxy in Django forwards unmatched
- * `/v1/assistants/<id>/subagents/...` paths to the daemon.
- */
 export async function fetchSubagentDetail(
   assistantId: string,
   subagentId: string,
   conversationId: string,
 ): Promise<SubagentDetailResponse | null> {
   try {
-    const { data, response } = await client.get<SubagentDetailResponse, unknown>({
-      ...SDK_BASE_OPTIONS,
-      url: "/v1/assistants/{assistant_id}/subagents/{subagent_id}",
-      path: { assistant_id: assistantId, subagent_id: subagentId },
+    const { data, response } = await subagentsByIdGet({
+      path: { assistant_id: assistantId, id: subagentId },
       query: { conversationId },
       throwOnError: false,
     });
     if (!response || !response.ok || !data) {
       return null;
     }
-    return data;
+    // The generated SDK types events as `Array<unknown>` because the
+    // daemon schema uses `z.array(z.unknown())`. Cast to the known
+    // runtime shape from `parseSubagentMessages()`.
+    return data as unknown as SubagentDetailResponse;
   } catch (err) {
     Sentry.captureException(err, { tags: { operation: "fetchSubagentDetail" } });
     return null;

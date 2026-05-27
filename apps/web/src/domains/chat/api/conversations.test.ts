@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
-import { client } from "@/domains/chat/api/client";
+import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { listConversations, parseConversation } from "@/lib/conversations-api";
 
 describe("parseConversation — originChannel plumbing", () => {
@@ -191,7 +191,7 @@ describe("parseConversation — displayOrder", () => {
 });
 
 describe("listConversations — pagination", () => {
-  const originalGet = client.get;
+  const originalGet = daemonClient.get;
   type GetOptions = {
     query?: Record<string, unknown>;
   };
@@ -208,7 +208,7 @@ describe("listConversations — pagination", () => {
     const calls: Array<{ url: unknown; query: Record<string, unknown> | undefined }> = [];
     const foregroundQueue = [...pages.foreground];
     const backgroundQueue = [...(pages.background ?? [{ conversations: [] }])];
-    client.get = mock(
+    daemonClient.get = mock(
       async (options: GetOptions & { url?: unknown }) => {
         calls.push({ url: options.url, query: options.query });
         const isBackground = options.query?.conversationType === "background";
@@ -220,12 +220,12 @@ describe("listConversations — pagination", () => {
           response: new Response(null, { status: 200 }),
         };
       },
-    ) as typeof client.get;
+    ) as typeof daemonClient.get;
     return { calls };
   }
 
   afterEach(() => {
-    client.get = originalGet;
+    daemonClient.get = originalGet;
   });
 
   test("loops over pages until hasMore is false (>50 conversations preserved)", async () => {

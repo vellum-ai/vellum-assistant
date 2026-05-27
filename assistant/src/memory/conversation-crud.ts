@@ -2348,7 +2348,7 @@ export function batchSetDisplayOrders(
   updates: Array<{
     id: string;
     displayOrder: number | null;
-    isPinned: boolean;
+    isPinned?: boolean;
     groupId?: string | null;
   }>,
 ): void {
@@ -2381,35 +2381,36 @@ export function batchSetDisplayOrders(
           safeGroupId,
           update.id,
         );
+      } else if (update.isPinned === undefined) {
+        // Only displayOrder provided — preserve existing pin state and group.
+        rawRun(
+          "UPDATE conversations SET display_order = ? WHERE id = ?",
+          update.displayOrder,
+          update.id,
+        );
+      } else if (update.isPinned) {
+        rawRun(
+          "UPDATE conversations SET display_order = ?, is_pinned = 1, group_id = 'system:pinned' WHERE id = ?",
+          update.displayOrder,
+          update.id,
+        );
       } else {
-        // Old client: no groupId in payload
-        // isPinned true -> set group_id = system:pinned
-        // isPinned false -> clear group_id ONLY IF currently system:pinned
-        //                   otherwise preserve existing group_id
-        if (update.isPinned) {
-          rawRun(
-            "UPDATE conversations SET display_order = ?, is_pinned = 1, group_id = 'system:pinned' WHERE id = ?",
-            update.displayOrder,
-            update.id,
-          );
-        } else {
-          // Restore system group from source/conversationType when old clients
-          // unpin, instead of clearing to NULL (which would lose provenance).
-          rawRun(
-            `UPDATE conversations SET display_order = ?, is_pinned = 0,
-             group_id = CASE WHEN group_id = 'system:pinned' THEN
-               CASE
-                 WHEN source IN ('schedule', 'reminder') THEN 'system:scheduled'
-                 WHEN source IN ('heartbeat', 'task') THEN 'system:background'
-                 WHEN conversation_type = 'background' AND COALESCE(source, '') != 'notification' THEN 'system:background'
-                 ELSE 'system:all'
-               END
-             ELSE group_id END
-             WHERE id = ?`,
-            update.displayOrder,
-            update.id,
-          );
-        }
+        // Restore system group from source/conversationType when unpinning,
+        // instead of clearing to NULL (which would lose provenance).
+        rawRun(
+          `UPDATE conversations SET display_order = ?, is_pinned = 0,
+           group_id = CASE WHEN group_id = 'system:pinned' THEN
+             CASE
+               WHEN source IN ('schedule', 'reminder') THEN 'system:scheduled'
+               WHEN source IN ('heartbeat', 'task') THEN 'system:background'
+               WHEN conversation_type = 'background' AND COALESCE(source, '') != 'notification' THEN 'system:background'
+               ELSE 'system:all'
+             END
+           ELSE group_id END
+           WHERE id = ?`,
+          update.displayOrder,
+          update.id,
+        );
       }
     }
     rawExec("COMMIT");

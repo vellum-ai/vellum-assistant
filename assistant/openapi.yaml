@@ -460,8 +460,30 @@ paths:
                 properties:
                   apps:
                     type: array
-                    items: {}
-                    description: Array of app summary objects
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                        description:
+                          type: string
+                        icon:
+                          type: string
+                        createdAt:
+                          type: number
+                        version:
+                          type: string
+                        contentId:
+                          type: string
+                      required:
+                        - id
+                        - name
+                        - createdAt
+                        - version
+                        - contentId
+                      additionalProperties: false
                 required:
                   - apps
                 additionalProperties: false
@@ -540,6 +562,18 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  result: {}
+                required:
+                  - success
+                  - result
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -560,6 +594,18 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  result: {}
+                required:
+                  - success
+                  - result
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -597,6 +643,16 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                required:
+                  - success
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -613,6 +669,19 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  appId:
+                    type: string
+                  diff:
+                    type: string
+                required:
+                  - appId
+                  - diff
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -648,7 +717,20 @@ paths:
                     type: string
                   versions:
                     type: array
-                    items: {}
+                    items:
+                      type: object
+                      properties:
+                        commitHash:
+                          type: string
+                        message:
+                          type: string
+                        timestamp:
+                          type: number
+                      required:
+                        - commitHash
+                        - message
+                        - timestamp
+                      additionalProperties: false
                 required:
                   - appId
                   - versions
@@ -709,6 +791,21 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  appId:
+                    type: string
+                  preview:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                required:
+                  - appId
+                  - preview
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -724,6 +821,19 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  appId:
+                    type: string
+                required:
+                  - success
+                  - appId
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -819,6 +929,16 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                required:
+                  - success
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -907,6 +1027,23 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    const: true
+                  appId:
+                    type: string
+                  name:
+                    type: string
+                required:
+                  - success
+                  - appId
+                  - name
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -936,9 +1073,61 @@ paths:
                 type: object
                 properties:
                   gallery:
-                    type: array
-                    items: {}
-                    description: Gallery app entries
+                    type: object
+                    properties:
+                      version:
+                        type: number
+                      updatedAt:
+                        type: string
+                      categories:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            name:
+                              type: string
+                            icon:
+                              type: string
+                          required:
+                            - id
+                            - name
+                            - icon
+                          additionalProperties: false
+                      apps:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            name:
+                              type: string
+                            description:
+                              type: string
+                            icon:
+                              type: string
+                            category:
+                              type: string
+                            version:
+                              type: string
+                            featured:
+                              type: boolean
+                          required:
+                            - id
+                            - name
+                            - description
+                            - icon
+                            - category
+                            - version
+                          additionalProperties: false
+                    required:
+                      - version
+                      - updatedAt
+                      - categories
+                      - apps
+                    additionalProperties: false
                 required:
                   - gallery
                 additionalProperties: false
@@ -952,6 +1141,23 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    const: true
+                  appId:
+                    type: string
+                  name:
+                    type: string
+                required:
+                  - success
+                  - appId
+                  - name
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -1034,6 +1240,55 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  manifest:
+                    type: object
+                    properties: {}
+                    additionalProperties: {}
+                  scanResult:
+                    type: object
+                    properties:
+                      passed:
+                        type: boolean
+                      blocked:
+                        type: array
+                        items:
+                          type: string
+                      warnings:
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - passed
+                      - blocked
+                      - warnings
+                    additionalProperties: false
+                  signatureResult:
+                    type: object
+                    properties:
+                      trustTier:
+                        type: string
+                      signerKeyId:
+                        type: string
+                      signerDisplayName:
+                        type: string
+                      signerAccount:
+                        type: string
+                    required:
+                      - trustTier
+                    additionalProperties: false
+                  bundleSizeBytes:
+                    type: number
+                required:
+                  - manifest
+                  - scanResult
+                  - signatureResult
+                  - bundleSizeBytes
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -1090,8 +1345,43 @@ paths:
                 properties:
                   apps:
                     type: array
-                    items: {}
-                    description: Array of shared app objects
+                    items:
+                      type: object
+                      properties:
+                        uuid:
+                          type: string
+                        name:
+                          type: string
+                        description:
+                          type: string
+                        icon:
+                          type: string
+                        preview:
+                          type: string
+                        entry:
+                          type: string
+                        trustTier:
+                          type: string
+                        signerDisplayName:
+                          type: string
+                        bundleSizeBytes:
+                          type: number
+                        installedAt:
+                          type: string
+                        version:
+                          type: string
+                        contentId:
+                          type: string
+                        updateAvailable:
+                          type: boolean
+                      required:
+                        - uuid
+                        - name
+                        - entry
+                        - trustTier
+                        - bundleSizeBytes
+                        - installedAt
+                      additionalProperties: false
                 required:
                   - apps
                 additionalProperties: false
@@ -1181,6 +1471,22 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  signed:
+                    type: boolean
+                  signatureJson:
+                    type: object
+                    properties: {}
+                    additionalProperties: {}
+                  payload:
+                    type: string
+                  message:
+                    type: string
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -1210,6 +1516,16 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                required:
+                  - message
+                additionalProperties: false
   /v1/attachments:
     delete:
       operationId: attachments_delete
@@ -7750,8 +8066,29 @@ paths:
                 properties:
                   documents:
                     type: array
-                    items: {}
-                    description: Document summary objects
+                    items:
+                      type: object
+                      properties:
+                        surfaceId:
+                          type: string
+                        conversationId:
+                          type: string
+                        title:
+                          type: string
+                        wordCount:
+                          type: number
+                        createdAt:
+                          type: number
+                        updatedAt:
+                          type: number
+                      required:
+                        - surfaceId
+                        - conversationId
+                        - title
+                        - wordCount
+                        - createdAt
+                        - updatedAt
+                      additionalProperties: false
                 required:
                   - documents
                 additionalProperties: false
@@ -11700,6 +12037,21 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  hasToken:
+                    type: boolean
+                  success:
+                    type: boolean
+                  error:
+                    type: string
+                required:
+                  - hasToken
+                  - success
+                additionalProperties: false
     get:
       operationId: integrations_vercel_config_get
       summary: Get Vercel config
@@ -11709,6 +12061,21 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  hasToken:
+                    type: boolean
+                  success:
+                    type: boolean
+                  error:
+                    type: string
+                required:
+                  - hasToken
+                  - success
+                additionalProperties: false
     post:
       operationId: integrations_vercel_config_post
       summary: Set or delete Vercel config
@@ -11718,6 +12085,37 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  hasToken:
+                    type: boolean
+                  success:
+                    type: boolean
+                  error:
+                    type: string
+                required:
+                  - hasToken
+                  - success
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                action:
+                  type: string
+                  enum:
+                    - get
+                    - set
+                    - delete
+                apiToken:
+                  type: string
+              additionalProperties: false
   /v1/internal/mcp/add:
     post:
       operationId: internal_mcp_add_post

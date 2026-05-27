@@ -411,7 +411,7 @@ function handleReorderConversations({ body = {}, headers }: RouteHandlerArgs) {
     updates.map((u) => ({
       id: u.conversationId,
       displayOrder: u.displayOrder ?? null,
-      isPinned: u.isPinned ?? false,
+      isPinned: u.isPinned,
       groupId: u.groupId,
     })),
   );
