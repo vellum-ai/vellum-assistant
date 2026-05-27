@@ -14,7 +14,8 @@ const PREPARE_SLEEP_DEFER_WINDOW_MS = 60_000;
 const HEARTBEAT_DUE_TOLERANCE_MS = 1_000;
 const MIN_DRAIN_START_BUDGET_MS = 5_000;
 const LEASE_RENEW_INTERVAL_MS = 120_000;
-const MAX_TIMEOUT_MS = 2_147_483_647;
+// JS timers use signed 32-bit delays; larger values can overflow or clamp.
+const MAX_SET_TIMEOUT_DELAY_MS = 2_147_483_647;
 const log = getLogger("background-wake-routes");
 
 type RenewWakeLease = (leaseId: string) => Promise<unknown>;
@@ -248,7 +249,7 @@ async function withDrainDeadline<T>(
   }
 
   let timeout: ReturnType<typeof setTimeout> | undefined;
-  const timeoutMs = Math.min(remainingMs, MAX_TIMEOUT_MS);
+  const timeoutMs = Math.min(remainingMs, MAX_SET_TIMEOUT_DELAY_MS);
   const deadline = new Promise<never>((_, reject) => {
     timeout = setTimeout(() => {
       reject(new Error("background wake lease deadline elapsed"));
