@@ -1,9 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import {
-  client,
-  SDK_BASE_OPTIONS,
-} from "@/domains/chat/api/client";
+import { SDK_BASE_OPTIONS } from "@/domains/chat/api/client";
 import { DEFAULT_EMPTY_STATE_GREETING } from "@/domains/chat/utils/empty-state-constants";
 
 const GREETING_PROMPT =
