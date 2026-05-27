@@ -213,29 +213,36 @@ describe("ToolProgressCardShell — headerActionSlot", () => {
     expect(queryByTestId("tool-progress-card-action-slot")).toBeNull();
   });
 
-  test("reserves header space (pr-[88px]) on the title cluster only when an action slot is present", () => {
-    // With an action slot, the title/info cluster gets right-padding so the
-    // helper text truncates to the left of the absolutely-positioned slot
-    // instead of painting under it.
-    const withSlot = renderShell({
+  test("renders the action slot and step-count pill together in a right-aligned flex rail with an 8px gap", () => {
+    const { getByTestId } = renderShell({
+      stepCount: "3 steps",
       headerActionSlot: (
         <button data-testid="action-button" type="button">
           stop
         </button>
       ),
     });
-    const slotted = withSlot.container.querySelector(".pr-\\[88px\\]");
-    expect(slotted).not.toBeNull();
-    // The reserved-space cluster keeps min-w-0 so the inner truncate applies.
-    expect(slotted?.className).toContain("min-w-0");
-    cleanup();
+    const rail = getByTestId("tool-progress-card-action-slot");
+    // 8px gap (`gap-2`) between the stop button and the step-count pill, and
+    // the rail is a non-shrinking, vertically-centred flex container.
+    expect(rail.className).toContain("gap-2");
+    expect(rail.className).toContain("items-center");
+    expect(rail.className).toContain("shrink-0");
+    // Both the action slot and the pill share the same rail container.
+    expect(rail.contains(getByTestId("action-button"))).toBe(true);
+    expect(rail.contains(getByTestId("tool-progress-card-step-count-pill"))).toBe(
+      true,
+    );
+  });
 
-    // Without an action slot, no extra padding is applied — other tool cards
-    // (web search, skills) stay visually unchanged.
-    const withoutSlot = renderShell();
+  test("keeps the step-count pill inside the toggle button when no action slot is present", () => {
+    // Other tool cards (web search, skills) stay visually unchanged: the whole
+    // row is the toggle and the pill renders inside it.
+    const { getByRole, getByTestId } = renderShell({ stepCount: "3 steps" });
+    const toggle = getByRole("button", { name: /expand steps/i });
     expect(
-      withoutSlot.container.querySelector(".pr-\\[88px\\]"),
-    ).toBeNull();
+      toggle.contains(getByTestId("tool-progress-card-step-count-pill")),
+    ).toBe(true);
   });
 
   test("action-slot children are NOT nested inside the toggle button", () => {
