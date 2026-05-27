@@ -9,11 +9,11 @@
 import { useCallback, useEffect, useState } from "react";
 
 import {
-  readBooleanPref,
-  writeBooleanPref,
-  readNumberPref,
-  writeNumberPref,
-} from "@/utils/nudge-prefs.js";
+  getLocalBool,
+  setLocalBool,
+  getLocalNumber,
+  setLocalNumber,
+} from "@/lib/local-settings.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -42,29 +42,29 @@ export const MACOS_DOWNLOAD_URL = "https://vellum.ai/download";
 // ---------------------------------------------------------------------------
 
 export function readMacOsAppDownloaded(): boolean {
-  return readBooleanPref(KEY_MAC_APP_DOWNLOADED, false);
+  return getLocalBool(KEY_MAC_APP_DOWNLOADED, false);
 }
 
 export function writeMacOsAppDownloaded(): void {
-  writeBooleanPref(KEY_MAC_APP_DOWNLOADED, true);
+  setLocalBool(KEY_MAC_APP_DOWNLOADED, true);
 }
 
 function readMacOsAppBannerDismissed(): boolean {
-  return readBooleanPref(KEY_MAC_APP_BANNER_DISMISSED, false);
+  return getLocalBool(KEY_MAC_APP_BANNER_DISMISSED, false);
 }
 
 function writeMacOsAppBannerDismissed(): void {
-  writeBooleanPref(KEY_MAC_APP_BANNER_DISMISSED, true);
+  setLocalBool(KEY_MAC_APP_BANNER_DISMISSED, true);
 }
 
 export function readMacOsAssistantTurnsSeen(): number {
-  return readNumberPref(KEY_MAC_APP_ASSISTANT_TURNS_SEEN, 0);
+  return Math.max(0, getLocalNumber(KEY_MAC_APP_ASSISTANT_TURNS_SEEN, 0));
 }
 
 export function incrementMacOsAssistantTurnsSeen(delta = 1): void {
   if (delta <= 0) return;
   const nextValue = readMacOsAssistantTurnsSeen() + delta;
-  writeNumberPref(KEY_MAC_APP_ASSISTANT_TURNS_SEEN, nextValue);
+  setLocalNumber(KEY_MAC_APP_ASSISTANT_TURNS_SEEN, nextValue);
 }
 
 // ---------------------------------------------------------------------------
@@ -109,3 +109,12 @@ export function useMacOsNudgeState(): {
 export function openMacOsDownload(): void {
   window.open(MACOS_DOWNLOAD_URL, "_blank", "noopener,noreferrer");
 }
+
+// ---------------------------------------------------------------------------
+// Internals exported for tests only. Not part of the public API.
+// ---------------------------------------------------------------------------
+
+export const __testing = {
+  readMacOsAppBannerDismissed,
+  writeMacOsAppBannerDismissed,
+};

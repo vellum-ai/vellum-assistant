@@ -5,15 +5,11 @@
  * (retire assistant, debug controls), and are extracted here so domain
  * code doesn't reach into `domains/onboarding/` directly.
  */
-import {
-  getLocalSetting,
-  removeLocalSetting,
-  setLocalSetting,
-} from "@/lib/local-settings.js";
+import { removeLocalSetting } from "@/lib/local-settings.js";
+import { getDeviceSetting, setDeviceSetting } from "@/lib/device-settings.js";
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store.js";
 
 const KEY_SELECTED_VERSION = "onboarding.selectedVersion";
-const KEY_LAST_USER_ID = "onboarding.lastUserId";
 
 /**
  * Remove per-user onboarding flags so a different account signing in on the
@@ -52,11 +48,11 @@ export function syncOnboardingUser(userId: string | null): void {
   if (typeof window === "undefined") return;
   if (userId === null) return;
   try {
-    const stored = getLocalSetting(KEY_LAST_USER_ID, "");
+    const stored = getDeviceSetting("lastUserId", "");
     if (stored === userId) return;
     useOnboardingStore.getState().resetOnboardingFlags();
     removeLocalSetting(KEY_SELECTED_VERSION);
-    setLocalSetting(KEY_LAST_USER_ID, userId);
+    setDeviceSetting("lastUserId", userId);
   } catch {
     // Storage unavailable — nothing to reconcile.
   }

@@ -138,15 +138,33 @@ navigations; for logout, preservation is the problem.
 
 Before the hard navigation, the auth store's `logout()` action
 clears user-scoped browser storage (`lib/auth/session-cleanup.ts`).
-The cleanup uses a preserve-list strategy: any localStorage key
-matching app prefixes (`vellum`, `onboarding.`, `ff:client:`,
-`voice:`, `integrations.`) is removed unless it's in the device-level
-preserve set (`vellum_theme`, `vellum_share_analytics`,
-`vellum_share_diagnostics`, `vellum_biometric_enabled`,
-`vellum_llm_log_retention`, `vellum_timezone`,
-`vellum_media_embeds_enabled`, `vellum_media_embed_domains`,
-`onboarding.lastUserId`). New app keys
-are cleared by default without requiring updates to a removal list.
+The cleanup preserves any key starting with `device:` (device-scoped
+settings managed by `lib/device-settings.ts`) and removes all other
+keys matching app prefixes (`vellum`, `onboarding.`, `ff:client:`,
+`voice:`, `integrations.`). New app keys are cleared by default; new
+device settings are preserved by default — no manual list to maintain.
+
+### Device-scoped localStorage (`device:` namespace)
+
+Settings that describe the physical device rather than a user account
+use the `device:` key prefix and are managed via `lib/device-settings.ts`.
+To add a new device setting, add an entry to the `DEVICE_SETTINGS`
+registry in that file and use `getDeviceSetting` / `setDeviceSetting`
+in your component — session-cleanup.ts automatically preserves it.
+
+Current device settings:
+
+| Setting            | Key                          |
+|--------------------|------------------------------|
+| Theme              | `device:theme`               |
+| Share analytics    | `device:share_analytics`     |
+| Share diagnostics  | `device:share_diagnostics`   |
+| Biometric enabled  | `device:biometric_enabled`   |
+| LLM log retention  | `device:llm_log_retention`   |
+| Timezone           | `device:timezone`            |
+| Media embeds       | `device:media_embeds_enabled`|
+| Embed domains      | `device:media_embed_domains` |
+| Last user ID       | `device:last_user_id`        |
 
 Cross-tab logout uses `BroadcastChannel` → `clearUserScopedStorage()`
 + `window.location.reload()` so other tabs also destroy their JS

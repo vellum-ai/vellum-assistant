@@ -1,12 +1,16 @@
 /**
  * Clear user-scoped browser storage on logout.
  *
- * Uses a preserve-list strategy: any localStorage key matching a known
- * app prefix is removed UNLESS it appears in the device-level preserve
- * set. This is future-proof — new app keys are cleared by default
- * without needing to update a removal list. Third-party keys (analytics
- * SDKs, Sentry, etc.) are untouched because they don't match app
- * prefixes.
+ * Any localStorage key starting with `device:` is automatically
+ * preserved — these are device-scoped settings managed by
+ * `lib/device-settings.ts`. All other keys matching app prefixes are
+ * removed. Third-party keys (analytics SDKs, Sentry, etc.) are
+ * untouched because they don't match app prefixes.
+ *
+ * The `DEVICE_LEVEL_KEYS` set below is a transitional safety net for
+ * legacy (non-prefixed) device keys that haven't been migrated yet.
+ * It will be removed once the `device:` namespace migration is
+ * complete (see LUM-1933).
  *
  * sessionStorage is cleared entirely — all keys are user-session-scoped.
  *
@@ -16,6 +20,8 @@
  * References:
  * - https://web.dev/articles/sign-out-best-practices
  */
+
+import { DEVICE_PREFIX } from "@/lib/device-settings.js";
 
 /** Prefixes that identify keys owned by this app. */
 const APP_KEY_PREFIXES = [
@@ -27,8 +33,9 @@ const APP_KEY_PREFIXES = [
 ];
 
 /**
- * Device-level keys that must survive logout. These are preferences
- * scoped to the physical device, not to a user account.
+ * Legacy device-level keys preserved as a transitional safety net.
+ * After the `device:` namespace migration completes, this set is
+ * removed — the prefix check handles everything. See LUM-1933.
  */
 const DEVICE_LEVEL_KEYS = new Set([
   "vellum_theme",
@@ -46,6 +53,10 @@ function isAppKey(key: string): boolean {
   return APP_KEY_PREFIXES.some((p) => key.startsWith(p));
 }
 
+function isDeviceKey(key: string): boolean {
+  return key.startsWith(DEVICE_PREFIX) || DEVICE_LEVEL_KEYS.has(key);
+}
+
 export function clearUserScopedStorage(): void {
   try {
     sessionStorage.clear();
@@ -57,7 +68,7 @@ export function clearUserScopedStorage(): void {
     const keysToRemove: string[] = [];
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (key && isAppKey(key) && !DEVICE_LEVEL_KEYS.has(key)) {
+      if (key && isAppKey(key) && !isDeviceKey(key)) {
         keysToRemove.push(key);
       }
     }

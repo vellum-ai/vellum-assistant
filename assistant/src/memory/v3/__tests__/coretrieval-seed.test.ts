@@ -194,6 +194,69 @@ describe("seedCoretrievalEdges", () => {
     expect(row.weight).toBe(2);
   });
 
+  test("weights edges by NPMI — a stronger association gets a higher weight", () => {
+    const { db, sqlite } = freshDb();
+    // page-b co-occurs with page-a more than page-c does (both exclusive to
+    // page-a), so NPMI(a,b) > NPMI(a,c) > 0; the filler turns lower base rates.
+    for (let i = 0; i < 3; i++)
+      insertRouterTurn(sqlite, `ab${i}`, ["page-a", "page-b"]);
+    for (let i = 0; i < 2; i++)
+      insertRouterTurn(sqlite, `ac${i}`, ["page-a", "page-c"]);
+    for (let i = 0; i < 5; i++)
+      insertRouterTurn(sqlite, `de${i}`, ["topic-d", "topic-e"]);
+
+    seedCoretrievalEdges(db, {
+      minCount: 2,
+      maxNeighborFreqRatio: 1,
+      topK: 10,
+      seedWeight: 2,
+    });
+
+    const weightOf = (s: string, t: string) =>
+      (
+        sqlite
+          .query(
+            `SELECT weight FROM memory_v3_auto_edges WHERE source_slug = ? AND target_slug = ?`,
+          )
+          .get(s, t) as { weight: number } | null
+      )?.weight;
+    const wAB = weightOf("page-a", "page-b");
+    const wAC = weightOf("page-a", "page-c");
+    expect(wAC).toBeGreaterThan(0);
+    expect(wAB!).toBeGreaterThan(wAC!);
+    // NPMI < 1 for a non-exclusive pair, so weight stays below the perfect-
+    // association seedWeight.
+    expect(wAB!).toBeLessThan(2);
+  });
+
+  test("skips edges with non-positive NPMI (co-occur at or below chance)", () => {
+    const { db, sqlite } = freshDb();
+    // page-a and page-b are each frequent but seldom together (below chance) =>
+    // negative NPMI => skipped. page-a/topic-x co-occur above chance => kept.
+    for (let i = 0; i < 4; i++)
+      insertRouterTurn(sqlite, `ax${i}`, ["page-a", "topic-x"]);
+    for (let i = 0; i < 4; i++)
+      insertRouterTurn(sqlite, `by${i}`, ["page-b", "topic-y"]);
+    for (let i = 0; i < 2; i++)
+      insertRouterTurn(sqlite, `ab${i}`, ["page-a", "page-b"]);
+
+    seedCoretrievalEdges(db, {
+      minCount: 2,
+      maxNeighborFreqRatio: 1,
+      topK: 10,
+      seedWeight: 2,
+    });
+
+    const has = (s: string, t: string) =>
+      sqlite
+        .query(
+          `SELECT 1 FROM memory_v3_auto_edges WHERE source_slug = ? AND target_slug = ?`,
+        )
+        .get(s, t) !== null;
+    expect(has("page-a", "topic-x")).toBe(true);
+    expect(has("page-a", "page-b")).toBe(false);
+  });
+
   test("returns an empty summary when there are no router turns", () => {
     const { db } = freshDb();
     const result = seedCoretrievalEdges(db);

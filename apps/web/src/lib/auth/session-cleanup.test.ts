@@ -49,28 +49,31 @@ describe("clearUserScopedStorage", () => {
     expect(localStorage.length).toBe(0);
   });
 
-  test("preserves biometric opt-out preference", () => {
-    localStorage.setItem("vellum_biometric_enabled", "false");
+  test("preserves device: prefixed keys", () => {
+    localStorage.setItem("device:theme", "dark");
+    localStorage.setItem("device:share_analytics", "true");
+    localStorage.setItem("device:share_diagnostics", "false");
+    localStorage.setItem("device:biometric_enabled", "false");
+    localStorage.setItem("device:llm_log_retention", "dontRetain");
+    localStorage.setItem("device:timezone", "America/New_York");
+    localStorage.setItem("device:media_embeds_enabled", "false");
+    localStorage.setItem("device:media_embed_domains", '["youtube.com"]');
+    localStorage.setItem("device:last_user_id", "user-123");
 
     clearUserScopedStorage();
 
-    expect(localStorage.getItem("vellum_biometric_enabled")).toBe("false");
+    expect(localStorage.getItem("device:theme")).toBe("dark");
+    expect(localStorage.getItem("device:share_analytics")).toBe("true");
+    expect(localStorage.getItem("device:share_diagnostics")).toBe("false");
+    expect(localStorage.getItem("device:biometric_enabled")).toBe("false");
+    expect(localStorage.getItem("device:llm_log_retention")).toBe("dontRetain");
+    expect(localStorage.getItem("device:timezone")).toBe("America/New_York");
+    expect(localStorage.getItem("device:media_embeds_enabled")).toBe("false");
+    expect(localStorage.getItem("device:media_embed_domains")).toBe('["youtube.com"]');
+    expect(localStorage.getItem("device:last_user_id")).toBe("user-123");
   });
 
-  test("automatically clears future app keys without needing explicit registration", () => {
-    localStorage.setItem("vellum:some-future-feature:asst-1", "data");
-    localStorage.setItem("vellum_new_preference", "value");
-    localStorage.setItem("onboarding.newFlag", "true");
-    localStorage.setItem("ff:client:new-experiment", "variant-b");
-    localStorage.setItem("voice:newSetting", "on");
-    localStorage.setItem("integrations.newBanner", "dismissed");
-
-    clearUserScopedStorage();
-
-    expect(localStorage.length).toBe(0);
-  });
-
-  test("preserves device-level preferences", () => {
+  test("preserves legacy device-level keys (transitional safety net)", () => {
     localStorage.setItem("vellum_theme", "dark");
     localStorage.setItem("vellum_share_analytics", "true");
     localStorage.setItem("vellum_share_diagnostics", "false");
@@ -94,6 +97,29 @@ describe("clearUserScopedStorage", () => {
     expect(localStorage.getItem("onboarding.lastUserId")).toBe("user-123");
   });
 
+  test("automatically clears future app keys without needing explicit registration", () => {
+    localStorage.setItem("vellum:some-future-feature:asst-1", "data");
+    localStorage.setItem("vellum_new_preference", "value");
+    localStorage.setItem("onboarding.newFlag", "true");
+    localStorage.setItem("ff:client:new-experiment", "variant-b");
+    localStorage.setItem("voice:newSetting", "on");
+    localStorage.setItem("integrations.newBanner", "dismissed");
+
+    clearUserScopedStorage();
+
+    expect(localStorage.length).toBe(0);
+  });
+
+  test("future device: keys are automatically preserved", () => {
+    localStorage.setItem("device:some_new_setting", "value");
+    localStorage.setItem("device:another_setting", "data");
+
+    clearUserScopedStorage();
+
+    expect(localStorage.getItem("device:some_new_setting")).toBe("value");
+    expect(localStorage.getItem("device:another_setting")).toBe("data");
+  });
+
   test("leaves third-party keys untouched", () => {
     localStorage.setItem("_ga", "GA1.2.123456");
     localStorage.setItem("intercom-session", "abc");
@@ -106,20 +132,18 @@ describe("clearUserScopedStorage", () => {
     expect(localStorage.getItem("some-other-sdk")).toBe("data");
   });
 
-  test("removes user-scoped keys while preserving device-level and third-party keys", () => {
-    localStorage.setItem("vellum_theme", "dark");
+  test("removes user-scoped keys while preserving device and third-party keys", () => {
+    localStorage.setItem("device:theme", "dark");
+    localStorage.setItem("device:share_analytics", "true");
     localStorage.setItem("vellum:pinnedApps", "[]");
-    localStorage.setItem("vellum_share_analytics", "true");
     localStorage.setItem("ff:client:my-flag", "true");
-    localStorage.setItem("onboarding.lastUserId", "user-123");
     localStorage.setItem("onboarding.completed", "true");
     localStorage.setItem("_ga", "GA1.2.123456");
 
     clearUserScopedStorage();
 
-    expect(localStorage.getItem("vellum_theme")).toBe("dark");
-    expect(localStorage.getItem("vellum_share_analytics")).toBe("true");
-    expect(localStorage.getItem("onboarding.lastUserId")).toBe("user-123");
+    expect(localStorage.getItem("device:theme")).toBe("dark");
+    expect(localStorage.getItem("device:share_analytics")).toBe("true");
     expect(localStorage.getItem("_ga")).toBe("GA1.2.123456");
     expect(localStorage.getItem("vellum:pinnedApps")).toBeNull();
     expect(localStorage.getItem("ff:client:my-flag")).toBeNull();
