@@ -30,6 +30,8 @@ const APP_KEY_PREFIXES = [
   "ff:client:",
   "voice:",
   "integrations.",
+  "gw:",
+  "local:",
 ];
 
 /**
