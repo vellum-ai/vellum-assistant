@@ -148,6 +148,16 @@ mock.module("../tools/registry.js", () => ({
     };
   },
   getAllTools: () => (getAllToolsOverride ? getAllToolsOverride() : []),
+  // Ownership lives on the registry post-refactor; production reads it via
+  // getToolOwner(name) rather than a field on the Tool object. Mirror that by
+  // surfacing the optional `owner`-shaped field from the override-produced
+  // tool so existing tests can encode owner inline.
+  getToolOwner: (name: string) => {
+    const t = getToolOverride?.(name) as
+      | { owner?: { kind: "skill" | "mcp" | "plugin"; id: string } }
+      | undefined;
+    return t?.owner;
+  },
 }));
 
 mock.module("../tools/shared/filesystem/path-policy.js", () => ({
