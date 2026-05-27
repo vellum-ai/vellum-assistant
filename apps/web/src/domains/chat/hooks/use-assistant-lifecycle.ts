@@ -395,11 +395,26 @@ export function useAssistantLifecycle({
     }
   }, [hatchAndCheck]);
 
-  // Initial check when auth is ready
+  // Initial check when auth is ready.
+  //
+  // Post-local-hatch flow: when a local assistant is hatched during
+  // onboarding, the hatching screen primes the gateway token and
+  // self-hosted connection (via loadLockfile + ensureGatewayToken +
+  // setSelfHostedConnection). After pre-chat completes and the user
+  // navigates back to /assistant, this effect re-runs with isLoggedIn
+  // true and isLoading false. Because the gateway token is now cached
+  // in localStorage, isGatewayAuthMode() returns true and the branch
+  // below activates — setting up the self-hosted connection, assistant
+  // ID, and active state so the chat page can communicate with the
+  // local assistant. This also handles page refreshes: the gateway
+  // token and lockfile are persisted in localStorage, so re-priming
+  // from cache is idempotent.
   useEffect(() => {
     if (!isLoggedIn || isLoading) {
       return;
     }
+    // Gateway auth takes priority over the platform session path below.
+    // In local mode after hatch, this branch is the entry point.
     if (isGatewayAuthMode()) {
       let ingressUrl = window.location.origin;
       let assistantId = "self";
