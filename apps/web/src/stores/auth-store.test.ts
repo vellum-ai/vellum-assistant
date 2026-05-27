@@ -49,7 +49,7 @@ mock.module("@/runtime/native-biometric.js", () => ({
 
 const clearUserScopedStorageMock = mock(() => {});
 
-mock.module("@/utils/onboarding-cleanup.js", () => ({
+mock.module("@/lib/onboarding-cleanup.js", () => ({
   syncOnboardingUser: syncOnboardingUserMock,
   clearOnboardingFlags: clearOnboardingFlagsMock,
 }));
