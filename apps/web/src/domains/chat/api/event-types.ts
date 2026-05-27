@@ -35,13 +35,6 @@ import type {
   SubagentStatus,
 } from "@/types/interaction-ui-types";
 
-// Re-export canonical event types under the web side's existing names so
-// downstream importers continue working unchanged. The canonical schema in
-// `@vellumai/assistant-api` is the source of truth; the inline declarations
-// here that haven't been migrated yet are gradually getting replaced with
-// imports of this shape.
-export type { AssistantTurnStartEvent, ToolUseStartEvent };
-
 /** Data needed to render an inline permission prompt inside a ToolCallChip. */
 export interface PendingToolConfirmation {
   requestId: string;

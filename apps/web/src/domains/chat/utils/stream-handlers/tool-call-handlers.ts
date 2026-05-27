@@ -8,8 +8,8 @@ import type {
   ChatMessageToolCall,
   ToolProgressEvent,
   ToolResultEvent,
-  ToolUseStartEvent,
 } from "@/domains/chat/api/event-types";
+import type { ToolUseStartEvent } from "@vellumai/assistant-api";
 
 export function handleToolUseStart(
   event: ToolUseStartEvent,
