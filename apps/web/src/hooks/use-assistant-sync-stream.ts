@@ -36,8 +36,8 @@ import {
   assistantSoundsConfigQueryKey,
   avatarQueryKey,
   chatContextQueryKey,
-  conversationGroupsQueryKey,
 } from "@/lib/sync/query-tags";
+import { conversationGroupsQueryKey } from "@/domains/conversations/conversation-queries";
 import {
   parseConversationSyncTag,
   SYNC_TAGS,

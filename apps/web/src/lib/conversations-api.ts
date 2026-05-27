@@ -1,8 +1,8 @@
 /**
- * Conversation CRUD operations and group management via the generated daemon SDK.
+ * Conversation CRUD operations via the generated daemon SDK.
  *
  * Handles listing, archiving, unarchiving, forking, renaming, reordering,
- * and analyzing conversations, as well as conversation group CRUD.
+ * and analyzing conversations.
  *
  * The `Conversation` interface is a normalized client-side representation
  * (timestamps as ISO strings, attention fields flattened, `id` renamed to
@@ -24,11 +24,6 @@ import {
   conversationsReorderPost,
   conversationsSeenPost,
   conversationsUnreadPost,
-  groupsByGroupIdDelete,
-  groupsByGroupIdPatch,
-  groupsGet,
-  groupsPost,
-  groupsReorderPost,
   subagentsByIdAbortPost,
   subagentsByIdGet,
 } from "@/generated/daemon/sdk.gen";
@@ -37,6 +32,7 @@ import type {
   ConversationsGetResponses,
   GroupsGetResponse,
 } from "@/generated/daemon/types.gen";
+
 import { ApiError, assertHasResponse, extractErrorMessage } from "@/lib/api-errors";
 import {
   parseSlackMessageLink,
@@ -690,93 +686,6 @@ export async function reorderConversations(
   assertHasResponse(response, error, "Failed to reorder conversations.");
   if (!response.ok) {
     const msg = extractErrorMessage(error, response, "Failed to reorder conversations.");
-    throw new ApiError(response.status, msg);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Conversation Groups
-// ---------------------------------------------------------------------------
-
-export async function fetchGroups(
-  assistantId: string,
-): Promise<ConversationGroup[]> {
-  const { data, error, response } = await groupsGet({
-    path: { assistant_id: assistantId },
-    throwOnError: false,
-  });
-  assertHasResponse(response, error, "Failed to list groups.");
-  if (!response.ok) {
-    const msg = extractErrorMessage(error, response, "Failed to list groups.");
-    throw new ApiError(response.status, msg);
-  }
-  return data?.groups ?? [];
-}
-
-export async function createGroup(
-  assistantId: string,
-  name: string,
-): Promise<ConversationGroup> {
-  const { data, error, response } = await groupsPost({
-    path: { assistant_id: assistantId },
-    body: { name },
-    throwOnError: false,
-  });
-  assertHasResponse(response, error, "Failed to create group.");
-  if (!response.ok) {
-    const msg = extractErrorMessage(error, response, "Failed to create group.");
-    throw new ApiError(response.status, msg);
-  }
-  if (!data || typeof data !== "object" || typeof (data as Record<string, unknown>).id !== "string") {
-    throw new ApiError(response.status, "Create group response did not include a valid group.");
-  }
-  return data as unknown as ConversationGroup;
-}
-
-export async function updateGroup(
-  assistantId: string,
-  groupId: string,
-  opts: { name?: string; sortPosition?: number },
-): Promise<void> {
-  const { error, response } = await groupsByGroupIdPatch({
-    path: { assistant_id: assistantId, groupId },
-    body: opts,
-    throwOnError: false,
-  });
-  assertHasResponse(response, error, "Failed to update group.");
-  if (!response.ok) {
-    const msg = extractErrorMessage(error, response, "Failed to update group.");
-    throw new ApiError(response.status, msg);
-  }
-}
-
-export async function deleteGroup(
-  assistantId: string,
-  groupId: string,
-): Promise<void> {
-  const { error, response } = await groupsByGroupIdDelete({
-    path: { assistant_id: assistantId, groupId },
-    throwOnError: false,
-  });
-  assertHasResponse(response, error, "Failed to delete group.");
-  if (!response.ok) {
-    const msg = extractErrorMessage(error, response, "Failed to delete group.");
-    throw new ApiError(response.status, msg);
-  }
-}
-
-export async function reorderGroups(
-  assistantId: string,
-  updates: { groupId: string; sortPosition: number }[],
-): Promise<void> {
-  const { error, response } = await groupsReorderPost({
-    path: { assistant_id: assistantId },
-    body: { updates },
-    throwOnError: false,
-  });
-  assertHasResponse(response, error, "Failed to reorder groups.");
-  if (!response.ok) {
-    const msg = extractErrorMessage(error, response, "Failed to reorder groups.");
     throw new ApiError(response.status, msg);
   }
 }

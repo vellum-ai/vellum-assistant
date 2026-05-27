@@ -21,6 +21,7 @@ import type {
   ConversationGroup,
 } from "@/lib/conversations-api";
 import type { ChatContext } from "@/domains/chat/api/assistant";
+import type { GroupsGetResponse } from "@/generated/daemon/types.gen";
 
 const ASSISTANT_ID = "ast-1";
 
@@ -65,9 +66,16 @@ function getConversations(qc: QueryClient): Conversation[] {
 
 function getGroups(qc: QueryClient): ConversationGroup[] {
   return (
-    qc.getQueryData<ConversationGroup[]>(
+    qc.getQueryData<GroupsGetResponse>(
       conversationGroupsQueryKey(ASSISTANT_ID),
-    ) ?? []
+    )?.groups ?? []
+  );
+}
+
+function seedGroups(qc: QueryClient, groups: ConversationGroup[]): void {
+  qc.setQueryData<GroupsGetResponse>(
+    conversationGroupsQueryKey(ASSISTANT_ID),
+    { groups },
   );
 }
 
@@ -163,10 +171,7 @@ describe("resolveDraftKey", () => {
 describe("appendGroup", () => {
   it("auto-computes sortPosition from the current group count", () => {
     const qc = new QueryClient();
-    qc.setQueryData<ConversationGroup[]>(
-      conversationGroupsQueryKey(ASSISTANT_ID),
-      [makeGroup("g1", "First", { sortPosition: 0 })],
-    );
+    seedGroups(qc, [makeGroup("g1", "First", { sortPosition: 0 })]);
     appendGroup(
       qc,
       ASSISTANT_ID,
@@ -181,10 +186,7 @@ describe("appendGroup", () => {
 describe("patchGroup", () => {
   it("patches the matching group", () => {
     const qc = new QueryClient();
-    qc.setQueryData<ConversationGroup[]>(
-      conversationGroupsQueryKey(ASSISTANT_ID),
-      [makeGroup("g1", "Old")],
-    );
+    seedGroups(qc, [makeGroup("g1", "Old")]);
     patchGroup(qc, ASSISTANT_ID, "g1", { name: "New" });
     expect(getGroups(qc)[0]!.name).toBe("New");
   });
@@ -193,10 +195,7 @@ describe("patchGroup", () => {
 describe("replaceOptimisticGroup", () => {
   it("swaps the optimistic group with the real one", () => {
     const qc = new QueryClient();
-    qc.setQueryData<ConversationGroup[]>(
-      conversationGroupsQueryKey(ASSISTANT_ID),
-      [makeGroup("opt-1", "Temp")],
-    );
+    seedGroups(qc, [makeGroup("opt-1", "Temp")]);
     const real = makeGroup("real-1", "Real");
     replaceOptimisticGroup(qc, ASSISTANT_ID, "opt-1", real);
     expect(getGroups(qc)[0]).toEqual(real);
@@ -206,10 +205,7 @@ describe("replaceOptimisticGroup", () => {
 describe("removeGroup", () => {
   it("removes the matching group", () => {
     const qc = new QueryClient();
-    qc.setQueryData<ConversationGroup[]>(
-      conversationGroupsQueryKey(ASSISTANT_ID),
-      [makeGroup("g1", "A"), makeGroup("g2", "B")],
-    );
+    seedGroups(qc, [makeGroup("g1", "A"), makeGroup("g2", "B")]);
     removeGroup(qc, ASSISTANT_ID, "g1");
     expect(getGroups(qc).map((g) => g.id)).toEqual(["g2"]);
   });
@@ -222,10 +218,7 @@ describe("deleteGroupAndResetConversations", () => {
       makeConversation("a", { groupId: "g1" }),
       makeConversation("b", { groupId: "g2" }),
     ]);
-    qc.setQueryData<ConversationGroup[]>(
-      conversationGroupsQueryKey(ASSISTANT_ID),
-      [makeGroup("g1", "G1"), makeGroup("g2", "G2")],
-    );
+    seedGroups(qc, [makeGroup("g1", "G1"), makeGroup("g2", "G2")]);
     deleteGroupAndResetConversations(qc, ASSISTANT_ID, "g1");
     expect(getGroups(qc).map((g) => g.id)).toEqual(["g2"]);
     expect(getConversations(qc)[0]!.groupId).toBeUndefined();

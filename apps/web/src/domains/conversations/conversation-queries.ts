@@ -35,30 +35,43 @@ import {
   getChatContext,
 } from "@/domains/chat/api/assistant";
 import {
+  groupsGetOptions,
+  groupsGetQueryKey,
+} from "@/generated/daemon/@tanstack/react-query.gen";
+import type { Options } from "@/generated/daemon/sdk.gen";
+import type {
+  GroupsGetData,
+  GroupsGetResponse,
+} from "@/generated/daemon/types.gen";
+import {
   CONVERSATION_NOT_FOUND,
   type Conversation,
   type ConversationGroup,
   fetchConversationDetail,
-  fetchGroups,
 } from "@/lib/conversations-api";
+import {
+  CHAT_CONTEXT_QUERY_KEY,
+  chatContextQueryKey,
+} from "@/lib/sync/query-tags";
 
 // ---------------------------------------------------------------------------
 // Query keys
 // ---------------------------------------------------------------------------
 
-import {
-  CHAT_CONTEXT_QUERY_KEY,
-  CONVERSATION_GROUPS_QUERY_KEY,
-  chatContextQueryKey,
-  conversationGroupsQueryKey,
-} from "@/lib/sync/query-tags";
+export { CHAT_CONTEXT_QUERY_KEY, chatContextQueryKey };
 
-export {
-  CHAT_CONTEXT_QUERY_KEY,
-  CONVERSATION_GROUPS_QUERY_KEY,
-  chatContextQueryKey,
-  conversationGroupsQueryKey,
-};
+/**
+ * Build the generated query key for conversation groups. Exported so that
+ * invalidation call sites (sync stream, loader, group actions) can target
+ * the same cache entry that `useConversationGroupsQuery` populates.
+ */
+export function conversationGroupsQueryKey(
+  assistantId: string | null,
+): ReturnType<typeof groupsGetQueryKey> {
+  return groupsGetQueryKey({
+    path: { assistant_id: assistantId ?? "" },
+  } as Options<GroupsGetData>);
+}
 
 // ---------------------------------------------------------------------------
 // Queries
@@ -131,9 +144,10 @@ export function useConversationGroupsQuery(
   enabled: boolean = true,
 ): { conversationGroups: ConversationGroup[]; isLoading: boolean } {
   const query = useQuery({
-    queryKey: conversationGroupsQueryKey(assistantId),
-    queryFn: () =>
-      assistantId ? fetchGroups(assistantId) : Promise.resolve([]),
+    ...groupsGetOptions({
+      path: { assistant_id: assistantId ?? "" },
+    } as Options<GroupsGetData>),
+    select: (data) => data.groups,
     enabled: enabled && Boolean(assistantId),
     staleTime: QUERY_STALE_TIME_MS,
   });
@@ -348,12 +362,13 @@ function updateGroupsCache(
   assistantId: string | null,
   updater: (groups: ConversationGroup[]) => ConversationGroup[],
 ): void {
-  queryClient.setQueryData<ConversationGroup[]>(
+  queryClient.setQueryData<GroupsGetResponse>(
     conversationGroupsQueryKey(assistantId),
     (prev) => {
-      const list = prev ?? [];
+      const list = prev?.groups ?? [];
       const next = updater(list);
-      return next === list ? prev : next;
+      if (next === list) return prev;
+      return { ...prev, groups: next };
     },
   );
 }
