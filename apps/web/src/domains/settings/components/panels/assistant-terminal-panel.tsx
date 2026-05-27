@@ -2,7 +2,7 @@ import { Terminal } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Dropdown } from "@vellum/design-library/components/dropdown";
-import { TerminalPanel } from "@/domains/terminal/components/terminal-panel.js";
+import { TerminalPanel } from "@/components/terminal/terminal-panel.js";
 import type { MaintenanceMode } from "@/generated/api/types.gen.js";
 import { getAssistant } from "@/assistant/api.js";
 import { reportError } from "@/lib/errors/report.js";

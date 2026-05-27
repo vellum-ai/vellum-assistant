@@ -26,7 +26,7 @@ import {
   sortModifiers,
   type PTTActivator,
   type PTTModifier,
-} from "@/domains/voice/ptt-activator.js";
+} from "@/utils/ptt-activator.js";
 import { routes } from "@/utils/routes.js";
 
 const LS_CONVERSATION_TIMEOUT = "voice:conversationTimeoutSeconds";

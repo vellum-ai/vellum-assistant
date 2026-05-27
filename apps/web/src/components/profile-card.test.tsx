@@ -103,7 +103,7 @@ mock.module("@/domains/account/handle.js", () => ({
 }));
 
 const { ProfileCard } = await import(
-  "@/domains/settings/components/profile-card.js"
+  "@/components/profile-card.js"
 );
 
 // ---------------------------------------------------------------------------

@@ -186,32 +186,11 @@
   "src/domains/logs/components/usage-tab.tsx": [
     "chat"
   ],
-  "src/domains/settings/ai/ai-page.tsx": [
-    "voice"
-  ],
-  "src/domains/settings/components/panels/assistant-terminal-panel.tsx": [
-    "terminal"
-  ],
-  "src/domains/settings/components/panels/debug-controls-panel.tsx": [
-    "onboarding"
-  ],
-  "src/domains/settings/components/profile-card.test.tsx": [
-    "account"
-  ],
-  "src/domains/settings/components/profile-card.tsx": [
-    "account"
-  ],
-  "src/domains/settings/components/retire-assistant.tsx": [
-    "onboarding"
-  ],
   "src/domains/settings/components/risk-tolerance-settings.tsx": [
     "chat"
   ],
   "src/domains/settings/pages/archive-page.tsx": [
     "chat"
-  ],
-  "src/domains/settings/pages/voice-page.tsx": [
-    "voice"
   ],
   "src/domains/subagents/status-helpers.ts": [
     "chat"
