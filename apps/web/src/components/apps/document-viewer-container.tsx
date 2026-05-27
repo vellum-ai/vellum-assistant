@@ -2,7 +2,7 @@ import { ChevronDown, Download, FileText, Loader2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button, Menu, Typography } from "@vellum/design-library";
-import { exportDocumentPDF } from "@/lib/documents-api";
+import { documentsByIdPdfGet } from "@/generated/daemon/sdk.gen";
 
 export interface DocumentViewerContainerProps {
   documentName: string;
@@ -182,8 +182,13 @@ export function DocumentViewerContainer({
     }
     setIsExportingPDF(true);
     try {
-      const pdfBlob = await exportDocumentPDF(assistantId, surfaceId);
-      if (pdfBlob) {
+      const { response: pdfResponse } = await documentsByIdPdfGet({
+        path: { assistant_id: assistantId, id: surfaceId },
+        throwOnError: false,
+        parseAs: "stream",
+      });
+      if (pdfResponse && pdfResponse.ok) {
+        const pdfBlob = await pdfResponse.blob();
         downloadBlob(pdfBlob, sanitizeFilename(documentName) + ".pdf");
       }
     } finally {

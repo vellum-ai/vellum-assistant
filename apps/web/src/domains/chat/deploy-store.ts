@@ -18,9 +18,13 @@
 import { create } from "zustand";
 
 import { toast } from "@vellum/design-library";
-import { shareApp as shareAppApi } from "@/lib/apps-api";
-import { getVercelConfig, isCredentialError, publishApp } from "@/lib/publish-api";
+import {
+  appsByIdPublishPost,
+  integrationsVercelConfigGet,
+} from "@/generated/daemon/sdk.gen";
+import { isCredentialError } from "@/types/publish-types";
 import { createSelectors } from "@/utils/create-selectors";
+import { shareApp as shareAppApi } from "@/utils/share-app";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -125,12 +129,18 @@ const useDeployStoreBase = create<DeployStore>()((set, get) => ({
     }
     set({ isDeploying: true });
     try {
-      const config = await getVercelConfig(assistantId);
+      const { data: config } = await integrationsVercelConfigGet({
+        path: { assistant_id: assistantId },
+        throwOnError: true,
+      });
       if (!config.hasToken) {
         set({ isTokenDialogOpen: true, pendingDeployAppId: appId, isDeploying: false });
         return;
       }
-      const result = await publishApp(assistantId, appId);
+      const { data: result } = await appsByIdPublishPost({
+        path: { assistant_id: assistantId, id: appId },
+        throwOnError: true,
+      });
       if (!result.success) {
         if (isCredentialError(result)) {
           set({ isTokenDialogOpen: true, pendingDeployAppId: appId, isDeploying: false });
@@ -163,7 +173,10 @@ const useDeployStoreBase = create<DeployStore>()((set, get) => ({
     if (!pendingDeployAppId) return;
     set({ isDeploying: true });
     try {
-      const result = await publishApp(assistantId, pendingDeployAppId);
+      const { data: result } = await appsByIdPublishPost({
+        path: { assistant_id: assistantId, id: pendingDeployAppId },
+        throwOnError: true,
+      });
       if (!result.success) {
         toast.error("Failed to deploy", { description: result.error });
       } else if (result.publicUrl) {

@@ -17,11 +17,11 @@ import { getEditChatConversationId, setEditChatConversationId } from "@/domains/
 import { useViewerStore } from "@/stores/viewer-store";
 import { routes } from "@/utils/routes";
 import {
-  type DocumentContent,
-  exportDocumentPDF,
-  fetchDocumentContent,
-  linkDocumentConversation,
-} from "@/lib/documents-api";
+  documentsByIdConversationsPost,
+  documentsByIdGet,
+  documentsByIdPdfGet,
+} from "@/generated/daemon/sdk.gen";
+import type { DocumentContent } from "@/types/document-types";
 import { useDocumentCommentEvents } from "./hooks/use-document-comment-events";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import {
@@ -54,16 +54,12 @@ export function DocumentViewerPage() {
     let cancelled = false;
     void (async () => {
       try {
-        const result = await fetchDocumentContent(
-          assistantId,
-          surfaceId,
-        );
+        const { data: result } = await documentsByIdGet({
+          path: { assistant_id: assistantId, id: surfaceId },
+          throwOnError: true,
+        });
         if (cancelled) return;
-        if (!result) {
-          setError("Document not found.");
-        } else {
-          setDoc(result);
-        }
+        setDoc(result);
       } catch {
         if (!cancelled) {
           setError("Failed to load document.");
@@ -120,7 +116,11 @@ export function DocumentViewerPage() {
 
     if (conversationId !== doc.conversationId) {
       try {
-        await linkDocumentConversation(assistantId, surfaceId, conversationId);
+        await documentsByIdConversationsPost({
+          path: { assistant_id: assistantId, id: surfaceId },
+          body: { conversationId },
+          throwOnError: true,
+        });
       } catch {
         // Best-effort — fails if the daemon doesn't have the route yet.
       }
@@ -140,8 +140,13 @@ export function DocumentViewerPage() {
 
   const handleExport = useCallback(async () => {
     if (!doc || !assistantId) return;
-    const blob = await exportDocumentPDF(assistantId, doc.surfaceId);
-    if (!blob) return;
+    const { response: pdfResponse } = await documentsByIdPdfGet({
+      path: { assistant_id: assistantId, id: doc.surfaceId },
+      throwOnError: false,
+      parseAs: "stream",
+    });
+    if (!pdfResponse || !pdfResponse.ok) return;
+    const blob = await pdfResponse.blob();
     const url = URL.createObjectURL(blob);
     const a = Object.assign(document.createElement("a"), {
       href: url,

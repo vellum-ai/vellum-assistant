@@ -12,7 +12,7 @@
 import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors";
-import type { AppSummary } from "@/lib/apps-api";
+import type { AppSummary } from "@/types/app-types";
 import {
   loadPinnedApps,
   pinApp,

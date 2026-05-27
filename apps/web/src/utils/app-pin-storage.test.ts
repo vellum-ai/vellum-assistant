@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 
-import type { AppSummary } from "@/lib/apps-api";
+import type { AppSummary } from "@/types/app-types";
 import {
   isAppPinned,
   loadPinnedApps,

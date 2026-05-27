@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { client } from "@/generated/api/client.gen";
 import { AppCard } from "@/components/app-card";
-import { clearAppHtmlCache, getCachedAppHtml } from "@/lib/apps-api";
+import { clearAppHtmlCache, getCachedAppHtml } from "@/utils/app-html-cache";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import type { Surface } from "@/domains/chat/types/types";
 import { getDynamicPageAppId } from "@/domains/chat/components/surfaces/dynamic-page-app-id";

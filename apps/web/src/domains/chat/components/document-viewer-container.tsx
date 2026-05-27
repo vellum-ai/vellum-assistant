@@ -29,7 +29,7 @@ import { Button, Typography } from "@vellum/design-library";
 
 import type { DocumentComment } from "@/domains/chat/api/document-comments";
 import { createComment, fetchComments } from "@/domains/chat/api/document-comments";
-import { saveDocumentContent } from "@/lib/documents-api";
+import { documentsPost } from "@/generated/daemon/sdk.gen";
 import type { CommentAnchor } from "@/domains/chat/utils/tiptap-position-map";
 import {
   DocumentCommentPanel,
@@ -121,7 +121,12 @@ export function DocumentViewerContainer({
       if (savedFadeRef.current) clearTimeout(savedFadeRef.current);
       setSaveStatus("saving");
       saveTimerRef.current = setTimeout(() => {
-        void saveDocumentContent(assistantId, surfaceId, conversationId, documentName, markdown).then(
+        const wordCount = markdown.trim().split(/\s+/).filter((w) => w.length > 0).length;
+        void documentsPost({
+          path: { assistant_id: assistantId },
+          body: { surfaceId, conversationId, title: documentName, content: markdown, wordCount },
+          throwOnError: true,
+        }).then(
           () => {
             setSaveStatus("saved");
             savedFadeRef.current = setTimeout(() => setSaveStatus("idle"), 2000);

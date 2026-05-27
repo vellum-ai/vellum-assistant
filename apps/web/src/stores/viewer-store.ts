@@ -22,8 +22,8 @@
 import * as Sentry from "@sentry/react";
 import { create } from "zustand";
 
-import { openApp, primeAppHtmlCache } from "@/lib/apps-api";
-import { fetchDocumentContent } from "@/lib/documents-api";
+import { appsByIdOpenPost, documentsByIdGet } from "@/generated/daemon/sdk.gen";
+import { primeAppHtmlCache } from "@/utils/app-html-cache";
 import { createSelectors } from "@/utils/create-selectors";
 
 // ---------------------------------------------------------------------------
@@ -159,7 +159,10 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
       isAppMinimized: false,
     });
     try {
-      const result = await openApp(assistantId, appId);
+      const { data: result } = await appsByIdOpenPost({
+        path: { assistant_id: assistantId, id: appId },
+        throwOnError: true,
+      });
       if (get().activeAppId !== appId) return;
       const app = { appId: result.appId, dirName: result.dirName, name: result.name, html: result.html };
       set({ openedAppState: app });
@@ -268,7 +271,10 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
       viewBeforeDocument,
     });
     try {
-      const result = await fetchDocumentContent(assistantId, documentSurfaceId);
+      const { data: result } = await documentsByIdGet({
+        path: { assistant_id: assistantId, id: documentSurfaceId },
+        throwOnError: true,
+      });
       if (get().activeDocumentSurfaceId !== documentSurfaceId) return;
       if (!result) {
         set({ mainView: viewBeforeDocument, activeDocumentSurfaceId: null, openedDocumentState: null });

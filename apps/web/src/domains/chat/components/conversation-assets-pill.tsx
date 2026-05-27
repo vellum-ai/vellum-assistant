@@ -1,5 +1,6 @@
 import { AppWindow, FileText, Layers } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   BottomSheet,
@@ -9,12 +10,15 @@ import {
   Typography,
 } from "@vellum/design-library";
 
-import { useIsMobile } from "@/hooks/use-is-mobile";
-import { listApps, type AppSummary } from "@/lib/apps-api";
 import {
-  listDocuments,
-  type DocumentSummary,
-} from "@/lib/documents-api";
+  appsGetOptions,
+  appsGetQueryKey,
+  documentsGetOptions,
+  documentsGetQueryKey,
+} from "@/generated/daemon/@tanstack/react-query.gen";
+import { useIsMobile } from "@/hooks/use-is-mobile";
+import type { AppSummary } from "@/types/app-types";
+import type { DocumentSummary } from "@/types/document-types";
 
 interface ConversationAsset {
   id: string;
@@ -57,11 +61,6 @@ function toAssets(
   return assets;
 }
 
-interface AssetsState {
-  conversationId: string;
-  assets: ConversationAsset[];
-}
-
 export function ConversationAssetsPill({
   assistantId,
   conversationId,
@@ -69,38 +68,39 @@ export function ConversationAssetsPill({
   onOpenApp,
   onOpenDocument,
 }: ConversationAssetsPillProps) {
-  const [state, setState] = useState<AssetsState>({
-    conversationId,
-    assets: [],
+  const queryClient = useQueryClient();
+  const appsQueryOpts = appsGetOptions({
+    path: { assistant_id: assistantId },
+    query: { conversationId },
   });
-  const [open, setOpen] = useState(false);
-  const isMobile = useIsMobile();
+  const docsQueryOpts = documentsGetOptions({
+    path: { assistant_id: assistantId },
+    query: { conversationId },
+  });
 
-  const assets =
-    state.conversationId === conversationId ? state.assets : [];
+  const { data: apps = [] } = useQuery({
+    ...appsQueryOpts,
+    select: (data) => data.apps,
+  });
+  const { data: docs = [] } = useQuery({
+    ...docsQueryOpts,
+    select: (data) => data.documents,
+  });
 
   useEffect(() => {
-    let cancelled = false;
+    if (refreshKey === undefined) return;
+    void queryClient.invalidateQueries({
+      queryKey: appsGetQueryKey({ path: { assistant_id: assistantId }, query: { conversationId } }),
+    });
+    void queryClient.invalidateQueries({
+      queryKey: documentsGetQueryKey({ path: { assistant_id: assistantId }, query: { conversationId } }),
+    });
+  }, [refreshKey, queryClient, assistantId, conversationId]);
 
-    async function fetchAssets() {
-      try {
-        const [apps, docs] = await Promise.all([
-          listApps(assistantId, conversationId),
-          listDocuments(assistantId, conversationId),
-        ]);
-        if (!cancelled) {
-          setState({ conversationId, assets: toAssets(apps, docs) });
-        }
-      } catch {
-        // Best-effort — don't break the UI if the endpoints aren't available
-      }
-    }
+  const assets = useMemo(() => toAssets(apps, docs), [apps, docs]);
 
-    fetchAssets();
-    return () => {
-      cancelled = true;
-    };
-  }, [assistantId, conversationId, refreshKey]);
+  const [open, setOpen] = useState(false);
+  const isMobile = useIsMobile();
 
   const handleSelect = useCallback(
     (asset: ConversationAsset) => {

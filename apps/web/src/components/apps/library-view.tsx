@@ -10,22 +10,26 @@ import {
   Trash2,
   Upload,
 } from "lucide-react";
-import { type ChangeEvent, type MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, type MouseEvent, useCallback, useMemo, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-import type { AppSummary } from "@/lib/apps-api";
-import type { DocumentSummary } from "@/lib/documents-api";
-import { ApiError } from "@/lib/api-errors";
 import {
-  deleteApp,
-  getCachedAppHtml,
-  importBundle,
-  listApps,
-  openApp,
-  primeAppHtmlCache,
-  shareApp,
-} from "@/lib/apps-api";
-import { listDocuments } from "@/lib/documents-api";
-import { getVercelConfig, isCredentialError, publishApp } from "@/lib/publish-api";
+  appsByIdDeletePost,
+  appsByIdOpenPost,
+  appsByIdPublishPost,
+  integrationsVercelConfigGet,
+} from "@/generated/daemon/sdk.gen";
+import {
+  appsGetOptions,
+  appsGetQueryKey,
+  documentsGetOptions,
+} from "@/generated/daemon/@tanstack/react-query.gen";
+import type { AppSummary } from "@/types/app-types";
+import type { DocumentSummary } from "@/types/document-types";
+import { isCredentialError } from "@/types/publish-types";
+import { getCachedAppHtml, primeAppHtmlCache } from "@/utils/app-html-cache";
+import { importBundle } from "@/utils/import-bundle";
+import { shareApp } from "@/utils/share-app";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
 import { AppPreviewThumbnail } from "@/components/app-card";
@@ -237,10 +241,20 @@ export function LibraryView({
   const deployToVercel = useAssistantFeatureFlagStore.use.deployToVercel();
   const pinnedAppIds = usePinnedAppsStore.use.pinnedAppIds();
   const togglePin = usePinnedAppsStore.use.togglePin();
-  const [apps, setApps] = useState<AppSummary[]>([]);
-  const [documents, setDocuments] = useState<DocumentSummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+
+  const { data: apps = [], isLoading: appsLoading, error: appsError } = useQuery({
+    ...appsGetOptions({ path: { assistant_id: assistantId } }),
+    select: (data) => data.apps,
+  });
+  const { data: documents = [], isLoading: docsLoading, error: docsError } = useQuery({
+    ...documentsGetOptions({ path: { assistant_id: assistantId } }),
+    select: (data) => data.documents,
+  });
+  const loading = appsLoading || docsLoading;
+  const error = appsError && docsError
+    ? (appsError instanceof Error ? appsError.message : "Failed to load library")
+    : null;
   const [searchText, setSearchText] = useState("");
 
   const [openedApp, setOpenedApp] = useState<{
@@ -262,55 +276,6 @@ export function LibraryView({
   const [showTokenDialog, setShowTokenDialog] = useState(false);
   const [pendingDeployAppId, setPendingDeployAppId] = useState<string | null>(null);
   const [complexDeployApp, setComplexDeployApp] = useState<{ appId: string; name: string } | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function fetchLibrary() {
-      try {
-        setLoading(true);
-        setError(null);
-        const [appsResult, docsResult] = await Promise.allSettled([
-          listApps(assistantId),
-          listDocuments(assistantId),
-        ]);
-        if (!cancelled) {
-          if (appsResult.status === "fulfilled") {
-            setApps(appsResult.value);
-          }
-          if (docsResult.status === "fulfilled") {
-            setDocuments(docsResult.value);
-          }
-          if (
-            appsResult.status === "rejected" &&
-            docsResult.status === "rejected"
-          ) {
-            const isNotFound = (r: PromiseRejectedResult) =>
-              r.reason instanceof ApiError && r.reason.status === 404;
-            if (isNotFound(appsResult) && isNotFound(docsResult)) {
-              setApps([]);
-              setDocuments([]);
-            } else {
-              throw appsResult.reason;
-            }
-          }
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(
-            err instanceof Error ? err.message : "Failed to load library",
-          );
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    void fetchLibrary();
-    return () => {
-      cancelled = true;
-    };
-  }, [assistantId]);
 
   const filteredApps = useMemo(() => {
     if (!searchText.trim()) return apps;
@@ -351,7 +316,10 @@ export function LibraryView({
       if (openingAppId) return;
       setOpeningAppId(appId);
       try {
-        const result = await openApp(assistantId, appId);
+        const { data: result } = await appsByIdOpenPost({
+          path: { assistant_id: assistantId, id: appId },
+          throwOnError: true,
+        });
         primeAppHtmlCache(assistantId, result.appId, result.html);
         setOpenedApp({ appId: result.appId, dirName: result.dirName, name: result.name, html: result.html });
       } catch (err) {
@@ -396,14 +364,20 @@ export function LibraryView({
     }
     setIsDeploying(true);
     try {
-      const config = await getVercelConfig(assistantId);
+      const { data: config } = await integrationsVercelConfigGet({
+        path: { assistant_id: assistantId },
+        throwOnError: true,
+      });
       if (!config.hasToken) {
         setPendingDeployAppId(appId);
         setShowTokenDialog(true);
         setIsDeploying(false);
         return;
       }
-      const result = await publishApp(assistantId, appId);
+      const { data: result } = await appsByIdPublishPost({
+        path: { assistant_id: assistantId, id: appId },
+        throwOnError: true,
+      });
       if (!result.success) {
         if (isCredentialError(result)) {
           setPendingDeployAppId(appId);
@@ -438,7 +412,10 @@ export function LibraryView({
     if (!appId) return;
     setIsDeploying(true);
     try {
-      const result = await publishApp(assistantId, appId);
+      const { data: result } = await appsByIdPublishPost({
+        path: { assistant_id: assistantId, id: appId },
+        throwOnError: true,
+      });
       if (!result.success) {
         toast.error("Failed to deploy", { description: result.error });
       } else if (result.publicUrl) {
@@ -468,8 +445,11 @@ export function LibraryView({
     if (!target || isDeleting) return;
     setIsDeleting(true);
     try {
-      await deleteApp(assistantId, target.id);
-      setApps((prev) => prev.filter((a) => a.id !== target.id));
+      await appsByIdDeletePost({
+        path: { assistant_id: assistantId, id: target.id },
+        throwOnError: true,
+      });
+      void queryClient.invalidateQueries({ queryKey: appsGetQueryKey({ path: { assistant_id: assistantId } }) });
       if (pinnedAppIds.has(target.id)) {
         togglePin(target);
       }
@@ -489,11 +469,13 @@ export function LibraryView({
     setIsImporting(true);
     try {
       const result = await importBundle(assistantId, file);
-      const updatedApps = await listApps(assistantId);
-      setApps(updatedApps);
+      await queryClient.invalidateQueries({ queryKey: appsGetQueryKey({ path: { assistant_id: assistantId } }) });
       setLastImportedAppId(result.appId);
       try {
-        const appResult = await openApp(assistantId, result.appId);
+        const { data: appResult } = await appsByIdOpenPost({
+          path: { assistant_id: assistantId, id: result.appId },
+          throwOnError: true,
+        });
         primeAppHtmlCache(assistantId, appResult.appId, appResult.html);
         setOpenedApp({ appId: appResult.appId, dirName: appResult.dirName, name: appResult.name, html: appResult.html });
         setLastImportedAppId(null);
