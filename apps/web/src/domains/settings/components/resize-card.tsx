@@ -407,7 +407,7 @@ export function ResizeCard({
             <div className="flex flex-col gap-3">
               {allowedSizes.length === 0 ? (
                 <Notice tone="warning">
-                  No machine tier configured. Contact support.
+                  No machine tier configured. Visit the community for help.
                 </Notice>
               ) : (
                 <div className="flex flex-col gap-1.5">

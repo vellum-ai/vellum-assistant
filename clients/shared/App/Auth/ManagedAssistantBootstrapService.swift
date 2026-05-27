@@ -32,7 +32,7 @@ public enum ManagedBootstrapError: LocalizedError, Sendable {
         case .unexpectedResponse(let message):
             return "Unexpected response format: \(message)"
         case .multipleOrganizations:
-            return "Multiple organizations found. Multi-org support is not yet available — please contact support."
+            return "Multiple organizations found. Multi-org support is not yet available — visit vellum.ai/community for help."
         case .accessRevoked(let id):
             return "Access to assistant \(id) has been revoked. Please sign out and sign in again to set up a new assistant."
         }

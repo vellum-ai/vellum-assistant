@@ -39,7 +39,8 @@ function LoginCard({ children }: { children: ReactNode }) {
 }
 
 const AUTH_ERROR_MESSAGES: Record<string, string> = {
-  signup_closed: "Sign-ups are currently closed. Please contact support.",
+  signup_closed:
+    "Sign-ups are currently closed. Visit vellum.ai/community to request access.",
 };
 
 /**

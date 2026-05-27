@@ -32,7 +32,7 @@ public enum LocalBootstrapError: LocalizedError, Sendable {
         case .assistantInjectionFailed:
             return "Failed to inject API key into the assistant"
         case .multipleOrganizations:
-            return "Multiple organizations found. Multi-org support is not yet available — please contact support."
+            return "Multiple organizations found. Multi-org support is not yet available — visit vellum.ai/community for help."
         case .existingRegistrationConflict(let existing, _):
             let label = existing.name ?? existing.id
             return "Another local assistant (\(label)) is already registered to your account."
