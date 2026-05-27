@@ -1,6 +1,8 @@
 import { connect, type Socket } from "node:net";
 
 import { refreshOverridesFromGateway } from "../config/assistant-feature-flags.js";
+import { SYNC_TAGS } from "../daemon/message-types/sync.js";
+import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { getLogger } from "../util/logger.js";
 import { resolveIpcSocketPath } from "./socket-path.js";
 
@@ -29,6 +31,16 @@ function handleData(chunk: Buffer): void {
         log.info("Received feature_flags_changed event — refreshing overrides");
         refreshOverridesFromGateway().catch((err) => {
           log.warn({ err }, "Failed to refresh feature flag overrides");
+        });
+        // Fan out to every connected web client so React Query caches
+        // for `/v1/feature-flags/client-flag-values/` and
+        // `/v1/assistants/:id/feature-flags` invalidate immediately
+        // instead of waiting on a 5s polling tick.
+        publishSyncInvalidation([
+          SYNC_TAGS.featureFlagsClient,
+          SYNC_TAGS.featureFlagsAssistant,
+        ]).catch((err) => {
+          log.warn({ err }, "Failed to broadcast feature-flags sync_changed");
         });
       }
     } catch {

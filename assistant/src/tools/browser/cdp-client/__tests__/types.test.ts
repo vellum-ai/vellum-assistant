@@ -89,6 +89,9 @@ describe("cdp-client re-exports", () => {
         },
         dispose: () => {},
         setCdpSessionId: () => {},
+        listTabs: async () => [],
+        selectTab: async (_tabId: number) => ({ tabId: _tabId }),
+        closeTab: async (_tabId: number) => ({ closed: true as const, tabId: _tabId }),
       };
       expect(scoped.kind).toBe(kind);
       expect(scoped.conversationId).toBe("conv-123");

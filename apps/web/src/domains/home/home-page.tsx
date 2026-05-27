@@ -1,15 +1,15 @@
 import { useCallback, useState } from "react";
 
 import { ResizablePanel } from "@vellum/design-library";
-import { useAssistantAvatar } from "@/domains/avatar/use-assistant-avatar.js";
-import { useIsMobile } from "@/hooks/use-is-mobile.js";
-import { HomeDetailPanel } from "./detail-panel/home-detail-panel.js";
-import { HomeFeedList } from "./home-feed-list.js";
-import { HomeGreetingHeader } from "./home-greeting-header.js";
-import { HomeSuggestionPillBar } from "./home-suggestion-pill-bar.js";
-import { useHomeFeedQuery } from "./hooks/use-home-feed-query.js";
-import { useHomeStateQuery } from "./hooks/use-home-state-query.js";
-import type { FeedItem, FeedItemStatus, SuggestedPrompt } from "./types.js";
+import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
+import { useIsMobile } from "@/hooks/use-is-mobile";
+import { HomeDetailPanel } from "./detail-panel/home-detail-panel";
+import { HomeFeedList } from "./home-feed-list";
+import { HomeGreetingHeader } from "./home-greeting-header";
+import { HomeSuggestionPillBar } from "./home-suggestion-pill-bar";
+import { useHomeFeedQuery } from "./hooks/use-home-feed-query";
+import { useHomeStateQuery } from "./hooks/use-home-state-query";
+import type { FeedItem, FeedItemStatus, SuggestedPrompt } from "./types";
 
 function HomePageSkeleton() {
   return (
@@ -42,6 +42,7 @@ function HomePageSkeleton() {
 
 export interface HomePageProps {
   assistantId: string;
+  validConversationIds: Set<string>;
   onStartNewChat: () => void;
   onOpenConversation: (conversationId: string) => void;
   onSuggestionSelected: (prompt: string) => void;
@@ -49,6 +50,7 @@ export interface HomePageProps {
 
 export function HomePage({
   assistantId,
+  validConversationIds,
   onStartNewChat,
   onOpenConversation,
   onSuggestionSelected,
@@ -130,6 +132,7 @@ export function HomePage({
         avatarTraits={avatar.traits}
         avatarImageUrl={avatar.customImageUrl}
         greeting={feedQuery.data?.contextBanner?.greeting}
+        isMobile={isMobile}
         onStartNewChat={onStartNewChat}
       />
       {feedQuery.isError ? (
@@ -145,22 +148,36 @@ export function HomePage({
       ) : null}
       <HomeSuggestionPillBar
         suggestions={feedQuery.data?.suggestedPrompts ?? []}
+        maxVisible={isMobile ? 2 : 3}
         onSelect={handleSuggestionSelect}
       />
       <HomeFeedList
         items={feedQuery.data?.items ?? []}
+        validConversationIds={validConversationIds}
         onSelectItem={handleSelectItem}
         onDismissItem={handleDismissItem}
         onRestoreItem={handleRestoreItem}
+        onToggleRead={handleUpdateStatus}
+        onGoToThread={handleGoToThread}
       />
     </>
   );
 
   if (selectedItem && isMobile) {
     return (
-      <div className="fixed inset-x-0 bottom-0 z-30 h-[100dvh]">
+      <div
+        className="fixed inset-0 z-30 bg-[var(--surface-overlay)]"
+        style={{
+          paddingTop:
+            "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))",
+          paddingBottom:
+            "var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))",
+        }}
+      >
         <HomeDetailPanel
           item={selectedItem}
+          isMobile
+          validConversationIds={validConversationIds}
           onClose={handleCloseDetail}
           onGoToThread={handleGoToThread}
           onUpdateStatus={handleUpdateStatus}
@@ -185,6 +202,7 @@ export function HomePage({
         right={
           <HomeDetailPanel
             item={selectedItem}
+            validConversationIds={validConversationIds}
             onClose={handleCloseDetail}
             onGoToThread={handleGoToThread}
             onUpdateStatus={handleUpdateStatus}

@@ -4,7 +4,8 @@
  * and the CDN build can import them.
  */
 
-import type { ChatMessageToolCall } from "@/domains/chat/api/event-types.js";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import type { SlackMessageLink } from "@/utils/slack-message-link";
 
 /** Display metadata for a file attachment (user-uploaded or assistant-generated),
  *  used to render the chip inside a message bubble. For live sessions, populated
@@ -20,30 +21,8 @@ export interface DisplayAttachment {
   previewUrl: string | null;
 }
 
-export interface SlackMessageLink {
-  appUrl?: string;
-  webUrl?: string;
-}
-
-export function parseSlackMessageLink(
-  raw: unknown,
-): SlackMessageLink | undefined {
-  if (!raw || typeof raw !== "object") return undefined;
-
-  const record = raw as Record<string, unknown>;
-  const link = {
-    appUrl: typeof record.appUrl === "string" ? record.appUrl : undefined,
-    webUrl: typeof record.webUrl === "string" ? record.webUrl : undefined,
-  };
-
-  return link.appUrl || link.webUrl ? link : undefined;
-}
-
-export function getSlackLinkUrl(
-  link: SlackMessageLink | null | undefined,
-): string | undefined {
-  return link?.webUrl ?? link?.appUrl;
-}
+export type { SlackMessageLink } from "@/utils/slack-message-link";
+export { parseSlackMessageLink, getSlackLinkUrl } from "@/utils/slack-message-link";
 
 export interface SlackMessageSender {
   id?: string;
@@ -66,17 +45,27 @@ export interface SlackRuntimeMessage {
 }
 
 export interface DisplayMessage {
-  /** Stable client-side identity that survives optimistic send →
-   *  server reconciliation. Assigned at message creation; never mutated.
-   *  Used as the row key in the virtualized transcript so a message never
-   *  remounts when the server assigns or rewrites its `id`. */
-  stableId: string;
   /**
-   * Concrete persisted assistant row id for row-scoped actions such as fork.
-   * `id` is the display bubble id and can differ for merged tool turns.
+   * Row identity. Server-assigned message id for confirmed rows; a
+   * client-generated identifier for rows that haven't been confirmed by
+   * the server yet (optimistic user sends, assistant rows born from a
+   * tool/surface SSE event that didn't carry `messageId`). Used as the
+   * row key in the virtualized transcript and as the match key in
+   * reconcile. For assistant turns the server merges across multiple DB
+   * rows, this is the display anchor — server-side actions (fork,
+   * inspect) accept this id and resolve the merged cluster internally.
    */
-  daemonMessageId?: string;
-  id?: string;
+  id: string;
+  /**
+   * True when `id` is a client-generated placeholder rather than a
+   * server-assigned id. Set on optimistic user sends and on assistant
+   * rows born from SSE events that didn't carry `messageId`. Reconcile
+   * uses this as the signal that the row's id can't be matched against
+   * the server snapshot directly; optimistic user rows get a content
+   * match + id swap, optimistic assistant rows are preserved as-is until
+   * a subsequent SSE event or history fetch resolves them.
+   */
+  isOptimistic?: boolean;
   role: "user" | "assistant";
   content: string;
   isStreaming?: boolean;

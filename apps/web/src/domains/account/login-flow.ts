@@ -1,14 +1,36 @@
-import { sanitizeReturnTo } from "@/domains/account/return-to.js";
-import { routes } from "@/utils/routes.js";
+import { sanitizeReturnTo } from "@/domains/account/return-to";
+import { routes } from "@/utils/routes";
 
 export const PROVIDER_ID = "workos-oidc";
 export const PROVIDER_CALLBACK_URL = routes.account.providerCallback;
+export type AuthCallbackIntent = "login" | "signup";
 
-export function buildProviderCallbackUrl(returnTo: string | null): string {
-  if (!returnTo) {
+const AUTH_INTENT_QUERY_PARAM = "authIntent";
+
+export function buildProviderCallbackUrl(
+  returnTo: string | null,
+  options: { authIntent?: AuthCallbackIntent } = {},
+): string {
+  const params = new URLSearchParams();
+  if (returnTo) {
+    params.set("returnTo", returnTo);
+  }
+  if (options.authIntent) {
+    params.set(AUTH_INTENT_QUERY_PARAM, options.authIntent);
+  }
+  const qs = params.toString();
+  if (!qs) {
     return PROVIDER_CALLBACK_URL;
   }
-  return `${PROVIDER_CALLBACK_URL}?returnTo=${encodeURIComponent(returnTo)}`;
+  return `${PROVIDER_CALLBACK_URL}?${qs}`;
+}
+
+export function readAuthCallbackIntent(
+  searchParams: URLSearchParams,
+): AuthCallbackIntent {
+  return searchParams.get(AUTH_INTENT_QUERY_PARAM) === "signup"
+    ? "signup"
+    : "login";
 }
 
 export function requiresFullPageNavigation(destination: string): boolean {
@@ -32,4 +54,25 @@ export function resolvePostLoginDestination(
     destination,
     requiresFullPageNavigation: requiresFullPageNavigation(destination),
   };
+}
+
+export function resolvePostAuthDestination({
+  returnTo,
+  fallback,
+  authIntent,
+}: {
+  returnTo: string | null;
+  fallback: string;
+  authIntent: AuthCallbackIntent;
+}): {
+  destination: string;
+  requiresFullPageNavigation: boolean;
+} {
+  if (authIntent === "signup") {
+    return {
+      destination: routes.onboarding.privacy,
+      requiresFullPageNavigation: false,
+    };
+  }
+  return resolvePostLoginDestination(returnTo, fallback);
 }

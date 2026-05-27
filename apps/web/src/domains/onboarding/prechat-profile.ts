@@ -1,10 +1,10 @@
-import { client } from "@/generated/api/client.gen.js";
-import { assertHasResponse } from "@/lib/api-errors.js";
+import { client } from "@/generated/api/client.gen";
+import { assertHasResponse } from "@/lib/api-errors";
 import {
   type PreChatOnboardingContext,
   type PreChatOnboardingProfileFields,
   preChatOnboardingProfileFields,
-} from "@/domains/onboarding/prechat.js";
+} from "@/domains/onboarding/prechat";
 
 export const PRECHAT_PROFILE_PATHS = [
   "users/guardian.md",

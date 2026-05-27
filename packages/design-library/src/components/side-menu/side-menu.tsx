@@ -1,17 +1,20 @@
 import type { LucideIcon } from "lucide-react";
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
   type ComponentProps,
   type MouseEvent,
+  type PointerEvent,
   type ReactNode,
   type Ref,
 } from "react";
 
-import { Typography } from "../typography.js";
-import { cn } from "../../utils/cn.js";
+import { Typography } from "../typography";
+import { cn } from "../../utils/cn";
 
 /**
  * SideMenu primitive — a docked application navigation rail.
@@ -77,6 +80,11 @@ function isCollapsedRail(ctx: SideMenuContextValue): boolean {
 // Root
 // ---------------------------------------------------------------------------
 
+export const SIDE_MENU_DEFAULT_WIDTH = 230;
+export const SIDE_MENU_COLLAPSED_WIDTH = 48;
+export const SIDE_MENU_MIN_WIDTH = 220;
+export const SIDE_MENU_MAX_WIDTH = 400;
+
 export interface SideMenuProps extends ComponentProps<"nav"> {
   /** Ignored when `variant="overlay"`. */
   collapsed?: boolean;
@@ -84,6 +92,12 @@ export interface SideMenuProps extends ComponentProps<"nav"> {
   variant?: SideMenuVariant;
   /** Required for the `navigation` landmark role. */
   ariaLabel: string;
+  /** Custom width in pixels (rail variant only). Ignored when collapsed. */
+  width?: number;
+  /** Called after drag-resize with the new width. */
+  onWidthChange?: (width: number) => void;
+  minWidth?: number;
+  maxWidth?: number;
   ref?: Ref<HTMLElement>;
 }
 
@@ -107,6 +121,11 @@ const ROOT_RAIL_COLLAPSED_CLASSES = [
   "pt-4 px-2 pb-2",
 ].join(" ");
 
+const ROOT_RAIL_RESIZABLE_CLASSES = [
+  "rounded-[12px]",
+  "pt-4 px-4 pb-2",
+].join(" ");
+
 const ROOT_OVERLAY_CLASSES = [
   "w-full",
   "rounded-none",
@@ -116,9 +135,10 @@ const ROOT_OVERLAY_CLASSES = [
 const RAIL_TRANSITION_MS = 150;
 const ROOT_RAIL_TRANSITION = "transition-[width,padding] duration-[150ms] ease-in-out";
 
-function rootChromeClasses(variant: SideMenuVariant, collapsed: boolean): string {
+function rootChromeClasses(variant: SideMenuVariant, collapsed: boolean, resizable: boolean): string {
   if (variant === "overlay") return ROOT_OVERLAY_CLASSES;
-  const rail = collapsed ? ROOT_RAIL_COLLAPSED_CLASSES : ROOT_RAIL_EXPANDED_CLASSES;
+  if (collapsed) return cn(ROOT_RAIL_COLLAPSED_CLASSES, ROOT_RAIL_TRANSITION);
+  const rail = resizable ? ROOT_RAIL_RESIZABLE_CLASSES : ROOT_RAIL_EXPANDED_CLASSES;
   return cn(rail, ROOT_RAIL_TRANSITION);
 }
 
@@ -126,12 +146,19 @@ function SideMenuRoot({
   ariaLabel,
   collapsed = false,
   variant = "rail",
+  width,
+  onWidthChange,
+  minWidth = SIDE_MENU_MIN_WIDTH,
+  maxWidth = SIDE_MENU_MAX_WIDTH,
   className,
   children,
   ref,
+  style,
   ...rest
 }: SideMenuProps) {
   const effectiveCollapsed = variant === "overlay" ? false : collapsed;
+  const resizable = variant === "rail" && onWidthChange != null;
+  const showResizeHandle = resizable && !effectiveCollapsed;
 
   const [contentCollapsed, setContentCollapsed] = useState(effectiveCollapsed);
   if (!effectiveCollapsed && contentCollapsed) {
@@ -142,6 +169,75 @@ function SideMenuRoot({
     const id = setTimeout(() => setContentCollapsed(true), RAIL_TRANSITION_MS);
     return () => clearTimeout(id);
   }, [effectiveCollapsed]);
+
+  const dragRef = useRef<{
+    nav: HTMLElement;
+    startX: number;
+    startWidth: number;
+  } | null>(null);
+
+  const handleResizePointerDown = useCallback(
+    (e: PointerEvent<HTMLDivElement>) => {
+      if (!onWidthChange) return;
+      e.preventDefault();
+      e.currentTarget.setPointerCapture(e.pointerId);
+      const nav = e.currentTarget.closest(
+        '[data-slot="side-menu"]',
+      ) as HTMLElement | null;
+      if (!nav) return;
+      dragRef.current = {
+        nav,
+        startX: e.clientX,
+        startWidth: nav.getBoundingClientRect().width,
+      };
+      nav.style.transition = "none";
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+    },
+    [onWidthChange],
+  );
+
+  const handleResizePointerMove = useCallback(
+    (e: PointerEvent<HTMLDivElement>) => {
+      const drag = dragRef.current;
+      if (!drag) return;
+      const delta = e.clientX - drag.startX;
+      const next = Math.min(maxWidth, Math.max(minWidth, drag.startWidth + delta));
+      drag.nav.style.width = `${next}px`;
+    },
+    [minWidth, maxWidth],
+  );
+
+  const handleResizeEnd = useCallback(
+    (e: PointerEvent<HTMLDivElement>) => {
+      const drag = dragRef.current;
+      if (!drag) return;
+      e.currentTarget.releasePointerCapture(e.pointerId);
+      dragRef.current = null;
+      drag.nav.style.transition = "";
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      const delta = e.clientX - drag.startX;
+      const finalWidth = Math.min(maxWidth, Math.max(minWidth, drag.startWidth + delta));
+      onWidthChange?.(finalWidth);
+    },
+    [onWidthChange, minWidth, maxWidth],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (dragRef.current) {
+        dragRef.current = null;
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+      }
+    };
+  }, []);
+
+  const widthStyle =
+    resizable && !effectiveCollapsed && width != null
+      ? { ...style, width }
+      : style;
 
   return (
     <SideMenuContext
@@ -154,12 +250,27 @@ function SideMenuRoot({
         aria-label={ariaLabel}
         className={cn(
           ROOT_BASE_CLASSES,
-          rootChromeClasses(variant, effectiveCollapsed),
+          showResizeHandle && "relative",
+          rootChromeClasses(variant, effectiveCollapsed, resizable),
           className,
         )}
+        style={widthStyle}
         {...rest}
       >
         {children}
+        {showResizeHandle ? (
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            className="absolute right-0 top-0 bottom-0 z-10 w-[6px] cursor-col-resize group/resize"
+            onPointerDown={handleResizePointerDown}
+            onPointerMove={handleResizePointerMove}
+            onPointerUp={handleResizeEnd}
+            onPointerCancel={handleResizeEnd}
+          >
+            <div className="pointer-events-none absolute right-0 top-2 bottom-2 w-[2px] rounded-full bg-[var(--content-tertiary)] opacity-0 transition-opacity group-hover/resize:opacity-100" />
+          </div>
+        ) : null}
       </nav>
     </SideMenuContext>
   );

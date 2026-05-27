@@ -8,7 +8,7 @@ import { Card } from "@vellum/design-library/components/card";
 import { Notice } from "@vellum/design-library/components/notice";
 import { toast } from "@vellum/design-library/components/toast";
 import { Typography } from "@vellum/design-library/components/typography";
-import { referralCodesMeRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen.js";
+import { referralCodesMeRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
 
 /** Anchor ID on the referral panel so external links can scroll to it. */
 const REFERRAL_PANEL_ANCHOR_ID = "settings-referral-panel";

@@ -31,11 +31,7 @@ const fakeTool = {
   description: "Run a shell command",
   category: "shell",
   defaultRiskLevel: "high",
-  getDefinition: () => ({
-    name: "bash",
-    description: "Run a shell command",
-    input_schema: {},
-  }),
+  input_schema: {},
   execute: async () => ({ content: "ok", isError: false }),
 };
 
@@ -57,7 +53,6 @@ mock.module("../notifications/emit-signal.js", () => ({
       deliveryResults: [],
     };
   },
-  registerBroadcastFn: () => {},
 }));
 
 // Mock channel guardian service — provide a guardian binding for 'self' + 'telegram'

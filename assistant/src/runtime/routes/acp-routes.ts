@@ -8,6 +8,7 @@ import { desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getAcpSessionManager } from "../../acp/index.js";
+import { prepareAgentEnv } from "../../acp/prepare-agent-env.js";
 import { resolveAcpAgent } from "../../acp/resolve-agent.js";
 import type { AcpSessionState } from "../../acp/types.js";
 import { getDb } from "../../memory/db-connection.js";
@@ -81,6 +82,12 @@ async function spawnSession({ body }: RouteHandlerArgs) {
     }
   }
 
+  // Inject required env vars and preflight via the shared helper. See
+  // `acp/prepare-agent-env.ts` for the full rationale; calling it here
+  // keeps the HTTP route in lockstep with the skill-tool spawn path
+  // (`tools/acp/spawn.ts`).
+  const agentConfig = await prepareAgentEnv(resolved.agent);
+
   log.info(
     { agent, task: task.slice(0, 100), conversationId },
     "ACP spawn request received",
@@ -89,7 +96,7 @@ async function spawnSession({ body }: RouteHandlerArgs) {
   const manager = getAcpSessionManager();
   const { acpSessionId, protocolSessionId } = await manager.spawn(
     agent,
-    resolved.agent,
+    agentConfig,
     task,
     cwd,
     conversationId,

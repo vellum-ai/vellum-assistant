@@ -3,7 +3,7 @@
  * Served via RuntimeProxyWildcardView — not in the Django OpenAPI schema.
  */
 
-import { client } from "@/generated/api/client.gen.js";
+import { client } from "@/generated/api/client.gen";
 
 export interface UsageCallSiteDomainMetadata {
   id: string;

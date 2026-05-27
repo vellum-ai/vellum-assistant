@@ -27,7 +27,7 @@ final class PlanCardTests: XCTestCase {
             PlanCatalogEntry(
                 id: "pro",
                 name: "Pro",
-                price_cents: 2500,
+                price_cents: nil,
                 billing_interval: "month",
                 included_features: [
                     "Larger machine size",

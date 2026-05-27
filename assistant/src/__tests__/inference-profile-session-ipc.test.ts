@@ -38,9 +38,10 @@ mock.module("../config/loader.js", () => ({
 }));
 
 import { createConversation } from "../memory/conversation-crud.js";
-import { getDb, resetDb } from "../memory/db-connection.js";
+import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { ROUTES } from "../runtime/routes/inference-profile-session-routes.js";
+import { resetDbForTesting } from "./db-test-helpers.js";
 
 initializeDb();
 
@@ -66,7 +67,7 @@ function clearTables(): void {
 describe("inference_profile_open IPC op", () => {
   beforeEach(clearTables);
   afterAll(() => {
-    resetDb();
+    resetDbForTesting();
     mock.restore();
   });
 

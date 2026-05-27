@@ -1,5 +1,4 @@
 import { RiskLevel } from "../../permissions/types.js";
-import type { ToolDefinition } from "../../providers/types.js";
 import { registerTool } from "../registry.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 
@@ -57,13 +56,10 @@ class RequestSystemPermissionTool implements Tool {
     "Use when a tool fails with a permission/access error (e.g. 'Operation not permitted', 'EACCES', sandbox denial). " +
     "Do not explain how to open System Settings manually - this tool handles it with a clickable button.";
   category = "system";
+  executionTarget = "sandbox" as const;
   defaultRiskLevel = RiskLevel.High;
 
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
+  input_schema = {
         type: "object",
         properties: {
           permission_type: {
@@ -78,9 +74,7 @@ class RequestSystemPermissionTool implements Tool {
           },
         },
         required: ["permission_type", "activity"],
-      },
-    };
-  }
+      };
 
   async execute(
     input: Record<string, unknown>,

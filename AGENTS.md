@@ -4,7 +4,7 @@
 
 Bun + TypeScript monorepo with multiple packages:
 
-- `apps/` — End-user app surfaces. Currently hosts `apps/web/` (Vite + React Router v7 SPA, mid-migration from `vellum-assistant-platform/web/`) and `apps/ios/` (Capacitor iOS shell that loads the web app in a WKWebView). Future homes for macOS/Electron and the Chrome extension. See `apps/AGENTS.md`.
+- `apps/` — End-user app surfaces. Currently hosts `apps/web/` (Vite + React Router v7 SPA, mid-migration from `vellum-assistant-platform/web/`), `apps/ios/` (Capacitor iOS shell that loads the web app in a WKWebView), and `apps/macos/` (Electron desktop shell that wraps `apps/web/` and supervises the bundled Bun daemon; distribution and auto-update wiring still to come — note the CI workflow filenames are still `pr-electron.yaml` / `ci-main-electron.yaml` until the legacy Swift app's `ci-main-macos.yaml` retires). The Chrome extension at `clients/chrome-extension/` will also move here (as `apps/chrome-extension/`) in a follow-up PR; see [`apps/README.md`](apps/README.md) and [`apps/AGENTS.md`](apps/AGENTS.md).
 - `assistant/` — Main backend service (Bun + TypeScript)
 - `cli/` — Multi-assistant management CLI (Bun + TypeScript). See `cli/AGENTS.md`.
 - `clients/` — Client apps (macOS, browser extension, etc). See `clients/AGENTS.md` and platform docs like `clients/macos/AGENTS.md`.
@@ -23,7 +23,7 @@ Defend technical positions with evidence. Don't flip-flop to placate the user �
 ## Development
 
 - **Bun PATH**: Run `export PATH="$HOME/.bun/bin:$PATH"` before any bun/bunx commands.
-- **Imports**: All imports use `.js` extensions (NodeNext module resolution).
+- **Imports**: Packages that compile to JS (`assistant/`, `gateway/`, `cli/`) use NodeNext module resolution with `.js` extensions on all imports. Bundler-only packages (`apps/web/`, `packages/design-library/`) use `moduleResolution: "Bundler"` and omit `.js` extensions.
 - **Package manager**: Use `bun install` for dependencies (each package has its own `bun.lock`).
 
 ```bash
@@ -166,7 +166,7 @@ The daemon uses `DAEMON_INTERNAL_ASSISTANT_ID` (`'self'`) from `assistant/src/ru
 
 ## Assistant Feature Flags
 
-See `meta/feature-flags/AGENTS.md` for naming, registry, resolver, and the required companion PR in `vellum-assistant-platform` (LaunchDarkly Terraform).
+See `meta/feature-flags/AGENTS.md` for naming, registry, resolver, and the required companion PR in `vellum-assistant-platform` (Terraform).
 
 **Permission controls v2 rule**: Under `permission-controls-v2`, do not introduce new deterministic approval modes for assistant-owned actions beyond the conversation-scoped host computer access gate. No global toggles, no per-tool or per-command approvals, no 10-minute or conversation-wide approval verbs, no wildcard scopes, and no persistent trust-rule UI for v2 flows. If a v2 path needs consent, prefer model-mediated conversation flow unless it is a true host-computer or identity-boundary enforcement case.
 

@@ -49,6 +49,7 @@ final class MessageListTypographyRefreshTests: XCTestCase {
             configuredProviders: [],
             subagentDetailStore: SubagentDetailStore(),
             assistantStatusText: nil,
+            autoRoutedProfileLabel: nil,
             pinnedLatestTurnAnchorMessageId: nil,
             searchQuery: "",
             bookmarkStore: nil,

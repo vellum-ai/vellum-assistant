@@ -93,6 +93,7 @@ function reasonForSlackError(err: unknown): ResolveReason {
 
 async function handleSlackChannelNameResolve({
   pathParams = {},
+  headers,
 }: RouteHandlerArgs): Promise<SlackChannelResolveResponse> {
   const conversationId = pathParams.conversationId?.trim();
   if (!conversationId) {
@@ -152,10 +153,10 @@ async function handleSlackChannelNameResolve({
   }
 
   updateExternalChatName(conversationId, channelName);
-  await publishSyncInvalidation([
-    SYNC_TAGS.conversationsList,
-    conversationMetadataSyncTag(conversationId),
-  ]);
+  await publishSyncInvalidation(
+    [SYNC_TAGS.conversationsList, conversationMetadataSyncTag(conversationId)],
+    headers?.["x-vellum-client-id"]?.trim() || undefined,
+  );
 
   return {
     channelId,

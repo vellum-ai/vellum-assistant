@@ -5,6 +5,7 @@
 import { z } from "zod";
 
 import { destroyActiveConversation } from "../../daemon/conversation-store.js";
+import { stripConversationIds } from "../../home/feed-writer.js";
 import {
   countConversationsByScheduleJobId,
   getConversation,
@@ -53,6 +54,8 @@ async function handleWipeConversation({ body = {} }: RouteHandlerArgs) {
       targetId: summaryId,
     });
   }
+
+  void stripConversationIds(conversationId);
 
   return {
     wiped: true,

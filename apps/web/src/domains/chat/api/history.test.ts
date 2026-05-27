@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { ApiError } from "@/lib/api-errors.js";
+import { ApiError } from "@/lib/api-errors";
 
 import {
   fetchLatestHistoryPage,
   fetchOlderHistoryPage,
-} from "@/domains/chat/api/history.js";
+} from "@/domains/chat/api/history";
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -134,7 +134,7 @@ describe("fetchOlderHistoryPage URL construction", () => {
 // ---------------------------------------------------------------------------
 
 describe("response parsing", () => {
-  test("returns messages with stableIds and all pagination cursors", async () => {
+  test("returns messages with ids and all pagination cursors", async () => {
     nextResponse = makeJsonResponse({
       messages: [
         { id: "m1", role: "user", content: "hello", timestamp: 1 },
@@ -152,11 +152,11 @@ describe("response parsing", () => {
     expect(result.oldestMessageId).toBe("m1");
     expect(result.messages).toHaveLength(2);
     for (const msg of result.messages) {
-      expect(typeof msg.stableId).toBe("string");
-      expect(msg.stableId!.length).toBeGreaterThan(0);
+      expect(typeof msg.id).toBe("string");
+      expect(msg.id!.length).toBeGreaterThan(0);
     }
-    // stableIds are unique across messages in the same page
-    const ids = result.messages.map((m) => m.stableId);
+    // ids are unique across messages in the same page
+    const ids = result.messages.map((m) => m.id);
     expect(new Set(ids).size).toBe(ids.length);
 
     expect(result.messages[0]!.role).toBe("user");
@@ -179,7 +179,7 @@ describe("response parsing", () => {
     expect(result.oldestTimestamp).toBe(0);
     expect(result.oldestMessageId).toBe("m0");
     expect(result.messages).toHaveLength(1);
-    expect(result.messages[0]!.stableId).toBeTruthy();
+    expect(result.messages[0]!.id).toBeTruthy();
   });
 
   test("falls back to null when oldestTimestamp/oldestMessageId are omitted", async () => {

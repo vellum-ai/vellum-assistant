@@ -4,12 +4,12 @@ import type { MutableRefObject } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createElement, type ReactNode } from "react";
 
-import type { AssistantEvent } from "@/domains/chat/api/event-types.js";
+import type { AssistantEvent } from "@/domains/chat/api/event-types";
 
 const handlerCalls: Array<{ kind: string; conversationId?: string }> = [];
 
 mock.module(
-  "@/domains/chat/utils/stream-handlers/message-handlers.js",
+  "@/domains/chat/utils/stream-handlers/message-handlers",
   () => ({
     handleAssistantTextDelta: (event: { conversationId?: string }) => {
       handlerCalls.push({ kind: "assistant_text_delta", conversationId: event.conversationId });
@@ -29,7 +29,7 @@ mock.module(
   }),
 );
 mock.module(
-  "@/domains/chat/utils/stream-handlers/home-handlers.js",
+  "@/domains/chat/utils/stream-handlers/home-handlers",
   () => ({
     handleHomeFeedUpdated: () => {
       handlerCalls.push({ kind: "home_feed_updated" });
@@ -41,13 +41,13 @@ mock.module(
 );
 
 const { useStreamEventHandler } = await import(
-  "@/domains/chat/hooks/use-stream-event-handler.js"
+  "@/domains/chat/hooks/use-stream-event-handler"
 );
 
 function noopRefs() {
   return {
     streamEpochRef: { current: 0 } as MutableRefObject<number>,
-    activeConversationKeyRef: {
+    activeConversationIdRef: {
       current: "conv-A",
     } as MutableRefObject<string | null>,
     streamContextRef: {
@@ -55,7 +55,6 @@ function noopRefs() {
     } as MutableRefObject<{ assistantId: string; conversationId: string } | null>,
     assistantIdRef: { current: "asst-1" } as MutableRefObject<string | null>,
     messagesRef: { current: [] } as MutableRefObject<unknown[]>,
-    needsNewBubbleRef: { current: false } as MutableRefObject<boolean>,
     streamRef: { current: null } as MutableRefObject<unknown>,
     confirmationToolCallMapRef: { current: new Map() } as MutableRefObject<
       Map<string, string>
@@ -66,8 +65,8 @@ function noopRefs() {
     contextWindowUsageByConversationRef: { current: new Map() } as MutableRefObject<
       Map<string, unknown>
     >,
-    pendingQueuedStableIdsRef: { current: [] } as MutableRefObject<string[]>,
-    requestIdToStableIdRef: { current: new Map() } as MutableRefObject<
+    pendingQueuedMessageIdsRef: { current: [] } as MutableRefObject<string[]>,
+    requestIdToMessageIdRef: { current: new Map() } as MutableRefObject<
       Map<string, string>
     >,
     pendingLocalDeletionsRef: { current: new Set() } as MutableRefObject<
@@ -88,7 +87,7 @@ function renderHandler(
   overrides?: {
     streamEpoch?: number;
     streamConversationId?: string | null;
-    activeConversationKey?: string | null;
+    activeConversationId?: string | null;
   },
 ) {
   if (overrides?.streamEpoch !== undefined) {
@@ -100,8 +99,8 @@ function renderHandler(
         ? null
         : { assistantId: "asst-1", conversationId: overrides.streamConversationId };
   }
-  if (overrides?.activeConversationKey !== undefined) {
-    refs.activeConversationKeyRef.current = overrides.activeConversationKey;
+  if (overrides?.activeConversationId !== undefined) {
+    refs.activeConversationIdRef.current = overrides.activeConversationId;
   }
   const { result } = renderHook(
     () =>

@@ -7,6 +7,8 @@ export const SYNC_TAGS = {
   assistantSounds: "assistant:self:sounds",
   assistantSchedules: "assistant:self:schedules",
   conversationsList: "conversations:list",
+  featureFlagsClient: "feature-flags:client",
+  featureFlagsAssistant: "feature-flags:assistant",
 } as const;
 
 export type KnownSyncInvalidationTag =
@@ -24,6 +26,14 @@ export type SyncInvalidationTag =
 export interface SyncChangedMessage {
   type: "sync_changed";
   tags: SyncInvalidationTag[];
+  /**
+   * Optional identifier of the client that originated the change. When set,
+   * the server fan-out and clients themselves can suppress self-echoes so
+   * the originating tab/process doesn't reinvalidate its own cache off its
+   * own mutation. Daemon-internal emits (agent loop, FS watcher, cron) leave
+   * this unset so the event fans out to every subscriber as before.
+   */
+  originClientId?: string;
 }
 
 export const SyncInvalidationTagSchema = z.string().min(1);
@@ -32,6 +42,7 @@ export const SyncChangedMessageSchema = z
   .object({
     type: z.literal("sync_changed"),
     tags: z.array(SyncInvalidationTagSchema).min(1),
+    originClientId: z.string().min(1).optional(),
   })
   .strict();
 
@@ -49,11 +60,14 @@ export function conversationMetadataSyncTag(
 
 export function buildSyncChangedMessage(
   tags: SyncInvalidationTag[],
+  originClientId?: string,
 ): SyncChangedMessage {
   const dedupedTags = Array.from(new Set(tags));
+  const trimmedOrigin = originClientId?.trim();
   const parsed = SyncChangedMessageSchema.parse({
     type: "sync_changed",
     tags: dedupedTags,
+    ...(trimmedOrigin ? { originClientId: trimmedOrigin } : {}),
   });
   return parsed as SyncChangedMessage;
 }

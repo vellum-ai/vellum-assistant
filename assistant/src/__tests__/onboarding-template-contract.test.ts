@@ -44,7 +44,7 @@ describe("onboarding template contracts", () => {
     test("instructs saving to IDENTITY.md, SOUL.md, and user persona file via file_edit", () => {
       expect(bootstrap).toContain("IDENTITY.md");
       expect(bootstrap).toContain("SOUL.md");
-      expect(bootstrap).toContain("{{USER_PERSONA_FILE}}");
+      expect(bootstrap).toContain("{{userSlug}}.md");
       expect(bootstrap).toContain("file_edit");
     });
 

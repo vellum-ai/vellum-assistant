@@ -82,6 +82,25 @@ mock.module("../../util/logger.js", () => ({
     }),
 }));
 
+// Stub secure-keys so the `prepareAgentEnv` preflight finds a token without
+// the test having to populate the real OS keyring. Driven via `secureKeyStore`
+// per test in beforeEach; the default seeds a vault token so existing tests
+// (which assume claude spawns succeed) keep passing.
+//
+// The real module's other exports are spread in so transitive importers
+// (e.g. session-manager → pending-interactions → credential-routes, which
+// imports `getSecureKeyResultAsync`) still resolve at parse time. Bun's
+// `mock.module` is process-global and returns *exactly* the keys the factory
+// returns — without the spread, any consumer pulling a non-`getSecureKeyAsync`
+// export errors with "Export named '<X>' not found".
+const secureKeyStore = new Map<string, string>();
+const realSecureKeys = await import("../../security/secure-keys.js");
+
+mock.module("../../security/secure-keys.js", () => ({
+  ...realSecureKeys,
+  getSecureKeyAsync: async (key: string) => secureKeyStore.get(key),
+}));
+
 // Stub session manager so we don't actually spawn child processes.
 const spawnMock = mock(
   async (
@@ -131,6 +150,14 @@ beforeEach(() => {
   _resetAdapterVersionCacheForTests();
   config.setConfig({ agents: DEFAULT_TEST_AGENTS });
   which.setWhich((cmd) => `/usr/local/bin/${cmd}`);
+  // Default: vault has a claude token so the preflight in `prepareAgentEnv`
+  // succeeds for tests that don't care about env injection. Env-injection
+  // tests below clear/override this explicitly.
+  secureKeyStore.clear();
+  secureKeyStore.set(
+    "credential/acp/claude_oauth_token",
+    "default-test-token",
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -374,5 +401,97 @@ describe("executeAcpSpawn — per-agent resume hint", () => {
     const payload = JSON.parse(payloadJson);
     expect(payload.message).not.toContain("claude --resume");
     expect(payload.message).not.toContain("To resume this session later");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// executeAcpSpawn — CLAUDE_CODE_OAUTH_TOKEN env injection + preflight
+//
+// Mirrors the HTTP-route test block in
+// `runtime/routes/acp-routes.test.ts` — the skill tool calls into the same
+// `prepareAgentEnv` helper, and the contract must be identical so a
+// missing token fails the spawn at the tool boundary (`isError: true`)
+// instead of letting a token-less subprocess zombie out. PR-history
+// context: the inline env-injection used to live in the route only; this
+// tool path was bypassing it entirely, causing every skill-driven ACP
+// spawn to die on first prompt with "Authentication required". Pin both
+// the happy paths and the throw path here so future drift on either
+// caller fails the suite loudly.
+// ---------------------------------------------------------------------------
+
+describe("executeAcpSpawn — CLAUDE_CODE_OAUTH_TOKEN injection", () => {
+  test("injects CLAUDE_CODE_OAUTH_TOKEN from the secure store for the claude agent", async () => {
+    secureKeyStore.clear();
+    secureKeyStore.set(
+      "credential/acp/claude_oauth_token",
+      "tool-vault-token-abc",
+    );
+    execScripts.set("npm ls", { error: new Error("npm not installed") });
+    execScripts.set("npm view", { error: new Error("npm not installed") });
+
+    const result = await executeAcpSpawn(
+      { agent: "claude", task: "do something" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    const agentConfigArg = spawnMock.mock.calls[0][1] as {
+      env?: Record<string, string>;
+    };
+    expect(agentConfigArg.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe(
+      "tool-vault-token-abc",
+    );
+  });
+
+  test("accepts CLAUDE_CODE_OAUTH_TOKEN from config.json agent.env without a vault entry", async () => {
+    // Mirrors the route-level precedence test: a config.json env override
+    // is the first-priority provisioning route. The resolver surfaces it
+    // on `resolved.agent.env`, which the helper preserves.
+    secureKeyStore.clear();
+    config.setConfig({
+      agents: {
+        claude: {
+          command: "claude-agent-acp",
+          args: [],
+          env: { CLAUDE_CODE_OAUTH_TOKEN: "tool-config-token-xyz" },
+        },
+        codex: { command: "codex-acp", args: [] },
+        "unknown-agent": { command: "some-other-binary", args: [] },
+      },
+    });
+    execScripts.set("npm ls", { error: new Error("npm not installed") });
+    execScripts.set("npm view", { error: new Error("npm not installed") });
+
+    const result = await executeAcpSpawn(
+      { agent: "claude", task: "do something" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    const agentConfigArg = spawnMock.mock.calls[0][1] as {
+      env?: Record<string, string>;
+    };
+    expect(agentConfigArg.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe(
+      "tool-config-token-xyz",
+    );
+  });
+
+  test("returns isError when no token is available from either route (preflight throw mapped to tool result)", async () => {
+    // Both routes empty. The helper throws `FailedDependencyError`; the
+    // tool catches it and returns `{ isError: true, content: <msg> }`
+    // rather than letting it propagate (the tool boundary is a sync
+    // ToolExecutionResult, not an HTTP response).
+    secureKeyStore.clear();
+
+    const result = await executeAcpSpawn(
+      { agent: "claude", task: "do something" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("CLAUDE_CODE_OAUTH_TOKEN");
+    // Spawn was NEVER called — preflight fired before the subprocess started.
+    expect(spawnMock).not.toHaveBeenCalled();
   });
 });

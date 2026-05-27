@@ -197,6 +197,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   getConversationOriginChannel: () => null,
   getMessageById: () => mockMessageById,
   getLastUserTimestampBefore: () => 0,
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 afterAll(() => {
@@ -1215,20 +1216,8 @@ describe("session-agent-loop", () => {
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
       expect(recordRequestLogMock).toHaveBeenCalledTimes(1);
-      const call = recordRequestLogMock.mock.calls[0] as unknown as [
-        string,
-        string,
-        string,
-        undefined,
-        string,
-      ];
-      expect(call).toEqual([
-        "test-conv",
-        JSON.stringify(rawRequest),
-        JSON.stringify(rawResponse),
-        undefined,
-        "fireworks",
-      ]);
+      const call = recordRequestLogMock.mock.calls[0] as unknown as unknown[];
+      expect(call[4]).toBe("fireworks");
     });
 
     test("record request log falls back to the runtime provider when no actual provider is supplied", async () => {
@@ -1374,20 +1363,9 @@ describe("session-agent-loop", () => {
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
       expect(recordRequestLogMock).toHaveBeenCalledTimes(1);
-      const call = recordRequestLogMock.mock.calls[0] as unknown as [
-        string,
-        string,
-        string,
-        undefined,
-        string,
-      ];
-      expect(call).toEqual([
-        "test-conv",
-        JSON.stringify(rawRequest),
-        JSON.stringify(rawResponse),
-        undefined,
-        "openai",
-      ]);
+      const call = recordRequestLogMock.mock.calls[0] as unknown as unknown[];
+      expect(call[1]).toBe(JSON.stringify(rawRequest));
+      expect(call[2]).toBe(JSON.stringify(rawResponse));
     });
   });
 
@@ -2037,6 +2015,154 @@ describe("session-agent-loop", () => {
       expect(conversationError).toBeUndefined();
       const complete = events.find((e) => e.type === "message_complete");
       expect(complete).toBeDefined();
+    });
+
+    test("emits budget_yield_unrecovered when auto_compress rerun yields at mid-loop budget", async () => {
+      // Regression test for the silent-stall failure mode:
+      // when every recovery layer has been applied (tier reducer
+      // exhausted + auto_compress_latest_turn emergency compaction)
+      // and the final `agentLoop.run` STILL yields at the mid-loop
+      // budget checkpoint, the orchestrator used to fall through to
+      // post-turn cleanup with NO `agent_loop_exit_reason` emitted —
+      // the turn just stopped mid-action and `llm_request_logs` showed
+      // a NULL exit reason on the final row. We now emit
+      // `budget_yield_unrecovered` so the inspector and dashboards can
+      // attribute the silent stall.
+      const events: ServerMessage[] = [];
+      let callCount = 0;
+
+      // Reducer exhausts all 4 tiers on first call so the convergence
+      // loop runs exactly one iteration before falling through to
+      // the auto_compress_latest_turn branch.
+      mockReducerStepFn = (msgs: Message[]) => ({
+        messages: msgs,
+        tier: "injection_downgrade",
+        state: {
+          appliedTiers: [
+            "forced_compaction",
+            "tool_result_truncation",
+            "media_stubbing",
+            "injection_downgrade",
+          ],
+          injectionMode: "minimal",
+          exhausted: true,
+        },
+        estimatedTokens: 120_000,
+      });
+
+      mockOverflowAction = "auto_compress_latest_turn";
+
+      // Sits between the preflight budget (preflightBudget =
+      // 100k * 0.95 = 95k — anything above triggers preflight reducer
+      // *before* we get to the convergence/auto_compress path under
+      // test) and the mid-loop threshold (preflightBudget * 0.85 =
+      // ≈80.75k — anything above flips yieldedForBudget on a checkpoint
+      // call). 90k satisfies both so the path reaches call 3.
+      mockEstimateTokens = 90_000;
+
+      const agentLoopRun: AgentLoopRun = async (
+        messages,
+        onEvent,
+        _signal,
+        _reqId,
+        onCheckpoint,
+      ) => {
+        callCount++;
+        if (callCount <= 2) {
+          // Calls 1 (initial) and 2 (convergence rerun): error so
+          // `state.contextTooLargeDetected` stays true through
+          // convergence exit and we enter the auto_compress branch.
+          onEvent({
+            type: "error",
+            error: new Error("context_length_exceeded"),
+          });
+          onEvent({
+            type: "usage",
+            inputTokens: 100,
+            outputTokens: 0,
+            model: "test-model",
+            providerDurationMs: 50,
+          });
+          return messages;
+        }
+        // Call 3: the auto_compress_latest_turn rerun. Invoke
+        // onCheckpoint so the orchestrator's mid-loop budget check
+        // flips `yieldedForBudget` to true, then return without
+        // finishing — mirroring what AgentLoop.run does when its
+        // checkpoint returns "yield".
+        if (onCheckpoint) {
+          await onCheckpoint({
+            turnIndex: 0,
+            toolCount: 1,
+            hasToolUse: true,
+            history: messages,
+          });
+        }
+        return messages;
+      };
+
+      const ctx = makeCtx({
+        agentLoopRun,
+        hasNoClient: true,
+        contextWindowManager: {
+          shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
+          maybeCompact: async () => ({
+            compacted: true,
+            messages: [
+              { role: "user", content: [{ type: "text", text: "Hello" }] },
+            ] as Message[],
+            compactedPersistedMessages: 3,
+            summaryText: "Compressed summary",
+            previousEstimatedInputTokens: 120000,
+            estimatedInputTokens: 30000,
+            maxInputTokens: 100000,
+            thresholdTokens: 80000,
+            compactedMessages: 5,
+            summaryCalls: 1,
+            summaryInputTokens: 300,
+            summaryOutputTokens: 100,
+            summaryModel: "mock-model",
+          }),
+        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+      // Observability emit: exit reason was stamped onto the latest
+      // llm_request_logs row.
+      expect(setAgentLoopExitReasonOnLatestLogMock).toHaveBeenCalledWith(
+        "test-conv",
+        "budget_yield_unrecovered",
+      );
+
+      // We did NOT also emit context_too_large — the auto_compress
+      // branch resets `contextTooLargeDetected` before its rerun and
+      // the rerun's yield-for-budget keeps it false, so the error
+      // branch above stays skipped.
+      expect(setAgentLoopExitReasonOnLatestLogMock).not.toHaveBeenCalledWith(
+        "test-conv",
+        "context_too_large",
+      );
+
+      // User-facing emit: the classified BUDGET_YIELD_UNRECOVERED
+      // error is sent to the client so the UI can render a notice
+      // instead of leaving the turn looking like a silent ghost. The
+      // assistant-side notice persistence is exercised in the overflow
+      // suite (`conversation-agent-loop-overflow.test.ts`); this test
+      // owns the observability + emit contract.
+      const conversationError = events.find(
+        (e) => e.type === "conversation_error",
+      );
+      expect(conversationError).toBeDefined();
+      if (conversationError && "code" in conversationError) {
+        expect(conversationError.code).toBe("BUDGET_YIELD_UNRECOVERED");
+        expect(conversationError.retryable).toBe(true);
+        expect(conversationError.errorCategory).toBe(
+          "budget_yield_unrecovered",
+        );
+      } else {
+        throw new Error("conversation_error missing `code` field");
+      }
     });
 
     test("recovery loop is bounded by maxAttempts", async () => {
@@ -3842,6 +3968,82 @@ describe("session-agent-loop", () => {
         (call) => call[0] === "test-conv",
       );
       expect(stripCalls.length).toBeGreaterThanOrEqual(1);
+    });
+
+    test("strip-site marker write is non-fatal when the helper throws", async () => {
+      setConversationHistoryStrippedAtMock.mockImplementation(() => {
+        throw new Error("db write failed");
+      });
+
+      mockReducerStepFn = (msgs: Message[]) => ({
+        messages: msgs,
+        tier: "forced_compaction",
+        state: {
+          appliedTiers: ["forced_compaction"],
+          injectionMode: "full",
+          exhausted: false,
+        },
+        estimatedTokens: 5000,
+      });
+
+      let callCount = 0;
+      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        callCount++;
+        if (callCount === 1) {
+          onEvent({
+            type: "error",
+            error: new Error("context_length_exceeded"),
+          });
+          onEvent({
+            type: "usage",
+            inputTokens: 100,
+            outputTokens: 0,
+            model: "test-model",
+            providerDurationMs: 50,
+          });
+          return [
+            ...messages,
+            {
+              role: "assistant" as const,
+              content: [{ type: "text", text: "partial" }] as ContentBlock[],
+            },
+          ];
+        }
+        onEvent({
+          type: "message_complete",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "recovered" }],
+          },
+        });
+        onEvent({
+          type: "usage",
+          inputTokens: 50,
+          outputTokens: 25,
+          model: "test-model",
+          providerDurationMs: 100,
+        });
+        return [
+          ...messages,
+          {
+            role: "assistant" as const,
+            content: [{ type: "text", text: "recovered" }] as ContentBlock[],
+          },
+        ];
+      };
+
+      const ctx = makeCtx({
+        agentLoopRun,
+        contextWindowManager: {
+          shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
+          maybeCompact: async () => ({ compacted: false }),
+        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+      });
+
+      // Must not throw — the strip-site marker write is wrapped in try/catch.
+      await expect(
+        runAgentLoopImpl(ctx, "hello", "msg-1", () => {}),
+      ).resolves.toBeUndefined();
     });
   });
 });

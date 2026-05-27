@@ -1,11 +1,11 @@
 import { Check } from "lucide-react";
 
 import { Button } from "@vellum/design-library/components/button";
-import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout.js";
+import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import {
   writeIOSAppDownloaded,
   openIOSAppStore,
-} from "@/domains/nudges/ios-app-prefs.js";
+} from "@/hooks/use-ios-app-nudge";
 
 interface GetIOSAppScreenProps {
   onComplete: () => void;

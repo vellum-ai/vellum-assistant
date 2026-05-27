@@ -5,12 +5,12 @@
  * so no generated HeyAPI hooks exist for them.
  */
 
-import { client } from "@/generated/api/client.gen.js";
+import { client } from "@/generated/api/client.gen";
 
 import {
   isLlmUsageDimension,
   toDaemonGroupBy,
-} from "@/utils/llm-dimension.js";
+} from "@/utils/llm-dimension";
 import type {
   UsageBreakdownResponse,
   UsageDailyResponse,
@@ -19,7 +19,7 @@ import type {
   UsageSeriesGroupBy,
   UsageSeriesResponse,
   UsageTotals,
-} from "./usage-types.js";
+} from "./usage-types";
 
 export class UsageRequestError extends Error {
   status: number;
@@ -149,7 +149,7 @@ export async function fetchUsageTotals(
   if (!response || !response.ok) {
     return throwOnBadResponse(response, "Failed to load usage totals.");
   }
-  return data ?? EMPTY_TOTALS;
+  return { ...EMPTY_TOTALS, ...data };
 }
 
 export async function fetchUsageDaily(
@@ -165,12 +165,9 @@ export async function fetchUsageDaily(
   if (!response || !response.ok) {
     return throwOnBadResponse(response, "Failed to load usage buckets.");
   }
-  if (!data) {
-    return { buckets: [] };
-  }
+  const buckets = data?.buckets ?? [];
   return {
-    ...data,
-    buckets: data.buckets.map((bucket) => ({
+    buckets: buckets.map((bucket) => ({
       ...bucket,
       bucketId: bucket.bucketId ?? bucket.date,
     })),
@@ -190,7 +187,7 @@ export async function fetchUsageBreakdown(
   if (!response || !response.ok) {
     return throwOnBadResponse(response, "Failed to load usage breakdown.");
   }
-  return data ?? { breakdown: [] };
+  return { breakdown: data?.breakdown ?? [] };
 }
 
 export async function fetchUsageSeries(
@@ -206,12 +203,9 @@ export async function fetchUsageSeries(
   if (!response || !response.ok) {
     return throwOnBadResponse(response, "Failed to load usage series.");
   }
-  if (!data) {
-    return { buckets: [] };
-  }
+  const seriesBuckets = data?.buckets ?? [];
   return {
-    ...data,
-    buckets: data.buckets.map((bucket) => ({
+    buckets: seriesBuckets.map((bucket) => ({
       ...bucket,
       bucketId: bucket.bucketId ?? bucket.date,
       groups: bucket.groups ?? {},

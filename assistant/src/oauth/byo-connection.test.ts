@@ -28,7 +28,7 @@ mock.module("../util/logger.js", () => ({
 // Use encrypted backend with a temp store path
 // ---------------------------------------------------------------------------
 
-import { _setStorePath } from "../security/encrypted-store.js";
+import { setStorePathForTesting } from "../__tests__/encrypted-store-test-helpers.js";
 import { _resetBackend } from "../security/secure-keys.js";
 
 const TEST_DIR = join(
@@ -163,7 +163,7 @@ afterAll(() => {
 });
 
 beforeEach(() => {
-  _setStorePath(STORE_PATH);
+  setStorePathForTesting(STORE_PATH);
   _setMetadataPath(join(TEST_DIR, "metadata.json"));
   _resetBackend();
   _resetRefreshBreakers();

@@ -11,8 +11,9 @@
  * - `isAppMinimized` — mobile-only: app viewer minimized
  * - `intelligenceTab` — sub-tab inside the intelligence panel
  * - `assetsRefreshKey` — counter bumped to force asset re-fetches
- * - `viewBeforeDocument` / `viewBeforeSubagentDetail` — previous view for restoration
+ * - `viewBeforeDocument` / `viewBeforeSubagentDetail` / `viewBeforeToolDetail` — previous view for restoration
  * - `activeSubagentId` — subagent detail panel
+ * - `activeToolDetail` — tool-call detail drawer payload
  *
  * App share/deploy lifecycle lives in `domains/chat/deploy-store.ts`.
  *
@@ -22,15 +23,22 @@
 import * as Sentry from "@sentry/react";
 import { create } from "zustand";
 
-import { openApp, primeAppHtmlCache } from "@/domains/chat/api/apps.js";
-import { fetchDocumentContent } from "@/domains/chat/api/documents.js";
-import { createSelectors } from "@/utils/create-selectors.js";
+import { appsByIdOpenPost, documentsByIdGet } from "@/generated/daemon/sdk.gen";
+import { primeAppHtmlCache } from "@/utils/app-html-cache";
+import { useConversationStore } from "@/domains/conversations/conversation-store";
+import { createSelectors } from "@/utils/create-selectors";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type MainView = "chat" | "app" | "app-editing" | "document" | "subagent-detail";
+export type MainView =
+  | "chat"
+  | "app"
+  | "app-editing"
+  | "document"
+  | "subagent-detail"
+  | "tool-detail";
 
 export type IntelligenceTab = "identity" | "skills" | "workspace" | "contacts";
 
@@ -48,6 +56,19 @@ export interface OpenedDocumentState {
   content: string;
 }
 
+export interface ToolDetailPayload {
+  toolCallId: string;
+  toolName: string;
+  title: string; // phase title, e.g. "Spawning subagent"
+  activity: string; // rich sentence (may be "")
+  input: Record<string, unknown>;
+  result?: string;
+  status: "running" | "completed" | "error" | "denied";
+  riskLevel?: string;
+  riskReason?: string;
+  durationLabel?: string;
+}
+
 // ---------------------------------------------------------------------------
 // State & Actions
 // ---------------------------------------------------------------------------
@@ -61,9 +82,11 @@ export interface ViewerState {
   isAppMinimized: boolean;
   intelligenceTab: IntelligenceTab;
   assetsRefreshKey: number;
-  viewBeforeDocument: Exclude<MainView, "document" | "subagent-detail">;
+  viewBeforeDocument: Exclude<MainView, "document" | "subagent-detail" | "tool-detail">;
   activeSubagentId: string | null;
-  viewBeforeSubagentDetail: Exclude<MainView, "document" | "subagent-detail">;
+  viewBeforeSubagentDetail: Exclude<MainView, "document" | "subagent-detail" | "tool-detail">;
+  activeToolDetail: ToolDetailPayload | null;
+  viewBeforeToolDetail: Exclude<MainView, "document" | "subagent-detail" | "tool-detail">;
 }
 
 export interface ViewerActions {
@@ -85,6 +108,10 @@ export interface ViewerActions {
   // --- Subagent detail ---
   openSubagentDetail: (subagentId: string) => void;
   closeSubagentDetail: () => void;
+
+  // --- Tool detail ---
+  openToolDetail: (payload: ToolDetailPayload) => void;
+  closeToolDetail: () => void;
 
   // --- Document viewer ---
   openDocument: () => void;
@@ -119,6 +146,8 @@ const INITIAL_STATE: ViewerState = {
   viewBeforeDocument: "chat",
   activeSubagentId: null,
   viewBeforeSubagentDetail: "chat",
+  activeToolDetail: null,
+  viewBeforeToolDetail: "chat",
 };
 
 // ---------------------------------------------------------------------------
@@ -159,7 +188,10 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
       isAppMinimized: false,
     });
     try {
-      const result = await openApp(assistantId, appId);
+      const { data: result } = await appsByIdOpenPost({
+        path: { assistant_id: assistantId, id: appId },
+        throwOnError: true,
+      });
       if (get().activeAppId !== appId) return;
       const app = { appId: result.appId, dirName: result.dirName, name: result.name, html: result.html };
       set({ openedAppState: app });
@@ -208,6 +240,11 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
       activeAppId: null,
       openedAppState: null,
     });
+    // The viewer state and the conversation store's `editingConversationId`
+    // are coupled: leaving the app-editing view should drop the editing
+    // pointer too. Owning this here keeps the cross-store coordination in
+    // one place instead of pushing it onto every caller of `useActiveAppPinSync`.
+    useConversationStore.getState().setEditingConversationId(null);
   },
 
   enterAppEditing: () => {
@@ -223,9 +260,11 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
   openSubagentDetail: (subagentId) => {
     const state = get();
     const viewBeforeSubagentDetail =
-      state.mainView === "subagent-detail" || state.mainView === "document"
+      state.mainView === "subagent-detail" ||
+      state.mainView === "document" ||
+      state.mainView === "tool-detail"
         ? state.viewBeforeSubagentDetail
-        : (state.mainView as Exclude<MainView, "document" | "subagent-detail">);
+        : (state.mainView as Exclude<MainView, "document" | "subagent-detail" | "tool-detail">);
     set({
       mainView: "subagent-detail",
       activeSubagentId: subagentId,
@@ -240,14 +279,40 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
     });
   },
 
+  // --- Tool detail ---
+
+  openToolDetail: (payload) => {
+    const state = get();
+    const viewBeforeToolDetail =
+      state.mainView === "tool-detail" ||
+      state.mainView === "subagent-detail" ||
+      state.mainView === "document"
+        ? state.viewBeforeToolDetail
+        : (state.mainView as Exclude<MainView, "document" | "subagent-detail" | "tool-detail">);
+    set({
+      mainView: "tool-detail",
+      activeToolDetail: payload,
+      viewBeforeToolDetail,
+    });
+  },
+
+  closeToolDetail: () => {
+    set({
+      mainView: get().viewBeforeToolDetail,
+      activeToolDetail: null,
+    });
+  },
+
   // --- Document viewer ---
 
   openDocument: () => {
     const state = get();
     const viewBeforeDocument =
-      state.mainView === "document" || state.mainView === "subagent-detail"
+      state.mainView === "document" ||
+      state.mainView === "subagent-detail" ||
+      state.mainView === "tool-detail"
         ? state.viewBeforeDocument
-        : (state.mainView as Exclude<MainView, "document" | "subagent-detail">);
+        : (state.mainView as Exclude<MainView, "document" | "subagent-detail" | "tool-detail">);
     set({
       mainView: "document",
       openedDocumentState: null,
@@ -258,9 +323,11 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
   loadDocument: async (assistantId, documentSurfaceId) => {
     const state = get();
     const viewBeforeDocument =
-      state.mainView === "document" || state.mainView === "subagent-detail"
+      state.mainView === "document" ||
+      state.mainView === "subagent-detail" ||
+      state.mainView === "tool-detail"
         ? state.viewBeforeDocument
-        : (state.mainView as Exclude<MainView, "document" | "subagent-detail">);
+        : (state.mainView as Exclude<MainView, "document" | "subagent-detail" | "tool-detail">);
     set({
       mainView: "document",
       activeDocumentSurfaceId: documentSurfaceId,
@@ -268,7 +335,10 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
       viewBeforeDocument,
     });
     try {
-      const result = await fetchDocumentContent(assistantId, documentSurfaceId);
+      const { data: result } = await documentsByIdGet({
+        path: { assistant_id: assistantId, id: documentSurfaceId },
+        throwOnError: true,
+      });
       if (get().activeDocumentSurfaceId !== documentSurfaceId) return;
       if (!result) {
         set({ mainView: viewBeforeDocument, activeDocumentSurfaceId: null, openedDocumentState: null });

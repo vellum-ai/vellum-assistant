@@ -14,13 +14,13 @@ import {
   getModelsForProvider,
   MODELS_BY_PROVIDER,
   PROVIDER_DISPLAY_NAMES as INFERENCE_PROVIDER_DISPLAY_NAMES,
-} from "@/assistant/llm-model-catalog.js";
+} from "@/assistant/llm-model-catalog";
 
-import { type ProfileEntry, formatCompactTokens } from "@/domains/settings/ai/ai-page.js";
-import { type Profile } from "@/domains/settings/ai/manage-profiles-modal.js";
-import { resolveProfileParamVisibility } from "@/domains/settings/ai/profile-param-visibility.js";
-import { type ConnectionModel, type ProviderConnection } from "@/domains/settings/ai/provider-connections-client.js";
-import { toKebabCase as toKebabCaseImpl } from "@/domains/settings/ai/slugify.js";
+import { type ProfileEntry, formatCompactTokens } from "@/domains/settings/ai/ai-page";
+import { type Profile } from "@/domains/settings/ai/manage-profiles-modal";
+import { resolveProfileParamVisibility } from "@/domains/settings/ai/profile-param-visibility";
+import { type ConnectionModel, type ProviderConnection } from "@/domains/settings/ai/provider-connections-client";
+import { toKebabCase as toKebabCaseImpl } from "@/domains/settings/ai/slugify";
 
 export { toKebabCaseImpl as toKebabCase };
 
@@ -166,6 +166,7 @@ function ProfileEditorModalInner({
 }: ProfileEditorModalInnerProps) {
   const [effectiveMode, setEffectiveMode] = useState<"create" | "edit" | "view">(mode);
   const isReadOnly = effectiveMode === "view";
+  const isAutoProfile = profileName === "auto";
 
   // Managed profiles open the editor in view mode (mode === "view") so they
   // can't be reshaped (provider, model, advanced params) — those are
@@ -691,6 +692,19 @@ function ProfileEditorModalInner({
             label="Active"
           />
 
+          {isAutoProfile && (
+            <div className="rounded-lg bg-[var(--surface-info-subtle)] p-3">
+              <p className="text-body-small-default text-[var(--content-secondary)]">
+                Auto mode routes each query to the best profile automatically
+                — fast for simple questions, capable for complex ones. No
+                provider or model configuration needed.
+              </p>
+            </div>
+          )}
+
+          {/* Provider, Connection, Model, and advanced params are hidden for
+              the "auto" meta-profile which has no provider/model of its own. */}
+          {!isAutoProfile && <>
           {/* Provider — required. The old "None (inherits defaults)" option
               was removed because the inherit pathway encouraged accidental
               fallbacks to the global default model, defeating the point of
@@ -830,7 +844,10 @@ function ProfileEditorModalInner({
               </Typography>
             ) : null}
           </div>
+          </>}
 
+          {/* Advanced params — hidden for the auto meta-profile */}
+          {!isAutoProfile && <>
           {/* Max Output Tokens */}
           {visibility.maxTokens && (
             <div className="space-y-1">
@@ -1007,6 +1024,8 @@ function ProfileEditorModalInner({
             </div>
           )}
 
+          </>}
+
           {/* Save error */}
           {saveError ? (
             <Typography
@@ -1026,6 +1045,7 @@ function ProfileEditorModalInner({
             <Button variant="outlined" onClick={onCancel} disabled={saving} data-testid="modal-cancel-btn">
               Close
             </Button>
+            {!isAutoProfile && (
             <Button
               variant="outlined"
               onClick={() => {
@@ -1037,6 +1057,7 @@ function ProfileEditorModalInner({
             >
               Save As New
             </Button>
+            )}
             {/* Save in view mode persists ONLY label and status changes
                 (managed profile policy fields). The button is gated by
                 `hasViewModeChanges` so an unchanged view session can't

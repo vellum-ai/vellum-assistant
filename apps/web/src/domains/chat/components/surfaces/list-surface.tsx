@@ -1,13 +1,11 @@
-/* eslint-disable no-restricted-syntax -- LUM-1768: file contains dark: pairs pending semantic-token migration */
-
-import { Check, icons } from "lucide-react";
+import { Check } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
-import { sfSymbolToLucideName } from "@/domains/chat/components/surfaces/sf-symbol-map.js";
+import { sfSymbolToLucideIcon } from "@/domains/chat/components/surfaces/sf-symbol-map";
 
-import type { Surface } from "@/domains/chat/types/types.js";
+import type { Surface } from "@/domains/chat/types/types";
 
-import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container.js";
+import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -85,7 +83,7 @@ export function ListSurface({ surface, onAction }: ListSurfaceProps) {
 
   return (
     <SurfaceContainer surface={surface} onAction={handleAction}>
-      <ul className="divide-y divide-stone-100 dark:divide-moss-600">
+      <ul className="divide-y divide-[var(--border-base)]">
         {data.items.map((item) => {
           const isSelected = selectedIds.includes(item.id);
 
@@ -97,11 +95,11 @@ export function ListSurface({ surface, onAction }: ListSurfaceProps) {
                 onClick={() => handleToggle(item.id)}
                 className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors ${
                   isSelectable
-                    ? "cursor-pointer hover:bg-stone-50 dark:hover:bg-moss-600"
+                    ? "cursor-pointer hover:bg-[var(--surface-hover)]"
                     : "cursor-default"
                 } ${
                   isSelected
-                    ? "bg-forest-50 dark:bg-forest-950"
+                    ? "bg-[var(--system-positive-weak)]"
                     : ""
                 }`}
               >
@@ -111,7 +109,7 @@ export function ListSurface({ surface, onAction }: ListSurfaceProps) {
                     className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors ${
                       isSelected
                         ? "border-forest-600 bg-forest-600 text-white"
-                        : "border-stone-300 dark:border-moss-500"
+                        : "border-[var(--border-element)]"
                     } ${selectionMode === "single" ? "rounded-full" : "rounded"}`}
                   >
                     {isSelected && <Check className="h-3 w-3" />}
@@ -120,8 +118,7 @@ export function ListSurface({ surface, onAction }: ListSurfaceProps) {
 
                 {/* Icon */}
                 {item.icon && (() => {
-                  const lucideName = sfSymbolToLucideName(item.icon);
-                  const LucideIcon = lucideName ? icons[lucideName as keyof typeof icons] : undefined;
+                  const LucideIcon = sfSymbolToLucideIcon(item.icon);
                   return LucideIcon ? (
                     <LucideIcon className="h-5 w-5 shrink-0 text-[var(--content-quiet)]" aria-hidden />
                   ) : (

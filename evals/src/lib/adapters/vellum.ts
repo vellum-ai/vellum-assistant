@@ -15,6 +15,7 @@ import {
   applyDockerEgressJail,
   type DockerEgressJail,
   vellumDockerAssistantContainer,
+  vellumDockerSiblingContainers,
 } from "../egress/docker-jail";
 import {
   assertSuccess,
@@ -211,7 +212,30 @@ export class VellumAgent implements BaseAgent {
       );
     }
 
-    let hatchStarted = false;
+    // Catch-path teardown policy:
+    //
+    // - `captureContainerForensics` is ALWAYS called on failure. It only
+    //   reads (`docker inspect`, `docker logs --tail 200`), never
+    //   destroys, so running it against a hatch that died at any stage —
+    //   including a port-collision failure that never created our
+    //   containers — is safe and is exactly the failure mode where
+    //   operators most need the forensics.
+    //
+    // - `jail.stop()` is ALWAYS called. It's a no-op if we never assigned
+    //   `this.jail` (i.e. hatch died before `applyDockerEgressJail`), so
+    //   it's safe.
+    //
+    // - `vellum retire` is gated on `hatchSucceeded`. Retire is
+    //   destructive (`docker rm -f` + network/volume teardown), and if
+    //   hatch failed with "name already exists" we'd be tearing down
+    //   another process's live containers. The new `findOpenPort()`
+    //   in `hatchDocker` makes that path almost impossible (the most
+    //   common collision was the port), but defensively we still only
+    //   retire what we know we created — the ms-precision + random
+    //   suffix on `runId` (see `evals/src/commands/run.ts#timestampSuffix`)
+    //   means a successful hatch unambiguously means the resources
+    //   under our `instanceName` are ours.
+    let hatchSucceeded = false;
     try {
       // Forward LLM provider API keys from the eval process env into the
       // hatch subprocess explicitly. The Vellum docker StatefulSet spec
@@ -235,10 +259,14 @@ export class VellumAgent implements BaseAgent {
         {
           env: selectProviderEnv(this.processEnv),
           logPath: runArtifacts(this.id).runDir + "/subprocess-hatch.log",
+          logStep: "hatch",
         },
       );
       assertSuccess(hatch, `hatch Vellum profile ${this.profile.id}`);
-      hatchStarted = true;
+      // Hatch subprocess succeeded → docker resources under our
+      // instanceName are unambiguously ours. Only now is `retire` safe
+      // in the catch path.
+      hatchSucceeded = true;
 
       this.jail = await applyDockerEgressJail(this.runner, {
         containerName: this.assistantContainerName,
@@ -252,6 +280,7 @@ export class VellumAgent implements BaseAgent {
           {
             logPath:
               runArtifacts(this.id).runDir + `/subprocess-setup-${idx + 1}.log`,
+            logStep: `setup-${idx + 1}`,
           },
         );
         assertSuccess(setup, `setup command for profile ${this.profile.id}`);
@@ -259,68 +288,81 @@ export class VellumAgent implements BaseAgent {
 
       this.hatched = true;
     } catch (err) {
-      // Capture container forensics BEFORE retire — once the container
-      // is removed, `docker inspect` and `docker logs` both return empty.
-      // Only fires when hatchStarted, i.e. `vellum hatch` itself succeeded
-      // and our container exists; otherwise the named container belongs
-      // to someone else (e.g. the "name already exists" failure path) and
-      // inspecting it would be both incorrect and noisy.
-      // Best-effort: any failure here (docker not installed, container
-      // gone, permission error) is silently ignored so we never shadow
-      // the original error with a diagnostics-capture error.
-      if (hatchStarted) {
-        await this.captureContainerForensics().catch(() => undefined);
-      }
+      // Capture container forensics BEFORE any teardown — once
+      // containers are removed, `docker inspect` and `docker logs`
+      // both return empty. Best-effort: any failure here (docker not
+      // installed, container gone, permission error) is silently
+      // ignored so we never shadow the original error with a
+      // diagnostics-capture error.
+      await this.captureContainerForensics().catch(() => undefined);
       await this.jail?.stop().catch(() => undefined);
-      if (hatchStarted) {
+      if (hatchSucceeded) {
+        // Hatch returned 0 but a later step (setup commands, jail
+        // application) threw — we own these resources, retire them.
         await this.runner
           .run(this.cliCommand, ["retire", this.id])
           .catch(() => undefined);
       }
+      // If hatchSucceeded is false the hatch subprocess itself failed.
+      // We deliberately do NOT call `vellum retire` here: another
+      // process may legitimately hold an overlapping instance name in
+      // an extreme edge case, and we'd rather leak our own dead
+      // resources (they can be reaped with `docker container prune`)
+      // than risk tearing down a healthy parallel run.
       throw err;
     }
   }
 
   /**
-   * On hatch failure, snapshot the container's docker state to disk so the
-   * report-server UI can render what went wrong. Writes two artifacts under
-   * the run directory:
+   * On hatch failure, snapshot the docker state of every sibling
+   * container `vellum hatch` provisions (assistant + gateway +
+   * credential-executor) so the report-server UI can render what went
+   * wrong. Writes two artifacts per container under the run directory:
    *
-   *   - `docker-inspect.json` — raw `docker inspect` output. Carries the
-   *     container's State.Status ("created" / "exited" / "dead" / ...),
-   *     ExitCode, OOMKilled, Error string, mounts, etc. Useful for the
-   *     "container in Created state, never started" diagnostic that
-   *     prompted this work.
-   *   - `docker-logs.txt` — last 200 lines of the container's stdout/stderr
-   *     (interleaved by docker, no `[STDOUT]` / `[STDERR]` prefixes since
-   *     this isn't going through the logPath tee).
+   *   - `docker-inspect-<service>.json` — raw `docker inspect` output.
+   *     Carries State.Status ("created" / "exited" / "dead" / ...),
+   *     ExitCode, OOMKilled, Error string, mounts, etc. The gateway's
+   *     inspect is the most actionable artifact for the "address
+   *     already in use" failure mode: it lands in `Created` state with
+   *     `Error: "driver failed programming external connectivity..."`.
+   *   - `docker-logs-<service>.txt` — last 200 lines of the container's
+   *     stdout/stderr (interleaved by docker, no `[STDOUT]` /
+   *     `[STDERR]` prefixes since this isn't going through the logPath
+   *     tee).
    *
-   * Both are best-effort — failures are swallowed so a missing docker
-   * binary or already-gone container never masks the hatch error.
+   * All writes are best-effort — failures are swallowed so a missing
+   * docker binary or already-gone container never masks the hatch
+   * error.
    */
   private async captureContainerForensics(): Promise<void> {
     const artifacts = runArtifacts(this.id);
-    const inspect = await this.runner
-      .run("docker", ["inspect", this.assistantContainerName])
-      .catch(() => undefined);
-    if (inspect && inspect.exitCode === 0 && inspect.stdout) {
-      await writeFile(
-        join(artifacts.runDir, "docker-inspect.json"),
-        inspect.stdout,
-      ).catch(() => undefined);
-    }
-    const logs = await this.runner
-      .run("docker", ["logs", "--tail", "200", this.assistantContainerName])
-      .catch(() => undefined);
-    if (logs) {
-      const combined =
-        (logs.stdout ?? "") +
-        (logs.stderr ? `\n--- stderr ---\n${logs.stderr}` : "");
-      if (combined.length > 0) {
+    const siblings = vellumDockerSiblingContainers(this.id);
+    for (const container of siblings) {
+      // `service` is the suffix-after-runId; matches the same labels
+      // the cleanup helper uses so report URLs stay parseable.
+      const service = container.slice(this.id.length + 1); // strip `${runId}-`
+      const inspect = await this.runner
+        .run("docker", ["inspect", container])
+        .catch(() => undefined);
+      if (inspect && inspect.exitCode === 0 && inspect.stdout) {
         await writeFile(
-          join(artifacts.runDir, "docker-logs.txt"),
-          combined,
+          join(artifacts.runDir, `docker-inspect-${service}.json`),
+          inspect.stdout,
         ).catch(() => undefined);
+      }
+      const logs = await this.runner
+        .run("docker", ["logs", "--tail", "200", container])
+        .catch(() => undefined);
+      if (logs) {
+        const combined =
+          (logs.stdout ?? "") +
+          (logs.stderr ? `\n--- stderr ---\n${logs.stderr}` : "");
+        if (combined.length > 0) {
+          await writeFile(
+            join(artifacts.runDir, `docker-logs-${service}.txt`),
+            combined,
+          ).catch(() => undefined);
+        }
       }
     }
   }

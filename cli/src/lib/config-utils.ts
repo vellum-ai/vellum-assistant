@@ -35,6 +35,21 @@ export function buildNestedConfig(
 /**
  * Ensure hatch always provides enough initial LLM config for the assistant to
  * detect a fresh off-platform hatch and seed BYOK profiles.
+ *
+ * @deprecated Part of the workspace-config overlay path — a CLI→Assistant
+ * side channel that bypasses the Assistant's public APIs and has no
+ * equivalent in web/desktop. Two replacement paths are on the table:
+ *
+ *   1. Post-hatch API calls — the CLI calls public Assistant routes after
+ *      boot (`POST /v1/secrets`, plus a small read-only endpoint that
+ *      returns the canonical inference-profile templates so the CLI can
+ *      PATCH them in). See the closed alternatives in PR #32061 and
+ *      PR #32131 for the shape this would take.
+ *   2. Move inference-profile seeds out of workspace config and into
+ *      Assistant code, so there is nothing for the CLI to inject in the
+ *      first place.
+ *
+ * Either path removes the need for this helper.
  */
 export function buildHatchConfigValues(
   configValues: Record<string, string>,
@@ -52,15 +67,21 @@ export function buildHatchConfigValues(
 
 /**
  * Write arbitrary key-value pairs to a temporary JSON file and return its
- * path. The caller passes this path to the daemon via the
- * VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH env var so the daemon can merge the
- * values into its workspace config on first boot.
+ * path. The caller is responsible for getting the file to the daemon — for
+ * the local hatch flow that means setting `VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH`
+ * on the daemon process; for the Docker hatch flow the caller stages the
+ * file into the workspace volume so the rename-after-consume step in
+ * `mergeDefaultWorkspaceConfig` is a same-filesystem rename.
  *
  * Keys use dot-notation to address nested fields. For example:
  *   "llm.default.provider" → {llm: {default: {provider: ...}}}
  *   "llm.default.model"    → {llm: {default: {model: ...}}}
  *
  * Returns undefined when configValues is empty (nothing to write).
+ *
+ * @deprecated See {@link buildHatchConfigValues} for the replacement
+ * direction. This overlay path is a CLI→Assistant side channel and will be
+ * removed once one of the documented replacements lands.
  */
 export function writeInitialConfig(
   configValues: Record<string, string>,

@@ -12,10 +12,13 @@ import {
   useState,
 } from "react";
 import ReactMarkdown from "react-markdown";
+import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
 import type { Components } from "react-markdown";
+import "katex/dist/katex.min.css";
 
-import { cn } from "../utils/cn.js";
+import { cn } from "../utils/cn";
 
 const MAX_CODE_BLOCK_HEIGHT = 400;
 
@@ -295,7 +298,7 @@ export function MarkdownMessage({
   const components = useMemo(() => buildMarkdownComponents(Link), [Link]);
   return (
     <div data-slot="markdown-message" className={cn("text-chat text-[var(--content-default)]", className)}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+      <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} components={components}>
         {processed}
       </ReactMarkdown>
     </div>

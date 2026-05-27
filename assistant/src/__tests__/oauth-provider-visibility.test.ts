@@ -21,13 +21,13 @@ mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: () => Promise.resolve(undefined),
 }));
 
-import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../config/schema.js";
-import { resetDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { resetTestTables } from "../memory/raw-query.js";
 import { listProviders, seedProviders } from "../oauth/oauth-store.js";
 import { isProviderVisible } from "../oauth/provider-visibility.js";
+import { resetDbForTesting } from "./db-test-helpers.js";
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
 initializeDb();
 
@@ -38,15 +38,15 @@ function makeConfig(): AssistantConfig {
 
 beforeEach(() => {
   resetTestTables("oauth_connections", "oauth_apps", "oauth_providers");
-  _setOverridesForTesting({});
+  setOverridesForTesting({});
 });
 
 afterEach(() => {
-  _setOverridesForTesting({});
+  setOverridesForTesting({});
 });
 
 afterAll(() => {
-  resetDb();
+  resetDbForTesting();
 });
 
 describe("isProviderVisible", () => {
@@ -70,7 +70,7 @@ describe("isProviderVisible", () => {
   });
 
   test("returns true when featureFlag is set and the flag is enabled", () => {
-    _setOverridesForTesting({ "test-gate": true });
+    setOverridesForTesting({ "test-gate": true });
 
     seedProviders([
       {
@@ -93,7 +93,7 @@ describe("isProviderVisible", () => {
   });
 
   test("returns false when featureFlag is set and the flag is disabled", () => {
-    _setOverridesForTesting({ "test-gate": false });
+    setOverridesForTesting({ "test-gate": false });
 
     seedProviders([
       {
@@ -115,7 +115,7 @@ describe("isProviderVisible", () => {
   });
 
   test("listProviders returns all providers but isProviderVisible filters gated ones when flag is disabled", () => {
-    _setOverridesForTesting({ "test-gate": false });
+    setOverridesForTesting({ "test-gate": false });
 
     seedProviders([
       {

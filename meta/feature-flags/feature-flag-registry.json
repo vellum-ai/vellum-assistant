@@ -440,6 +440,14 @@
       "label": "Memory Router Playground",
       "description": "Expose the developer-only Memory Router Playground tab in macOS Settings and the /assistant/memory-router-playground web page for dry-running v4 router config overrides against the live page index. Dev-only; default off.",
       "defaultEnabled": false
+    },
+    {
+      "id": "gateway-web-auth",
+      "scope": "client",
+      "key": "gateway-web-auth",
+      "label": "Gateway Web Auth",
+      "description": "Enable web SPA authentication via gateway session cookies.",
+      "defaultEnabled": false
     }
   ]
 }

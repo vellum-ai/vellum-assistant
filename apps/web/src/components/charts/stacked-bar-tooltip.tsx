@@ -1,7 +1,7 @@
 import type { TooltipContentProps } from "recharts";
 
-import { CHART_TOOLTIP_STYLE } from "@/components/charts/chart-config.js";
-import { formatDateLabel } from "@/components/charts/format-date-label.js";
+import { CHART_TOOLTIP_STYLE } from "@/components/charts/chart-config";
+import { formatDateLabel } from "@/components/charts/format-date-label";
 
 export type TooltipRowItem = {
   key: string;

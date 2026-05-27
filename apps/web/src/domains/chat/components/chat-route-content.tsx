@@ -19,88 +19,105 @@
  */
 
 import * as Sentry from "@sentry/react";
-import { type Dispatch, type FormEvent, type MutableRefObject, type ReactNode, type RefObject, type SetStateAction, useCallback, useEffect, useMemo, useRef } from "react";
+import { type Dispatch, type FormEvent, type MutableRefObject, type ReactNode, type RefObject, type SetStateAction, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { ChatBody } from "@/domains/chat/components/chat-body.js";
-import { SlackChannelFooter } from "@/domains/chat/components/slack-channel-footer.js";
-import { ConversationStarterGrid } from "@/domains/chat/components/conversation-starter-grid.js";
-import { ComposerNotices } from "@/domains/chat/components/composer-notices.js";
-import { ConfirmationPromptCard } from "@/domains/chat/components/confirmation-prompt-card.js";
-import { ContactPromptCard } from "@/domains/chat/components/contact-prompt-card.js";
-import { QuestionPromptCard } from "@/domains/chat/components/question-prompt-card.js";
-import { SecretPromptCard } from "@/domains/chat/components/secret-prompt-card.js";
-import { usePullRefresh } from "@/domains/chat/hooks/use-pull-refresh.js";
-import { useRefreshLatestMessages as _useRefreshLatestMessages } from "@/domains/chat/hooks/use-refresh-latest-messages.js";
-import { useConversationStarters } from "@/domains/chat/hooks/use-conversation-starters.js";
-import type { TranscriptHandle, TranscriptProps } from "@/domains/chat/transcript/transcript.js";
-import { useTranscriptScroll } from "@/domains/chat/transcript/use-transcript-scroll.js";
-import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat-utils.js";
-import type { ChatError } from "@/domains/chat/types.js";
-import type { AssistantState } from "@/domains/chat/hooks/use-assistant-lifecycle.js";
-import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone.js";
-import type { ChatAttachment } from "@/domains/chat/components/chat-attachments/use-chat-attachments.js";
-import type { ChatEmptyStateProps } from "@/domains/chat/components/chat-empty-state.js";
-import { CreditsExhaustedBanner } from "@/domains/chat/components/credits-exhausted-banner.js";
-import { DiscordNudgeBanner } from "@/domains/nudges/components/discord-nudge-banner.js";
-import { GitHubNudgeBanner } from "@/domains/nudges/components/github-nudge-banner.js";
-import { IOSAppBanner } from "@/domains/nudges/components/ios-app-banner.js";
-import { MacOSAppBanner } from "@/domains/nudges/components/macos-app-banner.js";
+import { LazyBoundary } from "@/components/lazy-boundary";
+
+import { ChatBody } from "@/domains/chat/components/chat-body";
+import { SlackChannelFooter } from "@/domains/chat/components/slack-channel-footer";
+import { ConversationStarterGrid } from "@/domains/chat/components/conversation-starter-grid";
+import { ComposerNotices } from "@/domains/chat/components/composer-notices";
+import { SendErrorModal } from "@/domains/chat/components/send-error-modal";
+import { ConfirmationPromptCard } from "@/domains/chat/components/confirmation-prompt-card";
+import { ContactPromptCard } from "@/domains/chat/components/contact-prompt-card";
+import { QuestionPromptCard } from "@/domains/chat/components/question-prompt-card";
+import { SecretPromptCard } from "@/domains/chat/components/secret-prompt-card";
+import { usePullRefresh } from "@/domains/chat/hooks/use-pull-refresh";
+import { useRefreshLatestMessages as _useRefreshLatestMessages } from "@/domains/chat/hooks/use-refresh-latest-messages";
+import { useConversationStarters } from "@/domains/chat/hooks/use-conversation-starters";
+import type { TranscriptHandle, TranscriptProps } from "@/domains/chat/transcript/transcript";
+import { useDeprecatedTranscriptScroll } from "@/domains/chat/transcript/use-deprecated-transcript-scroll";
+import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat-utils";
+import type { ChatError } from "@/domains/chat/types";
+import type { AssistantState } from "@/domains/chat/hooks/use-assistant-lifecycle";
+import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone";
+import type { ChatAttachment } from "@/domains/chat/components/chat-attachments/use-chat-attachments";
+import type { ChatEmptyStateProps } from "@/domains/chat/components/chat-empty-state";
+import { CreditsExhaustedBanner } from "@/domains/chat/components/credits-exhausted-banner";
+import { DiscordNudgeBanner } from "@/components/nudges/discord-nudge-banner";
+import { GitHubNudgeBanner } from "@/components/nudges/github-nudge-banner";
+import { IOSAppBanner } from "@/components/nudges/ios-app-banner";
+import { MacOSAppBanner } from "@/components/nudges/macos-app-banner";
 import { Loader2 } from "lucide-react";
 import { Button, Notice, ResizablePanel } from "@vellum/design-library";
-import { ProviderBillingBanner } from "@/domains/chat/components/provider-billing-banner.js";
-import { QueuedMessagesDrawer } from "@/domains/chat/components/queued-messages-drawer.js";
-import { AppViewerContainer } from "@/domains/chat/components/app-viewer-container.js";
-import { DocumentViewerContainer } from "@/domains/chat/components/document-viewer-container.js";
-import { ChatAvatar } from "@/components/avatar/chat-avatar.js";
-import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu.js";
-import { ContextWindowIndicator, type ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
-import { SubagentDetailPanel } from "@/domains/chat/components/subagent-detail-panel.js";
-import { OnboardingChoiceCard } from "@/domains/chat/components/onboarding-choice-card.js";
-import { useOnboardingChoice } from "@/domains/chat/hooks/use-onboarding-choice.js";
-import { useIsNativePlatform } from "@/runtime/native-auth.js";
+import { ProviderBillingBanner } from "@/domains/chat/components/provider-billing-banner";
+import { QueuedMessagesDrawer } from "@/domains/chat/components/queued-messages-drawer";
+import { AppViewerContainer } from "@/components/apps/app-viewer-container";
+import { DocumentViewerContainer } from "@/domains/chat/components/document-viewer-container";
+import { ChatAvatar } from "@/components/avatar/chat-avatar";
+import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu";
+import { ContextWindowIndicator, type ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
+// SubagentDetailPanel is only rendered when the user opens a subagent's
+// detail view; defer loading to keep the avatar-bundled-components and
+// subagent UI subtree out of the chat-critical bundle.
+const SubagentDetailPanel = lazy(() =>
+  import("@/domains/chat/components/subagent-detail-panel").then((m) => ({
+    default: m.SubagentDetailPanel,
+  })),
+);
+// ToolDetailPanel is only rendered when the user opens a tool-call's detail
+// drawer; defer loading to keep its subtree out of the chat-critical bundle.
+const ToolDetailPanel = lazy(() =>
+  import("@/domains/chat/components/tool-detail-panel").then((m) => ({
+    default: m.ToolDetailPanel,
+  })),
+);
+import { OnboardingChoiceCard } from "@/domains/chat/components/onboarding-choice-card";
+import { useOnboardingChoice } from "@/domains/chat/hooks/use-onboarding-choice";
+import { useIsNativePlatform } from "@/runtime/native-auth";
 
 import { Link, useNavigate } from "react-router";
 
-import { buildEditAppGreeting, buildEditAppStarters } from "@/domains/chat/utils/edit-app-empty-state.js";
-import { pickRandomPlaceholder } from "@/domains/chat/utils/empty-state-constants.js";
-import { useEmptyStateGreeting } from "@/domains/chat/hooks/use-empty-state-greeting.js";
-import { getChatBillingBannerDecision, shouldShowGenericChatErrorNotice } from "@/domains/chat/utils/error-classification.js";
+import { buildEditAppGreeting, buildEditAppStarters } from "@/domains/chat/utils/edit-app-empty-state";
+import { pickRandomPlaceholder } from "@/domains/chat/utils/empty-state-constants";
+import { useEmptyStateGreeting } from "@/domains/chat/hooks/use-empty-state-greeting";
+import { getChatBillingBannerDecision, shouldShowGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
 
-import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
-import { useDeployStore } from "@/domains/chat/deploy-store.js";
-import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
-import type { SubagentEntry, SubagentState } from "@/domains/subagents/subagent-store.js";
-import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/utils/reconcile.js";
-import { buildTranscriptItems } from "@/domains/chat/transcript/build-items.js";
-import type { TranscriptItem, TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
-import type { HistoryPaginationResult } from "@/domains/chat/transcript/use-history-pagination.js";
+import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
+import { useDeployStore } from "@/stores/deploy-store";
+import { useInteractionStore } from "@/domains/interactions/interaction-store";
+import type { SubagentState } from "@/domains/subagents/subagent-store";
+import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/utils/reconcile";
+
+import { buildTranscriptItems } from "@/domains/chat/transcript/build-items";
+import { sanitizeDisplayMessages } from "@/domains/chat/utils/sanitize-display-messages";
+import type { TranscriptItem, TranscriptPaginationState } from "@/domains/chat/transcript/types";
+import type { HistoryPaginationResult } from "@/domains/chat/transcript/use-history-pagination";
 import {
   canStopGeneration,
   getThinkingStatusText,
   isSendDisabled,
   shouldShowThinkingIndicator,
   type UIContext,
-} from "@/domains/messaging/turn-selectors.js";
-import { isSurfaceInteractive } from "@/domains/chat/types/types.js";
+} from "@/domains/messaging/turn-selectors";
+import { isSurfaceInteractive } from "@/domains/chat/types/types";
 
-import type { MainView, OpenedAppState, OpenedDocumentState } from "@/stores/viewer-store.js";
-import { useActiveProfileModel } from "@/domains/chat/hooks/use-active-profile-model.js";
-import { modelSupportsVision } from "@/assistant/model-capabilities.js";
-import { isPointerCoarse } from "@/utils/pointer.js";
-import { routes } from "@/utils/routes.js";
-import { haptic } from "@/utils/haptics.js";
-import { isChannelConversation as _isChannelConversation } from "@/domains/chat/utils/conversation-channel.js";
-import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure.js";
-import type { DiskPressureStatusEventPayload } from "@/assistant/use-disk-pressure-monitor.js";
-import { type TurnState, useTurnStore } from "@/domains/messaging/turn-store.js";
-import type { QuestionResponseEntry, AllowlistOption, ScopeOption, DirectoryScopeOption, ConfirmationDecision } from "@/domains/chat/api/event-types.js";
-import type { CharacterComponents, CharacterTraits } from "@/domains/avatar/types.js";
-import { DiskPressureBanner, type DiskPressureBannerMode } from "@/domains/chat/components/disk-pressure-banner.js";
-import type { VoiceInputButtonHandle } from "@/domains/chat/components/voice-input-button.js";
-import type { AssistantIdentity } from "@/assistant/identity.js";
-import type { Conversation } from "@/domains/chat/api/conversations.js";
-import { submitQuestionResponse } from "@/domains/chat/api/interactions.js";
-import type { ChatEventStream } from "@/domains/chat/api/stream.js";
+import { useViewerStore, type MainView, type OpenedAppState, type OpenedDocumentState } from "@/stores/viewer-store";
+import { useActiveProfileModel } from "@/domains/chat/hooks/use-active-profile-model";
+import { isPointerCoarse } from "@/utils/pointer";
+import { routes } from "@/utils/routes";
+import { haptic } from "@/utils/haptics";
+import { isChannelConversation as _isChannelConversation } from "@/domains/chat/utils/conversation-channel";
+import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure";
+import type { DiskPressureStatusEventPayload } from "@/assistant/use-disk-pressure-monitor";
+import { type TurnState, useTurnStore } from "@/domains/messaging/turn-store";
+import type { QuestionResponseEntry, AllowlistOption, ScopeOption, DirectoryScopeOption, ConfirmationDecision } from "@/domains/chat/api/event-types";
+import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
+import { DiskPressureBanner, type DiskPressureBannerMode } from "@/domains/chat/components/disk-pressure-banner";
+import type { VoiceInputButtonHandle } from "@/domains/chat/components/voice-input-button";
+import type { Conversation } from "@/types/conversation-types";
+import { submitQuestionResponse } from "@/domains/chat/api/interactions";
+import type { ChatEventStream } from "@/domains/chat/api/stream";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -172,9 +189,9 @@ export interface SendMessageHandlers {
   sendMessage: (content: string, attachments?: DisplayAttachment[]) => Promise<void>;
   handleStopGenerating: () => Promise<void>;
   queuedMessages: DisplayMessage[];
-  handleCancelQueuedMessage: (stableId: string) => void;
+  handleCancelQueuedMessage: (messageId: string) => void;
   handleCancelAllQueued: () => void;
-  handleSteerMessage: (stableId: string) => void;
+  handleSteerMessage: (messageId: string) => void;
   handleEditQueueTail: () => void;
 }
 
@@ -215,7 +232,9 @@ export interface AvatarData {
 export interface ChatRouteRefs {
   inputRef: RefObject<HTMLTextAreaElement | null>;
   messagesRef: MutableRefObject<DisplayMessage[]>;
-  activeConversationKeyRef: MutableRefObject<string | null>;
+  sanitizedMessagesRef: MutableRefObject<DisplayMessage[]>;
+  transcriptItemsRef: MutableRefObject<TranscriptItem[]>;
+  activeConversationIdRef: MutableRefObject<string | null>;
   assistantIdRef: MutableRefObject<string | null>;
   streamContextRef: MutableRefObject<StreamContext | null>;
   expandedToolCallIdsRef: MutableRefObject<Set<string>>;
@@ -223,13 +242,11 @@ export interface ChatRouteRefs {
   contextWindowUsageByConversationRef: MutableRefObject<Map<string, ContextWindowUsage>>;
   streamRef: MutableRefObject<ChatEventStream | null>;
   streamEpochRef: MutableRefObject<number>;
-  pendingQueuedStableIdsRef: MutableRefObject<string[]>;
-  requestIdToStableIdRef: MutableRefObject<Map<string, string>>;
+  pendingQueuedMessageIdsRef: MutableRefObject<string[]>;
+  requestIdToMessageIdRef: MutableRefObject<Map<string, string>>;
   pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
   confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
   reconcileAfterNextStreamOpenRef: MutableRefObject<boolean>;
-  /** Ref populated by ChatRouteContent with the current transcript items for the debug API. */
-  transcriptItemsRef: MutableRefObject<TranscriptItem[]>;
   /**
    * Imperative handle to the mounted `<Transcript />`. Owned by ChatPage
    * so `useChatDebugApi` (installed there) can read scroll geometry
@@ -246,7 +263,8 @@ export interface ChatRouteContentProps {
   // Core
   assistantId: string | null;
   assistantState: AssistantState;
-  assistantIdentity: AssistantIdentity | null;
+  /** Active assistant's display name from `useAssistantIdentityStore` (read at chat-page via atomic selector). */
+  assistantName: string | null;
 
   // Feature flags
   chatPullToRefreshEnabled: boolean;
@@ -276,19 +294,19 @@ export interface ChatRouteContentProps {
 
   // Conversation
   conversations: Conversation[];
-  activeConversationKey: string | null;
+  activeConversationId: string | null;
   activeConversation: Conversation | undefined;
-  processingKeys: ReadonlySet<string>;
+  processingConversationIds: ReadonlySet<string>;
 
   // Viewer
   mainView: MainView;
   openedAppState: OpenedAppState | null;
   openedDocumentState: OpenedDocumentState | null;
-  editingConversationKey: string | null;
+  editingConversationId: string | null;
 
   // Draft
-  restoredDraftConversationKey: string | null;
-  setRestoredDraftConversationKey: Dispatch<SetStateAction<string | null>>;
+  restoredDraftConversationId: string | null;
+  setRestoredDraftConversationId: Dispatch<SetStateAction<string | null>>;
   saveDraft: (key: string, text: string) => void;
   clearDraft: (key: string) => void;
 
@@ -347,8 +365,7 @@ export interface ChatRouteContentProps {
   handleInspectMessage?: (messageId: string) => void;
 
   // Subagent
-  subagentEntries: SubagentEntry[];
-  subagentState: SubagentState;
+  subagentState: Pick<SubagentState, "byId">;
   activeSubagentId: string | null;
   onSubagentClick: (subagentId: string) => void;
   onCloseSubagentDetail: () => void;
@@ -374,7 +391,7 @@ export interface ChatRouteContentProps {
   // Onboarding (iOS post-hatch flow)
   onboardingTasksEmpty: boolean;
   didOnboarding: boolean;
-  onboardingConversationKey: string | null;
+  onboardingConversationId: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -384,7 +401,7 @@ export interface ChatRouteContentProps {
 export function ChatRouteContent({
   assistantId,
   assistantState,
-  assistantIdentity,
+  assistantName,
   chatPullToRefreshEnabled,
   deployToVercel,
   doctor: doctorEnabled,
@@ -398,15 +415,15 @@ export function ChatRouteContent({
   setError,
   isLoadingHistory,
   conversations: _conversations,
-  activeConversationKey,
+  activeConversationId,
   activeConversation,
-  processingKeys,
+  processingConversationIds,
   mainView,
   openedAppState,
   openedDocumentState,
-  editingConversationKey,
-  restoredDraftConversationKey,
-  setRestoredDraftConversationKey,
+  editingConversationId,
+  restoredDraftConversationId,
+  setRestoredDraftConversationId,
   saveDraft,
   clearDraft,
   avatar,
@@ -419,7 +436,7 @@ export function ChatRouteContent({
   setTranscriptPagination: _setTranscriptPagination,
   setShowAddCreditsModal,
   diskPressure,
-  handleReviewDiskUsage,
+  handleReviewDiskUsage: _handleReviewDiskUsage,
   nudges,
   attachments,
   voice,
@@ -435,7 +452,6 @@ export function ChatRouteContent({
   handleDeployApp,
   handleForkConversation,
   handleInspectMessage,
-  subagentEntries,
   subagentState,
   activeSubagentId,
   onSubagentClick,
@@ -450,7 +466,7 @@ export function ChatRouteContent({
   isChannelReadonly,
   onboardingTasksEmpty,
   didOnboarding,
-  onboardingConversationKey,
+  onboardingConversationId,
 }: ChatRouteContentProps) {
   const navigate = useNavigate();
 
@@ -502,7 +518,9 @@ export function ChatRouteContent({
   const {
     inputRef,
     messagesRef,
-    activeConversationKeyRef: _activeConversationKeyRef,
+    sanitizedMessagesRef,
+    transcriptItemsRef,
+    activeConversationIdRef: _activeConversationIdRef,
     assistantIdRef: _assistantIdRef,
     streamContextRef,
     expandedToolCallIdsRef,
@@ -510,18 +528,13 @@ export function ChatRouteContent({
     contextWindowUsageByConversationRef: _contextWindowUsageByConversationRef,
     streamRef: _streamRef,
     streamEpochRef: _streamEpochRef,
-    pendingQueuedStableIdsRef: _pendingQueuedStableIdsRef,
-    requestIdToStableIdRef: _requestIdToStableIdRef,
+    pendingQueuedMessageIdsRef: _pendingQueuedMessageIdsRef,
+    requestIdToMessageIdRef: _requestIdToMessageIdRef,
     pendingLocalDeletionsRef: _pendingLocalDeletionsRef,
     confirmationToolCallMapRef: _confirmationToolCallMapRef,
 
     reconcileAfterNextStreamOpenRef: _reconcileAfterNextStreamOpenRef,
   } = refs;
-
-  // -------------------------------------------------------------------------
-  // Conversation starters (only needed for chat empty-state)
-  // -------------------------------------------------------------------------
-  const { starters: conversationStarters } = useConversationStarters(assistantId);
 
   // -------------------------------------------------------------------------
   // Turn state (read from Zustand store)
@@ -533,7 +546,8 @@ export function ChatRouteContent({
   const lastTerminalReason = useTurnStore.use.lastTerminalReason();
   const statusText = useTurnStore.use.statusText();
   const liveWebActivity = useTurnStore.use.liveWebActivity();
-  const turnState: TurnState = { phase, pendingQueuedCount, activeToolCallCount, activeTurnId, lastTerminalReason, statusText, liveWebActivity };
+  const autoRoutedProfileLabel = useTurnStore.use.autoRoutedProfileLabel();
+  const turnState: TurnState = { phase, pendingQueuedCount, activeToolCallCount, activeTurnId, lastTerminalReason, statusText, liveWebActivity, autoRoutedProfileLabel };
 
   // -------------------------------------------------------------------------
   // Deploy / share state (from Zustand store)
@@ -541,6 +555,13 @@ export function ChatRouteContent({
 
   const isSharing = useDeployStore.use.isSharing();
   const isDeploying = useDeployStore.use.isDeploying();
+
+  // -------------------------------------------------------------------------
+  // Tool-call detail drawer (from Zustand viewer store)
+  // -------------------------------------------------------------------------
+
+  const activeToolDetail = useViewerStore.use.activeToolDetail();
+  const closeToolDetail = useViewerStore.use.closeToolDetail();
 
   // -------------------------------------------------------------------------
   // Feature flags
@@ -580,8 +601,8 @@ export function ChatRouteContent({
     didOnboarding,
     messages,
     onboardingTasksEmpty,
-    activeConversationKey,
-    onboardingConversationKey,
+    activeConversationId,
+    onboardingConversationId,
     sendMessage,
   });
 
@@ -601,7 +622,7 @@ export function ChatRouteContent({
   }, [messages]);
 
   const activeConversationIsProcessing =
-    activeConversationKey != null && processingKeys.has(activeConversationKey);
+    activeConversationId != null && processingConversationIds.has(activeConversationId);
 
   const activeConversationHasPendingAssistantResponse = useMemo(
     () => hasPendingAssistantResponse(messages),
@@ -643,10 +664,17 @@ export function ChatRouteContent({
     isSendDisabled(turnState, uiContext) || typingDisabled;
 
   const isEmptyConversation =
-    !!activeConversationKey &&
+    !!activeConversationId &&
     !isLoadingHistory &&
     messages.length === 0 &&
     !(assistantState.kind === "active" && assistantState.maintenanceMode?.enabled);
+
+  // Conversation starters power the empty-state chips only. Gate the fetch
+  // by `isEmptyConversation` so non-empty chats stop polling the daemon for
+  // data that's never rendered.
+  const { starters: conversationStarters } = useConversationStarters(
+    isEmptyConversation ? assistantId : null,
+  );
 
   const genericChatError = shouldShowGenericChatErrorNotice(error) && error
     ? {
@@ -661,6 +689,23 @@ export function ChatRouteContent({
       }
     : null;
 
+  // Modal-mode errors (e.g. secret_blocked from a fresh new-conversation
+  // POST) interrupt with a dialog and restore the user's text back into the
+  // composer on dismiss so they can edit and resend without retyping.
+  const sendErrorModalNode =
+    error?.displayAs === "modal" ? (
+      <SendErrorModal
+        open
+        message={error.message}
+        onClose={() => {
+          if (typeof error.restoreContent === "string") {
+            setInput(error.restoreContent);
+          }
+          setError(null);
+        }}
+      />
+    ) : null;
+
   const canSendAttachments =
     attachmentsUploadingCount === 0 && attachmentUploadedIds.length > 0;
 
@@ -672,20 +717,21 @@ export function ChatRouteContent({
   // client-side helper only when the daemon hasn't surfaced the flag.
   const activeProfileModel = useActiveProfileModel(
     assistantId,
-    activeConversation?.conversationKey,
+    activeConversation?.conversationId,
   );
-  const activeModelSupportsVision = activeProfileModel
-    ? (activeProfileModel.supportsVision ??
-      modelSupportsVision(activeProfileModel.provider, activeProfileModel.model))
-    : true;
+  // `modelSupportsVision` from `assistant/model-capabilities` would pull the
+  // entire LLM model catalog (~12 kB) into the chat-critical bundle just to
+  // return `true` as a permissive fallback. The daemon's `supportsVision` is
+  // the source of truth; fail-open here when it isn't surfaced yet.
+  const activeModelSupportsVision = activeProfileModel?.supportsVision ?? true;
 
   const showUploadBlockedNotice =
     attachmentsUploadingCount > 0 &&
     (input.trim().length > 0 || attachmentUploadedIds.length > 0);
 
   const showRestoredDraftNotice =
-    restoredDraftConversationKey !== null &&
-    restoredDraftConversationKey === activeConversationKey;
+    restoredDraftConversationId !== null &&
+    restoredDraftConversationId === activeConversationId;
 
   const isInMaintenanceWithNoMessages =
     !isLoadingHistory &&
@@ -716,12 +762,12 @@ export function ChatRouteContent({
   // -------------------------------------------------------------------------
 
   const onRefreshEpoch = useCallback(() => {
-    if (activeConversationKey) {
+    if (activeConversationId) {
       const currentInput = inputRef.current?.value ?? "";
-      saveDraft(activeConversationKey, currentInput);
+      saveDraft(activeConversationId, currentInput);
     }
     setRefreshEpoch((prev) => prev + 1);
-  }, [activeConversationKey, inputRef, saveDraft, setRefreshEpoch]);
+  }, [activeConversationId, inputRef, saveDraft, setRefreshEpoch]);
 
   // -------------------------------------------------------------------------
   // Pull-to-refresh
@@ -734,7 +780,7 @@ export function ChatRouteContent({
     handleDismissRefreshFeedback,
     handleRetryRefreshFromPill,
   } = usePullRefresh({
-    activeConversationKey,
+    activeConversationId,
     messagesRef,
     invalidateHistory: historyPagination.invalidate,
     onRefreshEpoch,
@@ -754,10 +800,22 @@ export function ChatRouteContent({
 
   const thinkingLabel = getThinkingStatusText(turnState);
 
+  // Single render-boundary cleanup pass. `sanitizeDisplayMessages` houses
+  // every "this shouldn't be necessary, but is" hack we apply before the
+  // transcript renders (timestamp sort, blank/phantom row filter, duplicate
+  // trailing assistant drop). See `sanitize-display-messages.ts` for the
+  // rationale and removal triggers for each sub-step.
+  const sanitizedMessages = useMemo(
+    () => sanitizeDisplayMessages(messages),
+    [messages],
+  );
+
+  sanitizedMessagesRef.current = sanitizedMessages;
+
   const transcriptItems = useMemo(
     () =>
       buildTranscriptItems({
-        messages,
+        messages: sanitizedMessages,
         pendingSecret: pendingSecret
           ? { requestId: pendingSecret.requestId }
           : null,
@@ -776,46 +834,37 @@ export function ChatRouteContent({
           : null,
         isThinking: showThinking,
         thinkingLabel,
+        autoRoutedProfileLabel,
         errorNotice: null,
         showOnboardingChoice,
       }),
     [
-      messages,
+      sanitizedMessages,
       pendingSecret,
       pendingConfirmation,
       inlineConfirmationAttached,
       pendingContactRequest,
       showThinking,
       thinkingLabel,
+      autoRoutedProfileLabel,
       showOnboardingChoice,
     ],
   );
 
-  // Populate the ref for the debug API (parent reads this synchronously).
-  refs.transcriptItemsRef.current = transcriptItems;
+  transcriptItemsRef.current = transcriptItems;
 
   // -------------------------------------------------------------------------
   // Scroll coordination
   // -------------------------------------------------------------------------
 
-  const scrollCoordinator = useTranscriptScroll({
+  const scrollCoordinator = useDeprecatedTranscriptScroll({
     transcriptRef: refs.transcriptRef,
     items: transcriptItems,
-    conversationKey: activeConversationKey,
+    conversationId: activeConversationId,
     hasMore: transcriptPagination.hasMore,
     isLoadingOlder: transcriptPagination.isLoadingOlder,
     onLoadOlder: loadOlder,
   });
-
-  useEffect(() => {
-    const el = refs.transcriptRef.current?.getScrollElement();
-    if (!el) return;
-    const handler = (e: Event) => scrollCoordinator.handleScroll(e);
-    el.addEventListener("scroll", handler, { passive: true });
-    return () => {
-      el.removeEventListener("scroll", handler);
-    };
-  }, [scrollCoordinator, activeConversationKey, transcriptItems, refs.transcriptRef]);
 
   const handleScrollToLatest = useCallback(() => {
     scrollCoordinator.scrollToLatest({ behavior: "smooth" });
@@ -839,19 +888,19 @@ export function ChatRouteContent({
   useEffect(() => {
     if (!showRestoredDraftNotice) return;
     const id = window.setTimeout(() => {
-      setRestoredDraftConversationKey(null);
+      setRestoredDraftConversationId(null);
     }, 5000);
     return () => window.clearTimeout(id);
-  }, [showRestoredDraftNotice, setRestoredDraftConversationKey]);
+  }, [showRestoredDraftNotice, setRestoredDraftConversationId]);
 
   useEffect(() => {
     if (
-      restoredDraftConversationKey !== null &&
-      restoredDraftConversationKey !== activeConversationKey
+      restoredDraftConversationId !== null &&
+      restoredDraftConversationId !== activeConversationId
     ) {
-      setRestoredDraftConversationKey(null);
+      setRestoredDraftConversationId(null);
     }
-  }, [activeConversationKey, restoredDraftConversationKey, setRestoredDraftConversationKey]);
+  }, [activeConversationId, restoredDraftConversationId, setRestoredDraftConversationId]);
 
   // -------------------------------------------------------------------------
   // Composer submit
@@ -876,8 +925,8 @@ export function ChatRouteContent({
       }));
     setInput("");
     setSuggestion(null);
-    if (activeConversationKey) {
-      clearDraft(activeConversationKey);
+    if (activeConversationId) {
+      clearDraft(activeConversationId);
     }
     if (inputRef.current) {
       inputRef.current.style.height = "auto";
@@ -893,7 +942,7 @@ export function ChatRouteContent({
     // useViewportMinHeight) stays anchored at the latest message.
     scrollCoordinator.scrollToLatest({ behavior: "auto" });
     await sendMessage(trimmed, attachmentsToSend);
-  }, [input, sendDisabled, attachmentUploadedIds.length, attachmentsUploadingCount, activeConversationKey, chatAttachments, resetChatAttachments, sendMessage, setInput, setSuggestion, clearDraft, inputRef, scrollCoordinator]);
+  }, [input, sendDisabled, attachmentUploadedIds.length, attachmentsUploadingCount, activeConversationId, chatAttachments, resetChatAttachments, sendMessage, setInput, setSuggestion, clearDraft, inputRef, scrollCoordinator]);
 
   const handleSelectStarter = (starter: { prompt: string }) => {
     setInput(starter.prompt);
@@ -946,10 +995,33 @@ export function ChatRouteContent({
   // Disk pressure banner
   // -------------------------------------------------------------------------
 
+  const [warningDismissed, setWarningDismissed] = useState(() => {
+    if (!assistantId) return false;
+    return localStorage.getItem(`disk-pressure-warning-dismissed-${assistantId}`) === "true";
+  });
+
+  const dismissWarning = useCallback(() => {
+    if (!assistantId) return;
+    localStorage.setItem(`disk-pressure-warning-dismissed-${assistantId}`, "true");
+    setWarningDismissed(true);
+  }, [assistantId]);
+
+  // Reset dismiss when state escalates to critical or drops below warning
+  useEffect(() => {
+    const st = diskPressure.status?.state;
+    if (st && st !== "warning" && warningDismissed) {
+      if (assistantId) {
+        localStorage.removeItem(`disk-pressure-warning-dismissed-${assistantId}`);
+      }
+      setWarningDismissed(false);
+    }
+  }, [diskPressure.status?.state, warningDismissed, assistantId]);
+
   const renderDiskPressureBanner = useCallback((): ReactNode => {
     if (!diskPressure.status) return null;
     const mode = diskPressure.mode === "inactive" ? null : (diskPressure.mode as DiskPressureBannerMode | null);
     if (!mode) return null;
+    if (mode === "warning" && warningDismissed) return null;
     return (
       <DiskPressureBanner
         status={diskPressure.status}
@@ -957,10 +1029,14 @@ export function ChatRouteContent({
         isAcknowledging={diskPressure.isAcknowledgingDiskPressure}
         acknowledgeError={diskPressure.diskPressureAcknowledgeError?.message ?? null}
         onAcknowledge={() => void diskPressure.acknowledgeDiskPressure()}
-        onReviewDiskUsage={handleReviewDiskUsage}
+        onDismissWarning={dismissWarning}
+        onReviewWorkspaceData={() => void navigate(routes.workspace)}
+        // Only platform-hosted assistants (kind === "active") have a billing plan to upgrade.
+        // No dedicated hosting-topology store exists yet, so we read from the assistantState prop.
+        onUpgradeStorage={assistantState.kind === "active" ? () => void navigate(`${routes.settings.billing}?adjust_plan=1`) : null}
       />
     );
-  }, [diskPressure, handleReviewDiskUsage]);
+  }, [diskPressure, navigate, assistantState.kind, warningDismissed, dismissWarning]);
 
   // -------------------------------------------------------------------------
   // Billing composer banner
@@ -1008,7 +1084,7 @@ export function ChatRouteContent({
         <div className="mb-2">
           <Notice
             tone="info"
-            onDismiss={() => setRestoredDraftConversationKey(null)}
+            onDismiss={() => setRestoredDraftConversationId(null)}
           >
             Draft restored from your previous session.
           </Notice>
@@ -1062,7 +1138,8 @@ export function ChatRouteContent({
 
   const chatTranscriptProps: TranscriptProps = {
     items: transcriptItems,
-    assistantDisplayName: assistantIdentity?.name?.trim() || undefined,
+    conversationId: activeConversationId,
+    assistantDisplayName: assistantName?.trim() || undefined,
     expandedToolCallIds: expandedToolCallIdsRef.current,
     onOpenRuleEditor: handleOpenRuleEditorForToolCall,
     onOpenApp: handleOpenApp,
@@ -1148,11 +1225,9 @@ export function ChatRouteContent({
     onPullRefresh: handlePullRefresh,
     pullRefreshEnabled: chatPullToRefreshEnabled && touchSupported,
     scrollCoordinatorState: {
-      isPinnedToLatest: scrollCoordinator.isPinnedToLatest,
       showScrollToLatest: scrollCoordinator.showScrollToLatest,
       shouldLoadOlder: false, // Not exposed by scroll coordinator; safe default
     },
-    subagentEntries,
     onSubagentClick,
     onStopSubagent,
     renderOnboardingChoice: () => (
@@ -1208,7 +1283,7 @@ export function ChatRouteContent({
     thresholdPickerSlot: assistantId ? (
       <ComposerSettingsMenu
         assistantId={assistantId}
-        conversationId={activeConversation?.conversationKey}
+        conversationId={activeConversation?.conversationId}
       />
     ) : undefined,
     contextWindowIndicatorSlot: (
@@ -1295,7 +1370,7 @@ export function ChatRouteContent({
     <SlackChannelFooter
       assistantId={assistantId ?? undefined}
       conversation={activeConversation}
-      messages={messages}
+      messages={sanitizedMessages}
     />
   );
 
@@ -1303,7 +1378,7 @@ export function ChatRouteContent({
   // Render
   // -------------------------------------------------------------------------
 
-  if (mainView === "app-editing" && openedAppState && editingConversationKey) {
+  if (mainView === "app-editing" && openedAppState && editingConversationId) {
     return (
       <ResizablePanel
         storageKey="appEditPanelWidth"
@@ -1415,29 +1490,32 @@ export function ChatRouteContent({
 
   if (mainView === "document" && !isMobile && openedDocumentState && assistantId) {
     return (
-      <ResizablePanel
-        storageKey="documentPanelWidth"
-        defaultLeftWidth={400}
-        minLeftWidth={300}
-        minRightWidth={400}
-        left={chatContent}
-        right={
-          <DocumentViewerContainer
-            documentName={openedDocumentState.documentName}
-            content={openedDocumentState.content}
-            onClose={handleCloseDocument}
-            assistantId={assistantId}
-            surfaceId={openedDocumentState.surfaceId}
-            conversationId={openedDocumentState.conversationId}
-            onSubmitFeedback={() => {
-              const prompt = `Please review and address my comments on "${openedDocumentState.documentName}".`;
-              navigate(
-                `${routes.conversation(openedDocumentState.conversationId)}?prompt=${encodeURIComponent(prompt)}`,
-              );
-            }}
-          />
-        }
-      />
+      <>
+        <ResizablePanel
+          storageKey="documentPanelWidth"
+          defaultLeftWidth={400}
+          minLeftWidth={300}
+          minRightWidth={400}
+          left={chatContent}
+          right={
+            <DocumentViewerContainer
+              documentName={openedDocumentState.documentName}
+              content={openedDocumentState.content}
+              onClose={handleCloseDocument}
+              assistantId={assistantId}
+              surfaceId={openedDocumentState.surfaceId}
+              conversationId={openedDocumentState.conversationId}
+              onSubmitFeedback={() => {
+                const prompt = `Please review and address my comments on "${openedDocumentState.documentName}".`;
+                navigate(
+                  `${routes.conversation(openedDocumentState.conversationId)}?prompt=${encodeURIComponent(prompt)}`,
+                );
+              }}
+            />
+          }
+        />
+        {sendErrorModalNode}
+      </>
     );
   }
 
@@ -1445,24 +1523,57 @@ export function ChatRouteContent({
     const activeEntry = subagentState.byId[activeSubagentId];
     if (activeEntry) {
       return (
+        <>
+          <ResizablePanel
+            storageKey="subagentDetailPanelWidth"
+            defaultLeftWidth={400}
+            minLeftWidth={300}
+            minRightWidth={400}
+            left={chatContent}
+            right={
+              <LazyBoundary>
+                <SubagentDetailPanel
+                  entry={activeEntry}
+                  onClose={onCloseSubagentDetail}
+                  onStop={onStopSubagent}
+                  onRequestDetail={onRequestSubagentDetail}
+                />
+              </LazyBoundary>
+            }
+          />
+          {sendErrorModalNode}
+        </>
+      );
+    }
+  }
+
+  if (mainView === "tool-detail" && activeToolDetail && !isMobile) {
+    return (
+      <>
         <ResizablePanel
-          storageKey="subagentDetailPanelWidth"
+          storageKey="toolDetailPanelWidth"
           defaultLeftWidth={400}
           minLeftWidth={300}
           minRightWidth={400}
           left={chatContent}
           right={
-            <SubagentDetailPanel
-              entry={activeEntry}
-              onClose={onCloseSubagentDetail}
-              onStop={onStopSubagent}
-              onRequestDetail={onRequestSubagentDetail}
-            />
+            <LazyBoundary>
+              <ToolDetailPanel
+                detail={activeToolDetail}
+                onClose={closeToolDetail}
+              />
+            </LazyBoundary>
           }
         />
-      );
-    }
+        {sendErrorModalNode}
+      </>
+    );
   }
 
-  return chatContent;
+  return (
+    <>
+      {chatContent}
+      {sendErrorModalNode}
+    </>
+  );
 }

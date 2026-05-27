@@ -5,13 +5,13 @@ import {
   fetchHomeFeed,
   triggerFeedAction,
   updateFeedItemStatus,
-} from "../api.js";
+} from "../api";
 import type {
   FeedItem,
   FeedItemStatus,
   HomeFeedResponse,
-} from "../types.js";
-import { useEventBusStore } from "@/stores/event-bus-store.js";
+} from "../types";
+import { useEventBusStore } from "@/stores/event-bus-store";
 
 const QUERY_KEY_PREFIX = "home-feed" as const;
 

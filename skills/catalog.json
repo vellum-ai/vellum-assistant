@@ -118,22 +118,6 @@
       "updatedAt": "2026-05-12T14:56:19-04:00"
     },
     {
-      "id": "document-writer",
-      "name": "document-writer",
-      "description": "Create and edit long-form documents like blog posts, articles, essays, and reports using the built-in rich text editor",
-      "metadata": {
-        "emoji": "📝",
-        "vellum": {
-          "display-name": "Document Writer",
-          "includes": [
-            "document"
-          ]
-        }
-      },
-      "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-08T14:52:29-04:00"
-    },
-    {
       "id": "doordash",
       "name": "doordash",
       "description": "Order food, groceries, and convenience items from DoorDash using the built-in CLI integration",
@@ -214,7 +198,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-21T20:10:42-04:00"
+      "updatedAt": "2026-05-22T09:03:09-04:00"
     },
     {
       "id": "gmail",
@@ -367,7 +351,7 @@
           "display-name": "LLM Cost Optimizer"
         }
       },
-      "updatedAt": "2026-05-19T01:34:20-04:00"
+      "updatedAt": "2026-05-26T14:11:54-04:00"
     },
     {
       "id": "macos-automation",
@@ -426,7 +410,7 @@
           "feature-flag": "meet"
         }
       },
-      "updatedAt": "2026-05-01T11:27:13-04:00"
+      "updatedAt": "2026-05-26T14:56:40-04:00"
     },
     {
       "id": "meme-generator",
@@ -653,7 +637,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-22T14:59:54-06:00"
+      "updatedAt": "2026-05-22T15:04:56-06:00"
     },
     {
       "id": "start-the-day",
@@ -886,7 +870,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-14T10:12:39-07:00"
+      "updatedAt": "2026-05-27T10:18:46-04:00"
     },
     {
       "id": "vellum-self-knowledge",

@@ -1,19 +1,17 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import {
-  _setOverridesForTesting,
-  isAssistantFeatureFlagEnabled,
-} from "../config/assistant-feature-flags.js";
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../config/schema.js";
 import { resolveSkillStates, skillFlagKey } from "../config/skill-state.js";
 import type { SkillSummary } from "../config/skills.js";
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
 beforeEach(() => {
-  _setOverridesForTesting({});
+  setOverridesForTesting({});
 });
 
 afterEach(() => {
-  _setOverridesForTesting({});
+  setOverridesForTesting({});
 });
 
 const DECLARED_FLAG_ID = "email-channel";
@@ -103,7 +101,7 @@ describe("isAssistantFeatureFlagEnabled with skillFlagKey", () => {
   });
 
   test("returns true when skill key is explicitly true", () => {
-    _setOverridesForTesting({ [DECLARED_FLAG_KEY]: true });
+    setOverridesForTesting({ [DECLARED_FLAG_KEY]: true });
     const config = makeConfig();
     expect(
       isAssistantFeatureFlagEnabled(
@@ -114,7 +112,7 @@ describe("isAssistantFeatureFlagEnabled with skillFlagKey", () => {
   });
 
   test("returns false when skill key is explicitly false", () => {
-    _setOverridesForTesting({ [DECLARED_FLAG_KEY]: false });
+    setOverridesForTesting({ [DECLARED_FLAG_KEY]: false });
     const config = makeConfig();
     expect(
       isAssistantFeatureFlagEnabled(
@@ -130,13 +128,13 @@ describe("isAssistantFeatureFlagEnabled with skillFlagKey", () => {
 // ---------------------------------------------------------------------------
 
 describe("isAssistantFeatureFlagEnabled", () => {
-  test("returns true for unknown flags (open by default)", () => {
+  test("returns false for unknown flags (closed by default)", () => {
     const config = makeConfig();
-    expect(isAssistantFeatureFlagEnabled("unknown", config)).toBe(true);
+    expect(isAssistantFeatureFlagEnabled("unknown", config)).toBe(false);
   });
 
   test("file-based override overrides registry default", () => {
-    _setOverridesForTesting({ [DECLARED_FLAG_KEY]: false });
+    setOverridesForTesting({ [DECLARED_FLAG_KEY]: false });
     const config = makeConfig();
     expect(isAssistantFeatureFlagEnabled(DECLARED_FLAG_KEY, config)).toBe(
       false,
@@ -152,7 +150,7 @@ describe("isAssistantFeatureFlagEnabled", () => {
   });
 
   test("respects persisted overrides for undeclared keys", () => {
-    _setOverridesForTesting({ "some-undeclared-flag": false });
+    setOverridesForTesting({ "some-undeclared-flag": false });
     const config = makeConfig();
     expect(isAssistantFeatureFlagEnabled("some-undeclared-flag", config)).toBe(
       false,
@@ -166,7 +164,7 @@ describe("isAssistantFeatureFlagEnabled", () => {
 
 describe("resolveSkillStates with feature flags", () => {
   test("flag OFF skill does not appear in resolved list", () => {
-    _setOverridesForTesting({
+    setOverridesForTesting({
       [DECLARED_FLAG_KEY]: false,
       [ENABLED_UNDECLARED_FLAG_KEY]: true,
     });
@@ -188,7 +186,7 @@ describe("resolveSkillStates with feature flags", () => {
   });
 
   test("flag ON skill appears normally", () => {
-    _setOverridesForTesting({
+    setOverridesForTesting({
       [DECLARED_FLAG_KEY]: true,
       [ENABLED_UNDECLARED_FLAG_KEY]: true,
     });
@@ -230,7 +228,7 @@ describe("resolveSkillStates with feature flags", () => {
   });
 
   test("feature flag OFF takes precedence over user-enabled config entry", () => {
-    _setOverridesForTesting({ [DECLARED_FLAG_KEY]: false });
+    setOverridesForTesting({ [DECLARED_FLAG_KEY]: false });
     const catalog = [makeSkill(DECLARED_SKILL_ID, "bundled", DECLARED_FLAG_ID)];
     const config = makeConfig({
       skills: {
@@ -256,7 +254,7 @@ describe("resolveSkillStates with feature flags", () => {
   });
 
   test("multiple skills with mixed flags — persisted overrides respected", () => {
-    _setOverridesForTesting({
+    setOverridesForTesting({
       [DECLARED_FLAG_KEY]: false,
       [ENABLED_UNDECLARED_FLAG_KEY]: true,
       deploy: false,
@@ -296,7 +294,7 @@ describe("resolveSkillStates with frontmatter featureFlag", () => {
   });
 
   test("skill with featureFlag is included when override enables it", () => {
-    _setOverridesForTesting({ [DECLARED_FLAG_KEY]: true });
+    setOverridesForTesting({ [DECLARED_FLAG_KEY]: true });
     const catalog = [makeSkill(DECLARED_SKILL_ID, "bundled", DECLARED_FLAG_ID)];
     const config = makeConfig();
 
@@ -320,7 +318,7 @@ describe("resolveSkillStates with frontmatter featureFlag", () => {
     // This proves the implicit skillId→flag mapping is gone:
     // setting feature_flags.my-skill.enabled = false has no effect
     // when the skill itself does not declare a featureFlag.
-    _setOverridesForTesting({
+    setOverridesForTesting({
       "my-skill": false,
     });
     const catalog = [makeSkill("my-skill")];

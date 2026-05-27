@@ -25,23 +25,25 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends iptables iproute2 \
   && rm -rf /var/lib/apt/lists/*
 
-# The base image already has a `mitmproxyuser` UID 1000 — confirm and
-# keep that UID stable so apply-recording-jail.sh's REDIRECT exemption
-# matches by `--uid-owner 1000` consistently.
-RUN id mitmproxyuser >/dev/null 2>&1 || \
-    useradd -m -u 1000 -s /bin/sh mitmproxyuser
+# The base image already ships a UID-1000 user named `mitmproxy`
+# (verified on `mitmproxy/mitmproxy:11.0.2`). Assert that contract holds
+# so apply-recording-jail.sh's REDIRECT exemption matches by
+# `--uid-owner 1000` consistently; bail loudly at build time if the
+# base image ever drops or renumbers it.
+RUN id -u mitmproxy >/dev/null 2>&1 \
+  && [ "$(id -u mitmproxy)" = "1000" ]
 
 COPY apply-recording-jail.sh entrypoint.sh /opt/recording/
 COPY addon.py usage_parser.py /opt/recording/
 RUN chmod +x /opt/recording/apply-recording-jail.sh /opt/recording/entrypoint.sh \
-  && chown -R mitmproxyuser:mitmproxyuser /opt/recording
+  && chown -R mitmproxy:mitmproxy /opt/recording
 
 # Recording output volume target. The `evals run` harness mounts the
 # per-run artifacts dir here so mitmproxy writes egress-usage.ndjson
 # into the right place. Pre-create as a directory so the bind-mount has
 # the correct semantics if it's missing on the host.
 RUN mkdir -p /recording \
-  && chown mitmproxyuser:mitmproxyuser /recording
+  && chown mitmproxy:mitmproxy /recording
 
 ENV MITM_UID=1000
 ENV MITM_PORT=8443

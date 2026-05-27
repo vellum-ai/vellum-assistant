@@ -1,7 +1,7 @@
 import * as SliderPrimitive from "@radix-ui/react-slider";
 import { type ReactNode, useId } from "react";
 
-import { cn } from "../utils/cn.js";
+import { cn } from "../utils/cn";
 
 export type SliderValue = number | [number, number];
 

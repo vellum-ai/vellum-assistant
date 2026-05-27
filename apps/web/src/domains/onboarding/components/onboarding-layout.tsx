@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { CreatureFooter } from "./creature-footer.js";
+import { CreatureFooter } from "./creature-footer";
 
 /**
  * Shared chrome for the onboarding screens: a full-height dark surface with

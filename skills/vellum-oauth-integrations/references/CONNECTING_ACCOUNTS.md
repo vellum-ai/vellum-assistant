@@ -4,24 +4,40 @@ Your user must connect their account for you to be able to make requests on thei
 
 ## Pre-Requisites
 
-Before the user can connect to a provider, they must:
+Before the user can connect to a provider, they must have it in one of two states:
 
-1. Have the provider configured to use "managed" mode, and the provider must support it; or
-2. Have the provider configured to use "your-own" mode, and have created an OAuth app
+1. **Managed mode** (preferred when supported), or
+2. **Your-own mode** with at least one OAuth app already created.
 
-Check to see what mode the provider is configured to use with:
+### Step 1: Check whether managed mode is supported
 
 ```bash
-assistant oauth mode <provider-key>
+assistant oauth providers get <provider-key> --json | jq -r '.managedServiceConfigKey'
 ```
 
-If set to "your-own", then check to see if at least one OAuth app has been created with:
+If this returns a non-null value, managed mode is supported. Unless the user has already chosen your-own mode for a deliberate reason, prefer managed mode.
+
+### Step 2: Check the current mode
+
+```bash
+assistant oauth mode <provider-key> --json | jq -r '.mode'
+```
+
+- **Returns `managed`**: proceed to "Initiating the Connection".
+- **Returns `your-own` and managed mode IS supported**: ask the user whether they'd like to switch to managed mode (it's simpler — no app to create). If yes, run `assistant oauth mode <provider-key> --set managed` and proceed. If no, continue to Step 3.
+- **Returns `your-own` and managed mode is NOT supported**: continue to Step 3.
+
+Do not perform this step if the user already has an active connection — `assistant oauth status <provider-key>` returning a live connection means the user has already chosen a mode; respect it.
+
+### Step 3: Verify your-own setup (only if you reached this step)
+
+Check whether at least one OAuth app exists:
 
 ```bash
 assistant oauth apps list --provider-key <provider-key>
 ```
 
-If there are none, they will either need to opt in to using "managed" mode or they will need to create an OAuth app (see [Configuring a New OAuth Application](CONFIGURING_APPLICATIONS.md)).
+If there are none, see [Configuring a New OAuth Application](CONFIGURING_APPLICATIONS.md).
 
 ## Choosing Scopes
 

@@ -7,19 +7,7 @@
  * just enough metadata to invalidate a cache and trigger a refetch.
  */
 
-/**
- * Broadcast after the daemon successfully writes a fresh
- * `relationship-state.json` snapshot to disk. Subscribers should
- * refetch `GET /v1/home/state` to read the new state.
- *
- * Only emitted on the success branch of the writer — if the
- * underlying `writeFileSync` throws, this event is NOT published.
- */
-export interface RelationshipStateUpdated {
-  type: "relationship_state_updated";
-  /** ISO-8601 timestamp of the newly-written state's `updatedAt` field. */
-  updatedAt: string;
-}
+import type { RelationshipStateUpdatedEvent } from "../../api/events/relationship-state-updated.js";
 
 /**
  * Broadcast after the daemon successfully writes a fresh home activity
@@ -37,4 +25,4 @@ export interface HomeFeedUpdated {
   newItemCount: number;
 }
 
-export type _HomeServerMessages = RelationshipStateUpdated | HomeFeedUpdated;
+export type _HomeServerMessages = RelationshipStateUpdatedEvent | HomeFeedUpdated;

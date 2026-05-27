@@ -77,4 +77,74 @@ describe("pinned-tabs", () => {
     setPinnedTab("conv-a", "");
     expect(getPinnedTab("conv-a")).toBeUndefined();
   });
+
+  describe("cross-client isolation (#31361)", () => {
+    test("same tabId on different clients are stored independently", () => {
+      setPinnedTab("conv-a", "99", "clientA");
+      setPinnedTab("conv-a", "99", "clientB");
+      expect(getPinnedTab("conv-a", "clientA")).toBe("99");
+      expect(getPinnedTab("conv-a", "clientB")).toBe("99");
+    });
+
+    test("clearPinnedTabByTabId with clientId only clears that client", () => {
+      setPinnedTab("conv-a", "99", "clientA");
+      setPinnedTab("conv-b", "99", "clientB");
+
+      const cleared = clearPinnedTabByTabId("99", "clientA");
+
+      expect(cleared).toBe(1);
+      expect(getPinnedTab("conv-a", "clientA")).toBeUndefined();
+      expect(getPinnedTab("conv-b", "clientB")).toBe("99"); // clientB's pin survives
+    });
+
+    test("getPinnedTab with matching clientId returns correct tabId", () => {
+      setPinnedTab("conv-x", "42", "clientA");
+      setPinnedTab("conv-x", "77", "clientB");
+
+      expect(getPinnedTab("conv-x", "clientA")).toBe("42");
+      expect(getPinnedTab("conv-x", "clientB")).toBe("77");
+    });
+
+    test("clearPinnedTabByTabId without clientId clears all matching entries (backward compat)", () => {
+      setPinnedTab("conv-a", "99", "clientA");
+      setPinnedTab("conv-b", "99", "clientB");
+
+      const cleared = clearPinnedTabByTabId("99");
+
+      expect(cleared).toBe(2);
+      expect(getPinnedTab("conv-a", "clientA")).toBeUndefined();
+      expect(getPinnedTab("conv-b", "clientB")).toBeUndefined();
+    });
+
+    test("clearPinnedTab with clientId only removes that client slot", () => {
+      setPinnedTab("conv-a", "42", "clientA");
+      setPinnedTab("conv-a", "77", "clientB");
+
+      clearPinnedTab("conv-a", "clientA");
+
+      expect(getPinnedTab("conv-a", "clientA")).toBeUndefined();
+      expect(getPinnedTab("conv-a", "clientB")).toBe("77");
+    });
+
+    test("clearPinnedTab without clientId removes all slots", () => {
+      setPinnedTab("conv-a", "42", "clientA");
+      setPinnedTab("conv-a", "77", "clientB");
+
+      clearPinnedTab("conv-a");
+
+      expect(getPinnedTab("conv-a", "clientA")).toBeUndefined();
+      expect(getPinnedTab("conv-a", "clientB")).toBeUndefined();
+    });
+
+    test("getPinnedTab with unknown clientId falls back to __default__ slot", () => {
+      setPinnedTab("conv-a", "42"); // stored in __default__ slot
+      expect(getPinnedTab("conv-a", "clientA")).toBe("42");
+    });
+
+    test("getPinnedTab without clientId returns first entry", () => {
+      setPinnedTab("conv-a", "42", "clientA");
+      const result = getPinnedTab("conv-a");
+      expect(result).toBe("42");
+    });
+  });
 });

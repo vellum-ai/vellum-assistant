@@ -3,7 +3,7 @@
 openapi: 3.0.0
 info:
   title: Vellum Assistant API
-  version: 0.8.4
+  version: 0.8.5
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -460,8 +460,30 @@ paths:
                 properties:
                   apps:
                     type: array
-                    items: {}
-                    description: Array of app summary objects
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                        description:
+                          type: string
+                        icon:
+                          type: string
+                        createdAt:
+                          type: number
+                        version:
+                          type: string
+                        contentId:
+                          type: string
+                      required:
+                        - id
+                        - name
+                        - createdAt
+                        - version
+                        - contentId
+                      additionalProperties: false
                 required:
                   - apps
                 additionalProperties: false
@@ -540,6 +562,18 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  result: {}
+                required:
+                  - success
+                  - result
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -560,6 +594,18 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  result: {}
+                required:
+                  - success
+                  - result
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -597,6 +643,16 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                required:
+                  - success
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -613,6 +669,19 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  appId:
+                    type: string
+                  diff:
+                    type: string
+                required:
+                  - appId
+                  - diff
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -648,7 +717,20 @@ paths:
                     type: string
                   versions:
                     type: array
-                    items: {}
+                    items:
+                      type: object
+                      properties:
+                        commitHash:
+                          type: string
+                        message:
+                          type: string
+                        timestamp:
+                          type: number
+                      required:
+                        - commitHash
+                        - message
+                        - timestamp
+                      additionalProperties: false
                 required:
                   - appId
                   - versions
@@ -709,6 +791,21 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  appId:
+                    type: string
+                  preview:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                required:
+                  - appId
+                  - preview
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -724,6 +821,19 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  appId:
+                    type: string
+                required:
+                  - success
+                  - appId
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -819,6 +929,16 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                required:
+                  - success
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -907,6 +1027,23 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    const: true
+                  appId:
+                    type: string
+                  name:
+                    type: string
+                required:
+                  - success
+                  - appId
+                  - name
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -936,9 +1073,61 @@ paths:
                 type: object
                 properties:
                   gallery:
-                    type: array
-                    items: {}
-                    description: Gallery app entries
+                    type: object
+                    properties:
+                      version:
+                        type: number
+                      updatedAt:
+                        type: string
+                      categories:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            name:
+                              type: string
+                            icon:
+                              type: string
+                          required:
+                            - id
+                            - name
+                            - icon
+                          additionalProperties: false
+                      apps:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            name:
+                              type: string
+                            description:
+                              type: string
+                            icon:
+                              type: string
+                            category:
+                              type: string
+                            version:
+                              type: string
+                            featured:
+                              type: boolean
+                          required:
+                            - id
+                            - name
+                            - description
+                            - icon
+                            - category
+                            - version
+                          additionalProperties: false
+                    required:
+                      - version
+                      - updatedAt
+                      - categories
+                      - apps
+                    additionalProperties: false
                 required:
                   - gallery
                 additionalProperties: false
@@ -952,6 +1141,23 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    const: true
+                  appId:
+                    type: string
+                  name:
+                    type: string
+                required:
+                  - success
+                  - appId
+                  - name
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -1034,6 +1240,55 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  manifest:
+                    type: object
+                    properties: {}
+                    additionalProperties: {}
+                  scanResult:
+                    type: object
+                    properties:
+                      passed:
+                        type: boolean
+                      blocked:
+                        type: array
+                        items:
+                          type: string
+                      warnings:
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - passed
+                      - blocked
+                      - warnings
+                    additionalProperties: false
+                  signatureResult:
+                    type: object
+                    properties:
+                      trustTier:
+                        type: string
+                      signerKeyId:
+                        type: string
+                      signerDisplayName:
+                        type: string
+                      signerAccount:
+                        type: string
+                    required:
+                      - trustTier
+                    additionalProperties: false
+                  bundleSizeBytes:
+                    type: number
+                required:
+                  - manifest
+                  - scanResult
+                  - signatureResult
+                  - bundleSizeBytes
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -1090,8 +1345,43 @@ paths:
                 properties:
                   apps:
                     type: array
-                    items: {}
-                    description: Array of shared app objects
+                    items:
+                      type: object
+                      properties:
+                        uuid:
+                          type: string
+                        name:
+                          type: string
+                        description:
+                          type: string
+                        icon:
+                          type: string
+                        preview:
+                          type: string
+                        entry:
+                          type: string
+                        trustTier:
+                          type: string
+                        signerDisplayName:
+                          type: string
+                        bundleSizeBytes:
+                          type: number
+                        installedAt:
+                          type: string
+                        version:
+                          type: string
+                        contentId:
+                          type: string
+                        updateAvailable:
+                          type: boolean
+                      required:
+                        - uuid
+                        - name
+                        - entry
+                        - trustTier
+                        - bundleSizeBytes
+                        - installedAt
+                      additionalProperties: false
                 required:
                   - apps
                 additionalProperties: false
@@ -1181,6 +1471,22 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  signed:
+                    type: boolean
+                  signatureJson:
+                    type: object
+                    properties: {}
+                    additionalProperties: {}
+                  payload:
+                    type: string
+                  message:
+                    type: string
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -1210,6 +1516,16 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                required:
+                  - message
+                additionalProperties: false
   /v1/attachments:
     delete:
       operationId: attachments_delete
@@ -1838,6 +2154,8 @@ paths:
               schema:
                 type: object
                 properties:
+                  accepted:
+                    type: boolean
                   leaseId:
                     type: string
                   reason:
@@ -1848,60 +2166,13 @@ paths:
                     type: number
                   deadlineAt:
                     type: number
-                  counts:
-                    type: object
-                    properties:
-                      heartbeat:
-                        type: number
-                      scheduler:
-                        type: number
-                      total:
-                        type: number
-                    required:
-                      - heartbeat
-                      - scheduler
-                      - total
-                    additionalProperties: false
-                  nextIntent:
-                    anyOf:
-                      - type: object
-                        properties:
-                          nextWakeAt:
-                            type: number
-                          actualNextDueAt:
-                            type: number
-                          reason:
-                            type: string
-                            enum:
-                              - heartbeat
-                              - schedule
-                              - mixed
-                          sourceGeneration:
-                            type: string
-                          computedAt:
-                            type: number
-                          sourcePayload:
-                            type: object
-                            propertyNames:
-                              type: string
-                            additionalProperties: {}
-                        required:
-                          - nextWakeAt
-                          - actualNextDueAt
-                          - reason
-                          - sourceGeneration
-                          - computedAt
-                          - sourcePayload
-                        additionalProperties: false
-                      - type: "null"
                 required:
+                  - accepted
                   - leaseId
                   - reason
                   - sourceGeneration
                   - startedAt
                   - deadlineAt
-                  - counts
-                  - nextIntent
                 additionalProperties: false
       requestBody:
         required: true
@@ -2792,6 +3063,85 @@ paths:
                   minLength: 1
               required:
                 - operation
+              additionalProperties: false
+  /v1/browser/tabs:
+    post:
+      operationId: browser_tabs_post
+      summary: Manage browser tabs
+      description: List, create, select, or close browser tabs via the Chrome extension backend.
+      tags:
+        - browser
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  tabs:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        tabId:
+                          type: number
+                        windowId:
+                          type: number
+                        url:
+                          type: string
+                        title:
+                          type: string
+                        active:
+                          type: boolean
+                        pinned:
+                          type: boolean
+                      required:
+                        - active
+                        - pinned
+                      additionalProperties: false
+                  tab: {}
+                  tabId:
+                    type: number
+                  clientId:
+                    type: string
+                  closed:
+                    type: boolean
+                required:
+                  - ok
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                command:
+                  type: string
+                  enum:
+                    - list
+                    - select
+                    - new
+                    - close
+                sessionId:
+                  default: default
+                  type: string
+                  minLength: 1
+                conversationId:
+                  type: string
+                  minLength: 1
+                tabId:
+                  type: number
+                url:
+                  type: string
+                targetClientId:
+                  type: string
+                  minLength: 1
+              required:
+                - command
               additionalProperties: false
   /v1/btw:
     post:
@@ -4600,6 +4950,233 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversations:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        title:
+                          type: string
+                        createdAt:
+                          type: number
+                        updatedAt:
+                          type: number
+                        lastMessageAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        conversationType:
+                          type: string
+                          enum:
+                            - standard
+                            - background
+                            - scheduled
+                        source:
+                          type: string
+                        scheduleJobId:
+                          type: string
+                        channelBinding:
+                          type: object
+                          properties:
+                            sourceChannel:
+                              type: string
+                            externalChatId:
+                              type: string
+                            externalChatName:
+                              type: string
+                            externalThreadId:
+                              type: string
+                            externalUserId:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            displayName:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            username:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            slackThread:
+                              type: object
+                              properties:
+                                channelId:
+                                  type: string
+                                threadTs:
+                                  type: string
+                                link:
+                                  type: object
+                                  properties:
+                                    appUrl:
+                                      type: string
+                                    webUrl:
+                                      type: string
+                                  additionalProperties: false
+                              required:
+                                - channelId
+                                - threadTs
+                              additionalProperties: false
+                            slackChannel:
+                              type: object
+                              properties:
+                                channelId:
+                                  type: string
+                                name:
+                                  type: string
+                                link:
+                                  type: object
+                                  properties:
+                                    webUrl:
+                                      type: string
+                                  required:
+                                    - webUrl
+                                  additionalProperties: false
+                              required:
+                                - channelId
+                              additionalProperties: false
+                          required:
+                            - sourceChannel
+                            - externalChatId
+                            - externalUserId
+                            - displayName
+                            - username
+                          additionalProperties: false
+                        conversationOriginChannel:
+                          anyOf:
+                            - type: string
+                              enum:
+                                - telegram
+                                - phone
+                                - vellum
+                                - whatsapp
+                                - slack
+                                - email
+                                - platform
+                                - a2a
+                            - type: "null"
+                        assistantAttention:
+                          type: object
+                          properties:
+                            hasUnseenLatestAssistantMessage:
+                              type: boolean
+                            latestAssistantMessageAt:
+                              type: number
+                            lastSeenAssistantMessageAt:
+                              type: number
+                            lastSeenConfidence:
+                              type: string
+                              enum:
+                                - explicit
+                                - inferred
+                            lastSeenSignalType:
+                              type: string
+                              enum:
+                                - macos_notification_view
+                                - macos_conversation_opened
+                                - ios_conversation_opened
+                                - telegram_inbound_message
+                                - telegram_callback
+                                - slack_inbound_message
+                                - slack_callback
+                          required:
+                            - hasUnseenLatestAssistantMessage
+                          additionalProperties: false
+                        isPinned:
+                          type: boolean
+                          const: true
+                        displayOrder:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        groupId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        forkParent:
+                          type: object
+                          properties:
+                            conversationId:
+                              type: string
+                            messageId:
+                              type: string
+                            title:
+                              type: string
+                          required:
+                            - conversationId
+                            - messageId
+                            - title
+                          additionalProperties: false
+                        archivedAt:
+                          type: number
+                        inferenceProfile:
+                          type: string
+                      required:
+                        - id
+                        - title
+                        - createdAt
+                        - updatedAt
+                        - lastMessageAt
+                        - conversationType
+                        - source
+                        - groupId
+                      additionalProperties: false
+                  nextOffset:
+                    type: number
+                  hasMore:
+                    type: boolean
+                  groups:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                        sortPosition:
+                          type: number
+                        isSystemGroup:
+                          type: boolean
+                      required:
+                        - id
+                        - name
+                        - sortPosition
+                        - isSystemGroup
+                      additionalProperties: false
+                required:
+                  - conversations
+                  - nextOffset
+                  - hasMore
+                additionalProperties: false
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Maximum number of conversations to return (default 50).
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Number of conversations to skip (default 0).
+        - name: conversationType
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - background
+          description: Filter by conversation type. Pass "background" to list only background/scheduled conversations.
     post:
       operationId: conversations_post
       summary: Create a conversation
@@ -4616,8 +5193,10 @@ paths:
                 properties:
                   id:
                     type: string
+                    description: Assistant-minted internal conversation id. The authoritative identifier for the conversation.
                   conversationKey:
                     type: string
+                    description: Echo of the optional external key supplied by the client.
                   conversationType:
                     type: string
                   created:
@@ -4636,14 +5215,15 @@ paths:
               type: object
               properties:
                 conversationKey:
+                  description:
+                    Optional external key. Echoed back in the response. Non-vellum channels (Telegram, WhatsApp) use this to
+                    scope to a logical channel thread; vellum-web clients can omit it and rely on the assistant-minted
+                    `id`.
                   type: string
-                  description: Idempotency key for the conversation
                 conversationType:
                   description: Only standard conversations are created by this endpoint
                   type: string
                   const: standard
-              required:
-                - conversationKey
               additionalProperties: false
   /v1/conversations/{conversationId}/slack-channel/resolve:
     post:
@@ -4715,6 +5295,185 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversation:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      title:
+                        type: string
+                      createdAt:
+                        type: number
+                      updatedAt:
+                        type: number
+                      lastMessageAt:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      conversationType:
+                        type: string
+                        enum:
+                          - standard
+                          - background
+                          - scheduled
+                      source:
+                        type: string
+                      scheduleJobId:
+                        type: string
+                      channelBinding:
+                        type: object
+                        properties:
+                          sourceChannel:
+                            type: string
+                          externalChatId:
+                            type: string
+                          externalChatName:
+                            type: string
+                          externalThreadId:
+                            type: string
+                          externalUserId:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          displayName:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          username:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          slackThread:
+                            type: object
+                            properties:
+                              channelId:
+                                type: string
+                              threadTs:
+                                type: string
+                              link:
+                                type: object
+                                properties:
+                                  appUrl:
+                                    type: string
+                                  webUrl:
+                                    type: string
+                                additionalProperties: false
+                            required:
+                              - channelId
+                              - threadTs
+                            additionalProperties: false
+                          slackChannel:
+                            type: object
+                            properties:
+                              channelId:
+                                type: string
+                              name:
+                                type: string
+                              link:
+                                type: object
+                                properties:
+                                  webUrl:
+                                    type: string
+                                required:
+                                  - webUrl
+                                additionalProperties: false
+                            required:
+                              - channelId
+                            additionalProperties: false
+                        required:
+                          - sourceChannel
+                          - externalChatId
+                          - externalUserId
+                          - displayName
+                          - username
+                        additionalProperties: false
+                      conversationOriginChannel:
+                        anyOf:
+                          - type: string
+                            enum:
+                              - telegram
+                              - phone
+                              - vellum
+                              - whatsapp
+                              - slack
+                              - email
+                              - platform
+                              - a2a
+                          - type: "null"
+                      assistantAttention:
+                        type: object
+                        properties:
+                          hasUnseenLatestAssistantMessage:
+                            type: boolean
+                          latestAssistantMessageAt:
+                            type: number
+                          lastSeenAssistantMessageAt:
+                            type: number
+                          lastSeenConfidence:
+                            type: string
+                            enum:
+                              - explicit
+                              - inferred
+                          lastSeenSignalType:
+                            type: string
+                            enum:
+                              - macos_notification_view
+                              - macos_conversation_opened
+                              - ios_conversation_opened
+                              - telegram_inbound_message
+                              - telegram_callback
+                              - slack_inbound_message
+                              - slack_callback
+                        required:
+                          - hasUnseenLatestAssistantMessage
+                        additionalProperties: false
+                      isPinned:
+                        type: boolean
+                        const: true
+                      displayOrder:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      groupId:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      forkParent:
+                        type: object
+                        properties:
+                          conversationId:
+                            type: string
+                          messageId:
+                            type: string
+                          title:
+                            type: string
+                        required:
+                          - conversationId
+                          - messageId
+                          - title
+                        additionalProperties: false
+                      archivedAt:
+                        type: number
+                      inferenceProfile:
+                        type: string
+                    required:
+                      - id
+                      - title
+                      - createdAt
+                      - updatedAt
+                      - lastMessageAt
+                      - conversationType
+                      - source
+                      - groupId
+                    additionalProperties: false
+                required:
+                  - conversation
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -4731,6 +5490,185 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversation:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      title:
+                        type: string
+                      createdAt:
+                        type: number
+                      updatedAt:
+                        type: number
+                      lastMessageAt:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      conversationType:
+                        type: string
+                        enum:
+                          - standard
+                          - background
+                          - scheduled
+                      source:
+                        type: string
+                      scheduleJobId:
+                        type: string
+                      channelBinding:
+                        type: object
+                        properties:
+                          sourceChannel:
+                            type: string
+                          externalChatId:
+                            type: string
+                          externalChatName:
+                            type: string
+                          externalThreadId:
+                            type: string
+                          externalUserId:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          displayName:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          username:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          slackThread:
+                            type: object
+                            properties:
+                              channelId:
+                                type: string
+                              threadTs:
+                                type: string
+                              link:
+                                type: object
+                                properties:
+                                  appUrl:
+                                    type: string
+                                  webUrl:
+                                    type: string
+                                additionalProperties: false
+                            required:
+                              - channelId
+                              - threadTs
+                            additionalProperties: false
+                          slackChannel:
+                            type: object
+                            properties:
+                              channelId:
+                                type: string
+                              name:
+                                type: string
+                              link:
+                                type: object
+                                properties:
+                                  webUrl:
+                                    type: string
+                                required:
+                                  - webUrl
+                                additionalProperties: false
+                            required:
+                              - channelId
+                            additionalProperties: false
+                        required:
+                          - sourceChannel
+                          - externalChatId
+                          - externalUserId
+                          - displayName
+                          - username
+                        additionalProperties: false
+                      conversationOriginChannel:
+                        anyOf:
+                          - type: string
+                            enum:
+                              - telegram
+                              - phone
+                              - vellum
+                              - whatsapp
+                              - slack
+                              - email
+                              - platform
+                              - a2a
+                          - type: "null"
+                      assistantAttention:
+                        type: object
+                        properties:
+                          hasUnseenLatestAssistantMessage:
+                            type: boolean
+                          latestAssistantMessageAt:
+                            type: number
+                          lastSeenAssistantMessageAt:
+                            type: number
+                          lastSeenConfidence:
+                            type: string
+                            enum:
+                              - explicit
+                              - inferred
+                          lastSeenSignalType:
+                            type: string
+                            enum:
+                              - macos_notification_view
+                              - macos_conversation_opened
+                              - ios_conversation_opened
+                              - telegram_inbound_message
+                              - telegram_callback
+                              - slack_inbound_message
+                              - slack_callback
+                        required:
+                          - hasUnseenLatestAssistantMessage
+                        additionalProperties: false
+                      isPinned:
+                        type: boolean
+                        const: true
+                      displayOrder:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      groupId:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      forkParent:
+                        type: object
+                        properties:
+                          conversationId:
+                            type: string
+                          messageId:
+                            type: string
+                          title:
+                            type: string
+                        required:
+                          - conversationId
+                          - messageId
+                          - title
+                        additionalProperties: false
+                      archivedAt:
+                        type: number
+                      inferenceProfile:
+                        type: string
+                    required:
+                      - id
+                      - title
+                      - createdAt
+                      - updatedAt
+                      - lastMessageAt
+                      - conversationType
+                      - source
+                      - groupId
+                    additionalProperties: false
+                required:
+                  - conversation
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -4747,6 +5685,19 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  conversationId:
+                    type: string
+                required:
+                  - ok
+                  - conversationId
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -4785,6 +5736,105 @@ paths:
           required: true
           schema:
             type: string
+  /v1/conversations/{id}/compaction:
+    get:
+      operationId: conversations_by_id_compaction_get
+      summary: Get the compaction trail leading up to an LLM call
+      description:
+        Return the chronological list of compaction events that ran in this conversation in the open window between
+        the previous non-`compactionAgent` LLM call and the call identified by `callId`. Projected from
+        `llm_request_logs` rows where `call_site = "compactionAgent"`. When the selected call is the first real call in
+        the conversation, every preceding compaction is in scope. Drives the Inspector's Compaction tab.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversationId:
+                    type: string
+                  events:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        createdAt:
+                          type: number
+                        model:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        provider:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        inputTokens:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        outputTokens:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        durationMs:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        responsePreview:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        requestMessageCount:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        stopReason:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        estimatedCostUsd:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                      required:
+                        - id
+                        - createdAt
+                        - model
+                        - provider
+                        - inputTokens
+                        - outputTokens
+                        - durationMs
+                        - responsePreview
+                        - requestMessageCount
+                        - stopReason
+                        - estimatedCostUsd
+                      additionalProperties: false
+                required:
+                  - conversationId
+                  - events
+                additionalProperties: false
+        "400":
+          description: Returned when the callId is missing or refers to a call in a different conversation.
+        "404":
+          description: Returned when the conversation or the referenced LLM call does not exist.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: callId
+          in: query
+          required: true
+          schema:
+            type: string
+          description: ID of the selected LLM call from the rail. Defines the chronological cutoff for the trail.
   /v1/conversations/{id}/inference-profile:
     put:
       operationId: conversations_by_id_inferenceprofile_put
@@ -4888,6 +5938,16 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required:
+                  - ok
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -5008,6 +6068,19 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  conversationId:
+                    type: string
+                required:
+                  - ok
+                  - conversationId
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -5373,6 +6446,185 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversation:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      title:
+                        type: string
+                      createdAt:
+                        type: number
+                      updatedAt:
+                        type: number
+                      lastMessageAt:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      conversationType:
+                        type: string
+                        enum:
+                          - standard
+                          - background
+                          - scheduled
+                      source:
+                        type: string
+                      scheduleJobId:
+                        type: string
+                      channelBinding:
+                        type: object
+                        properties:
+                          sourceChannel:
+                            type: string
+                          externalChatId:
+                            type: string
+                          externalChatName:
+                            type: string
+                          externalThreadId:
+                            type: string
+                          externalUserId:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          displayName:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          username:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          slackThread:
+                            type: object
+                            properties:
+                              channelId:
+                                type: string
+                              threadTs:
+                                type: string
+                              link:
+                                type: object
+                                properties:
+                                  appUrl:
+                                    type: string
+                                  webUrl:
+                                    type: string
+                                additionalProperties: false
+                            required:
+                              - channelId
+                              - threadTs
+                            additionalProperties: false
+                          slackChannel:
+                            type: object
+                            properties:
+                              channelId:
+                                type: string
+                              name:
+                                type: string
+                              link:
+                                type: object
+                                properties:
+                                  webUrl:
+                                    type: string
+                                required:
+                                  - webUrl
+                                additionalProperties: false
+                            required:
+                              - channelId
+                            additionalProperties: false
+                        required:
+                          - sourceChannel
+                          - externalChatId
+                          - externalUserId
+                          - displayName
+                          - username
+                        additionalProperties: false
+                      conversationOriginChannel:
+                        anyOf:
+                          - type: string
+                            enum:
+                              - telegram
+                              - phone
+                              - vellum
+                              - whatsapp
+                              - slack
+                              - email
+                              - platform
+                              - a2a
+                          - type: "null"
+                      assistantAttention:
+                        type: object
+                        properties:
+                          hasUnseenLatestAssistantMessage:
+                            type: boolean
+                          latestAssistantMessageAt:
+                            type: number
+                          lastSeenAssistantMessageAt:
+                            type: number
+                          lastSeenConfidence:
+                            type: string
+                            enum:
+                              - explicit
+                              - inferred
+                          lastSeenSignalType:
+                            type: string
+                            enum:
+                              - macos_notification_view
+                              - macos_conversation_opened
+                              - ios_conversation_opened
+                              - telegram_inbound_message
+                              - telegram_callback
+                              - slack_inbound_message
+                              - slack_callback
+                        required:
+                          - hasUnseenLatestAssistantMessage
+                        additionalProperties: false
+                      isPinned:
+                        type: boolean
+                        const: true
+                      displayOrder:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      groupId:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      forkParent:
+                        type: object
+                        properties:
+                          conversationId:
+                            type: string
+                          messageId:
+                            type: string
+                          title:
+                            type: string
+                        required:
+                          - conversationId
+                          - messageId
+                          - title
+                        additionalProperties: false
+                      archivedAt:
+                        type: number
+                      inferenceProfile:
+                        type: string
+                    required:
+                      - id
+                      - title
+                      - createdAt
+                      - updatedAt
+                      - lastMessageAt
+                      - conversationType
+                      - source
+                      - groupId
+                    additionalProperties: false
+                required:
+                  - conversation
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -5793,6 +7045,16 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required:
+                  - ok
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -5802,8 +7064,22 @@ paths:
               properties:
                 updates:
                   type: array
-                  items: {}
-                  description: Array of { conversationId, displayOrder?, isPinned? } objects
+                  items:
+                    type: object
+                    properties:
+                      conversationId:
+                        type: string
+                      displayOrder:
+                        type: number
+                      isPinned:
+                        type: boolean
+                      groupId:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                    required:
+                      - conversationId
+                    additionalProperties: false
               required:
                 - updates
               additionalProperties: false
@@ -5860,6 +7136,48 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required:
+                  - ok
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversationId:
+                  type: string
+                sourceChannel:
+                  type: string
+                signalType:
+                  type: string
+                confidence:
+                  type: string
+                  enum:
+                    - explicit
+                    - inferred
+                source:
+                  type: string
+                evidenceText:
+                  type: string
+                metadata:
+                  type: object
+                  propertyNames:
+                    type: string
+                  additionalProperties: {}
+                observedAt:
+                  type: number
+              required:
+                - conversationId
+              additionalProperties: false
   /v1/conversations/switch:
     post:
       operationId: conversations_switch_post
@@ -5913,6 +7231,28 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required:
+                  - ok
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversationId:
+                  type: string
+              required:
+                - conversationId
+              additionalProperties: false
   /v1/conversations/wake:
     post:
       operationId: conversations_wake_post
@@ -6662,6 +8002,7 @@ paths:
                         enum:
                           - disabled
                           - ok
+                          - warning
                           - critical
                           - unknown
                       locked:
@@ -6747,6 +8088,7 @@ paths:
                         enum:
                           - disabled
                           - ok
+                          - warning
                           - critical
                           - unknown
                       locked:
@@ -6848,6 +8190,7 @@ paths:
                         enum:
                           - disabled
                           - ok
+                          - warning
                           - critical
                           - unknown
                       locked:
@@ -6923,8 +8266,29 @@ paths:
                 properties:
                   documents:
                     type: array
-                    items: {}
-                    description: Document summary objects
+                    items:
+                      type: object
+                      properties:
+                        surfaceId:
+                          type: string
+                        conversationId:
+                          type: string
+                        title:
+                          type: string
+                        wordCount:
+                          type: number
+                        createdAt:
+                          type: number
+                        updatedAt:
+                          type: number
+                      required:
+                        - surfaceId
+                        - conversationId
+                        - title
+                        - wordCount
+                        - createdAt
+                        - updatedAt
+                      additionalProperties: false
                 required:
                   - documents
                 additionalProperties: false
@@ -7330,6 +8694,15 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/domain/verification-status:
+    post:
+      operationId: domain_verificationstatus_post
+      summary: Get live DNS verification status for a domain
+      tags:
+        - domain
+      responses:
+        "200":
+          description: Successful response
   /v1/email/attachment-get:
     get:
       operationId: email_attachmentget_get
@@ -7651,12 +9024,20 @@ paths:
         "200":
           description: Successful response
       parameters:
+        - name: conversationId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Scope to a single conversation by its assistant-minted internal id. 404s if no such conversation exists.
         - name: conversationKey
           in: query
           required: false
           schema:
             type: string
-          description: Scope to a single conversation
+          description:
+            Scope to a single conversation by an external key (non-vellum channels) or the web idempotency key.
+            Materializes a row on first use. Ignored when conversationId is also provided.
   /v1/events/emit:
     post:
       operationId: events_emit_post
@@ -7832,6 +9213,33 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  groups:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                        sortPosition:
+                          type: number
+                        isSystemGroup:
+                          type: boolean
+                      required:
+                        - id
+                        - name
+                        - sortPosition
+                        - isSystemGroup
+                      additionalProperties: false
+                required:
+                  - groups
+                additionalProperties: false
     post:
       operationId: groups_post
       summary: Create group
@@ -7841,6 +9249,25 @@ paths:
       responses:
         "201":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                  sortPosition:
+                    type: number
+                  isSystemGroup:
+                    type: boolean
+                required:
+                  - id
+                  - name
+                  - sortPosition
+                  - isSystemGroup
+                additionalProperties: false
         "400":
           description: Missing or invalid name, or sort_position ceiling reached
       requestBody:
@@ -7885,6 +9312,25 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                  sortPosition:
+                    type: number
+                  isSystemGroup:
+                    type: boolean
+                required:
+                  - id
+                  - name
+                  - sortPosition
+                  - isSystemGroup
+                additionalProperties: false
         "403":
           description: System group sort position cannot be changed
         "404":
@@ -7917,6 +9363,16 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required:
+                  - ok
+                additionalProperties: false
         "403":
           description: Cannot reorder system groups
       requestBody:
@@ -9291,6 +10747,9 @@ paths:
                 reason:
                   description: Detach reason
                   type: string
+                clientId:
+                  description: Extension client ID that reported the invalidation
+                  type: string
               additionalProperties: false
   /v1/host-cu-result:
     post:
@@ -9498,10 +10957,8 @@ paths:
   /v1/identity/intro:
     get:
       operationId: identity_intro_get
-      summary: Get identity intro text
-      description:
-        Returns a deterministic greeting derived from the assistant name in IDENTITY.md, falling back to
-        LLM-generated cache.
+      summary: Get identity greetings
+      description: Returns an array of greetings sourced from SOUL.md, LLM cache, or static fallbacks.
       tags:
         - identity
       responses:
@@ -9512,9 +10969,14 @@ paths:
               schema:
                 type: object
                 properties:
+                  greetings:
+                    type: array
+                    items:
+                      type: string
                   text:
                     type: string
                 required:
+                  - greetings
                   - text
                 additionalProperties: false
   /v1/image-generation/generate:
@@ -9622,6 +11084,7 @@ paths:
                             - fireworks
                             - openrouter
                             - openai-compatible
+                            - minimax
                         auth:
                           oneOf:
                             - type: object
@@ -9738,7 +11201,9 @@ paths:
           required: false
           schema:
             type: string
-          description: "Filter by provider. One of: anthropic, openai, gemini, ollama, fireworks, openrouter, openai-compatible"
+          description:
+            "Filter by provider. One of: anthropic, openai, gemini, ollama, fireworks, openrouter, openai-compatible,
+            minimax"
     post:
       operationId: inference_providerconnections_post
       summary: Create a provider connection
@@ -9766,6 +11231,7 @@ paths:
                       - fireworks
                       - openrouter
                       - openai-compatible
+                      - minimax
                   auth:
                     oneOf:
                       - type: object
@@ -9897,6 +11363,7 @@ paths:
                     - fireworks
                     - openrouter
                     - openai-compatible
+                    - minimax
                 auth:
                   oneOf:
                     - type: object
@@ -10048,6 +11515,7 @@ paths:
                       - fireworks
                       - openrouter
                       - openai-compatible
+                      - minimax
                   auth:
                     oneOf:
                       - type: object
@@ -10193,6 +11661,7 @@ paths:
                       - fireworks
                       - openrouter
                       - openai-compatible
+                      - minimax
                   auth:
                     oneOf:
                       - type: object
@@ -10771,6 +12240,21 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  hasToken:
+                    type: boolean
+                  success:
+                    type: boolean
+                  error:
+                    type: string
+                required:
+                  - hasToken
+                  - success
+                additionalProperties: false
     get:
       operationId: integrations_vercel_config_get
       summary: Get Vercel config
@@ -10780,6 +12264,21 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  hasToken:
+                    type: boolean
+                  success:
+                    type: boolean
+                  error:
+                    type: string
+                required:
+                  - hasToken
+                  - success
+                additionalProperties: false
     post:
       operationId: integrations_vercel_config_post
       summary: Set or delete Vercel config
@@ -10789,6 +12288,37 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  hasToken:
+                    type: boolean
+                  success:
+                    type: boolean
+                  error:
+                    type: string
+                required:
+                  - hasToken
+                  - success
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                action:
+                  type: string
+                  enum:
+                    - get
+                    - set
+                    - delete
+                apiToken:
+                  type: string
+              additionalProperties: false
   /v1/internal/mcp/add:
     post:
       operationId: internal_mcp_add_post
@@ -11324,6 +12854,50 @@ paths:
               required:
                 - op
               additionalProperties: false
+  /v1/memory/v2/compare-retrievers:
+    post:
+      operationId: memory_v2_compareretrievers_post
+      summary: Compare retrievers against the router's logged selections (read-only)
+      description:
+        Runs one or more retrievers over a sample of historical turns (memory_v2_activation_logs, mode='router')
+        and scores their selected pages against the logged selections as ground truth, reconstructing each turn's inputs
+        from the messages table + current NOW. Read-only — writes nothing. Each scored turn re-runs the router (one LLM
+        call), so keep `limit` modest. Today the only retriever is the router itself, so this is the harness self-test.
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                limit:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                strategy:
+                  type: string
+                  enum:
+                    - recent
+                    - random
+                conversationIds:
+                  type: array
+                  items:
+                    type: string
+                    minLength: 1
+                ks:
+                  type: array
+                  items:
+                    type: integer
+                    exclusiveMinimum: 0
+                    maximum: 9007199254740991
+                includeNotInjected:
+                  type: boolean
+              additionalProperties: false
   /v1/memory/v2/concept-frequency:
     post:
       operationId: memory_v2_conceptfrequency_post
@@ -11484,11 +13058,20 @@ paths:
             schema:
               type: object
               properties:
-                userMessage:
-                  type: string
-                  minLength: 1
-                assistantMessage:
-                  type: string
+                recentTurnPairs:
+                  minItems: 1
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      assistantMessage:
+                        type: string
+                      userMessage:
+                        type: string
+                    required:
+                      - assistantMessage
+                      - userMessage
+                    additionalProperties: false
                 nowText:
                   type: string
                 configOverrides:
@@ -11520,7 +13103,7 @@ paths:
                   type: string
                   maxLength: 1000000
               required:
-                - userMessage
+                - recentTurnPairs
               additionalProperties: false
   /v1/memory/v2/validate:
     post:
@@ -11529,6 +13112,167 @@ paths:
       description:
         Read-only structural validation of the v2 workspace — reports orphan edges, oversized pages, and parse
         failures. Runnable regardless of memory.v2.enabled so operators can dry-run validation before flipping the flag.
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: {}
+              additionalProperties: false
+  /v1/memory/v3/seed-edges:
+    post:
+      operationId: memory_v3_seededges_post
+      summary: Seed the learned co-retrieval edge graph from v2 router history
+      description:
+        Builds an NPMI-scored co-retrieval graph from the v2 router's per-turn selections
+        (memory_v2_activation_logs, status='injected') and persists it into memory_v3_auto_edges, warm-starting the
+        learned edge graph that the v3 edge-expansion lane merges with curated edges when
+        memory.v3.edges.learnedAdjacencyThreshold > 0. NPMI plus a min co-occurrence floor and an always-on frequency
+        ceiling keep the neighborhoods associative rather than base-rate noise. Idempotent (upserts to a flat seed
+        weight). Runs no LLM; the only write among the v3 routes.
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                minCount:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                topK:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                maxNeighborFreqRatio:
+                  type: number
+                  exclusiveMinimum: 0
+                  maximum: 1
+                seedWeight:
+                  type: number
+                  exclusiveMinimum: 0
+              additionalProperties: false
+  /v1/memory/v3/shadow-diff:
+    post:
+      operationId: memory_v3_shadowdiff_post
+      summary: Diff v3 shadow selections against live v2 router selections (read-only)
+      description:
+        Compares the v3 shadow-mode selections against the live v2 router selections turn-for-turn, from the memory
+        activation log. Pairs each v3_shadow row with the nearest v2 router row in the same conversation (by timestamp,
+        within a tolerance — the turn columns use different counters), then reports per-turn and aggregate overlap, what
+        v3 surfaced that v2 did not, and what v2 had that v3 dropped, broken down by v3 provenance lane. The v2
+        comparand is the router's fresh per-turn pick (status='injected'), not its accumulated in-context set. Requires
+        that v3 shadow mode has been running so v3_shadow rows exist; the route runs no LLM and writes nothing.
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sinceDays:
+                  type: number
+                  exclusiveMinimum: 0
+                toleranceSec:
+                  type: number
+                  exclusiveMinimum: 0
+                limit:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+              additionalProperties: false
+  /v1/memory/v3/simulate:
+    post:
+      operationId: memory_v3_simulate_post
+      summary: Dry-run the v3 retrieval loop against an ad-hoc query (read-only)
+      description:
+        Runs the v3 multi-lane bounded-descent retrieval loop read-only against a single synthetic turn built from
+        the supplied query plus the live (or supplied) NOW context. Returns the selected page slugs, per-lane
+        provenance, the full multi-pass descent trace, and accumulated cost. Optional passCap / lane-allowlist overrides
+        apply on top of live config. Invoked directly (not gated by memory.v3.enabled/shadow) so operators can probe v3
+        retrieval before flipping the flags; writes nothing (co-activation persistence is forced off), though each pass
+        still spends the loop's filter + gate LLM calls.
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                query:
+                  type: string
+                  minLength: 1
+                nowText:
+                  type: string
+                passCap:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                lanes:
+                  minItems: 1
+                  type: array
+                  items:
+                    type: string
+                    enum:
+                      - hot
+                      - sparse
+                      - dense
+                      - tree
+                      - edges
+              required:
+                - query
+              additionalProperties: false
+  /v1/memory/v3/tree:
+    post:
+      operationId: memory_v3_tree_post
+      summary: Return a serializable view of the memory v3 tree DAG (read-only)
+      description:
+        Returns the v3 tree root id plus every node and its ordered child refs (page:/node:) as a JSON-serializable
+        projection of the in-memory TreeIndex. Read-only; the CLI uses it to print an indented tree with shared-DAG
+        re-entries marked.
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: {}
+              additionalProperties: false
+  /v1/memory/v3/validate:
+    post:
+      operationId: memory_v3_validate_post
+      summary: Validate the memory v3 tree structure (read-only)
+      description:
+        Read-only structural validation of the hand-authored v3 tree DAG. Reports dangling child refs, orphan
+        pages, cycles, stale compositional indexes, and unknown edge targets. Writes nothing and runs no LLM — operators
+        dry-run it while the v2 → v3 migration is in flight.
       tags:
         - memory
       responses:
@@ -12881,6 +14625,168 @@ paths:
           required: true
           schema:
             type: string
+  /v1/plugins:
+    get:
+      operationId: plugins_get
+      summary: List installed plugins
+      description:
+        Return one entry per directory under `<workspaceDir>/plugins/`, sorted alphabetically. Matches the CLI's
+        `assistant plugins list`. Supports `?q=<text>` for case-insensitive substring matching across plugin id, name,
+        and description.
+      tags:
+        - plugins
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plugins:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          description: Plugin's directory name (kebab-case). Matches `assistant plugins install <id>`.
+                        name:
+                          type: string
+                          description: Display name. Equal to `id` today.
+                        description:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                          description: From `package.json#description`; `null` when unknown.
+                        version:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                          description: From `package.json#version`; `null` when unknown.
+                        path:
+                          description: Absolute path to the plugin directory on the assistant host.
+                          type: string
+                        issues:
+                          description: Non-fatal issues with this entry (missing `package.json`, malformed JSON, ...). Omitted when clean.
+                          type: array
+                          items:
+                            type: string
+                      required:
+                        - id
+                        - name
+                        - description
+                        - version
+                      additionalProperties: false
+                required:
+                  - plugins
+                additionalProperties: false
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional substring filter applied to plugin id, name, and description.
+  /v1/plugins/{name}:
+    delete:
+      operationId: plugins_by_name_delete
+      summary: Uninstall a plugin
+      description:
+        Remove the directory at `<workspaceDir>/plugins/<name>/`. Mirrors the CLI's `assistant plugins uninstall
+        <name>` (without the interactive confirmation — the API caller is responsible for any prompt). The plugin name
+        is sanitized by the same regex the CLI uses; `../escape`-style values, hidden names, and absolute paths return
+        400. Missing plugins return 404. The assistant must be restarted to drop the plugin from the running runtime.
+      tags:
+        - plugins
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                    description: Directory name that was removed. Echoes the request's `:name` path parameter after sanitization.
+                  target:
+                    type: string
+                    description: Absolute path that was removed on the assistant host. Useful for audit logs and confirmation toasts.
+                required:
+                  - name
+                  - target
+                additionalProperties: false
+        "400":
+          description: The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters).
+        "404":
+          description: No plugin directory exists with the given name.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+  /v1/plugins/search:
+    get:
+      operationId: plugins_search_get
+      summary: Search the plugin catalog
+      description:
+        List installable plugins from the canonical `vellum-ai/vellum-assistant` catalog at
+        `experimental/plugins/`. The query is an ECMAScript regex matched case-insensitively against the directory name
+        (e.g. `memory`, `^simple`). Empty query returns every entry. Mirrors the CLI's `assistant plugins search`.
+      tags:
+        - plugins
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  query:
+                    type: string
+                    description: Echo of the requested query (ECMAScript regex source).
+                  ref:
+                    type: string
+                    description: Git ref the catalog was listed at.
+                  matches:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                          description: Directory name under `experimental/plugins/`. Matches `assistant plugins install <name>`.
+                        path:
+                          type: string
+                          description: Repo-relative path of the match (e.g. `experimental/plugins/<name>`).
+                      required:
+                        - name
+                        - path
+                      additionalProperties: false
+                    description: Directory matches, sorted alphabetically by name.
+                required:
+                  - query
+                  - ref
+                  - matches
+                additionalProperties: false
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+          description:
+            ECMAScript regex pattern matched case-insensitively against catalog directory names. Empty/missing matches
+            everything.
+        - name: ref
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional git ref to list the catalog at. Defaults to the CLI's `DEFAULT_PLUGIN_REF` (typically `main`).
   /v1/profiler/runs:
     get:
       operationId: profiler_runs_get
@@ -15796,16 +17702,41 @@ paths:
                 type: object
                 properties:
                   suggestion:
-                    type: string
+                    anyOf:
+                      - type: string
+                      - type: "null"
                   messageId:
-                    type: string
+                    anyOf:
+                      - type: string
+                      - type: "null"
                   source:
                     type: string
+                  stale:
+                    type: boolean
                 required:
                   - suggestion
                   - messageId
                   - source
                 additionalProperties: false
+      parameters:
+        - name: conversationId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Conversation ID to fetch a suggestion for. Either this or conversationKey is required.
+        - name: conversationKey
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Legacy conversation key. Either this or conversationId is required.
+        - name: messageId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional. Latest assistant message ID the client has seen — used to detect staleness.
   /v1/surface-actions:
     post:
       operationId: surfaceactions_post

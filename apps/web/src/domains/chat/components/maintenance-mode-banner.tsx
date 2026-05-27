@@ -3,7 +3,7 @@ import { AlertTriangle, Loader2 } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@vellum/design-library";
-import { assistantsMaintenanceModeExitCreate } from "@/generated/api/sdk.gen.js";
+import { assistantsMaintenanceModeExitCreate } from "@/generated/api/sdk.gen";
 
 interface MaintenanceModeBannerProps {
   assistantId: string;

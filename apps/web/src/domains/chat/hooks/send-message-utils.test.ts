@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 
 import {
   clearPendingConfirmationsFromMessages,
@@ -10,7 +10,7 @@ import {
   parsePendingSecretState,
   resolvePostError,
   stopStreamingAndClearConfirmations,
-} from "@/domains/chat/hooks/send-message-utils.js";
+} from "@/domains/chat/hooks/send-message-utils";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -18,8 +18,7 @@ import {
 
 function msg(overrides: Partial<DisplayMessage> = {}): DisplayMessage {
   return {
-    id: "msg-1",
-    stableId: "stable-1",
+    id: "stable-1",
     role: "assistant",
     content: "hello",
     toolCalls: [],
@@ -34,7 +33,7 @@ function msg(overrides: Partial<DisplayMessage> = {}): DisplayMessage {
 
 describe("clearPendingConfirmationsFromMessages", () => {
   it("returns the same reference when no tool calls have pendingConfirmation", () => {
-    const messages = [msg(), msg({ id: "msg-2", stableId: "stable-2" })];
+    const messages = [msg(), msg({ id: "msg-2" })];
     expect(clearPendingConfirmationsFromMessages(messages)).toBe(messages);
   });
 

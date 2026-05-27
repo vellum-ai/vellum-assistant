@@ -2,11 +2,13 @@
  * Dev-facing chat debug API surfaced on `window._vellumDebug.chat`.
  *
  * Designed for in-the-moment inspection when a chat-streaming bug shows
- * up — open DevTools, call `window._vellumDebug.chat.tail()` to see the
- * transcript rows the chat page is rendering, `.forceReconcile()` to
- * imperatively run /v1/history reconcile, and `.serverMessages()` to
+ * up — open DevTools, call `window._vellumDebug.chat.getClientMessages()`
+ * to see the message rows the chat page is rendering,
+ * `.getTranscriptItems()` to see the full virtualized row list (messages
+ * plus trailers like thinking / pending interactions), `.forceReconcile()`
+ * to imperatively run /v1/history reconcile, and `.serverMessages()` to
  * fetch the raw `/v1/history` message list (so you can diff against
- * `tail()` by hand in the console when a turn looks stuck).
+ * `getClientMessages()` by hand in the console when a turn looks stuck).
  *
  * Attached unconditionally (no query-param gating) so the API is
  * available in dev, staging, and production builds. The implementation
@@ -22,125 +24,47 @@
 import { useEffect, useRef } from "react";
 import type { MutableRefObject } from "react";
 
+import * as assistantApi from "@vellumai/assistant-api";
+import {
+  type ChatDebugEventsApi,
+  eventsDebugApi,
+} from "@/domains/chat/api/debug-api";
 import {
   fetchConversationMessages as defaultFetchConversationMessages,
   type RuntimeMessage,
-} from "@/domains/chat/api/messages.js";
-import type { ChatEventStream } from "@/domains/chat/api/stream.js";
+} from "@/domains/chat/api/messages";
+import type { ChatEventStream } from "@/domains/chat/api/stream";
 import type {
   PendingConfirmationState,
   PendingContactRequestState,
   PendingQuestionState,
   PendingSecretState,
-} from "@/domains/chat/types/chat-ui-types.js";
-import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics.js";
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
-import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation.js";
-import type { TranscriptItem } from "@/domains/chat/transcript/types.js";
+} from "@/types/interaction-ui-types";
+import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation";
+import { setTranscriptScrollControllerEnabled } from "@/domains/chat/transcript/transcript-scroll-flag";
+import { setImpersonatedAssistantVersion } from "@/lib/backwards-compat/impersonate-version-flag";
 import {
   classifyScrollPosition,
   type TranscriptHandle,
-} from "@/domains/chat/transcript/use-transcript-scroll.js";
+} from "@/domains/chat/transcript/use-deprecated-transcript-scroll";
+import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import {
   type TerminalReason,
   type TurnPhase,
   type TurnState,
   isSending,
   isThinking,
-} from "@/domains/messaging/turn-store.js";
+} from "@/domains/messaging/turn-store";
 import {
   type UIContext,
   shouldShowThinkingIndicator,
-} from "@/domains/messaging/turn-selectors.js";
+} from "@/domains/messaging/turn-selectors";
 
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
-
-export interface ChatDebugTailMessage {
-  index: number;
-  key: string;
-  kind: "message";
-  role: "user" | "assistant";
-  stableId: string;
-  id: string | null;
-  daemonMessageId: string | null;
-  timestamp: number | null;
-  isStreaming: boolean;
-  queueStatus: string | null;
-  queuePosition: number | null;
-  content: string;
-  contentLength: number;
-  toolCalls: Array<{
-    id: string;
-    toolName: string;
-    status: string;
-    isError: boolean;
-    resultLength: number | null;
-  }>;
-  surfaces: Array<{
-    surfaceId: string;
-    surfaceType: string;
-    title: string | null;
-    completed: boolean;
-  }>;
-  attachments: Array<{
-    id: string;
-    filename: string;
-    mimeType: string;
-    sizeBytes: number;
-  }>;
-}
-
-export type ChatDebugTailItem =
-  | ChatDebugTailMessage
-  | {
-      index: number;
-      key: string;
-      kind: "thinking";
-      label: string | null;
-    }
-  | {
-      index: number;
-      key: string;
-      kind: "pendingSecret" | "pendingConfirmation";
-      requestId: string;
-    }
-  | {
-      index: number;
-      key: string;
-      kind: "pendingContactRequest";
-      requestId: string;
-      channel: string | null;
-      label: string | null;
-      role: string | null;
-    }
-  | {
-      index: number;
-      key: string;
-      kind: "surface";
-      surfaceId: string;
-      surfaceType: string;
-      title: string | null;
-      completed: boolean;
-    }
-  | {
-      index: number;
-      key: string;
-      kind: "queuedMarker";
-      count: number;
-    }
-  | {
-      index: number;
-      key: string;
-      kind: "error";
-      message: string;
-    }
-  | {
-      index: number;
-      key: string;
-      kind: "onboardingChoice";
-    };
 
 /**
  * Per-condition snapshot returned by {@link ChatDebugApi.thinkingIndicator}.
@@ -289,11 +213,40 @@ export interface ChatDebugScrollState {
 /** The dev API surface attached to `window._vellumDebug.chat`. */
 export interface ChatDebugApi {
   /**
-   * Return up to `limit` transcript items currently projected for rendering.
-   * Items are returned in chronological transcript order; the last row is the
-   * current visual bottom of the chat.
+   * Return up to `limit` chat messages currently held in memory, in the
+   * exact shape the UI consumes (`DisplayMessage`). The last row is the
+   * current visual bottom of the chat's message list.
+   *
+   * No bespoke projection — this is the same array
+   * {@link buildTranscriptItems} reads, so what you see in DevTools is
+   * what the UI sees. Each message carries `content`, `textSegments`,
+   * `toolCalls`, `surfaces`, and `contentOrder` as-is; cross-reference
+   * `contentOrder` against the entity arrays to reconstruct render order
+   * (the same lookup the transcript performs in
+   * `transcript-message-body.tsx`).
+   *
+   * For the full virtualized row list — including non-message rows like
+   * the thinking indicator, pending prompts, and the queued-marker —
+   * use {@link getTranscriptItems}.
    */
-  tail(limit?: number): ChatDebugTailItem[];
+  getClientMessages(limit?: number): DisplayMessage[];
+  /**
+   * Return the full transcript-item array the virtualized list iterates
+   * — messages, the thinking indicator, pending-interaction rows, the
+   * queued-marker, error notices, the onboarding-choice row.
+   *
+   * `getClientMessages()` returns only the `DisplayMessage[]` slice;
+   * `getTranscriptItems()` returns the discriminated union of every
+   * row kind that maps 1:1 to a virtualized DOM row. Use this when
+   * triaging "why is the thinking indicator stuck below my message" or
+   * "the pending-secret card disappeared" — those questions live at the
+   * `TranscriptItem` layer, not the message layer.
+   *
+   * No bespoke projection — same reference the render path passes to
+   * `<Transcript />`. Populated by `chat-route-content.tsx` right after
+   * the `useMemo(() => buildTranscriptItems(...))`.
+   */
+  getTranscriptItems(): TranscriptItem[];
   /**
    * Live evaluation of the thinking-indicator predicate
    * ({@link shouldShowThinkingIndicator}) plus turn-state lifecycle info.
@@ -318,9 +271,9 @@ export interface ChatDebugApi {
   /**
    * [experimental] Fetch `/v1/history` for the active assistant +
    * conversation and return the raw server-side message list. Does
-   * not touch UI state — diff against `tail()` manually in the console
-   * when you need to declare drift. Throws if there's no active
-   * assistant/conversation context. Subject to change.
+   * not touch UI state — diff against `getClientMessages()` manually in
+   * the console when you need to declare drift. Throws if there's no
+   * active assistant/conversation context. Subject to change.
    */
   serverMessages(): Promise<RuntimeMessage[]>;
   /**
@@ -359,18 +312,29 @@ export interface ChatDebugApi {
 // Implementation
 // ---------------------------------------------------------------------------
 
-const DEFAULT_TAIL_LIMIT = 20;
+const DEFAULT_CLIENT_MESSAGES_LIMIT = 20;
 const ROOT_NS = "_vellumDebug";
 const CHAT_NS = "chat";
+const FLAGS_NS = "flags";
 
 /**
- * Refs the API reads to tail transcript items and trigger actions. All are
+ * Refs the API reads to surface client state and trigger actions. All are
  * `MutableRefObject` because the API holds them across the lifetime of
  * the chat page and reads them lazily on each call — capturing the
  * current value at install time would freeze the API to the initial render.
  */
 export interface ChatDebugRefs {
   messagesRef: MutableRefObject<DisplayMessage[]>;
+  /**
+   * Post-`sanitizeDisplayMessages` snapshot. Populated by
+   * `chat-route-content.tsx` and read by `getClientMessages()`.
+   */
+  sanitizedMessagesRef: MutableRefObject<DisplayMessage[]>;
+  /**
+   * Output of `buildTranscriptItems` — the virtualized row list.
+   * Populated by `chat-route-content.tsx` and read by
+   * `getTranscriptItems()`.
+   */
   transcriptItemsRef: MutableRefObject<TranscriptItem[]>;
   /**
    * Ref to the mounted `<Transcript />` imperative handle. Used by
@@ -384,7 +348,7 @@ export interface ChatDebugRefs {
   } | null>;
   streamRef: MutableRefObject<ChatEventStream | null>;
   streamEpochRef: MutableRefObject<number>;
-  activeConversationKeyRef: MutableRefObject<string | null>;
+  activeConversationIdRef: MutableRefObject<string | null>;
   /**
    * Reads the latest transcript pagination state (`hasMore`,
    * `isLoadingOlder`) for {@link ChatDebugApi.getScrollState}. Held as a
@@ -441,115 +405,29 @@ export interface ChatDebugRefs {
   ) => Promise<RuntimeMessage[]>;
 }
 
-function summarizeTailItem(
-  item: TranscriptItem,
-  index: number,
-): ChatDebugTailItem {
-  switch (item.kind) {
-    case "message": {
-      const { message } = item;
-      return {
-        index,
-        key: item.key,
-        kind: "message",
-        role: message.role,
-        stableId: message.stableId,
-        id: message.id ?? null,
-        daemonMessageId: message.daemonMessageId ?? null,
-        timestamp: message.timestamp ?? null,
-        isStreaming: message.isStreaming === true,
-        queueStatus: message.queueStatus ?? null,
-        queuePosition: message.queuePosition ?? null,
-        content: message.content,
-        contentLength: message.content.length,
-        toolCalls: (message.toolCalls ?? []).map((toolCall) => ({
-          id: toolCall.id,
-          toolName: toolCall.toolName,
-          status: toolCall.status,
-          isError: toolCall.isError === true,
-          resultLength:
-            typeof toolCall.result === "string"
-              ? toolCall.result.length
-              : null,
-        })),
-        surfaces: (message.surfaces ?? []).map((surface) => ({
-          surfaceId: surface.surfaceId,
-          surfaceType: surface.surfaceType,
-          title: surface.title ?? null,
-          completed: surface.completed === true,
-        })),
-        attachments: (message.attachments ?? []).map((attachment) => ({
-          id: attachment.id,
-          filename: attachment.filename,
-          mimeType: attachment.mimeType,
-          sizeBytes: attachment.sizeBytes,
-        })),
-      };
-    }
-    case "thinking":
-      return {
-        index,
-        key: item.key,
-        kind: "thinking",
-        label: item.label ?? null,
-      };
-    case "pendingSecret":
-    case "pendingConfirmation":
-      return {
-        index,
-        key: item.key,
-        kind: item.kind,
-        requestId: item.requestId,
-      };
-    case "pendingContactRequest":
-      return {
-        index,
-        key: item.key,
-        kind: "pendingContactRequest",
-        requestId: item.requestId,
-        channel: item.channel ?? null,
-        label: item.label ?? null,
-        role: item.role ?? null,
-      };
-    case "surface":
-      return {
-        index,
-        key: item.key,
-        kind: "surface",
-        surfaceId: item.surface.surfaceId,
-        surfaceType: item.surface.surfaceType,
-        title: item.surface.title ?? null,
-        completed: item.surface.completed === true,
-      };
-    case "queuedMarker":
-      return {
-        index,
-        key: item.key,
-        kind: "queuedMarker",
-        count: item.count,
-      };
-    case "error":
-      return { index, key: item.key, kind: "error", message: item.message };
-    case "onboardingChoice":
-      return { index, key: item.key, kind: "onboardingChoice" };
-  }
-}
-
 /**
  * Build the {@link ChatDebugApi} closure-bound to a set of refs. Pure
  * factory so it can be unit-tested without a `window`.
  */
 export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
-  function tail(limit: number = DEFAULT_TAIL_LIMIT): ChatDebugTailItem[] {
+  function getClientMessages(
+    limit: number = DEFAULT_CLIENT_MESSAGES_LIMIT,
+  ): DisplayMessage[] {
     const safeLimit =
       Number.isFinite(limit) && limit > 0
         ? Math.floor(limit)
-        : DEFAULT_TAIL_LIMIT;
-    const items = refs.transcriptItemsRef.current ?? [];
-    const startIndex = Math.max(0, items.length - safeLimit);
-    return items
-      .slice(startIndex)
-      .map((item, offset) => summarizeTailItem(item, startIndex + offset));
+        : DEFAULT_CLIENT_MESSAGES_LIMIT;
+    // Read straight from the post-sanitization snapshot the render path
+    // already wrote. Logic-free — same array `buildTranscriptItems` sees.
+    const messages = refs.sanitizedMessagesRef.current ?? [];
+    const startIndex = Math.max(0, messages.length - safeLimit);
+    return messages.slice(startIndex);
+  }
+
+  function getTranscriptItems(): TranscriptItem[] {
+    // Read straight from the snapshot the render path already wrote.
+    // Same array `<Transcript />` iterates — no projection, no cloning.
+    return refs.transcriptItemsRef.current ?? [];
   }
 
   function thinkingIndicator(): ChatDebugThinkingIndicator {
@@ -662,12 +540,12 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
 
   async function forceReconcile(): Promise<ReconcileActiveConversationResult> {
     recordChatDiagnostic("debug_force_reconcile_start", {
-      activeConversationKey: refs.activeConversationKeyRef.current,
+      activeConversationId: refs.activeConversationIdRef.current,
       assistantId: refs.getAssistantId(),
     });
     const result = await refs.reconcileActiveConversation();
     recordChatDiagnostic("debug_force_reconcile_result", {
-      activeConversationKey: refs.activeConversationKeyRef.current,
+      activeConversationId: refs.activeConversationIdRef.current,
       changed: result.changed,
       messagesAdded: result.messagesAdded,
       assistantProgress: result.assistantProgress,
@@ -678,14 +556,14 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
   async function serverMessages(): Promise<RuntimeMessage[]> {
     // Resolve context from `streamContextRef` first (matches what
     // reconcile would use); fall back to assistantId +
-    // activeConversationKey so the call still works during a brief
+    // activeConversationId so the call still works during a brief
     // conv-switch window where the stream context is transiently null.
     const streamContext = refs.streamContextRef.current;
     const assistantId =
       streamContext?.assistantId ?? refs.getAssistantId() ?? null;
     const conversationId =
       streamContext?.conversationId ??
-      refs.activeConversationKeyRef.current ??
+      refs.activeConversationIdRef.current ??
       null;
     if (!assistantId || !conversationId) {
       throw new Error(
@@ -779,13 +657,14 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
     const lines = [
       "window._vellumDebug.chat — surgical chat debug API",
       "",
-      "  .tail(n?)                  rendered transcript items; last row = visual chat bottom",
+      "  .getClientMessages(n?)     last N DisplayMessage[] the UI is rendering (post-sanitize)",
+      "  .getTranscriptItems()      full virtualized row list — messages + thinking + pending prompts + markers",
       "  .thinkingIndicator()       live evaluation of the `...` predicate + done signal",
       "                              .visible / .failingConditions tell you why dots are or aren't showing",
       "                              .done.terminal / .done.lastTerminalReason tell you if the turn is finished",
       "  .forceReconcile()          [experimental] imperatively run /v1/history reconcile",
       "  .serverMessages()          [experimental] fetch /v1/history and return server message list",
-      "                              (diff against tail() manually in the console)",
+      "                              (diff against getClientMessages() manually in the console)",
       "  .listPendingInteractions() frontend-tracked pending prompts (secret/confirmation/",
       "                              contact-request/question) and submission flags",
       "  .getScrollState()          scroll geometry + pagination — why can't I scroll up?",
@@ -796,7 +675,8 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
   }
 
   return {
-    tail,
+    getClientMessages,
+    getTranscriptItems,
     thinkingIndicator,
     forceReconcile,
     serverMessages,
@@ -810,27 +690,98 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
 // Global install / uninstall
 // ---------------------------------------------------------------------------
 
+const EVENTS_NS = "events";
+const API_NS = "api";
+
+/**
+ * Dev-only toggle surface. Each function is a single-purpose imperative
+ * flip — call from the console to flip a localStorage-persisted flag.
+ * Toggles that change React hook ordering (e.g. swapping which scroll
+ * coordinator runs) reload the page so the new value takes effect
+ * cleanly. See `transcript-scroll-flag.ts` for the storage layer.
+ */
+export interface VellumDebugFlagsApi {
+  /** Flip the parallel `useTranscriptScrollController` path on or off.
+   *  Persists to localStorage and reloads the page. Pass `true`/`false`
+   *  to force a specific value; omit to flip the current value. */
+  toggleTranscriptScrollController(value?: boolean): boolean;
+  /** Override the assistant's reported version for every version-gated
+   *  code path in the web client (the wire-field cutover, the
+   *  server-mint gate, `useAssistantSupports`, …). Persists to
+   *  localStorage and reloads.
+   *
+   *  - `impersonateVersion("0.8.6")` — set to that version + reload.
+   *  - `impersonateVersion(null)`    — clear override + reload.
+   *  - `impersonateVersion()`        — log + return current value
+   *    (no reload, no mutation).
+   *
+   *  Returns the value in effect after the call. */
+  impersonateVersion(value?: string | null): string | null;
+}
+
 interface VellumDebugRoot extends Record<string, unknown> {
+  [EVENTS_NS]?: ChatDebugEventsApi;
   [CHAT_NS]?: ChatDebugApi;
+  [API_NS]?: typeof assistantApi;
+  [FLAGS_NS]?: VellumDebugFlagsApi;
+}
+
+declare global {
+  interface Window {
+    _vellumDebug?: VellumDebugRoot;
+  }
 }
 
 /**
- * Attach `api` to `window._vellumDebug.chat`. Returns a cleanup
- * function that removes the binding (and removes the root object if
- * it's empty afterwards). Safe to call on the server — no-op when
- * `window` is undefined.
+ * Single entry point that attaches every half of the debug API to
+ * `window._vellumDebug` in one shot:
+ *
+ *   - `events` — the SSE client + ring-buffer accessors from
+ *     {@link eventsDebugApi}. Stable singleton; same surface every call.
+ *   - `chat` — the per-page chat introspection API built from React refs.
+ *     Component-scoped; rebuilt on each mount.
+ *   - `api` — the full `@vellumai/assistant-api` namespace, so a developer
+ *     can pull canonical SSE schemas (`RelationshipStateUpdatedEventSchema`, …)
+ *     out of the shipped bundle from the console.
+ *   - `flags` — dev-toggleable feature flags
+ *     (`toggleTranscriptScrollController`, `impersonateVersion`).
+ *     Stable singleton; pure module exports backed by localStorage.
+ *
+ * Consolidating these into one installer guarantees they're set at the
+ * same time and torn down together, so DevTools never sees one namespace
+ * populated and the others missing.
+ *
+ * Returns a cleanup function that removes all bindings (identity-
+ * checking the chat API in case a newer mount replaced it) and the
+ * root object if it's empty afterwards. Safe to call on the server —
+ * no-op when `window` is undefined.
  */
-export function installChatDebugApi(api: ChatDebugApi): () => void {
+export function installVellumDebugApi(
+  chatApi: ChatDebugApi,
+  flagsApi: VellumDebugFlagsApi,
+): () => void {
   if (typeof window === "undefined") return () => {};
   const win = window as Omit<Window, typeof ROOT_NS> & { [ROOT_NS]?: VellumDebugRoot };
   const existing: VellumDebugRoot = (win[ROOT_NS] ?? {}) as VellumDebugRoot;
-  existing[CHAT_NS] = api;
+  existing[EVENTS_NS] = eventsDebugApi;
+  existing[CHAT_NS] = chatApi;
+  existing[API_NS] = assistantApi;
+  existing[FLAGS_NS] = flagsApi;
   win[ROOT_NS] = existing;
   return () => {
     const current = win[ROOT_NS];
     if (!current) return;
-    if (current[CHAT_NS] === api) {
+    // Gate every deletion on the chat-API identity check. If a newer
+    // mount has already replaced our chatApi (strict-mode double-mount,
+    // hot reload, etc.), our teardown is stale — leave the world alone.
+    // `events`, `api`, and `flags` lifecycles are paired with `chat`
+    // because they are stable singletons (pure module exports);
+    // identity-checking them would always pass.
+    if (current[CHAT_NS] === chatApi) {
       delete current[CHAT_NS];
+      delete current[EVENTS_NS];
+      delete current[API_NS];
+      delete current[FLAGS_NS];
     }
     // Only remove the root if we left it empty — other debug domains
     // may have attached siblings under the same namespace.
@@ -862,12 +813,13 @@ export function useChatDebugApi(refs: ChatDebugRefs): void {
   useEffect(() => {
     const stableRefs: ChatDebugRefs = {
       messagesRef: refs.messagesRef,
+      sanitizedMessagesRef: refs.sanitizedMessagesRef,
       transcriptItemsRef: refs.transcriptItemsRef,
       transcriptRef: refs.transcriptRef,
       streamContextRef: refs.streamContextRef,
       streamRef: refs.streamRef,
       streamEpochRef: refs.streamEpochRef,
-      activeConversationKeyRef: refs.activeConversationKeyRef,
+      activeConversationIdRef: refs.activeConversationIdRef,
       getAssistantId: () => latestRefs.current.getAssistantId(),
       getTurnState: () => latestRefs.current.getTurnState(),
       getUIContext: () => latestRefs.current.getUIContext(),
@@ -879,7 +831,11 @@ export function useChatDebugApi(refs: ChatDebugRefs): void {
       historyFetcher: refs.historyFetcher,
     };
     const api = createChatDebugApi(stableRefs);
-    const uninstall = installChatDebugApi(api);
+    const flagsApi: VellumDebugFlagsApi = {
+      toggleTranscriptScrollController: setTranscriptScrollControllerEnabled,
+      impersonateVersion: setImpersonatedAssistantVersion,
+    };
+    const uninstall = installVellumDebugApi(api, flagsApi);
     return uninstall;
   }, []);
 }

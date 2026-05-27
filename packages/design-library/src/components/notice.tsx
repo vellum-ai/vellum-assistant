@@ -8,8 +8,8 @@ import {
 } from "lucide-react";
 import { type ComponentProps, type ReactNode } from "react";
 
-import { cn } from "../utils/cn.js";
-import { Typography } from "./typography.js";
+import { cn } from "../utils/cn";
+import { Typography } from "./typography";
 
 export type NoticeTone = "info" | "success" | "warning" | "error" | "neutral";
 

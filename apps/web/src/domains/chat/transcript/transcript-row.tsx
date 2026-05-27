@@ -3,11 +3,11 @@ import { Loader2 } from "lucide-react";
 import { memo, type ReactNode } from "react";
 
 import { Notice } from "@vellum/design-library";
-import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router.js";
-import type { TranscriptItem } from "@/domains/chat/transcript/types.js";
+import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router";
+import type { TranscriptItem } from "@/domains/chat/transcript/types";
 
-import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body.js";
-import type { ConfirmationDecision } from "@/domains/chat/api/event-types.js";
+import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
+import type { ConfirmationDecision } from "@/domains/chat/api/event-types";
 
 /**
  * Thin dispatcher: render one `TranscriptItem` using the matching existing
@@ -49,9 +49,9 @@ export interface TranscriptRowProps {
     riskLevel?: string;
     riskReason?: string;
     input?: Record<string, unknown>;
-    allowlistOptions: import("@/domains/chat/api/event-types.js").AllowlistOption[];
-    scopeOptions: import("@/domains/chat/api/event-types.js").ScopeOption[];
-    directoryScopeOptions: import("@/domains/chat/api/event-types.js").DirectoryScopeOption[];
+    allowlistOptions: import("@/domains/chat/api/event-types").AllowlistOption[];
+    scopeOptions: import("@/domains/chat/api/event-types").ScopeOption[];
+    directoryScopeOptions: import("@/domains/chat/api/event-types").DirectoryScopeOption[];
   }) => void;
   unknownNudgeToolCallIds?: Set<string>;
   onDismissUnknownNudge?: (toolCallId: string) => void;
@@ -67,6 +67,11 @@ export interface TranscriptRowProps {
   onOpenDocument?: (documentSurfaceId: string) => void;
   /** Forwarded to inline app surfaces so they can render live preview iframes. */
   assistantId?: string | null;
+  /** Click handler when the user clicks the "open timeline" button on an
+   *  inline subagent progress card. */
+  onSubagentClick?: (subagentId: string) => void;
+  /** Callback to abort/stop a running subagent from an inline card. */
+  onStopSubagent?: (subagentId: string) => void;
 }
 
 export const TranscriptRow = memo(function TranscriptRow({
@@ -94,6 +99,8 @@ export const TranscriptRow = memo(function TranscriptRow({
   onOpenApp,
   onOpenDocument,
   assistantId,
+  onSubagentClick,
+  onStopSubagent,
 }: TranscriptRowProps) {
   switch (item.kind) {
     case "message":
@@ -116,6 +123,8 @@ export const TranscriptRow = memo(function TranscriptRow({
           onOpenApp={onOpenApp}
           onOpenDocument={onOpenDocument}
           assistantId={assistantId}
+          onSubagentClick={onSubagentClick}
+          onStopSubagent={onStopSubagent}
         />
       );
 
@@ -156,6 +165,13 @@ export const TranscriptRow = memo(function TranscriptRow({
               <span className="sr-only">Thinking…</span>
             )}
           </div>
+        </div>
+      );
+
+    case "profileAutoRouted":
+      return (
+        <div className="flex items-center justify-center py-1 text-body-small-default text-[var(--content-tertiary)]">
+          Using {item.profileLabel} for this response
         </div>
       );
 

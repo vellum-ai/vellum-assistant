@@ -7,17 +7,17 @@ import {
   X,
 } from "lucide-react";
 
-import { type ReactNode, useEffect, useRef } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 
-import { AvatarRenderer } from "@/components/avatar-renderer.js";
-import { Typography } from "@vellum/design-library";
-import { StatusBadge } from "@/domains/chat/components/subagent-status-badge.js";
-import { BUNDLED_COMPONENTS } from "@/domains/avatar/bundled-components.js";
-import { subagentTraits } from "@/domains/avatar/subagent-avatar.js";
-import type { SubagentEntry } from "@/domains/subagents/subagent-store.js";
-import { isActiveStatus } from "@/domains/subagents/status-helpers.js";
+import { AvatarRenderer } from "@/components/avatar-renderer";
+import { Button, Typography } from "@vellum/design-library";
+import { StatusBadge } from "@/domains/chat/components/subagent-status-badge";
+import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
+import { subagentTraits } from "@/utils/avatar-subagent";
+import type { SubagentEntry } from "@/domains/subagents/subagent-store";
+import { isActiveStatus } from "@/domains/subagents/status-helpers";
 
-import { SubagentTimeline } from "@/domains/chat/components/subagent-timeline.js";
+import { SubagentTimeline } from "@/domains/chat/components/subagent-timeline";
 
 /** Format a number compactly (e.g. 257400 -> "257.4K"). */
 function formatNumber(n: number): string {
@@ -41,6 +41,38 @@ function formatCost(cost: number): string {
     return cost.toFixed(4);
   }
   return cost.toFixed(2);
+}
+
+const ANIMATION_DURATION_MS = 300;
+
+function useAnimatedNumber(target: number): number {
+  const [displayed, setDisplayed] = useState(target);
+  const rafRef = useRef<number>(0);
+  const displayedRef = useRef(target);
+
+  useEffect(() => {
+    const from = displayedRef.current;
+    if (from === target) return;
+
+    cancelAnimationFrame(rafRef.current);
+    const start = performance.now();
+
+    const step = (now: number) => {
+      const elapsed = now - start;
+      const progress = Math.min(elapsed / ANIMATION_DURATION_MS, 1);
+      const eased = 1 - (1 - progress) ** 3;
+      const value = from + (target - from) * eased;
+      displayedRef.current = value;
+      setDisplayed(value);
+      if (progress < 1) {
+        rafRef.current = requestAnimationFrame(step);
+      }
+    };
+    rafRef.current = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [target]);
+
+  return displayed;
 }
 
 function MetricCard({
@@ -75,6 +107,19 @@ function MetricCard({
   );
 }
 
+function AnimatedMetricCard({ icon, label, target, format }: {
+  icon: ReactNode; label: string; target: number; format: (n: number) => string;
+}) {
+  const animated = useAnimatedNumber(target);
+  return (
+    <MetricCard
+      icon={icon}
+      label={label}
+      value={format(animated)}
+    />
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Props
 // ---------------------------------------------------------------------------
@@ -98,6 +143,7 @@ export function SubagentDetailPanel({
 }: SubagentDetailPanelProps) {
   const isRunning = isActiveStatus(entry.status);
   const requestedRef = useRef<string | null>(null);
+  const components = useBundledAvatarComponents();
 
   useEffect(() => {
     if (
@@ -112,16 +158,20 @@ export function SubagentDetailPanel({
   }, [entry.subagentId, entry.conversationId, entry.events.length, onRequestDetail]);
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-[var(--surface-lift)]">
+    <div className="flex h-full flex-col overflow-hidden rounded-xl bg-[var(--surface-lift)]">
       {/* Header */}
       <div className="flex shrink-0 items-center gap-3 border-b border-[var(--border-base)] px-5 py-4">
-        <AvatarRenderer
-          components={BUNDLED_COMPONENTS}
-          bodyShapeId={subagentTraits(entry.subagentId).bodyShape}
-          eyeStyleId={subagentTraits(entry.subagentId).eyeStyle}
-          colorId={subagentTraits(entry.subagentId).color}
-          size={32}
-        />
+        {components ? (
+          <AvatarRenderer
+            components={components}
+            bodyShapeId={subagentTraits(entry.subagentId).bodyShape}
+            eyeStyleId={subagentTraits(entry.subagentId).eyeStyle}
+            colorId={subagentTraits(entry.subagentId).color}
+            size={32}
+          />
+        ) : (
+          <div style={{ width: 32, height: 32, flexShrink: 0 }} aria-hidden />
+        )}
         <Typography
           variant="title-medium"
           className="min-w-0 shrink truncate text-[var(--content-default)]"
@@ -143,33 +193,36 @@ export function SubagentDetailPanel({
             </Typography>
           </button>
         )}
-        <button
-          type="button"
-          aria-label="Close subagent detail"
+        <Button
+          variant="ghost"
+          iconOnly={<X />}
           onClick={onClose}
-          className="flex shrink-0 cursor-pointer items-center justify-center rounded p-1.5 text-[var(--content-tertiary)] hover:text-[var(--content-default)] hover:bg-[var(--surface-active)] transition-colors"
-        >
-          <X className="h-5 w-5" />
-        </button>
+          aria-label="Close subagent detail"
+          tooltip="Close"
+          className="shrink-0"
+        />
       </div>
 
       {/* Scrollable body */}
       <div className="flex-1 overflow-y-auto px-5 py-5">
         {/* Metrics row */}
         <div className="mb-5 grid grid-cols-3 gap-3">
-          <MetricCard
+          <AnimatedMetricCard
             icon={<ArrowDownToLine className="h-4 w-4 shrink-0" style={{ color: "var(--content-secondary)" }} />}
-            value={formatNumber(entry.inputTokens)}
+            target={entry.inputTokens}
+            format={(n) => formatNumber(Math.round(n))}
             label="Input"
           />
-          <MetricCard
+          <AnimatedMetricCard
             icon={<ArrowUpFromLine className="h-4 w-4 shrink-0" style={{ color: "var(--content-secondary)" }} />}
-            value={formatNumber(entry.outputTokens)}
+            target={entry.outputTokens}
+            format={(n) => formatNumber(Math.round(n))}
             label="Output"
           />
-          <MetricCard
+          <AnimatedMetricCard
             icon={<DollarSign className="h-4 w-4 shrink-0" style={{ color: "var(--content-secondary)" }} />}
-            value={formatCost(entry.totalCost)}
+            target={entry.totalCost}
+            format={formatCost}
             label="Cost"
           />
         </div>

@@ -7,15 +7,15 @@ import { Toggle } from "@vellum/design-library/components/toggle";
 import { Modal } from "@vellum/design-library/components/modal";
 import { Tag } from "@vellum/design-library/components/tag";
 import { Typography } from "@vellum/design-library/components/typography";
-import { client } from "@/generated/api/client.gen.js";
-import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
+import { client } from "@/generated/api/client.gen";
+import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
 
-import { type ProfileEntry } from "@/domains/settings/ai/ai-page.js";
-import { ProfileEditorModal } from "@/domains/settings/ai/profile-editor-modal.js";
+import { type ProfileEntry } from "@/domains/settings/ai/ai-page";
+import { ProfileEditorModal } from "@/domains/settings/ai/profile-editor-modal";
 import {
   listConnections,
   type ProviderConnection,
-} from "@/domains/settings/ai/provider-connections-client.js";
+} from "@/domains/settings/ai/provider-connections-client";
 
 function filterFlaggedConnections(
   connections: ProviderConnection[],
@@ -686,6 +686,7 @@ function ManageProfilesModalInner({
 
                 const isActive = profile.status !== "disabled";
                 const isToggling = togglingNames.has(profile.name);
+                const isAutoProfile = profile.name === "auto";
 
                 return (
                   <div key={profile.name} className="relative">
@@ -754,7 +755,7 @@ function ManageProfilesModalInner({
                           >
                             {profile.label ?? profile.name}
                           </Typography>
-                          {isManaged && (
+                          {isManaged && profile.name !== "auto" && (
                             <Tag
                               tone="positive"
                               title="Managed by Platform — auth is locked, but you can rename or disable this profile."
@@ -785,11 +786,10 @@ function ManageProfilesModalInner({
 
                       {/* Actions */}
                       <div className="flex shrink-0 items-center gap-2">
-                        {/* Inline status toggle — works for managed profiles
-                            too. `status` is a UI-level preference the user
-                            always owns; auth/managed-edit rules don't apply.
-                            Mirrors `manage-providers-modal`. */}
-                        <span
+                        {/* Keep toggle first in the action order; align it by
+                            reserving a fixed-width slot for trailing buttons. */}
+                        <div
+                          className="flex shrink-0 items-center"
                           title={
                             isActive
                               ? "Active — toggle to hide from pickers"
@@ -804,26 +804,30 @@ function ManageProfilesModalInner({
                             disabled={isToggling}
                             aria-label={`${isActive ? "Disable" : "Enable"} ${profile.label ?? profile.name}`}
                           />
-                        </span>
-                        <Button
-                          variant="ghost"
-                          size="compact"
-                          onClick={() => onEditClick(profile)}
+                        </div>
+                        <div
+                          className={`flex w-[92px] items-center justify-end gap-2${isAutoProfile ? " invisible" : ""}`}
                         >
-                          {isManaged ? "View" : "Edit"}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="compact"
-                          iconOnly={<Trash2 />}
-                          aria-label={`Delete ${profile.label ?? profile.name}`}
-                          disabled={isManaged || isDeleting}
-                          title={
-                            isManaged ? "Managed profiles cannot be deleted" : undefined
-                          }
-                          onClick={() => handleDeleteClick(profile.name)}
-                          tintColor="var(--system-negative-strong)"
-                        />
+                          <Button
+                            variant="ghost"
+                            size="compact"
+                            onClick={() => onEditClick(profile)}
+                          >
+                            {isManaged ? "View" : "Edit"}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="compact"
+                            iconOnly={<Trash2 />}
+                            aria-label={`Delete ${profile.label ?? profile.name}`}
+                            disabled={isManaged || isDeleting}
+                            title={
+                              isManaged ? "Managed profiles cannot be deleted" : undefined
+                            }
+                            onClick={() => handleDeleteClick(profile.name)}
+                            tintColor="var(--system-negative-strong)"
+                          />
+                        </div>
                       </div>
                     </div>
                     {dropTarget?.name === profile.name && dropTarget.after && (
@@ -838,6 +842,9 @@ function ManageProfilesModalInner({
                         {deleteError}
                       </Typography>
                     ) : null}
+                    {profile.name === "auto" && (
+                      <div className="mx-2 mt-1 border-b border-[var(--border-subtle)]" />
+                    )}
                   </div>
                 );
               })}

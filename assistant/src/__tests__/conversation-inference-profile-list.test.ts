@@ -42,9 +42,10 @@ import {
   createConversation,
   setConversationInferenceProfile,
 } from "../memory/conversation-crud.js";
-import { getDb, resetDb } from "../memory/db-connection.js";
+import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
+import { resetDbForTesting } from "./db-test-helpers.js";
 
 initializeDb();
 
@@ -65,7 +66,7 @@ describe("conversation HTTP responses include inferenceProfile", () => {
 
   afterAll(async () => {
     await server?.stop();
-    resetDb();
+    resetDbForTesting();
   });
 
   test("GET /v1/conversations includes inferenceProfile for pinned conversations and omits it when unset", async () => {

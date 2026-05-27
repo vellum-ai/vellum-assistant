@@ -7,6 +7,7 @@
  */
 
 import {
+  lazy,
   useCallback,
   useEffect,
   useImperativeHandle,
@@ -14,6 +15,8 @@ import {
   useState,
   type Ref,
 } from "react";
+
+import { LazyBoundary } from "@/components/lazy-boundary";
 import {
   ArrowLeft,
   Check,
@@ -24,15 +27,22 @@ import {
 } from "lucide-react";
 import { Button, Typography } from "@vellum/design-library";
 
-import type { DocumentComment } from "@/domains/chat/api/document-comments.js";
-import { createComment, fetchComments } from "@/domains/chat/api/document-comments.js";
-import { saveDocumentContent } from "@/domains/chat/api/documents.js";
-import type { CommentAnchor } from "@/domains/chat/utils/tiptap-position-map.js";
-import { TiptapDocumentEditor } from "./tiptap-document-editor.js";
+import type { DocumentComment } from "@/domains/chat/api/document-comments";
+import { createComment, fetchComments } from "@/domains/chat/api/document-comments";
+import { documentsPost } from "@/generated/daemon/sdk.gen";
+import type { CommentAnchor } from "@/domains/chat/utils/tiptap-position-map";
 import {
   DocumentCommentPanel,
   type DocumentCommentPanelHandle,
-} from "./document-comment-panel.js";
+} from "./document-comment-panel";
+
+// Tiptap + ProseMirror pull in ~600 kB of editor code that's only needed
+// when a document is opened. Splitting it out keeps the main bundle lean.
+const TiptapDocumentEditor = lazy(() =>
+  import("./tiptap-document-editor").then((m) => ({
+    default: m.TiptapDocumentEditor,
+  })),
+);
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -111,7 +121,12 @@ export function DocumentViewerContainer({
       if (savedFadeRef.current) clearTimeout(savedFadeRef.current);
       setSaveStatus("saving");
       saveTimerRef.current = setTimeout(() => {
-        void saveDocumentContent(assistantId, surfaceId, conversationId, documentName, markdown).then(
+        const wordCount = markdown.trim().split(/\s+/).filter((w) => w.length > 0).length;
+        void documentsPost({
+          path: { assistant_id: assistantId },
+          body: { surfaceId, conversationId, title: documentName, content: markdown, wordCount },
+          throwOnError: true,
+        }).then(
           () => {
             setSaveStatus("saved");
             savedFadeRef.current = setTimeout(() => setSaveStatus("idle"), 2000);
@@ -319,34 +334,42 @@ export function DocumentViewerContainer({
       <div className="relative flex min-h-0 flex-1">
         {/* Tiptap editor */}
         <div className="relative min-w-0 flex-1">
-          <TiptapDocumentEditor
-            content={content}
-            onContentChange={handleContentChange}
-            onTextSelect={(sel) => {
-              if (!sel) {
-                setTextSelection(null);
-                return;
-              }
-              setTextSelection({
-                start: sel.start,
-                end: sel.end,
-                text: sel.text,
-                rect: {
-                  top: sel.rect.top,
-                  left: sel.rect.left,
-                  bottom: sel.rect.bottom,
-                  right: sel.rect.right,
-                  width: sel.rect.width,
-                  height: sel.rect.height,
-                },
-              });
-            }}
-            commentAnchors={commentAnchors}
-            highlightRange={activeHighlight}
-            onCommentSubmit={(text) => void handleCommentSubmit(text)}
-            commentSubmitting={addingInlineComment}
-            className="h-full"
-          />
+          <LazyBoundary
+            fallback={
+              <div className="flex h-full items-center justify-center">
+                <Loader2 className="size-5 animate-spin text-fg-tertiary" />
+              </div>
+            }
+          >
+            <TiptapDocumentEditor
+              content={content}
+              onContentChange={handleContentChange}
+              onTextSelect={(sel) => {
+                if (!sel) {
+                  setTextSelection(null);
+                  return;
+                }
+                setTextSelection({
+                  start: sel.start,
+                  end: sel.end,
+                  text: sel.text,
+                  rect: {
+                    top: sel.rect.top,
+                    left: sel.rect.left,
+                    bottom: sel.rect.bottom,
+                    right: sel.rect.right,
+                    width: sel.rect.width,
+                    height: sel.rect.height,
+                  },
+                });
+              }}
+              commentAnchors={commentAnchors}
+              highlightRange={activeHighlight}
+              onCommentSubmit={(text) => void handleCommentSubmit(text)}
+              commentSubmitting={addingInlineComment}
+              className="h-full"
+            />
+          </LazyBoundary>
         </div>
 
         {/* Comment panel sidebar */}

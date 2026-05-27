@@ -8,7 +8,7 @@ import {
   type Ref,
 } from "react";
 
-import { cn } from "../utils/cn.js";
+import { cn } from "../utils/cn";
 
 /**
  * Standardized button for the web platform. Visual parity with the macOS

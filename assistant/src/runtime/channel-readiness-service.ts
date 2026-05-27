@@ -282,6 +282,74 @@ const slackProbe: ChannelProbe = {
       ),
     ];
   },
+  async runRemoteChecks(): Promise<ReadinessCheckResult[]> {
+    const botToken = await getSecureKeyAsync(
+      credentialKey("slack_channel", "bot_token"),
+    );
+    if (!botToken) {
+      return [
+        check(
+          "auth_test",
+          false,
+          "Slack auth.test ok",
+          "Skipped: no bot_token stored",
+        ),
+      ];
+    }
+    try {
+      const res = await fetch("https://slack.com/api/auth.test", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${botToken}` },
+      });
+      const data = (await res.json()) as {
+        ok: boolean;
+        error?: string;
+        team_id?: string;
+        team?: string;
+        user?: string;
+      };
+      if (!data.ok) {
+        return [
+          check(
+            "auth_test",
+            false,
+            "Slack auth.test ok",
+            `Slack auth.test rejected bot_token: ${data.error ?? "unknown error"}`,
+          ),
+        ];
+      }
+      const raw = loadRawConfig();
+      const storedTeamId = getNestedValue(raw, "slack.teamId");
+      const teamMatches =
+        typeof storedTeamId !== "string" ||
+        storedTeamId.length === 0 ||
+        storedTeamId === data.team_id;
+      return [
+        check(
+          "auth_test",
+          true,
+          `Slack auth.test ok (workspace ${data.team ?? data.team_id ?? "unknown"}, bot ${data.user ?? "unknown"})`,
+          "Slack auth.test ok",
+        ),
+        check(
+          "workspace_match",
+          teamMatches,
+          "Stored workspace matches bot token",
+          `Stored workspace ${storedTeamId} does not match bot token's workspace ${data.team_id ?? "unknown"} — run 'assistant channels slack reconnect' to refresh metadata`,
+        ),
+      ];
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return [
+        check(
+          "auth_test",
+          false,
+          "Slack auth.test ok",
+          `Failed to reach Slack auth.test: ${message}`,
+        ),
+      ];
+    }
+  },
 };
 
 // ── Service ─────────────────────────────────────────────────────────────────

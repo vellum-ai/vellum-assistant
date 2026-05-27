@@ -394,6 +394,10 @@ final class ChatActionHandler {
         case .appFilesChanged:
             vm.fetchConversationArtifacts()
 
+        case .turnProfileAutoRouted(let message):
+            guard belongsToConversation(message.conversationId) else { return }
+            vm.autoRoutedProfileLabel = message.profileLabel
+
         default:
             break
         }
@@ -590,6 +594,7 @@ final class ChatActionHandler {
         vm.cancelTimeoutTask = nil
         vm.isCancelling = false
         vm.isThinking = false
+        vm.autoRoutedProfileLabel = nil
         // Only clear the compaction indicator on main-turn completions. Aux
         // `message_complete` events (call notifiers, watch updates) can arrive
         // while `/compact` is still running — activity phase may be `tool_running`

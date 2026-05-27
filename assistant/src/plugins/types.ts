@@ -43,7 +43,7 @@ import type {
 } from "../providers/types.js";
 import type { SkillRoute } from "../runtime/skill-route-registry.js";
 import type {
-  LoadedPluginTool,
+  LoadedTool,
   ToolContext,
   ToolExecutionResult,
 } from "../tools/types.js";
@@ -439,18 +439,25 @@ export interface OverflowReduceResult {
  * Pipeline arguments for `persistence` — a discriminated union over the
  * message-CRUD operations plugins may observe, redirect, or short-circuit:
  *
- * - `add`    — append a new message (`addMessage`). Mirrors
- *              `addMessage(conversationId, role, content, metadata?, opts?)`.
- *              When `syncToDisk` is set, the default plugin also runs
- *              {@link syncMessageToDisk} against the just-persisted row so
- *              the JSONL disk view stays consistent. The `createdAtMs` field
- *              carries the conversation's creation timestamp — needed to
- *              resolve the disk-view directory path.
- * - `update` — shallow-merge metadata into an existing message
- *              (`updateMessageMetadata`). Returns `void`.
- * - `delete` — remove a single message (`deleteMessageById`). Returns the
- *              {@link DeletedMemoryIds}-shaped segment/summary IDs the caller
- *              must clean up out-of-band.
+ * - `add`           — append a new message (`addMessage`). Mirrors
+ *                     `addMessage(conversationId, role, content, metadata?, opts?)`.
+ *                     When `syncToDisk` is set, the default plugin also runs
+ *                     {@link syncMessageToDisk} against the just-persisted row
+ *                     so the JSONL disk view stays consistent. The
+ *                     `createdAtMs` field carries the conversation's creation
+ *                     timestamp — needed to resolve the disk-view directory.
+ * - `reserve`       — pre-allocate an empty assistant anchor row
+ *                     (`reserveMessage`) so the agent loop can stamp streaming
+ *                     events with stable identity before any content is
+ *                     produced. Returns the same row shape as `add`.
+ * - `updateContent` — overwrite the content of an existing message
+ *                     (`updateMessageContent`). Used to finalize a previously
+ *                     reserved row, and by consolidation paths.
+ * - `update`        — shallow-merge metadata into an existing message
+ *                     (`updateMessageMetadata`). Returns `void`.
+ * - `delete`        — remove a single message (`deleteMessageById`). Returns
+ *                     the {@link DeletedMemoryIds}-shaped segment/summary IDs
+ *                     the caller must clean up out-of-band.
  *
  * The discriminated `op` field lets plugin middleware narrow the union and
  * tailor behavior per-operation (e.g. "only observe deletes", "redirect
@@ -473,6 +480,19 @@ export type PersistAddArgs = {
   readonly createdAtMs?: number;
 };
 
+export type PersistReserveArgs = {
+  readonly op: "reserve";
+  readonly conversationId: string;
+  readonly role: string;
+  readonly metadata?: Record<string, unknown>;
+};
+
+export type PersistUpdateContentArgs = {
+  readonly op: "updateContent";
+  readonly messageId: string;
+  readonly content: string;
+};
+
 export type PersistUpdateArgs = {
   readonly op: "update";
   readonly messageId: string;
@@ -486,6 +506,8 @@ export type PersistDeleteArgs = {
 
 export type PersistArgs =
   | PersistAddArgs
+  | PersistReserveArgs
+  | PersistUpdateContentArgs
   | PersistUpdateArgs
   | PersistDeleteArgs;
 
@@ -506,6 +528,25 @@ export type PersistAddResult = {
   };
 };
 
+/**
+ * Result row returned by a `reserve` op — same row shape as `add` but with
+ * empty `content` (`"[]"`) and tagged distinctly so middleware can branch
+ * on intent.
+ */
+export type PersistReserveResult = {
+  readonly op: "reserve";
+  readonly message: {
+    readonly id: string;
+    readonly conversationId: string;
+    readonly role: string;
+    readonly content: string;
+    readonly createdAt: number;
+    readonly metadata?: string;
+  };
+};
+
+export type PersistUpdateContentResult = { readonly op: "updateContent" };
+
 export type PersistUpdateResult = { readonly op: "update" };
 
 /** IDs of segments/summaries the caller must remove from Qdrant. */
@@ -517,6 +558,8 @@ export type PersistDeleteResult = {
 
 export type PersistResult =
   | PersistAddResult
+  | PersistReserveResult
+  | PersistUpdateContentResult
   | PersistUpdateResult
   | PersistDeleteResult;
 
@@ -1008,19 +1051,6 @@ export interface Injector {
 // catalog-discoverable skills today.
 
 /**
- * Tool registration contributed by a plugin. Uses the narrow
- * {@link LoadedPluginTool} shape. External plugin authors declare the
- * nameless `PluginTool` file shape; the loader derives `name` from the
- * `tools/<name>.ts` basename before storing it on `plugin.tools`. Authors
- * also leave category / ownership metadata to the bootstrap, which stamps
- * `category: "plugin"`, `origin: "plugin"`, and
- * `ownerPluginId: <plugin.name>` before handing the batch to
- * `registerPluginTools`. The registration boundary synthesizes
- * `getDefinition()` from `{name, description, input_schema}` so the canonical
- * {@link Tool} interface used by the internal registry stays unchanged.
- */
-export type PluginToolRegistration = LoadedPluginTool;
-/**
  * HTTP route registration contributed by a plugin. Plugins express routes as
  * {@link SkillRoute} values — the same shape the skill-route registry
  * consumes — so `registerSkillRoute` can accept them directly. Bootstrap
@@ -1120,8 +1150,16 @@ export interface Plugin {
   manifest: PluginManifest;
   /** Lifecycle hooks (init, shutdown). See {@link PluginHooks}. */
   hooks?: PluginHooks;
-  /** Tool registrations visible to the model. */
-  tools?: PluginToolRegistration[];
+  /**
+   * Tool registrations visible to the model. External plugin authors
+   * declare the nameless `ToolDefinition` file shape (from
+   * `@vellumai/plugin-api`); the loader derives `name` from the
+   * `tools/<name>.ts` basename and runs the definition through
+   * `finalizeTool` to fill omitted required fields, producing the
+   * `LoadedTool` values stored here. Category / ownership metadata is
+   * stamped by `registerPluginTools` at registration time.
+   */
+  tools?: LoadedTool[];
   /** HTTP route registrations served by the assistant. */
   routes?: PluginRouteRegistration[];
   /** Skill registrations loaded at startup. */

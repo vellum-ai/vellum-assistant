@@ -1,6 +1,6 @@
-import { extractErrorMessage } from "@/lib/api-errors.js";
+import { extractErrorMessage } from "@/lib/api-errors";
 
-import type { GetAssistantResult } from "@/assistant/api.js";
+import type { GetAssistantResult } from "@/assistant/api";
 
 export type ResolvedAssistantLifecycleState =
   | { kind: "active" }
@@ -52,7 +52,7 @@ export function shouldRecoverFromHatchFailure(status?: number): boolean {
 
 /**
  * The Django hatch endpoint returns 503 + `{ code: "platform_hosted_disabled" }`
- * when the `platform-hosted-enabled` LaunchDarkly flag is off (global capacity
+ * when the `platform-hosted-enabled` feature flag is off (global capacity
  * kill-switch). The onboarding flow surfaces this as a user-friendly message
  * instead of recovering / retrying.
  */
@@ -78,6 +78,6 @@ export function buildInitializingTimeoutError(): {
   return {
     kind: "error",
     message:
-      "Your assistant is taking longer than expected to start. Please try again, or contact support@vellum.ai if the issue persists.",
+      "Your assistant is taking longer than expected to start. Please try again, or check the community for help.",
   };
 }

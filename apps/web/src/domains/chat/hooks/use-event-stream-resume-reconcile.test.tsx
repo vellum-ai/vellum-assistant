@@ -2,18 +2,18 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
 import { useRef, type MutableRefObject } from "react";
 
-import type { ChatEventStream } from "@/domains/chat/api/stream.js";
+import type { ChatEventStream } from "@/domains/chat/api/stream";
 import {
   __resetEventBusForTesting,
   useEventBusStore,
-} from "@/stores/event-bus-store.js";
+} from "@/stores/event-bus-store";
 
-import { useEventStream } from "@/domains/chat/hooks/use-event-stream.js";
+import { useEventStream } from "@/domains/chat/hooks/use-event-stream";
 
 type StreamContext = { assistantId: string; conversationId: string };
 
 function renderEventStream(params: {
-  activeConversationKey: string;
+  activeConversationId: string;
   handleStreamEvent?: () => void;
   reconcileActiveConversation?: () => Promise<{
     changed: boolean;
@@ -32,7 +32,7 @@ function renderEventStream(params: {
     useEventStream({
       assistantStateKind: "active",
       assistantId: "asst-1",
-      activeConversationKey: params.activeConversationKey,
+      activeConversationId: params.activeConversationId,
       conversationExistsOnServer: true,
       streamRef,
       streamEpochRef,
@@ -77,7 +77,7 @@ describe("useEventStream — sse.opened reconcile triggers", () => {
       assistantProgress: false,
     }));
     renderEventStream({
-      activeConversationKey: "conv-A",
+      activeConversationId: "conv-A",
       reconcileActiveConversation: reconcile as never,
     });
     useEventBusStore.getState().publish("sse.opened", {
@@ -94,7 +94,7 @@ describe("useEventStream — sse.opened reconcile triggers", () => {
       assistantProgress: false,
     }));
     renderEventStream({
-      activeConversationKey: "conv-A",
+      activeConversationId: "conv-A",
       reconcileActiveConversation: reconcile as never,
     });
     useEventBusStore.getState().publish("sse.opened", {
@@ -111,7 +111,7 @@ describe("useEventStream — sse.opened reconcile triggers", () => {
       assistantProgress: false,
     }));
     renderEventStream({
-      activeConversationKey: "conv-A",
+      activeConversationId: "conv-A",
       reconcileActiveConversation: reconcile as never,
     });
     useEventBusStore.getState().publish("sse.opened", {
@@ -132,7 +132,7 @@ describe("useEventStream — sse.opened reconcile triggers", () => {
       assistantProgress: false,
     }));
     renderEventStream({
-      activeConversationKey: "conv-A",
+      activeConversationId: "conv-A",
       reconcileActiveConversation: reconcile as never,
     });
     useEventBusStore.getState().publish("sse.opened", {
@@ -153,7 +153,7 @@ describe("useEventStream — sse.opened reconcile triggers", () => {
       assistantProgress: false,
     }));
     renderEventStream({
-      activeConversationKey: "conv-A",
+      activeConversationId: "conv-A",
       reconcileActiveConversation: reconcile as never,
     });
     useEventBusStore.getState().publish("sse.opened", {
@@ -197,7 +197,7 @@ describe("useEventStream — sse.opened reconcile triggers", () => {
     });
     const startReconciliationLoop = mock((_epoch: number) => {});
     renderEventStream({
-      activeConversationKey: "conv-A",
+      activeConversationId: "conv-A",
       reconcileActiveConversation: reconcile as never,
       startReconciliationLoop,
     });

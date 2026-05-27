@@ -4,11 +4,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@vellum/design-library/components/button";
 import { Card } from "@vellum/design-library/components/card";
 import { Input } from "@vellum/design-library/components/input";
-import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout.js";
+import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import {
   PRECHAT_TOOLS,
   type PreChatToolItem,
-} from "@/domains/onboarding/prechat-tools.js";
+} from "@/domains/onboarding/prechat-tools";
 
 interface ToolSelectionScreenProps {
   selectedTools: Set<string>;

@@ -1,12 +1,12 @@
 
 import { motion } from "motion/react";
 
-import { SKILL_NODE_SIZE } from "@/domains/intelligence/components/constellation-layout.js";
-import type { OrbitItem } from "@/domains/intelligence/components/constellation-layout.js";
+import { SKILL_NODE_SIZE } from "@/domains/intelligence/components/constellation-layout";
+import type { OrbitItem } from "@/domains/intelligence/components/constellation-layout";
 
-import { NODE_SPRING } from "@/domains/intelligence/components/constellation-view/constants.js";
-import { useNodeClickHandlers } from "@/domains/intelligence/components/constellation-view/use-node-click-handlers.js";
-import { mixedBg, type NodeVisibility } from "@/domains/intelligence/components/constellation-view/utils.js";
+import { NODE_SPRING } from "@/domains/intelligence/components/constellation-view/constants";
+import { useNodeClickHandlers } from "@/domains/intelligence/components/constellation-view/use-node-click-handlers";
+import { mixedBg, type NodeVisibility } from "@/domains/intelligence/components/constellation-view/utils";
 
 export interface SkillNodeProps {
   x: number;

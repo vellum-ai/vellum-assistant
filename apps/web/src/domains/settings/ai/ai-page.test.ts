@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   SAVED_SECRET_PLACEHOLDER,
   secretPlaceholder,
-} from "@/domains/settings/ai/secret-placeholder.js";
+} from "@/domains/settings/ai/secret-placeholder";
 
 describe("AI settings secret placeholders", () => {
   test("uses a password-style placeholder when a key is already saved", () => {

@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { HardDrive, Loader2, RefreshCw, Server, Sparkles } from "lucide-react";
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router";
+import { Link, useNavigate } from "react-router";
 
 import { Button } from "@vellum/design-library/components/button";
 import { Dropdown } from "@vellum/design-library/components/dropdown";
@@ -9,37 +9,43 @@ import { Modal } from "@vellum/design-library/components/modal";
 import { Notice } from "@vellum/design-library/components/notice";
 import { Tag } from "@vellum/design-library/components/tag";
 import { toast } from "@vellum/design-library/components/toast";
-import { CapacityBar } from "@/domains/settings/components/capacity-bar.js";
-import { SettingsCard } from "@/domains/settings/components/settings-card.js";
-import { extractResizeError } from "@/domains/settings/components/resize-errors.js";
-import { formatResourceMb } from "@/domains/settings/components/assistant-status-panel.js";
+import { CapacityBar } from "@/domains/settings/components/capacity-bar";
+import { DetailCard } from "@/components/detail-card";
+import { extractResizeError } from "@/domains/settings/components/resize-errors";
+import { formatResourceMb } from "@/domains/settings/components/assistant-status-panel";
 import {
   assistantsResizeMutation,
   organizationsBillingSubscriptionOnboardingRetrieveOptions,
   organizationsBillingSubscriptionRetrieveOptions,
-} from "@/generated/api/@tanstack/react-query.gen.js";
-import type { MachineSizeEnum } from "@/generated/api/types.gen.js";
-import type { Assistant, AssistantHealthz } from "@/assistant/api.js";
+} from "@/generated/api/@tanstack/react-query.gen";
+import type { MachineSizeEnum } from "@/generated/api/types.gen";
+import type { Assistant, AssistantHealthz } from "@/assistant/api";
 import {
   allowedMachineSizesForTier,
   buildMachineSizeOptions,
   machineSizeRank,
   SIZE_LABEL,
-} from "@/lib/billing/machine-sizes.js";
-import { routes } from "@/utils/routes.js";
+} from "@/lib/billing/machine-sizes";
+import { routes } from "@/utils/routes";
 
 export interface ResizeCardProps {
   assistant: Assistant;
   healthz: AssistantHealthz | null;
   healthzLoading: boolean;
+  /** True while a post-resize poll is waiting for the new allocation to appear. */
+  healthzPolling: boolean;
   refetch: () => Promise<void> | void;
+  /** Poll /v1/health until the allocation changes from `baseline` after a resize. */
+  refetchUntilResized: (baseline: AssistantHealthz | null) => Promise<void> | void;
 }
 
 export function ResizeCard({
   assistant,
   healthz,
   healthzLoading,
+  healthzPolling,
   refetch,
+  refetchUntilResized,
 }: ResizeCardProps) {
   const navigate = useNavigate();
   const subscriptionQuery = useQuery(
@@ -70,42 +76,61 @@ export function ResizeCard({
     [allowedSizes, currentSize],
   );
 
+  // `selected_storage_gib` is the provisioned storage quota the org has
+  // purchased — the assistant's actual disk ceiling. The filesystem total
+  // reported by /v1/health can over-report the underlying host volume, so it
+  // is not a reliable limit.
   const availableGib = onboardingQuery.data?.selected_storage_gib ?? null;
-  const currentGib =
-    healthz?.disk != null ? Math.round(healthz.disk.totalMb / 1024) : null;
+  // The base assistant record doesn't expose its current provisioned storage,
+  // and the filesystem total can over-report the host volume — gating on it
+  // would wrongly hide the upgrade path when a user still has purchased quota.
+  // Leave it unknown so the storage-grow path stays available; the resize
+  // endpoint validates the requested size against the purchased tier.
+  const currentGib: number | null = null;
 
   const [resizeModalOpen, setResizeModalOpen] = useState(false);
+  const largestSize = allowedSizes.length > 0 ? allowedSizes[allowedSizes.length - 1] : null;
   const [selectedSize, setSelectedSize] = useState<MachineSizeEnum | null>(
     null,
   );
-  const [storageModalOpen, setStorageModalOpen] = useState(false);
+  const displaySize = selectedSize ?? largestSize ?? currentSize;
   const [upgradeModalOpen, setUpgradeModalOpen] = useState<"storage" | "machine" | null>(null);
+  const [resizeError, setResizeError] = useState<string | null>(null);
 
   const resizeMutation = useMutation({
     ...assistantsResizeMutation(),
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       toast.success("Resize started. Changes will apply shortly.", {
         id: "assistant-resize",
       });
+      setResizeError(null);
       setSelectedSize(null);
       setResizeModalOpen(false);
-      setStorageModalOpen(false);
-      void refetch();
+      if (variables.body?.machine_size != null) {
+        // A machine resize rolls the pod asynchronously, so a single immediate
+        // refetch would just re-read the pre-resize CPU/memory. Poll against the
+        // current allocation as a baseline until the new size lands.
+        void refetchUntilResized(healthz);
+      } else {
+        // Storage-only resize: CPU/memory don't change (and the disk ceiling is
+        // driven off the provisioned quota, not healthz), so the allocation poll
+        // would never resolve. A single refresh is enough.
+        void refetch();
+      }
     },
     onError: (error) => {
-      toast.error(
+      setResizeError(
         extractResizeError(
           error,
           "Failed to resize assistant. Please try again.",
         ),
-        { id: "assistant-resize-error" },
       );
     },
   });
 
   if (subscriptionQuery.isError && subscription == null) {
     return (
-      <SettingsCard
+      <DetailCard
         id="storage-resources"
         title="Compute & Resources"
         subtitle="Monitor resource usage and manage your assistant's compute profile."
@@ -113,34 +138,41 @@ export function ResizeCard({
         <Notice tone="error">
           Could not load your subscription. Please try again.
         </Notice>
-      </SettingsCard>
+      </DetailCard>
     );
   }
 
   const effectiveSelectedSize =
-    isPro && selectedSize &&
-    allowedSizes.includes(selectedSize) &&
-    selectedSize !== currentSize
-      ? selectedSize
+    isPro &&
+    allowedSizes.includes(displaySize) &&
+    displaySize !== currentSize
+      ? displaySize
       : null;
 
   const canGrowStorage =
-    isPro && availableGib != null && currentGib != null && currentGib < availableGib;
+    isPro && availableGib != null && (currentGib == null || currentGib < availableGib);
 
   const canUpsize =
     isPro &&
     allowedSizes.length > 0 &&
     machineSizeRank(currentSize) < machineSizeRank(allowedSizes[allowedSizes.length - 1]);
 
-  const isLoading = resizeMutation.isPending;
+  // Keep resize CTAs disabled while the post-resize poll is in flight so the
+  // user can't kick off a second resize before the first lands.
+  const isLoading = resizeMutation.isPending || healthzPolling;
 
-  const diskBar = healthz?.disk
-    ? {
-        value: healthz.disk.usedMb,
-        max: healthz.disk.totalMb,
-        caption: `${formatResourceMb(healthz.disk.usedMb)} of ${formatResourceMb(healthz.disk.totalMb)}`,
-      }
-    : null;
+  // Fall back to the filesystem total only when no quota is known (free plan).
+  const diskMaxMb =
+    availableGib != null ? availableGib * 1024 : healthz?.disk?.totalMb ?? null;
+
+  const diskBar =
+    healthz?.disk && diskMaxMb != null
+      ? {
+          value: healthz.disk.usedMb,
+          max: diskMaxMb,
+          caption: `${formatResourceMb(healthz.disk.usedMb)} of ${formatResourceMb(diskMaxMb)}`,
+        }
+      : null;
 
   const cpuBar = healthz?.cpu
     ? {
@@ -163,14 +195,14 @@ export function ResizeCard({
       <button
         type="button"
         disabled={isLoading}
-        onClick={() => setStorageModalOpen(true)}
+        onClick={() => setResizeModalOpen(true)}
         className="flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/15 px-3 py-1.5 text-body-small-default font-medium text-amber-400 transition-colors hover:bg-amber-500/25 disabled:opacity-50"
       >
         <Sparkles className="h-3.5 w-3.5" />
         Increase Storage
       </button>
     ) : (
-      <Button variant="ghost" size="compact" disabled={isLoading} onClick={() => setStorageModalOpen(true)}>
+      <Button variant="ghost" size="compact" disabled={isLoading} onClick={() => setResizeModalOpen(true)}>
         Resize
       </Button>
     )
@@ -204,7 +236,7 @@ export function ResizeCard({
 
   return (
     <>
-      <SettingsCard
+      <DetailCard
         id="storage-resources"
         title="Compute & Resources"
         subtitle="Monitor resource usage and manage your assistant's compute profile."
@@ -214,15 +246,19 @@ export function ResizeCard({
             variant="ghost"
             size="compact"
             iconOnly={
-              healthzLoading ? (
+              healthzLoading || healthzPolling ? (
                 <Loader2 className="animate-spin" />
               ) : (
                 <RefreshCw />
               )
             }
-            tooltip="Refresh resource metrics"
+            tooltip={
+              healthzPolling
+                ? "Applying resize…"
+                : "Refresh resource metrics"
+            }
             aria-label="Refresh resource metrics"
-            disabled={healthzLoading}
+            disabled={healthzLoading || healthzPolling}
             onClick={() => void refetch()}
           />
         }
@@ -245,16 +281,16 @@ export function ResizeCard({
               <span className="text-label-medium-default text-[var(--content-tertiary)]">
                 Storage
               </span>
-              {healthzLoading ? (
-                <div className="flex items-center gap-2 text-[var(--content-tertiary)]">
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                </div>
-              ) : diskBar ? (
+              {diskBar ? (
                 <CapacityBar
                   value={diskBar.value}
                   max={diskBar.max}
                   caption={diskBar.caption}
                 />
+              ) : healthzLoading ? (
+                <div className="flex items-center gap-2 text-[var(--content-tertiary)]">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                </div>
               ) : (
                 <span className="text-label-medium-default text-[var(--content-tertiary)]">
                   Unavailable
@@ -282,16 +318,16 @@ export function ResizeCard({
                 <span className="text-label-medium-default text-[var(--content-tertiary)]">
                   CPU
                 </span>
-                {healthzLoading ? (
-                  <div className="flex items-center gap-2 text-[var(--content-tertiary)]">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  </div>
-                ) : cpuBar ? (
+                {cpuBar ? (
                   <CapacityBar
                     value={cpuBar.value}
                     max={cpuBar.max}
                     caption={cpuBar.caption}
                   />
+                ) : healthzLoading ? (
+                  <div className="flex items-center gap-2 text-[var(--content-tertiary)]">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  </div>
                 ) : (
                   <span className="text-label-medium-default text-[var(--content-tertiary)]">—</span>
                 )}
@@ -300,16 +336,16 @@ export function ResizeCard({
                 <span className="text-label-medium-default text-[var(--content-tertiary)]">
                   Memory
                 </span>
-                {healthzLoading ? (
-                  <div className="flex items-center gap-2 text-[var(--content-tertiary)]">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  </div>
-                ) : memoryBar ? (
+                {memoryBar ? (
                   <CapacityBar
                     value={memoryBar.value}
                     max={memoryBar.max}
                     caption={memoryBar.caption}
                   />
+                ) : healthzLoading ? (
+                  <div className="flex items-center gap-2 text-[var(--content-tertiary)]">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  </div>
                 ) : (
                   <span className="text-label-medium-default text-[var(--content-tertiary)]">—</span>
                 )}
@@ -317,7 +353,7 @@ export function ResizeCard({
             </div>
           </div>
         </div>
-      </SettingsCard>
+      </DetailCard>
 
       {/* Upgrade modal (free plan) */}
       <Modal.Root
@@ -349,105 +385,109 @@ export function ResizeCard({
         </Modal.Content>
       </Modal.Root>
 
-      {/* Resize machine modal (pro plan) */}
+      {/* Resize modal (pro plan) — machine + storage in one */}
       <Modal.Root
         open={resizeModalOpen}
         onOpenChange={(o) => {
           if (!o) {
             setResizeModalOpen(false);
             setSelectedSize(null);
+            setResizeError(null);
           }
         }}
       >
         <Modal.Content size="sm">
           <Modal.Header>
-            <Modal.Title>Resize Machine</Modal.Title>
+            <Modal.Title icon={Server}>Resize Assistant</Modal.Title>
             <Modal.Description>
-              Larger machine sizes are already included in your plan. Select a
-              size to resize to — your assistant will briefly restart.
+              Resize your assistant's compute and storage. Your assistant will briefly restart.
             </Modal.Description>
           </Modal.Header>
           <Modal.Body>
-            {allowedSizes.length === 0 ? (
-              <Notice tone="warning">
-                No machine tier configured. Contact support.
-              </Notice>
-            ) : (
-              <Dropdown
-                options={machineSizeOptions}
-                value={selectedSize ?? currentSize}
-                onChange={setSelectedSize}
-                aria-label="Compute machine size"
-                data-testid="resize-machine-size"
-              />
-            )}
+            <div className="flex flex-col gap-3">
+              {allowedSizes.length === 0 ? (
+                <Notice tone="warning">
+                  No machine tier configured. Visit the community for help.
+                </Notice>
+              ) : (
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-label-medium-default text-[var(--content-secondary)]">
+                    Machine Size
+                  </span>
+                  <Dropdown
+                    options={machineSizeOptions}
+                    value={displaySize}
+                    onChange={setSelectedSize}
+                    aria-label="Compute machine size"
+                    data-testid="resize-machine-size"
+                  />
+                </div>
+              )}
+              {canGrowStorage ? (
+                <Notice tone="info">
+                  {currentGib != null
+                    ? `Storage will be expanded from ${currentGib} GiB to ${availableGib} GiB.`
+                    : `Storage will be expanded to ${availableGib} GiB.`}
+                </Notice>
+              ) : currentGib != null ? (
+                <Notice tone="neutral">
+                  Storage is already at its provisioned size ({currentGib} GiB) and will not change.
+                </Notice>
+              ) : (
+                <Notice tone="neutral">
+                  Storage will not change.
+                </Notice>
+              )}
+              {resizeError && (
+                <Notice tone="error">{resizeError}</Notice>
+              )}
+            </div>
           </Modal.Body>
-          <Modal.Footer>
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setResizeModalOpen(false);
-                setSelectedSize(null);
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              disabled={effectiveSelectedSize == null || isLoading}
-              leftIcon={
-                isLoading ? <Loader2 className="animate-spin" /> : undefined
-              }
-              onClick={() => {
-                if (effectiveSelectedSize == null) return;
-                resizeMutation.mutate({
-                  path: { id: assistant.id },
-                  body: { machine_size: effectiveSelectedSize },
-                });
-              }}
-            >
-              Apply
-            </Button>
-          </Modal.Footer>
-        </Modal.Content>
-      </Modal.Root>
-
-      {/* Resize storage modal (pro plan) */}
-      <Modal.Root
-        open={storageModalOpen}
-        onOpenChange={(o) => { if (!o) setStorageModalOpen(false); }}
-      >
-        <Modal.Content size="sm">
-          <Modal.Header>
-            <Modal.Title>Resize Storage</Modal.Title>
-            <Modal.Description>
-              Your plan includes up to {availableGib} GiB of storage.
-              This will expand your disk from {currentGib ?? "?"} GiB
-              to {availableGib} GiB — your assistant will briefly restart.
-            </Modal.Description>
-          </Modal.Header>
-          <Modal.Footer>
-            <Button
-              variant="ghost"
-              onClick={() => setStorageModalOpen(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              disabled={isLoading}
-              leftIcon={
-                isLoading ? <Loader2 className="animate-spin" /> : undefined
-              }
-              onClick={() => {
-                if (availableGib == null) return;
-                resizeMutation.mutate({
-                  path: { id: assistant.id },
-                  body: { storage_gib: availableGib },
-                });
-                setStorageModalOpen(false);
-              }}
-            >
-              Apply
-            </Button>
+          <Modal.Footer className="items-center justify-between">
+            <span className="text-label-small-default text-[var(--content-tertiary)]">
+              Need more?{" "}
+              <Link
+                to={`${routes.settings.billing}?adjust_plan=1`}
+                className="text-[var(--content-secondary)] underline decoration-[var(--border-element)] underline-offset-2 transition-colors hover:text-[var(--content-default)]"
+                onClick={() => setResizeModalOpen(false)}
+              >
+                Upgrade plan
+              </Link>
+            </span>
+            <div className="flex gap-2">
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setResizeModalOpen(false);
+                  setSelectedSize(null);
+                  setResizeError(null);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                disabled={(effectiveSelectedSize == null && !canGrowStorage) || isLoading}
+                leftIcon={
+                  isLoading ? <Loader2 className="animate-spin" /> : undefined
+                }
+                onClick={() => {
+                  setResizeError(null);
+                  const body: { machine_size?: MachineSizeEnum; storage_gib?: number } = {};
+                  if (effectiveSelectedSize != null) {
+                    body.machine_size = effectiveSelectedSize;
+                  }
+                  if (canGrowStorage && availableGib != null) {
+                    body.storage_gib = availableGib;
+                  }
+                  resizeMutation.mutate({
+                    path: { id: assistant.id },
+                    body,
+                  });
+                }}
+              >
+                {resizeError ? "Retry" : "Apply"}
+              </Button>
+            </div>
           </Modal.Footer>
         </Modal.Content>
       </Modal.Root>

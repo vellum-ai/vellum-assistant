@@ -78,7 +78,7 @@ describe("file_upload interactivity", () => {
 
 describe("ui_show tool includes file_upload", () => {
   test("input_schema surface_type enum includes file_upload", () => {
-    const definition = uiShowTool.getDefinition();
+    const definition = uiShowTool;
     const surfaceTypeEnum = (
       definition.input_schema as {
         properties: { surface_type: { enum: string[] } };
@@ -89,7 +89,7 @@ describe("ui_show tool includes file_upload", () => {
   });
 
   test("description mentions file_upload", () => {
-    const definition = uiShowTool.getDefinition();
+    const definition = uiShowTool;
     expect(definition.description).toContain("file_upload");
   });
 });

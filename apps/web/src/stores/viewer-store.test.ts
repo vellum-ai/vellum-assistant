@@ -1,6 +1,6 @@
 import { beforeEach, describe, it, expect } from "bun:test";
 
-import { useViewerStore } from "@/stores/viewer-store.js";
+import { useViewerStore, type ToolDetailPayload } from "@/stores/viewer-store";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -16,6 +16,15 @@ beforeEach(() => {
 
 const SAMPLE_APP = { appId: "app-1", dirName: "my-app", name: "My App", html: "<h1>App</h1>" };
 const SAMPLE_DOC = { surfaceId: "surf-1", conversationId: "conv-1", documentName: "README.md", content: "# Hello" };
+const SAMPLE_TOOL: ToolDetailPayload = {
+  toolCallId: "tc-1",
+  toolName: "spawn_subagent",
+  title: "Spawning subagent",
+  activity: "Spawning a research subagent",
+  input: { task: "research" },
+  result: "done",
+  status: "completed",
+};
 
 // ---------------------------------------------------------------------------
 // View navigation
@@ -211,6 +220,66 @@ describe("closeSubagentDetail", () => {
     const state = getState();
     expect(state.mainView).toBe("app");
     expect(state.activeSubagentId).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tool detail
+// ---------------------------------------------------------------------------
+
+describe("openToolDetail", () => {
+  it("sets the tool-detail view, payload, and records the prior view", () => {
+    getState().openToolDetail(SAMPLE_TOOL);
+    const state = getState();
+    expect(state.mainView).toBe("tool-detail");
+    expect(state.activeToolDetail).toBe(SAMPLE_TOOL);
+    expect(state.viewBeforeToolDetail).toBe("chat");
+  });
+
+  it("records a non-chat prior view (app -> restores to app)", () => {
+    useViewerStore.setState({ mainView: "app" });
+    getState().openToolDetail(SAMPLE_TOOL);
+    const state = getState();
+    expect(state.viewBeforeToolDetail).toBe("app");
+    getState().closeToolDetail();
+    expect(getState().mainView).toBe("app");
+  });
+
+  it("does not overwrite a real prior view with a transient one when already in subagent-detail", () => {
+    useViewerStore.setState({
+      mainView: "subagent-detail",
+      viewBeforeToolDetail: "app",
+    });
+    getState().openToolDetail(SAMPLE_TOOL);
+    const state = getState();
+    expect(state.mainView).toBe("tool-detail");
+    expect(state.viewBeforeToolDetail).toBe("app");
+  });
+
+  it("preserves existing viewBeforeToolDetail when already in tool-detail", () => {
+    useViewerStore.setState({
+      mainView: "tool-detail",
+      viewBeforeToolDetail: "app",
+      activeToolDetail: SAMPLE_TOOL,
+    });
+    getState().openToolDetail({ ...SAMPLE_TOOL, toolCallId: "tc-2" });
+    const state = getState();
+    expect(state.viewBeforeToolDetail).toBe("app");
+    expect(state.activeToolDetail?.toolCallId).toBe("tc-2");
+  });
+});
+
+describe("closeToolDetail", () => {
+  it("restores the prior view and clears the payload", () => {
+    useViewerStore.setState({
+      mainView: "tool-detail",
+      viewBeforeToolDetail: "chat",
+      activeToolDetail: SAMPLE_TOOL,
+    });
+    getState().closeToolDetail();
+    const state = getState();
+    expect(state.mainView).toBe("chat");
+    expect(state.activeToolDetail).toBeNull();
   });
 });
 

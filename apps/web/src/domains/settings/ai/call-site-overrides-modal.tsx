@@ -10,17 +10,17 @@ import { Input } from "@vellum/design-library/components/input";
 import { Toggle } from "@vellum/design-library/components/toggle";
 import { Modal } from "@vellum/design-library/components/modal";
 import { toast } from "@vellum/design-library/components/toast";
-import { client } from "@/generated/api/client.gen.js";
-import { reportError } from "@/lib/errors/report.js";
-import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
-import { getDefaultModelForProvider, getModelsForProvider } from "@/assistant/llm-model-catalog.js";
+import { client } from "@/generated/api/client.gen";
+import { reportError } from "@/lib/errors/report";
+import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
+import { getDefaultModelForProvider, getModelsForProvider } from "@/assistant/llm-model-catalog";
 
-import { INFERENCE_PROVIDER_DISPLAY_NAMES, INFERENCE_PROVIDERS } from "@/domains/settings/ai/ai-page.js";
+import { INFERENCE_PROVIDER_DISPLAY_NAMES, INFERENCE_PROVIDERS } from "@/domains/settings/ai/ai-page";
 import {
   profilePickerLabel,
   visibleProfilesForPicker,
   type ProfilePickerEntry,
-} from "@/domains/settings/ai/profile-pickers.js";
+} from "@/domains/settings/ai/profile-pickers";
 
 // ---------------------------------------------------------------------------
 // Sentinel value for the "Custom" profile picker option

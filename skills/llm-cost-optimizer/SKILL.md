@@ -63,11 +63,11 @@ assistant inference providers connections list
 
 ## Step 3 — Recommended profile assignment
 
-| Profile                    | Call Sites                                                                                                                                                                                                                                                          |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `balanced` (Sonnet)        | `mainAgent`, `subagentSpawn`, `compactionAgent`, `analyzeConversation`, `patternScan`, `narrativeRefinement`, `memoryRouter`, `memoryConsolidation`, `recall`, `callAgent`, `emptyStateGreeting`, `conversationStarters`, `identityIntro`, `proactiveArtifactBuild` |
-| `cost-optimized` (Haiku)   | **Everything else** — memory extraction/retrieval, UI copy, classifiers, summarization, background tasks                                                                                                                                                            |
-| `quality-optimized` (Opus) | **Do not pin.** Reserved for on-demand user escalation via `/model`                                                                                                                                                                                                 |
+| Profile                    | Call Sites                                                                                                                                                                                                                                          |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `balanced` (Sonnet)        | `mainAgent`, `subagentSpawn`, `compactionAgent`, `analyzeConversation`, `patternScan`, `narrativeRefinement`, `memoryConsolidation`, `recall`, `callAgent`, `emptyStateGreeting`, `conversationStarters`, `identityIntro`, `proactiveArtifactBuild` |
+| `cost-optimized` (Haiku)   | **Everything else** — `memoryRouter` (with 1M context override), memory extraction/retrieval, UI copy, classifiers, summarization, background tasks                                                                                                 |
+| `quality-optimized` (Opus) | **Do not pin.** Reserved for on-demand user escalation via `/model`                                                                                                                                                                                 |
 
 ---
 
@@ -125,7 +125,7 @@ assistant config set llm.callSites '{
   "analyzeConversation":      {"profile":"balanced"},
   "patternScan":              {"profile":"balanced"},
   "narrativeRefinement":      {"profile":"balanced"},
-  "memoryRouter":             {"profile":"balanced","contextWindow":{"maxInputTokens":1000000}},
+  "memoryRouter":             {"profile":"cost-optimized","contextWindow":{"maxInputTokens":1000000}},
 
   "heartbeatAgent":           {"profile":"cost-optimized","maxTokens":2048,"effort":"low","temperature":0,"thinking":{"enabled":false,"streamThinking":false},"contextWindow":{"maxInputTokens":16000}},
   "filingAgent":              {"profile":"cost-optimized"},

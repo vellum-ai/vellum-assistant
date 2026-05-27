@@ -64,9 +64,9 @@ import {
   VALID_TTS_PROVIDERS as VALID_TTS_SERVICE_PROVIDERS,
 } from "../config/schemas/tts.js";
 import type { AssistantConfig } from "../config/types.js";
-import { _setStorePath } from "../security/encrypted-store.js";
 import { listCatalogProviderIds } from "../tts/provider-catalog.js";
 import { resolveTtsConfig } from "../tts/tts-config-resolver.js";
+import { setStorePathForTesting } from "./encrypted-store-test-helpers.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -2068,12 +2068,12 @@ describe("loadConfig with schema validation", () => {
       }
     }
     ensureTestDir();
-    _setStorePath(join(WORKSPACE_DIR, "keys.enc"));
+    setStorePathForTesting(join(WORKSPACE_DIR, "keys.enc"));
     invalidateConfigCache();
   });
 
   afterEach(() => {
-    _setStorePath(null);
+    setStorePathForTesting(null);
     invalidateConfigCache();
   });
 
@@ -2350,12 +2350,12 @@ describe("Call entrypoint gating", () => {
       }
     }
     ensureTestDir();
-    _setStorePath(join(WORKSPACE_DIR, "keys.enc"));
+    setStorePathForTesting(join(WORKSPACE_DIR, "keys.enc"));
     invalidateConfigCache();
   });
 
   afterEach(() => {
-    _setStorePath(null);
+    setStorePathForTesting(null);
     invalidateConfigCache();
   });
 

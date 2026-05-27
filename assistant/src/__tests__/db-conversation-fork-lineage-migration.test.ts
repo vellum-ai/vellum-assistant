@@ -1,8 +1,9 @@
-import { rmSync } from "node:fs";
 import { Database } from "bun:sqlite";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
+
+import { removeTestDbFiles } from "./assert-not-live-db.js";
 const originalBunTest = process.env.BUN_TEST;
 
 mock.module("../util/logger.js", () => ({
@@ -12,12 +13,12 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { resetDb } from "../memory/db-connection.js";
 import { getSqliteFrom } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { migrateConversationForkLineage } from "../memory/migrations/183-add-conversation-fork-lineage.js";
 import * as schema from "../memory/schema.js";
 import { getDbPath } from "../util/platform.js";
+import { resetDbForTesting } from "./db-test-helpers.js";
 
 function createTestDb() {
   const sqlite = new Database(":memory:");
@@ -65,23 +66,20 @@ function bootstrapPreLineageConversations(raw: Database): void {
   `);
 }
 
-function removeTestDbFiles(): void {
-  resetDb();
-  const dbPath = getDbPath();
-  rmSync(dbPath, { force: true });
-  rmSync(`${dbPath}-shm`, { force: true });
-  rmSync(`${dbPath}-wal`, { force: true });
+function resetMigrationTestDb(): void {
+  resetDbForTesting();
+  removeTestDbFiles(getDbPath());
 }
 
 describe("conversation fork lineage migration", () => {
   beforeEach(() => {
     process.env.BUN_TEST = "0";
-    removeTestDbFiles();
+    resetMigrationTestDb();
   });
 
   afterAll(() => {
     process.env.BUN_TEST = originalBunTest;
-    removeTestDbFiles();
+    resetMigrationTestDb();
   });
 
   test("fresh DB initialization includes nullable lineage columns and parent lookup index", () => {

@@ -1,4 +1,4 @@
-import type { Conversation } from "@/domains/chat/api/conversations.js";
+import type { Conversation } from "@/types/conversation-types";
 
 /**
  * Predicate matching macOS `ConversationModel.isChannelConversation`.

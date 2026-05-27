@@ -136,6 +136,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   updateConversationTitle: () => {},
   getMessageById: () => null,
   getLastUserTimestampBefore: () => 0,
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 mock.module("../memory/conversation-queries.js", () => ({

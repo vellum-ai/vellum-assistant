@@ -68,7 +68,6 @@ mock.module("../config/assistant-feature-flags.js", () => ({
     if (key === "managed-gemini-embeddings-enabled") return featureFlagEnabled;
     return true;
   },
-  _setOverridesForTesting: () => {},
   clearFeatureFlagOverridesCache: () => {},
   initFeatureFlagOverrides: async () => {},
   getAssistantFeatureFlagDefaults: () => ({}),
@@ -81,7 +80,7 @@ afterAll(() => {
 });
 
 import { invalidateConfigCache, loadConfig } from "../config/loader.js";
-import { _setStorePath } from "../security/encrypted-store.js";
+import { setStorePathForTesting } from "./encrypted-store-test-helpers.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -117,7 +116,7 @@ describe("managed Gemini embedding defaults (via loadConfig)", () => {
       }
     }
     ensureTestDir();
-    _setStorePath(join(WORKSPACE_DIR, "keys.enc"));
+    setStorePathForTesting(join(WORKSPACE_DIR, "keys.enc"));
     invalidateConfigCache();
 
     // Reset mock state
@@ -127,7 +126,7 @@ describe("managed Gemini embedding defaults (via loadConfig)", () => {
   });
 
   afterEach(() => {
-    _setStorePath(null);
+    setStorePathForTesting(null);
     invalidateConfigCache();
 
     // Restore IS_PLATFORM

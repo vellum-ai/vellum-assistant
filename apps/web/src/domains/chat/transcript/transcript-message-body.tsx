@@ -1,5 +1,6 @@
 
 import {
+  Fragment,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
   useCallback,
@@ -9,15 +10,27 @@ import {
 } from "react";
 import { ExternalLink } from "lucide-react";
 
-import { MessageAttachments } from "@/domains/chat/components/chat-attachments/message-attachments.js";
-import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message.js";
-import { MessageHoverActions } from "@/domains/chat/components/message-hover-actions/message-hover-actions.js";
-import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router.js";
-import { ToolCallProgressCard } from "@/domains/chat/components/tool-call-progress-card/tool-call-progress-card.js";
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
-import { getSlackLinkUrl, type Surface } from "@/domains/chat/types/types.js";
-import { isPointerCoarse } from "@/utils/pointer.js";
-import type { AllowlistOption, ChatMessageToolCall, ConfirmationDecision, DirectoryScopeOption, ScopeOption } from "@/domains/chat/api/event-types.js";
+import { MessageAttachments } from "@/domains/chat/components/chat-attachments/message-attachments";
+import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
+import { MessageHoverActions } from "@/domains/chat/components/message-hover-actions/message-hover-actions";
+import { SubagentInlineProgressCard } from "@/domains/chat/components/subagent-inline-progress-card/subagent-inline-progress-card";
+import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router";
+import { ToolCallProgressCard } from "@/domains/chat/components/tool-call-progress-card/tool-call-progress-card";
+import {
+  getLeadingThinkingText,
+  getLegacyLeadingThinkingText,
+} from "@/domains/chat/components/tool-progress-card/get-leading-thinking-text";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
+import { getSlackLinkUrl, type Surface } from "@/domains/chat/types/types";
+import { isPointerCoarse } from "@/utils/pointer";
+import { useShallow } from "zustand/shallow";
+import {
+  EMPTY_SUBAGENT_ENTRIES,
+  useSubagentStore,
+  type SubagentEntry,
+} from "@/domains/subagents/subagent-store";
+import type { AllowlistOption, ChatMessageToolCall, ConfirmationDecision, DirectoryScopeOption, ScopeOption } from "@/domains/chat/api/event-types";
 
 export interface OpenRuleEditorContext {
   toolName: string;
@@ -78,6 +91,130 @@ export interface TranscriptMessageBodyProps {
   onOpenDocument?: (documentSurfaceId: string) => void;
   /** Forwarded to inline app surfaces so they can render live preview iframes. */
   assistantId?: string | null;
+  /** Click handler when the user clicks a subagent's open-timeline button on
+   *  an inline subagent card. */
+  onSubagentClick?: (subagentId: string) => void;
+  /** Callback to abort/stop a running subagent from an inline card. */
+  onStopSubagent?: (subagentId: string) => void;
+}
+
+/**
+ * Detect whether a tool call is a `subagent_spawn` invocation. The daemon
+ * exposes `subagent_spawn` as a bundled-skill tool, which means the LLM
+ * actually emits a `skill_execute` call with `input.tool === "subagent_spawn"`
+ * — the daemon's `skill_execute` interceptor (see
+ * `assistant/src/daemon/conversation-tool-setup.ts`) re-dispatches to the
+ * real executor, but the `tool_use_start` event the frontend receives still
+ * carries `toolName: "skill_execute"`. Matching on the raw `toolName` would
+ * miss every spawn and leave inline subagent cards unrendered.
+ */
+export function isSubagentSpawnCall(toolCall: ChatMessageToolCall): boolean {
+  if (toolCall.toolName === "subagent_spawn") return true;
+  if (toolCall.toolName !== "skill_execute") return false;
+  const input = toolCall.input;
+  if (input == null || typeof input !== "object") return false;
+  return (input as Record<string, unknown>).tool === "subagent_spawn";
+}
+
+/**
+ * Extract the spawned `subagentId` from a `subagent_spawn` tool call's result.
+ * The daemon's spawn tool returns `JSON.stringify({ subagentId, label, ... })`
+ * (see `assistant/src/tools/subagent/spawn.ts`). Returns `undefined` when the
+ * result hasn't landed yet or the payload is malformed — callers fall back to
+ * a subagent-store lookup so `running` spawns still render an inline card.
+ */
+function extractSubagentIdFromResult(
+  toolCall: ChatMessageToolCall,
+): string | undefined {
+  if (!isSubagentSpawnCall(toolCall)) return undefined;
+  if (typeof toolCall.result !== "string" || !toolCall.result) return undefined;
+  try {
+    const parsed = JSON.parse(toolCall.result) as { subagentId?: unknown };
+    return typeof parsed.subagentId === "string" ? parsed.subagentId : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Look up the subagent-store entries spawned by `message` via the indexed
+ * `byParent` map. Under single-id semantics the message's `id` is its only
+ * identity, and both live-streaming (`parentMessageStableId`) and
+ * history-reconstructed (`parentMessageId`) entries are keyed by that same
+ * parent id — so a single bucket lookup finds them all.
+ *
+ * The matching bucket is returned by reference so unrelated subagent
+ * mutations do not change the selector output.
+ */
+function lookupSubagentEntriesForMessage(
+  byParent: Map<string, SubagentEntry[]>,
+  message: DisplayMessage,
+): readonly SubagentEntry[] {
+  // Fast path for messages with no spawned subagents — avoids the lookup in
+  // the hot per-render selector.
+  if (byParent.size === 0) return EMPTY_SUBAGENT_ENTRIES;
+
+  // `byParent` never stores empty buckets, so a present bucket always has
+  // entries and can be returned by reference.
+  return byParent.get(message.id) ?? EMPTY_SUBAGENT_ENTRIES;
+}
+
+/**
+ * Resolve the spawned `subagentId` for each `subagent_spawn` tool call in
+ * `toolCalls`. Resolution priority per tool call:
+ *
+ *  1. `byToolUseId.get(tc.id)` — the deterministic, reconcile-proof anchor.
+ *     During streaming `tc.id === parentToolUseId` (see `tool-call-handlers.ts`
+ *     where the tool-call id is set to `event.toolUseId`), and `reconcile.ts`
+ *     preserves local tool-call ids (`keepLocalToolState`), so this match holds
+ *     the instant the spawn lands and survives message reconcile — no dependence
+ *     on `message.id` or the tool result.
+ *  2. The id encoded in `toolCall.result` — present once the spawn tool result
+ *     has landed.
+ *  3. A positional match against `linkedEntries` (subagent-store entries
+ *     already filtered to those spawned by the current message, sorted by
+ *     `spawnedAt`) — covers older daemons, history-synthesized tool ids, and
+ *     forks where no tool-use id is available.
+ *
+ * Positional fallback: the caller owns the `claimed` Set so it persists
+ * across every invocation within a single message — that's what stops two
+ * non-consecutive spawn tool-call groups (each producing a separate
+ * `ToolCallProgressCard` mount) from both pulling the same first unclaimed
+ * entry and rendering duplicate cards. The by-id matches also feed `claimed`
+ * so a later positional match can't re-pick an already-anchored entry.
+ */
+function resolveSpawnedSubagentIds(
+  toolCalls: ChatMessageToolCall[],
+  linkedEntries: readonly SubagentEntry[],
+  byToolUseId: Map<string, string>,
+  claimed: Set<string>,
+): string[] {
+  const spawnToolCalls = toolCalls.filter(isSubagentSpawnCall);
+  if (spawnToolCalls.length === 0) return [];
+
+  const ids: string[] = [];
+
+  for (const tc of spawnToolCalls) {
+    const byId = byToolUseId.get(tc.id);
+    if (byId && !claimed.has(byId)) {
+      ids.push(byId);
+      claimed.add(byId);
+      continue;
+    }
+    const fromResult = extractSubagentIdFromResult(tc);
+    if (fromResult) {
+      ids.push(fromResult);
+      claimed.add(fromResult);
+      continue;
+    }
+    const next = linkedEntries.find((entry) => !claimed.has(entry.subagentId));
+    if (next) {
+      ids.push(next.subagentId);
+      claimed.add(next.subagentId);
+    }
+  }
+
+  return ids;
 }
 
 function isSurfaceToolCallComplete(message: DisplayMessage): boolean {
@@ -209,6 +346,8 @@ export function TranscriptMessageBody({
   onOpenApp,
   onOpenDocument,
   assistantId,
+  onSubagentClick,
+  onStopSubagent,
 }: TranscriptMessageBodyProps) {
   const hasInterleavedToolCalls = message.contentOrder?.some(
     (e) => e.type === "toolCall" || e.type === "tool",
@@ -227,11 +366,11 @@ export function TranscriptMessageBody({
     }
   };
 
-  const forkMessageId = message.daemonMessageId ?? message.id;
+  const forkMessageId = message.id;
   const forkHandler = forkMessageId && onForkConversation
     ? () => onForkConversation(forkMessageId)
     : undefined;
-  const inspectMessageId = message.daemonMessageId ?? message.id;
+  const inspectMessageId = message.id;
   const inspectHandler = inspectMessageId && onInspectMessage
     ? () => onInspectMessage(inspectMessageId)
     : undefined;
@@ -298,6 +437,105 @@ export function TranscriptMessageBody({
     (tc.toolName === "ui_show" || tc.toolName === "ui_update" || tc.toolName === "ui_dismiss");
   const messageTimestamp = latestMessageActivityTimestamp(message);
 
+  const renderTextWithInlineSurfaces = (text: string, key: string, hardLineBreaks: boolean) => {
+    const inlineSegments = parseInlineSurfaces(text);
+    if (inlineSegments) {
+      return (
+        <div key={key} className="w-full">
+          {inlineSegments.map((seg, si) => {
+            if (seg.type === "surface") {
+              return (
+                <div key={`inline-surface-${si}`} className="my-2 w-full">
+                  <SurfaceRouter
+                    surface={seg.surface}
+                    onAction={() => {}}
+                    onOpenApp={onOpenApp}
+                    onOpenDocument={onOpenDocument}
+                    assistantId={assistantId}
+                    isToolCallComplete={true}
+                  />
+                </div>
+              );
+            }
+            return (
+              <div
+                key={`inline-text-${si}`}
+                className={`break-words text-[15px] ${textBubbleClass}`}
+              >
+                <ChatMarkdownMessage content={seg.content} hardLineBreaks={hardLineBreaks} />
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
+    return (
+      <div key={key} className={`break-words text-[15px] ${textBubbleClass}`}>
+        <ChatMarkdownMessage content={text} hardLineBreaks={hardLineBreaks} />
+      </div>
+    );
+  };
+
+  // Subscribe to the subagent-store's `byParent` index entry for *this*
+  // message so unrelated subagent changes (status/event mutations on a
+  // different message's subagents, or new spawns under a different message)
+  // don't re-render every visible message body. The bucket reference is
+  // stable across per-event mutations; it only changes when an entry is
+  // added or removed for the matching parent id.
+  //
+  // The `subagent_spawned` SSE event lands before the tool_result, so the
+  // store entry already exists during the running window — that's what lets
+  // `resolveSpawnedSubagentIds` render an inline card even when the spawn
+  // tool call has no `result` yet.
+  const linkedSubagentEntries = useSubagentStore(
+    useShallow((s) => lookupSubagentEntriesForMessage(s.byParent, message)),
+  );
+
+  // Subscribe to the tool-use-id index alongside the per-message bucket above.
+  // Spawns are infrequent, so subscribing to the whole map is acceptable; PR 2
+  // keeps the map reference stable across non-spawn mutations, so this does not
+  // re-render message bodies on unrelated subagent activity. This anchors each
+  // `subagent_spawn` tool call to its subagent by `tc.id`, independent of the
+  // (optimistic→server) message id.
+  const byToolUseId = useSubagentStore(useShallow((s) => s.byToolUseId));
+
+  // Message-scoped: two non-consecutive `subagent_spawn` tool-call groups
+  // must not both positional-match the same linked entry. Accumulates across
+  // every `renderInlineSubagentCards` invocation within a single render.
+  const claimedSpawnIds = new Set<string>();
+
+  // Render an inline `SubagentInlineProgressCard` per `subagent_spawn` tool
+  // call in the given list. IDs come from `resolveSpawnedSubagentIds`, which
+  // prefers `toolCall.result` and falls back to a positional match against
+  // `linkedSubagentEntries` when the result hasn't arrived yet. The card
+  // subscribes to the subagent store directly via `useSubagentCardData`, so
+  // we only need to forward the id and the click/stop callbacks.
+  //
+  // Stacked with a 6px gap to match the existing card rhythm. The wrapper
+  // returns `null` when no spawn tool calls are present so the rendered tree
+  // is unchanged for non-subagent flows.
+  const renderInlineSubagentCards = (toolCalls: ChatMessageToolCall[]) => {
+    const spawnedIds = resolveSpawnedSubagentIds(
+      toolCalls,
+      linkedSubagentEntries,
+      byToolUseId,
+      claimedSpawnIds,
+    );
+    if (spawnedIds.length === 0) return null;
+    return (
+      <div className="flex w-full flex-col gap-1.5">
+        {spawnedIds.map((subagentId) => (
+          <SubagentInlineProgressCard
+            key={subagentId}
+            subagentId={subagentId}
+            onSubagentClick={onSubagentClick}
+            onStopSubagent={onStopSubagent}
+          />
+        ))}
+      </div>
+    );
+  };
+
   if (hasInterleavedToolCalls && message.contentOrder) {
     // Group consecutive entries: merge adjacent toolCall/tool entries into a
     // single group (mirrors macOS `groupContentBlocks`).
@@ -354,22 +592,36 @@ export function TranscriptMessageBody({
               if (toolCalls.length === 0) {
                 return null;
               }
+              // A group whose only tool calls are subagent spawns renders
+              // exclusively through the inline subagent cards below. The
+              // unified progress card would have no renderable steps (spawns
+              // are filtered out of its body) and would surface just the
+              // leading-thinking preamble — redundant noise, since that text
+              // already renders as its own message text group.
+              const hasRenderableToolCall = toolCalls.some(
+                (tc) => !isSubagentSpawnCall(tc),
+              );
               return (
-                <ToolCallProgressCard
-                  key={`tc-${gi}`}
-                  toolCalls={toolCalls}
-                  expandedToolCallIds={expandedToolCallIds}
-                  onExpandChange={handleExpandChange}
-                  expandedCardIds={expandedCardIds}
-                  onOpenRuleEditor={onOpenRuleEditor}
-                  isSubmittingConfirmation={isSubmittingConfirmation}
-                  onConfirmationSubmit={onConfirmationSubmit}
-                  onAllowAndCreateRule={onAllowAndCreateRule}
-                  pendingConfirmationToolCallId={pendingConfirmationToolCallId}
-                  unknownNudgeToolCallIds={unknownNudgeToolCallIds}
-                  onDismissUnknownNudge={onDismissUnknownNudge}
-                  isStreaming={message.isStreaming ?? false}
-                />
+                <Fragment key={`tc-${gi}`}>
+                  {hasRenderableToolCall && (
+                    <ToolCallProgressCard
+                      toolCalls={toolCalls}
+                      expandedToolCallIds={expandedToolCallIds}
+                      onExpandChange={handleExpandChange}
+                      expandedCardIds={expandedCardIds}
+                      onOpenRuleEditor={onOpenRuleEditor}
+                      isSubmittingConfirmation={isSubmittingConfirmation}
+                      onConfirmationSubmit={onConfirmationSubmit}
+                      onAllowAndCreateRule={onAllowAndCreateRule}
+                      pendingConfirmationToolCallId={pendingConfirmationToolCallId}
+                      unknownNudgeToolCallIds={unknownNudgeToolCallIds}
+                      onDismissUnknownNudge={onDismissUnknownNudge}
+                      isStreaming={message.isStreaming ?? false}
+                      leadingThinkingText={getLeadingThinkingText(message, gi)}
+                    />
+                  )}
+                  {renderInlineSubagentCards(toolCalls)}
+                </Fragment>
               );
             }
             if (group.type === "text") {
@@ -384,14 +636,7 @@ export function TranscriptMessageBody({
               if (!text) {
                 return null;
               }
-              return (
-                <div
-                  key={`text-${gi}`}
-                  className={`text-[15px] break-words ${textBubbleClass}`}
-                >
-                  <ChatMarkdownMessage content={text} hardLineBreaks={message.role === "user"} />
-                </div>
-              );
+              return renderTextWithInlineSurfaces(text, `text-${gi}`, message.role === "user");
             }
             if (group.type === "surface") {
               const surface = resolveSurface(group.id);
@@ -416,13 +661,9 @@ export function TranscriptMessageBody({
           {/* Fallback: if message.content exists but no text groups rendered
               (e.g. tool_use_start before any assistant_text_delta), show the
               content. */}
-          {!groups.some((g) => g.type === "text") && message.content && (
-            <div
-              className={`text-[15px] break-words ${textBubbleClass}`}
-            >
-              <ChatMarkdownMessage content={message.content} hardLineBreaks={message.role === "user"} />
-            </div>
-          )}
+          {!groups.some((g) => g.type === "text") && message.content &&
+            renderTextWithInlineSurfaces(message.content, "fallback", message.role === "user")
+          }
           {message.attachments && message.attachments.length > 0 && (
             <MessageAttachments
               attachments={message.attachments}
@@ -463,7 +704,7 @@ export function TranscriptMessageBody({
             );
         const segText = seg?.content ?? entry.id;
         contentElements.push(
-          <ChatMarkdownMessage key={`text-${entry.id}`} content={segText} hardLineBreaks={message.role === "user"} />,
+          renderTextWithInlineSurfaces(segText, `text-${entry.id}`, message.role === "user"),
         );
       } else if (entry.type === "surface") {
         const surface = resolveSurface(entry.id);
@@ -485,14 +726,14 @@ export function TranscriptMessageBody({
     }
     if (contentElements.length === 0 && message.content) {
       contentElements.push(
-        <ChatMarkdownMessage key="fallback" content={message.content} hardLineBreaks={message.role === "user"} />,
+        renderTextWithInlineSurfaces(message.content, "fallback", message.role === "user"),
       );
     }
   } else {
     contentElements.push(
-      message.content ? (
-        <ChatMarkdownMessage key="content" content={message.content} hardLineBreaks={message.role === "user"} />
-      ) : null,
+      message.content
+        ? renderTextWithInlineSurfaces(message.content, "content", message.role === "user")
+        : null,
     );
   }
 
@@ -509,26 +750,36 @@ export function TranscriptMessageBody({
         className={`flex w-full flex-col gap-2 ${message.role === "user" ? "items-end" : "items-start"}`}
       >
         {message.toolCalls && message.toolCalls.filter((tc) => !isSuppressedUiTool(tc)).length > 0 && (
-          <ToolCallProgressCard
-            toolCalls={message.toolCalls.filter((tc) => !isSuppressedUiTool(tc))}
-            expandedToolCallIds={expandedToolCallIds}
-            onExpandChange={handleExpandChange}
-            expandedCardIds={expandedCardIds}
-            onOpenRuleEditor={onOpenRuleEditor}
-            isSubmittingConfirmation={isSubmittingConfirmation}
-            onConfirmationSubmit={onConfirmationSubmit}
-            onAllowAndCreateRule={onAllowAndCreateRule}
-            pendingConfirmationToolCallId={pendingConfirmationToolCallId}
-            unknownNudgeToolCallIds={unknownNudgeToolCallIds}
-            onDismissUnknownNudge={onDismissUnknownNudge}
-            isStreaming={message.isStreaming ?? false}
-          />
+          <>
+            <ToolCallProgressCard
+              toolCalls={message.toolCalls.filter((tc) => !isSuppressedUiTool(tc))}
+              expandedToolCallIds={expandedToolCallIds}
+              onExpandChange={handleExpandChange}
+              expandedCardIds={expandedCardIds}
+              onOpenRuleEditor={onOpenRuleEditor}
+              isSubmittingConfirmation={isSubmittingConfirmation}
+              onConfirmationSubmit={onConfirmationSubmit}
+              onAllowAndCreateRule={onAllowAndCreateRule}
+              pendingConfirmationToolCallId={pendingConfirmationToolCallId}
+              unknownNudgeToolCallIds={unknownNudgeToolCallIds}
+              onDismissUnknownNudge={onDismissUnknownNudge}
+              isStreaming={message.isStreaming ?? false}
+              leadingThinkingText={getLegacyLeadingThinkingText(message)}
+            />
+            {renderInlineSubagentCards(
+              message.toolCalls.filter((tc) => !isSuppressedUiTool(tc)),
+            )}
+          </>
         )}
         {(contentElements.some((el) => !!el) ||
           (!message.toolCalls?.length &&
             !(message.attachments && message.attachments.length > 0))) && (
+          // Layout-only column: the bubble styling (textBubbleClass) is applied
+          // per text segment inside renderTextWithInlineSurfaces, mirroring the
+          // interleaved path above. Applying textBubbleClass here too would
+          // double-wrap text in two nested bubbles (doubled padding/background).
           <div
-            className={`text-[15px] break-words ${textBubbleClass}`}
+            className={`flex w-full flex-col gap-2 ${message.role === "user" ? "items-end" : "items-start"}`}
           >
             {contentElements}
           </div>

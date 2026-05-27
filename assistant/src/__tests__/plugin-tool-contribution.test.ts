@@ -6,9 +6,11 @@
  *
  * - Registering a plugin with `tools: Tool[]`, running `bootstrapPlugins`,
  *   and observing the contributed tool via `getAllTools()` / `getTool()`.
- * - Tool ownership metadata (`origin: "plugin"`, `ownerPluginId: <plugin>`)
- *   stamped authoritatively by `registerPluginTools` regardless of what the
- *   plugin author set on the incoming object.
+ * - Tool ownership (`owner: { kind: "plugin", id: <plugin> }`) recorded
+ *   authoritatively by `registerPluginTools` into the registry's
+ *   `ownersByName` map (queried via `getToolOwner(name)`), regardless of
+ *   what the plugin author set on the incoming object. The `Tool` itself
+ *   carries no ownership field — the bootstrap is the only writer.
  * - Shutdown hook unregistering the contributed tools so the registry is
  *   clean again after teardown.
  * - Direct `registerPluginTools` / `unregisterPluginTools` semantics,
@@ -55,11 +57,12 @@ import {
   getAllTools,
   getPluginRefCount,
   getTool,
+  getToolOwner,
   registerPluginTools,
   unregisterPluginTools,
 } from "../tools/registry.js";
 import type {
-  LoadedPluginTool,
+  LoadedTool,
   ToolContext,
   ToolExecutionResult,
 } from "../tools/types.js";
@@ -81,12 +84,13 @@ const fakeCtx: DaemonContext = {
 
 function makeFakeTool(
   name: string,
-  extras: Partial<LoadedPluginTool> = {},
-): LoadedPluginTool {
+  extras: Partial<LoadedTool> = {},
+): LoadedTool {
   return {
     name,
     description: `Fake ${name}`,
     defaultRiskLevel: RiskLevel.Low,
+    executionTarget: "sandbox",
     input_schema: { type: "object", properties: {}, required: [] },
     async execute(
       _input: Record<string, unknown>,
@@ -163,13 +167,17 @@ describe("plugin tool contributions", () => {
 
     const retrieved = getTool("plugin-contrib-tool");
     expect(retrieved).toBeDefined();
-    // Ownership metadata must be stamped authoritatively by the bootstrap —
-    // the registry uses it to drive ref-counting and conflict detection when
-    // the plugin shuts down or is hot-reloaded. Plugin tools live in their
-    // own `origin: "plugin"` namespace, disjoint from real skills, so a
-    // plugin name that happens to match a skill id cannot collide.
-    expect(retrieved?.origin).toBe("plugin");
-    expect(retrieved?.ownerPluginId).toBe("alpha-contributor");
+    // Ownership is recorded authoritatively by the bootstrap into the
+    // registry's `ownersByName` map (keyed by tool name, accessed via
+    // `getToolOwner(name)`) — the registry uses it to drive ref-counting
+    // and conflict detection when the plugin shuts down or is hot-reloaded.
+    // Plugin tools live in their own namespace, disjoint from real skills,
+    // so a plugin name that happens to match a skill id cannot collide.
+    // Ownership is not stamped on the `Tool` object itself.
+    expect(getToolOwner("plugin-contrib-tool")).toEqual({
+      kind: "plugin",
+      id: "alpha-contributor",
+    });
 
     // The tool surfaces in the global `getAllTools()` snapshot, which is
     // what downstream consumers (tool-manifest, session projection) read.
@@ -247,22 +255,23 @@ describe("registerPluginTools / unregisterPluginTools helpers", () => {
     __resetRegistryForTesting();
   });
 
-  test("registerPluginTools stamps category, origin, and ownerPluginId from the plugin name", () => {
-    // Even if the plugin author hands in a tool with no category or ownership
-    // metadata, the helper fills it in so the tool can be registered and
-    // unregistered consistently.
+  test("registerPluginTools stamps category and records ownership in the registry", () => {
+    // Even if the plugin author hands in a tool with no category, the
+    // helper fills it in and records ownership in the registry's
+    // `ownersByName` map — the tool itself never carries an `owner` field,
+    // so plugin authors can't spoof ownership by forging one.
     const accepted = registerPluginTools("my-plugin", [
       makeFakeTool("pt_stamped"),
     ]);
     expect(accepted).toHaveLength(1);
     expect(accepted[0]?.category).toBe("plugin");
-    expect(accepted[0]?.origin).toBe("plugin");
-    expect(accepted[0]?.ownerPluginId).toBe("my-plugin");
+    expect(getToolOwner("pt_stamped")).toEqual({
+      kind: "plugin",
+      id: "my-plugin",
+    });
 
     const retrieved = getTool("pt_stamped");
     expect(retrieved?.category).toBe("plugin");
-    expect(retrieved?.origin).toBe("plugin");
-    expect(retrieved?.ownerPluginId).toBe("my-plugin");
   });
 
   test("registerPluginTools exposes provider-safe aliases for unsafe plugin tool names", async () => {
@@ -281,7 +290,7 @@ describe("registerPluginTools / unregisterPluginTools helpers", () => {
     expect(alias).toMatch(/^[a-zA-Z0-9_-]{1,64}$/);
     expect(alias.startsWith("Stripe_Link_CLI__")).toBe(true);
     expect(getTool(alias)).toBeDefined();
-    expect(accepted[0]!.getDefinition().name).toBe(alias);
+    expect(accepted[0]!.name).toBe(alias);
 
     await accepted[0]!.execute(
       {},
@@ -312,27 +321,28 @@ describe("registerPluginTools / unregisterPluginTools helpers", () => {
     expect(getTool(paddedAlias!)).toBeDefined();
   });
 
-  test("registerPluginTools overwrites any pre-existing ownership metadata", () => {
+  test("registerPluginTools ignores forged ownership fields on the incoming tool", () => {
     // A plugin author could (maliciously or mistakenly) hand in a tool
-    // pre-tagged with another skill's or plugin's ID. The helper must
-    // overwrite it so the bootstrap is always the source of truth for
-    // ownership — and it must clear cross-origin fields (ownerSkillId /
-    // ownerMcpServerId / ownerSkillBundled / ownerSkillVersionHash) so the
-    // stamped tool cannot leak across namespaces or spoof bundled-skill
-    // auto-allow.
-    const spoofed = makeFakeTool("pt_spoof", {
+    // pre-tagged with another skill's or plugin's ID. The `Tool` type now
+    // carries no ownership field at all, so any such forgery is purely
+    // inert extra data — the registry only populates `ownersByName` from
+    // the first argument to `register*Tools`, which is the single source
+    // of truth for ownership and cannot be spoofed by forging fields on
+    // the manifest.
+    //
+    // Cast through `unknown` to simulate a hostile or transpiled artifact
+    // arriving with extra fields baked in.
+    const spoofed = {
+      ...makeFakeTool("pt_spoof"),
       origin: "skill",
-      ownerSkillId: "some-other-skill",
-      ownerSkillBundled: true,
-      ownerSkillVersionHash: "deadbeef",
-    });
+      owner: { kind: "skill", id: "some-other-skill" },
+    } as unknown as LoadedTool;
     registerPluginTools("my-plugin", [spoofed]);
-    const retrieved = getTool("pt_spoof");
-    expect(retrieved?.origin).toBe("plugin");
-    expect(retrieved?.ownerPluginId).toBe("my-plugin");
-    expect(retrieved?.ownerSkillId).toBeUndefined();
-    expect(retrieved?.ownerSkillBundled).toBeUndefined();
-    expect(retrieved?.ownerSkillVersionHash).toBeUndefined();
+    expect(getTool("pt_spoof")).toBeDefined();
+    expect(getToolOwner("pt_spoof")).toEqual({
+      kind: "plugin",
+      id: "my-plugin",
+    });
   });
 
   test("unregisterPluginTools removes the plugin's tools", () => {

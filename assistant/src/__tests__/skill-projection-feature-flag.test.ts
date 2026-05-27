@@ -45,20 +45,26 @@ mock.module("../config/skill-state.js", () => ({
 
 // Mock assistant-feature-flags to avoid loading the real module (which
 // triggers file I/O and env-registry imports that hang in test context).
+// The seed-state backdoor is the test-only helper module — we mirror
+// production's design: tests reach into `feature-flag-cache.ts` (or its
+// test-helper wrapper) to seed cached overrides, never through the
+// resolver module itself.
 let _mockOverrides: Record<string, boolean> = {};
 mock.module("../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: (key: string, _config: unknown): boolean => {
     const explicit = _mockOverrides[key];
     if (typeof explicit === "boolean") return explicit;
-    return true; // undeclared flags default to enabled
+    return false; // undeclared flags default to disabled
   },
   clearFeatureFlagOverridesCache: () => {
     _mockOverrides = {};
   },
-  _setOverridesForTesting: (overrides: Record<string, boolean>) => {
+  getAssistantFeatureFlagDefaults: () => ({}),
+}));
+mock.module("./feature-flag-test-helpers.js", () => ({
+  setOverridesForTesting: (overrides: Record<string, boolean>) => {
     _mockOverrides = { ...overrides };
   },
-  getAssistantFeatureFlagDefaults: () => ({}),
 }));
 
 mock.module("../skills/active-skill-tools.js", () => {
@@ -109,45 +115,35 @@ mock.module("../skills/tool-manifest.js", () => ({
 }));
 
 mock.module("../tools/skills/skill-tool-factory.js", () => ({
+  // Mirrors the real factory: no skillId in/out — ownership is recorded by
+  // the registry at `registerSkillTools(skillId, tools)` time.
   createSkillToolsFromManifest: (
     entries: SkillToolManifest["tools"],
-    skillId: string,
     _skillDir: string,
-    versionHash: string,
-    bundled?: boolean,
+    _versionHash: string,
+    _bundled?: boolean,
   ): Tool[] => {
     return entries.map((entry) => ({
       name: entry.name,
       description: entry.description,
       category: entry.category,
       defaultRiskLevel: RiskLevel.Medium,
-      origin: "skill" as const,
-      ownerSkillId: skillId,
-      ownerSkillVersionHash: versionHash,
-      ownerSkillBundled: bundled ?? undefined,
-      getDefinition: () => ({
-        name: entry.name,
-        description: entry.description,
-        input_schema: entry.input_schema as object,
-      }),
+      executionTarget: "sandbox" as const,
+      input_schema: entry.input_schema as object,
       execute: async () => ({ content: "", isError: false }),
     }));
   },
 }));
 
 mock.module("../tools/registry.js", () => ({
-  registerSkillTools: (tools: Tool[]) => {
-    const skillIds = new Set<string>();
-    for (const tool of tools) {
-      const skillId = tool.ownerSkillId!;
-      skillIds.add(skillId);
-      const existing = mockRegisteredTools.get(skillId) ?? [];
-      existing.push(tool);
-      mockRegisteredTools.set(skillId, existing);
-    }
-    for (const id of skillIds) {
-      mockSkillRefCount.set(id, (mockSkillRefCount.get(id) ?? 0) + 1);
-    }
+  // Matches the new signature: `registerSkillTools(skillId, tools)`. The
+  // skillId comes from the caller (conversation-skill-tools) and is the
+  // sole source of truth for ownership.
+  registerSkillTools: (skillId: string, tools: Tool[]) => {
+    const existing = mockRegisteredTools.get(skillId) ?? [];
+    existing.push(...tools);
+    mockRegisteredTools.set(skillId, existing);
+    mockSkillRefCount.set(skillId, (mockSkillRefCount.get(skillId) ?? 0) + 1);
     return tools;
   },
   unregisterSkillTools: (skillId: string) => {
@@ -168,6 +164,23 @@ mock.module("../tools/registry.js", () => ({
       }
     }
     return found;
+  },
+  // Mirrors the registry's `ownersByName` accessor: derives the owning
+  // skillId from `mockRegisteredTools` keying so the production
+  // `getToolOwner(name)` call in `conversation-skill-tools.ts` resolves to
+  // the same shape the real registry would return.
+  getToolOwner: (
+    name: string,
+  ): { kind: "skill" | "plugin" | "mcp"; id: string } | undefined => {
+    let ownerSkillId: string | undefined;
+    for (const [skillId, tools] of mockRegisteredTools.entries()) {
+      for (const tool of tools) {
+        if (tool.name === name) ownerSkillId = skillId;
+      }
+    }
+    return ownerSkillId === undefined
+      ? undefined
+      : { kind: "skill", id: ownerSkillId };
   },
   getSkillToolNames: () => {
     const names: string[] = [];
@@ -215,10 +228,8 @@ mock.module("../util/logger.js", () => ({
 
 const { projectSkillTools, resetSkillToolProjection } =
   await import("../daemon/conversation-skill-tools.js");
-const { _setOverridesForTesting } =
-  (await import("../config/assistant-feature-flags.js")) as {
-    _setOverridesForTesting: (o: Record<string, boolean>) => void;
-  };
+const { setOverridesForTesting } =
+  await import("./feature-flag-test-helpers.js");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -292,12 +303,12 @@ describe("projectSkillTools feature flag enforcement", () => {
     mockUnregisteredSkillIds = [];
     mockSkillRefCount = new Map();
     currentConfig = {};
-    _setOverridesForTesting({});
+    setOverridesForTesting({});
     resetSkillToolProjection();
   });
 
   afterEach(() => {
-    _setOverridesForTesting({});
+    setOverridesForTesting({});
   });
 
   test("no skill tools projected for flag OFF skill even with old markers", () => {
@@ -311,7 +322,7 @@ describe("projectSkillTools feature flag enforcement", () => {
     const prevActive = new Map<string, string>();
 
     // Feature flag is OFF — use protected directory override
-    _setOverridesForTesting({ [DECLARED_FLAG_KEY]: false });
+    setOverridesForTesting({ [DECLARED_FLAG_KEY]: false });
 
     const result = projectSkillTools(history, {
       previouslyActiveSkillIds: prevActive,
@@ -332,7 +343,7 @@ describe("projectSkillTools feature flag enforcement", () => {
     const prevActive = new Map<string, string>();
 
     // Feature flag is ON — use protected directory override
-    _setOverridesForTesting({ [DECLARED_FLAG_KEY]: true });
+    setOverridesForTesting({ [DECLARED_FLAG_KEY]: true });
 
     const result = projectSkillTools(history, {
       previouslyActiveSkillIds: prevActive,
@@ -422,8 +433,8 @@ describe("projectSkillTools feature flag enforcement", () => {
     ];
     const prevActive = new Map<string, string>();
 
-    // Declared skill is OFF, plain-skill is undeclared with no persisted override so remains ON.
-    _setOverridesForTesting({ [DECLARED_FLAG_KEY]: false });
+    // Declared skill is OFF; plain-skill has no featureFlag so remains ON.
+    setOverridesForTesting({ [DECLARED_FLAG_KEY]: false });
 
     const result = projectSkillTools(history, {
       previouslyActiveSkillIds: prevActive,

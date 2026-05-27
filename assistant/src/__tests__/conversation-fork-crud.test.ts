@@ -214,6 +214,155 @@ describe("forkConversation", () => {
     ]);
   });
 
+  test("pinned fork through a (createdAt, id) cutoff matches the cursor slice for same-timestamp rows", () => {
+    // Regression for the memory-retrospective cutoff/fork divergence: the job
+    // picks its cutoff from `getMessagesAfter`, which orders by `(createdAt,
+    // id)`. `forkConversation` must slice on the same order so same-millisecond
+    // siblings aren't skipped forever or reprocessed. Insert rows whose
+    // insertion order is the reverse of their `(createdAt, id)` order to expose
+    // the divergence: a `createdAt`-only slice would pick the wrong prefix.
+    const source = createConversation("Same-timestamp cutoff thread");
+    const db = getDb();
+    const createdAt = Date.now();
+    // Insert d, c, b, a so SQLite's createdAt-only tie order (≈ rowid /
+    // insertion order) is the opposite of the (createdAt, id) cursor order
+    // (a, b, c, d). All are plain user rows so no display-turn extension fires.
+    for (const id of ["msg-d", "msg-c", "msg-b", "msg-a"]) {
+      db.run(
+        `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('${id}', '${source.id}', 'user', '${id}', ${createdAt})`,
+      );
+    }
+
+    // Cutoff = "msg-c": the cursor treats {msg-a, msg-b, msg-c} as processed
+    // and {msg-d} as still-after-the-cutoff. The fork must contain exactly the
+    // first three in `(createdAt, id)` order.
+    const fork = forkConversation({
+      conversationId: source.id,
+      throughMessageId: "msg-c",
+    });
+
+    expect(getMessages(fork.id).map((message) => message.content)).toEqual([
+      "msg-a",
+      "msg-b",
+      "msg-c",
+    ]);
+  });
+
+  test("advances fork boundary through consecutive assistant rows after the requested message", async () => {
+    // When the read-path merges consecutive assistant DB rows into a single
+    // display row, the client only addresses the anchor id. Forking through
+    // the anchor must still include the merged tail rows that follow.
+    const source = createConversation("Multi-row turn thread");
+    await addMessage(source.id, "user", "Message 1", undefined, {
+      skipIndexing: true,
+    });
+    const anchor = await addMessage(
+      source.id,
+      "assistant",
+      "Assistant text segment",
+      undefined,
+      { skipIndexing: true },
+    );
+    const toolRow = await addMessage(
+      source.id,
+      "assistant",
+      "Tool turn row",
+      undefined,
+      { skipIndexing: true },
+    );
+    const tailRow = await addMessage(
+      source.id,
+      "assistant",
+      "Final assistant segment",
+      undefined,
+      { skipIndexing: true },
+    );
+    await addMessage(source.id, "user", "Next user turn", undefined, {
+      skipIndexing: true,
+    });
+
+    const fork = forkConversation({
+      conversationId: source.id,
+      throughMessageId: anchor.id,
+    });
+
+    // Boundary advances past the entire consecutive-assistant cluster, so the
+    // full turn is preserved in the fork — not just the anchor row.
+    expect(getMessages(fork.id).map((message) => message.content)).toEqual([
+      "Message 1",
+      "Assistant text segment",
+      "Tool turn row",
+      "Final assistant segment",
+    ]);
+    expect(fork.forkParentMessageId).toBe(tailRow.id);
+    expect(toolRow.id).not.toBe(anchor.id);
+  });
+
+  test("advances fork boundary across tool-result-only user rows between assistant rows", async () => {
+    // Read-path collapse folds tool-result-only user rows into the
+    // surrounding assistant turn (`mergeToolResultsIntoAssistantMessages`
+    // suppresses them). The client only sees a single display turn anchored
+    // at the first assistant row, so forking through the anchor must include
+    // both halves of the assistant turn plus the suppressed user row in
+    // between — otherwise the fork loses tool_use ↔ tool_result pairing
+    // and produces an invalid LLM history.
+    const source = createConversation("Tool-result gap thread");
+    await addMessage(
+      source.id,
+      "user",
+      "Find the latest sales numbers",
+      undefined,
+      {
+        skipIndexing: true,
+      },
+    );
+    const anchor = await addMessage(
+      source.id,
+      "assistant",
+      JSON.stringify([
+        { type: "text", text: "Looking up the data." },
+        { type: "tool_use", id: "tool_1", name: "lookup", input: {} },
+      ]),
+      undefined,
+      { skipIndexing: true },
+    );
+    const toolResultUserRow = await addMessage(
+      source.id,
+      "user",
+      JSON.stringify([
+        { type: "tool_result", tool_use_id: "tool_1", content: "data" },
+      ]),
+      undefined,
+      { skipIndexing: true },
+    );
+    const tailAssistantRow = await addMessage(
+      source.id,
+      "assistant",
+      "Here are the numbers.",
+      undefined,
+      { skipIndexing: true },
+    );
+    await addMessage(source.id, "user", "Thanks", undefined, {
+      skipIndexing: true,
+    });
+
+    const fork = forkConversation({
+      conversationId: source.id,
+      throughMessageId: anchor.id,
+    });
+
+    // All three DB rows of the assistant display turn — including the
+    // suppressed tool-result user row in the middle — land in the fork.
+    const forkedContent = getMessages(fork.id).map((m) => m.content);
+    expect(forkedContent).toHaveLength(4);
+    expect(forkedContent[0]).toBe("Find the latest sales numbers");
+    expect(forkedContent[1]).toContain("tool_use");
+    expect(forkedContent[2]).toContain("tool_result");
+    expect(forkedContent[3]).toBe("Here are the numbers.");
+    expect(fork.forkParentMessageId).toBe(tailAssistantRow.id);
+    expect(toolResultUserRow.id).not.toBe(anchor.id);
+  });
+
   test("preserves compacted context when forking from the visible window", async () => {
     const source = createConversation("Compacted thread");
     await addMessage(source.id, "user", "Message 1", undefined, {
@@ -418,13 +567,34 @@ describe("forkConversation", () => {
       },
       { skipIndexing: true },
     );
-    await addMessage(source.id, "assistant", "Reply 1", undefined, {
+    const reply1 = await addMessage(
+      source.id,
+      "assistant",
+      "Reply 1",
+      undefined,
+      {
+        skipIndexing: true,
+      },
+    );
+    const tail = await addMessage(source.id, "user", "Tail turn", undefined, {
       skipIndexing: true,
     });
-    await addMessage(source.id, "user", "Tail turn", undefined, {
-      skipIndexing: true,
-    });
-    const compactedAt = Date.now();
+    // Pin strictly-increasing timestamps so the pinned fork boundary is
+    // unambiguous. `addMessage` stamps `Date.now()`, and these three rows can
+    // land in the same millisecond; under the `(createdAt, id)` tie-break the
+    // pinned fork uses, that would let `m1`'s slice reorder relative to its
+    // siblings. Distinct timestamps keep this test focused on its intent —
+    // pre-compaction metadata + compaction-state inheritance.
+    const db = getDb();
+    const base = Date.now();
+    db.run(`UPDATE messages SET created_at = ${base} WHERE id = '${m1.id}'`);
+    db.run(
+      `UPDATE messages SET created_at = ${base + 1} WHERE id = '${reply1.id}'`,
+    );
+    db.run(
+      `UPDATE messages SET created_at = ${base + 2} WHERE id = '${tail.id}'`,
+    );
+    const compactedAt = base + 3;
     getDb()
       .update(conversations)
       .set({

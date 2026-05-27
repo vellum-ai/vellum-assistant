@@ -198,6 +198,9 @@ public final class ChatMessageManager {
     public var assistantActivityAnchor: String = "global"
     public var assistantActivityReason: String?
     public var assistantStatusText: String?
+    /// Non-nil when tool-based inference profile routing selected a different
+    /// model for the current turn. Cleared on turn completion.
+    public var autoRoutedProfileLabel: String?
     public var isCompacting: Bool = false
     public var contextWindowTokens: Int? = nil
     public var contextWindowMaxTokens: Int? = nil

@@ -5,13 +5,13 @@
 // forthcoming Transcript component can render a single flat list
 // without re-implementing those projection rules.
 
-import { dedupeDisplayMessages, type DisplayMessage } from "@/domains/chat/utils/reconcile.js";
+import { dedupeDisplayMessages, type DisplayMessage } from "@/domains/chat/utils/reconcile";
 import type {
   MessageItem,
   PendingContactRequestItem,
   QueuedMarkerItem,
   TranscriptItem,
-} from "@/domains/chat/transcript/types.js";
+} from "@/domains/chat/transcript/types";
 
 export interface BuildTranscriptItemsInput {
   messages: DisplayMessage[];
@@ -28,6 +28,8 @@ export interface BuildTranscriptItemsInput {
   isThinking: boolean;
   /** Daemon-provided activity label for the thinking indicator. */
   thinkingLabel?: string | null;
+  /** Human-readable label when the daemon auto-routed to a different inference profile. */
+  autoRoutedProfileLabel?: string | null;
   errorNotice: string | null;
   showOnboardingChoice?: boolean;
 }
@@ -38,11 +40,11 @@ export interface BuildTranscriptItemsInput {
  * Rules (mirror the JSX in `AssistantPageClient.tsx`):
  *
  *   1. For each `DisplayMessage` in order, emit a `MessageItem` with
- *      `key = message.stableId`. Inline surfaces attached to a message
- *      are rendered within the message body by `TranscriptMessageBody`
- *      via `contentOrder` — they are NOT separate transcript rows.
- *      Tool calls stay inside the `MessageItem` — the Transcript
- *      component flattens them at render time.
+ *      `key = message.id`. Inline surfaces attached to a message are
+ *      rendered within the message body by `TranscriptMessageBody` via
+ *      `contentOrder` — they are NOT separate transcript rows. Tool calls
+ *      stay inside the `MessageItem` — the Transcript component flattens
+ *      them at render time.
  *
  *   2. After the last message, emit trailers in this exact order:
  *        a. `ThinkingItem` when `isThinking`.
@@ -52,23 +54,6 @@ export interface BuildTranscriptItemsInput {
  *
  * Every returned item carries a non-empty, distinct `key`.
  */
-function isInvalidMessage(message: DisplayMessage): boolean {
-  // Phantom tool calls synthesized by the daemon when a tool_result block
-  // has no matching tool_use (orphan). They come through as user messages
-  // and render as a confusing "Completed 1 step / Used unknown" chip.
-  // Dropping the whole message is correct — without the parent tool_use
-  // we can't tell the user what tool ran, so the result is meaningless.
-  return (
-    message.role === "user" &&
-    (!message.content || message.content.trim().length === 0) &&
-    (!message.surfaces || message.surfaces.length === 0) &&
-    (!message.attachments || message.attachments.length === 0) &&
-    message.toolCalls != null &&
-    message.toolCalls.length > 0 &&
-    message.toolCalls.every((tc) => tc.toolName === "unknown")
-  );
-}
-
 export function buildTranscriptItems(
   input: BuildTranscriptItemsInput,
 ): TranscriptItem[] {
@@ -97,10 +82,6 @@ export function buildTranscriptItems(
       continue;
     }
 
-    if (isInvalidMessage(message)) {
-      continue;
-    }
-
     const isQueuedUser =
       message.role === "user" && message.queueStatus === "queued";
 
@@ -119,10 +100,18 @@ export function buildTranscriptItems(
 
     const messageItem: MessageItem = {
       kind: "message",
-      key: message.stableId,
+      key: message.id,
       message,
     };
     items.push(messageItem);
+  }
+
+  if (input.autoRoutedProfileLabel) {
+    items.push({
+      kind: "profileAutoRouted",
+      key: "profile-auto-routed",
+      profileLabel: input.autoRoutedProfileLabel,
+    });
   }
 
   if (isThinking) {

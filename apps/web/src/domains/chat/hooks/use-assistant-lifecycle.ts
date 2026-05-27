@@ -2,12 +2,12 @@
 import * as Sentry from "@sentry/react";
 import { useCallback, useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 
-import { extractErrorMessage } from "@/lib/api-errors.js";
+import { extractErrorMessage } from "@/lib/api-errors";
 import {
   getAssistant,
   hatchAssistant,
   retireAssistantById,
-} from "@/assistant/api.js";
+} from "@/assistant/api";
 import {
   buildInitializingTimeoutError,
   INITIALIZING_TIMEOUT_MS,
@@ -15,9 +15,11 @@ import {
   PLATFORM_HOSTED_DISABLED_MESSAGE,
   resolveAssistantLifecycleState,
   shouldRecoverFromHatchFailure,
-} from "@/assistant/lifecycle.js";
-import { resolveOnboardingRedirect } from "@/domains/onboarding/gate.js";
-import { routes } from "@/utils/routes.js";
+} from "@/assistant/lifecycle";
+import { resolveOnboardingRedirect } from "@/domains/onboarding/gate";
+import { isGatewayAuthMode, getGatewayToken } from "@/lib/auth/gateway-session";
+import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
+import { routes } from "@/utils/routes";
 
 const POLL_INTERVAL_MS = 3000;
 const MAX_HATCH_RETRIES = 3;
@@ -48,6 +50,7 @@ interface UseAssistantLifecycleOptions {
   isLoading: boolean;
   isRetired: boolean;
   isNonProduction: boolean;
+  hasPlatformSession: boolean;
   /** Framework-agnostic redirect — called instead of router.replace(). */
   onRedirect: (url: string) => void;
 }
@@ -83,6 +86,7 @@ export function useAssistantLifecycle({
   isLoading,
   isRetired,
   isNonProduction,
+  hasPlatformSession,
   onRedirect,
 }: UseAssistantLifecycleOptions): UseAssistantLifecycleReturn {
   const [assistantState, setAssistantState] = useState<AssistantState>({
@@ -225,11 +229,16 @@ export function useAssistantLifecycle({
         const mm = result.data.maintenance_mode;
         initializingRecoveryCountRef.current = 0;
         hatchingVersionRef.current = undefined;
+        // Drop any stale self-hosted connection: the server says the
+        // assistant is now managed-active, so runtime calls belong on
+        // the platform and we don't want a leftover token attached to
+        // those requests either.
+        setSelfHostedConnection(null);
         // Set the assistant id here, before any pod-facing fetch runs.
         // The `init` effect below only fetches conversations once
         // `assistantState.kind === "active"`, and that fetch is what
         // the unreachable-bus interceptor is meant to notice. If we
-        // wait until after `getChatContext()` succeeds to set this,
+        // wait until after the conversation list query succeeds to set this,
         // the reachability hook's probe() has no target assistant
         // when the 503 arrives and the connecting overlay never
         // shows.
@@ -241,6 +250,36 @@ export function useAssistantLifecycle({
             enabled: mm?.enabled,
           },
         });
+        return;
+      }
+
+      if (nextState.kind === "self_hosted" && result.ok) {
+        initializingRecoveryCountRef.current = 0;
+        hatchingVersionRef.current = undefined;
+        // Record the user's gateway + actor token so the request
+        // interceptor can rewrite runtime-proxied calls to the
+        // gateway and attach `Authorization: Bearer`. The slots have
+        // to be primed before `assistantId` flips, otherwise the
+        // first conversation list fetch races us and hits the
+        // platform.
+        //
+        // Both fields are nullable in the serializer:
+        //   - `ingress_url`: an assistant can be `is_local=true`
+        //     before its gateway hostname is known. In that case the
+        //     URL slot stays null and the platform's proxy view 404s
+        //     cleanly — surfaces as the chat error state, just one
+        //     HTTP hop sooner.
+        //   - `platform_actor_token`: there's a brief window after
+        //     hatch where `bootstrap_platform_actor_token` is still
+        //     in-flight. In that case the request fires
+        //     unauthenticated, the gateway responds 401, and the
+        //     chat surface lands on its error state.
+        setSelfHostedConnection({
+          url: result.data.ingress_url,
+          token: result.data.platform_actor_token,
+        });
+        setAssistantId(result.data.id);
+        setAssistantState({ kind: "self_hosted" });
         return;
       }
 
@@ -286,6 +325,7 @@ export function useAssistantLifecycle({
           } else if (nextState.kind === "active" && result.ok) {
             const mm = result.data.maintenance_mode;
             initializingRecoveryCountRef.current = 0;
+            setSelfHostedConnection(null);
             setAssistantId(result.data.id);
             setAssistantState({
               kind: "active",
@@ -294,6 +334,21 @@ export function useAssistantLifecycle({
                 enabled: mm?.enabled,
               },
             });
+          } else if (nextState.kind === "self_hosted" && result.ok) {
+            // Mirror the `self_hosted` branch in `checkAssistant`: an
+            // assistant can graduate from `initializing` straight into
+            // `is_local: true` once the assistant registers its gateway.
+            // Without this branch the recovery path leaves
+            // `assistantId` null and the chat surface keeps showing
+            // the initializing-timeout error after the assistant has
+            // actually come up.
+            initializingRecoveryCountRef.current = 0;
+            setSelfHostedConnection({
+              url: result.data.ingress_url,
+              token: result.data.platform_actor_token,
+            });
+            setAssistantId(result.data.id);
+            setAssistantState({ kind: "self_hosted" });
           } else {
             if (nextState.kind !== "active") {
               setAssistantState(nextState);
@@ -343,9 +398,22 @@ export function useAssistantLifecycle({
     if (!isLoggedIn || isLoading) {
       return;
     }
-    // Async check — setState happens after await, not synchronously
+    if (hasPlatformSession) {
+      setSelfHostedConnection(null);
+      checkAssistant();
+      return;
+    }
+    if (isGatewayAuthMode()) {
+      setSelfHostedConnection({
+        url: window.location.origin,
+        token: getGatewayToken(),
+      });
+      setAssistantId("self");
+      setAssistantState({ kind: "active", isLocal: true });
+      return;
+    }
     checkAssistant();
-  }, [isLoggedIn, isLoading, checkAssistant]);
+  }, [isLoggedIn, isLoading, hasPlatformSession, checkAssistant]);
 
   // Poll while initializing or cleaning up
   useEffect(() => {

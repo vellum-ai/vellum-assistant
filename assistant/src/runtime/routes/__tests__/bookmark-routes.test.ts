@@ -22,6 +22,7 @@ mock.module("../../assistant-event-hub.js", () => ({
     },
     subscribe: () => () => {},
   },
+  broadcastMessage: async () => {},
 }));
 
 import { getDb } from "../../../memory/db-connection.js";

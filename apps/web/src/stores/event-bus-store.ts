@@ -20,8 +20,8 @@
 
 import { create } from "zustand";
 
-import { createSelectors } from "@/utils/create-selectors.js";
-import type { AssistantEvent } from "@/domains/chat/api/event-types.js";
+import { createSelectors } from "@/utils/create-selectors";
+import type { AssistantEvent } from "@/domains/chat/api/event-types";
 
 /**
  * Source of a synthetic `"app.resume"` event.
@@ -51,7 +51,7 @@ export interface BusEventMap {
    * Re-broadcast of an SSE event received on the bus-owned
    * assistant-scoped `/v1/events` connection. Subscribers narrow on
    * `payload.type`. Conversation-scoped consumers must filter on
-   * `payload.conversationKey` themselves — the bus delivers every
+   * `event.conversationId` themselves — the bus delivers every
    * event the underlying stream sees.
    */
   "sse.event": AssistantEvent;

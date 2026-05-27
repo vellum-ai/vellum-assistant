@@ -1,6 +1,22 @@
-import { and, asc, desc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  gte,
+  inArray,
+  isNull,
+  lt,
+  lte,
+  ne,
+  or,
+  sql,
+} from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import { CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE } from "../api/constants/call-sites.js";
+import type { LLMCallSite } from "../config/schemas/llm.js";
 import { AssistantError, ProviderError } from "../util/errors.js";
 import {
   getAssistantMessageIdsInTurn,
@@ -26,6 +42,12 @@ export type LogRow = {
    * `AgentLoopExitReason` in `agent/loop.ts`.
    */
   agentLoopExitReason: string | null;
+  /**
+   * Logical call site that produced this row — `mainAgent`,
+   * `compactionAgent`, etc. NULL on pre-migration-264 rows (no backfill).
+   * In practice values come from `LLMCallSite` (`config/schemas/llm.ts`).
+   */
+  callSite: string | null;
 };
 
 /**
@@ -73,6 +95,7 @@ export function recordRequestLog(
   responsePayload: string,
   messageId?: string,
   provider?: string,
+  callSite?: LLMCallSite,
 ): string {
   const db = getDb();
   const id = uuid();
@@ -88,6 +111,84 @@ export function recordRequestLog(
       // Stamped later via setAgentLoopExitReasonOnLatestLog, once the
       // agent loop body actually exits. Intermediate rows stay NULL.
       agentLoopExitReason: null,
+      // Logical call site (`mainAgent`, `compactionAgent`, …). NULL when
+      // a caller hasn't been updated yet — preserves backward compat
+      // while we plumb call sites through one site at a time.
+      callSite: callSite ?? null,
+    })
+    .run();
+  return id;
+}
+
+/**
+ * Insert a synthetic `llm_request_logs` row for an agent-loop error
+ * message that has no LLM call backing it but should appear in the
+ * inspector rail. Today the only caller is the
+ * `budget_yield_unrecovered` persistence path
+ * (`conversation-agent-loop.ts`); the helper is named generically so
+ * the next out-of-funds / provider-error / etc. path can route through
+ * the same primitive.
+ *
+ * The caller persists the user-visible assistant message separately
+ * via the `persistence` pipeline; this helper only writes the synthetic
+ * call row. `messageId` should be the id of the just-persisted notice
+ * so `getRequestLogsByMessageId` surfaces both together.
+ *
+ * Payload semantics mirror real LLM-call rows:
+ *  - `requestPayload`: the best-known LLM request body the loop was
+ *    about to send when it yielded — typically the prepared messages
+ *    snapshot and any input-token budget context. Stored as JSON so
+ *    the Raw tab renders it consistently with real calls.
+ *  - `responsePayload`: the synthetic notice text the user saw plus
+ *    the exit reason. This is the "response" from the user's point of
+ *    view — what came back from a call that never actually happened.
+ *
+ * Stamps `agent_loop_exit_reason` directly so the row already carries
+ * the reason at insert time — the post-loop
+ * `setAgentLoopExitReasonOnLatestLog` query then skips it (its IS NULL
+ * guard) and stamps the prior real LLM call instead, preserving the
+ * existing "latest LLM call carries the exit reason" invariant that
+ * other consumers depend on.
+ */
+export function recordSyntheticAgentErrorMessageLog(args: {
+  conversationId: string;
+  messageId: string;
+  exitReason: string;
+  /** User-visible notice text — goes into `response_payload`. */
+  noticeText: string;
+  /**
+   * Best-known LLM request state at the moment the loop gave up.
+   * `null` when no prepared request was available (rare — generally
+   * we know at least the conversation history we were about to send).
+   */
+  preparedRequest: unknown | null;
+  createdAt: number;
+}): string {
+  const db = getDb();
+  const id = uuid();
+  const requestPayload = JSON.stringify({
+    syntheticAgentErrorMessage: {
+      exitReason: args.exitReason,
+      preparedRequest: args.preparedRequest,
+    },
+  });
+  const responsePayload = JSON.stringify({
+    syntheticAgentErrorMessage: {
+      exitReason: args.exitReason,
+      noticeText: args.noticeText,
+    },
+  });
+  db.insert(llmRequestLogs)
+    .values({
+      id,
+      conversationId: args.conversationId,
+      messageId: args.messageId,
+      provider: null,
+      requestPayload,
+      responsePayload,
+      createdAt: args.createdAt,
+      agentLoopExitReason: args.exitReason,
+      callSite: CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE,
     })
     .run();
   return id;
@@ -182,6 +283,7 @@ function selectLogsByMessageIds(messageIds: string[]): LogRow[] {
       responsePayload: llmRequestLogs.responsePayload,
       createdAt: llmRequestLogs.createdAt,
       agentLoopExitReason: llmRequestLogs.agentLoopExitReason,
+      callSite: llmRequestLogs.callSite,
     })
     .from(llmRequestLogs)
     .where(inArray(llmRequestLogs.messageId, messageIds))
@@ -195,7 +297,9 @@ function selectLogsByMessageIds(messageIds: string[]): LogRow[] {
  * not apply turn recovery: the `conversation_id` column already includes
  * linked, unlinked, and orphaned rows for the full conversation.
  */
-export function getRequestLogsByConversationId(conversationId: string): LogRow[] {
+export function getRequestLogsByConversationId(
+  conversationId: string,
+): LogRow[] {
   const db = getDb();
   return db
     .select({
@@ -207,6 +311,7 @@ export function getRequestLogsByConversationId(conversationId: string): LogRow[]
       responsePayload: llmRequestLogs.responsePayload,
       createdAt: llmRequestLogs.createdAt,
       agentLoopExitReason: llmRequestLogs.agentLoopExitReason,
+      callSite: llmRequestLogs.callSite,
     })
     .from(llmRequestLogs)
     .where(eq(llmRequestLogs.conversationId, conversationId))
@@ -239,6 +344,7 @@ function selectOrphanedLogsInRange(
       responsePayload: llmRequestLogs.responsePayload,
       createdAt: llmRequestLogs.createdAt,
       agentLoopExitReason: llmRequestLogs.agentLoopExitReason,
+      callSite: llmRequestLogs.callSite,
     })
     .from(llmRequestLogs)
     .leftJoin(messages, eq(llmRequestLogs.messageId, messages.id))
@@ -280,6 +386,7 @@ function selectUnlinkedLogsInRange(
       responsePayload: llmRequestLogs.responsePayload,
       createdAt: llmRequestLogs.createdAt,
       agentLoopExitReason: llmRequestLogs.agentLoopExitReason,
+      callSite: llmRequestLogs.callSite,
     })
     .from(llmRequestLogs)
     .where(
@@ -292,6 +399,100 @@ function selectUnlinkedLogsInRange(
     )
     .orderBy(llmRequestLogs.createdAt)
     .all();
+}
+
+/**
+ * Fetch every `compactionAgent` log row in the conversation whose
+ * `createdAt` falls in the **open window** `(afterCreatedAt, beforeCreatedAt)`,
+ * ordered chronologically.
+ *
+ * Drives the Inspector's Compaction tab. The caller resolves both
+ * bounds:
+ *   - `beforeCreatedAt` = the selected LLM call's `createdAt` (ceiling).
+ *   - `afterCreatedAt` = the previous non-`compactionAgent` call's
+ *     `createdAt` (floor), or `null` when the selected call is the first
+ *     real call in the conversation.
+ *
+ * Both bounds are **strict**: the selected call itself never appears in
+ * its own trail (`<` ceiling), and compactions that fed an earlier real
+ * call's context don't bleed into this call's window (`>` floor). When
+ * `afterCreatedAt` is `null` the floor is dropped entirely — every
+ * preceding compaction is in scope, which is the right behavior for the
+ * very first real call in the conversation.
+ *
+ * NULL `callSite` rows (pre-migration-264) are excluded by the explicit
+ * `callSite = 'compactionAgent'` predicate without a separate IS NOT
+ * NULL clause.
+ */
+export function getCompactionLogsBetween(
+  conversationId: string,
+  afterCreatedAt: number | null,
+  beforeCreatedAt: number,
+): LogRow[] {
+  const db = getDb();
+  const predicates = [
+    eq(llmRequestLogs.conversationId, conversationId),
+    eq(llmRequestLogs.callSite, "compactionAgent"),
+    lt(llmRequestLogs.createdAt, beforeCreatedAt),
+  ];
+  if (afterCreatedAt !== null) {
+    predicates.push(gt(llmRequestLogs.createdAt, afterCreatedAt));
+  }
+  return db
+    .select({
+      id: llmRequestLogs.id,
+      conversationId: llmRequestLogs.conversationId,
+      messageId: llmRequestLogs.messageId,
+      provider: llmRequestLogs.provider,
+      requestPayload: llmRequestLogs.requestPayload,
+      responsePayload: llmRequestLogs.responsePayload,
+      createdAt: llmRequestLogs.createdAt,
+      agentLoopExitReason: llmRequestLogs.agentLoopExitReason,
+      callSite: llmRequestLogs.callSite,
+    })
+    .from(llmRequestLogs)
+    .where(and(...predicates))
+    .orderBy(asc(llmRequestLogs.createdAt), asc(llmRequestLogs.id))
+    .all();
+}
+
+/**
+ * Find the `createdAt` of the most recent non-`compactionAgent` LLM
+ * call in the conversation strictly before `beforeCreatedAt`, or `null`
+ * when no such call exists (i.e. the cutoff is the first real call).
+ *
+ * Pairs with `getCompactionLogsBetween` to bound the compaction trail
+ * to the window between the prior real call and the selected call.
+ *
+ * "Non-compactionAgent" means `callSite IS NULL OR callSite !=
+ * 'compactionAgent'`. NULL rows are pre-migration-264 (no backfill) and
+ * are treated as real agent calls — they were `mainAgent` in practice.
+ * The OR-with-IS NULL is required because SQL's three-valued logic
+ * makes `callSite != 'compactionAgent'` return UNKNOWN (not TRUE) for
+ * NULL rows, which would otherwise filter them out.
+ */
+export function getPreviousNonCompactionCallCreatedAt(
+  conversationId: string,
+  beforeCreatedAt: number,
+): number | null {
+  const db = getDb();
+  const row = db
+    .select({ createdAt: llmRequestLogs.createdAt })
+    .from(llmRequestLogs)
+    .where(
+      and(
+        eq(llmRequestLogs.conversationId, conversationId),
+        lt(llmRequestLogs.createdAt, beforeCreatedAt),
+        or(
+          isNull(llmRequestLogs.callSite),
+          ne(llmRequestLogs.callSite, "compactionAgent"),
+        ),
+      ),
+    )
+    .orderBy(desc(llmRequestLogs.createdAt), desc(llmRequestLogs.id))
+    .limit(1)
+    .get();
+  return row?.createdAt ?? null;
 }
 
 export function getRequestLogById(logId: string): LogRow | null {
@@ -307,6 +508,7 @@ export function getRequestLogById(logId: string): LogRow | null {
         responsePayload: llmRequestLogs.responsePayload,
         createdAt: llmRequestLogs.createdAt,
         agentLoopExitReason: llmRequestLogs.agentLoopExitReason,
+        callSite: llmRequestLogs.callSite,
       })
       .from(llmRequestLogs)
       .where(eq(llmRequestLogs.id, logId))

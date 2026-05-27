@@ -1,6 +1,11 @@
 export interface ChatErrorLike {
   code?: string;
   errorCategory?: string;
+  /**
+   * When set to "modal" the error is rendered as a blocking dialog instead
+   * of an inline banner. Suppress the generic inline Notice in that case.
+   */
+  displayAs?: "inline" | "modal";
 }
 
 export type ChatBillingBannerDecision = "managed_credits" | "provider_billing";
@@ -51,7 +56,8 @@ export function shouldSuppressGenericChatErrorNotice(
   return (
     getChatBillingBannerDecision(error) !== null ||
     error?.code === PROVIDER_NOT_CONFIGURED_CODE ||
-    error?.code === MANAGED_KEY_INVALID_CODE
+    error?.code === MANAGED_KEY_INVALID_CODE ||
+    error?.displayAs === "modal"
   );
 }
 

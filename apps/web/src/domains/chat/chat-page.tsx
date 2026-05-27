@@ -8,6 +8,7 @@
 import {
   type Dispatch,
   type SetStateAction,
+  lazy,
   useCallback,
   useEffect,
   useMemo,
@@ -17,96 +18,123 @@ import {
 import { createPortal } from "react-dom";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { ChevronDown } from "lucide-react";
+import * as Sentry from "@sentry/react";
 
-import { useIsMobile } from "@/hooks/use-is-mobile.js";
-import { useAuthStore } from "@/stores/auth-store.js";
-import { useAssistantContext } from "@/components/layout/assistant-context.js";
+import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useVisibleViewport } from "@/hooks/use-visible-viewport";
+import { useAuthStore } from "@/stores/auth-store";
+import { useAssistantContext } from "@/components/layout/assistant-context";
 import { useShallow } from "zustand/shallow";
-import { useConversationStore } from "@/domains/conversations/conversation-store.js";
+import { useConversationStore } from "@/domains/conversations/conversation-store";
 import {
   useConversationGroupsQuery,
   useConversationListQuery,
-} from "@/domains/conversations/conversation-queries.js";
-import { useViewerStore } from "@/stores/viewer-store.js";
-import { useDeployStore } from "@/domains/chat/deploy-store.js";
-import { useSubagentStore, type SubagentTimelineEvent } from "@/domains/subagents/subagent-store.js";
-import type { SubagentStatus } from "@/domains/chat/api/event-types.js";
-import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
-import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
-import { useIsNativePlatform } from "@/runtime/native-auth.js";
-import { useAssistantIdentityStore } from "@/stores/assistant-identity-store.js";
+} from "@/domains/conversations/conversation-queries";
+import { useViewerStore } from "@/stores/viewer-store";
+import { useDeployStore } from "@/stores/deploy-store";
+import { useSubagentStore, type SubagentTimelineEvent } from "@/domains/subagents/subagent-store";
+import type { SubagentStatus } from "@/domains/chat/api/event-types";
+import { useInteractionStore } from "@/domains/interactions/interaction-store";
+import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
+import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
+import { useIsNativePlatform } from "@/runtime/native-auth";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
-import type { ChatError } from "@/domains/chat/types.js";
-import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
-import type { TranscriptHandle } from "@/domains/chat/transcript/transcript.js";
-import type { TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
-import { buildTranscriptItems } from "@/domains/chat/transcript/build-items.js";
-import { getThinkingStatusText, shouldShowThinkingIndicator, type UIContext } from "@/domains/messaging/turn-selectors.js";
-import { clearPendingInitialMessage, peekPendingInitialMessage, type PreChatOnboardingContext } from "@/domains/onboarding/prechat.js";
-import { createDraftConversationKey } from "@/domains/chat/utils/conversation-selection.js";
-import type { WebSyncRouter } from "@/lib/sync/web-sync-router.js";
-import type { SyncChangedEvent } from "@/lib/sync/types.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { ChatError } from "@/domains/chat/types";
+import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
+import type { TranscriptHandle } from "@/domains/chat/transcript/transcript";
+import type { TranscriptItem } from "@/domains/chat/transcript/types";
+import type { TranscriptPaginationState } from "@/domains/chat/transcript/types";
+import { type UIContext } from "@/domains/messaging/turn-selectors";
+import { peekPendingPreChatContext, type PreChatOnboardingContext } from "@/domains/onboarding/prechat";
+import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
+import type { WebSyncRouter } from "@/lib/sync/web-sync-router";
+import type { SyncChangedEvent } from "@/lib/sync/types";
 
 import { Button, ConfirmDialog } from "@vellum/design-library";
-import { VercelTokenDialog } from "@/components/vercel-token-dialog.js";
-import { useSyncChatStore } from "@/domains/chat/chat-store.js";
-import { useChatAttachments } from "@/domains/chat/components/chat-attachments/use-chat-attachments.js";
-import { useVoiceInput } from "@/domains/chat/hooks/use-voice-input.js";
-import { useAssistantAvatar } from "@/domains/avatar/use-assistant-avatar.js";
-import { useAssistantReachability } from "@/assistant/use-assistant-reachability.js";
-import { useDiskPressureMonitor } from "@/assistant/use-disk-pressure-monitor.js";
-import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure.js";
-import { useAppNudges } from "@/domains/chat/hooks/use-app-nudges.js";
-import { useConversationLoader } from "@/domains/conversations/use-conversation-loader.js";
-import { useContextWindowUsageHydration } from "@/domains/chat/hooks/use-context-window-usage-hydration.js";
-import { useConversationActions } from "@/domains/conversations/use-conversation-actions.js";
-import { useConversationSecondaryActions } from "@/domains/chat/hooks/use-conversation-secondary-actions.js";
-import { canUseLlmInspector } from "@/domains/chat/inspector/access.js";
-import { useCommandPaletteSections } from "@/domains/chat/hooks/use-command-palette-sections.js";
-import { useMessageReconciliation } from "@/domains/chat/hooks/use-message-reconciliation.js";
-import { useStreamEventHandler } from "@/domains/chat/hooks/use-stream-event-handler.js";
-import { useSendMessage } from "@/domains/chat/hooks/use-send-message.js";
-import { useInteractionActions } from "@/domains/chat/hooks/use-interaction-actions.js";
-import { useEventStream } from "@/domains/chat/hooks/use-event-stream.js";
-import { useActiveAppPinSync } from "@/domains/chat/hooks/use-active-app-pin-sync.js";
-import { useDraftInput } from "@/domains/chat/components/chat-composer/use-draft-input.js";
-import { useRefreshLatestMessages } from "@/domains/chat/hooks/use-refresh-latest-messages.js";
-import { useChatDebugApi } from "@/domains/chat/utils/debug-api.js";
+import { LazyBoundary } from "@/components/lazy-boundary";
+import { useSyncChatStore } from "@/domains/chat/chat-store";
+import { useChatAttachments } from "@/domains/chat/components/chat-attachments/use-chat-attachments";
+import { useVoiceInput } from "@/domains/chat/hooks/use-voice-input";
+import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
+import { useAssistantReachability } from "@/assistant/use-assistant-reachability";
+import { useDiskPressureMonitor } from "@/assistant/use-disk-pressure-monitor";
+import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure";
+import { useAppNudges } from "@/domains/chat/hooks/use-app-nudges";
+import { useConversationLoader } from "@/domains/conversations/use-conversation-loader";
+import { useMobileOverlayTarget } from "@/domains/chat/hooks/use-mobile-overlay-target";
+import { useContextWindowUsageHydration } from "@/domains/chat/hooks/use-context-window-usage-hydration";
+import { useConversationActions } from "@/domains/conversations/use-conversation-actions";
+import { RenameConversationDialog } from "@/domains/conversations/rename-conversation-dialog";
+import { useConversationSecondaryActions } from "@/domains/chat/hooks/use-conversation-secondary-actions";
+import { canUseLlmInspector } from "@/domains/chat/inspector/access";
+import { useCommandPaletteSections } from "@/domains/chat/hooks/use-command-palette-sections";
+import { useMessageReconciliation } from "@/domains/chat/hooks/use-message-reconciliation";
+import { useStreamEventHandler } from "@/domains/chat/hooks/use-stream-event-handler";
+import { useSendMessage } from "@/domains/chat/hooks/use-send-message";
+import { useInteractionActions } from "@/domains/chat/hooks/use-interaction-actions";
+import { useEventStream } from "@/domains/chat/hooks/use-event-stream";
+import { useActiveAppPinSync } from "@/domains/chat/hooks/use-active-app-pin-sync";
+import { useDraftInput } from "@/domains/chat/components/chat-composer/use-draft-input";
+import { useRefreshLatestMessages } from "@/domains/chat/hooks/use-refresh-latest-messages";
+import { useChatDebugApi } from "@/domains/chat/utils/debug-api";
 
-import { SetupScreen } from "@/domains/chat/components/setup-screen.js";
-import { CleanupScreen } from "@/domains/chat/components/cleanup-screen.js";
-import { PlatformHostedScreen } from "@/domains/chat/components/platform-hosted-screen.js";
-import { SelfHostedScreen } from "@/domains/chat/components/self-hosted-screen.js";
-import { VersionSelectionScreen } from "@/domains/chat/components/version-selection-screen.js";
-import { ConnectingToAssistant } from "@/domains/chat/components/connecting-to-assistant.js";
-import { fetchSuggestion } from "@/domains/chat/api/suggestion-api.js";
-import { createWebSyncRouter } from "@/lib/sync/web-sync-router.js";
-import { fetchAssistantIdentity } from "@/assistant/identity.js";
-import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/utils/error-classification.js";
-import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat-utils.js";
-import { isSurfaceInteractive } from "@/domains/chat/types/types.js";
-import { useTurnStore } from "@/domains/messaging/turn-store.js";
-import { isChannelConversation } from "@/domains/chat/utils/conversation-channel.js";
-import { buildMoveToGroupTargets } from "@/domains/chat/utils/group-conversations.js";
-import { ConversationActionsMenu } from "@/domains/chat/components/conversation-actions-menu.js";
-import { ConversationAssetsPill } from "@/domains/chat/components/conversation-assets-pill.js";
-import { CommandPalette } from "@/components/command-palette/command-palette.js";
-import { shouldHandleShortcut } from "@/domains/chat/chat-layout.js";
-import { abortSubagent, fetchSubagentDetail } from "@/domains/chat/api/conversations.js";
-import { MobileAppOverlay } from "@/domains/chat/components/mobile-app-overlay.js";
-import { MobileDocumentOverlay } from "@/domains/chat/components/mobile-document-overlay.js";
-import { MobileSubagentDetailOverlay } from "@/domains/chat/components/mobile-subagent-detail-overlay.js";
-import { getEditChatKey, setEditChatKey } from "@/domains/chat/utils/edit-chat-session.js";
-import { routes } from "@/utils/routes.js";
-import { haptic } from "@/utils/haptics.js";
-import type { AssistantIdentity } from "@/assistant/identity.js";
-import type { ChatEventStream } from "@/domains/chat/api/stream.js";
+import { SetupScreen } from "@/domains/chat/components/setup-screen";
+import { CleanupScreen } from "@/domains/chat/components/cleanup-screen";
+import { PlatformHostedScreen } from "@/domains/chat/components/platform-hosted-screen";
+import { SelfHostedScreen } from "@/domains/chat/components/self-hosted-screen";
+import { VersionSelectionScreen } from "@/domains/chat/components/version-selection-screen";
+import { ConnectingToAssistant } from "@/domains/chat/components/connecting-to-assistant";
+import { fetchSuggestion } from "@/domains/chat/api/suggestion-api";
+import { createWebSyncRouter } from "@/lib/sync/web-sync-router";
+import { assistantIdentityQueryKey } from "@/hooks/use-assistant-identity-init";
+import { useQueryClient } from "@tanstack/react-query";
+import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
+import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat-utils";
+import { isSurfaceInteractive } from "@/domains/chat/types/types";
+import { useTurnStore } from "@/domains/messaging/turn-store";
+import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
+import { buildMoveToGroupTargets } from "@/domains/chat/utils/group-conversations";
+import { ConversationActionsMenu } from "@/domains/chat/components/conversation-actions-menu";
+import { ConversationAssetsPill } from "@/domains/chat/components/conversation-assets-pill";
+const AddCreditsModal = lazy(() =>
+  import("@/components/add-credits-modal").then((m) => ({
+    default: m.AddCreditsModal,
+  })),
+);
+// Vercel token dialog is only shown when the deploy flow needs a token, and
+// CommandPalette only renders when the user opens it (Cmd+K / Ctrl+K). Defer
+// loading to keep their form/list deps out of the chat-critical bundle.
+const VercelTokenDialog = lazy(() =>
+  import("@/components/vercel-token-dialog").then((m) => ({
+    default: m.VercelTokenDialog,
+  })),
+);
+const CommandPalette = lazy(() =>
+  import("@/components/command-palette/command-palette").then((m) => ({
+    default: m.CommandPalette,
+  })),
+);
+import { shouldHandleShortcut } from "@/domains/chat/chat-layout";
+import { subagentsByIdAbortPost } from "@/generated/daemon/sdk.gen";
+import { fetchSubagentDetail } from "@/utils/fetch-subagent-detail";
+import { MobileAppOverlay } from "@/domains/chat/components/mobile-app-overlay";
+import { MobileDocumentOverlay } from "@/domains/chat/components/mobile-document-overlay";
+import { MobileSubagentDetailOverlay } from "@/domains/chat/components/mobile-subagent-detail-overlay";
+import { MobileToolDetailOverlay } from "@/domains/chat/components/mobile-tool-detail-overlay";
+import {
+  type ChatConnectingReason,
+  resolveChatConnectingReason,
+} from "@/domains/chat/utils/connecting-reason";
+import { getEditChatConversationId, setEditChatConversationId } from "@/domains/chat/utils/edit-chat-session";
+import { routes } from "@/utils/routes";
+import { haptic } from "@/utils/haptics";
+import type { ChatEventStream } from "@/domains/chat/api/stream";
 import {
   ChatRouteContent,
   type ChatRouteContentProps,
-} from "@/domains/chat/components/chat-route-content.js";
+} from "@/domains/chat/components/chat-route-content";
 
 // ---------------------------------------------------------------------------
 // Component
@@ -117,26 +145,28 @@ export function ChatPage() {
   const authUser = useAuthStore.use.user();
   const showLlmInspector = canUseLlmInspector(authUser);
   const isMobile = useIsMobile();
+  const visibleViewport = useVisibleViewport();
+  const keyboardOpen =
+    isMobile && visibleViewport !== null && visibleViewport.keyboardHeight > 100;
   const isNative = useIsNativePlatform();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { conversationKey: urlConversationKey } = useParams<{ conversationKey?: string }>();
+  const { conversationId: urlConversationId } = useParams<{ conversationId?: string }>();
   const {
     assistantId,
     assistantState,
     checkAssistant,
     retryAssistant,
     hatchVersion,
-    setAssistantId,
     setTopBarCenter,
     setTopBarRightSlot,
     setOnSearchClick,
-    setFooterBanner,
   } = useAssistantContext();
   const chatPullToRefreshEnabled = useClientFeatureFlagStore.use.chatPullToRefreshEnabled();
   const deployToVercel = useAssistantFeatureFlagStore.use.deployToVercel();
   const doctor = useClientFeatureFlagStore.use.doctor();
   const conversationGroupsUI = useAssistantFeatureFlagStore.use.conversationGroupsUI();
+  const selfHostedChatEnabled = useClientFeatureFlagStore.use.selfHostedAssistant();
 
   // -------------------------------------------------------------------------
   // Local state
@@ -144,26 +174,24 @@ export function ChatPage() {
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [error, setError] = useState<ChatError | null>(null);
   // Seed with `true` so the chat scroll area renders the skeleton on the very
-  // first frame. The conversation loader bootstrap (`getChatContext` →
+  // first frame. The conversation loader bootstrap (conversation list query →
   // `SET_ACTIVE_KEY` → `use-conversation-history`) is asynchronous, and
   // without this seed the brief window between mount and the history effect
   // dispatching `setIsLoadingHistory(true)` leaves the user staring at a
   // blank pane — none of `ChatScrollArea`'s four branches match
-  // (`isLoadingHistory` false, `activeConversationKey` null, no messages).
+  // (`isLoadingHistory` false, `activeConversationId` null, no messages).
   // Set to true means "we're bootstrapping" until the history hook resolves
   // and flips it false (for both real conversations and empty drafts).
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [compactionCircuitOpenUntil, setCompactionCircuitOpenUntil] = useState<Date | null>(null);
   const [suggestion, setSuggestion] = useState<string | null>(null);
   const [showAddCreditsModal, setShowAddCreditsModal] = useState(false);
-  void showAddCreditsModal;
 
-  const [restoredDraftConversationKey, setRestoredDraftConversationKey] = useState<string | null>(null);
+  const [restoredDraftConversationId, setRestoredDraftConversationId] = useState<string | null>(null);
   const [refreshEpoch, setRefreshEpoch] = useState(0);
   const [autoGreetPending, setAutoGreetPending] = useState(
-    () => peekPendingInitialMessage() !== null,
+    () => peekPendingPreChatContext()?.initialMessage != null,
   );
-  const awaitingAutoGreetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [contextWindowUsage, setContextWindowUsage] = useState<ContextWindowUsage | null>(null);
   const [transcriptPagination, setTranscriptPagination] = useState<Omit<TranscriptPaginationState, "items">>({
     hasMore: false,
@@ -172,29 +200,35 @@ export function ChatPage() {
     isPinnedToLatest: true,
   });
   const [assetsRefreshKey, setAssetsRefreshKey] = useState(0);
-  const [assistantIdentity, setAssistantIdentity] = useState<AssistantIdentity | null>(null);
-  const [overlayTarget, setOverlayTarget] = useState<HTMLElement | null>(null);
   const prePinGroupIdsRef = useRef<Map<string, string | undefined>>(new Map());
 
   // -------------------------------------------------------------------------
   // Conversation list / groups (server state via TanStack Query)
   // -------------------------------------------------------------------------
   const isAssistantActive = assistantState.kind === "active";
-  const { conversations } = useConversationListQuery(
-    assistantId,
-    isAssistantActive,
-  );
+  // The chat surface also renders for self-hosted assistants when the
+  // `self-hosted-assistant` flag is on (see the early-return below). In that
+  // mode the assistant is reachable from the API just like an active one, so
+  // queries / effects that gate on "assistant can be talked to" should fire.
+  const shouldRenderChat =
+    isAssistantActive ||
+    (assistantState.kind === "self_hosted" && selfHostedChatEnabled);
+  const {
+    conversations,
+    isError: conversationListIsError,
+    refetch: refetchConversationList,
+  } = useConversationListQuery(assistantId, shouldRenderChat);
   const { conversationGroups } = useConversationGroupsQuery(
     assistantId,
-    isAssistantActive && conversationGroupsUI,
+    shouldRenderChat && conversationGroupsUI,
   );
 
   // -------------------------------------------------------------------------
   // Zustand store selectors
   // -------------------------------------------------------------------------
-  const activeConversationKey = useConversationStore.use.activeConversationKey();
-  const editingConversationKey = useConversationStore.use.editingConversationKey();
-  const processingKeys = useConversationStore.use.processingKeys();
+  const activeConversationId = useConversationStore.use.activeConversationId();
+  const editingConversationId = useConversationStore.use.editingConversationId();
+  const processingConversationIds = useConversationStore.use.processingConversationIds();
   const viewerState = useViewerStore(useShallow((s) => ({
     mainView: s.mainView,
     activeAppId: s.activeAppId,
@@ -206,34 +240,29 @@ export function ChatPage() {
     viewBeforeDocument: s.viewBeforeDocument,
     activeSubagentId: s.activeSubagentId,
     viewBeforeSubagentDetail: s.viewBeforeSubagentDetail,
+    activeToolDetail: s.activeToolDetail,
   })));
   const subagentState = useSubagentStore(useShallow((s) => ({ byId: s.byId, orderedIds: s.orderedIds })));
   const isSharing = useDeployStore.use.isSharing();
   const isDeploying = useDeployStore.use.isDeploying();
   const isTokenDialogOpen = useDeployStore.use.isTokenDialogOpen();
   const complexDeployApp = useDeployStore.use.complexDeployApp();
-  const subagentEntries = useMemo(
-    () => subagentState.orderedIds.map((id) => subagentState.byId[id]!).filter(Boolean),
-    [subagentState.byId, subagentState.orderedIds],
-  );
+
+  // Assistant identity is fetched and stored by `useAssistantIdentityInit`
+  // at the `ChatLayout` level (TanStack Query → Zustand) so the sidebar
+  // header populates on every `/assistant/*` route. ChatPage reads the
+  // store via atomic selectors per `docs/STATE_MANAGEMENT.md` rather
+  // than maintaining its own local copy.
+  const assistantName = useAssistantIdentityStore.use.name();
+  const queryClient = useQueryClient();
 
   // -------------------------------------------------------------------------
   // Pin-sync side-effect
   // -------------------------------------------------------------------------
-  const handleActiveAppUnpinned = useCallback(
-    (appId: string) => {
-      const { activeAppId, mainView } = useViewerStore.getState();
-      useViewerStore.getState().handleAppUnpinned(appId);
-      if (
-        activeAppId === appId &&
-        (mainView === "app" || mainView === "app-editing")
-      ) {
-        useConversationStore.getState().setEditingKey(null);
-      }
-    },
-    [],
-  );
-  useActiveAppPinSync(handleActiveAppUnpinned);
+  // Cross-store coordination (clearing the app + editing-conversation when
+  // the active app gets unpinned) lives inside `viewer-store.handleAppUnpinned`,
+  // so every consumer gets the same behavior without re-implementing it.
+  useActiveAppPinSync(useViewerStore.getState().handleAppUnpinned);
 
   // -------------------------------------------------------------------------
   // Shared refs — owned here, read/written by hooks
@@ -241,7 +270,8 @@ export function ChatPage() {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const messagesRef = useRef<DisplayMessage[]>(messages);
   messagesRef.current = messages;
-  const transcriptItemsRef = useRef<ReturnType<typeof buildTranscriptItems>>([]);
+  const sanitizedMessagesRef = useRef<DisplayMessage[]>([]);
+  const transcriptItemsRef = useRef<TranscriptItem[]>([]);
   // Owned here so `useChatDebugApi` (also called from this component) can
   // read scroll geometry directly via `transcriptRef.current.getScrollElement()`.
   // Threaded down to ChatRouteContent through the `refs` prop and bound on
@@ -249,8 +279,8 @@ export function ChatPage() {
   const transcriptRef = useRef<TranscriptHandle | null>(null);
 
 
-  const activeConversationKeyRef = useRef<string | null>(activeConversationKey);
-  useEffect(() => { activeConversationKeyRef.current = activeConversationKey; }, [activeConversationKey]);
+  const activeConversationIdRef = useRef<string | null>(activeConversationId);
+  useEffect(() => { activeConversationIdRef.current = activeConversationId; }, [activeConversationId]);
 
   const assistantIdRef = useRef<string | null>(assistantId);
   useEffect(() => { assistantIdRef.current = assistantId; }, [assistantId]);
@@ -260,17 +290,16 @@ export function ChatPage() {
   const streamEpochRef = useRef(0);
   const streamContextRef = useRef<{ assistantId: string; conversationId: string } | null>(null);
   const reconcileAfterNextStreamOpenRef = useRef(false);
-  const needsNewBubbleRef = useRef(true);
   const dismissedSurfaceIdsRef = useRef<Set<string>>(new Set());
   const pendingOnboardingContextRef = useRef<PreChatOnboardingContext | null>(null);
-  const onboardingDraftConversationKeyRef = useRef<string | null>(null);
+  const onboardingDraftConversationIdRef = useRef<string | null>(null);
   const [didOnboarding, setDidOnboarding] = useState(false);
   const [onboardingTasksEmpty, setOnboardingTasksEmpty] = useState(false);
-  const [onboardingConversationKey, setOnboardingConversationKey] = useState<string | null>(null);
-  const draftKeyResolutionRef = useRef(false);
-  const previousConversationKeyRef = useRef<string | null>(null);
-  const pendingQueuedStableIdsRef = useRef<string[]>([]);
-  const requestIdToStableIdRef = useRef<Map<string, string>>(new Map());
+  const [onboardingConversationId, setOnboardingConversationId] = useState<string | null>(null);
+  const draftConversationIdResolutionRef = useRef(false);
+  const previousConversationIdRef = useRef<string | null>(null);
+  const pendingQueuedMessageIdsRef = useRef<string[]>([]);
+  const requestIdToMessageIdRef = useRef<Map<string, string>>(new Map());
   const pendingLocalDeletionsRef = useRef<Set<string>>(new Set());
   const confirmationToolCallMapRef = useRef<Map<string, string>>(new Map());
   const streamingMessageIdsRef = useRef<Set<string>>(new Set());
@@ -278,14 +307,14 @@ export function ChatPage() {
   const autoGreetRef = useRef(false);
   const initialPageOldestTsRef = useRef<number | null>(null);
   const conversationListInvalidatedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingInitialMessageRef = useRef<{ conversationKey: string; content: string } | null>(null);
+  const pendingInitialMessageRef = useRef<{ conversationId: string; content: string } | null>(null);
   const expandedToolCallIdsRef = useRef<Set<string>>(new Set());
   const contextWindowUsageByConversationRef = useRef<Map<string, ContextWindowUsage>>(new Map());
   const syncRouterRef = useRef<WebSyncRouter | null>(null);
 
   useContextWindowUsageHydration({
     assistantId,
-    activeConversationKey,
+    activeConversationId,
     contextWindowUsageByConversationRef,
     setContextWindowUsage,
   });
@@ -315,7 +344,7 @@ export function ChatPage() {
   // -------------------------------------------------------------------------
   const diskPressure = useDiskPressureMonitor({
     assistantId,
-    enabled: assistantState.kind === "active",
+    enabled: shouldRenderChat,
   });
   const diskPressureChatBlockReason = getDiskPressureChatBlockReason({
     monitorEnabled: diskPressure.mode !== null,
@@ -330,9 +359,9 @@ export function ChatPage() {
   // -------------------------------------------------------------------------
   const { input, setInput, saveDraft, clearDraft } = useDraftInput({
     assistantId,
-    activeConversationKey,
-    draftKeyResolutionRef,
-    onDraftRestored: setRestoredDraftConversationKey,
+    activeConversationId,
+    draftConversationIdResolutionRef,
+    onDraftRestored: setRestoredDraftConversationId,
   });
 
   // -------------------------------------------------------------------------
@@ -379,15 +408,10 @@ export function ChatPage() {
   // Derived state
   // -------------------------------------------------------------------------
   const activeConversation = useMemo(
-    () => conversations.find((c) => c.conversationKey === activeConversationKey),
-    [conversations, activeConversationKey],
+    () => conversations.find((c) => c.conversationId === activeConversationId),
+    [conversations, activeConversationId],
   );
   const isChannelReadonly = isChannelConversation(activeConversation);
-
-  const syncNeedsNewBubbleFromMessages = useCallback((nextMessages: DisplayMessage[]) => {
-    const lastMsg = nextMessages[nextMessages.length - 1];
-    needsNewBubbleRef.current = !lastMsg || lastMsg.role !== "assistant" || !lastMsg.isStreaming;
-  }, []);
 
   // -------------------------------------------------------------------------
   // Conversation loader
@@ -402,8 +426,8 @@ export function ChatPage() {
   } = useConversationLoader({
     assistantId,
     assistantStateKind: assistantState.kind,
-    activeConversationKey,
-    urlConversationKey: urlConversationKey ?? null,
+    activeConversationId,
+    urlConversationId: urlConversationId ?? null,
     searchParams,
     navigate,
     conversations,
@@ -411,23 +435,21 @@ export function ChatPage() {
     refreshEpoch,
     reachabilityReadyEpoch,
     assistantIdRef,
-    draftKeyResolutionRef,
-    previousConversationKeyRef,
-    onboardingDraftConversationKeyRef,
-    activeConversationKeyRef,
+    draftConversationIdResolutionRef,
+    previousConversationIdRef,
+    onboardingDraftConversationIdRef,
+    activeConversationIdRef,
     contextWindowUsageByConversationRef,
     dismissedSurfaceIdsRef,
-    needsNewBubbleRef,
     streamingMessageIdsRef,
-    pendingQueuedStableIdsRef,
-    requestIdToStableIdRef,
+    pendingQueuedMessageIdsRef,
+    requestIdToMessageIdRef,
     pendingLocalDeletionsRef,
     confirmationToolCallMapRef,
     lastSuggestionMsgIdRef,
     autoGreetRef,
     conversationListInvalidatedTimerRef,
     pendingInitialMessageRef,
-    setAssistantId,
     setMessages,
     setTranscriptPagination: setTranscriptPagination as Dispatch<SetStateAction<Omit<TranscriptPaginationState, "items">>>,
     setIsLoadingHistory,
@@ -437,7 +459,6 @@ export function ChatPage() {
     setSuggestion,
     setCompactionCircuitOpenUntil,
     resetChatAttachments,
-    syncNeedsNewBubbleFromMessages,
     shouldSuppressGenericChatErrorNotice,
   });
 
@@ -476,28 +497,16 @@ export function ChatPage() {
     autoGreetRef.current = true;
     setDidOnboarding(true);
     setAutoGreetPending(true);
-    if (awaitingAutoGreetTimeoutRef.current) {
-      clearTimeout(awaitingAutoGreetTimeoutRef.current);
-    }
-    awaitingAutoGreetTimeoutRef.current = setTimeout(() => {
-      setAutoGreetPending(false);
-    }, 10_000);
-    const onboardingDraftKey =
-      onboardingDraftConversationKeyRef.current ?? createDraftConversationKey();
-    onboardingDraftConversationKeyRef.current = onboardingDraftKey;
-    setOnboardingConversationKey(onboardingDraftKey);
-    useConversationStore.getState().setActiveKey(onboardingDraftKey);
+    const onboardingDraftConversationId =
+      onboardingDraftConversationIdRef.current ?? createDraftConversationId();
+    onboardingDraftConversationIdRef.current = onboardingDraftConversationId;
+    setOnboardingConversationId(onboardingDraftConversationId);
+    useConversationStore.getState().setActiveConversationId(onboardingDraftConversationId);
     // Do NOT drain sessionStorage here — this ChatPage instance unmounts
     // when we navigate to /conversations/:key (different route entry),
     // losing all refs. Leave the context in sessionStorage so the new
     // mount's sendMessage hook and auto-send effect can consume it.
-    void navigate(routes.conversation(onboardingDraftKey), { replace: true });
-    return () => {
-      if (awaitingAutoGreetTimeoutRef.current) {
-        clearTimeout(awaitingAutoGreetTimeoutRef.current);
-        awaitingAutoGreetTimeoutRef.current = null;
-      }
-    };
+    void navigate(routes.conversation(onboardingDraftConversationId), { replace: true });
   }, [searchParams, navigate]);
 
   // -------------------------------------------------------------------------
@@ -511,29 +520,35 @@ export function ChatPage() {
     setMessages,
     streamContextRef,
     streamEpochRef,
-    activeConversationKeyRef,
+    activeConversationIdRef,
     initialPageOldestTsRef,
   });
 
   // -------------------------------------------------------------------------
-  // Assistant identity
+  // Assistant identity (refresh trigger)
   // -------------------------------------------------------------------------
+  // The actual fetch lives in `useAssistantIdentityInit` at the
+  // `ChatLayout` level (TanStack Query → Zustand store). Chat-page only
+  // owns the *invalidation* triggers that the layout's query doesn't
+  // know about: SSE `identity_changed`, post-`/edit-identity` flush,
+  // and reachability resumes. Each downstream consumer (sync router,
+  // stream event handler, send-message hook) calls this and the layout
+  // re-fetches.
   const refreshAssistantIdentity = useCallback(
-    async (preserveOnFailure = false) => {
+    async () => {
       const targetId = assistantIdRef.current;
       if (!targetId) return;
-      const identity = await fetchAssistantIdentity(targetId);
-      if (assistantIdRef.current !== targetId) return;
-      if (identity === null && preserveOnFailure) return;
-      setAssistantIdentity(identity);
+      await queryClient.invalidateQueries({
+        queryKey: assistantIdentityQueryKey(targetId),
+      });
     },
-    [],
+    [queryClient],
   );
 
   useEffect(() => {
-    if (assistantState.kind !== "active" || !assistantId) return;
+    if (!shouldRenderChat || !assistantId) return;
     void refreshAssistantIdentity();
-  }, [assistantState.kind, assistantId, reachabilityReadyEpoch, refreshAssistantIdentity]);
+  }, [shouldRenderChat, assistantId, reachabilityReadyEpoch, refreshAssistantIdentity]);
 
   // -------------------------------------------------------------------------
   // Sync router
@@ -542,7 +557,7 @@ export function ChatPage() {
 
   useEffect(() => {
     const syncRouter = createWebSyncRouter({
-      activeConversationKeyRef,
+      activeConversationIdRef,
       invalidateAvatar,
       refreshAssistantIdentity,
       invalidateAssistantConfig: () => {},
@@ -577,12 +592,11 @@ export function ChatPage() {
     push,
     isNative,
     streamEpochRef,
-    activeConversationKeyRef,
+    activeConversationIdRef,
     streamContextRef,
     assistantIdRef,
     setMessages,
     messagesRef,
-    needsNewBubbleRef,
     setError,
     streamRef,
     cancelReconciliation,
@@ -598,8 +612,8 @@ export function ChatPage() {
     refreshAssistantIdentity,
     invalidateAvatar,
     dispatchSyncChanged,
-    pendingQueuedStableIdsRef,
-    requestIdToStableIdRef,
+    pendingQueuedMessageIdsRef,
+    requestIdToMessageIdRef,
     pendingLocalDeletionsRef,
   });
 
@@ -616,23 +630,22 @@ export function ChatPage() {
     handleEditQueueTail,
   } = useSendMessage({
     assistantId,
-    activeConversationKey,
+    activeConversationId,
     diskPressureChatBlockReason,
     messages,
     assistantIdRef,
-    activeConversationKeyRef,
+    activeConversationIdRef,
     messagesRef,
     streamRef,
     streamContextRef,
     streamEpochRef,
-    needsNewBubbleRef,
     dismissedSurfaceIdsRef,
     pendingOnboardingContextRef,
-    onboardingDraftConversationKeyRef,
-    draftKeyResolutionRef,
-    previousConversationKeyRef,
-    pendingQueuedStableIdsRef,
-    requestIdToStableIdRef,
+    onboardingDraftConversationIdRef,
+    draftConversationIdResolutionRef,
+    previousConversationIdRef,
+    pendingQueuedMessageIdsRef,
+    requestIdToMessageIdRef,
     pendingLocalDeletionsRef,
     confirmationToolCallMapRef,
     setMessages,
@@ -654,17 +667,17 @@ export function ChatPage() {
   const promptConsumedRef = useRef<string | null>(null);
   useEffect(() => {
     const prompt = searchParams.get("prompt");
-    if (!prompt || !activeConversationKey || promptConsumedRef.current === prompt) return;
+    if (!prompt || !activeConversationId || promptConsumedRef.current === prompt) return;
     promptConsumedRef.current = prompt;
     void sendMessage(prompt);
-  }, [searchParams, activeConversationKey, sendMessage]);
+  }, [searchParams, activeConversationId, sendMessage]);
 
   // Kick off a background reachability probe immediately when a pending
   // onboarding message exists, instead of waiting for a 502 from
-  // getChatContext to trigger the unreachable-bus.
+  // the conversation list query to trigger the unreachable-bus.
   useEffect(() => {
     if (!assistantId) return;
-    const message = peekPendingInitialMessage();
+    const message = peekPendingPreChatContext()?.initialMessage;
     if (!message) return;
     if (reachability.state.phase === "idle") {
       reachability.probe({ mode: "background" });
@@ -674,24 +687,34 @@ export function ChatPage() {
   // Auto-send onboarding initial message once the daemon is reachable.
   const initialMessageConsumedRef = useRef(false);
   useEffect(() => {
-    if (initialMessageConsumedRef.current || !assistantId || !activeConversationKey) return;
+    if (initialMessageConsumedRef.current || !assistantId || !activeConversationId) return;
     if (reachability.state.phase !== "ready") return;
-    const message = peekPendingInitialMessage();
+    const message = peekPendingPreChatContext()?.initialMessage;
     if (!message) return;
     initialMessageConsumedRef.current = true;
-    clearPendingInitialMessage();
     void sendMessage(message);
-  }, [activeConversationKey, assistantId, reachability.state.phase, sendMessage]);
+  }, [activeConversationId, assistantId, reachability.state.phase, sendMessage]);
 
-  // Clear the auto-greet loading gate once messages arrive (the assistant
-  // responded) or the 10-second safety timeout expires. Matches platform's
-  // awaitingAutoGreet pattern.
+  // Clear the post-onboarding loading gate once the first message appears.
   useEffect(() => {
     if (!autoGreetPending) return;
     if (messages.length > 0) {
       setAutoGreetPending(false);
     }
   }, [autoGreetPending, messages.length]);
+
+  // The onboarding redirect remounts ChatPage after leaving
+  // `/assistant?onboarding=1`; a timeout armed on the first mount is cancelled
+  // during that remount. Arm the safety timer from the actual mounted page
+  // that is rendering the loading gate so a failed auto-send cannot strand
+  // the user on "Connecting..." until refresh.
+  useEffect(() => {
+    if (!autoGreetPending) return;
+    const timeout = setTimeout(() => {
+      setAutoGreetPending(false);
+    }, 10_000);
+    return () => clearTimeout(timeout);
+  }, [autoGreetPending]);
 
   // Derive onboardingTasksEmpty from the pending context in sessionStorage.
   // Runs once on mount — if initial message key is present, this is an
@@ -730,12 +753,12 @@ export function ChatPage() {
   // Clear question prompt when conversation changes
   useEffect(() => {
     useInteractionStore.getState().dismissQuestion();
-  }, [activeConversationKey]);
+  }, [activeConversationId]);
 
   // Reset subagent state when conversation changes
   useEffect(() => {
     useSubagentStore.getState().reset();
-  }, [activeConversationKey]);
+  }, [activeConversationId]);
 
   // -------------------------------------------------------------------------
   // Subagent detail fetching
@@ -824,7 +847,7 @@ export function ChatPage() {
   const fetchedSubagentsRef = useRef<Map<string, number>>(new Map());
   useEffect(() => {
     fetchedSubagentsRef.current.clear();
-  }, [activeConversationKey]);
+  }, [activeConversationId]);
   useEffect(() => {
     if (!assistantId) return;
     const entries = Object.values(subagentState.byId);
@@ -846,7 +869,7 @@ export function ChatPage() {
     setError,
     messagesRef,
     streamContextRef,
-    activeConversationKeyRef,
+    activeConversationIdRef,
     confirmationToolCallMapRef,
   });
 
@@ -856,7 +879,7 @@ export function ChatPage() {
   useEventStream({
     assistantStateKind: assistantState.kind,
     assistantId,
-    activeConversationKey,
+    activeConversationId,
     conversationExistsOnServer,
     streamRef,
     streamEpochRef,
@@ -880,7 +903,7 @@ export function ChatPage() {
   // -------------------------------------------------------------------------
   const refreshLatestMessages = useRefreshLatestMessages({
     assistantId,
-    activeConversationKeyRef,
+    activeConversationIdRef,
     messagesRef,
     setMessages,
     dismissedSurfaceIdsRef,
@@ -897,12 +920,13 @@ export function ChatPage() {
   // by which point initialization is complete.
   useChatDebugApi({
     messagesRef,
+    sanitizedMessagesRef,
     transcriptItemsRef,
     transcriptRef,
     streamContextRef,
     streamRef,
     streamEpochRef,
-    activeConversationKeyRef,
+    activeConversationIdRef,
     getAssistantId: () => assistantIdRef.current,
     getTurnState: () => useTurnStore.getState(),
     getUIContext: () => _uiContext,
@@ -940,29 +964,15 @@ export function ChatPage() {
   // -------------------------------------------------------------------------
   useSyncChatStore({
     messages,
-    activeConversationKey,
+    activeConversationId,
     assistantId,
     sendMessage,
   });
 
-  // -------------------------------------------------------------------------
-  // Sync assistant identity to the global store (read by ChatLayout)
-  // -------------------------------------------------------------------------
-  useEffect(() => {
-    // Identity is hoisted to the layout via `useAssistantIdentityInit`
-    // (LUM-1747) so the sidebar keeps the correct name on sibling
-    // routes (Library, Identity, Contacts). ChatPage still writes
-    // when it has fresher local state (e.g. after an SSE
-    // `identity_changed` refresh), and only when non-null — clearing
-    // on assistant context change (tenant switch, logout) is owned
-    // by `useAssistantIdentityInit`, not by route transitions.
-    if (assistantIdentity) {
-      useAssistantIdentityStore.getState().setIdentity(
-        assistantIdentity.name ?? null,
-        assistantIdentity.version ?? null,
-      );
-    }
-  }, [assistantIdentity]);
+  // (Previously: a useEffect mirrored a local `useState<AssistantIdentity>`
+  // into `useAssistantIdentityStore`. That mirror is gone — chat-page now
+  // reads the store via atomic selectors above and `useAssistantIdentityInit`
+  // at the layout level owns the fetch + write. LUM-1959.)
 
   // -------------------------------------------------------------------------
   // Conversation actions (archive, pin, rename, etc.)
@@ -976,9 +986,12 @@ export function ChatPage() {
     handleMoveToGroup,
     handleRemoveFromGroup,
     handleRenameConversation,
+    renameRequest,
+    submitRenameConversation,
+    cancelRenameConversation,
   } = useConversationActions({
     assistantId,
-    activeConversationKey,
+    activeConversationId,
     conversations,
     refreshConversations,
     switchConversation,
@@ -996,9 +1009,9 @@ export function ChatPage() {
     handleCopyConversation,
   } = useConversationSecondaryActions({
     assistantId,
-    activeConversationKey,
+    activeConversationId,
     activeConversation: activeConversation ?? null,
-    assistantIdentityName: assistantIdentity?.name ?? undefined,
+    assistantIdentityName: assistantName ?? undefined,
     messagesRef,
     refreshConversations,
     switchConversation,
@@ -1017,9 +1030,9 @@ export function ChatPage() {
   const { commandPalette, mergedSections, handleItemSelect } =
     useCommandPaletteSections({
       assistantId,
-      assistantName: assistantIdentity?.name ?? undefined,
+      assistantName: assistantName ?? undefined,
       conversations,
-      activeConversationKey: activeConversationKey ?? undefined,
+      activeConversationId: activeConversationId ?? undefined,
       startNewConversation: () => startNewConversation(),
       switchConversation,
       navigate: (to: string | number) => {
@@ -1055,7 +1068,7 @@ export function ChatPage() {
   // Layout header slot registration — topBarCenter + topBarRightSlot
   // -------------------------------------------------------------------------
   const hasPersistedMessage = useMemo(
-    () => messages.some((m) => m.daemonMessageId != null || m.id != null),
+    () => messages.some((m) => m.id != null),
     [messages],
   );
 
@@ -1081,7 +1094,7 @@ export function ChatPage() {
         onArchive={() => handleArchiveConversation(activeConversation)}
         onUnarchive={() => handleUnarchiveConversation(activeConversation)}
         onAnalyze={
-          !isChannelReadonly && activeConversation.conversationKey
+          !isChannelReadonly && activeConversation.conversationId
             ? () => handleAnalyzeConversation(activeConversation)
             : undefined
         }
@@ -1091,12 +1104,12 @@ export function ChatPage() {
             : undefined
         }
         onOpenInNewWindow={
-          activeConversation.conversationKey
+          activeConversation.conversationId
             ? () => handleOpenInNewWindow(activeConversation)
             : undefined
         }
         onInspect={
-          showLlmInspector && activeConversation.conversationKey
+          showLlmInspector && activeConversation.conversationId
             ? () => handleInspectConversation(activeConversation)
             : undefined
         }
@@ -1106,7 +1119,7 @@ export function ChatPage() {
             : undefined
         }
         onRefresh={
-          activeConversation.conversationKey != null
+          activeConversation.conversationId != null
             ? refreshLatestMessages
             : undefined
         }
@@ -1189,12 +1202,12 @@ export function ChatPage() {
       haptic.light();
       await useViewerStore.getState().loadApp(assistantId, appId);
       const { activeAppId, openedAppState } = useViewerStore.getState();
-      if (activeConversationKey && openedAppState && activeAppId === appId) {
-        useConversationStore.getState().setEditingKey(activeConversationKey);
+      if (activeConversationId && openedAppState && activeAppId === appId) {
+        useConversationStore.getState().setEditingConversationId(activeConversationId);
         useViewerStore.getState().enterAppEditing();
       }
     },
-    [assistantId, activeConversationKey],
+    [assistantId, activeConversationId],
   );
 
   const handleOpenDocument = useCallback(
@@ -1206,17 +1219,17 @@ export function ChatPage() {
   );
 
   const topBarRightContent = useMemo(() => {
-    if (!activeConversation?.conversationKey || !assistantId) return null;
+    if (!activeConversation?.conversationId || !assistantId) return null;
     return (
       <ConversationAssetsPill
         assistantId={assistantId}
-        conversationId={activeConversation.conversationKey}
+        conversationId={activeConversation.conversationId}
         refreshKey={assetsRefreshKey}
         onOpenApp={handleOpenAppFromChat}
         onOpenDocument={handleOpenDocument}
       />
     );
-  }, [activeConversation?.conversationKey, assistantId, assetsRefreshKey, handleOpenAppFromChat, handleOpenDocument]);
+  }, [activeConversation?.conversationId, assistantId, assetsRefreshKey, handleOpenAppFromChat, handleOpenDocument]);
 
   useEffect(() => {
     setTopBarRightSlot(topBarRightContent);
@@ -1226,11 +1239,7 @@ export function ChatPage() {
   // -------------------------------------------------------------------------
   // Mobile overlay portal — resolve after DOM commit (CONVENTIONS.md §SSR)
   // -------------------------------------------------------------------------
-  useEffect(() => {
-    setOverlayTarget(
-      isMobile ? document.getElementById("viewport-overlays") : null,
-    );
-  }, [isMobile]);
+  const overlayTarget = useMobileOverlayTarget();
 
   // -------------------------------------------------------------------------
   // Ghost-text suggestion: fetch after each completed assistant turn
@@ -1241,13 +1250,13 @@ export function ChatPage() {
   useEffect(() => {
     const lastMsg = messages[messages.length - 1];
     if (!lastMsg || lastMsg.role !== "assistant" || lastMsg.isStreaming) return;
-    if (!assistantId || !activeConversationKey) return;
+    if (!assistantId || !activeConversationId) return;
     const msgId = lastMsg.id ?? null;
     if (msgId === lastSuggestionMsgIdRef.current) return;
     lastSuggestionMsgIdRef.current = msgId;
 
     const controller = new AbortController();
-    void fetchSuggestion(assistantId, activeConversationKey, lastMsg.id, controller.signal)
+    void fetchSuggestion(assistantId, activeConversationId, lastMsg.id, controller.signal)
       .then((r) => {
         if (controller.signal.aborted) return;
         if (inputSnapshotRef.current) return;
@@ -1255,15 +1264,7 @@ export function ChatPage() {
       })
       .catch(() => {});
     return () => { controller.abort(); };
-  }, [messages, assistantId, activeConversationKey, setSuggestion]);
-
-  // -------------------------------------------------------------------------
-  // Nudge sidebar footer banner — push into the layout via outlet context
-  // -------------------------------------------------------------------------
-  useEffect(() => {
-    setFooterBanner(nudges.sidebarBanner);
-    return () => { setFooterBanner(null); };
-  }, [nudges.sidebarBanner, setFooterBanner]);
+  }, [messages, assistantId, activeConversationId, setSuggestion]);
 
   // -------------------------------------------------------------------------
   // Derived UI state
@@ -1279,7 +1280,7 @@ export function ChatPage() {
     return false;
   }, [messages]);
 
-  const activeConversationIsProcessing = activeConversationKey != null && processingKeys.has(activeConversationKey);
+  const activeConversationIsProcessing = activeConversationId != null && processingConversationIds.has(activeConversationId);
   const activeConversationHasPendingAssistantResponse = useMemo(
     () => hasPendingAssistantResponse(messages),
     [messages],
@@ -1303,55 +1304,36 @@ export function ChatPage() {
   };
   void _uiContext;
 
-  // Turn store state — used for building transcriptItems and debug API
-  const phase = useTurnStore.use.phase();
-  const pendingQueuedCount = useTurnStore.use.pendingQueuedCount();
-  const activeToolCallCount = useTurnStore.use.activeToolCallCount();
-  const activeTurnId = useTurnStore.use.activeTurnId();
-  const lastTerminalReason = useTurnStore.use.lastTerminalReason();
-  const statusText = useTurnStore.use.statusText();
-  const liveWebActivity = useTurnStore.use.liveWebActivity();
-  const turnState = { phase, pendingQueuedCount, activeToolCallCount, activeTurnId, lastTerminalReason, statusText, liveWebActivity };
-
-  // Thinking state and onboarding choice state — used for transcriptItems
-  const showThinking = useMemo(
-    () => shouldShowThinkingIndicator(turnState, _uiContext),
-    [turnState, _uiContext],
-  );
-  const thinkingLabel = useMemo(
-    () => getThinkingStatusText(turnState),
-    [turnState],
-  );
-
-  // Build transcriptItems for rendering and debug API
-  const transcriptItems = useMemo(
-    () => buildTranscriptItems({
-      messages,
-      pendingSecret,
-      pendingConfirmation,
-      pendingContactRequest: pendingContactRequest
-        ? {
-            requestId: pendingContactRequest.requestId,
-            channel: pendingContactRequest.channel,
-            placeholder: pendingContactRequest.placeholder,
-            label: pendingContactRequest.label,
-            description: pendingContactRequest.description,
-            role: pendingContactRequest.role,
-          }
-        : null,
-      isThinking: showThinking,
-      thinkingLabel,
-      errorNotice: null,
-      showOnboardingChoice: false, // TODO: wire onboarding choice state
-    }),
-    [messages, pendingSecret, pendingConfirmation, pendingContactRequest, showThinking, thinkingLabel],
-  );
-  transcriptItemsRef.current = transcriptItems;
+  const connectingReason = resolveChatConnectingReason({
+    authLoading,
+    assistantStateKind: assistantState.kind,
+    autoGreetPending,
+  });
+  const lastConnectingReasonRef = useRef<ChatConnectingReason | null>(null);
+  useEffect(() => {
+    if (connectingReason === null) {
+      lastConnectingReasonRef.current = null;
+      return;
+    }
+    if (lastConnectingReasonRef.current === connectingReason) return;
+    lastConnectingReasonRef.current = connectingReason;
+    Sentry.addBreadcrumb({
+      category: "chat.connecting",
+      level: "info",
+      message: "ChatPage rendered Connecting",
+      data: {
+        reason: connectingReason,
+        assistantStateKind: assistantState.kind,
+        hasAssistantId: assistantId != null,
+        hasActiveConversationId: activeConversationId != null,
+      },
+    });
+  }, [activeConversationId, assistantId, assistantState.kind, connectingReason]);
 
   // -------------------------------------------------------------------------
   // Loading / error guards
   // -------------------------------------------------------------------------
-  if (authLoading || assistantState.kind === "loading" || autoGreetPending) {
+  if (connectingReason !== null) {
     return (
       <div className="flex h-full items-center justify-center">
         <p className="text-[var(--text-secondary)]">Connecting…</p>
@@ -1382,8 +1364,31 @@ export function ChatPage() {
     return <PlatformHostedScreen />;
   }
 
-  if (assistantState.kind === "self_hosted") {
+  if (assistantState.kind === "self_hosted" && !selfHostedChatEnabled) {
     return <SelfHostedScreen />;
+  }
+
+  // Self-hosted runtime call failed — most commonly because we don't yet
+  // have an actor-token JWT for the user's gateway (the web pair flow is
+  // still being built; see `lib/self-hosted/actor-token.ts`). Land on a
+  // terminal error state with a retry button instead of leaving the
+  // sidebar + transcript stuck in the seeded `isLoadingHistory` skeleton.
+  if (
+    assistantState.kind === "self_hosted" &&
+    selfHostedChatEnabled &&
+    conversationListIsError
+  ) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
+        <p className="text-[var(--text-secondary)]">
+          Couldn&apos;t reach your self-hosted assistant. Make sure your
+          assistant is running, then try again.
+        </p>
+        <Button variant="primary" onClick={refetchConversationList}>
+          Try again
+        </Button>
+      </div>
+    );
   }
 
   if (assistantState.kind === "awaiting_version_selection") {
@@ -1405,7 +1410,9 @@ export function ChatPage() {
   }
 
   // -------------------------------------------------------------------------
-  // Props assembly (only reached when assistantState.kind === "active")
+  // Props assembly (only reached when shouldRenderChat is true — i.e.
+  // assistantState.kind === "active", or self_hosted with the
+  // `self-hosted-assistant` flag on)
   // -------------------------------------------------------------------------
   const handleReviewDiskUsage = () => {
     haptic.light();
@@ -1418,12 +1425,12 @@ export function ChatPage() {
   const chatRouteProps: ChatRouteContentProps = {
     assistantId,
     assistantState,
-    assistantIdentity,
+    assistantName,
     chatPullToRefreshEnabled,
     deployToVercel,
     doctor,
     isMobile,
-    isKeyboardOpen: false,
+    isKeyboardOpen: keyboardOpen,
     messages,
     setMessages,
     input,
@@ -1432,15 +1439,15 @@ export function ChatPage() {
     setError,
     isLoadingHistory,
     conversations,
-    activeConversationKey,
+    activeConversationId,
     activeConversation,
-    processingKeys,
+    processingConversationIds,
     mainView: viewerState.mainView,
     openedAppState: viewerState.openedAppState,
     openedDocumentState: viewerState.openedDocumentState,
-    editingConversationKey,
-    restoredDraftConversationKey,
-    setRestoredDraftConversationKey,
+    editingConversationId,
+    restoredDraftConversationId,
+    setRestoredDraftConversationId,
     saveDraft,
     clearDraft,
     avatar: {
@@ -1534,11 +1541,11 @@ export function ChatPage() {
     },
     handleCloseApp: () => {
       useViewerStore.getState().closeApp();
-      useConversationStore.getState().setEditingKey(null);
+      useConversationStore.getState().setEditingConversationId(null);
       useViewerStore.getState().setMainView("chat");
     },
     handleCloseEditPanel: () => {
-      useConversationStore.getState().setEditingKey(null);
+      useConversationStore.getState().setEditingConversationId(null);
       useViewerStore.getState().exitAppEditing();
     },
     handleEditApp: () => {
@@ -1546,13 +1553,13 @@ export function ChatPage() {
       if (!openedAppState || !assistantId) return;
 
       const appId = openedAppState.appId;
-      const conversationKey = getEditChatKey(assistantId, appId) ?? crypto.randomUUID();
-      setEditChatKey(assistantId, appId, conversationKey);
-      useConversationStore.getState().setEditingKey(conversationKey);
+      const conversationId = getEditChatConversationId(assistantId, appId) ?? crypto.randomUUID();
+      setEditChatConversationId(assistantId, appId, conversationId);
+      useConversationStore.getState().setEditingConversationId(conversationId);
       useViewerStore.getState().enterAppEditing();
 
-      if (activeConversationKey !== conversationKey) {
-        navigateToConversation(conversationKey);
+      if (activeConversationId !== conversationId) {
+        navigateToConversation(conversationId);
       }
     },
     handleShareApp: () => {
@@ -1565,15 +1572,18 @@ export function ChatPage() {
     } : undefined,
     handleForkConversation,
     handleInspectMessage: showLlmInspector ? handleInspectMessage : undefined,
-    subagentEntries,
     subagentState,
     activeSubagentId: viewerState.activeSubagentId,
     onSubagentClick: (id: string) => { useViewerStore.getState().openSubagentDetail(id); },
     onCloseSubagentDetail: () => { useViewerStore.getState().closeSubagentDetail(); },
     onStopSubagent: async (subagentId: string) => {
-      if (!assistantId || !activeConversationKey) return;
+      if (!assistantId || !activeConversationId) return;
       try {
-        await abortSubagent(assistantId, activeConversationKey, subagentId);
+        await subagentsByIdAbortPost({
+          path: { assistant_id: assistantId, id: subagentId },
+          body: { conversationId: activeConversationId },
+          throwOnError: true,
+        });
       } catch {
         // Best-effort — the daemon may have already completed
       }
@@ -1586,7 +1596,9 @@ export function ChatPage() {
     refs: {
       inputRef,
       messagesRef,
-      activeConversationKeyRef,
+      sanitizedMessagesRef,
+      transcriptItemsRef,
+      activeConversationIdRef,
       assistantIdRef,
       streamContextRef,
       expandedToolCallIdsRef,
@@ -1594,56 +1606,75 @@ export function ChatPage() {
       contextWindowUsageByConversationRef,
       streamRef,
       streamEpochRef,
-      pendingQueuedStableIdsRef,
-      requestIdToStableIdRef,
+      pendingQueuedMessageIdsRef,
+      requestIdToMessageIdRef,
       pendingLocalDeletionsRef,
       confirmationToolCallMapRef,
       reconcileAfterNextStreamOpenRef,
-      transcriptItemsRef,
       transcriptRef,
     },
     isChannelReadonly,
     onboardingTasksEmpty,
     didOnboarding,
-    onboardingConversationKey,
+    onboardingConversationId,
   };
 
   return (
     <>
       <ChatRouteContent {...chatRouteProps} />
+      {showAddCreditsModal ? (
+        <LazyBoundary>
+          <AddCreditsModal
+            open={showAddCreditsModal}
+            onOpenChange={setShowAddCreditsModal}
+          />
+        </LazyBoundary>
+      ) : null}
       <ConnectingToAssistant
         state={reachability.state}
         onRetry={() => reachability.probe({ showConnectingImmediately: true })}
         onDismiss={reachability.reset}
       />
-      <CommandPalette
-        isOpen={commandPalette.isOpen}
-        onClose={commandPalette.close}
-        query={commandPalette.query}
-        onQueryChange={commandPalette.setQuery}
-        selectedIndex={commandPalette.selectedIndex}
-        sections={mergedSections}
-        isSearching={commandPalette.isSearching}
-        onItemSelect={handleItemSelect}
-        onKeyDown={commandPalette.handleKeyDown}
+      {commandPalette.isOpen ? (
+        <LazyBoundary>
+          <CommandPalette
+            isOpen={commandPalette.isOpen}
+            onClose={commandPalette.close}
+            query={commandPalette.query}
+            onQueryChange={commandPalette.setQuery}
+            selectedIndex={commandPalette.selectedIndex}
+            sections={mergedSections}
+            isSearching={commandPalette.isSearching}
+            onItemSelect={handleItemSelect}
+            onKeyDown={commandPalette.handleKeyDown}
+          />
+        </LazyBoundary>
+      ) : null}
+      {assistantId && isTokenDialogOpen ? (
+        <LazyBoundary>
+          <VercelTokenDialog
+            open={isTokenDialogOpen}
+            onOpenChange={(open) => {
+              if (!open) useDeployStore.getState().hideTokenDialog();
+            }}
+            assistantId={assistantId}
+            onTokenSaved={() => {
+              void useDeployStore.getState().deployAfterTokenSaved(assistantId);
+            }}
+          />
+        </LazyBoundary>
+      ) : null}
+      <RenameConversationDialog
+        open={renameRequest !== null}
+        currentTitle={renameRequest?.currentTitle ?? ""}
+        onSubmit={submitRenameConversation}
+        onCancel={cancelRenameConversation}
       />
-      {assistantId && (
-        <VercelTokenDialog
-          open={isTokenDialogOpen}
-          onOpenChange={(open) => {
-            if (!open) useDeployStore.getState().hideTokenDialog();
-          }}
-          assistantId={assistantId}
-          onTokenSaved={() => {
-            void useDeployStore.getState().deployAfterTokenSaved(assistantId);
-          }}
-        />
-      )}
       <ConfirmDialog
         open={complexDeployApp !== null}
         title="This app needs a full deploy"
-        message={`"${complexDeployApp?.name ?? ""}" uses backend services that won't work on a static Vercel page. ${assistantIdentity?.name ?? "Your assistant"} can deploy it properly with serverless functions.`}
-        confirmLabel={`Let ${assistantIdentity?.name ?? "assistant"} handle it`}
+        message={`"${complexDeployApp?.name ?? ""}" uses backend services that won't work on a static Vercel page. ${assistantName ?? "Your assistant"} can deploy it properly with serverless functions.`}
+        confirmLabel={`Let ${assistantName ?? "assistant"} handle it`}
         onConfirm={() => {
           const appName = useDeployStore.getState().complexDeployApp?.name ?? "this app";
           useDeployStore.getState().setComplexDeployApp(null);
@@ -1667,7 +1698,7 @@ export function ChatPage() {
               }}
               onClose={() => {
                 useViewerStore.getState().closeApp();
-                useConversationStore.getState().setEditingKey(null);
+                useConversationStore.getState().setEditingConversationId(null);
                 useViewerStore.getState().setMainView("chat");
               }}
               onShare={() => {
@@ -1715,14 +1746,28 @@ export function ChatPage() {
                 useViewerStore.getState().closeSubagentDetail();
               }}
               onStop={async (subagentId: string) => {
-                if (!assistantId || !activeConversationKey) return;
+                if (!assistantId || !activeConversationId) return;
                 try {
-                  await abortSubagent(assistantId, activeConversationKey, subagentId);
+                  await subagentsByIdAbortPost({
+                    path: { assistant_id: assistantId, id: subagentId },
+                    body: { conversationId: activeConversationId },
+                    throwOnError: true,
+                  });
                 } catch {
                   // Best-effort — the daemon may have already completed
                 }
               }}
               onRequestDetail={handleRequestSubagentDetail}
+            />
+            <MobileToolDetailOverlay
+              detail={
+                viewerState.mainView === "tool-detail"
+                  ? viewerState.activeToolDetail
+                  : null
+              }
+              onClose={() => {
+                useViewerStore.getState().closeToolDetail();
+              }}
             />
           </>,
           overlayTarget,

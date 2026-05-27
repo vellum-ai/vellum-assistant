@@ -8,7 +8,21 @@ mock.module("../security/secure-keys.js", () => ({
 }));
 
 mock.module("../config/env-registry.js", () => ({
+  getDebugStdoutLogs: () => false,
+  getIsContainerized: () => false,
   getIsPlatform: () => false,
+  isPlatformRemote: () => false,
+  getWorkspaceDirOverride: () => undefined,
+  getBackupDirOverride: () => undefined,
+  getBackupKeyPathOverride: () => undefined,
+  getCpuLimit: () => undefined,
+  getMinikubeStorageSize: () => undefined,
+  getProfilerRunId: () => undefined,
+  getProfilerMode: () => undefined,
+  getProfilerMaxBytes: () => undefined,
+  getProfilerMaxRuns: () => undefined,
+  getProfilerMinFreeMb: () => undefined,
+  checkUnrecognizedEnvVars: () => [],
 }));
 
 const { McpClient } = await import("../mcp/client.js");

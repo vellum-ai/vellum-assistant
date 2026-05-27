@@ -1,9 +1,7 @@
-/* eslint-disable no-restricted-syntax -- LUM-1768: file contains dark: pairs pending semantic-token migration */
-
 import { ChevronDown, ChevronRight, Phone, PhoneMissed, PhoneOff } from "lucide-react";
 import { useState } from "react";
 
-import type { Surface } from "@/domains/chat/types/types.js";
+import type { Surface } from "@/domains/chat/types/types";
 
 interface CallEvent {
   eventType: string;
@@ -50,9 +48,9 @@ export function CallSummarySurface({
         : Phone;
 
   return (
-    <div className="rounded-lg border border-stone-200 bg-[var(--surface-lift)] dark:border-moss-600">
+    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-lift)]">
       <button
-        className="flex w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-stone-50 dark:hover:bg-moss-600 rounded-lg"
+        className="flex w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-[var(--surface-hover)] rounded-lg"
         onClick={() => setExpanded((v) => !v)}
       >
         <StatusIcon className="h-4 w-4 shrink-0 text-[var(--content-faint)]" />
@@ -71,13 +69,13 @@ export function CallSummarySurface({
       </button>
 
       {expanded && events.length > 0 && (
-        <div className="border-t border-stone-100 dark:border-moss-600 px-3 py-2 space-y-1">
+        <div className="border-t border-[var(--border-base)] px-3 py-2 space-y-1">
           {events.map((e, i) => (
             <div
               key={i}
               className="flex items-center justify-between gap-4 py-1"
             >
-              <span className="text-body-small-default font-mono text-stone-600 dark:text-stone-400">
+              <span className="text-body-small-default font-mono text-[var(--content-tertiary)]">
                 {prettifyEventType(e.eventType)}
               </span>
               <span className="text-body-small-default text-[var(--content-faint)] shrink-0">

@@ -2,22 +2,22 @@ import { useEffect, useState } from "react";
 
 import { ExternalLink, Hash, MessageCircle } from "lucide-react";
 
-import { resolveSlackChannelName } from "@/domains/chat/api/slack-channel-name.js";
+import { resolveSlackChannelName } from "@/domains/chat/api/slack-channel-name";
 import type {
   Conversation,
   ConversationChannelBinding,
-} from "@/domains/chat/api/conversations.js";
+} from "@/types/conversation-types";
 import {
   getSlackLinkUrl,
   type DisplayMessage,
   type SlackMessageLink,
-} from "@/domains/chat/types/types.js";
+} from "@/domains/chat/types/types";
 
 type SlackFooterConversation = Pick<
   Conversation,
   "channelBinding" | "originChannel"
 > &
-  Partial<Pick<Conversation, "conversationKey">>;
+  Partial<Pick<Conversation, "conversationId">>;
 type SlackMessageChannel = NonNullable<DisplayMessage["slackMessage"]>;
 
 export interface SlackChannelFooterProps {
@@ -34,7 +34,6 @@ function getSlackChannelLink(
   channelId?: string,
 ): string | undefined {
   if (slackChannel?.link) {
-    if (typeof slackChannel.link === "string") return slackChannel.link;
     return getSlackLinkUrl(slackChannel.link);
   }
   return getSlackChannelLinkFromMessageLink(messageLink, channelId);
@@ -101,8 +100,7 @@ function isChannelIdFallback(
   return (
     value === undefined ||
     value === channelBinding.externalChatId ||
-    value === channelBinding.slackChannel?.channelId ||
-    value === channelBinding.slackChannel?.id
+    value === channelBinding.slackChannel?.channelId
   );
 }
 
@@ -124,9 +122,7 @@ function getSlackChannelDisplayText(
   }
 
   return (
-    slackChannel?.channelId ??
-    slackChannel?.id ??
-    channelBinding.externalChatId
+    slackChannel?.channelId ?? channelBinding.externalChatId
   );
 }
 
@@ -186,9 +182,7 @@ export function SlackChannelFooter({
       : undefined;
   const slackChannel = channelBinding?.slackChannel;
   const channelId =
-    slackChannel?.channelId ??
-    slackChannel?.id ??
-    channelBinding?.externalChatId;
+    slackChannel?.channelId ?? channelBinding?.externalChatId;
   const messageChannel = getSlackMessageChannel(messages, channelId);
   const isDmChannel = isSlackDmChannelId(channelId);
   const channelDisplayText = channelBinding
@@ -208,7 +202,7 @@ export function SlackChannelFooter({
         friendlyChannelName,
       ) ?? channelDisplayText)
     : undefined;
-  const conversationId = conversation?.conversationKey;
+  const conversationId = conversation?.conversationId;
   const resolutionKey =
     assistantId && conversationId && channelId
       ? `${assistantId}:${conversationId}:${channelId}`

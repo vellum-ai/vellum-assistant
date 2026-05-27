@@ -2,19 +2,19 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
 import { useRef, type MutableRefObject } from "react";
 
-import type { AssistantEvent } from "@/domains/chat/api/event-types.js";
-import type { ChatEventStream } from "@/domains/chat/api/stream.js";
+import type { AssistantEvent } from "@/domains/chat/api/event-types";
+import type { ChatEventStream } from "@/domains/chat/api/stream";
 import {
   __resetEventBusForTesting,
   useEventBusStore,
-} from "@/stores/event-bus-store.js";
+} from "@/stores/event-bus-store";
 
-import { useEventStream } from "@/domains/chat/hooks/use-event-stream.js";
+import { useEventStream } from "@/domains/chat/hooks/use-event-stream";
 
 type StreamContext = { assistantId: string; conversationId: string };
 
 function renderEventStream(
-  activeConversationKey: string,
+  activeConversationId: string,
   handleStreamEvent: (event: AssistantEvent, epoch: number) => void,
 ) {
   return renderHook(
@@ -30,7 +30,7 @@ function renderEventStream(
       useEventStream({
         assistantStateKind: "active",
         assistantId: "asst-1",
-        activeConversationKey: key,
+        activeConversationId: key,
         conversationExistsOnServer: true,
         streamRef,
         streamEpochRef,
@@ -54,7 +54,7 @@ function renderEventStream(
         conversationListInvalidatedTimerRef: timerRef,
       });
     },
-    { initialProps: { key: activeConversationKey } },
+    { initialProps: { key: activeConversationId } },
   );
 }
 

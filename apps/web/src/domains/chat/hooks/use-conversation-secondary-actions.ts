@@ -18,12 +18,12 @@ import {
 
 import type { NavigateFunction } from "react-router";
 
-import type { Conversation } from "@/domains/chat/api/conversations.js";
-import { analyzeConversation, forkConversation } from "@/domains/chat/api/conversations.js";
-import { routes } from "@/utils/routes.js";
-import { haptic } from "@/utils/haptics.js";
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
-import type { ChatError } from "@/domains/chat/types.js";
+import type { Conversation } from "@/types/conversation-types";
+import { conversationsByIdAnalyzePost, conversationsForkPost } from "@/generated/daemon/sdk.gen";
+import { routes } from "@/utils/routes";
+import { haptic } from "@/utils/haptics";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { ChatError } from "@/domains/chat/types";
 
 // ---------------------------------------------------------------------------
 // Params
@@ -31,7 +31,7 @@ import type { ChatError } from "@/domains/chat/types.js";
 
 export interface UseConversationSecondaryActionsParams {
   assistantId: string | null;
-  activeConversationKey: string | null;
+  activeConversationId: string | null;
   activeConversation: Conversation | null | undefined;
   assistantIdentityName: string | undefined;
   messagesRef: MutableRefObject<DisplayMessage[]>;
@@ -67,7 +67,7 @@ export interface UseConversationSecondaryActionsReturn {
 
 export function useConversationSecondaryActions({
   assistantId,
-  activeConversationKey,
+  activeConversationId,
   activeConversation,
   assistantIdentityName,
   messagesRef,
@@ -81,34 +81,33 @@ export function useConversationSecondaryActions({
 
   const handleForkConversation = useCallback(
     async (throughMessageId: string) => {
-      if (!assistantId || !activeConversationKey) {
+      if (!assistantId || !activeConversationId) {
         return;
       }
       haptic.light();
 
       try {
-        const { conversationId: newConversationId } = await forkConversation(
-          assistantId,
-          activeConversationKey,
-          throughMessageId,
-        );
+        const { data } = await conversationsForkPost({
+          path: { assistant_id: assistantId },
+          body: { conversationId: activeConversationId, throughMessageId },
+          throwOnError: true,
+        });
         refreshConversations();
-        navigateToConversation(newConversationId);
+        navigateToConversation(data.conversation.id);
       } catch (err) {
         Sentry.captureException(err, {
           tags: { context: "fork_conversation" },
         });
       }
     },
-    [activeConversationKey, assistantId, refreshConversations, navigateToConversation],
+    [activeConversationId, assistantId, refreshConversations, navigateToConversation],
   );
 
   const handleForkConversationFromMenu = useCallback(() => {
     const latestPersisted = messagesRef.current.findLast(
-      (m) => m.daemonMessageId != null || m.id != null,
+      (m) => m.id != null,
     );
-    const throughMessageId =
-      latestPersisted?.daemonMessageId ?? latestPersisted?.id;
+    const throughMessageId = latestPersisted?.id;
     if (!throughMessageId) return;
     void handleForkConversation(throughMessageId);
   }, [handleForkConversation]);
@@ -117,12 +116,12 @@ export function useConversationSecondaryActions({
     async (conversation: Conversation) => {
       if (!assistantId) return;
       try {
-        const result = await analyzeConversation(
-          assistantId,
-          conversation.conversationKey,
-        );
+        const { data } = await conversationsByIdAnalyzePost({
+          path: { assistant_id: assistantId, id: conversation.conversationId },
+          throwOnError: true,
+        });
         await refreshConversations();
-        switchConversation(result.conversationKey);
+        switchConversation(data.conversation.id);
       } catch (err) {
         const message =
           err instanceof Error ? err.message : "Failed to analyze conversation.";
@@ -137,48 +136,50 @@ export function useConversationSecondaryActions({
 
   const handleOpenInNewWindow = useCallback(
     (conversation: Conversation) => {
-      window.open(routes.conversation(conversation.conversationKey), "_blank");
+      window.open(routes.conversation(conversation.conversationId), "_blank");
     },
     [],
   );
 
   // Navigate to the per-conversation LLM context inspector (web port of
-  // macOS's `MessageInspectorView`). The page reads `?conversationKey=`
-  // and `?messageId=`. We default messageId to the most recent assistant
-  // message, but only when the target conversation is the currently active
-  // one — messagesRef always holds the active transcript, so using it for
-  // a different conversation would produce a mismatched (conversationKey,
-  // messageId) pair and show the wrong LLM context in the inspector.
+  // macOS's `MessageInspectorView`). The conversation lives in the path;
+  // `?messageId=` scopes to one turn. We default messageId to the most
+  // recent assistant message, but only when the target conversation is
+  // the currently active one — messagesRef always holds the active
+  // transcript, so using it for a different conversation would produce a
+  // mismatched (conversationId, messageId) pair and show the wrong LLM
+  // context in the inspector.
   const handleInspectConversation = useCallback(
     (conversation: Conversation) => {
       const params = new URLSearchParams();
-      params.set("conversationKey", conversation.conversationKey);
       const isActiveConversation =
-        conversation.conversationKey === activeConversation?.conversationKey;
+        conversation.conversationId === activeConversation?.conversationId;
       if (isActiveConversation) {
         const latestAssistant = messagesRef.current.findLast(
-          (m) => m.role === "assistant" && (m.daemonMessageId ?? m.id),
+          (m) => m.role === "assistant" && m.id != null,
         );
-        const messageId =
-          latestAssistant?.daemonMessageId ?? latestAssistant?.id;
+        const messageId = latestAssistant?.id;
         if (messageId) {
           params.set("messageId", messageId);
         }
       }
-      void navigate(`${routes.inspect}?${params.toString()}`);
+      const qs = params.toString();
+      const base = routes.inspect(conversation.conversationId);
+      void navigate(qs ? `${base}?${qs}` : base);
     },
-    [navigate, activeConversation?.conversationKey],
+    [navigate, activeConversation?.conversationId],
   );
 
   const handleInspectMessage = useCallback(
     (messageId: string) => {
-      if (!activeConversationKey) return;
+      if (!activeConversationId) return;
       const params = new URLSearchParams();
-      params.set("conversationKey", activeConversationKey);
       params.set("messageId", messageId);
-      void navigate(`${routes.inspect}?${params.toString()}`);
+      void navigate(
+        `${routes.inspect(activeConversationId)}?${params.toString()}`,
+      );
     },
-    [activeConversationKey, navigate],
+    [activeConversationId, navigate],
   );
 
   const handleShareFeedback = useCallback(() => {

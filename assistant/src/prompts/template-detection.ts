@@ -6,9 +6,15 @@ import { stripCommentLines } from "../util/strip-comment-lines.js";
 
 /**
  * Returns true when the prompt file content is still the unmodified template
- * shipped with the daemon.  Compares the stripped workspace content against
- * the stripped bundled template source so the check stays accurate even if
- * templates are edited in future releases.
+ * shipped with the daemon.  Comment-strips BOTH the workspace content and the
+ * bundled template source before comparing, so the check stays accurate even
+ * if templates are edited in future releases — and regardless of whether the
+ * caller passes raw or already-stripped content.  Most callers pre-strip via
+ * `readPromptFile`/`stripCommentLines`, but the `08-identity` section
+ * transform receives the raw workspace body (comment-stripping happens after
+ * the transform in `renderSection`); stripping here keeps detection correct
+ * for both.  `stripCommentLines` is idempotent, so pre-stripped callers are
+ * unaffected.
  *
  * Kept in a leaf module so the bundled section registry can depend on it
  * without forming a cycle through `system-prompt.ts → sections.ts →
@@ -30,7 +36,7 @@ export function isTemplateContent(
     const templateContent = stripCommentLines(
       readFileSync(templatePath, "utf-8"),
     );
-    return content === templateContent;
+    return stripCommentLines(content) === templateContent;
   } catch {
     return false;
   }

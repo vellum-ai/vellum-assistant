@@ -5,9 +5,9 @@
  * OpenAPI schema, so no generated HeyAPI hooks exist for it.
  */
 
-import { client } from "@/generated/api/client.gen.js";
+import { client } from "@/generated/api/client.gen";
 
-import type { TraceEventsListResponse } from "./trace-events-types.js";
+import type { TraceEventsListResponse } from "./trace-events-types";
 
 export class TraceEventsRequestError extends Error {
   status: number;

@@ -3,8 +3,8 @@ import { describe, expect, test } from "bun:test";
 import {
   shouldDeferReachabilityOverlay,
   shouldFailReachabilityImmediately,
-} from "@/assistant/use-assistant-reachability.js";
-import type { ConnectionStatus } from "@/generated/api/index.js";
+} from "@/assistant/use-assistant-reachability";
+import type { ConnectionStatus } from "@/generated/api/index";
 
 function fakeResponse(
   overrides: Partial<ConnectionStatus> = {},

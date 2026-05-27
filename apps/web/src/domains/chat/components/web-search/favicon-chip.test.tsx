@@ -10,7 +10,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
-import { FaviconChip } from "@/domains/chat/components/web-search/favicon-chip.js";
+import { FaviconChip } from "@/domains/chat/components/web-search/favicon-chip";
 
 afterEach(() => {
   cleanup();

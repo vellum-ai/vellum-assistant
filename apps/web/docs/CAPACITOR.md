@@ -70,6 +70,44 @@ Reference: [MDN: `(pointer)` media feature](https://developer.mozilla.org/en-US/
 
 ---
 
+## Click events require interactive elements on iOS
+
+iOS Safari/WKWebView does not fire `click` events from elements it does not consider "clickable" — plain `<div>`, `<span>`, or other non-interactive elements will receive `pointerdown`/`touchstart` but the synthesized `click` event will not fire or bubble to `document`. An element is "clickable" if it has any of: an `onclick`/`onClick` handler, `cursor: pointer`, `tabindex`, or is a natively interactive element (`<a>`, `<button>`, `<input>`, etc.).
+
+This matters for any library that defers touch-initiated logic to a `click` event listener on the document (e.g. Radix UI's `DismissableLayer` uses this pattern for dismiss-on-tap-outside). If the tap target is a non-interactive overlay `<div>`, the deferred `click` never fires on iOS and the interaction silently fails.
+
+**When adding overlay or backdrop elements that need to respond to taps, always attach an explicit `onClick` handler or use a `<button>`.** Do not rely on document-level `click` listeners reaching non-interactive elements on iOS.
+
+References:
+- Apple — [Handling Events in Safari on iOS](https://developer.apple.com/library/archive/documentation/AppleApplications/Reference/SafariWebContent/HandlingEvents/HandlingEvents.html)
+- Radix — [`DismissableLayer` source (`usePointerDownOutside`)](https://github.com/radix-ui/primitives/blob/main/packages/react/dismissable-layer/src/dismissable-layer.tsx)
+
+---
+
+## Programmatic text selection requires frame deferral on iOS
+
+iOS Safari/WKWebView ignores `HTMLInputElement.select()` and `setSelectionRange()` when called synchronously during `focus()` — the editing context (keyboard, selection system) isn't initialized until the next animation frame. This affects any code that programmatically focuses an input and immediately tries to select its content.
+
+**Always defer selection to the next frame after focus:**
+
+```ts
+input.focus();
+requestAnimationFrame(() => {
+  input.setSelectionRange(0, input.value.length);
+});
+```
+
+Prefer `setSelectionRange(start, end)` over `select()` — it's more explicit about the selection range and behaves consistently across browsers. The single-frame delay is imperceptible on all platforms.
+
+This commonly arises with Radix Dialog's `onOpenAutoFocus`, which fires synchronously when the dialog content mounts. Desktop browsers tolerate synchronous focus + select, so the issue only surfaces on iOS.
+
+References:
+- WebKit — [Bug 224425: `select()` does not work in programmatically focused input](https://bugs.webkit.org/show_bug.cgi?id=224425)
+- MDN — [`HTMLInputElement.setSelectionRange()`](https://developer.mozilla.org/en-US/docs/Web/API/HTMLInputElement/setSelectionRange)
+- MDN — [`requestAnimationFrame()`](https://developer.mozilla.org/en-US/docs/Web/API/Window/requestAnimationFrame)
+
+---
+
 ## Deep links (Capacitor `appUrlOpen`)
 
 Native OAuth completion auto-dismisses `SFSafariViewController` by redirecting to a registered custom URL scheme (`vellum-assistant://`, `-dev`, `-staging`) and routing the URL via the `@capacitor/app` plugin's `appUrlOpen` listener. The router is mounted globally for the app routes; pure utilities and the typed `WindowEventMap` augmentation live in [`src/runtime/native-deep-link.ts`](../src/runtime/native-deep-link.ts).
@@ -112,6 +150,41 @@ References:
 - MDN — [Using server-sent events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events)
 - WHATWG SSE spec — [comments and dispatch](https://html.spec.whatwg.org/multipage/server-sent-events.html#dispatchMessage)
 - MDN — [`AbortController`](https://developer.mozilla.org/en-US/docs/Web/API/AbortController)
+
+---
+
+## Full-screen overlays must respect safe-area insets
+
+Any element that takes over the full viewport (modals, detail panels, drawers) via `position: fixed; inset: 0` **must** apply safe-area padding so content does not render behind the iPhone status bar, Dynamic Island, or home indicator. The `ChatLayoutHeader` handles this for the persistent top bar, but overlays that cover the header lose its protection.
+
+Use the CSS custom properties set by `capacitor-plugin-safe-area`:
+
+```css
+padding-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+padding-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+```
+
+The double fallback (`var()` → `env()` → `0px`) covers Capacitor iOS (plugin sets `--safe-area-inset-*`), standard browsers (`env()` from `viewport-fit=cover`), and desktop/non-notch devices (`0px`).
+
+If the overlay includes its own nav bar, the nav bar itself should sit below the safe-area padding — don't push the inset down into child elements where it's easy to lose.
+
+References:
+- MDN — [`env()` safe area insets](https://developer.mozilla.org/en-US/docs/Web/CSS/env#safe_area_insets)
+- Apple HIG — [Layout: Safe area](https://developer.apple.com/design/human-interface-guidelines/layout#Safe-area)
+
+---
+
+## iOS-only viewport constraints belong in native injection
+
+`apps/web/index.html` serves both the Capacitor WKWebView shell and regular mobile browsers. **Do not add iOS-specific viewport properties** (e.g. `maximum-scale=1.0`, `user-scalable=no`) directly in the HTML — this disables pinch-zoom for all mobile-browser users, which is an accessibility regression.
+
+Instead, inject iOS-only viewport constraints via a `WKUserScript` in [`MyViewController.swift`](../../../apps/ios/App/App/MyViewController.swift). The native injection runs only inside the Capacitor shell and doesn't affect other platforms.
+
+When modifying the viewport meta tag, check whether the change affects zoom behaviour in the WKWebView shell — the [default `maximum-scale` is 5.0](https://developer.apple.com/library/archive/documentation/AppleApplications/Reference/SafariHTMLRef/Articles/MetaTags.html), and Capacitor's built-in zoom prevention does not cover programmatic zoom changes (e.g. during device rotation).
+
+References:
+- Apple — [Configuring the Viewport](https://developer.apple.com/library/archive/documentation/AppleApplications/Reference/SafariWebContent/UsingtheViewport/UsingtheViewport.html)
+- Apple — [Supported Meta Tags (`viewport`)](https://developer.apple.com/library/archive/documentation/AppleApplications/Reference/SafariHTMLRef/Articles/MetaTags.html)
 
 ---
 

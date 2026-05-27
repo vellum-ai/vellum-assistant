@@ -7,7 +7,6 @@ import { Readable } from "node:stream";
 
 import type { WebFetchMetadata } from "../../daemon/message-types/web-activity.js";
 import { RiskLevel } from "../../permissions/types.js";
-import type { ToolDefinition } from "../../providers/types.js";
 import { wrapUntrustedContent } from "../../security/untrusted-content.js";
 import { faviconUrlForDomain } from "../../util/favicon.js";
 import { getLogger } from "../../util/logger.js";
@@ -990,13 +989,10 @@ class WebFetchTool implements Tool {
   description =
     "Fetch a webpage and return LLM-friendly extracted text with metadata. Use this after web_search when you need to read a specific result. To find pages on a site without guessing slugs, fetch /sitemap.xml first — it has ground-truth paths and works even when pages are JS-rendered.";
   category = "network";
+  executionTarget = "sandbox" as const;
   defaultRiskLevel = RiskLevel.Low;
 
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
+  input_schema = {
         type: "object",
         properties: {
           url: {
@@ -1029,9 +1025,7 @@ class WebFetchTool implements Tool {
           },
         },
         required: ["url"],
-      },
-    };
-  }
+      };
 
   async execute(
     input: Record<string, unknown>,

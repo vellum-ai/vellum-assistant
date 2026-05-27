@@ -30,11 +30,12 @@ import {
   createConversation,
   getConversation,
 } from "../memory/conversation-crud.js";
-import { getDb, resetDb } from "../memory/db-connection.js";
+import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { ROUTES } from "../runtime/routes/conversation-management-routes.js";
 import { BadRequestError, NotFoundError } from "../runtime/routes/errors.js";
+import { resetDbForTesting } from "./db-test-helpers.js";
 
 initializeDb();
 
@@ -57,7 +58,7 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
   });
 
   afterAll(() => {
-    resetDb();
+    resetDbForTesting();
     mock.restore();
   });
 

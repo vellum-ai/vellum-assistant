@@ -2,6 +2,7 @@ import { join } from "node:path";
 
 import { config as dotenvConfig } from "dotenv";
 
+import { refreshBackgroundWakeIntent } from "../background-wake/publisher.js";
 import { registerBackgroundWakeRuntime } from "../background-wake/runtime-registry.js";
 import { setPointerMessageProcessor } from "../calls/call-pointer-messages.js";
 import { reconcileCallsOnStartup } from "../calls/call-recovery.js";
@@ -50,16 +51,13 @@ import { deleteMessageById, getMessages } from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { selectEmbeddingBackend } from "../memory/embedding-backend.js";
-import { enqueueMemoryJob } from "../memory/jobs-store.js";
+import { enqueueMemoryJob, isMemoryEnabled } from "../memory/jobs-store.js";
 import { startMemoryJobsWorker } from "../memory/jobs-worker.js";
 import { initQdrantClient, resolveQdrantUrl } from "../memory/qdrant-client.js";
 import { QdrantManager } from "../memory/qdrant-manager.js";
 import { rotateToolInvocations } from "../memory/tool-usage-store.js";
 import { sweepConceptPageFrontmatter } from "../memory/v2/frontmatter-sweep.js";
-import {
-  emitNotificationSignal,
-  registerBroadcastFn,
-} from "../notifications/emit-signal.js";
+import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
 import { installPluginRuntime } from "../plugins/external-api.js";
@@ -546,11 +544,12 @@ export async function runDaemon(): Promise<void> {
       }
     } // end if (dbReady)
 
-    // Populate the managed-connection cache so buildIntegrationSection()
-    // can include platform-managed OAuth connections (e.g. Twitter) in the
-    // system prompt's "Connected Services" section from the first turn.
-    // This is an HTTP-only call with no DB dependency, so it runs regardless
-    // of dbReady. A periodic refresh keeps the cache current when users
+    // Populate the managed-connection cache so the `14-connected-services`
+    // bundled section (rendered by `renderConnectedServices()` in
+    // system-sections.ts) can include platform-managed OAuth connections
+    // (e.g. Twitter) in the system prompt from the first turn.  This is
+    // an HTTP-only call with no DB dependency, so it runs regardless of
+    // dbReady.  A periodic refresh keeps the cache current when users
     // connect/disconnect managed providers while the assistant is running.
     void refreshManagedConnectionCache().catch((err) =>
       log.warn(
@@ -843,7 +842,7 @@ export async function runDaemon(): Promise<void> {
             // If a destructive migration occurred, enqueue a rebuild_index job
             // to re-embed all memory items from the SQLite cache.
             const { migrated } = await qdrantClient.ensureCollection();
-            if (migrated) {
+            if (migrated && isMemoryEnabled()) {
               enqueueMemoryJob("rebuild_index", {});
               log.info(
                 "Qdrant collection was migrated — enqueued rebuild_index job",
@@ -940,10 +939,6 @@ export async function runDaemon(): Promise<void> {
 
     registerWatcherProviders();
     registerMessagingProviders();
-
-    // Register the broadcast function for the notification signal pipeline's
-    // macOS adapter so it can deliver notification_intent messages to clients.
-    registerBroadcastFn((msg) => broadcastMessage(msg));
 
     try {
       recoverStaleSchedules();
@@ -1277,11 +1272,9 @@ export async function runDaemon(): Promise<void> {
     })();
 
     if (config.auditLog.retentionDays > 0) {
-      try {
-        rotateToolInvocations(config.auditLog.retentionDays);
-      } catch (err) {
+      void rotateToolInvocations(config.auditLog.retentionDays).catch((err) => {
         log.warn({ err }, "Audit log rotation failed");
-      }
+      });
     }
 
     const workspaceHeartbeat = new WorkspaceHeartbeatService();
@@ -1299,6 +1292,7 @@ export async function runDaemon(): Promise<void> {
     });
     heartbeat.start();
     registerBackgroundWakeRuntime({ scheduler, heartbeat });
+    refreshBackgroundWakeIntent("daemon-startup");
     log.info(
       {
         enabled: heartbeatConfig.enabled,

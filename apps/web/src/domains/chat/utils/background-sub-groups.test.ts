@@ -1,17 +1,17 @@
 import { describe, expect, test } from "bun:test";
 
 
-import type { Conversation } from "@/domains/chat/api/conversations.js";
+import type { Conversation } from "@/types/conversation-types";
 import {
   formatBackgroundSubGroupLabel,
   groupBackgroundConversationsBySource,
-} from "@/domains/chat/utils/background-sub-groups.js";
+} from "@/domains/chat/utils/background-sub-groups";
 
 function makeConversation(
-  conversationKey: string,
+  conversationId: string,
   source?: string,
 ): Conversation {
-  return { conversationKey, source };
+  return { conversationId, source };
 }
 
 describe("formatBackgroundSubGroupLabel", () => {
@@ -82,7 +82,7 @@ describe("groupBackgroundConversationsBySource", () => {
     expect(result).toHaveLength(1);
     expect(result[0]?.key).toBe("heartbeat");
     expect(result[0]?.label).toBe("Heartbeat");
-    expect(result[0]?.conversations.map((c) => c.conversationKey)).toEqual([
+    expect(result[0]?.conversations.map((c) => c.conversationId)).toEqual([
       "a",
       "b",
       "c",

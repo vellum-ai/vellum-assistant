@@ -12,22 +12,22 @@ import { useNavigate, useParams } from "react-router";
 import { Loader2 } from "lucide-react";
 import { Typography } from "@vellum/design-library";
 
-import { useAssistantContext } from "@/components/layout/assistant-context.js";
-import { getEditChatKey, setEditChatKey } from "@/domains/chat/utils/edit-chat-session.js";
-import { useViewerStore } from "@/stores/viewer-store.js";
-import { routes } from "@/utils/routes.js";
+import { useAssistantContext } from "@/components/layout/assistant-context";
+import { getEditChatConversationId, setEditChatConversationId } from "@/domains/chat/utils/edit-chat-session";
+import { useViewerStore } from "@/stores/viewer-store";
+import { routes } from "@/utils/routes";
 import {
-  type DocumentContent,
-  exportDocumentPDF,
-  fetchDocumentContent,
-  linkDocumentConversation,
-} from "./api/documents.js";
-import { useDocumentCommentEvents } from "./hooks/use-document-comment-events.js";
-import { useBusSubscription } from "@/hooks/use-bus-subscription.js";
+  documentsByIdConversationsPost,
+  documentsByIdGet,
+  documentsByIdPdfGet,
+} from "@/generated/daemon/sdk.gen";
+import type { DocumentContent } from "@/types/document-types";
+import { useDocumentCommentEvents } from "./hooks/use-document-comment-events";
+import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import {
   DocumentViewerContainer,
   type DocumentViewerContainerHandle,
-} from "./components/document-viewer-container.js";
+} from "./components/document-viewer-container";
 
 // ---------------------------------------------------------------------------
 // Component
@@ -54,16 +54,12 @@ export function DocumentViewerPage() {
     let cancelled = false;
     void (async () => {
       try {
-        const result = await fetchDocumentContent(
-          assistantId,
-          surfaceId,
-        );
+        const { data: result } = await documentsByIdGet({
+          path: { assistant_id: assistantId, id: surfaceId },
+          throwOnError: true,
+        });
         if (cancelled) return;
-        if (!result) {
-          setError("Document not found.");
-        } else {
-          setDoc(result);
-        }
+        setDoc(result);
       } catch {
         if (!cancelled) {
           setError("Failed to load document.");
@@ -108,19 +104,23 @@ export function DocumentViewerPage() {
 
     // Prefer the document's original conversation — the document is already
     // linked there, so the injector will surface the comments automatically.
-    // Fall back to session-cached conversation key for repeated feedback.
-    const conversationKey =
+    // Fall back to session-cached conversation id for repeated feedback.
+    const conversationId =
       doc.conversationId
-      || getEditChatKey(assistantId, surfaceId)
+      || getEditChatConversationId(assistantId, surfaceId)
       || (typeof globalThis.crypto?.randomUUID === "function"
         ? globalThis.crypto.randomUUID()
         : `draft-${Date.now()}-${Math.random().toString(16).slice(2)}`);
 
-    setEditChatKey(assistantId, surfaceId, conversationKey);
+    setEditChatConversationId(assistantId, surfaceId, conversationId);
 
-    if (conversationKey !== doc.conversationId) {
+    if (conversationId !== doc.conversationId) {
       try {
-        await linkDocumentConversation(assistantId, surfaceId, conversationKey);
+        await documentsByIdConversationsPost({
+          path: { assistant_id: assistantId, id: surfaceId },
+          body: { conversationId },
+          throwOnError: true,
+        });
       } catch {
         // Best-effort — fails if the daemon doesn't have the route yet.
       }
@@ -129,19 +129,24 @@ export function DocumentViewerPage() {
     useViewerStore.getState().openDocument();
     useViewerStore.getState().setLoadedDocument({
       surfaceId: doc.surfaceId,
-      conversationId: conversationKey,
+      conversationId,
       documentName: doc.title,
       content: doc.content,
     });
 
     const prompt = `Please review and address my comments on "${doc.title}".`;
-    navigate(`${routes.conversation(conversationKey)}?prompt=${encodeURIComponent(prompt)}`);
+    navigate(`${routes.conversation(conversationId)}?prompt=${encodeURIComponent(prompt)}`);
   }, [doc, assistantId, surfaceId, navigate]);
 
   const handleExport = useCallback(async () => {
     if (!doc || !assistantId) return;
-    const blob = await exportDocumentPDF(assistantId, doc.surfaceId);
-    if (!blob) return;
+    const { response: pdfResponse } = await documentsByIdPdfGet({
+      path: { assistant_id: assistantId, id: doc.surfaceId },
+      throwOnError: false,
+      parseAs: "stream",
+    });
+    if (!pdfResponse || !pdfResponse.ok) return;
+    const blob = await pdfResponse.blob();
     const url = URL.createObjectURL(blob);
     const a = Object.assign(document.createElement("a"), {
       href: url,

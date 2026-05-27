@@ -247,6 +247,10 @@ export class AssistantEventHub {
    * Publish an event to all matching subscribers.
    *
    * Matching rules:
+   * - if `excludeClientId` is set, the subscriber with that clientId is
+   *   skipped regardless of every other rule (self-echo suppression — the
+   *   client that originated the mutation does not receive its own
+   *   invalidation back through the hub).
    * - if `targetClientId` is set, deliver only to the subscriber with that
    *   clientId, bypassing the conversation-id filter entirely (the web-origin
    *   event's conversationId differs from the macOS client's subscribed
@@ -255,6 +259,11 @@ export class AssistantEventHub {
    *   `event.conversationId` must equal it
    * - if `targetCapability` is set, only subscribers whose capabilities include
    *   it receive the event; untargeted events go to all
+   * - if `targetInterfaceId` is set, only client subscribers whose
+   *   `interfaceId` matches receive the event; process subscribers and
+   *   non-matching clients are skipped. Used to narrow legacy
+   *   broadcasts (e.g. `conversation_list_invalidated`) to a specific
+   *   client surface during a migration window.
    *
    * Fanout is isolated: a throwing or rejecting subscriber does not abort
    * delivery to remaining subscribers.
@@ -264,6 +273,15 @@ export class AssistantEventHub {
     options?: {
       targetCapability?: HostProxyCapability;
       targetClientId?: string;
+      targetInterfaceId?: InterfaceId;
+      /**
+       * Skip the subscriber with this `clientId`. Used for self-echo
+       * suppression on `sync_changed`: the route handler echoes the
+       * originating tab's `X-Vellum-Client-Id` back on the event, and the
+       * hub uses it here to avoid re-delivering the invalidation to the
+       * tab that already mutated its own optimistic state.
+       */
+      excludeClientId?: string;
     },
   ): Promise<void> {
     if (event.conversationId) {
@@ -276,11 +294,32 @@ export class AssistantEventHub {
 
     const targetCapability = options?.targetCapability;
     const targetClientId = options?.targetClientId;
+    const targetInterfaceId = options?.targetInterfaceId;
+    const excludeClientId = options?.excludeClientId;
     const snapshot = Array.from(this.subscribers);
     const errors: unknown[] = [];
 
     for (const entry of snapshot) {
       if (!entry.active) continue;
+
+      // Self-echo suppression: the originating client never receives the
+      // event back. Checked before every other rule so it composes with
+      // both targeted and untargeted broadcasts.
+      if (
+        excludeClientId != null &&
+        entry.type === "client" &&
+        entry.clientId === excludeClientId
+      ) {
+        continue;
+      }
+
+      // Interface targeting: skip any subscriber that is not a client of
+      // the requested interface. Composes with `targetClientId` and
+      // `targetCapability` below.
+      if (targetInterfaceId != null) {
+        if (entry.type !== "client" || entry.interfaceId !== targetInterfaceId)
+          continue;
+      }
 
       if (targetClientId != null) {
         // Targeted: bypass conversation filter, deliver only to the named client.
@@ -519,10 +558,11 @@ let _hubChain = Promise.resolve();
 export function broadcastMessage(
   msg: ServerMessage,
   conversationId?: string,
-  options?: { targetClientId?: string },
+  options?: { targetClientId?: string; targetInterfaceId?: InterfaceId },
 ): void {
   const resolvedConversationId = conversationId ?? extractConversationId(msg);
   const targetClientId = options?.targetClientId;
+  const targetInterfaceId = options?.targetInterfaceId;
 
   // Confirmation-request side effects: canonical guardian request creation.
   // The home-feed `activity.failed` notification side-effect lives in the
@@ -539,16 +579,45 @@ export function broadcastMessage(
       : resolvedConversationId;
   const event = buildAssistantEvent(msg, scopedConversationId);
   const targetCapability = capabilityForMessageType(msg.type);
+  // Self-echo suppression: a `sync_changed` carrying an `originClientId`
+  // means a specific client just mutated the resource. The hub must not
+  // re-deliver the invalidation to that client — it already updated its
+  // optimistic state locally and a redundant invalidation would clobber it
+  // with a flash of stale-then-fresh data. Assistant-internal emits (agent
+  // loop, FS watcher, cron) leave `originClientId` unset and the event
+  // fans out to every subscriber as before.
+  const excludeClientId =
+    msg.type === "sync_changed" &&
+    typeof msg.originClientId === "string" &&
+    msg.originClientId.length > 0
+      ? msg.originClientId
+      : undefined;
   const publishOptions =
-    targetCapability != null || targetClientId != null
-      ? { targetCapability, targetClientId }
+    targetCapability != null ||
+    targetClientId != null ||
+    targetInterfaceId != null ||
+    excludeClientId != null
+      ? {
+          targetCapability,
+          targetClientId,
+          targetInterfaceId,
+          excludeClientId,
+        }
       : undefined;
   _hubChain = _hubChain
     .then(() => assistantEventHub.publish(event, publishOptions))
     .then(() => {
-      // When a conversation title changes, also broadcast an unscoped
-      // `conversation_list_invalidated` so every connected client's sidebar
-      // refreshes — not just the client viewing this conversation.
+      // When a conversation title changes, also publish a
+      // `conversation_list_invalidated` so the macOS sidebar refreshes
+      // its row ordering for the renamed conversation. Web consumes the
+      // paired `sync_changed` with `conversation:<id>:metadata` tag
+      // emitted by `publishConversationTitleChanged` and patches the
+      // single row in place, so the broadcast is scoped to macOS only.
+      //
+      // TODO(electron-cutover): remove this emission once macOS migrates
+      // to the Electron client and consumes `sync_changed` directly. At
+      // that point `conversation_list_invalidated` has no remaining
+      // consumers and the message type can be retired.
       if (msg.type === "conversation_title_updated") {
         return assistantEventHub
           .publish(
@@ -556,6 +625,7 @@ export function broadcastMessage(
               type: "conversation_list_invalidated",
               reason: "renamed",
             }),
+            { targetInterfaceId: "macos" },
           )
           .catch((err: unknown) => {
             log.warn(

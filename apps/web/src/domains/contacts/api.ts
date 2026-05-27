@@ -1,10 +1,10 @@
-import { client } from "@/generated/api/client.gen.js";
+import { client } from "@/generated/api/client.gen";
 import {
   ApiError,
   assertHasResponse,
   extractErrorMessage,
-} from "@/lib/api-errors.js";
-import type { A2AInviteParams } from "@/domains/contacts/a2a-invite.js";
+} from "@/lib/api-errors";
+import type { A2AInviteParams } from "@/domains/contacts/a2a-invite";
 import type {
   ChannelInfo,
   ChannelReadinessSnapshot,
@@ -16,7 +16,7 @@ import type {
   TelegramConfig,
   TwilioConfig,
   TwilioPhoneNumber,
-} from "@/domains/contacts/types.js";
+} from "@/domains/contacts/types";
 
 // These endpoints live on the per-assistant runtime daemon, proxied via
 // /v1/assistants/{assistant_id}/<path>/. They are not in the generated

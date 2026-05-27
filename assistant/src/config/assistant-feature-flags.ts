@@ -7,7 +7,7 @@
  * (in priority order):
  *   1. Override values from the gateway IPC socket
  *   2. defaults registry `defaultEnabled`         (for declared keys)
- *   3. `true`                                     (for undeclared keys)
+ *   3. `false`                                    (for undeclared keys)
  *
  * Key format:
  *   Canonical:  simple kebab-case string (e.g., "browser", "ces-tools")
@@ -18,6 +18,12 @@ import { dirname, join } from "node:path";
 
 import { ipcGetFeatureFlags } from "../ipc/gateway-client.js";
 import { getLogger } from "../util/logger.js";
+import {
+  clearCachedOverrides,
+  getCachedOverrides,
+  isCachedFromGateway,
+  setCachedOverrides,
+} from "./feature-flag-cache.js";
 import type { AssistantConfig } from "./schema.js";
 
 const log = getLogger("assistant-feature-flags");
@@ -112,22 +118,10 @@ function parseRegistryToDefaults(parsed: unknown): FeatureFlagDefaultsRegistry {
 // ---------------------------------------------------------------------------
 // Override loading — reads from gateway IPC socket
 // ---------------------------------------------------------------------------
-
-/**
- * Module-level cache of feature flag override values. Populated by
- * `initFeatureFlagOverrides()` at startup, invalidated by
- * `clearFeatureFlagOverridesCache()`.
- */
-let cachedOverrides: Record<string, boolean> | null = null;
-
-/**
- * True when `cachedOverrides` was populated by the gateway IPC fetch or
- * preseeded by a test via `_setOverridesForTesting()`. Guards
- * `initFeatureFlagOverrides()` from clobbering an existing populated cache
- * when called a second time (e.g. by a CLI entry point after the daemon
- * has already initialized).
- */
-let cachedOverridesFromGateway = false;
+//
+// The override cache lives in `feature-flag-cache.ts` (stdlib-only) so test
+// helpers can seed it without dragging the pino logger + gateway IPC client
+// transitively through their import chain. See that file's block comment.
 
 /**
  * Fetch override values from the gateway via IPC (Unix domain socket).
@@ -172,8 +166,8 @@ const DEFAULT_INIT_RETRY_BACKOFFS_MS: readonly number[] = [
  * Retries the gateway IPC fetch on empty/failed results — the gateway
  * may not have bound its IPC socket yet when the daemon races ahead at
  * startup. After exhausting retries, the cache is left unset so
- * subsequent sync calls return an empty override map (registry defaults
- * only).
+ * subsequent sync calls return an empty override map (registry defaults for
+ * declared flags, fail-closed for undeclared flags).
  *
  * Pass `retryBackoffsMs: []` to disable retries (used by unit tests that
  * intentionally simulate an unreachable gateway and want immediate
@@ -181,8 +175,9 @@ const DEFAULT_INIT_RETRY_BACKOFFS_MS: readonly number[] = [
  *
  * No-ops when the cache is already populated — callers that want to
  * refresh must call `clearFeatureFlagOverridesCache()` first. This lets
- * tests preseed flag state via `_setOverridesForTesting()` without the
- * gateway IPC call clobbering their setup.
+ * tests preseed flag state via `setOverridesForTesting()` (in
+ * `__tests__/feature-flag-test-helpers.ts`) without the gateway IPC call
+ * clobbering their setup.
  */
 export async function initFeatureFlagOverrides(options?: {
   retryBackoffsMs?: readonly number[];
@@ -194,7 +189,7 @@ export async function initFeatureFlagOverrides(options?: {
    */
   callTimeoutMs?: number;
 }): Promise<void> {
-  if (cachedOverridesFromGateway) return;
+  if (isCachedFromGateway()) return;
 
   const backoffs = options?.retryBackoffsMs ?? DEFAULT_INIT_RETRY_BACKOFFS_MS;
   const callTimeoutMs = options?.callTimeoutMs;
@@ -208,15 +203,14 @@ export async function initFeatureFlagOverrides(options?: {
       const delay = backoffs[attempt - 1]!;
       await new Promise((resolve) => setTimeout(resolve, delay));
       // Re-check after the wait: a concurrent caller (e.g. a test using
-      // `_setOverridesForTesting`) may have populated the cache while we
+      // `setOverridesForTesting`) may have populated the cache while we
       // were sleeping. Bail out so we don't clobber their setup.
-      if (cachedOverridesFromGateway) return;
+      if (isCachedFromGateway()) return;
     }
 
     const gatewayOverrides = await fetchOverridesFromGateway(callTimeoutMs);
     if (Object.keys(gatewayOverrides).length > 0) {
-      cachedOverrides = gatewayOverrides;
-      cachedOverridesFromGateway = true;
+      setCachedOverrides(gatewayOverrides, { fromGateway: true });
       if (attempt > 0) {
         log.info(
           { attempt: attempt + 1 },
@@ -229,12 +223,11 @@ export async function initFeatureFlagOverrides(options?: {
 
   // Exhausted retries — leave cache unset so loadOverrides() returns an
   // empty map on subsequent sync reads. Flag checks fall through to the
-  // registry default (`defaultEnabled`), which biases toward off for
-  // newer assistant-scope flags.
+  // registry default (`defaultEnabled`) or the fail-closed undeclared default.
   if (backoffs.length > 0) {
     log.warn(
       { attempts: backoffs.length + 1 },
-      "Feature flag overrides empty after all retries; falling back to registry defaults",
+      "Feature flag overrides empty after all retries; falling back to registry defaults and fail-closed undeclared flags",
     );
   }
 }
@@ -246,18 +239,20 @@ export async function initFeatureFlagOverrides(options?: {
  * called at startup, or an empty record otherwise.
  */
 function loadOverrides(): Record<string, boolean> {
-  return cachedOverrides ?? {};
+  return getCachedOverrides() ?? {};
 }
 
 /**
  * Invalidate the cached overrides so the next call to
  * `isAssistantFeatureFlagEnabled` re-reads from the gateway.
  *
- * Used by tests between cases to reset module state.
+ * Called by `refreshOverridesFromGateway()` when the gateway pushes a
+ * `feature_flags_changed` event, and by tests between cases to reset
+ * module state. (Tests typically call `setOverridesForTesting()` from
+ * `__tests__/feature-flag-test-helpers.ts`, which combines clear + seed.)
  */
 export function clearFeatureFlagOverridesCache(): void {
-  cachedOverrides = null;
-  cachedOverridesFromGateway = false;
+  clearCachedOverrides();
 }
 
 /**
@@ -273,21 +268,6 @@ export async function refreshOverridesFromGateway(): Promise<void> {
   await initFeatureFlagOverrides({ retryBackoffsMs: [] });
 }
 
-/**
- * Directly inject override values into the module-level cache.
- *
- * **Test-only** — bypasses the gateway IPC fetch so unit tests can control
- * flag state without standing up a real gateway. Production code should
- * never call this; use `clearFeatureFlagOverridesCache()` instead and let
- * the resolver re-read from the gateway.
- */
-export function _setOverridesForTesting(
-  overrides: Record<string, boolean>,
-): void {
-  cachedOverrides = { ...overrides };
-  cachedOverridesFromGateway = true;
-}
-
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -300,7 +280,7 @@ export function _setOverridesForTesting(
  *      values, which the gateway merges server-side: persisted > remote >
  *      registry)
  *   2. Registry `defaultEnabled` (for declared assistant-scope keys)
- *   3. `true` (for undeclared keys with no override)
+ *   3. `false` (for undeclared keys with no override)
  */
 export function isAssistantFeatureFlagEnabled(
   key: string,
@@ -317,6 +297,6 @@ export function isAssistantFeatureFlagEnabled(
   // 2. For declared keys, use the registry default.
   if (declared) return declared.defaultEnabled;
 
-  // 3. Undeclared keys with no override default to enabled.
-  return true;
+  // 3. Undeclared keys with no override fail closed.
+  return false;
 }

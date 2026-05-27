@@ -1868,4 +1868,522 @@ describe('createHostBrowserDispatcher', () => {
       expect(payload.detached).toBe(false);
     });
   });
+
+  // ── Synthetic Vellum.listTabs ──────────────────────────────────────
+
+  describe('Vellum.listTabs — list all browser tabs', () => {
+    const mockTabs = [
+      { id: 1, windowId: 10, url: 'https://example.com', title: 'Example', active: true, pinned: false },
+      { id: 2, windowId: 10, url: 'https://other.com', title: 'Other', active: false, pinned: true },
+    ];
+
+    beforeEach(() => {
+      (globalThis as unknown as { chrome: unknown }).chrome = {
+        ...(globalThis as unknown as { chrome: Record<string, unknown> }).chrome,
+        tabs: {
+          query: async (_queryInfo: unknown) => mockTabs,
+          update: async (_tabId: number, _props: unknown) => mockTabs[0],
+          remove: async (_tabId: number) => undefined,
+        },
+      };
+    });
+
+    test('lists all tabs and posts the result', async () => {
+      harness = createHarness();
+
+      const request: HostBrowserRequestEnvelope = {
+        type: 'host_browser_request',
+        requestId: 'listTabs-1',
+        conversationId: 'conv-1',
+        cdpMethod: 'Vellum.listTabs',
+      };
+
+      await harness.dispatcher.handle(request);
+
+      expect(harness.results.length).toBe(1);
+      expect(harness.results[0].requestId).toBe('listTabs-1');
+      expect(harness.results[0].isError).toBe(false);
+
+      const payload = JSON.parse(harness.results[0].content);
+      expect(Array.isArray(payload.tabs)).toBe(true);
+      expect(payload.tabs.length).toBe(2);
+      expect(payload.tabs[0].tabId).toBe(1);
+      expect(payload.tabs[0].url).toBe('https://example.com');
+      expect(payload.tabs[0].active).toBe(true);
+      expect(payload.tabs[1].pinned).toBe(true);
+    });
+
+    test('does NOT invoke resolveTarget (pre-resolution)', async () => {
+      harness = createHarness();
+
+      const request: HostBrowserRequestEnvelope = {
+        type: 'host_browser_request',
+        requestId: 'listTabs-presolve',
+        conversationId: 'conv-1',
+        cdpMethod: 'Vellum.listTabs',
+      };
+
+      await harness.dispatcher.handle(request);
+
+      expect(harness.resolveTargetCalls.length).toBe(0);
+    });
+
+    test('posts an error envelope when chrome.tabs.query throws', async () => {
+      (globalThis as unknown as { chrome: unknown }).chrome = {
+        ...(globalThis as unknown as { chrome: Record<string, unknown> }).chrome,
+        tabs: {
+          query: async () => { throw new Error('permission denied'); },
+          update: async (_tabId: number, _props: unknown) => mockTabs[0],
+          remove: async (_tabId: number) => undefined,
+        },
+      };
+      harness = createHarness();
+
+      const request: HostBrowserRequestEnvelope = {
+        type: 'host_browser_request',
+        requestId: 'listTabs-err',
+        conversationId: 'conv-1',
+        cdpMethod: 'Vellum.listTabs',
+      };
+
+      await harness.dispatcher.handle(request);
+
+      expect(harness.results.length).toBe(1);
+      expect(harness.results[0].isError).toBe(true);
+      const payload = JSON.parse(harness.results[0].content);
+      expect(payload.message).toContain('permission denied');
+    });
+  });
+
+  // ── Synthetic Vellum.selectTab ─────────────────────────────────────
+
+  describe('Vellum.selectTab — activate a specific browser tab', () => {
+    const mockTab = { id: 42, windowId: 10, url: 'https://example.com', title: 'Example', active: true, pinned: false };
+
+    beforeEach(() => {
+      (globalThis as unknown as { chrome: unknown }).chrome = {
+        ...(globalThis as unknown as { chrome: Record<string, unknown> }).chrome,
+        tabs: {
+          query: async (_queryInfo: unknown) => [mockTab],
+          update: async (_tabId: number, _props: unknown) => mockTab,
+          remove: async (_tabId: number) => undefined,
+        },
+      };
+    });
+
+    test('selects the tab and posts tab info', async () => {
+      harness = createHarness();
+
+      const request: HostBrowserRequestEnvelope = {
+        type: 'host_browser_request',
+        requestId: 'selectTab-1',
+        conversationId: 'conv-1',
+        cdpMethod: 'Vellum.selectTab',
+        cdpParams: { tabId: 42 },
+      };
+
+      await harness.dispatcher.handle(request);
+
+      expect(harness.results.length).toBe(1);
+      expect(harness.results[0].requestId).toBe('selectTab-1');
+      expect(harness.results[0].isError).toBe(false);
+
+      const payload = JSON.parse(harness.results[0].content);
+      expect(payload.tabId).toBe(42);
+      expect(payload.windowId).toBe(10);
+      expect(payload.url).toBe('https://example.com');
+    });
+
+    test('returns error when tabId is missing', async () => {
+      harness = createHarness();
+
+      const request: HostBrowserRequestEnvelope = {
+        type: 'host_browser_request',
+        requestId: 'selectTab-notabid',
+        conversationId: 'conv-1',
+        cdpMethod: 'Vellum.selectTab',
+        cdpParams: {},
+      };
+
+      await harness.dispatcher.handle(request);
+
+      expect(harness.results.length).toBe(1);
+      expect(harness.results[0].isError).toBe(true);
+      const payload = JSON.parse(harness.results[0].content);
+      expect(payload.code).toBe(-32602);
+    });
+
+    test('returns error when tabId is NaN', async () => {
+      harness = createHarness();
+
+      const request: HostBrowserRequestEnvelope = {
+        type: 'host_browser_request',
+        requestId: 'selectTab-nan',
+        conversationId: 'conv-1',
+        cdpMethod: 'Vellum.selectTab',
+        cdpParams: { tabId: 'notanumber' },
+      };
+
+      await harness.dispatcher.handle(request);
+
+      expect(harness.results.length).toBe(1);
+      expect(harness.results[0].isError).toBe(true);
+      const payload = JSON.parse(harness.results[0].content);
+      expect(payload.code).toBe(-32602);
+    });
+
+    test('posts error when chrome.tabs.update throws', async () => {
+      (globalThis as unknown as { chrome: unknown }).chrome = {
+        ...(globalThis as unknown as { chrome: Record<string, unknown> }).chrome,
+        tabs: {
+          query: async (_queryInfo: unknown) => [mockTab],
+          update: async (_tabId: number, _props: unknown) => { throw new Error('tab not found'); },
+          remove: async (_tabId: number) => undefined,
+        },
+      };
+      harness = createHarness();
+
+      const request: HostBrowserRequestEnvelope = {
+        type: 'host_browser_request',
+        requestId: 'selectTab-err',
+        conversationId: 'conv-1',
+        cdpMethod: 'Vellum.selectTab',
+        cdpParams: { tabId: 999 },
+      };
+
+      await harness.dispatcher.handle(request);
+
+      expect(harness.results.length).toBe(1);
+      expect(harness.results[0].isError).toBe(true);
+      const payload = JSON.parse(harness.results[0].content);
+      expect(payload.message).toContain('tab not found');
+    });
+  });
+
+  // ── Synthetic Vellum.closeTab ──────────────────────────────────────
+
+  describe('Vellum.closeTab — close a browser tab', () => {
+    beforeEach(() => {
+      (globalThis as unknown as { chrome: unknown }).chrome = {
+        ...(globalThis as unknown as { chrome: Record<string, unknown> }).chrome,
+        tabs: {
+          query: async (_queryInfo: unknown) => [],
+          update: async (_tabId: number, _props: unknown) => undefined,
+          remove: async (_tabId: number) => undefined,
+        },
+      };
+    });
+
+    test('closes the tab and posts closed: true', async () => {
+      harness = createHarness();
+
+      const request: HostBrowserRequestEnvelope = {
+        type: 'host_browser_request',
+        requestId: 'closeTab-1',
+        conversationId: 'conv-1',
+        cdpMethod: 'Vellum.closeTab',
+        cdpParams: { tabId: 55 },
+      };
+
+      await harness.dispatcher.handle(request);
+
+      expect(harness.results.length).toBe(1);
+      expect(harness.results[0].requestId).toBe('closeTab-1');
+      expect(harness.results[0].isError).toBe(false);
+
+      const payload = JSON.parse(harness.results[0].content);
+      expect(payload.closed).toBe(true);
+      expect(payload.tabId).toBe(55);
+    });
+
+    test('returns error when tabId is missing', async () => {
+      harness = createHarness();
+
+      const request: HostBrowserRequestEnvelope = {
+        type: 'host_browser_request',
+        requestId: 'closeTab-notabid',
+        conversationId: 'conv-1',
+        cdpMethod: 'Vellum.closeTab',
+        cdpParams: {},
+      };
+
+      await harness.dispatcher.handle(request);
+
+      expect(harness.results.length).toBe(1);
+      expect(harness.results[0].isError).toBe(true);
+      const payload = JSON.parse(harness.results[0].content);
+      expect(payload.code).toBe(-32602);
+    });
+
+    test('posts error when chrome.tabs.remove throws', async () => {
+      (globalThis as unknown as { chrome: unknown }).chrome = {
+        ...(globalThis as unknown as { chrome: Record<string, unknown> }).chrome,
+        tabs: {
+          query: async (_queryInfo: unknown) => [],
+          update: async (_tabId: number, _props: unknown) => undefined,
+          remove: async (_tabId: number) => { throw new Error('cannot close tab'); },
+        },
+      };
+      harness = createHarness();
+
+      const request: HostBrowserRequestEnvelope = {
+        type: 'host_browser_request',
+        requestId: 'closeTab-err',
+        conversationId: 'conv-1',
+        cdpMethod: 'Vellum.closeTab',
+        cdpParams: { tabId: 77 },
+      };
+
+      await harness.dispatcher.handle(request);
+
+      expect(harness.results.length).toBe(1);
+      expect(harness.results[0].isError).toBe(true);
+      const payload = JSON.parse(harness.results[0].content);
+      expect(payload.message).toContain('cannot close tab');
+    });
+
+    test('does NOT invoke resolveTarget (pre-resolution)', async () => {
+      harness = createHarness();
+
+      const request: HostBrowserRequestEnvelope = {
+        type: 'host_browser_request',
+        requestId: 'closeTab-presolve',
+        conversationId: 'conv-1',
+        cdpMethod: 'Vellum.closeTab',
+        cdpParams: { tabId: 55 },
+      };
+
+      await harness.dispatcher.handle(request);
+
+      expect(harness.resolveTargetCalls.length).toBe(0);
+    });
+  });
+
+  // ── P1 cancel-race regression: getClientId() await window ─────────
+  //
+  // The cancel guard was checked BEFORE deps.getClientId() but NOT AGAIN
+  // after it resolved. A cancel arriving while getClientId() was in flight
+  // could still emit a ghost success envelope. These tests assert both the
+  // throw-path (cancel wins) and the success-path (no cancel → envelope).
+
+  describe('cancel-race regression — getClientId() window (Codex P1)', () => {
+    const mockTab = {
+      id: 42,
+      windowId: 10,
+      url: 'https://example.com',
+      title: 'Example',
+      active: true,
+      pinned: false,
+    };
+
+    /**
+     * Build a dispatcher with a controllable getClientId dep without going
+     * through createHarness, so we can wire a getClientId that blocks on a
+     * gate until the test releases it.
+     */
+    function makeDispatcherWithGetClientId(
+      getClientIdImpl: () => Promise<string>,
+    ): { dispatcher: HostBrowserDispatcher; results: HostBrowserResultEnvelope[] } {
+      const proxy = createMockCdpProxy();
+      const results: HostBrowserResultEnvelope[] = [];
+      const dispatcher = createHostBrowserDispatcher({
+        cdpProxy: proxy,
+        resolveTarget: async () => ({ tabId: 42 }),
+        postResult: async (r) => {
+          results.push(r);
+        },
+        forwardCdpEvent: () => {},
+        forwardSessionInvalidated: () => {},
+        createTab: async () => ({ tabId: 99 }),
+        getClientId: getClientIdImpl,
+      });
+      return { dispatcher, results };
+    }
+
+    beforeEach(() => {
+      (globalThis as unknown as { chrome: unknown }).chrome = {
+        ...(globalThis as unknown as { chrome: Record<string, unknown> }).chrome,
+        tabs: {
+          query: async () => [mockTab],
+          update: async (_tabId: number, _props: unknown) => mockTab,
+          remove: async (_tabId: number) => undefined,
+        },
+      };
+    });
+
+    test('Vellum.createTab — cancel during getClientId() does not post success envelope', async () => {
+      let getClientIdCalls = 0;
+      let releaseGetClientId: () => void = () => {};
+      const gate = new Promise<void>((r) => {
+        releaseGetClientId = r;
+      });
+
+      const { dispatcher, results } = makeDispatcherWithGetClientId(async () => {
+        getClientIdCalls++;
+        await gate;
+        return 'clientA';
+      });
+
+      const request: HostBrowserRequestEnvelope = {
+        type: 'host_browser_request',
+        requestId: 'createTab-getid-cancel',
+        conversationId: 'conv-1',
+        cdpMethod: 'Vellum.createTab',
+      };
+
+      const handlePromise = dispatcher.handle(request);
+      // Wait until getClientId has started so the cancel lands in the gap.
+      await waitFor(() => getClientIdCalls === 1);
+
+      dispatcher.cancel({
+        type: 'host_browser_cancel',
+        requestId: 'createTab-getid-cancel',
+      });
+      releaseGetClientId();
+      await handlePromise;
+
+      // Critical: no ghost success envelope must be posted.
+      expect(results.length).toBe(0);
+    });
+
+    test('Vellum.createTab — no cancel: getClientId() completes and success envelope is posted', async () => {
+      const { dispatcher, results } = makeDispatcherWithGetClientId(
+        async () => 'clientB',
+      );
+
+      const request: HostBrowserRequestEnvelope = {
+        type: 'host_browser_request',
+        requestId: 'createTab-getid-success',
+        conversationId: 'conv-1',
+        cdpMethod: 'Vellum.createTab',
+      };
+
+      await dispatcher.handle(request);
+
+      expect(results.length).toBe(1);
+      expect(results[0].isError).toBe(false);
+      const payload = JSON.parse(results[0].content);
+      expect(payload.tabId).toBe('99');
+      expect(payload.clientId).toBe('clientB');
+    });
+
+    test('Vellum.selectTab — cancel during getClientId() does not post success envelope', async () => {
+      let getClientIdCalls = 0;
+      let releaseGetClientId: () => void = () => {};
+      const gate = new Promise<void>((r) => {
+        releaseGetClientId = r;
+      });
+
+      const { dispatcher, results } = makeDispatcherWithGetClientId(async () => {
+        getClientIdCalls++;
+        await gate;
+        return 'clientA';
+      });
+
+      const request: HostBrowserRequestEnvelope = {
+        type: 'host_browser_request',
+        requestId: 'selectTab-getid-cancel',
+        conversationId: 'conv-1',
+        cdpMethod: 'Vellum.selectTab',
+        cdpParams: { tabId: 42 },
+      };
+
+      const handlePromise = dispatcher.handle(request);
+      await waitFor(() => getClientIdCalls === 1);
+
+      dispatcher.cancel({
+        type: 'host_browser_cancel',
+        requestId: 'selectTab-getid-cancel',
+      });
+      releaseGetClientId();
+      await handlePromise;
+
+      expect(results.length).toBe(0);
+    });
+
+    test('Vellum.selectTab — no cancel: getClientId() completes and success envelope is posted', async () => {
+      const { dispatcher, results } = makeDispatcherWithGetClientId(
+        async () => 'clientB',
+      );
+
+      const request: HostBrowserRequestEnvelope = {
+        type: 'host_browser_request',
+        requestId: 'selectTab-getid-success',
+        conversationId: 'conv-1',
+        cdpMethod: 'Vellum.selectTab',
+        cdpParams: { tabId: 42 },
+      };
+
+      await dispatcher.handle(request);
+
+      expect(results.length).toBe(1);
+      expect(results[0].isError).toBe(false);
+      const payload = JSON.parse(results[0].content);
+      expect(payload.tabId).toBe(42);
+      expect(payload.clientId).toBe('clientB');
+    });
+
+    // Vellum.closeTab gained a getClientId() await on R4 (PR #31897) so the
+    // close response can carry the responding clientId — needed so the
+    // route can scope clearPinnedTabByTabId to the actual client and not
+    // wipe pins across every client sharing the same numeric tab id.
+    // Cover both the throw path (cancel mid-await must not emit a ghost
+    // success envelope) and the success path (clientId surfaces).
+    test('Vellum.closeTab — cancel during getClientId() does not post success envelope', async () => {
+      let getClientIdCalls = 0;
+      let releaseGetClientId: () => void = () => {};
+      const gate = new Promise<void>((r) => {
+        releaseGetClientId = r;
+      });
+
+      const { dispatcher, results } = makeDispatcherWithGetClientId(async () => {
+        getClientIdCalls++;
+        await gate;
+        return 'clientA';
+      });
+
+      const request: HostBrowserRequestEnvelope = {
+        type: 'host_browser_request',
+        requestId: 'closeTab-getid-cancel',
+        conversationId: 'conv-1',
+        cdpMethod: 'Vellum.closeTab',
+        cdpParams: { tabId: 42 },
+      };
+
+      const handlePromise = dispatcher.handle(request);
+      await waitFor(() => getClientIdCalls === 1);
+
+      dispatcher.cancel({
+        type: 'host_browser_cancel',
+        requestId: 'closeTab-getid-cancel',
+      });
+      releaseGetClientId();
+      await handlePromise;
+
+      expect(results.length).toBe(0);
+    });
+
+    test('Vellum.closeTab — no cancel: clientId surfaces in success envelope', async () => {
+      const { dispatcher, results } = makeDispatcherWithGetClientId(
+        async () => 'clientC',
+      );
+
+      const request: HostBrowserRequestEnvelope = {
+        type: 'host_browser_request',
+        requestId: 'closeTab-getid-success',
+        conversationId: 'conv-1',
+        cdpMethod: 'Vellum.closeTab',
+        cdpParams: { tabId: 77 },
+      };
+
+      await dispatcher.handle(request);
+
+      expect(results.length).toBe(1);
+      expect(results[0].isError).toBe(false);
+      const payload = JSON.parse(results[0].content);
+      expect(payload.closed).toBe(true);
+      expect(payload.tabId).toBe(77);
+      expect(payload.clientId).toBe('clientC');
+    });
+  });
 });

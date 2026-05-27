@@ -9,8 +9,11 @@
  * errors, and build the success response.
  */
 
+import { z } from "zod";
+
 import { analyzeConversation } from "../services/analyze-conversation.js";
 import { buildConversationDetailResponse } from "../services/conversation-serializer.js";
+import { conversationSummarySchema } from "./conversation-list-routes.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -60,6 +63,9 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Create a new conversation with a structured self-assessment of an existing conversation.",
     tags: ["conversations"],
+    responseBody: z.object({
+      conversation: conversationSummarySchema,
+    }),
     handler: handleAnalyzeConversation,
   },
 ];

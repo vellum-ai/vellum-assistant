@@ -337,7 +337,7 @@ import {
   handleVoiceWebhook,
 } from "../calls/twilio-routes.js";
 import { DEFAULT_ELEVENLABS_VOICE_ID } from "../config/schemas/elevenlabs.js";
-import { getDb, resetDb } from "../memory/db-connection.js";
+import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { conversations } from "../memory/schema.js";
 import {
@@ -347,6 +347,7 @@ import {
   handleSetTwilioCredentials,
 } from "../runtime/routes/integrations/twilio.js";
 import { credentialKey } from "../security/credential-key.js";
+import { resetDbForTesting } from "./db-test-helpers.js";
 
 initializeDb();
 
@@ -487,7 +488,7 @@ describe("twilio webhook routes", () => {
 
   afterAll(() => {
     globalThis.fetch = originalFetch;
-    resetDb();
+    resetDbForTesting();
   });
 
   // ── Callback idempotency / replay tests ───────────────────────────

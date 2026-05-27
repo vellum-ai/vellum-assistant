@@ -25,10 +25,10 @@ import {
   startChatgptSubscriptionAuth,
   updateConnection,
   writeSecret,
-} from "@/domains/settings/ai/provider-connections-client.js";
-import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder.js";
-import { toKebabCase } from "@/domains/settings/ai/slugify.js";
-import { providerSupportsPlatformAuth } from "@/assistant/llm-model-catalog.js";
+} from "@/domains/settings/ai/provider-connections-client";
+import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
+import { toKebabCase } from "@/domains/settings/ai/slugify";
+import { providerSupportsPlatformAuth } from "@/assistant/llm-model-catalog";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -44,12 +44,13 @@ const CONNECTION_PROVIDERS: ConnectionProvider[] = [
   "openai-compatible",
 ];
 
-type AuthType = "api_key" | "platform" | "none";
+type AuthType = "api_key" | "platform" | "none" | "oauth_subscription";
 
 const AUTH_TYPE_DISPLAY_NAMES: Record<AuthType, string> = {
   api_key: "API Key",
   platform: "Platform (managed proxy)",
   none: "None (local / no auth)",
+  oauth_subscription: "ChatGPT Subscription",
 };
 
 // NOTE: The set of providers that support `platform` auth is sourced from
@@ -177,9 +178,6 @@ export function ProviderEditorContent({
     null,
   );
   const chatgptStateRef = useRef<string>("");
-
-  const chatgptFlagEnabled =
-    chatgptSubscriptionEnabled && provider === "openai" && effectiveMode === "create";
 
   async function handleChatgptSignIn() {
     setChatgptOAuthState("starting");
@@ -450,6 +448,17 @@ export function ProviderEditorContent({
         }
 
         auth = { type: "api_key", credential: effectiveCredential };
+      } else if (authType === "oauth_subscription") {
+        if (effectiveMode !== "create" && connection?.auth.type === "oauth_subscription") {
+          // Editing an existing oauth_subscription connection — preserve
+          // the stored auth so users can update display name / status.
+          auth = connection.auth;
+        } else {
+          // Create mode: OAuth subscription connections are created by
+          // the OAuth flow (handleChatgptUrlSubmit), not through Save.
+          setError("Use the \"Sign in with ChatGPT\" button to connect your subscription.");
+          return;
+        }
       } else if (authType === "none") {
         auth = { type: "none" };
       } else {
@@ -621,6 +630,12 @@ export function ProviderEditorContent({
                       return "api_key";
                     }
                     if (
+                      prev === "oauth_subscription" &&
+                      newProvider !== "openai"
+                    ) {
+                      return "api_key";
+                    }
+                    if (
                       prev === "platform" &&
                       !providerSupportsPlatformAuth(newProvider)
                     ) {
@@ -699,6 +714,15 @@ export function ProviderEditorContent({
                 types = ["api_key", "platform"];
               } else {
                 types = ["api_key"];
+              }
+              // Add oauth_subscription when ChatGPT flag is enabled for
+              // OpenAI in create mode.
+              if (
+                chatgptSubscriptionEnabled &&
+                provider === "openai" &&
+                effectiveMode === "create"
+              ) {
+                types.push("oauth_subscription");
               }
               // Preserve the current auth type in edit mode so existing
               // connections display their saved value even if the type is
@@ -872,23 +896,9 @@ export function ProviderEditorContent({
           </>
         )}
 
-        {/* Status — always editable, including for managed connections. */}
-        <Toggle
-          checked={status === "active"}
-          onChange={(v) => setStatus(v ? "active" : "disabled")}
-          label="Active"
-        />
-
-        {/* ChatGPT Subscription OAuth — manual copy-paste flow */}
-        {chatgptFlagEnabled ? (
+        {/* ChatGPT Subscription OAuth — shown when auth type is oauth_subscription */}
+        {authType === "oauth_subscription" && (
           <div className="space-y-3 rounded-lg border border-[var(--border-default)] p-4">
-            <Typography
-              variant="body-medium-default"
-              as="p"
-              className="text-[var(--content-default)]"
-            >
-              ChatGPT Subscription
-            </Typography>
             <Typography
               variant="body-small-default"
               as="p"
@@ -1013,7 +1023,14 @@ export function ProviderEditorContent({
               </Button>
             ) : null}
           </div>
-        ) : null}
+        )}
+
+        {/* Status — always editable, including for managed connections. */}
+        <Toggle
+          checked={status === "active"}
+          onChange={(v) => setStatus(v ? "active" : "disabled")}
+          label="Active"
+        />
 
         {error && (
           <Typography

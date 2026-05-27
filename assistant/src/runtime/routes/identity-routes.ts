@@ -23,7 +23,10 @@ import { resolveHatchedAtReadOnly } from "../../workspace/hatched-date.js";
 import { WORKSPACE_MIGRATIONS } from "../../workspace/migrations/registry.js";
 import { getLastWorkspaceMigrationId } from "../../workspace/migrations/runner.js";
 import { NotFoundError } from "./errors.js";
-import { getCachedIntro } from "./identity-intro-cache.js";
+import {
+  getCachedIntro,
+  readWorkspaceGreetings,
+} from "./identity-intro-cache.js";
 import type { RouteDefinition } from "./types.js";
 
 interface MemoryInfo {
@@ -391,21 +394,38 @@ function resolveIdentityCreatedAt(identityPath: string): string | undefined {
   return resolveHatchedAtReadOnly(identityPath);
 }
 
+const FALLBACK_GREETINGS = [
+  "What are we working on?",
+  "I'm here whenever you need me.",
+  "What's on your mind?",
+  "Ready when you are.",
+];
+
 function getIdentityIntro() {
+  // 1. User-defined greetings from SOUL.md `## Greetings`
+  const workspaceGreetings = readWorkspaceGreetings();
+  if (workspaceGreetings) {
+    return { greetings: workspaceGreetings, text: workspaceGreetings[0] };
+  }
+
+  // 2. Cached LLM-generated greetings
+  const cached = getCachedIntro();
+  if (cached) {
+    return { greetings: cached.greetings, text: cached.greetings[0] };
+  }
+
+  // 3. Fallback: name-based greeting + static defaults
   const identityPath = getWorkspacePromptPath("IDENTITY.md");
   if (existsSync(identityPath)) {
     const content = readFileSync(identityPath, "utf-8");
     const fields = parseIdentityFields(content);
     if (fields.name) {
-      return { text: `Hi, I'm ${fields.name}!` };
+      const greetings = [`Hi, I'm ${fields.name}!`, ...FALLBACK_GREETINGS];
+      return { greetings, text: greetings[0] };
     }
   }
 
-  const cached = getCachedIntro();
-  if (!cached) {
-    throw new NotFoundError("No cached identity intro available");
-  }
-  return { text: cached.text };
+  return { greetings: FALLBACK_GREETINGS, text: FALLBACK_GREETINGS[0] };
 }
 
 // ---------------------------------------------------------------------------
@@ -512,11 +532,12 @@ export const ROUTES: RouteDefinition[] = [
     endpoint: "identity/intro",
     method: "GET",
     handler: getIdentityIntro,
-    summary: "Get identity intro text",
+    summary: "Get identity greetings",
     description:
-      "Returns a deterministic greeting derived from the assistant name in IDENTITY.md, falling back to LLM-generated cache.",
+      "Returns an array of greetings sourced from SOUL.md, LLM cache, or static fallbacks.",
     tags: ["identity"],
     responseBody: z.object({
+      greetings: z.array(z.string()),
       text: z.string(),
     }),
   },

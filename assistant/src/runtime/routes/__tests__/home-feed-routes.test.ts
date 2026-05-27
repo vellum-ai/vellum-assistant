@@ -22,6 +22,7 @@ mock.module("../../../runtime/assistant-event-hub.js", () => ({
     publish: publishSpy,
     subscribe: () => () => {},
   },
+  broadcastMessage: async () => {},
 }));
 
 // Stub conversation CRUD so we don't spin up a real sqlite DB.
@@ -61,6 +62,7 @@ mock.module("../../../memory/conversation-crud.js", () => ({
   getMessages: () => [],
   getMessagesPaginated: () => ({ messages: [], hasMore: false }),
   getMessageById: () => null,
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 // Dynamic imports so module mocks are wired before evaluation.

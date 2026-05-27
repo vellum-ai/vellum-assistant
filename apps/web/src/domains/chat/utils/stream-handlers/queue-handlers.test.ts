@@ -1,30 +1,30 @@
 import { describe, expect, it } from "bun:test";
 
-import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers.js";
+import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers";
 import {
   handleMessageQueued,
   handleMessageDequeued,
   handleMessageQueuedDeleted,
   handleMessageRequestComplete,
-} from "@/domains/chat/utils/stream-handlers/queue-handlers.js";
+} from "@/domains/chat/utils/stream-handlers/queue-handlers";
 
 describe("handleMessageQueued", () => {
-  it("maps requestId to stableId and sets queue position", () => {
+  it("maps requestId to messageId and sets queue position", () => {
     const ctx = makeCtx({
-      pendingQueuedStableIdsRef: { current: ["stable-1"] },
+      pendingQueuedMessageIdsRef: { current: ["stable-1"] },
     });
     handleMessageQueued(
       { type: "message_queued", requestId: "req-1", position: 2 },
       ctx,
     );
     expect(ctx.turnActions.enqueueMessage).toHaveBeenCalled();
-    expect(ctx.requestIdToStableIdRef.current.get("req-1")).toBe("stable-1");
+    expect(ctx.requestIdToMessageIdRef.current.get("req-1")).toBe("stable-1");
     expect(ctx.setMessages).toHaveBeenCalled();
   });
 
-  it("returns early when no pending stableId", () => {
+  it("returns early when no pending messageId", () => {
     const ctx = makeCtx({
-      pendingQueuedStableIdsRef: { current: [] },
+      pendingQueuedMessageIdsRef: { current: [] },
     });
     handleMessageQueued(
       { type: "message_queued", requestId: "req-1", position: 0 },
@@ -33,9 +33,9 @@ describe("handleMessageQueued", () => {
     expect(ctx.setMessages).not.toHaveBeenCalled();
   });
 
-  it("deletes queued message when stableId is in pending deletions", () => {
+  it("deletes queued message when messageId is in pending deletions", () => {
     const ctx = makeCtx({
-      pendingQueuedStableIdsRef: { current: ["stable-1"] },
+      pendingQueuedMessageIdsRef: { current: ["stable-1"] },
       pendingLocalDeletionsRef: { current: new Set(["stable-1"]) },
     });
     handleMessageQueued(
@@ -48,20 +48,19 @@ describe("handleMessageQueued", () => {
 });
 
 describe("handleMessageDequeued", () => {
-  it("clears queue status and sets needsNewBubble", () => {
+  it("clears queue status when messageId mapping exists", () => {
     const ctx = makeCtx();
-    ctx.requestIdToStableIdRef.current.set("req-1", "stable-1");
+    ctx.requestIdToMessageIdRef.current.set("req-1", "stable-1");
     handleMessageDequeued(
       { type: "message_dequeued", requestId: "req-1" },
       ctx,
     );
     expect(ctx.turnActions.dequeueMessage).toHaveBeenCalled();
-    expect(ctx.requestIdToStableIdRef.current.has("req-1")).toBe(false);
+    expect(ctx.requestIdToMessageIdRef.current.has("req-1")).toBe(false);
     expect(ctx.setMessages).toHaveBeenCalled();
-    expect(ctx.needsNewBubbleRef.current).toBe(true);
   });
 
-  it("skips setMessages when no stableId mapping exists", () => {
+  it("skips setMessages when no messageId mapping exists", () => {
     const ctx = makeCtx();
     handleMessageDequeued(
       { type: "message_dequeued", requestId: "unknown" },
@@ -69,24 +68,23 @@ describe("handleMessageDequeued", () => {
     );
     expect(ctx.turnActions.dequeueMessage).toHaveBeenCalled();
     expect(ctx.setMessages).not.toHaveBeenCalled();
-    expect(ctx.needsNewBubbleRef.current).toBe(true);
   });
 });
 
 describe("handleMessageQueuedDeleted", () => {
-  it("removes queued message when stableId mapping exists", () => {
+  it("removes queued message when messageId mapping exists", () => {
     const ctx = makeCtx();
-    ctx.requestIdToStableIdRef.current.set("req-1", "stable-1");
+    ctx.requestIdToMessageIdRef.current.set("req-1", "stable-1");
     handleMessageQueuedDeleted(
       { type: "message_queued_deleted", requestId: "req-1" },
       ctx,
     );
     expect(ctx.turnActions.deleteQueuedMessage).toHaveBeenCalled();
-    expect(ctx.requestIdToStableIdRef.current.has("req-1")).toBe(false);
+    expect(ctx.requestIdToMessageIdRef.current.has("req-1")).toBe(false);
     expect(ctx.setMessages).toHaveBeenCalled();
   });
 
-  it("skips setMessages when no stableId mapping exists", () => {
+  it("skips setMessages when no messageId mapping exists", () => {
     const ctx = makeCtx();
     handleMessageQueuedDeleted(
       { type: "message_queued_deleted", requestId: "unknown" },

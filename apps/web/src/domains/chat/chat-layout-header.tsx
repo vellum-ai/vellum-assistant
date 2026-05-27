@@ -13,6 +13,7 @@ export interface ChatLayoutHeaderProps {
   isMobile: boolean;
   drawerOpen: boolean;
   collapsed: boolean;
+  sidebarWidth?: number;
   toggleSidebar: () => void;
   topBarCenter?: ReactNode;
   topBarRightSlot?: ReactNode;
@@ -30,6 +31,7 @@ export function ChatLayoutHeader({
   isMobile,
   drawerOpen,
   collapsed,
+  sidebarWidth,
   toggleSidebar,
   topBarCenter,
   topBarRightSlot,
@@ -56,7 +58,7 @@ export function ChatLayoutHeader({
     >
       <div
         className="flex items-center gap-2 transition-[min-width] duration-150 ease-in-out"
-        style={!isMobile ? { minWidth: collapsed ? 48 : 230 } : undefined}
+        style={!isMobile ? { minWidth: collapsed ? 48 : (sidebarWidth ?? 230) } : undefined}
       >
         {isMobile ? (
           <Button

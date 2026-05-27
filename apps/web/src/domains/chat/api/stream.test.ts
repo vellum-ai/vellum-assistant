@@ -45,15 +45,16 @@ mock.module("@sentry/browser", () => ({
 
 import {
   getChatDiagnosticsEvents,
-} from "@/domains/chat/utils/diagnostics.js";
+} from "@/domains/chat/utils/diagnostics";
 import {
   type TurnState,
   INITIAL_TURN_STATE,
   turnReducer,
   isSending,
-} from "@/domains/messaging/turn-store.js";
-import { parseAssistantEvent } from "@/domains/chat/api/event-parser.js";
-import { subscribeChatEvents, type ChatStreamReconnectCause } from "@/domains/chat/api/stream.js";
+} from "@/domains/messaging/turn-store";
+import { parseAssistantEvent } from "@/domains/chat/api/event-parser";
+import { subscribeChatEvents, type ChatStreamReconnectCause } from "@/domains/chat/api/stream";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 describe("polling reconciliation with state machine", () => {
   /**
@@ -157,20 +158,22 @@ describe("polling reconciliation with state machine", () => {
   test("SSE events mapped from wire format produce correct domain events", () => {
     // Verify that parseAssistantEvent produces events that map correctly
     // to domain events consumed by the reducer
-    const delta = parseAssistantEvent("assistant_text_delta", {
+    const delta = parseAssistantEvent({
+      type: "assistant_text_delta",
       text: "hello",
     });
     expect(delta.type).toBe("assistant_text_delta");
 
-    const complete = parseAssistantEvent("message_complete", {
+    const complete = parseAssistantEvent({
+      type: "message_complete",
       content: "done",
     });
     expect(complete.type).toBe("message_complete");
 
-    const handoff = parseAssistantEvent("generation_handoff", {});
+    const handoff = parseAssistantEvent({ type: "generation_handoff" });
     expect(handoff.type).toBe("generation_handoff");
 
-    const error = parseAssistantEvent("error", { message: "fail" });
+    const error = parseAssistantEvent({ type: "error", message: "fail" });
     expect(error.type).toBe("error");
 
     // The page maps these wire types to domain event types:
@@ -214,6 +217,7 @@ describe("polling reconciliation with state machine", () => {
       lastTerminalReason: null,
       statusText: null,
       liveWebActivity: {},
+      autoRoutedProfileLabel: null,
     };
     const afterDelta = turnReducer(forcedIdle, { type: "ASSISTANT_TEXT_DELTA" });
     expect(afterDelta.phase).toBe("streaming");
@@ -243,6 +247,7 @@ describe("polling reconciliation with state machine", () => {
       lastTerminalReason: null,
       statusText: null,
       liveWebActivity: {},
+      autoRoutedProfileLabel: null,
     };
     const afterTool = turnReducer(forcedIdle, { type: "TOOL_USE_START" });
     expect(afterTool.phase).toBe("thinking");
@@ -303,6 +308,10 @@ describe("subscribeChatEvents idle watchdog", () => {
     // path but keeps the bun (Node) test env consistent.
     originalDocument = (globalThis as { document?: unknown }).document;
     (globalThis as { document?: unknown }).document = { cookie: "csrftoken=test" };
+    // Reset the version-gating store so subscribeChatEvents defaults to
+    // the legacy `conversationKey` wire field. Tests that exercise the
+    // newer `conversationId` path opt in explicitly via setIdentity().
+    useAssistantIdentityStore.getState().clearIdentity();
   });
 
   afterEach(() => {
@@ -312,9 +321,10 @@ describe("subscribeChatEvents idle watchdog", () => {
     } else {
       (globalThis as { document?: unknown }).document = originalDocument;
     }
+    useAssistantIdentityStore.getState().clearIdentity();
   });
 
-  test("omits conversationKey query when subscribing to all assistant events", async () => {
+  test("omits any conversation query param when subscribing to all assistant events", async () => {
     const requestedUrls: string[] = [];
     globalThis.fetch = mock(
       async (input: RequestInfo | URL) => {
@@ -342,7 +352,124 @@ describe("subscribeChatEvents idle watchdog", () => {
       await new Promise((r) => setTimeout(r, 50));
       expect(requestedUrls).toHaveLength(1);
       expect(requestedUrls[0]).toContain("/v1/assistants/asst-1/events/");
+      // Neither the legacy nor the canonical wire field should appear when
+      // subscribing to all assistant events (no conversation filter).
       expect(requestedUrls[0]).not.toContain("conversationKey");
+      expect(requestedUrls[0]).not.toContain("conversationId");
+    } finally {
+      stream.cancel();
+    }
+  });
+
+  test("uses conversationId query when daemon version >= 0.8.6", async () => {
+    useAssistantIdentityStore.getState().setIdentity("Vel", "0.8.6");
+
+    const requestedUrls: string[] = [];
+    globalThis.fetch = mock(
+      async (input: RequestInfo | URL) => {
+        requestedUrls.push(input instanceof Request ? input.url : String(input));
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.close();
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "text/event-stream" } },
+        );
+      },
+    ) as unknown as typeof fetch;
+
+    const stream = subscribeChatEvents(
+      "asst-1",
+      "conv-internal-1",
+      () => {},
+      () => {},
+      { idleTimeoutMs: 5_000, reconnectBaseDelayMs: 10_000 },
+    );
+
+    try {
+      await new Promise((r) => setTimeout(r, 50));
+      expect(requestedUrls).toHaveLength(1);
+      const url = new URL(requestedUrls[0]!);
+      expect(url.searchParams.get("conversationId")).toBe("conv-internal-1");
+      expect(url.searchParams.get("conversationKey")).toBeNull();
+    } finally {
+      stream.cancel();
+    }
+  });
+
+  test("uses conversationKey query when daemon version is older than 0.8.6", async () => {
+    useAssistantIdentityStore.getState().setIdentity("Vel", "0.8.5");
+
+    const requestedUrls: string[] = [];
+    globalThis.fetch = mock(
+      async (input: RequestInfo | URL) => {
+        requestedUrls.push(input instanceof Request ? input.url : String(input));
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.close();
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "text/event-stream" } },
+        );
+      },
+    ) as unknown as typeof fetch;
+
+    const stream = subscribeChatEvents(
+      "asst-1",
+      "conv-key-legacy",
+      () => {},
+      () => {},
+      { idleTimeoutMs: 5_000, reconnectBaseDelayMs: 10_000 },
+    );
+
+    try {
+      await new Promise((r) => setTimeout(r, 50));
+      expect(requestedUrls).toHaveLength(1);
+      const url = new URL(requestedUrls[0]!);
+      expect(url.searchParams.get("conversationKey")).toBe("conv-key-legacy");
+      expect(url.searchParams.get("conversationId")).toBeNull();
+    } finally {
+      stream.cancel();
+    }
+  });
+
+  test("falls back to conversationKey when daemon version is unknown", async () => {
+    // Default store state: identity not yet hydrated. Conservative
+    // fallback to the legacy field is the only safe choice — older
+    // daemons silently ignore `conversationId`.
+    expect(useAssistantIdentityStore.getState().version).toBeNull();
+
+    const requestedUrls: string[] = [];
+    globalThis.fetch = mock(
+      async (input: RequestInfo | URL) => {
+        requestedUrls.push(input instanceof Request ? input.url : String(input));
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.close();
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "text/event-stream" } },
+        );
+      },
+    ) as unknown as typeof fetch;
+
+    const stream = subscribeChatEvents(
+      "asst-1",
+      "conv-unknown-version",
+      () => {},
+      () => {},
+      { idleTimeoutMs: 5_000, reconnectBaseDelayMs: 10_000 },
+    );
+
+    try {
+      await new Promise((r) => setTimeout(r, 50));
+      expect(requestedUrls).toHaveLength(1);
+      const url = new URL(requestedUrls[0]!);
+      expect(url.searchParams.get("conversationKey")).toBe("conv-unknown-version");
+      expect(url.searchParams.get("conversationId")).toBeNull();
     } finally {
       stream.cancel();
     }

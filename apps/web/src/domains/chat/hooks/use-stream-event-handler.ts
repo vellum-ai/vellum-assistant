@@ -8,56 +8,56 @@ import {
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { useConversationStore } from "@/domains/conversations/conversation-store.js";
-import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
-import { useTurnStore } from "@/domains/messaging/turn-store.js";
-import { useViewerStore } from "@/stores/viewer-store.js";
-import type { DiskPressureStatusEventPayload } from "@/assistant/use-disk-pressure-monitor.js";
+import { useConversationStore } from "@/domains/conversations/conversation-store";
+import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import { tailIsStreamingAssistant } from "@/domains/chat/hooks/stream-message-updaters";
+import { useTurnStore } from "@/domains/messaging/turn-store";
+import { useViewerStore } from "@/stores/viewer-store";
+import type { DiskPressureStatusEventPayload } from "@/assistant/use-disk-pressure-monitor";
 import {
   recordChatDiagnostic,
   summarizeAssistantEvent,
-} from "@/domains/chat/utils/diagnostics.js";
-import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat-utils.js";
+} from "@/domains/chat/utils/diagnostics";
+import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat-utils";
 import {
   handleHomeFeedUpdated,
   handleRelationshipStateUpdated,
-} from "@/domains/chat/utils/stream-handlers/home-handlers.js";
+} from "@/domains/chat/utils/stream-handlers/home-handlers";
 import {
   handleOpenUrl,
   handleNavigateSettings,
-} from "@/domains/chat/utils/stream-handlers/navigation-handlers.js";
+} from "@/domains/chat/utils/stream-handlers/navigation-handlers";
 import {
   handleAssistantTextDelta,
   handleAssistantActivityState,
   handleMessageComplete,
   handleGenerationHandoff,
   handleGenerationCancelled,
-} from "@/domains/chat/utils/stream-handlers/message-handlers.js";
+} from "@/domains/chat/utils/stream-handlers/message-handlers";
 import {
   handleStreamError,
   handleConversationErrorEvent,
-} from "@/domains/chat/utils/stream-handlers/error-handlers.js";
+} from "@/domains/chat/utils/stream-handlers/error-handlers";
 import {
   handleSecretRequest,
   handleConfirmationRequest,
   handleContactRequest,
   handleQuestionRequest,
-} from "@/domains/chat/utils/stream-handlers/interaction-handlers.js";
+} from "@/domains/chat/utils/stream-handlers/interaction-handlers";
 import {
   handleUISurfaceShow,
   handleUISurfaceUpdate,
   handleUISurfaceDismiss,
   handleUISurfaceComplete,
-} from "@/domains/chat/utils/stream-handlers/surface-handlers.js";
+} from "@/domains/chat/utils/stream-handlers/surface-handlers";
 import {
   handleToolUseStart,
   handleToolProgress,
   handleToolResult,
-} from "@/domains/chat/utils/stream-handlers/tool-call-handlers.js";
+} from "@/domains/chat/utils/stream-handlers/tool-call-handlers";
 import {
   handleUsageUpdate,
-  handleConversationListInvalidated,
   handleConversationTitleUpdated,
   handleNotificationIntent,
   handleCompactionCircuitOpen,
@@ -65,33 +65,34 @@ import {
   handleDiskPressureStatusChanged,
   handleIdentityChanged,
   handleAvatarUpdated,
-} from "@/domains/chat/utils/stream-handlers/metadata-handlers.js";
+  handleTurnProfileAutoRouted,
+} from "@/domains/chat/utils/stream-handlers/metadata-handlers";
 import {
   handleMessageQueued,
   handleMessageDequeued,
   handleMessageQueuedDeleted,
   handleMessageRequestComplete,
-} from "@/domains/chat/utils/stream-handlers/queue-handlers.js";
+} from "@/domains/chat/utils/stream-handlers/queue-handlers";
 import {
   handleSubagentSpawned,
   handleSubagentStatusChanged,
   handleSubagentEvent,
-} from "@/domains/chat/utils/stream-handlers/subagent-handlers.js";
+} from "@/domains/chat/utils/stream-handlers/subagent-handlers";
 import type {
   StreamHandlerContext,
   StreamContext,
-} from "@/domains/chat/utils/stream-handlers/types.js";
+} from "@/domains/chat/utils/stream-handlers/types";
 
 export type {
   ChatError,
   PendingConfirmationState,
   PendingContactRequestState,
   PendingSecretState,
-} from "@/domains/chat/types.js";
+} from "@/domains/chat/types";
 
-import type { ChatError } from "@/domains/chat/types.js";
-import type { AssistantEvent, AssistantSyncChangedEvent } from "@/domains/chat/api/event-types.js";
-import type { ChatEventStream } from "@/domains/chat/api/stream.js";
+import type { ChatError } from "@/domains/chat/types";
+import type { AssistantEvent, AssistantSyncChangedEvent } from "@/domains/chat/api/event-types";
+import type { ChatEventStream } from "@/domains/chat/api/stream";
 
 // ---------------------------------------------------------------------------
 // Params & return types
@@ -105,14 +106,13 @@ export interface UseStreamEventHandlerParams {
 
   // --- Stream context ---
   streamEpochRef: MutableRefObject<number>;
-  activeConversationKeyRef: MutableRefObject<string | null>;
+  activeConversationIdRef: MutableRefObject<string | null>;
   streamContextRef: MutableRefObject<StreamContext | null>;
   assistantIdRef: MutableRefObject<string | null>;
 
   // --- Messages ---
   setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
   messagesRef: MutableRefObject<DisplayMessage[]>;
-  needsNewBubbleRef: MutableRefObject<boolean>;
 
   // --- Error & stream lifecycle ---
   setError: Dispatch<SetStateAction<ChatError | null>>;
@@ -152,8 +152,8 @@ export interface UseStreamEventHandlerParams {
   dispatchSyncChanged: (event: AssistantSyncChangedEvent) => void;
 
   // --- Queue management ---
-  pendingQueuedStableIdsRef: MutableRefObject<string[]>;
-  requestIdToStableIdRef: MutableRefObject<Map<string, string>>;
+  pendingQueuedMessageIdsRef: MutableRefObject<string[]>;
+  requestIdToMessageIdRef: MutableRefObject<Map<string, string>>;
   pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
 }
 
@@ -183,12 +183,11 @@ export function useStreamEventHandler(
     push,
     isNative,
     streamEpochRef,
-    activeConversationKeyRef,
+    activeConversationIdRef,
     streamContextRef,
     assistantIdRef,
     setMessages,
     messagesRef,
-    needsNewBubbleRef,
     setError,
     streamRef,
     cancelReconciliation,
@@ -204,15 +203,15 @@ export function useStreamEventHandler(
     refreshAssistantIdentity,
     invalidateAvatar,
     dispatchSyncChanged,
-    pendingQueuedStableIdsRef,
-    requestIdToStableIdRef,
+    pendingQueuedMessageIdsRef,
+    requestIdToMessageIdRef,
     pendingLocalDeletionsRef,
   } = params;
 
   // --- Refs owned by this hook (only used inside handleStreamEvent) ---
   const lastActivityVersionRef = useRef<Map<string, number>>(new Map());
   const toolCallIdCounterRef = useRef(0);
-  const currentAssistantStableIdRef = useRef<string | undefined>(undefined);
+  const currentAssistantMessageIdRef = useRef<string | undefined>(undefined);
 
   // Stabilize external callbacks that may not be memoized upstream.
   // Storing them in refs keeps handleStreamEvent's identity stable across
@@ -227,8 +226,8 @@ export function useStreamEventHandler(
 
   /** Remove a conversation key from the processing set and snapshots map. */
   const clearProcessingKey = useCallback((convKey: string) => {
-    // `removeProcessingKey` clears the matching snapshot in the same set call.
-    useConversationStore.getState().removeProcessingKey(convKey);
+    // `removeProcessingConversationId` clears the matching snapshot in the same set call.
+    useConversationStore.getState().removeProcessingConversationId(convKey);
   }, []);
 
   // --- Main event handler ---
@@ -241,7 +240,7 @@ export function useStreamEventHandler(
         recordChatDiagnostic("sse_event_stale", {
           epoch,
           currentEpoch: streamEpochRef.current,
-          activeConversationKey: activeConversationKeyRef.current,
+          activeConversationId: activeConversationIdRef.current,
           ...eventSummary,
         });
         return;
@@ -259,7 +258,7 @@ export function useStreamEventHandler(
         if (!event.conversationId || !streamConversationId) {
           recordChatDiagnostic("sse_event_wrong_conversation", {
             epoch,
-            activeConversationKey: activeConversationKeyRef.current,
+            activeConversationId: activeConversationIdRef.current,
             streamContext: streamContextRef.current,
             reason: !event.conversationId ? "missing" : "no_stream_context",
             ...eventSummary,
@@ -269,7 +268,7 @@ export function useStreamEventHandler(
         if (event.conversationId !== streamConversationId) {
           recordChatDiagnostic("sse_event_wrong_conversation", {
             epoch,
-            activeConversationKey: activeConversationKeyRef.current,
+            activeConversationId: activeConversationIdRef.current,
             streamContext: streamContextRef.current,
             reason: "mismatch",
             ...eventSummary,
@@ -277,9 +276,13 @@ export function useStreamEventHandler(
           return;
         }
       }
+      // Suppress per-chunk text_delta noise — only log the first delta of a
+      // new assistant message. Derived from `messagesRef` instead of a latch
+      // so any write site that updates the messages array is naturally
+      // reflected here.
       if (
         event.type !== "assistant_text_delta" ||
-        needsNewBubbleRef.current
+        !tailIsStreamingAssistant(messagesRef.current)
       ) {
         recordChatDiagnostic(
           event.type === "assistant_text_delta"
@@ -287,7 +290,7 @@ export function useStreamEventHandler(
             : "sse_event",
           {
             epoch,
-            activeConversationKey: activeConversationKeyRef.current,
+            activeConversationId: activeConversationIdRef.current,
             streamContext: streamContextRef.current,
             ...eventSummary,
           },
@@ -299,11 +302,10 @@ export function useStreamEventHandler(
         router: { push },
         isNative,
         streamContextRef,
-        activeConversationKeyRef,
+        activeConversationIdRef,
         assistantIdRef,
         setMessages,
         messagesRef,
-        needsNewBubbleRef,
         turnActions: useTurnStore.getState(),
         getTurnState: () => useTurnStore.getState(),
         clearProcessingKey,
@@ -325,12 +327,12 @@ export function useStreamEventHandler(
           refreshAssistantIdentityRef.current(...args),
         invalidateAvatar: (...args) =>
           invalidateAvatarRef.current(...args),
-        pendingQueuedStableIdsRef,
-        requestIdToStableIdRef,
+        pendingQueuedMessageIdsRef,
+        requestIdToMessageIdRef,
         pendingLocalDeletionsRef,
         lastActivityVersionRef,
         toolCallIdCounterRef,
-        currentAssistantStableIdRef,
+        currentAssistantMessageIdRef,
       };
 
       switch (event.type) {
@@ -340,14 +342,22 @@ export function useStreamEventHandler(
         case "navigate_settings":
           handleNavigateSettings(event, ctx);
           break;
+        case "assistant_turn_start":
+          // No-op until the daemon adopts pre-allocation. Types and parser
+          // are in place so a stream stamped with the pre-allocated anchor
+          // id does not fall through to the `unknown` branch. A follow-up
+          // will wire this case to seed `currentAssistantMessageIdRef` so
+          // subsequent deltas anchor to the reserved row from the first
+          // event of the turn.
+          break;
         case "assistant_text_delta":
           handleAssistantTextDelta(event, ctx);
           break;
         case "assistant_activity_state":
-          handleAssistantActivityState(event, epoch, ctx);
+          handleAssistantActivityState(event, ctx);
           break;
         case "message_complete":
-          handleMessageComplete(event, epoch, ctx);
+          handleMessageComplete(event, ctx);
           break;
         case "generation_handoff":
           handleGenerationHandoff(event, ctx);
@@ -398,7 +408,17 @@ export function useStreamEventHandler(
           handleUsageUpdate(event, ctx);
           break;
         case "conversation_list_invalidated":
-          handleConversationListInvalidated(event, ctx);
+          // Legacy macOS-only broadcast. Web receives the paired
+          // `sync_changed` (`conversationsList` umbrella for shape
+          // changes, `conversation:<id>:metadata` for content) directly
+          // and patches the cached list there. The hub scopes this
+          // event to `targetInterfaceId: "macos"`, so it should not
+          // reach web in practice — handling no-op'd as defense in
+          // depth in case a deployment runs an older assistant.
+          //
+          // TODO(electron-cutover): drop the case once macOS migrates
+          // to the Electron client and `conversation_list_invalidated`
+          // is retired from the event types entirely.
           break;
         case "conversation_title_updated":
           handleConversationTitleUpdated(event, ctx);
@@ -420,6 +440,9 @@ export function useStreamEventHandler(
           break;
         case "avatar_updated":
           handleAvatarUpdated(event, ctx);
+          break;
+        case "turn_profile_auto_routed":
+          handleTurnProfileAutoRouted(event, ctx);
           break;
         case "message_queued":
           handleMessageQueued(event, ctx);
@@ -491,12 +514,11 @@ export function useStreamEventHandler(
       dispatchSyncChanged,
       queryClient,
       streamEpochRef,
-      activeConversationKeyRef,
+      activeConversationIdRef,
       streamContextRef,
       assistantIdRef,
       setMessages,
       messagesRef,
-      needsNewBubbleRef,
       setError,
       streamRef,
       confirmationToolCallMapRef,
@@ -505,8 +527,8 @@ export function useStreamEventHandler(
       contextWindowUsageByConversationRef,
       setContextWindowUsage,
       setCompactionCircuitOpenUntil,
-      pendingQueuedStableIdsRef,
-      requestIdToStableIdRef,
+      pendingQueuedMessageIdsRef,
+      requestIdToMessageIdRef,
       pendingLocalDeletionsRef,
     ],
   );

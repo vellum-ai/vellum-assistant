@@ -1,11 +1,9 @@
-/* eslint-disable no-restricted-syntax -- LUM-1768: file contains dark: pairs pending semantic-token migration */
-
 import { ArrowUpRight, FileText } from "lucide-react";
 import type { KeyboardEvent } from "react";
 
-import type { Surface } from "@/domains/chat/types/types.js";
+import type { Surface } from "@/domains/chat/types/types";
 
-import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container.js";
+import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container";
 
 interface DocumentPreviewSurfaceData {
   documentName: string;
@@ -74,7 +72,7 @@ export function DocumentPreviewSurface({
             {data.documentName}
           </h3>
           {data.mimeType && (
-            <span className="rounded-full bg-stone-100 px-2 py-0.5 text-body-small-default text-stone-600 dark:bg-moss-600 dark:text-stone-300">
+            <span className="rounded-full bg-[var(--tag-bg-neutral)] px-2 py-0.5 text-body-small-default text-[var(--content-tertiary)]">
               {data.mimeType}
             </span>
           )}
@@ -84,7 +82,7 @@ export function DocumentPreviewSurface({
         </div>
 
         {data.content && (
-          <pre className="mt-3 max-h-60 overflow-auto whitespace-pre-wrap rounded-md bg-stone-50 p-3 text-body-small-default text-stone-700 dark:bg-moss-800 dark:text-stone-300">
+          <pre className="mt-3 max-h-60 overflow-auto whitespace-pre-wrap rounded-md bg-[var(--surface-sunken)] p-3 text-body-small-default text-[var(--content-default)]">
             {data.content}
           </pre>
         )}

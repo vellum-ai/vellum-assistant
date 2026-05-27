@@ -1,15 +1,13 @@
-import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics.js";
-import { newStableId } from "@/domains/chat/utils/stable-id.js";
+import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics";
 import {
   appendTextDelta,
-  createStreamingBubble,
   finalizeMessageComplete,
   finalizeOnIdle,
   stopStreaming,
-} from "@/domains/chat/hooks/stream-message-updaters.js";
-import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types.js";
-import { toDisplayAttachments } from "@/domains/chat/api/event-parser.js";
-import type { AssistantActivityStateEvent, AssistantTextDeltaEvent, GenerationCancelledEvent, GenerationHandoffEvent, MessageCompleteEvent } from "@/domains/chat/api/event-types.js";
+} from "@/domains/chat/hooks/stream-message-updaters";
+import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
+import type { AssistantActivityStateEvent, AssistantTextDeltaEvent, GenerationCancelledEvent, GenerationHandoffEvent, MessageCompleteEvent } from "@/domains/chat/api/event-types";
+import { useSubagentStore } from "@/domains/subagents/subagent-store";
 
 export function handleAssistantTextDelta(
   event: AssistantTextDeltaEvent,
@@ -17,23 +15,21 @@ export function handleAssistantTextDelta(
 ): void {
   ctx.cancelReconciliation();
   ctx.turnActions.onTextDelta();
-  if (ctx.needsNewBubbleRef.current) {
-    ctx.needsNewBubbleRef.current = false;
-    const stableId = newStableId("assistant-stream");
-    ctx.currentAssistantStableIdRef.current = stableId;
-    ctx.setMessages((prev) =>
-      createStreamingBubble(prev, event.text, event.messageId, stableId),
-    );
-  } else {
-    ctx.setMessages((prev) =>
-      appendTextDelta(prev, event.text, event.messageId),
-    );
-  }
+  ctx.setMessages((prev) => {
+    const next = appendTextDelta(prev, event.text, event.messageId);
+    const tail = next[next.length - 1];
+    // Stamp the current-assistant ref to the streaming tail. Subagent
+    // handlers read this to attribute nested notifications to the right
+    // parent bubble.
+    if (tail?.role === "assistant" && tail.isStreaming) {
+      ctx.currentAssistantMessageIdRef.current = tail.id;
+    }
+    return next;
+  });
 }
 
 export function handleAssistantActivityState(
   event: AssistantActivityStateEvent,
-  epoch: number,
   ctx: StreamHandlerContext,
 ): void {
   const convId =
@@ -75,7 +71,6 @@ export function handleAssistantActivityState(
   }
 
   ctx.setMessages(finalizeOnIdle);
-  ctx.needsNewBubbleRef.current = true;
   const turnPhaseBefore = ctx.getTurnState().phase;
   ctx.turnActions.completeTurn();
   if (convId) {
@@ -87,26 +82,27 @@ export function handleAssistantActivityState(
     activityVersion: event.activityVersion,
     turnPhaseBefore,
   });
-  ctx.startReconciliationLoop(epoch);
 }
 
 export function handleMessageComplete(
   event: MessageCompleteEvent,
-  epoch: number,
   ctx: StreamHandlerContext,
 ): void {
-  const completedAttachments = toDisplayAttachments(event.attachments);
-  const rowMessageId = event.messageId;
-  const displayMessageId = event.displayMessageId ?? event.messageId;
-  ctx.setMessages((prev) =>
-    finalizeMessageComplete(prev, {
-      content: event.content,
-      rowMessageId,
-      displayMessageId,
-      attachments: completedAttachments,
-    }),
-  );
-  ctx.needsNewBubbleRef.current = true;
+  ctx.setMessages((prev) => finalizeMessageComplete(prev, event));
+
+  // Re-anchor subagents spawned in this turn from the optimistic streaming
+  // bubble id (`currentAssistantMessageIdRef`, the same id used as
+  // `parentMessageStableId` at spawn time) onto the durable server
+  // `messageId`, which survives reconcile. Multi-LLM-call turns collapse onto
+  // the first row's id daemon-side; the common single-call spawn turn is
+  // unaffected because entries are indexed under both ids in `byParent`.
+  const stableId = ctx.currentAssistantMessageIdRef.current;
+  if (event.messageId && stableId) {
+    useSubagentStore
+      .getState()
+      .reanchorToMessage({ stableId, messageId: event.messageId });
+  }
+
   const turnPhaseBefore = ctx.getTurnState().phase;
   ctx.turnActions.completeTurn();
   const convId = ctx.streamContextRef.current?.conversationId;
@@ -116,27 +112,20 @@ export function handleMessageComplete(
   recordChatDiagnostic("sse_message_complete_handled", {
     convId,
     turnPhaseBefore,
-    displayMessageId,
+    messageId: event.messageId,
     hasContent: !!event.content,
-    hasAttachments: !!completedAttachments,
+    hasAttachments: !!event.attachments?.length,
+    reanchored: !!(event.messageId && stableId),
   });
-  ctx.startReconciliationLoop(epoch);
 }
 
 export function handleGenerationHandoff(
-  event: GenerationHandoffEvent,
+  _event: GenerationHandoffEvent,
   ctx: StreamHandlerContext,
 ): void {
   ctx.cancelReconciliation();
   ctx.turnActions.handoffGeneration();
-  const displayMessageId = event.displayMessageId ?? event.messageId;
-  ctx.setMessages((prev) =>
-    stopStreaming(prev, {
-      displayMessageId,
-      rowMessageId: event.messageId,
-    }),
-  );
-  ctx.needsNewBubbleRef.current = true;
+  ctx.setMessages((prev) => stopStreaming(prev));
 }
 
 export function handleGenerationCancelled(
@@ -149,5 +138,4 @@ export function handleGenerationCancelled(
     ctx.clearProcessingKey(convId);
   }
   ctx.setMessages((prev) => stopStreaming(prev));
-  ctx.needsNewBubbleRef.current = true;
 }

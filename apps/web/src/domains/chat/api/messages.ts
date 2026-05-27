@@ -7,23 +7,25 @@
  */
 
 import * as Sentry from "@sentry/react";
-import type { ChatMessageToolCall } from "@/domains/chat/api/event-types.js";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type {
   DisplayMessage,
   SlackRuntimeMessage,
   Surface,
-} from "@/domains/chat/types/types.js";
+} from "@/domains/chat/types/types";
 import {
   assertHasResponse,
   client,
   extractErrorMessage,
   SDK_BASE_OPTIONS,
-} from "@/domains/chat/api/client.js";
+} from "@/domains/chat/api/client";
 import {
   normalizePreChatOnboardingContext,
   type PreChatOnboardingContext,
-} from "@/domains/onboarding/prechat.js";
-import { persistPreChatOnboardingProfile } from "@/domains/onboarding/prechat-profile.js";
+} from "@/domains/onboarding/prechat";
+import { persistPreChatOnboardingProfile } from "@/domains/onboarding/prechat-profile";
+import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
+import { pickConversationIdWireField } from "@/lib/backwards-compat/conversation-id-wire-field";
 
 const POLL_INTERVAL_MS = 1000;
 const POLL_TIMEOUT_MS = 120_000;
@@ -84,8 +86,6 @@ export interface RuntimeSubagentNotification {
 
 export interface RuntimeMessage {
   id: string;
-  /** Concrete persisted assistant row id for row-scoped actions. */
-  daemonMessageId?: string;
   role: "user" | "assistant";
   content: string;
   surfaces?: Surface[];
@@ -324,8 +324,6 @@ export async function getChatHistory(
       };
     }
 
-    const { mapRuntimeToDisplayMessage } =
-      await import("@/domains/chat/utils/map-runtime-message.js");
     const messages = (Array.isArray(data?.messages) ? data.messages : [])
       .filter((m) => m.role === "user" || m.role === "assistant")
       .map(mapRuntimeToDisplayMessage);
@@ -373,16 +371,22 @@ export type PostMessageResult =
       ok: true;
       queued?: false;
       assistantId: string;
-      conversationKey: string;
+      /** The authoritative conversation id from the assistant. Always
+       *  populated regardless of whether the caller supplied an id on
+       *  input — on the server-minted flow this is the freshly minted
+       *  id, on the legacy flow it's the resolved/echoed id. */
+      conversationId: string;
       messageId: string;
-      resolvedConversationId?: string;
     }
   | {
       ok: true;
       queued: true;
       assistantId: string;
-      conversationKey: string;
-      resolvedConversationId?: string;
+      /** The authoritative conversation id from the assistant. Always
+       *  populated regardless of whether the caller supplied an id on
+       *  input — on the server-minted flow this is the freshly minted
+       *  id, on the legacy flow it's the resolved/echoed id. */
+      conversationId: string;
       requestId?: string;
     }
   | { ok: false; status: number; error: { code?: string; detail?: string } };
@@ -482,20 +486,35 @@ export async function uploadChatAttachment(
  */
 export async function postChatMessage(
   assistantId: string,
-  conversationId: string,
+  conversationId: string | null,
   content: string,
   attachmentIds: string[] = [],
   onboarding?: PreChatOnboardingContext,
 ): Promise<PostMessageResult> {
+  // Wire-field selection picks exactly one of `conversationId` (0.8.6+
+  // strict internal-id lookup) or `conversationKey` (legacy
+  // create-or-lookup). See `lib/backwards-compat/conversation-id-wire-field.ts`.
+  //
+  // The single skip case is the server-minted flow: `conversationId ===
+  // null` on a 0.8.6+ assistant. Caller is asking the assistant to mint
+  // a conversation row and echo its id back in the response — both
+  // fields must be omitted so the assistant takes the mint branch (see
+  // `assistant/src/runtime/routes/conversation-routes.ts`
+  // `handleSendMessage`). Callers gate `null` on
+  // `supportsServerMintedConversation()`.
+  //
+  // Pre-0.8.6 assistants always receive `conversationKey` — including
+  // `conversationKey: null` for safety, since they have no mint branch
+  // and need the legacy create-or-lookup path either way.
   const body: Record<string, unknown> = {
-    // Daemon's send-message endpoint reads `body.conversationKey` only
-    // (see assistant/src/runtime/routes/conversation-routes.ts handleSendMessage).
-    // The web-side parameter is conversationId; map to the wire field here.
-    conversationKey: conversationId,
     content,
     sourceChannel: "vellum",
     interface: "vellum",
   };
+  const conversationField = pickConversationIdWireField();
+  if (conversationId !== null || conversationField !== "conversationId") {
+    body[conversationField] = conversationId;
+  }
   if (attachmentIds.length > 0) {
     body.attachmentIds = attachmentIds;
   }
@@ -520,6 +539,16 @@ export async function postChatMessage(
       onboardingDict.priorAssistants = normalizedOnboarding.priorAssistants;
     if (normalizedOnboarding.cohort !== undefined)
       onboardingDict.cohort = normalizedOnboarding.cohort;
+    if (normalizedOnboarding.bootstrapTemplate !== undefined)
+      onboardingDict.bootstrapTemplate = normalizedOnboarding.bootstrapTemplate;
+    if (
+      normalizedOnboarding.initialMessage !== undefined &&
+      normalizedOnboarding.initialMessage.trim().toLowerCase().replace(/[.!?]+$/, "") !==
+        "wake up, my friend"
+    )
+      onboardingDict.initialMessage = normalizedOnboarding.initialMessage;
+    if (normalizedOnboarding.skills !== undefined)
+      onboardingDict.skills = normalizedOnboarding.skills;
     body.onboarding = onboardingDict;
   }
   if (normalizedOnboarding) {
@@ -552,6 +581,11 @@ export async function postChatMessage(
         ? (errorBody.error as Record<string, unknown>)
         : {};
 
+    // The daemon's non-standard error envelopes use `errorBody.error` as a
+    // bare code string (e.g. "secret_blocked") and `errorBody.message` for
+    // the user-facing copy. Treat `errorBody.error` (string) only as a code
+    // candidate, never as the user-facing `detail` — otherwise the UI shows
+    // the raw code instead of the friendly explanation.
     return {
       ok: false,
       status: sendResponse.status,
@@ -561,17 +595,18 @@ export async function postChatMessage(
             ? errorBody.code
             : typeof nestedError.code === "string"
               ? nestedError.code
-              : undefined,
+              : typeof errorBody.error === "string"
+                ? errorBody.error
+                : undefined,
         detail:
           (typeof errorBody.detail === "string"
             ? errorBody.detail
             : undefined) ??
-          (typeof errorBody.error === "string" ? errorBody.error : undefined) ??
-          (typeof nestedError.message === "string"
-            ? nestedError.message
-            : undefined) ??
           (typeof errorBody.message === "string"
             ? errorBody.message
+            : undefined) ??
+          (typeof nestedError.message === "string"
+            ? nestedError.message
             : undefined) ??
           `HTTP ${sendResponse.status}`,
       },
@@ -590,18 +625,38 @@ export async function postChatMessage(
     };
   }
 
+  // The assistant is the source of truth for the conversation id —
+  // `handleSendMessage` returns it on every success path (echoed when
+  // the caller supplied one, minted when both wire fields were
+  // omitted). Treat a missing id as a contract violation so the caller
+  // never threads `undefined` through downstream code (chat history,
+  // URL navigation, draft resolution).
+  //
+  // Followup: once `PostMessageResult` lives in the assistant API
+  // schema, swap this for a zod parse — at that point `conversationId`
+  // will be guaranteed-present by the schema and this branch becomes
+  // unreachable.
   const resolvedConversationId =
     typeof sendData.conversationId === "string"
       ? sendData.conversationId
       : undefined;
+  if (resolvedConversationId === undefined) {
+    return {
+      ok: false,
+      status: 422,
+      error: {
+        detail:
+          "Assistant accepted the message but did not return a conversation id.",
+      },
+    };
+  }
 
   if (sendData.queued) {
     return {
       ok: true,
       queued: true,
       assistantId,
-      conversationKey: conversationId,
-      resolvedConversationId,
+      conversationId: resolvedConversationId,
       requestId:
         typeof sendData.requestId === "string" ? sendData.requestId : undefined,
     };
@@ -618,9 +673,8 @@ export async function postChatMessage(
   return {
     ok: true,
     assistantId,
-    conversationKey: conversationId,
+    conversationId: resolvedConversationId,
     messageId: sendData.messageId,
-    resolvedConversationId,
   };
 }
 

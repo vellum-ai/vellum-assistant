@@ -58,3 +58,18 @@ The module-level dependency-injection pattern (`registerFooDeps()`) used by some
 ## Code comments
 
 When writing or updating comments, **do not reference code that has been removed.** Comments should describe the current state of the codebase, not narrate its history. Avoid phrases like "no longer does X", "previously used Y", or "was removed in PR Z" — future readers should not need to understand past implementations to understand the current code.
+
+## Test machinery isolation
+
+**Test files and test helpers (anything under `__tests__/`) must not import from `src/` except for the production module they are testing.** No transitive imports from `src/` into helpers, preloads, or shared test utilities.
+
+The rule exists because test machinery and production code have **inverted invariants**: production assumes the workspace exists and is real; tests assume the workspace is a per-process temp dir that's safe to destroy. When a helper reaches into `src/` to set up state, it ties those invariants together — and a future change to either side can silently break the isolation the helper was supposed to provide. The May 2026 DB-ghost incidents (3 in 4 days) all traced back to test code touching production state through this kind of coupling.
+
+Concretely:
+
+- **Test helpers** (e.g. `src/__tests__/*-test-helpers.ts`) use only node stdlib, `bun:test`, and sibling helpers. If they need to manipulate shared state that production code also reads, both sides declare a typed slot under `globalThis.vellumAssistant.*` and read/write that slot independently. The slot shape is duplicated by design — the helper and the production module both reference the namespace, neither imports the other.
+- **The test preload** (`src/__tests__/test-preload.ts`) is even stricter: it must not import from `src/` at all. Its only static imports are node stdlib, `bun:test`, and helpers in `src/__tests__/`. Importing from a source module risks running its import-time side effects before the workspace override is set.
+- **The preload verifier** (`src/__tests__/test-preload-verifier.ts`) runs after the main preload and asserts the override took effect (`VELLUM_WORKSPACE_DIR` must resolve under `os.tmpdir()`).
+- **Destructive ops** (e.g. `rmSync(dbPath, ...)`) in tests must call `assertNotLiveDb(path)` from `src/__tests__/assert-not-live-db.js` immediately before the destructive call. The check is a per-callsite belt to the preload-verifier suspenders.
+
+When in doubt: **if a piece of test infrastructure can live in `__tests__/` without reaching into `src/`, it must.** Reach for source-code coupling only when there is no `__tests__/`-only alternative that achieves the same invariant.

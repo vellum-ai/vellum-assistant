@@ -19,6 +19,7 @@ const upsertCalls: Array<{
 
 mock.module("../conversation-crud.js", () => ({
   getConversationSource: (_id: string) => sourceTag,
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 mock.module("../jobs-store.js", () => ({

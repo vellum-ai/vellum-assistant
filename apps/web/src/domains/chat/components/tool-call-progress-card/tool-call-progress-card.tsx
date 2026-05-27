@@ -1,224 +1,38 @@
+import { X } from "lucide-react";
+import { Fragment, useState } from "react";
 
+import { ToolCallChip } from "@/domains/chat/components/tool-call-chip/tool-call-chip";
 import {
-  AlertCircle,
-  AlertTriangle,
-  CheckCircle2,
-  ChevronDown,
-  ChevronUp,
-  Clock,
-  X,
-} from "lucide-react";
-import { Fragment, useEffect, useMemo, useState } from "react";
-
-import { BusyIndicator } from "@/domains/chat/components/busy-indicator.js";
-import { ToolCallChip } from "@/domains/chat/components/tool-call-chip/tool-call-chip.js";
+  WebSearchProgressCard,
+  type StepDescriptor,
+} from "@/domains/chat/components/web-search/web-search-progress-card";
 import {
-  extractInputSummary,
-  friendlyRunningLabel,
-  progressiveLabels,
-} from "@/domains/chat/components/tool-call-chip/utils.js";
-import { WebSearchProgressCard } from "@/domains/chat/components/web-search/web-search-progress-card.js";
-import { useElapsedTime } from "@/domains/chat/hooks/use-elapsed-time.js";
-import { useWebSearchCardData } from "@/domains/chat/hooks/use-web-search-card-data.js";
-import type { AllowlistOption, ChatMessageToolCall, ConfirmationDecision, DirectoryScopeOption, ScopeOption } from "@/domains/chat/api/event-types.js";
-
-// ---------------------------------------------------------------------------
-// Phase system — mirrors macOS ProgressCardPhase
-// ---------------------------------------------------------------------------
-
-/**
- * Resolved display phase for the progress card header.
- *
- * - `thinking`   — all tools complete, assistant is streaming its response
- *                  (post-tool thinking gap). Mirrors macOS `.toolsCompleteThinking`.
- * - `toolRunning` — at least one tool call is in flight.
- * - `complete`   — all tools done, turn finished, no denials.
- * - `denied`     — one or more tool calls were blocked/denied.
- */
-type Phase = "thinking" | "toolRunning" | "complete" | "denied";
-
-function computePhase({
-  hasRunning,
-  allCompleted,
-  hasDenied,
-  isStreaming,
-}: {
-  hasRunning: boolean;
-  allCompleted: boolean;
-  hasDenied: boolean;
-  isStreaming: boolean;
-}): Phase {
-  // Mirrors macOS resolvePhase priority order exactly:
-  // 1. Denied takes precedence over toolRunning — if any tool was blocked and tools are
-  //    still incomplete, show denied even if another tool is still actively running.
-  //    (macOS line 288: `if hasDeniedToolCalls && hasIncompleteTools { return .denied }`)
-  if (hasDenied && !allCompleted) return "denied";
-  if (hasRunning) return "toolRunning";
-  if (allCompleted && isStreaming && !hasDenied) return "thinking";
-  return "complete";
-}
-
-// ---------------------------------------------------------------------------
-// Progressive label hook — cycles through descriptive labels for app tools
-// ---------------------------------------------------------------------------
-
-/** Interval in ms between label advances — matches macOS ~8s timing. */
-const PROGRESSIVE_LABEL_INTERVAL_MS = 8_000;
-
-/**
- * Returns the current progressive label for a running app tool, or null for
- * tools that don't have progressive labels. Advances through the label array
- * on a timer and resets when the tool call changes.
- *
- * The index is stored in state and advanced by the interval callback. When
- * `startedAt` changes (new tool invocation), the effect tears down and
- * re-runs, resetting the index to 0 via the initializer.
- */
-function useProgressiveLabel(
-  toolName: string | undefined,
-  startedAt: number | undefined,
-): string | null {
-  const labels = useMemo(
-    () => (toolName ? progressiveLabels(toolName) : []),
-    [toolName],
-  );
-
-  const [index, setIndex] = useState(0);
-
-  useEffect(() => {
-    if (labels.length === 0) return;
-
-    // Reset to 0 whenever this effect re-runs (tool or startedAt changed).
-    setIndex(0);
-
-    const id = setInterval(() => {
-      setIndex((prev) => Math.min(prev + 1, labels.length - 1));
-    }, PROGRESSIVE_LABEL_INTERVAL_MS);
-
-    return () => clearInterval(id);
-  }, [labels, startedAt]);
-
-  if (labels.length === 0) return null;
-  return labels[index] ?? null;
-}
-
-// ---------------------------------------------------------------------------
-// Stall watchdog
-// ---------------------------------------------------------------------------
-
-/** Threshold (ms) after which the client considers events stalled. */
-const CLIENT_STALL_THRESHOLD_MS = 45_000;
-
-/**
- * When tool_progress events report a long-running tool, return a user-friendly
- * "still working" message. Also acts as a client-side stall watchdog: if a
- * tool has been running >45s with no progress event at all, or the last
- * progress event is >45s stale, show a stall indicator.
- */
-function stallSuffix(
-  tc: ChatMessageToolCall | undefined,
-  now: number,
-): string | null {
-  if (!tc || tc.status !== "running") return null;
-
-  // Server-driven progress: the daemon sends tool_progress every ~10s
-  if (tc.progressElapsedSec != null && tc.progressElapsedSec >= 30) {
-    if (tc.progressElapsedSec >= 60) return "This is taking longer than expected...";
-    return "Still working...";
-  }
-
-  // Client-side stall watchdog: no tool_progress events received but
-  // the tool has been running longer than the stall threshold.
-  if (tc.startedAt != null) {
-    const runningMs = now - tc.startedAt;
-    if (runningMs >= CLIENT_STALL_THRESHOLD_MS) {
-      // If we had progress events but they stopped arriving, that's a stall
-      if (tc.lastProgressAt != null) {
-        const sinceLast = now - tc.lastProgressAt;
-        if (sinceLast >= CLIENT_STALL_THRESHOLD_MS) {
-          return "Connection may be interrupted...";
-        }
-      } else {
-        // No progress events ever received — server may not support them,
-        // but tool has been running a long time
-        if (runningMs >= 60_000) return "This is taking longer than expected...";
-        return "Still working...";
-      }
-    }
-  }
-
-  return null;
-}
-
-// ---------------------------------------------------------------------------
-// Headline
-// ---------------------------------------------------------------------------
-
-function computeHeadline(
-  phase: Phase,
-  totalSteps: number,
-  deniedCount: number,
-  currentRunningCall: ChatMessageToolCall | undefined,
-  firstDeniedCall: ChatMessageToolCall | undefined,
-  skillExecuteLabel: string,
-): string {
-  switch (phase) {
-    case "thinking":
-      return "Thinking...";
-
-    case "toolRunning": {
-      if (currentRunningCall) {
-        const reason = currentRunningCall.input?.reason;
-        if (typeof reason === "string" && reason.trim()) {
-          return reason.trim();
-        }
-        if (currentRunningCall.toolName === "skill_execute") {
-          return skillExecuteLabel;
-        }
-        const inputSummary = extractInputSummary(
-          currentRunningCall.toolName,
-          currentRunningCall.input,
-        );
-        const buildingStatus =
-          typeof currentRunningCall.input.building_status === "string"
-            ? currentRunningCall.input.building_status
-            : undefined;
-        return friendlyRunningLabel(currentRunningCall.toolName, inputSummary, buildingStatus);
-      }
-      const suffix = totalSteps !== 1 ? "s" : "";
-      return `Running ${totalSteps} step${suffix}`;
-    }
-
-    case "denied": {
-      // Mirrors macOS headlineText for .denied:
-      // `ChatBubble.friendlyRunningLabel(primary) + " denied"`
-      // where primary = uniqueToolNamesSorted.first. Shows e.g. "Fetching a webpage denied"
-      // rather than "Completed with N blocked permissions" — that string belongs at .complete.
-      if (firstDeniedCall) {
-        const inputSummary = extractInputSummary(firstDeniedCall.toolName, firstDeniedCall.input);
-        return `${friendlyRunningLabel(firstDeniedCall.toolName, inputSummary)} denied`;
-      }
-      const permSuffix = deniedCount !== 1 ? "s" : "";
-      return `Completed with ${deniedCount} blocked permission${permSuffix}`;
-    }
-
-    case "complete":
-    default: {
-      // Mirrors macOS headlineText for .complete with hasDeniedToolCalls:
-      // `"Completed with \(model.deniedCount) blocked permission\(s)"`
-      if (deniedCount > 0) {
-        const permSuffix = deniedCount !== 1 ? "s" : "";
-        return `Completed with ${deniedCount} blocked permission${permSuffix}`;
-      }
-      const suffix = totalSteps !== 1 ? "s" : "";
-      return `Completed ${totalSteps} step${suffix}`;
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Sub-components
-// ---------------------------------------------------------------------------
+  WebSearchErrorRow,
+  WebSearchStepRow,
+} from "@/domains/chat/components/web-search/web-search-step-row";
+import {
+  DefaultStepPill,
+  PhaseGroupedStepList,
+} from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
+import { ToolStepPill } from "@/domains/chat/components/tool-progress-card/tool-step-pill";
+import {
+  ToolProgressCardShell,
+  type ToolProgressCardState,
+} from "@/domains/chat/components/tool-progress-card/tool-progress-card-shell";
+import { useViewerStore } from "@/stores/viewer-store";
+import {
+  useToolCallCardData,
+  WEB_TOOL_NAMES,
+  type ToolCallCardData,
+  type ToolCallCardStep,
+} from "@/domains/chat/hooks/use-tool-call-card-data";
+import type {
+  AllowlistOption,
+  ChatMessageToolCall,
+  ConfirmationDecision,
+  DirectoryScopeOption,
+  ScopeOption,
+} from "@/domains/chat/api/event-types";
 
 export interface ToolCallProgressCardProps {
   toolCalls: ChatMessageToolCall[];
@@ -250,108 +64,370 @@ export interface ToolCallProgressCardProps {
   onDismissUnknownNudge?: (toolCallId: string) => void;
   /**
    * Whether the parent assistant message is currently streaming a response.
-   * Used to detect the post-tool thinking phase so we can show "Thinking..."
-   * instead of "Completed N steps" while the turn is still active.
+   * Tools can finish before the assistant's final reply is complete; the
+   * card keeps itself expanded while either `isStreaming` is true or the
+   * tool group is still loading, so the user keeps seeing the steps next to
+   * the streaming reply instead of a prematurely-collapsed card.
    */
   isStreaming?: boolean;
+  /**
+   * Optional leading "thinking" text segment that immediately preceded this
+   * tool-call group in the message's `contentOrder`. When supplied the
+   * unified card prepends a `thinking` step to the expanded body so the
+   * carousel shows the model's reasoning before the first tool fires.
+   */
+  leadingThinkingText?: string | null;
 }
-
-function CardStatusIcon({
-  phase,
-  hasDenied,
-  isTimeout,
-}: {
-  phase: Phase;
-  hasDenied: boolean;
-  isTimeout: boolean;
-}) {
-  switch (phase) {
-    case "thinking":
-    case "toolRunning":
-      return <BusyIndicator size={8} />;
-    case "denied":
-      // Timed-out denials: clock icon in muted tertiary. Active denials: circleAlert in red.
-      // Mirrors macOS statusIcon() which checks decidedConfirmations for .timedOut.
-      return isTimeout
-        ? <Clock className="h-4 w-4 text-[var(--content-tertiary)] shrink-0" />
-        : <AlertCircle className="h-4 w-4 text-[var(--system-negative-strong)] shrink-0" />;
-    case "complete":
-    default:
-      // When some tools were blocked but the overall turn completed, show a warning
-      // triangle (systemNegativeHover) instead of a success check. Mirrors macOS
-      // statusIcon() which uses .triangleAlert when model.hasDeniedToolCalls.
-      return hasDenied
-        ? <AlertTriangle className="h-4 w-4 text-[var(--system-negative-hover)] shrink-0" />
-        : <CheckCircle2 className="h-4 w-4 text-[var(--system-positive-strong)] shrink-0" />;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// ThinkingRow — post-tool synthetic thinking phase row
-// ---------------------------------------------------------------------------
 
 /**
- * Shown at the bottom of the expanded chip list when all tools are done but
- * the assistant is still composing its reply. Ticks every second to give a
- * sense of live activity. Mirrors macOS ThinkingStepRow.
+ * Unified tool-call progress card. All tool groups — web search, bash, file
+ * ops, MCP, computer use, skills — render through the shared
+ * {@link ToolProgressCardShell} driven by {@link useToolCallCardData}.
+ *
+ * Special cases short-circuit before the shell:
+ *
+ * - `pendingConfirmationToolCallId` matches a tool call in this group →
+ *   render the inline confirmation UI via {@link ToolCallChip} so the
+ *   approve/deny path is preserved bit-for-bit from the legacy card.
+ * - Zero renderable steps (today: a group made up entirely of
+ *   `subagent_spawn` calls, which `useToolCallCardData` filters out) → render
+ *   `null`; the spawned subagents render as inline
+ *   `SubagentInlineProgressCard`s elsewhere in the transcript.
  */
-function ThinkingRow({ sinceMs }: { sinceMs: number | undefined }) {
-  const [elapsed, setElapsed] = useState(() =>
-    sinceMs !== undefined ? Math.floor((Date.now() - sinceMs) / 1000) : 0,
+export function ToolCallProgressCard(props: ToolCallProgressCardProps) {
+  const {
+    toolCalls,
+    pendingConfirmationToolCallId,
+    leadingThinkingText,
+  } = props;
+
+  const hasActiveConfirmation =
+    pendingConfirmationToolCallId != null &&
+    toolCalls.some((tc) => tc.id === pendingConfirmationToolCallId);
+
+  // Single subscription to the unified hook so the dispatcher and every
+  // downstream branch share the same projection. `leadingThinkingText`
+  // prepends a `thinking` step ahead of the first tool call when supplied;
+  // purely-web groups (which historically didn't have a leading-thinking
+  // slot) typically pass `null` so the prepend is a no-op.
+  //
+  // `subagent_spawn` calls are filtered out inside `computeToolCallCardData`
+  // — they're rendered inline by `SubagentInlineProgressCard` at the
+  // transcript level. If a group reduces to zero renderable steps the
+  // dispatcher falls through to a no-op below.
+  const cardData = useToolCallCardData(
+    toolCalls,
+    leadingThinkingText ?? null,
   );
 
-  useEffect(() => {
-    if (sinceMs === undefined) return;
-    const id = setInterval(() => {
-      setElapsed(Math.floor((Date.now() - sinceMs) / 1000));
-    }, 1000);
-    return () => clearInterval(id);
-  }, [sinceMs]);
+  // Confirmation short-circuit — render the inline approve/deny UI via the
+  // existing chip-based rendering. Bypasses the progress-card chrome
+  // entirely so the confirmation card sits flush in the transcript and the
+  // user can act on it without first expanding a collapsed card.
+  if (hasActiveConfirmation) {
+    return <ConfirmationView {...props} />;
+  }
 
-  if (sinceMs === undefined) return null;
+  // No renderable steps — every tool call in the group was filtered out
+  // (today that means a `subagent_spawn`-only group). Inline subagent cards
+  // handle the rendering elsewhere, so we return nothing here.
+  if (cardData.steps.length === 0) {
+    return null;
+  }
+
+  // Purely-web groups continue to flow through `WebSearchProgressCard` for
+  // its mature rendering (carousel header, error chips). Mixed / non-web
+  // groups fall through to the unified shell below.
+  if (isPurelyWebGroup(toolCalls)) {
+    return <WebSearchView toolCalls={toolCalls} cardData={cardData} />;
+  }
+
+  return <UnifiedToolCallProgressCard {...props} cardData={cardData} />;
+}
+
+/**
+ * True when every tool call in the group is a web tool (`web_search` /
+ * `web_fetch`). Mirrors the legacy purely-web predicate that gated the web
+ * progress card before the unified card consolidated the two paths.
+ */
+function isPurelyWebGroup(toolCalls: ChatMessageToolCall[]): boolean {
+  if (toolCalls.length === 0) return false;
+  return toolCalls.every((tc) => WEB_TOOL_NAMES.has(tc.toolName));
+}
+
+/**
+ * Renders the web-search variant by narrowing the unified card data to the
+ * legacy `WebSearchProgressCard` props.
+ *
+ * State precedence (highest first):
+ *   1. `"loading"` — any tool call still has `status === "running"`. A denied
+ *      confirmation can race ahead of the error `tool_result`, so the legacy
+ *      card has to stay in `"loading"` until the tool actually exits.
+ *   2. unified `state === "error"` or `"denied"` — bubble the failed chrome
+ *      up so a purely-web group that ends with a tool error reads as failed
+ *      (consistent with mixed / non-web groups that already render through
+ *      the unified shell's error icon).
+ *   3. `"complete"` — every tool call reached a terminal status without
+ *      failure.
+ */
+function WebSearchView({
+  toolCalls,
+  cardData,
+}: {
+  toolCalls: ChatMessageToolCall[];
+  cardData: ToolCallCardData;
+}) {
+  return (
+    <WebSearchProgressCard
+      currentStepTitle={cardData.currentStepTitle}
+      currentStepInfo={cardData.currentStepInfo}
+      stepCount={cardData.stepCount}
+      // Every step in a purely-web group is one of the legacy three kinds
+      // by construction — the `tool` variant only appears for non-web
+      // tools, which this branch filters out.
+      steps={cardData.steps as StepDescriptor[]}
+      state={deriveWebShellState(toolCalls, cardData.state)}
+      carouselItems={cardData.carouselItems}
+    />
+  );
+}
+
+function deriveWebShellState(
+  toolCalls: ChatMessageToolCall[],
+  unifiedState: ToolCallCardData["state"],
+): ToolProgressCardState {
+  if (toolCalls.some((tc) => tc.status === "running")) return "loading";
+  if (unifiedState === "error" || unifiedState === "denied") return unifiedState;
+  return "complete";
+}
+
+/**
+ * Render the unified shell for a non-web tool-call group. Wraps
+ * `ToolProgressCardShell` with a `PhaseGroupedStepList` body that groups
+ * contiguous same-phase steps (`Thinking`, `Working (bash)`, `Using a
+ * skill`, etc.) under a single phase header. Mixed groups carry
+ * `web_search` / `web_search_error` / `thinking` (from web tools or the
+ * `leadingThinkingText` slot) alongside the `tool` variant emitted by
+ * `useToolCallCardData` for non-web tools.
+ */
+function UnifiedToolCallProgressCard({
+  toolCalls,
+  expandedCardIds,
+  cardData,
+  onOpenRuleEditor,
+  unknownNudgeToolCallIds,
+  onDismissUnknownNudge,
+  isStreaming,
+}: ToolCallProgressCardProps & { cardData: ToolCallCardData }) {
+  const openToolDetail = useViewerStore.use.openToolDetail();
+  // Drives the pill's active state — the pill whose detail drawer is currently
+  // open renders selected. `null` when the drawer is closed or showing another
+  // view, so no pill reads as active.
+  const openToolDetailId = useViewerStore.use.activeToolDetail()?.toolCallId ?? null;
+  const cardId = toolCalls[0]?.id ?? null;
+  const expanded = useCardExpanded(
+    cardId,
+    cardData.state,
+    expandedCardIds,
+    isStreaming ?? false,
+  );
+
+  const shellState: ToolProgressCardState = cardData.state;
+
+  // Nudge rows need the raw call (riskLevel, allowlistOptions, …) which
+  // isn't carried on the step descriptor. The pill's click handler also
+  // reads the raw call to build the tool-detail drawer payload.
+  const toolCallById = new Map(toolCalls.map((tc) => [tc.id, tc]));
 
   return (
-    <div className="flex items-center gap-2 pl-6 pr-3 py-2 text-body-small-default">
-      <BusyIndicator size={6} />
-      <span className="text-[var(--content-secondary)]">Thinking</span>
-      <span className="ml-auto text-[var(--content-tertiary)]">{elapsed}s</span>
+    <ToolProgressCardShell
+      state={shellState}
+      currentStepTitle={cardData.currentStepTitle}
+      currentStepInfo={cardData.currentStepInfo}
+      stepCount={cardData.stepCount}
+      expanded={expanded.value}
+      onExpandChange={expanded.onChange}
+    >
+      <div className="flex w-full flex-col gap-3 px-3 pb-3">
+        <PhaseGroupedStepList
+          steps={cardData.steps}
+          renderStep={(step) => {
+            // Non-`tool` kinds (thinking, web_search, web_search_error,
+            // tool_error) keep their dedicated rows via `ExpandedStep`.
+            if (step.kind !== "tool") {
+              return <ExpandedStep step={step} />;
+            }
+
+            const nudgeTarget = unknownNudgeToolCallIds?.has(step.toolCallId)
+              ? toolCallById.get(step.toolCallId)
+              : undefined;
+            return (
+              <>
+                <ToolStepPill
+                  iconName={step.iconName}
+                  label={step.activity || step.info || step.title}
+                  riskLevel={step.riskLevel}
+                  active={openToolDetailId === step.toolCallId}
+                  tone={
+                    step.status === "error" || step.status === "denied"
+                      ? "error"
+                      : "default"
+                  }
+                  onClick={() => {
+                    const tc = toolCallById.get(step.toolCallId);
+                    if (!tc) return;
+                    // Pin the card open: opening the drawer flips `mainView`,
+                    // which remounts the transcript and resets local expand
+                    // state. Persisting the user's intent in `expandedCardIds`
+                    // keeps the parent accordion open across that remount.
+                    expanded.onChange(true);
+                    openToolDetail({
+                      toolCallId: tc.id,
+                      toolName: tc.toolName,
+                      title: step.title,
+                      activity: step.activity,
+                      input: tc.input ?? {},
+                      result: tc.result,
+                      status: step.status,
+                      riskLevel: tc.riskLevel,
+                      riskReason: tc.riskReason,
+                      durationLabel: step.durationLabel,
+                    });
+                  }}
+                />
+                {nudgeTarget && onOpenRuleEditor && (
+                  <UnknownCommandNudge
+                    toolCall={nudgeTarget}
+                    onOpenRuleEditor={onOpenRuleEditor}
+                    onDismiss={onDismissUnknownNudge}
+                  />
+                )}
+              </>
+            );
+          }}
+        />
+      </div>
+    </ToolProgressCardShell>
+  );
+}
+
+/**
+ * Drives the unified card's expand/collapse state. Mirrors legacy behavior:
+ * auto-expand while loading or while the parent message is still streaming
+ * (tools can finish before the assistant's final response is complete),
+ * auto-collapse on terminal state, but a user toggle (now or in a previous
+ * mount, recorded in `expandedCardIds`) wins across state transitions and
+ * remounts.
+ *
+ * `localToggle` mirrors the map mutation so React re-renders on click —
+ * mutating the map alone wouldn't trigger one.
+ */
+function useCardExpanded(
+  cardId: string | null,
+  state: ToolCallCardData["state"],
+  expandedCardIds: Map<string, boolean>,
+  isStreaming: boolean,
+): { value: boolean; onChange: (next: boolean) => void } {
+  const [localToggle, setLocalToggle] = useState<boolean | undefined>(
+    undefined,
+  );
+  const persisted =
+    cardId != null ? expandedCardIds.get(cardId) : undefined;
+  const userChoice = localToggle ?? persisted;
+  const value = userChoice ?? (state === "loading" || isStreaming);
+
+  const onChange = (next: boolean) => {
+    setLocalToggle(next);
+    if (cardId != null) expandedCardIds.set(cardId, next);
+  };
+
+  return { value, onChange };
+}
+
+/**
+ * Inline "This command wasn't recognized." nudge rendered beneath a tool
+ * step whose call is flagged in `unknownNudgeToolCallIds`. Restores the
+ * legacy affordance one-for-one — same copy, same "Create a rule" link, same
+ * dismiss-X button.
+ */
+function UnknownCommandNudge({
+  toolCall,
+  onOpenRuleEditor,
+  onDismiss,
+}: {
+  toolCall: ChatMessageToolCall;
+  onOpenRuleEditor: NonNullable<ToolCallProgressCardProps["onOpenRuleEditor"]>;
+  onDismiss?: ToolCallProgressCardProps["onDismissUnknownNudge"];
+}) {
+  return (
+    <div className="flex items-center gap-1 pl-6 text-body-small-default text-[var(--content-tertiary)]">
+      <span>This command wasn&apos;t recognized.</span>
+      <button
+        type="button"
+        onClick={() =>
+          onOpenRuleEditor({
+            toolName: toolCall.toolName,
+            riskLevel: toolCall.riskLevel,
+            riskReason: toolCall.riskReason,
+            input: toolCall.input ?? {},
+            allowlistOptions: toolCall.allowlistOptions ?? [],
+            scopeOptions: toolCall.scopeOptions ?? [],
+            directoryScopeOptions: toolCall.directoryScopeOptions ?? [],
+          })
+        }
+        // typography: off-scale — inline link within body-small nudge
+        className="font-medium text-[var(--content-default)] underline underline-offset-2 hover:text-[var(--content-secondary)]"
+      >
+        Create a rule
+      </button>
+      <span>to classify it for next time.</span>
+      {onDismiss && (
+        <button
+          type="button"
+          aria-label="Dismiss"
+          onClick={() => onDismiss(toolCall.id)}
+          className="ml-1 text-[var(--content-disabled)] hover:text-[var(--content-tertiary)]"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      )}
     </div>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Main component
-// ---------------------------------------------------------------------------
-
-export function ToolCallProgressCard(props: ToolCallProgressCardProps) {
-  // Short-circuit to the new web-search progress card whenever the active
-  // turn has any `web_search` / `web_fetch` tool calls. The selector hook
-  // returns `null` for non-web tool calls and historical (reopened) turns —
-  // those continue through the legacy generic card rendering below.
-  //
-  // The legacy renderer is its own component so the conditional return
-  // doesn't sit in front of the legacy path's hook calls (rules-of-hooks).
-  const webSearchData = useWebSearchCardData(props.toolCalls);
-  if (webSearchData) {
-    return (
-      <WebSearchProgressCard
-        currentStepTitle={webSearchData.currentStepTitle}
-        currentStepInfo={webSearchData.currentStepInfo}
-        stepCount={webSearchData.stepCount}
-        steps={webSearchData.steps}
-        state={webSearchData.state}
-        carouselItems={webSearchData.carouselItems}
-      />
-    );
+/**
+ * Render a single step inside the expanded body of a phase section. The
+ * `web_search` and `web_search_error` variants delegate to the shared
+ * `WebSearchStepRow` / `WebSearchErrorRow` primitives so the visual language
+ * matches the dedicated `WebSearchProgressCard`; all other variants fall
+ * through to {@link DefaultStepPill} which matches Figma `5010-103135`.
+ */
+function ExpandedStep({ step }: { step: ToolCallCardStep }) {
+  if (step.kind === "web_search") {
+    return <WebSearchStepRow step={step} />;
   }
-  return <LegacyToolCallProgressCard {...props} />;
+  if (step.kind === "web_search_error") {
+    return <WebSearchErrorRow step={step} />;
+  }
+  return <DefaultStepPill step={step} />;
 }
 
-function LegacyToolCallProgressCard({
+// ---------------------------------------------------------------------------
+// Confirmation view — preserved bit-for-bit from the legacy card
+// ---------------------------------------------------------------------------
+
+/**
+ * Inline approve/deny UI for a group that contains an active permission
+ * prompt. Renders each tool call as an embedded `ToolCallChip` (the chip
+ * itself owns the `InlineConfirmationCard` mounting for the matching call).
+ *
+ * Kept structurally identical to the legacy card's confirmation branch so
+ * existing tests, screenshots, and keyboard flows stay unchanged.
+ */
+function ConfirmationView({
   toolCalls,
   expandedToolCallIds,
   onExpandChange,
-  expandedCardIds,
   onOpenRuleEditor,
   isSubmittingConfirmation,
   onConfirmationSubmit,
@@ -359,244 +435,44 @@ function LegacyToolCallProgressCard({
   pendingConfirmationToolCallId,
   unknownNudgeToolCallIds,
   onDismissUnknownNudge,
-  isStreaming = false,
 }: ToolCallProgressCardProps) {
-  const cardId = toolCalls[0]?.id;
-  const hasActiveConfirmation = pendingConfirmationToolCallId
-    ? toolCalls.some((tc) => tc.id === pendingConfirmationToolCallId)
-    : false;
-
-  const {
-    hasRunning,
-    hasDenied,
-    hasTimeout,
-    deniedCount,
-    earliestStart,
-    latestCompleted,
-    allCompleted,
-    currentRunningCall,
-    firstDeniedCall,
-    skillExecuteLabel,
-  } = useMemo(() => {
-    let running = false;
-    let denied = 0;
-    let timeout = false;
-    let minStart: number | undefined;
-    let maxComplete: number | undefined;
-    // Status-first: a non-running tool is done regardless of completedAt.
-    // completedAt is only used for displayed duration, not completion gating.
-    let allDone = toolCalls.length > 0;
-    let firstRunning: ChatMessageToolCall | undefined;
-    let firstDenied: ChatMessageToolCall | undefined;
-    let lastSkillLoad: ChatMessageToolCall | undefined;
-
-    for (const tc of toolCalls) {
-      if (tc.status === "running") {
-        // Decouple "actively running" from "incomplete". Only denied/timed-out tools
-        // are excluded from hasRunning — they're waiting for the daemon to send back
-        // the error tool_result, not doing active work. Approved tools (confirmationDecision
-        // === "approved") are stamped immediately on user click but are still executing,
-        // so they must stay in the running pool. Undecided tools (null) are also running.
-        // This mirrors macOS ToolCallData.isComplete (false until tool_result) vs isRunning.
-        const isDeniedDecision =
-          tc.confirmationDecision === "denied" || tc.confirmationDecision === "timed_out";
-        if (!isDeniedDecision) {
-          running = true;
-          if (!firstRunning) firstRunning = tc;
-        }
-        // allCompleted still tracks any status="running" tool, decided or not,
-        // so the "denied" branch (hasDenied && !allCompleted) fires correctly.
-        allDone = false;
-      }
-      if (tc.confirmationDecision === "denied" || tc.confirmationDecision === "timed_out") {
-        denied++;
-        if (!firstDenied) firstDenied = tc;
-      }
-      if (tc.confirmationDecision === "timed_out") {
-        timeout = true;
-      }
-      if (tc.toolName === "skill_load" && tc.status !== "running") {
-        lastSkillLoad = tc;
-      }
-      if (tc.startedAt != null && (minStart === undefined || tc.startedAt < minStart)) minStart = tc.startedAt;
-      if (tc.completedAt != null && (maxComplete === undefined || tc.completedAt > maxComplete)) maxComplete = tc.completedAt;
-    }
-
-    // Derive contextual label for skill_execute from the last completed skill_load's input.
-    // Mirrors macOS ProgressCardPresentationModel.swift lines 200-208.
-    let skillExecuteLabel = "Using a skill";
-    if (lastSkillLoad) {
-      const skillId = lastSkillLoad.input?.skill;
-      if (typeof skillId === "string" && skillId) {
-        const display = skillId.replace(/[-_]/g, " ");
-        skillExecuteLabel = `Using my ${display} skill`;
-      }
-    }
-
-    return {
-      hasRunning: running,
-      hasDenied: denied > 0,
-      hasTimeout: timeout,
-      deniedCount: denied,
-      earliestStart: minStart,
-      latestCompleted: maxComplete,
-      allCompleted: allDone,
-      currentRunningCall: firstRunning,
-      firstDeniedCall: firstDenied,
-      skillExecuteLabel,
-    };
-  }, [toolCalls]);
-
-  const phase = computePhase({ hasRunning, allCompleted, hasDenied, isStreaming });
-
-  // Tick every 5s while tools are running so stallSuffix can detect
-  // client-side stalls even when no SSE events are flowing. Stops ticking
-  // once all tools complete.
-  const [stallNow, setStallNow] = useState(Date.now);
-  useEffect(() => {
-    if (!hasRunning) return;
-    const id = setInterval(() => setStallNow(Date.now()), 5_000);
-    return () => clearInterval(id);
-  }, [hasRunning]);
-
-  // Phase-based default: auto-expand while tools are running, thinking, or
-  // denied. Collapse only once the card reaches "complete". The persistent
-  // expandedCardIds set stores the user's explicit toggle so the preference
-  // survives component remounts (e.g. latest-turn → history transition).
-  const defaultExpanded = phase !== "complete";
-  const persistedState = cardId != null ? expandedCardIds.get(cardId) : undefined;
-  const [localExpanded, setLocalExpanded] = useState<boolean | null>(null);
-  const expanded = hasActiveConfirmation || (localExpanded ?? (persistedState ?? defaultExpanded));
-
-  // Progressive label for app_create / app_refresh / app_update tools.
-  // Only used as a fallback when no server-driven status is available.
-  const progressiveLabel = useProgressiveLabel(
-    phase === "toolRunning" ? currentRunningCall?.toolName : undefined,
-    phase === "toolRunning" ? currentRunningCall?.startedAt : undefined,
-  );
-
-  const baseHeadline = computeHeadline(phase, toolCalls.length, deniedCount, currentRunningCall, firstDeniedCall, skillExecuteLabel);
-  // Server-driven content (input.reason, input.building_status) takes priority
-  // over generic progressive labels. Only fall back to progressive labels when
-  // no server-driven headline is available.
-  const hasServerDrivenHeadline = phase === "toolRunning" && currentRunningCall && (
-    (typeof currentRunningCall.input?.reason === "string" && currentRunningCall.input.reason.trim()) ||
-    (typeof currentRunningCall.input?.building_status === "string" && currentRunningCall.input.building_status)
-  );
-  // When a tool_progress event reports a stall (>=30s), override the headline
-  // with a user-friendly "still working" message. This takes highest priority
-  // so the user always sees feedback during long-running tool executions.
-  const stall = phase === "toolRunning" ? stallSuffix(currentRunningCall, stallNow) : null;
-  const headline = stall
-    ? stall
-    : (phase === "toolRunning" && progressiveLabel && !hasServerDrivenHeadline)
-      ? progressiveLabel
-      : baseHeadline;
-  const elapsed = useElapsedTime(earliestStart, allCompleted && !isStreaming, latestCompleted, "header");
-
   return (
     <div className="my-1 w-full">
-      {/* Header row */}
-      <button
-        type="button"
-        onClick={() => {
-          if (!hasActiveConfirmation && cardId != null) {
-            const next = !expanded;
-            setLocalExpanded(next);
-            expandedCardIds.set(cardId, next);
-          }
-        }}
-        className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-body-medium-default bg-[var(--surface-overlay)] cursor-default ${
-          expanded ? "rounded-b-none" : ""
-        }`}
-      >
-        <CardStatusIcon phase={phase} hasDenied={hasDenied} isTimeout={hasTimeout} />
-        <span className="shrink-0 text-[var(--content-default)]">
-          {headline}
-        </span>
-        <span className="ml-auto flex items-center gap-1.5 shrink-0">
-          {elapsed && (
-            <span className="text-label-small-default text-[var(--content-tertiary)]">
-              {elapsed}
-            </span>
-          )}
-          {expanded ? (
-            <ChevronUp className="h-4 w-4 text-[var(--content-tertiary)]" />
-          ) : (
-            <ChevronDown className="h-4 w-4 text-[var(--content-tertiary)]" />
-          )}
-        </span>
-      </button>
-
-      {/* Expanded content: individual tool call chips */}
-      {expanded && (
-        <div className="space-y-0 rounded-b-lg bg-[var(--surface-overlay)]">
-          {toolCalls.map((tc) => {
-            const isConfirmationTarget =
-              tc.id === pendingConfirmationToolCallId;
-            return (
-              <Fragment key={tc.id}>
-                <ToolCallChip
+      <div className="space-y-0 rounded-lg bg-[var(--surface-overlay)]">
+        {toolCalls.map((tc) => {
+          const isConfirmationTarget =
+            tc.id === pendingConfirmationToolCallId;
+          return (
+            <Fragment key={tc.id}>
+              <ToolCallChip
+                toolCall={tc}
+                defaultExpanded={expandedToolCallIds.has(tc.id)}
+                onExpandChange={(isExpanded) =>
+                  onExpandChange(tc.id, isExpanded)
+                }
+                onOpenRuleEditor={onOpenRuleEditor}
+                embedded
+                {...(isConfirmationTarget
+                  ? {
+                      isSubmittingConfirmation,
+                      isActiveConfirmation: true,
+                      onConfirmationSubmit,
+                      onAllowAndCreateRule,
+                    }
+                  : {})}
+              />
+              {unknownNudgeToolCallIds?.has(tc.id) && onOpenRuleEditor && (
+                <UnknownCommandNudge
                   toolCall={tc}
-                  defaultExpanded={expandedToolCallIds.has(tc.id)}
-                  onExpandChange={(isExpanded) =>
-                    onExpandChange(tc.id, isExpanded)
-                  }
                   onOpenRuleEditor={onOpenRuleEditor}
-                  embedded
-                  {...(isConfirmationTarget
-                    ? {
-                        isSubmittingConfirmation,
-                        isActiveConfirmation: true,
-                        onConfirmationSubmit,
-                        onAllowAndCreateRule,
-                      }
-                    : {})}
+                  onDismiss={onDismissUnknownNudge}
                 />
-                {unknownNudgeToolCallIds?.has(tc.id) && onOpenRuleEditor && (
-                  <div className="flex items-center gap-1 pl-6 text-body-small-default text-[var(--content-tertiary)]">
-                    <span>This command wasn&apos;t recognized.</span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onOpenRuleEditor({
-                          toolName: tc.toolName,
-                          riskLevel: tc.riskLevel,
-                          riskReason: tc.riskReason,
-                          input: tc.input ?? {},
-                          allowlistOptions: tc.allowlistOptions ?? [],
-                          scopeOptions: tc.scopeOptions ?? [],
-                          directoryScopeOptions:
-                            tc.directoryScopeOptions ?? [],
-                        })
-                      }
-                      // typography: off-scale — inline link within body-small nudge
-                       
-                      className="font-medium text-[var(--content-default)] underline underline-offset-2 hover:text-[var(--content-secondary)]"
-                    >
-                      Create a rule
-                    </button>
-                    <span>to classify it for next time.</span>
-                    {onDismissUnknownNudge && (
-                      <button
-                        type="button"
-                        aria-label="Dismiss"
-                        onClick={() => onDismissUnknownNudge(tc.id)}
-                        className="ml-1 text-[var(--content-disabled)] hover:text-[var(--content-tertiary)]"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-                  </div>
-                )}
-              </Fragment>
-            );
-          })}
-          {phase === "thinking" && (
-            <ThinkingRow sinceMs={latestCompleted} />
-          )}
-        </div>
-      )}
+              )}
+            </Fragment>
+          );
+        })}
+      </div>
     </div>
   );
 }
+

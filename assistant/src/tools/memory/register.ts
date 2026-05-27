@@ -10,7 +10,6 @@ import {
   graphRememberDefinition,
 } from "../../memory/graph/tools.js";
 import { RiskLevel } from "../../permissions/types.js";
-import type { ToolDefinition } from "../../providers/types.js";
 import { isUntrustedTrustClass } from "../../runtime/actor-trust-resolver.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 
@@ -20,11 +19,9 @@ class RememberTool implements Tool {
   name = "remember";
   description = graphRememberDefinition.description;
   category = "memory";
+  executionTarget = "sandbox" as const;
   defaultRiskLevel = RiskLevel.Low;
-
-  getDefinition(): ToolDefinition {
-    return graphRememberDefinition;
-  }
+  input_schema = graphRememberDefinition.input_schema;
 
   async execute(
     input: Record<string, unknown>,
@@ -51,11 +48,9 @@ class RecallTool implements Tool {
   name = "recall";
   description = graphRecallDefinition.description;
   category = "memory";
+  executionTarget = "sandbox" as const;
   defaultRiskLevel = RiskLevel.Low;
-
-  getDefinition(): ToolDefinition {
-    return graphRecallDefinition;
-  }
+  input_schema = graphRecallDefinition.input_schema;
 
   async execute(
     input: Record<string, unknown>,

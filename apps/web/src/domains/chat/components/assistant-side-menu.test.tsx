@@ -12,29 +12,29 @@ import { describe, expect, mock, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-mock.module("@/hooks/use-is-mobile.js", () => ({
+mock.module("@/hooks/use-is-mobile", () => ({
   useIsMobile: () => false,
   MOBILE_MEDIA_QUERY: "(max-width: 767px)",
 }));
 
 
-import type { Conversation } from "@/domains/chat/api/conversations.js";
+import type { Conversation } from "@/types/conversation-types";
 import {
   ASSISTANT_SIDE_MENU_CONVERSATION_LIMIT,
   AssistantSideMenu,
-} from "@/domains/chat/components/assistant-side-menu.js";
-import { SIDEBAR_CONVERSATION_LIMIT } from "@/domains/chat/use-sidebar-state.js";
+} from "@/domains/chat/components/assistant-side-menu";
+import { SIDEBAR_CONVERSATION_LIMIT } from "@/domains/chat/use-sidebar-state";
 
 function makeConversation(overrides: Partial<Conversation>): Conversation {
   return {
-    conversationKey: overrides.conversationKey ?? "k",
+    conversationId: overrides.conversationId ?? "k",
     ...overrides,
   };
 }
 
 function renderMenu(props: {
   conversations: Conversation[];
-  activeConversationKey?: string;
+  activeConversationId?: string;
   variant?: "rail" | "overlay";
   includeFooterAction?: boolean;
 }): string {
@@ -45,7 +45,7 @@ function renderMenu(props: {
       collapsed: false,
       variant: props.variant ?? "rail",
       conversations: props.conversations,
-      activeConversationKey: props.activeConversationKey,
+      activeConversationId: props.activeConversationId,
       onSelectConversation: () => {},
       footerAction: includeFooterAction
         ? createElement("span", null, "Preferences")
@@ -57,19 +57,19 @@ function renderMenu(props: {
 describe("AssistantSideMenu · Conversations category rows", () => {
   test("renders a Conversations section header with all four category rows", () => {
     const conversations = [
-      makeConversation({ conversationKey: "p1", isPinned: true }),
+      makeConversation({ conversationId: "p1", isPinned: true }),
       makeConversation({
-        conversationKey: "s1",
+        conversationId: "s1",
         conversationType: "scheduled",
       }),
       makeConversation({
-        conversationKey: "b1",
+        conversationId: "b1",
         conversationType: "background",
         source: "heartbeat",
       }),
-      makeConversation({ conversationKey: "r1", title: "Recent thread" }),
+      makeConversation({ conversationId: "r1", title: "Recent thread" }),
       makeConversation({
-        conversationKey: "rf1",
+        conversationId: "rf1",
         conversationType: "background",
         source: "auto-analysis",
       }),
@@ -87,9 +87,9 @@ describe("AssistantSideMenu · Conversations category rows", () => {
 
   test("renders Slack as a conditional peer section after Background", () => {
     const conversations = [
-      makeConversation({ conversationKey: "regular", title: "Regular thread" }),
+      makeConversation({ conversationId: "regular", title: "Regular thread" }),
       makeConversation({
-        conversationKey: "slack",
+        conversationId: "slack",
         title: "Slack thread",
         originChannel: "slack",
         groupId: "system:all",
@@ -114,16 +114,16 @@ describe("AssistantSideMenu · Conversations category rows", () => {
   test("renders a count badge only for non-empty category buckets", () => {
     const conversations = [
       makeConversation({
-        conversationKey: "b1",
+        conversationId: "b1",
         conversationType: "background",
         source: "heartbeat",
       }),
       makeConversation({
-        conversationKey: "b2",
+        conversationId: "b2",
         conversationType: "background",
         source: "heartbeat",
       }),
-      makeConversation({ conversationKey: "r1" }),
+      makeConversation({ conversationId: "r1" }),
     ];
 
     const html = renderMenu({ conversations });
@@ -139,7 +139,7 @@ describe("AssistantSideMenu · Show more affordance", () => {
       { length: ASSISTANT_SIDE_MENU_CONVERSATION_LIMIT },
       (_, index) =>
         makeConversation({
-          conversationKey: `k-${index}`,
+          conversationId: `k-${index}`,
           title: `Thread ${index}`,
         }),
     );
@@ -154,7 +154,7 @@ describe("AssistantSideMenu · Show more affordance", () => {
       { length: ASSISTANT_SIDE_MENU_CONVERSATION_LIMIT + 1 },
       (_, index) =>
         makeConversation({
-          conversationKey: `k-${index}`,
+          conversationId: `k-${index}`,
           title: `Thread ${index}`,
         }),
     );
@@ -186,18 +186,18 @@ describe("AssistantSideMenu · active thread accessibility", () => {
   test("active conversation row sets aria-current=page", () => {
     const conversations = [
       makeConversation({
-        conversationKey: "a",
+        conversationId: "a",
         title: "Alpha thread title",
       }),
       makeConversation({
-        conversationKey: "b",
+        conversationId: "b",
         title: "Beta thread title",
       }),
     ];
 
     const html = renderMenu({
       conversations,
-      activeConversationKey: "b",
+      activeConversationId: "b",
     });
 
     const sliceButtonAround = (title: string): string => {
@@ -220,7 +220,7 @@ describe("AssistantSideMenu · active thread accessibility", () => {
 describe("AssistantSideMenu · footer slot behavior", () => {
   test("renders the footer slot when `footerAction` is provided", () => {
     const conversations = [
-      makeConversation({ conversationKey: "a", title: "Alpha" }),
+      makeConversation({ conversationId: "a", title: "Alpha" }),
     ];
 
     const html = renderMenu({ conversations });
@@ -230,7 +230,7 @@ describe("AssistantSideMenu · footer slot behavior", () => {
 
   test("omits the footer entirely when `footerAction` is undefined", () => {
     const conversations = [
-      makeConversation({ conversationKey: "a", title: "Alpha" }),
+      makeConversation({ conversationId: "a", title: "Alpha" }),
     ];
 
     const html = renderMenu({ conversations, includeFooterAction: false });
@@ -242,7 +242,7 @@ describe("AssistantSideMenu · footer slot behavior", () => {
 describe("AssistantSideMenu · overlay close affordance", () => {
   test("renders an X close button on overlay variant only", () => {
     const conversations = [
-      makeConversation({ conversationKey: "a", title: "Alpha" }),
+      makeConversation({ conversationId: "a", title: "Alpha" }),
     ];
     const overlayHtml = renderMenu({ conversations, variant: "overlay" });
     const railHtml = renderMenu({ conversations, variant: "rail" });

@@ -7,10 +7,10 @@ import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog"
 import { Toggle } from "@vellum/design-library/components/toggle";
 import { Notice } from "@vellum/design-library/components/notice";
 import { Tag, type TagTone } from "@vellum/design-library/components/tag";
-import { deleteTrustRule, fetchTrustRules } from "@/domains/settings/api/trust-rules.js";
-import type { TrustRuleItem, TrustRuleRisk } from "@/domains/settings/types/trust-rules.js";
+import { deleteTrustRule, fetchTrustRules } from "@/domains/settings/api/trust-rules";
+import type { TrustRuleItem, TrustRuleRisk } from "@/domains/settings/types/trust-rules";
 
-import { TrustRuleFormModal } from "@/domains/settings/components/trust-rules/trust-rule-form-modal.js";
+import { TrustRuleFormModal } from "@/domains/settings/components/trust-rules/trust-rule-form-modal";
 
 function isDefaultRule(rule: TrustRuleItem): boolean {
   return rule.origin === "default" && !rule.userModified;

@@ -15,7 +15,8 @@ import {
   looksLikeHostPortShorthand,
   looksLikePathOnlyInput,
 } from "../tools/network/url-safety.js";
-import { getTool } from "../tools/registry.js";
+import { getTool, getToolOwner } from "../tools/registry.js";
+import type { Tool } from "../tools/types.js";
 import {
   getDeprecatedDir,
   getProtectedDir,
@@ -148,6 +149,23 @@ function resolveSkillIdAndHash(
   } catch {
     return { id: resolved.skill.id };
   }
+}
+
+/**
+ * Resolve whether the skill that owns this tool is bundled (first-party).
+ * Returns false when the tool has no owning skill or the skill is not in
+ * the catalog. Derived from `loadSkillCatalog()` at check time so the
+ * answer reflects current catalog truth (managed overrides flip the bit
+ * without needing to re-register tools). Owner is looked up from the tool
+ * registry (`getToolOwner(name)`) rather than read from the `Tool` object,
+ * since ownership lives on the registry, not on the tool itself.
+ */
+function isToolOwnerSkillBundled(tool: Tool | undefined): boolean {
+  if (!tool) return false;
+  const owner = getToolOwner(tool.name);
+  if (owner?.kind !== "skill") return false;
+  const skill = loadSkillCatalog().find((s) => s.id === owner.id);
+  return skill?.bundled ?? false;
 }
 
 /**
@@ -529,13 +547,14 @@ export async function check(
       risk === RiskLevel.Low
         ? isWorkspaceScopedInvocation(toolName, input, workingDir)
         : false,
-    toolOrigin:
-      tool?.origin === "skill" || tool?.origin === "plugin"
+    toolOrigin: (() => {
+      if (!tool) return undefined;
+      const ownerKind = getToolOwner(toolName)?.kind;
+      return ownerKind === "skill" || ownerKind === "plugin"
         ? "skill"
-        : tool
-          ? "builtin"
-          : undefined,
-    isSkillBundled: tool?.ownerSkillBundled ?? false,
+        : "builtin";
+    })(),
+    isSkillBundled: isToolOwnerSkillBundled(tool),
     hasManifestOverride: !!manifestOverride,
     autoApproveUpTo: threshold,
     hasSandboxAutoApprove,

@@ -334,7 +334,7 @@ describe("attachment orphan cleanup", () => {
     const stored = uploadAttachment("doc.pdf", "application/pdf", "JVBER");
     linkAttachmentToMessage(msg.id, stored.id, 0);
 
-    clearAll();
+    await clearAll();
 
     const raw = (
       getDb() as unknown as {

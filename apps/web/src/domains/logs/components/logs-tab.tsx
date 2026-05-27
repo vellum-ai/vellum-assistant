@@ -10,22 +10,20 @@ import { createElement, useCallback, useMemo, useState } from "react";
 
 import { Dropdown } from "@vellum/design-library";
 
+import { useConversationListQuery } from "@/lib/conversations";
+import type { Conversation } from "@/types/conversation-types";
 import {
-  listConversations,
-  type Conversation,
-} from "@/domains/chat/api/conversations.js";
-import {
-  loadLastViewedConversationKey,
-  saveLastViewedConversationKey,
-} from "@/domains/chat/utils/last-viewed-conversation-storage.js";
+  loadLastViewedConversationId,
+  saveLastViewedConversationId,
+} from "@/utils/last-viewed-conversation-storage";
 import {
   formatLatency,
   formatTimelineTimestamp,
   formatTokens,
   formatTokensCombined,
-} from "@/domains/logs/format.js";
-import { fetchTraceEvents } from "@/domains/logs/trace-events-api.js";
-import type { TraceEventRow } from "@/domains/logs/trace-events-types.js";
+} from "@/domains/logs/format";
+import { fetchTraceEvents } from "@/domains/logs/trace-events-api";
+import type { TraceEventRow } from "@/domains/logs/trace-events-types";
 import {
   calculateMetrics,
   determineGroupStatus,
@@ -35,7 +33,7 @@ import {
   groupEventsByRequest,
   stringifyAttributeValue,
   type ConversationMetrics,
-} from "@/domains/logs/trace-event-processing.js";
+} from "@/domains/logs/trace-event-processing";
 
 interface LogsTabProps {
   assistantId: string;
@@ -48,42 +46,43 @@ export function LogsTab({ assistantId }: LogsTabProps) {
     string | null
   >(null);
 
-  const conversationsQuery = useQuery({
-    queryKey: ["conversations", assistantId],
-    queryFn: () => listConversations(assistantId),
-  });
+  const {
+    conversations: allConversations,
+    isLoading: isLoadingConversations,
+    isError: isConversationsError,
+    error: conversationsError,
+  } = useConversationListQuery(assistantId);
 
   const conversations = useMemo<Conversation[]>(
-    () =>
-      (conversationsQuery.data ?? []).filter((c) => c.archivedAt == null),
-    [conversationsQuery.data],
+    () => allConversations.filter((c) => c.archivedAt == null),
+    [allConversations],
   );
 
   const activeConversationId = useMemo(() => {
     if (selectedConversationId) {
       const match = conversations.find(
-        (c) => c.conversationKey === selectedConversationId,
+        (c) => c.conversationId === selectedConversationId,
       );
       if (match) {
-        return match.conversationKey;
+        return match.conversationId;
       }
     }
-    const lastViewed = loadLastViewedConversationKey(assistantId);
+    const lastViewed = loadLastViewedConversationId(assistantId);
     if (lastViewed) {
       const match = conversations.find(
-        (c) => c.conversationKey === lastViewed,
+        (c) => c.conversationId === lastViewed,
       );
       if (match) {
-        return match.conversationKey;
+        return match.conversationId;
       }
     }
-    return conversations[0]?.conversationKey ?? "";
+    return conversations[0]?.conversationId ?? "";
   }, [assistantId, conversations, selectedConversationId]);
 
   const handleSelectConversation = useCallback(
-    (conversationKey: string) => {
-      setSelectedConversationId(conversationKey);
-      saveLastViewedConversationKey(assistantId, conversationKey);
+    (conversationId: string) => {
+      setSelectedConversationId(conversationId);
+      saveLastViewedConversationId(assistantId, conversationId);
     },
     [assistantId],
   );
@@ -107,7 +106,6 @@ export function LogsTab({ assistantId }: LogsTabProps) {
   const metrics = useMemo(() => calculateMetrics(events), [events]);
   const groups = useMemo(() => groupEventsByRequest(events), [events]);
 
-  const isLoadingConversations = conversationsQuery.isLoading;
   const hasConversations = conversations.length > 0;
 
   return (
@@ -119,11 +117,11 @@ export function LogsTab({ assistantId }: LogsTabProps) {
             style={{ color: "var(--content-secondary)" }}
           />
         </div>
-      ) : conversationsQuery.isError ? (
+      ) : isConversationsError ? (
         <ErrorMessage
           message={
-            conversationsQuery.error instanceof Error
-              ? conversationsQuery.error.message
+            conversationsError instanceof Error
+              ? conversationsError.message
               : "Failed to load conversations."
           }
         />
@@ -197,7 +195,7 @@ function ConversationPicker({
         value={selectedConversationId}
         onChange={onSelect}
         options={conversations.map((conversation) => ({
-          value: conversation.conversationKey,
+          value: conversation.conversationId,
           label: conversationLabel(conversation),
         }))}
       />
@@ -210,7 +208,7 @@ function conversationLabel(conversation: Conversation): string {
   if (title) {
     return title;
   }
-  const shortId = conversation.conversationKey.slice(0, 8);
+  const shortId = conversation.conversationId.slice(0, 8);
   return `Conversation ${shortId}`;
 }
 

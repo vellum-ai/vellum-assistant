@@ -2,32 +2,32 @@ import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
-mock.module("@/domains/chat/components/chat-attachments/message-attachments.js", () => ({
+mock.module("@/domains/chat/components/chat-attachments/message-attachments", () => ({
   MessageAttachments: () => <div data-testid="attachments" />,
 }));
 
-mock.module("@/domains/chat/components/chat-markdown-message.js", () => ({
+mock.module("@/domains/chat/components/chat-markdown-message", () => ({
   ChatMarkdownMessage: ({ content }: { content: string }) => (
     <div data-testid="markdown">{content}</div>
   ),
 }));
 
-mock.module("@/domains/chat/components/surfaces/surface-router.js", () => ({
+mock.module("@/domains/chat/components/surfaces/surface-router", () => ({
   SurfaceRouter: ({ surface }: { surface: { surfaceId: string } }) => (
     <div data-testid="surface" data-surface-id={surface.surfaceId} />
   ),
 }));
 
 mock.module(
-  "@/domains/chat/components/tool-call-progress-card/tool-call-progress-card.js",
+  "@/domains/chat/components/tool-call-progress-card/tool-call-progress-card",
   () => ({
     ToolCallProgressCard: () => <div data-testid="tool-progress-card" />,
   }),
 );
 
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 
-import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body.js";
+import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
 
 const noop = () => {};
 
@@ -60,7 +60,6 @@ function renderMessage(
 describe("TranscriptMessageBody", () => {
   test("uses the latest tool completion as the message activity timestamp", () => {
     const html = renderMessage({
-      stableId: "m1",
       id: "m1",
       role: "assistant",
       content: "",
@@ -83,7 +82,6 @@ describe("TranscriptMessageBody", () => {
 
   test("falls back to the tool start time for active tool-only messages", () => {
     const html = renderMessage({
-      stableId: "m1",
       id: "m1",
       role: "assistant",
       content: "",
@@ -106,7 +104,6 @@ describe("TranscriptMessageBody", () => {
   test("uses the assistant identity name for Slack assistant attribution fallback", () => {
     const html = renderMessage(
       {
-        stableId: "m1",
         id: "m1",
         role: "assistant",
         content: "hello from Slack",
@@ -125,14 +122,12 @@ describe("TranscriptMessageBody", () => {
     expect(html).not.toContain(">Assistant<");
   });
 
-  test("passes daemon message id to inspect handler", () => {
+  test("passes message id to inspect handler", () => {
     const inspectedIds: string[] = [];
     const { getByTitle } = render(
       <TranscriptMessageBody
         message={{
-          stableId: "stable-1",
           id: "local-1",
-          daemonMessageId: "daemon-1",
           role: "assistant",
           content: "hello",
         }}
@@ -144,7 +139,7 @@ describe("TranscriptMessageBody", () => {
     );
 
     fireEvent.click(getByTitle("Inspect"));
-    expect(inspectedIds).toEqual(["daemon-1"]);
+    expect(inspectedIds).toEqual(["local-1"]);
   });
 
   test("falls back to message id for inspect handler", () => {
@@ -152,7 +147,6 @@ describe("TranscriptMessageBody", () => {
     const { getByTitle } = render(
       <TranscriptMessageBody
         message={{
-          stableId: "stable-1",
           id: "message-1",
           role: "user",
           content: "hello",

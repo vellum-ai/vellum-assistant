@@ -33,9 +33,9 @@ import {
 import { act, cleanup, renderHook } from "@testing-library/react";
 import type { MutableRefObject } from "react";
 
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
-import { newStableId } from "@/domains/chat/utils/stable-id.js";
-import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+
+import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
 
 // ---------------------------------------------------------------------------
 // Mocked daemon clients. `mock.module` is process-global in bun:test, so we
@@ -47,13 +47,13 @@ import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types.js"
 
 interface FetchLatestCall {
   assistantId: string;
-  conversationKey: string;
+  conversationId: string;
 }
 
 const fetchLatestCalls: FetchLatestCall[] = [];
 let fetchLatestImpl: (
   assistantId: string,
-  conversationKey: string,
+  conversationId: string,
 ) => Promise<PaginatedHistoryResult> = async () => ({
   messages: [],
   hasMore: false,
@@ -62,21 +62,21 @@ let fetchLatestImpl: (
 });
 
 mock.module("@/domains/chat/api/history", () => ({
-  fetchLatestHistoryPage: (assistantId: string, conversationKey: string) => {
-    fetchLatestCalls.push({ assistantId, conversationKey });
-    return fetchLatestImpl(assistantId, conversationKey);
+  fetchLatestHistoryPage: (assistantId: string, conversationId: string) => {
+    fetchLatestCalls.push({ assistantId, conversationId });
+    return fetchLatestImpl(assistantId, conversationId);
   },
 }));
 
 const fetchSurfaceCalls: Array<{
   assistantId: string;
   surfaceId: string;
-  conversationKey: string;
+  conversationId: string;
 }> = [];
 let fetchSurfaceImpl: (
   assistantId: string,
   surfaceId: string,
-  conversationKey: string,
+  conversationId: string,
 ) => Promise<{
   surfaceId: string;
   surfaceType: string;
@@ -88,10 +88,10 @@ mock.module("@/domains/chat/api/surfaces", () => ({
   fetchSurfaceContent: (
     assistantId: string,
     surfaceId: string,
-    conversationKey: string,
+    conversationId: string,
   ) => {
-    fetchSurfaceCalls.push({ assistantId, surfaceId, conversationKey });
-    return fetchSurfaceImpl(assistantId, surfaceId, conversationKey);
+    fetchSurfaceCalls.push({ assistantId, surfaceId, conversationId });
+    return fetchSurfaceImpl(assistantId, surfaceId, conversationId);
   },
 }));
 
@@ -100,18 +100,18 @@ import {
   classifyRefreshLatestOutcome,
   type RefreshLatestOutcome,
   useRefreshLatestMessages,
-} from "@/domains/chat/hooks/use-refresh-latest-messages.js";
+} from "@/domains/chat/hooks/use-refresh-latest-messages";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 function makeMsg(
-  overrides: Omit<DisplayMessage, "stableId"> & { stableId?: string },
+  overrides: Omit<DisplayMessage, "id"> & { id?: string },
 ): DisplayMessage {
-  const { stableId, ...rest } = overrides;
+  const { id, ...rest } = overrides;
   return {
-    stableId: stableId ?? newStableId("test"),
+    id: id ?? crypto.randomUUID(),
     ...rest,
   };
 }
@@ -119,7 +119,7 @@ function makeMsg(
 interface HostState {
   messages: DisplayMessage[];
   messagesRef: MutableRefObject<DisplayMessage[]>;
-  activeConversationKeyRef: MutableRefObject<string | null>;
+  activeConversationIdRef: MutableRefObject<string | null>;
   dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
   setMessagesCalls: Array<DisplayMessage[]>;
   setMessages: (
@@ -131,13 +131,13 @@ interface HostState {
 
 function makeHost(
   initial: DisplayMessage[],
-  conversationKey: string | null,
+  conversationId: string | null,
   dismissed: Set<string> = new Set(),
 ): HostState {
   const host: HostState = {
     messages: initial,
     messagesRef: { current: initial },
-    activeConversationKeyRef: { current: conversationKey },
+    activeConversationIdRef: { current: conversationId },
     dismissedSurfaceIdsRef: { current: dismissed },
     setMessagesCalls: [],
     setMessages: (update) => {
@@ -186,7 +186,7 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        activeConversationKeyRef: host.activeConversationKeyRef,
+        activeConversationIdRef: host.activeConversationIdRef,
         messagesRef: host.messagesRef,
         setMessages: host.setMessages,
         dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
@@ -208,7 +208,7 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: null,
-        activeConversationKeyRef: host.activeConversationKeyRef,
+        activeConversationIdRef: host.activeConversationIdRef,
         messagesRef: host.messagesRef,
         setMessages: host.setMessages,
         dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
@@ -227,28 +227,24 @@ describe("useRefreshLatestMessages", () => {
 
   test("appends newly-arrived messages and reports new-messages count", async () => {
     const existingUser = makeMsg({
-      stableId: "u1",
       id: "u1",
       role: "user",
       content: "Hello",
       timestamp: 1000,
     });
     const existingAssistant = makeMsg({
-      stableId: "a1",
       id: "a1",
       role: "assistant",
       content: "Hi.",
       timestamp: 1010,
     });
     const newUser = makeMsg({
-      stableId: "u2",
       id: "u2",
       role: "user",
       content: "Anything new?",
       timestamp: 1020,
     });
     const newAssistant = makeMsg({
-      stableId: "a2",
       id: "a2",
       role: "assistant",
       content: "Yes, here's the update.",
@@ -266,7 +262,7 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        activeConversationKeyRef: host.activeConversationKeyRef,
+        activeConversationIdRef: host.activeConversationIdRef,
         messagesRef: host.messagesRef,
         setMessages: host.setMessages,
         dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
@@ -280,7 +276,7 @@ describe("useRefreshLatestMessages", () => {
 
     expect(outcome).toEqual({ kind: "new-messages", count: 2 });
     expect(fetchLatestCalls).toEqual([
-      { assistantId: "asst-1", conversationKey: "conv-1" },
+      { assistantId: "asst-1", conversationId: "conv-1" },
     ]);
     // CRITICAL: setMessages must be called with a merge, NEVER with [].
     // This is the load-bearing contract change for the menu Refresh bug.
@@ -291,7 +287,6 @@ describe("useRefreshLatestMessages", () => {
 
   test("preserves an in-flight streaming assistant bubble that latest history does not include", async () => {
     const completedUser = makeMsg({
-      stableId: "u1",
       id: "u1",
       role: "user",
       content: "Tell me a story",
@@ -301,7 +296,7 @@ describe("useRefreshLatestMessages", () => {
     // latest history page below intentionally omits this row to simulate
     // a refresh that fires while the stream hasn't completed server-side.
     const streamingAssistant = makeMsg({
-      stableId: "a-streaming",
+      id: "a-streaming",
       role: "assistant",
       content: "Once upon a time, there was a",
       isStreaming: true,
@@ -322,7 +317,7 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        activeConversationKeyRef: host.activeConversationKeyRef,
+        activeConversationIdRef: host.activeConversationIdRef,
         messagesRef: host.messagesRef,
         setMessages: host.setMessages,
         dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
@@ -335,22 +330,22 @@ describe("useRefreshLatestMessages", () => {
 
     // The streaming bubble must survive the merge — losing it is exactly
     // what the previous destructive refresh did.
-    const stableIds = host.messages.map((m) => m.stableId);
-    expect(stableIds).toContain("a-streaming");
-    const survivor = host.messages.find((m) => m.stableId === "a-streaming");
+    const ids = host.messages.map((m) => m.id);
+    expect(ids).toContain("a-streaming");
+    const survivor = host.messages.find((m) => m.id === "a-streaming");
     expect(survivor?.isStreaming).toBe(true);
     expect(survivor?.content).toBe("Once upon a time, there was a");
   });
 
   test("upgrades an optimistic user row with the matching server id when latest history confirms it", async () => {
     const optimisticUser = makeMsg({
-      stableId: "u-optimistic",
+      id: "u-optimistic",
       role: "user",
       content: "Plan a Stockholm trip",
       timestamp: 1000,
+      isOptimistic: true,
     });
     const confirmedUser = makeMsg({
-      stableId: "server-user",
       id: "u-server-1",
       role: "user",
       content: "Plan a Stockholm trip",
@@ -368,7 +363,7 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        activeConversationKeyRef: host.activeConversationKeyRef,
+        activeConversationIdRef: host.activeConversationIdRef,
         messagesRef: host.messagesRef,
         setMessages: host.setMessages,
         dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
@@ -379,11 +374,9 @@ describe("useRefreshLatestMessages", () => {
       await result.current();
     });
 
-    // The optimistic row keeps its stableId (so the transcript row doesn't
-    // re-mount) and picks up the server id.
+    // The optimistic row picks up the server id.
     expect(host.messages).toHaveLength(1);
     expect(host.messages[0]).toMatchObject({
-      stableId: "u-optimistic",
       id: "u-server-1",
       role: "user",
       content: "Plan a Stockholm trip",
@@ -392,14 +385,12 @@ describe("useRefreshLatestMessages", () => {
 
   test("drops the result silently when the user switches conversations mid-fetch (no cross-thread bleed)", async () => {
     const conv1Msg = makeMsg({
-      stableId: "u-conv1",
       id: "u1",
       role: "user",
       content: "Message in conversation 1",
       timestamp: 1000,
     });
     const conv2Msg = makeMsg({
-      stableId: "u-conv2",
       id: "u2",
       role: "user",
       content: "Message in conversation 2",
@@ -411,10 +402,10 @@ describe("useRefreshLatestMessages", () => {
 
     // Simulate the user switching to conv-2 between the fetch dispatch
     // and the fetch resolving. Inside the fetch impl, we mutate
-    // activeConversationKeyRef directly — this races the post-fetch
+    // activeConversationIdRef directly — this races the post-fetch
     // staleness check the hook performs.
     fetchLatestImpl = async () => {
-      host.activeConversationKeyRef.current = "conv-2";
+      host.activeConversationIdRef.current = "conv-2";
       host.messagesRef.current = [conv2Msg];
       host.messages = [conv2Msg];
       // Return a "latest" page for the original conversation. If the
@@ -424,7 +415,6 @@ describe("useRefreshLatestMessages", () => {
         messages: [
           conv1Msg,
           makeMsg({
-            stableId: "a-new-in-conv1",
             id: "a-new",
             role: "assistant",
             content: "This belongs to conversation 1",
@@ -440,7 +430,7 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        activeConversationKeyRef: host.activeConversationKeyRef,
+        activeConversationIdRef: host.activeConversationIdRef,
         messagesRef: host.messagesRef,
         setMessages: host.setMessages,
         dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
@@ -461,7 +451,6 @@ describe("useRefreshLatestMessages", () => {
 
   test("returns error outcome without touching state when the fetch rejects", async () => {
     const existing = makeMsg({
-      stableId: "u1",
       id: "u1",
       role: "user",
       content: "Hi",
@@ -476,7 +465,7 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        activeConversationKeyRef: host.activeConversationKeyRef,
+        activeConversationIdRef: host.activeConversationIdRef,
         messagesRef: host.messagesRef,
         setMessages: host.setMessages,
         dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
@@ -495,14 +484,12 @@ describe("useRefreshLatestMessages", () => {
 
   test("reports no-change and produces a reference-equal next array when the latest page matches current", async () => {
     const user = makeMsg({
-      stableId: "u1",
       id: "u1",
       role: "user",
       content: "Hello",
       timestamp: 1000,
     });
     const assistant = makeMsg({
-      stableId: "a1",
       id: "a1",
       role: "assistant",
       content: "Hi.",
@@ -519,7 +506,7 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        activeConversationKeyRef: host.activeConversationKeyRef,
+        activeConversationIdRef: host.activeConversationIdRef,
         messagesRef: host.messagesRef,
         setMessages: host.setMessages,
         dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
@@ -547,7 +534,6 @@ describe("useRefreshLatestMessages", () => {
     fetchLatestImpl = async () => ({
       messages: [
         makeMsg({
-          stableId: "a1",
           id: "a1",
           role: "assistant",
           content: "Please confirm",
@@ -579,7 +565,7 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        activeConversationKeyRef: host.activeConversationKeyRef,
+        activeConversationIdRef: host.activeConversationIdRef,
         messagesRef: host.messagesRef,
         setMessages: host.setMessages,
         dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
@@ -609,21 +595,18 @@ describe("useRefreshLatestMessages", () => {
     // then Refresh B starts; B resolves first with fresh data, A resolves
     // later with what is now stale data. A must NOT clobber B.
     const existing = makeMsg({
-      stableId: "u1",
       id: "u1",
       role: "user",
       content: "Hello",
       timestamp: 1000,
     });
     const fresherMsg = makeMsg({
-      stableId: "a-fresh",
       id: "a-fresh",
       role: "assistant",
       content: "Fresh response from refresh B",
       timestamp: 1020,
     });
     const stalerMsg = makeMsg({
-      stableId: "a-stale",
       id: "a-stale",
       role: "assistant",
       content: "Stale response from refresh A",
@@ -650,7 +633,7 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        activeConversationKeyRef: host.activeConversationKeyRef,
+        activeConversationIdRef: host.activeConversationIdRef,
         messagesRef: host.messagesRef,
         setMessages: host.setMessages,
         dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
@@ -709,7 +692,6 @@ describe("classifyRefreshLatestOutcome", () => {
   test("longer next array produces new-messages with the length delta", () => {
     const current: DisplayMessage[] = [
       makeMsg({
-        stableId: "u1",
         id: "u1",
         role: "user",
         content: "Hi",
@@ -719,14 +701,12 @@ describe("classifyRefreshLatestOutcome", () => {
     const next: DisplayMessage[] = [
       ...current,
       makeMsg({
-        stableId: "a1",
         id: "a1",
         role: "assistant",
         content: "Hello",
         timestamp: 1010,
       }),
       makeMsg({
-        stableId: "u2",
         id: "u2",
         role: "user",
         content: "How are you?",
@@ -742,7 +722,7 @@ describe("classifyRefreshLatestOutcome", () => {
   test("same-length-but-different-reference arrays produce merged (in-place mutation)", () => {
     const current: DisplayMessage[] = [
       makeMsg({
-        stableId: "a1",
+        id: "a1",
         role: "assistant",
         content: "Streaming...",
         isStreaming: true,
@@ -751,7 +731,6 @@ describe("classifyRefreshLatestOutcome", () => {
     ];
     const next: DisplayMessage[] = [
       makeMsg({
-        stableId: "a1",
         id: "a1",
         role: "assistant",
         content: "Streaming finalized",

@@ -5,8 +5,8 @@ import { useNavigate } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 
 import { Button } from "@vellum/design-library/components/button";
-import { assistantsActiveRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen.js";
-import { routes } from "@/utils/routes.js";
+import { assistantsActiveRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
+import { routes } from "@/utils/routes";
 
 export function CompleteState({ onBack }: { onBack: () => void }) {
   const navigate = useNavigate();

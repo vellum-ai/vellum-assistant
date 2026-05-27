@@ -16,12 +16,12 @@ It learns how you work, remembers what matters, and acts before you ask. Yours t
 
 ## What it does
 
-| Area | Summary |
-|------|---------|
-| **Memory** | **Learns what matters and forgets what doesn't.** Structured memory items — identity, preferences, projects, events — extracted with source attribution and deduplication. Hybrid retrieval (dense + sparse) ranks results semantically and lexically, with staleness windows per memory type. Per-user and per-channel isolation. Embeddings run locally by default. |
-| **Identity** | **Becomes its own.** Behavior lives in SOUL.md, and during onboarding the assistant observes how you communicate and writes its own personality files. A per-user journal captures its reflections on past interactions. NOW.md acts as an ephemeral scratchpad for current focus and active threads. |
-| **Proactivity** | **Reaches out when something matters, without being asked.** Every hour it checks in with itself: re-reads its notes, notices what's unfinished or due soon, and sends a message if needed. Notifications are routed to the right channel and won't interrupt you if you're already talking. |
-| **Security** | **Fail-closed by design.** Actor identity is resolved once (guardian, trusted, or unknown) and enforced everywhere. Untrusted actors cannot read or write memory, trigger tools, or escalate. Credentials live in a separate process and never reach the model. Every tool runs in a sandbox. |
+| Area            | Summary                                                                                                                                                                                                                                                                                                                                                               |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Memory**      | **Learns what matters and forgets what doesn't.** Structured memory items — identity, preferences, projects, events — extracted with source attribution and deduplication. Hybrid retrieval (dense + sparse) ranks results semantically and lexically, with staleness windows per memory type. Per-user and per-channel isolation. Embeddings run locally by default. |
+| **Identity**    | **Becomes its own.** Behavior lives in SOUL.md, and during onboarding the assistant observes how you communicate and writes its own personality files. A per-user journal captures its reflections on past interactions. NOW.md acts as an ephemeral scratchpad for current focus and active threads.                                                                 |
+| **Proactivity** | **Reaches out when something matters, without being asked.** Every hour it checks in with itself: re-reads its notes, notices what's unfinished or due soon, and sends a message if needed. Notifications are routed to the right channel and won't interrupt you if you're already talking.                                                                          |
+| **Security**    | **Fail-closed by design.** Actor identity is resolved once (guardian, trusted, or unknown) and enforced everywhere. Untrusted actors cannot read or write memory, trigger tools, or escalate. Credentials live in a separate process and never reach the model. Every tool runs in a sandbox.                                                                         |
 
 <p align="center">
   <img src="assets/what-it-does.png" alt="Memory, identity, proactivity, and security in the Vellum Assistant" width="100%">
@@ -34,11 +34,13 @@ It learns how you work, remembers what matters, and acts before you ask. Yours t
 **1. [Download the latest release](https://vellum.ai/download)**
 
 **2. Open the app and pick your mode**
-  - **Managed** — sign in via Vellum Cloud, no local runtime required
-  - **Local** — everything runs on your machine
+
+- **Managed** — sign in via Vellum Cloud, no local runtime required
+- **Local** — everything runs on your machine
 
 **3. Hatch your assistant**
-  - Give it a name, a personality, and the keys to your work
+
+- Give it a name, a personality, and the keys to your work
 
 <sub>Prefer the terminal? See <a href="#cli">CLI install</a> below.</sub>
 
@@ -72,6 +74,7 @@ vellum hatch
 git clone https://github.com/vellum-ai/vellum-assistant.git
 cd vellum-assistant
 ./setup.sh
+source ~/.bashrc
 vellum hatch
 ```
 
@@ -94,12 +97,12 @@ All commands target the default assistant. If you have multiple, pass the assist
 
 ## Infra and security
 
-| Area | Summary |
-|------|---------|
-| **Trust engine** | **Decides who can do what, and defaults to no.** Fail-closed trust system that resolves actor identity once (guardian, trusted, or unknown) and enforces it everywhere. Untrusted actors cannot read or write memory, trigger tools, or escalate. Your credentials live in a separate process and never reach the model. |
-| **Skills** | **Add new capabilities through sandboxed plugins.** Manifest-driven plugins (SKILL.md + TOOLS.json) that inject tools and prompt sections at runtime. Skills can be bundled, installed from a catalog, or added from the workspace. |
-| **Channels** | **One assistant, everywhere you need it.** Use it from the macOS app, Telegram, or Slack, with shared memory across all of them. More channels coming soon. |
-| **Multi-provider support** | **Swap models without changing anything else.** Supports Anthropic Claude, OpenAI, Google Gemini, and Ollama for local models. Embeddings follow the same pattern: local ONNX by default, with automatic fallback to cloud providers. |
+| Area                       | Summary                                                                                                                                                                                                                                                                                                                  |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Trust engine**           | **Decides who can do what, and defaults to no.** Fail-closed trust system that resolves actor identity once (guardian, trusted, or unknown) and enforces it everywhere. Untrusted actors cannot read or write memory, trigger tools, or escalate. Your credentials live in a separate process and never reach the model. |
+| **Skills**                 | **Add new capabilities through sandboxed plugins.** Manifest-driven plugins (SKILL.md + TOOLS.json) that inject tools and prompt sections at runtime. Skills can be bundled, installed from a catalog, or added from the workspace.                                                                                      |
+| **Channels**               | **One assistant, everywhere you need it.** Use it from the macOS app, Telegram, or Slack, with shared memory across all of them. More channels coming soon.                                                                                                                                                              |
+| **Multi-provider support** | **Swap models without changing anything else.** Supports Anthropic Claude, OpenAI, Google Gemini, and Ollama for local models. Embeddings follow the same pattern: local ONNX by default, with automatic fallback to cloud providers.                                                                                    |
 
 ---
 
@@ -107,21 +110,21 @@ All commands target the default assistant. If you have multiple, pass the assist
 
 The canonical sources for who we are and how we talk about what we're building. The docs site at [vellum.ai/docs](https://vellum.ai/docs) is a rendered view of these files.
 
-| Doc | What it is |
-|-----|------------|
+| Doc                             | What it is                                                       |
+| ------------------------------- | ---------------------------------------------------------------- |
 | [Constitution](CONSTITUTION.md) | Who we are, what we believe, and what we refuse to compromise on |
-| [Glossary](GLOSSARY.md) | The shared vocabulary we use to talk about personal intelligence |
+| [Glossary](GLOSSARY.md)         | The shared vocabulary we use to talk about personal intelligence |
 
 ---
 
 ## Documentation
 
-| Section | What's covered |
-|---------|---------------|
-| [Architecture](https://vellum.ai/docs/developer-guide/architecture) | Platform domains, repo structure, runtime · clients · gateway |
-| [Security & Permissions](https://vellum.ai/docs/developer-guide/security) | Sandbox, credentials, trust rules, permission modes |
-| [Features & Capabilities](https://vellum.ai/docs/developer-guide/features) | Integrations, dynamic skills, browser, attachments, media embeds |
-| [API & Communication](https://vellum.ai/docs/developer-guide/api) | SSE event stream, event payloads, remote access |
+| Section                                                                             | What's covered                                                     |
+| ----------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| [Architecture](https://vellum.ai/docs/developer-guide/architecture)                 | Platform domains, repo structure, runtime · clients · gateway      |
+| [Security & Permissions](https://vellum.ai/docs/developer-guide/security)           | Sandbox, credentials, trust rules, permission modes                |
+| [Features & Capabilities](https://vellum.ai/docs/developer-guide/features)          | Integrations, dynamic skills, browser, attachments, media embeds   |
+| [API & Communication](https://vellum.ai/docs/developer-guide/api)                   | SSE event stream, event payloads, remote access                    |
 | [Development Workflow](https://vellum.ai/docs/developer-guide/development-workflow) | Claude Code commands, parallel PRs, review loops, release pipeline |
 
 📖 **[Full documentation →](https://vellum.ai/docs)**

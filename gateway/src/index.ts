@@ -58,6 +58,7 @@ import {
 import { createWhatsAppWebhookHandler } from "./http/routes/whatsapp-webhook.js";
 
 import { createEmailWebhookHandler } from "./http/routes/email-webhook.js";
+import { createGuardianChannelHandler } from "./http/routes/guardian-channel-create.js";
 import { createInboundRegisterHandler } from "./http/routes/inbound-register.js";
 import { createMailgunWebhookHandler } from "./http/routes/mailgun-webhook.js";
 import { createResendWebhookHandler } from "./http/routes/resend-webhook.js";
@@ -150,6 +151,7 @@ import {
   handlePreflight,
   withCorsHeaders,
 } from "./http/middleware/cors.js";
+import { handleCreateToken } from "./http/routes/auth-token.js";
 import {
   createRouter,
   type RouteDefinition,
@@ -417,6 +419,7 @@ async function main() {
     config,
     credentialCache,
   );
+  const handleGuardianChannelCreate = createGuardianChannelHandler();
   const handleOAuthCallback = createOAuthCallbackHandler(config);
   const channelVerificationSessionProxy =
     createChannelVerificationSessionProxyHandler(config);
@@ -560,6 +563,14 @@ async function main() {
       auth: "edge-scoped",
       scope: "internal.write",
       handler: (req) => handleInboundRegister(req),
+    },
+
+    // ── Guardian channel creation (platform auto-verify) ──
+    {
+      path: "/v1/contacts/guardian/channel",
+      method: "POST",
+      auth: "edge-guardian",
+      handler: (req) => handleGuardianChannelCreate(req),
     },
 
     // ── Audio serving (unauthenticated — Twilio fetches these URLs directly) ──
@@ -1404,6 +1415,14 @@ async function main() {
     },
   ];
 
+  // ── Web token auth ──
+  routes.push({
+    path: "/auth/token",
+    method: "POST",
+    auth: "custom",
+    handler: (req) => handleCreateToken(req, server),
+  });
+
   // Runtime proxy catch-all — must be last so specific routes are checked first.
   routes.push({
     path: /^\//, // match everything
@@ -1675,6 +1694,7 @@ async function main() {
         );
         if (extensionOrigin)
           return withExtensionCorsHeaders(body, extensionOrigin);
+
         return withCorsHeaders(body, webviewOrigin!);
       }
       log.error({ err }, "Unhandled gateway error");

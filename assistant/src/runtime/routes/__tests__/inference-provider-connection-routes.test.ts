@@ -29,7 +29,7 @@ mock.module("../../../util/logger.js", () => ({
 
 // ── Real imports (after mocks) ────────────────────────────────────────────────
 
-import { _setOverridesForTesting } from "../../../config/assistant-feature-flags.js";
+import { setOverridesForTesting } from "../../../__tests__/feature-flag-test-helpers.js";
 import { getDb } from "../../../memory/db-connection.js";
 import { initializeDb } from "../../../memory/db-init.js";
 import { providerConnections } from "../../../memory/schema/inference.js";
@@ -90,7 +90,7 @@ function seedConnection(opts: {
 beforeEach(() => {
   clearConnections();
   fakeConfig = {};
-  _setOverridesForTesting({ "openai-compatible-endpoints": true });
+  setOverridesForTesting({ "openai-compatible-endpoints": true });
 });
 
 // ── GET list ─────────────────────────────────────────────────────────────────
@@ -160,7 +160,7 @@ describe("GET inference/provider-connections (list)", () => {
   });
 
   test("hides openai-compatible rows when the feature flag is disabled", async () => {
-    _setOverridesForTesting({ "openai-compatible-endpoints": false });
+    setOverridesForTesting({ "openai-compatible-endpoints": false });
     seedConnection({
       name: "my-openai",
       provider: "openai",
@@ -181,7 +181,7 @@ describe("GET inference/provider-connections (list)", () => {
   });
 
   test("rejects openai-compatible provider filter when the feature flag is disabled", async () => {
-    _setOverridesForTesting({ "openai-compatible-endpoints": false });
+    setOverridesForTesting({ "openai-compatible-endpoints": false });
 
     await expect(
       call(findHandler("inference_provider_connections_list"), {
@@ -219,7 +219,7 @@ describe("GET inference/provider-connections/:name (single)", () => {
   });
 
   test("throws 404 for openai-compatible row when the feature flag is disabled", async () => {
-    _setOverridesForTesting({ "openai-compatible-endpoints": false });
+    setOverridesForTesting({ "openai-compatible-endpoints": false });
     seedConnection({
       name: "my-compatible",
       provider: "openai-compatible",
@@ -317,7 +317,7 @@ describe("POST inference/provider-connections (create)", () => {
   });
 
   test("rejects openai-compatible creation when the feature flag is disabled", async () => {
-    _setOverridesForTesting({ "openai-compatible-endpoints": false });
+    setOverridesForTesting({ "openai-compatible-endpoints": false });
 
     await expect(
       call(findHandler("inference_provider_connections_create"), {

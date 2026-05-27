@@ -55,6 +55,11 @@ struct TranscriptRenderModel: Equatable {
     /// The active pending confirmation request ID, if any.
     let activePendingRequestId: String?
 
+    /// Non-nil when tool-based inference profile routing selected a
+    /// different model for the current turn. Rendered as muted inline
+    /// text ("Using [label] for this response") above the response.
+    let autoRoutedProfileLabel: String?
+
     /// Whether the assistant has an active turn in progress (sending,
     /// thinking, streaming, tool running, or awaiting confirmation).
     /// Used by the view layer to decide whether the latest-turn section

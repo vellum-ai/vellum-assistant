@@ -12,7 +12,7 @@ import {
   getConversation,
   setConversationInferenceProfileSession,
 } from "../memory/conversation-crud.js";
-import { getDb, resetDb } from "../memory/db-connection.js";
+import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import {
@@ -20,6 +20,7 @@ import {
   stopInferenceProfileSessionReaper,
   tickInferenceProfileReaper,
 } from "../runtime/routes/inference-profile-session-reaper.js";
+import { resetDbForTesting } from "./db-test-helpers.js";
 
 initializeDb();
 
@@ -40,7 +41,7 @@ describe("inference-profile-session-reaper", () => {
 
   afterAll(() => {
     stopInferenceProfileSessionReaper();
-    resetDb();
+    resetDbForTesting();
     mock.restore();
   });
 

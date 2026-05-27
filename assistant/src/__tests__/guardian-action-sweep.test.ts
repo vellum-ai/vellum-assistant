@@ -28,7 +28,7 @@ import {
   stopGuardianActionSweep,
   sweepExpiredGuardianActions,
 } from "../calls/guardian-action-sweep.js";
-import { getDb, resetDb } from "../memory/db-connection.js";
+import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import {
   createGuardianActionDelivery,
@@ -38,6 +38,7 @@ import {
   updateDeliveryStatus,
 } from "../memory/guardian-action-store.js";
 import { conversations } from "../memory/schema.js";
+import { resetDbForTesting } from "./db-test-helpers.js";
 
 initializeDb();
 
@@ -73,7 +74,7 @@ describe("guardian-action-sweep", () => {
 
   afterAll(() => {
     stopGuardianActionSweep();
-    resetDb();
+    resetDbForTesting();
   });
 
   test("sweepExpiredGuardianActions expires requests past their expiresAt", async () => {

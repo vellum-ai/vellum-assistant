@@ -17,7 +17,7 @@ import { Menu } from "@vellum/design-library/components/menu";
 import { Notice } from "@vellum/design-library/components/notice";
 import { PanelItem } from "@vellum/design-library/components/panel-item";
 import { Popover } from "@vellum/design-library/components/popover";
-import { useIsMobile } from "@/hooks/use-is-mobile.js";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import {
   organizationsNotificationsAcknowledgeCreateMutation,
   organizationsNotificationsListOptions,
@@ -26,16 +26,16 @@ import {
   organizationsNotificationsPauseRulesDestroyMutation,
   organizationsNotificationsSnoozeCreateMutation,
   organizationsNotificationsSummaryRetrieveQueryKey,
-} from "@/generated/api/@tanstack/react-query.gen.js";
+} from "@/generated/api/@tanstack/react-query.gen";
 import type {
   NotificationList,
   PauseRuleRead,
-} from "@/generated/api/types.gen.js";
+} from "@/generated/api/types.gen";
 import {
   SNOOZE_OPTIONS,
   formatRelativeDate,
   isSnoozed,
-} from "@/domains/settings/utils/notification-utils.js";
+} from "@/domains/settings/utils/notification-utils";
 
 interface SnoozeMenuProps {
   notificationId: string;

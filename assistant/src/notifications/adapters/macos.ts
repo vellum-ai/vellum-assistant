@@ -18,6 +18,7 @@
  * does not match their own identity.
  */
 
+import type { InterfaceId } from "../../channels/types.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
 import { getLogger } from "../../util/logger.js";
 import type {
@@ -30,7 +31,23 @@ import type {
 
 const log = getLogger("notif-adapter-vellum");
 
-export type BroadcastFn = (msg: ServerMessage) => void;
+/**
+ * Optional targeting/filtering applied at the hub when a broadcast is
+ * emitted. Mirrors the third argument of
+ * `broadcastMessage()` in `runtime/assistant-event-hub.ts`. Callers can
+ * use `targetInterfaceId` to scope a legacy message to a single client
+ * surface (e.g. macOS) during a migration window.
+ */
+export interface BroadcastFnOptions {
+  targetClientId?: string;
+  targetInterfaceId?: InterfaceId;
+}
+
+export type BroadcastFn = (
+  msg: ServerMessage,
+  conversationId?: string,
+  options?: BroadcastFnOptions,
+) => void;
 
 /**
  * Event name prefixes that carry guardian-sensitive content (approval

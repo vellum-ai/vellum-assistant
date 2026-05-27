@@ -1,9 +1,9 @@
-import type { UsageCallSiteMetadataMap } from "./call-site-metadata.js";
-import type { UsageProfileMetadataMap } from "./profile-metadata.js";
+import type { UsageCallSiteMetadataMap } from "./call-site-metadata";
+import type { UsageProfileMetadataMap } from "./profile-metadata";
 import type {
   UsageGroupBreakdown,
   UsageGroupBy,
-} from "./usage-types.js";
+} from "./usage-types";
 
 export interface UsageGroupLabelMetadata {
   callSites?: UsageCallSiteMetadataMap;
@@ -41,6 +41,10 @@ export function decorateUsageBreakdownGroups(
   groupBy: UsageGroupBy,
   metadata: UsageGroupLabelMetadata,
 ): UsageGroupBreakdown[] {
+  if (!groups || groups.length === 0) {
+    return [];
+  }
+
   return groups.map((group) => {
     const resolvedGroup = resolveUsageGroupLabel(groupBy, group, metadata);
     if (resolvedGroup === group.group) {

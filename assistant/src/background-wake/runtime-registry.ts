@@ -2,8 +2,8 @@ import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import type { SchedulerHandle } from "../schedule/scheduler.js";
 
 export interface BackgroundWakeRuntime {
-  scheduler: Pick<SchedulerHandle, "runOnce">;
-  heartbeat: Pick<HeartbeatService, "nextRunAt" | "runOnce">;
+  scheduler: Pick<SchedulerHandle, "runOnce" | "runDueWorkOnce">;
+  heartbeat: Pick<HeartbeatService, "nextRunAt" | "runManagedWakeIfDue">;
 }
 
 let runtime: BackgroundWakeRuntime | null = null;

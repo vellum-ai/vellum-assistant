@@ -6,14 +6,10 @@
  * location instead of duplicating the setup.
  */
 
-export { client } from "@/generated/api/client.gen.js";
+export { client } from "@/generated/api/client.gen";
 export {
   ApiError,
   assertHasResponse,
   extractErrorMessage,
-} from "@/lib/api-errors.js";
-
-export const SDK_BASE_OPTIONS =
-  typeof window === "undefined"
-    ? ({ baseUrl: "http://localhost" } as const)
-    : ({} as const);
+  SDK_BASE_OPTIONS,
+} from "@/lib/api-errors";

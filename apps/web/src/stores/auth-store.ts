@@ -13,14 +13,25 @@
  */
 import { create } from "zustand";
 
-import { createSelectors } from "@/utils/create-selectors.js";
+import { createSelectors } from "@/utils/create-selectors";
 
 import {
   getSession,
   logout as allauthLogout,
-} from "@/lib/auth/allauth-client.js";
-import { clearOrganization } from "@/stores/organization-store.js";
-import { useEventBusStore } from "@/stores/event-bus-store.js";
+} from "@/lib/auth/allauth-client";
+import {
+  isGatewayAuthEnabled,
+  isGatewayAuthMode,
+  ensureGatewayToken,
+  clearGatewayToken,
+} from "@/lib/auth/gateway-session";
+import { deleteBiometricToken } from "@/runtime/native-biometric";
+import { syncOnboardingUser, clearOnboardingFlags } from "@/lib/onboarding-cleanup";
+import { clearOrganization } from "@/stores/organization-store";
+import { clearUserScopedStorage } from "@/lib/auth/session-cleanup";
+import { useEventBusStore } from "@/stores/event-bus-store";
+import { isNativePlatform, installSessionCookies, waitForNativeSessionCookie } from "@/runtime/native-auth";
+import { isBiometricEnabled, retrieveBiometricToken } from "@/runtime/native-biometric";
 
 export interface AuthUser {
   id: string | null;
@@ -60,6 +71,7 @@ interface AuthState {
   isLoggedIn: boolean;
   isLoading: boolean;
   user: AuthUser | null;
+  hasPlatformSession: boolean;
 }
 
 interface AuthActions {
@@ -73,6 +85,15 @@ type AuthStore = AuthState & AuthActions;
 let previousUserId: string | null = null;
 let broadcastChannel: BroadcastChannel | null = null;
 
+const GATEWAY_LOCAL_USER: AuthUser = {
+  id: "gateway-local",
+  username: "local",
+  email: null,
+  isStaff: false,
+  firstName: "Local",
+  lastName: "User",
+};
+
 function syncOrganizationState(nextUserId: string | null): void {
   if (!nextUserId || (previousUserId && previousUserId !== nextUserId)) {
     clearOrganization();
@@ -84,50 +105,124 @@ function broadcastAuthChange(): void {
   broadcastChannel?.postMessage("auth-changed");
 }
 
+function syncUserScopedState(nextUserId: string | null): void {
+  syncOnboardingUser(nextUserId);
+  syncOrganizationState(nextUserId);
+}
+
 const useAuthStoreBase = create<AuthStore>()((set) => ({
   isLoggedIn: false,
   isLoading: true,
   user: null,
+  hasPlatformSession: false,
 
   initSession: async () => {
+    if (isGatewayAuthEnabled()) {
+      try {
+        await ensureGatewayToken();
+        set({ isLoggedIn: true, isLoading: false, user: GATEWAY_LOCAL_USER });
+      } catch {
+        set({ isLoggedIn: false, isLoading: false, user: null });
+      }
+      getSession()
+        .then((result) => {
+          if (result.ok && result.data.user) {
+            set({ hasPlatformSession: true });
+          }
+        })
+        .catch(() => {});
+      return;
+    }
+
     try {
       const result = await getSession();
       if (result.ok && result.data.user) {
         const user = toAuthUser(result.data.user);
-        syncOrganizationState(user?.id ?? null);
-        set({ isLoggedIn: true, isLoading: false, user });
+        syncUserScopedState(user?.id ?? null);
+        set({ isLoggedIn: true, isLoading: false, user, hasPlatformSession: true });
         return;
       }
     } catch (err) {
       console.error("auth.initSession failed", err);
     }
-    syncOrganizationState(null);
+
+    // Biometric recovery: on iOS, the session cookie may have been lost
+    // when WKWebView was killed. Try to restore from Keychain via Face ID.
+    if (isNativePlatform() && isBiometricEnabled()) {
+      try {
+        const token = await retrieveBiometricToken();
+        if (token) {
+          installSessionCookies(token);
+          await waitForNativeSessionCookie();
+          const retryResult = await getSession();
+          if (retryResult.ok && retryResult.data.user) {
+            const user = toAuthUser(retryResult.data.user);
+            syncUserScopedState(user?.id ?? null);
+            set({ isLoggedIn: true, isLoading: false, user, hasPlatformSession: true });
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn("auth.initSession biometric recovery failed", err);
+      }
+    }
+
+    syncUserScopedState(null);
     set({ isLoggedIn: false, isLoading: false, user: null });
   },
 
   refreshSession: async () => {
+    if (isGatewayAuthMode()) {
+      try {
+        await ensureGatewayToken();
+        set({ isLoggedIn: true });
+      } catch {
+        set({ isLoggedIn: false, user: null, hasPlatformSession: false });
+        return false;
+      }
+      getSession()
+        .then((result) => {
+          set({ hasPlatformSession: !!(result.ok && result.data.user) });
+        })
+        .catch(() => set({ hasPlatformSession: false }));
+      return true;
+    }
+
     try {
       const result = await getSession();
       if (result.ok && result.data.user) {
         const user = toAuthUser(result.data.user);
-        syncOrganizationState(user?.id ?? null);
-        set({ isLoggedIn: true, user });
+        syncUserScopedState(user?.id ?? null);
+        set({ isLoggedIn: true, user, hasPlatformSession: true });
         return true;
       }
     } catch (err) {
       console.warn("auth.refreshSession failed", err);
     }
-    syncOrganizationState(null);
-    set({ isLoggedIn: false, user: null });
+    syncUserScopedState(null);
+    set({ isLoggedIn: false, user: null, hasPlatformSession: false });
     return false;
   },
 
   logout: async () => {
+    if (isGatewayAuthMode()) {
+      clearGatewayToken();
+      clearOnboardingFlags();
+      clearOrganization();
+      clearUserScopedStorage();
+      set({ isLoggedIn: false, user: null, hasPlatformSession: false });
+      broadcastAuthChange();
+      return;
+    }
+
     try {
       await allauthLogout();
     } finally {
-      syncOrganizationState(null);
-      set({ isLoggedIn: false, user: null });
+      void deleteBiometricToken();
+      clearOnboardingFlags();
+      clearOrganization();
+      clearUserScopedStorage();
+      set({ isLoggedIn: false, user: null, hasPlatformSession: false });
       broadcastAuthChange();
     }
   },
@@ -161,7 +256,10 @@ export function setupAuthListeners(): () => void {
 
   if (typeof BroadcastChannel !== "undefined") {
     broadcastChannel = new BroadcastChannel("auth");
-    broadcastChannel.onmessage = () => safeRefresh();
+    broadcastChannel.onmessage = () => {
+      clearUserScopedStorage();
+      window.location.reload();
+    };
     cleanups.push(() => {
       broadcastChannel?.close();
       broadcastChannel = null;

@@ -14,7 +14,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { Button, Input, Modal } from "@vellum/design-library";
 
-import { referralCodesMeRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen.js";
+import { referralCodesMeRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
 
 interface EarnCreditsModalProps {
   open: boolean;

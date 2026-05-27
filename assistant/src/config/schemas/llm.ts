@@ -49,6 +49,9 @@ export const LLMCallSiteEnum = z.enum([
   "memoryV2Migration",
   "memoryV2Sweep",
   "memoryRouter",
+  "memoryV3Filter",
+  "memoryV3Descent",
+  "memoryV3Gate",
   "memoryV2Consolidation",
   "memoryRetrospective",
   "recall",
@@ -78,7 +81,6 @@ export const LLMCallSiteEnum = z.enum([
   "proactiveArtifactBuild",
   "homeGreeting",
   "homeSuggestedPrompts",
-  "queryComplexityRouter",
 ]);
 export type LLMCallSite = z.infer<typeof LLMCallSiteEnum>;
 

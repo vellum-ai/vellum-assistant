@@ -95,6 +95,7 @@ mock.module("../../security/secure-keys.js", () => ({
 
 mock.module("../../memory/conversation-crud.js", () => ({
   addMessage: async () => ({ id: "msg-123" }),
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 mock.module("../../runtime/agent-wake.js", () => ({
@@ -108,6 +109,7 @@ mock.module("../../runtime/assistant-event-hub.js", () => ({
     publish: publishSpy,
     subscribe: subscribeSpy,
   },
+  broadcastMessage: async () => {},
 }));
 
 mock.module("../../runtime/assistant-event.js", () => ({

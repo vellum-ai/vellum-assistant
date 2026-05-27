@@ -42,6 +42,65 @@ export function canAccessDocument(
 
 // ── Exported execute functions ──────────────────────────────────────
 
+export function executeDocumentOpen(
+  input: Record<string, unknown>,
+  context: ToolContext,
+): ToolExecutionResult {
+  const surfaceId = input.surface_id as string;
+  if (!canAccessDocument(surfaceId, context)) {
+    return documentNotFound(surfaceId);
+  }
+
+  const doc = getDocumentById(surfaceId);
+  if (!doc) {
+    return documentNotFound(surfaceId);
+  }
+
+  if (context.sendToClient) {
+    context.sendToClient({
+      type: "document_editor_show",
+      conversationId: context.conversationId,
+      surfaceId: doc.surfaceId,
+      title: doc.title,
+      initialContent: doc.content,
+    });
+
+    context.sendToClient({
+      type: "ui_surface_show",
+      conversationId: context.conversationId,
+      surfaceId: `preview-${doc.surfaceId}`,
+      surfaceType: "document_preview",
+      display: "inline",
+      title: doc.title,
+      data: {
+        title: doc.title,
+        surfaceId: doc.surfaceId,
+        subtitle: "Document",
+      },
+    });
+
+    return {
+      content: JSON.stringify({
+        success: true,
+        surface_id: doc.surfaceId,
+        title: doc.title,
+        word_count: doc.wordCount,
+        message: "Document editor opened",
+      }),
+      isError: false,
+    };
+  }
+
+  return {
+    content: JSON.stringify({
+      success: false,
+      surface_id: surfaceId,
+      error: "No client connected to open document editor",
+    }),
+    isError: true,
+  };
+}
+
 export function executeDocumentCreate(
   input: Record<string, unknown>,
   context: ToolContext,

@@ -75,8 +75,6 @@ const fakeTool = (name: string) => ({
   category: "fake",
   defaultRiskLevel: "low",
   ownerSkillId: "meet-join",
-  ownerSkillBundled: true,
-  ownerSkillVersionHash: "test",
   executionTarget: "host" as const,
   executionMode: "proxy" as const,
   getDefinition: () => ({ name, description: "test fake", input_schema: {} }),

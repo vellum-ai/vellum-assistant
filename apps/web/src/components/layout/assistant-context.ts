@@ -24,7 +24,7 @@ import { useOutletContext } from "react-router";
 import type {
   AssistantState,
   UseAssistantLifecycleReturn,
-} from "@/domains/chat/hooks/use-assistant-lifecycle.js";
+} from "@/domains/chat/hooks/use-assistant-lifecycle";
 
 export interface AssistantContextValue {
   assistantId: string | null;
@@ -37,7 +37,6 @@ export interface AssistantContextValue {
   setTopBarCenter: (node: ReactNode) => void;
   setTopBarRightSlot: (node: ReactNode) => void;
   setOnSearchClick: (cb: (() => void) | null) => void;
-  setFooterBanner: (node: ReactNode) => void;
 }
 
 export function useAssistantContext(): AssistantContextValue {

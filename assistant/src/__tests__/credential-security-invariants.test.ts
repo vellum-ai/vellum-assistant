@@ -41,8 +41,8 @@ afterAll(() => {
   mock.restore();
 });
 
-import { _setStorePath } from "../security/encrypted-store.js";
 import { _resetBackend } from "../security/secure-keys.js";
+import { setStorePathForTesting } from "./encrypted-store-test-helpers.js";
 
 const TEST_DIR = join(
   tmpdir(),
@@ -171,6 +171,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "daemon/handlers/config-telegram.ts", // Telegram bot token management
       "daemon/handlers/config-vercel.ts", // Vercel API token management
       "runtime/routes/integrations/twilio.ts", // Twilio credential management (HTTP control-plane)
+      "acp/prepare-agent-env.ts", // shared helper injects CLAUDE_CODE_OAUTH_TOKEN into claude-agent-acp subprocess env (called by route + skill tool spawn paths)
       "security/token-manager.ts", // OAuth token refresh flow
       "tools/network/script-proxy/session-manager.ts", // proxy credential injection at runtime
       "calls/call-domain.ts", // caller identity resolution (user phone number lookup)
@@ -408,7 +409,7 @@ describe("Invariant 4: credentials only used for allowed purpose", () => {
 
   beforeEach(() => {
     mkdirSync(TEST_DIR, { recursive: true });
-    _setStorePath(STORE_PATH);
+    setStorePathForTesting(STORE_PATH);
     _resetBackend();
     _setMetadataPath(join(TEST_DIR, "metadata.json"));
     broker = new CredentialBroker();
@@ -416,7 +417,7 @@ describe("Invariant 4: credentials only used for allowed purpose", () => {
 
   afterEach(() => {
     _setMetadataPath(null);
-    _setStorePath(null);
+    setStorePathForTesting(null);
     _resetBackend();
     rmSync(TEST_DIR, { recursive: true, force: true });
   });
@@ -496,14 +497,14 @@ describe("Invariant 4: credentials only used for allowed purpose", () => {
 describe("Invariant 6: oauth2ClientSecret not in metadata, only in secure store", () => {
   beforeEach(() => {
     mkdirSync(TEST_DIR, { recursive: true });
-    _setStorePath(STORE_PATH);
+    setStorePathForTesting(STORE_PATH);
     _resetBackend();
     _setMetadataPath(join(TEST_DIR, "metadata.json"));
   });
 
   afterEach(() => {
     _setMetadataPath(null);
-    _setStorePath(null);
+    setStorePathForTesting(null);
     _resetBackend();
     rmSync(TEST_DIR, { recursive: true, force: true });
   });

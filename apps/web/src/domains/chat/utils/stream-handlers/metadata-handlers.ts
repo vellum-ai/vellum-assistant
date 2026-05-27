@@ -1,13 +1,13 @@
-import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
-import { saveContextWindowUsage } from "@/domains/chat/utils/context-window-storage.js";
+import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
+import { saveContextWindowUsage } from "@/domains/chat/utils/context-window-storage";
 import {
-  extractConversationKey,
+  extractConversationId,
   postLocalNotification,
   sendNotificationIntentAck,
-} from "@/runtime/notifications.js";
-import { patchConversation } from "@/domains/conversations/conversation-queries.js";
-import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types.js";
-import type { AvatarUpdatedEvent, CompactionCircuitClosedEvent, CompactionCircuitOpenEvent, ConversationListInvalidatedEvent, ConversationTitleUpdatedEvent, DiskPressureStatusChangedEvent, IdentityChangedEvent, NotificationIntentEvent, UsageUpdateEvent } from "@/domains/chat/api/event-types.js";
+} from "@/runtime/notifications";
+import { patchConversation } from "@/domains/conversations/conversation-queries";
+import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
+import type { AvatarUpdatedEvent, CompactionCircuitClosedEvent, CompactionCircuitOpenEvent, ConversationTitleUpdatedEvent, DiskPressureStatusChangedEvent, IdentityChangedEvent, NotificationIntentEvent, TurnProfileAutoRoutedEvent, UsageUpdateEvent } from "@/domains/chat/api/event-types";
 
 export function handleUsageUpdate(
   event: UsageUpdateEvent,
@@ -47,24 +47,15 @@ export function handleUsageUpdate(
   ctx.setContextWindowUsage(usage);
 }
 
-export function handleConversationListInvalidated(
-  _event: ConversationListInvalidatedEvent,
-  ctx: StreamHandlerContext,
-): void {
-  ctx.scheduleConversationListRefetch();
-}
-
 export function handleConversationTitleUpdated(
   event: ConversationTitleUpdatedEvent,
   ctx: StreamHandlerContext,
 ): void {
   // `patchConversation` looks up the Conversation entity by its
-  // `conversationKey` field in the React Query cache. The event's
+  // `conversationId` field in the React Query cache. The event's
   // `conversationId` (hydrated in `event-parser.ts` via
   // `withParsedConversationId` or the envelope fallback in `stream.ts`)
-  // is the value to match against. The Conversation entity's own
-  // conversationKey → conversationId rename is a separate follow-up
-  // batch.
+  // is the value to match against.
   patchConversation(
     ctx.queryClient,
     ctx.assistantIdRef.current,
@@ -91,12 +82,12 @@ export function handleNotificationIntent(
     return;
   }
 
-  const metadataConversationKey = extractConversationKey(
+  const metadataConversationId = extractConversationId(
     event.deepLinkMetadata,
   );
   if (
-    metadataConversationKey &&
-    metadataConversationKey === ctx.activeConversationKeyRef.current
+    metadataConversationId &&
+    metadataConversationId === ctx.activeConversationIdRef.current
   ) {
     if (ackAssistantId && event.deliveryId) {
       void sendNotificationIntentAck(
@@ -151,4 +142,11 @@ export function handleAvatarUpdated(
   ctx: StreamHandlerContext,
 ): void {
   ctx.invalidateAvatar();
+}
+
+export function handleTurnProfileAutoRouted(
+  event: TurnProfileAutoRoutedEvent,
+  ctx: StreamHandlerContext,
+): void {
+  ctx.turnActions.onProfileAutoRouted(event.profileLabel);
 }

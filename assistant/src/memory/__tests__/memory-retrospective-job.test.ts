@@ -144,6 +144,7 @@ mock.module("../conversation-crud.js", () => ({
   deleteConversation: (id: string) => {
     deletedConversationIds.push(id);
   },
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 mock.module("../../config/assistant-feature-flags.js", () => ({

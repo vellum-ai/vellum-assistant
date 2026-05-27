@@ -8,7 +8,6 @@
  */
 
 import { RiskLevel } from "../../permissions/types.js";
-import type { ToolDefinition } from "../../providers/types.js";
 import type { Tool, ToolExecutionResult } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -32,12 +31,9 @@ export const computerUseClickTool: Tool = {
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionMode: "proxy",
+  executionTarget: "host",
 
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
+  input_schema: {
         type: "object",
         properties: {
           click_type: {
@@ -71,8 +67,6 @@ export const computerUseClickTool: Tool = {
         },
         required: ["reasoning"],
       },
-    };
-  },
 
   execute: proxyExecute,
 };
@@ -88,12 +82,9 @@ export const computerUseTypeTextTool: Tool = {
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionMode: "proxy",
+  executionTarget: "host",
 
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
+  input_schema: {
         type: "object",
         properties: {
           text: {
@@ -112,8 +103,6 @@ export const computerUseTypeTextTool: Tool = {
         },
         required: ["text", "reasoning"],
       },
-    };
-  },
 
   execute: proxyExecute,
 };
@@ -129,12 +118,9 @@ export const computerUseKeyTool: Tool = {
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionMode: "proxy",
+  executionTarget: "host",
 
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
+  input_schema: {
         type: "object",
         properties: {
           key: {
@@ -154,8 +140,6 @@ export const computerUseKeyTool: Tool = {
         },
         required: ["key", "reasoning"],
       },
-    };
-  },
 
   execute: proxyExecute,
 };
@@ -171,12 +155,9 @@ export const computerUseScrollTool: Tool = {
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionMode: "proxy",
+  executionTarget: "host",
 
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
+  input_schema: {
         type: "object",
         properties: {
           element_id: {
@@ -213,8 +194,6 @@ export const computerUseScrollTool: Tool = {
         },
         required: ["direction", "amount", "reasoning"],
       },
-    };
-  },
 
   execute: proxyExecute,
 };
@@ -230,12 +209,9 @@ export const computerUseDragTool: Tool = {
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionMode: "proxy",
+  executionTarget: "host",
 
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
+  input_schema: {
         type: "object",
         properties: {
           element_id: {
@@ -278,8 +254,6 @@ export const computerUseDragTool: Tool = {
         },
         required: ["reasoning"],
       },
-    };
-  },
 
   execute: proxyExecute,
 };
@@ -294,12 +268,9 @@ export const computerUseWaitTool: Tool = {
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionMode: "proxy",
+  executionTarget: "host",
 
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
+  input_schema: {
         type: "object",
         properties: {
           duration_ms: {
@@ -318,8 +289,6 @@ export const computerUseWaitTool: Tool = {
         },
         required: ["duration_ms", "reasoning"],
       },
-    };
-  },
 
   execute: proxyExecute,
 };
@@ -335,12 +304,9 @@ export const computerUseOpenAppTool: Tool = {
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionMode: "proxy",
+  executionTarget: "host",
 
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
+  input_schema: {
         type: "object",
         properties: {
           app_name: {
@@ -361,8 +327,6 @@ export const computerUseOpenAppTool: Tool = {
         },
         required: ["app_name", "reasoning"],
       },
-    };
-  },
 
   execute: proxyExecute,
 };
@@ -378,12 +342,9 @@ export const computerUseRunAppleScriptTool: Tool = {
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionMode: "proxy",
+  executionTarget: "host",
 
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
+  input_schema: {
         type: "object",
         properties: {
           script: {
@@ -403,8 +364,6 @@ export const computerUseRunAppleScriptTool: Tool = {
         },
         required: ["script", "reasoning"],
       },
-    };
-  },
 
   execute: proxyExecute,
 };
@@ -420,12 +379,9 @@ export const computerUseDoneTool: Tool = {
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionMode: "proxy",
+  executionTarget: "host",
 
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
+  input_schema: {
         type: "object",
         properties: {
           summary: {
@@ -435,8 +391,6 @@ export const computerUseDoneTool: Tool = {
         },
         required: ["summary"],
       },
-    };
-  },
 
   execute: proxyExecute,
 };
@@ -452,12 +406,9 @@ export const computerUseRespondTool: Tool = {
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionMode: "proxy",
+  executionTarget: "host",
 
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
+  input_schema: {
         type: "object",
         properties: {
           answer: {
@@ -471,8 +422,6 @@ export const computerUseRespondTool: Tool = {
         },
         required: ["answer", "reasoning"],
       },
-    };
-  },
 
   execute: proxyExecute,
 };
@@ -488,18 +437,13 @@ const computerUseObserveTool: Tool = {
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionMode: "proxy",
+  executionTarget: "host",
 
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
+  input_schema: {
         type: "object",
         properties: {},
         required: [],
       },
-    };
-  },
 
   execute: proxyExecute,
 };

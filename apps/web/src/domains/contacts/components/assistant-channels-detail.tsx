@@ -5,10 +5,10 @@ import { Button } from "@vellum/design-library/components/button";
 import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog";
 import { Input } from "@vellum/design-library/components/input";
 
-import { ContactTypeBadge } from "@/domains/contacts/components/contact-type-badge.js";
-import { ShareConnectionLinkButton } from "@/domains/contacts/components/share-connection-link-button.js";
-import { SettingsCard } from "@/domains/settings/components/settings-card.js";
-import type { AssistantChannelState } from "@/domains/contacts/types.js";
+import { ContactTypeBadge } from "@/domains/contacts/components/contact-type-badge";
+import { ShareConnectionLinkButton } from "@/domains/contacts/components/share-connection-link-button";
+import { DetailCard } from "@/components/detail-card";
+import type { AssistantChannelState } from "@/domains/contacts/types";
 
 type ChannelKey = AssistantChannelState["key"];
 
@@ -79,13 +79,13 @@ export function AssistantChannelsDetail({
 
   return (
     <div className="flex flex-col gap-6">
-      <SettingsCard
+      <DetailCard
         title={`${displayName} (Your Assistant)`}
         accessory={<ContactTypeBadge role="assistant" />}
         compactAccessory
       />
 
-      <SettingsCard
+      <DetailCard
         title="Channels"
         subtitle={`Manage where ${displayName} can be reached.`}
       >
@@ -114,7 +114,7 @@ export function AssistantChannelsDetail({
             </div>
           ))}
         </div>
-      </SettingsCard>
+      </DetailCard>
 
       {onGenerateInviteLink ? <ShareConnectionLinkButton onClick={onGenerateInviteLink} /> : null}
 

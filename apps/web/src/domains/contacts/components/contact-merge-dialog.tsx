@@ -7,7 +7,7 @@ import { Modal } from "@vellum/design-library/components/modal";
 import { PanelItem } from "@vellum/design-library/components/panel-item";
 import { Typography } from "@vellum/design-library/components/typography";
 
-import type { ContactPayload } from "@/domains/contacts/types.js";
+import type { ContactPayload } from "@/domains/contacts/types";
 
 export interface ContactMergeDialogProps {
   open: boolean;

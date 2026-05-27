@@ -26,11 +26,11 @@ import {
 } from "lucide-react";
 import { cn } from "@vellum/design-library";
 
-import type { CommentAnchor } from "@/domains/chat/utils/tiptap-position-map.js";
+import type { CommentAnchor } from "@/domains/chat/utils/tiptap-position-map";
 import {
   charOffsetToPmPos,
   pmPosToCharOffset,
-} from "@/domains/chat/utils/tiptap-position-map.js";
+} from "@/domains/chat/utils/tiptap-position-map";
 
 // ---------------------------------------------------------------------------
 // Types

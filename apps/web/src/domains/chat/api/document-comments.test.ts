@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { client } from "@/generated/api/client.gen.js";
-import { ApiError } from "@/lib/api-errors.js";
+import { client } from "@/generated/api/client.gen";
+import { ApiError } from "@/lib/api-errors";
 
 import {
   createComment,
@@ -9,7 +9,7 @@ import {
   fetchComments,
   reopenComment,
   resolveComment,
-} from "@/domains/chat/api/document-comments.js";
+} from "@/domains/chat/api/document-comments";
 
 // ---------------------------------------------------------------------------
 // Test helpers

@@ -100,7 +100,7 @@ function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
 
 describe("recallTool definition", () => {
   test("exposes the agentic local search schema", () => {
-    const definition = recallTool.getDefinition();
+    const definition = recallTool;
 
     expect(definition.name).toBe("recall");
     expect(definition.description).toContain("Search local information");

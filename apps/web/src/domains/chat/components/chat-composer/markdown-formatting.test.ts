@@ -3,7 +3,7 @@ import { describe, expect, it } from "bun:test";
 import {
   applyMarkdownFormatting,
   matchFormattingShortcut,
-} from "@/domains/chat/components/chat-composer/markdown-formatting.js";
+} from "@/domains/chat/components/chat-composer/markdown-formatting";
 
 describe("applyMarkdownFormatting", () => {
   describe("bold (**)", () => {

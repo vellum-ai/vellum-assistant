@@ -8,13 +8,13 @@
 import type {
   ConfirmationDecision,
   QuestionSubmission,
-} from "@/domains/chat/api/event-types.js";
+} from "@/domains/chat/api/event-types";
 import {
   assertHasResponse,
   client,
   extractErrorMessage,
   SDK_BASE_OPTIONS,
-} from "@/domains/chat/api/client.js";
+} from "@/domains/chat/api/client";
 
 export async function getPendingInteractions(
   assistantId: string,
@@ -56,10 +56,9 @@ export async function getPendingInteractions(
  * Used by attention-tracking effects so we don't fan out one request per
  * conversation on mount / poll. The returned set contains every conversation
  * key that has at least one pending interaction; callers reconcile against
- * their own state. Conversation key equals conversation id in the web client
- * (see `parseConversation` / `readEventConversationKey`).
+ * their own state. Conversation key equals conversation id in the web client.
  */
-export async function listConversationKeysWithPendingInteractions(
+export async function listConversationIdsWithPendingInteractions(
   assistantId: string,
 ): Promise<Set<string>> {
   const { data, error, response } = await client.get<unknown, unknown>({
@@ -72,7 +71,7 @@ export async function listConversationKeysWithPendingInteractions(
   if (!response.ok) {
     if (response.status >= 500) {
       throw new Error(
-        `listConversationKeysWithPendingInteractions failed: ${response.status}`,
+        `listConversationIdsWithPendingInteractions failed: ${response.status}`,
       );
     }
     return new Set();

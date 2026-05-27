@@ -1,6 +1,8 @@
 import {
   Brain,
   Calendar,
+  ChevronDown,
+  ChevronRight,
   Clock,
   Globe,
   Hash,
@@ -11,30 +13,35 @@ import {
   SquarePen,
   X,
 } from "lucide-react";
-import { useCallback, type ReactNode } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 
 import {
   ConversationActionsMenu,
   renderConversationMenuItems,
   type ConversationMenuItemsProps,
-} from "@/domains/chat/components/conversation-actions-menu.js";
-import { CollapsedConversationsButton } from "@/domains/chat/components/collapsed-conversations-button.js";
-import { ThreadPinToggle } from "@/domains/chat/components/thread-pin-toggle.js";
-import { GroupActionsMenu } from "@/domains/chat/components/group-actions-menu.js";
-import { BackgroundSubGroups, ScheduledSubGroups } from "@/domains/chat/components/sub-group-accordion.js";
-import { countBadge } from "@/domains/chat/components/sidebar-count-badge.js";
-import { useSidebarState, SIDEBAR_CONVERSATION_LIMIT, type UseSidebarStateParams } from "@/domains/chat/use-sidebar-state.js";
+} from "@/domains/chat/components/conversation-actions-menu";
+import { CollapsedGroupIcon, getGroupIndicatorState } from "@/domains/chat/components/collapsed-group-icon";
+import { ThreadPinToggle } from "@/domains/chat/components/thread-pin-toggle";
+import { GroupActionsMenu } from "@/domains/chat/components/group-actions-menu";
+import { BackgroundSubGroups, ScheduledSubGroups } from "@/domains/chat/components/sub-group-accordion";
+import { countBadge } from "@/domains/chat/components/sidebar-count-badge";
+import {
+  formatBackgroundSubGroupLabel,
+  groupBackgroundConversationsBySource,
+} from "@/domains/chat/utils/background-sub-groups";
+import { useSidebarState, SIDEBAR_CONVERSATION_LIMIT, type UseSidebarStateParams } from "@/domains/chat/use-sidebar-state";
 import {
   Button,
   ContextMenu,
   PanelItem,
   SideMenu,
 } from "@vellum/design-library";
-import { CollapsibleNavSection } from "@/components/collapsible-nav-section.js";
-import { usePinnedAppsStore } from "@/domains/chat/pinned-apps-store.js";
-import { buildMoveToGroupTargets, isConversationPinned } from "@/domains/chat/utils/group-conversations.js";
-import { isChannelConversation } from "@/domains/chat/utils/conversation-channel.js";
-import { canMarkRead, canMarkUnread, type Conversation } from "@/domains/chat/api/conversations.js";
+import { CollapsibleNavSection } from "@/components/collapsible-nav-section";
+import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
+import { buildMoveToGroupTargets, isConversationPinned } from "@/domains/chat/utils/group-conversations";
+import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
+import type { Conversation } from "@/types/conversation-types";
+import { canMarkRead, canMarkUnread } from "@/utils/conversation-predicates";
 
 /** @deprecated Use {@link SIDEBAR_CONVERSATION_LIMIT} from `use-sidebar-state.ts` */
 export const ASSISTANT_SIDE_MENU_CONVERSATION_LIMIT = SIDEBAR_CONVERSATION_LIMIT;
@@ -43,7 +50,9 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   assistantName?: string | null;
   collapsed: boolean;
   variant: "rail" | "overlay";
-  activeConversationKey?: string;
+  width?: number;
+  onWidthChange?: (width: number) => void;
+  activeConversationId?: string;
   onSelectConversation: (key: string) => void;
   isIntelligenceActive?: boolean;
   onOpenIntelligence?: () => void;
@@ -52,7 +61,6 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onOpenApp?: (appId: string) => void;
   activeAppId?: string;
   onStartNewConversation?: () => void;
-  footerBanner?: ReactNode;
   footerAction?: ReactNode;
   onClose?: () => void;
   onSearchClick?: () => void;
@@ -66,7 +74,7 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onRemoveFromGroup?: (conversation: Conversation) => void;
   onRenameGroup?: (groupId: string) => void;
   onDeleteGroup?: (groupId: string) => void;
-  processingConversationKeys?: Set<string>;
+  processingConversationIds?: Set<string>;
   activeConversationProcessing?: boolean;
   onAnalyze?: (conversation: Conversation) => void;
   onOpenInNewWindow?: (conversation: Conversation) => void;
@@ -100,8 +108,10 @@ export function AssistantSideMenu({
   assistantName,
   collapsed,
   variant,
+  width,
+  onWidthChange,
   conversations,
-  activeConversationKey,
+  activeConversationId,
   onSelectConversation,
   isIntelligenceActive = false,
   onOpenIntelligence,
@@ -110,7 +120,6 @@ export function AssistantSideMenu({
   onOpenApp,
   activeAppId,
   onStartNewConversation,
-  footerBanner,
   footerAction,
   onPinConversation,
   onRenameConversation,
@@ -125,8 +134,8 @@ export function AssistantSideMenu({
   onDeleteGroup,
   onClose,
   onSearchClick,
-  processingConversationKeys,
-  attentionConversationKeys,
+  processingConversationIds,
+  attentionConversationIds,
   activeConversationProcessing,
   onAnalyze,
   onOpenInNewWindow,
@@ -137,7 +146,7 @@ export function AssistantSideMenu({
     assistantId,
     conversations,
     conversationGroups,
-    attentionConversationKeys,
+    attentionConversationIds,
   });
 
   const pinnedApps = usePinnedAppsStore.use.pinnedApps();
@@ -146,10 +155,10 @@ export function AssistantSideMenu({
 
   const renderThreadPinToggle = (conversation: Conversation): ReactNode => {
     const isProcessing =
-      conversation.conversationKey === activeConversationKey
+      conversation.conversationId === activeConversationId
         ? activeConversationProcessing ?? false
-        : processingConversationKeys?.has(conversation.conversationKey) ?? false;
-    const needsAttention = attentionConversationKeys?.has(conversation.conversationKey) ?? false;
+        : processingConversationIds?.has(conversation.conversationId) ?? false;
+    const needsAttention = attentionConversationIds?.has(conversation.conversationId) ?? false;
     return (
       <ThreadPinToggle
         conversation={conversation}
@@ -206,16 +215,16 @@ export function AssistantSideMenu({
           ? () => onRemoveFromGroup(conversation)
           : undefined,
       onAnalyze:
-        onAnalyze && conversation.conversationKey != null && !isChannel
+        onAnalyze && conversation.conversationId != null && !isChannel
           ? () => onAnalyze(conversation)
           : undefined,
       onOpenInNewWindow:
-        onOpenInNewWindow && conversation.conversationKey != null
+        onOpenInNewWindow && conversation.conversationId != null
           ? () => onOpenInNewWindow(conversation)
           : undefined,
       onShareFeedback,
       onInspect:
-        onInspect && conversation.conversationKey != null
+        onInspect && conversation.conversationId != null
           ? () => onInspect(conversation)
           : undefined,
     };
@@ -231,7 +240,7 @@ export function AssistantSideMenu({
   ): ReactNode => {
     const menuProps = buildConversationMenuProps(conversation);
     return (
-      <ContextMenu.Root key={conversation.conversationKey}>
+      <ContextMenu.Root key={conversation.conversationId}>
         <ContextMenu.Trigger>{panelItem}</ContextMenu.Trigger>
         <ContextMenu.Content
           onClick={(event) => event.stopPropagation()}
@@ -245,8 +254,8 @@ export function AssistantSideMenu({
   // --- Shared sub-component props ---
 
   const subGroupProps = {
-    activeConversationKey,
-    attentionConversationKeys,
+    activeConversationId,
+    attentionConversationIds,
     onSelectConversation: useCallback(
       (key: string) => { onSelectConversation(key); onClose?.(); },
       [onSelectConversation, onClose],
@@ -288,8 +297,8 @@ export function AssistantSideMenu({
             leadingSlot={renderThreadPinToggle(c)}
             label={c.title ?? "Untitled"}
             marqueeOnHover
-            active={c.conversationKey === activeConversationKey}
-            onSelect={() => selectAndClose(c.conversationKey)}
+            active={c.conversationId === activeConversationId}
+            onSelect={() => selectAndClose(c.conversationId)}
             trailingAction={renderThreadActions(c)}
           />,
         ),
@@ -306,6 +315,28 @@ export function AssistantSideMenu({
     </SideMenu.SubList>
   );
 
+  // --- Collapsed-rail popover content renderer ---
+
+  const renderCollapsedGroupContent = (title: string, conversations: Conversation[], closePopover?: () => void): ReactNode => (
+    <div className="pb-1">
+      <div className="flex items-center justify-between px-4 py-1">
+        <span className="text-body-small-default text-[var(--content-tertiary)]">{title}</span>
+      </div>
+      <div className="px-2">
+        {conversations.map((c) => (
+          <PanelItem
+            key={c.conversationId}
+            leadingSlot={renderThreadPinToggle(c)}
+            label={c.title ?? "Untitled"}
+            active={c.conversationId === activeConversationId}
+            onSelect={() => { closePopover?.(); selectAndClose(c.conversationId); }}
+            trailingAction={renderThreadActions(c)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+
   // --- JSX ---
 
   return (
@@ -313,6 +344,8 @@ export function AssistantSideMenu({
       ariaLabel="Assistant navigation"
       collapsed={collapsed}
       variant={variant}
+      width={width}
+      onWidthChange={onWidthChange}
       className="h-full"
     >
       <SideMenu.Header>
@@ -371,18 +404,56 @@ export function AssistantSideMenu({
         {collapsed && variant === "rail" ? (
           <div className="flex flex-col items-center gap-1">
             {headerActions}
-            <CollapsedConversationsButton
-              pinned={sidebar.pinned}
-              scheduled={sidebar.scheduled}
-              background={sidebar.background}
-              slack={sidebar.slack.all}
-              recents={sidebar.recents.all}
-              customGroups={sidebar.conversationGroupsEnabled ? sidebar.customGroups : undefined}
-              activeConversationKey={activeConversationKey}
-              onSelectConversation={selectAndClose}
-              renderActions={renderThreadActions}
-              attentionConversationKeys={attentionConversationKeys}
-            />
+            <CollapsedGroupIcon
+              icon={Pin}
+              label="Pinned"
+              disabled={sidebar.pinned.length === 0}
+              indicatorState={getGroupIndicatorState(sidebar.pinned, processingConversationIds, attentionConversationIds)}
+            >
+              {(close) => renderCollapsedGroupContent("Pinned", sidebar.pinned, close)}
+            </CollapsedGroupIcon>
+            <CollapsedGroupIcon
+              icon={Clock}
+              label="Recents"
+              disabled={sidebar.recents.all.length === 0}
+              indicatorState={getGroupIndicatorState(sidebar.recents.all, processingConversationIds, attentionConversationIds)}
+            >
+              {(close) => renderCollapsedGroupContent("Recents", sidebar.recents.all, close)}
+            </CollapsedGroupIcon>
+            <CollapsedGroupIcon
+              icon={Calendar}
+              label="Scheduled"
+              disabled={sidebar.scheduled.length === 0}
+              indicatorState={getGroupIndicatorState(sidebar.scheduled, processingConversationIds, attentionConversationIds)}
+            >
+              {(close) => renderCollapsedGroupContent("Scheduled", sidebar.scheduled, close)}
+            </CollapsedGroupIcon>
+            {sidebar.background.length > 0 ? (
+              <CollapsedBackgroundGroup
+                conversations={sidebar.background}
+                activeConversationId={activeConversationId}
+                onSelectConversation={selectAndClose}
+                renderActions={renderThreadActions}
+                renderPinToggle={renderThreadPinToggle}
+                processingConversationIds={processingConversationIds}
+                attentionConversationIds={attentionConversationIds}
+              />
+            ) : (
+              <CollapsedGroupIcon
+                icon={Layers}
+                label="Background"
+                disabled
+                indicatorState={null}
+              />
+            )}
+            <CollapsedGroupIcon
+              icon={Hash}
+              label="Slack"
+              disabled={sidebar.slack.totalCount === 0}
+              indicatorState={getGroupIndicatorState(sidebar.slack.all, processingConversationIds, attentionConversationIds)}
+            >
+              {(close) => renderCollapsedGroupContent("Slack", sidebar.slack.all, close)}
+            </CollapsedGroupIcon>
           </div>
         ) : (
           <SideMenu.Section
@@ -483,8 +554,8 @@ export function AssistantSideMenu({
                                 leadingSlot={renderThreadPinToggle(c)}
                                 label={c.title ?? "Untitled"}
                                 marqueeOnHover
-                                active={c.conversationKey === activeConversationKey}
-                                onSelect={() => selectAndClose(c.conversationKey)}
+                                active={c.conversationId === activeConversationId}
+                                onSelect={() => selectAndClose(c.conversationId)}
                                 trailingAction={renderThreadActions(c)}
                               />,
                             ),
@@ -500,13 +571,129 @@ export function AssistantSideMenu({
         )}
       </SideMenu.Body>
 
-      {(footerBanner || footerAction) ? (
+      {footerAction ? (
         <SideMenu.Footer>
-          {collapsed ? null : footerBanner}
           <SideMenu.Separator />
           {footerAction}
         </SideMenu.Footer>
       ) : null}
     </SideMenu>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Collapsed background group — extracted so it can own sub-group expand state
+// ---------------------------------------------------------------------------
+
+interface CollapsedBackgroundGroupProps {
+  conversations: Conversation[];
+  activeConversationId?: string;
+  onSelectConversation: (conversationId: string) => void;
+  renderActions: (conversation: Conversation) => ReactNode;
+  renderPinToggle: (conversation: Conversation) => ReactNode;
+  processingConversationIds?: Set<string>;
+  attentionConversationIds?: Set<string>;
+}
+
+function CollapsedBackgroundGroup({
+  conversations,
+  activeConversationId,
+  onSelectConversation,
+  renderActions,
+  renderPinToggle,
+  processingConversationIds,
+  attentionConversationIds,
+}: CollapsedBackgroundGroupProps) {
+  const subGroups = useMemo(() => groupBackgroundConversationsBySource(conversations), [conversations]);
+  const [manualExpandedKeys, setManualExpandedKeys] = useState<Set<string>>(new Set());
+
+  const attentionExpandedKeys = useMemo(() => {
+    if (!attentionConversationIds || attentionConversationIds.size === 0) return new Set<string>();
+    const keys = new Set<string>();
+    for (const group of subGroups) {
+      if (group.key.startsWith("__single__:")) continue;
+      if (group.conversations.some(c => attentionConversationIds.has(c.conversationId))) {
+        keys.add(group.key);
+      }
+    }
+    return keys;
+  }, [attentionConversationIds, subGroups]);
+
+  const expandedKeys = useMemo(() => {
+    if (attentionExpandedKeys.size === 0) return manualExpandedKeys;
+    const merged = new Set(manualExpandedKeys);
+    for (const k of attentionExpandedKeys) merged.add(k);
+    return merged;
+  }, [manualExpandedKeys, attentionExpandedKeys]);
+
+  const toggleGroup = (key: string) => {
+    setManualExpandedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  };
+
+  return (
+    <CollapsedGroupIcon
+      icon={Layers}
+      label="Background"
+      indicatorState={getGroupIndicatorState(conversations, processingConversationIds, attentionConversationIds)}
+    >
+      {(closePopover) => (
+        <div className="pb-1">
+          <div className="flex items-center justify-between px-4 py-1">
+            <span className="text-body-small-default text-[var(--content-tertiary)]">Background</span>
+          </div>
+          <div className="px-2">
+            {subGroups.map((group) => {
+              const isSingle = group.key.startsWith("__single__:");
+              if (isSingle) {
+                const c = group.conversations[0];
+                if (!c) return null;
+                return (
+                  <PanelItem
+                    key={c.conversationId}
+                    leadingSlot={renderPinToggle(c)}
+                    label={c.title ?? "Untitled"}
+                    active={c.conversationId === activeConversationId}
+                    onSelect={() => { closePopover(); onSelectConversation(c.conversationId); }}
+                    trailingAction={renderActions(c)}
+                  />
+                );
+              }
+
+              const isExpanded = expandedKeys.has(group.key);
+              return (
+                <div key={group.key}>
+                  <PanelItem
+                    icon={isExpanded ? ChevronDown : ChevronRight}
+                    label={formatBackgroundSubGroupLabel(group.key)}
+                    badge={group.conversations.length}
+                    onSelect={() => toggleGroup(group.key)}
+                  />
+                  {isExpanded
+                    ? group.conversations.map((c) => (
+                        <PanelItem
+                          key={c.conversationId}
+                          leadingSlot={renderPinToggle(c)}
+                          label={c.title ?? "Untitled"}
+                          active={c.conversationId === activeConversationId}
+                          onSelect={() => { closePopover(); onSelectConversation(c.conversationId); }}
+                          trailingAction={renderActions(c)}
+                        />
+                      ))
+                    : null}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </CollapsedGroupIcon>
   );
 }

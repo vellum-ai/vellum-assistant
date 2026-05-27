@@ -1,13 +1,14 @@
 import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 
-import { client } from "@/generated/api/client.gen.js";
-import { assertHasResponse } from "@/lib/api-errors.js";
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
+import { client } from "@/generated/api/client.gen";
+import { assertHasResponse } from "@/lib/api-errors";
+import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
 import {
   CLIENT_FLAG_DEFAULTS,
-  ldKeyToStoreKey,
-} from "@/lib/feature-flags/feature-flag-catalog.js";
+  flagKeyToStoreKey,
+} from "@/lib/feature-flags/feature-flag-catalog";
+import { useFlagQueryFreshness } from "@/lib/backwards-compat/flag-query-freshness";
 
 interface ClientFlagValuesResponse {
   flags: Record<string, boolean>;
@@ -15,7 +16,7 @@ interface ClientFlagValuesResponse {
 
 const VALID_KEYS = new Set(Object.keys(CLIENT_FLAG_DEFAULTS));
 
-const CLIENT_FLAG_QUERY_KEY = ["client-feature-flag-values"] as const;
+export const CLIENT_FLAG_QUERY_KEY = ["client-feature-flag-values"] as const;
 
 async function fetchClientFlagValues(): Promise<ClientFlagValuesResponse> {
   const { data, error, response } = await client.get<
@@ -37,8 +38,8 @@ function mapFlags(
   serverFlags: Record<string, boolean>,
 ): Record<string, boolean> {
   const mapped: Record<string, boolean> = {};
-  for (const [ldKey, value] of Object.entries(serverFlags)) {
-    const storeKey = ldKeyToStoreKey(ldKey);
+  for (const [flagKey, value] of Object.entries(serverFlags)) {
+    const storeKey = flagKeyToStoreKey(flagKey);
     if (VALID_KEYS.has(storeKey)) {
       mapped[storeKey] = value;
     }
@@ -47,12 +48,12 @@ function mapFlags(
 }
 
 export function useClientFeatureFlagSync(enabled: boolean) {
+  const freshness = useFlagQueryFreshness();
   const { data } = useQuery({
     queryKey: CLIENT_FLAG_QUERY_KEY,
     queryFn: fetchClientFlagValues,
     enabled,
-    staleTime: 5_000,
-    refetchInterval: 5_000,
+    ...freshness,
     retry: 1,
   });
 

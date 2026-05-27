@@ -25,6 +25,8 @@ import {
   createConversation,
   getMessageById,
   getMessages,
+  reserveMessage,
+  updateMessageContent,
   updateMessageMetadata,
 } from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
@@ -44,6 +46,7 @@ import type {
   PersistAddResult,
   PersistArgs,
   PersistDeleteResult,
+  PersistReserveResult,
   PersistResult,
   Plugin,
   TurnContext,
@@ -215,6 +218,80 @@ describe("persistence pipeline", () => {
     expect(getMessages(conv.id)).toHaveLength(0);
   });
 
+  test("default plugin: reserve op pre-allocates an empty assistant row", async () => {
+    registerPlugin(defaultPersistencePlugin);
+
+    const conv = createConversation();
+
+    const result = (await runPipeline<PersistArgs, PersistResult>(
+      "persistence",
+      getMiddlewaresFor("persistence"),
+      defaultPersistenceTerminal,
+      {
+        op: "reserve",
+        conversationId: conv.id,
+        role: "assistant",
+        metadata: { reservedFor: "anchor" },
+      },
+      makeCtx({ conversationId: conv.id }),
+      DEFAULT_TIMEOUTS.persistence,
+    )) as PersistReserveResult;
+
+    expect(result.op).toBe("reserve");
+    expect(result.message.id).toBeTruthy();
+    expect(result.message.role).toBe("assistant");
+    // Reserve places an empty JSON array so consumers that parse content
+    // observe a no-content payload.
+    expect(result.message.content).toBe("[]");
+
+    // Row must exist with the expected shape and live in the conversation.
+    const row = getMessageById(result.message.id, conv.id);
+    expect(row).not.toBeNull();
+    expect(row?.content).toBe("[]");
+    expect(JSON.parse(row!.metadata!)).toEqual({ reservedFor: "anchor" });
+    expect(getMessages(conv.id).map((m) => m.id)).toContain(result.message.id);
+  });
+
+  test("default plugin: updateContent op overwrites an existing row's content", async () => {
+    registerPlugin(defaultPersistencePlugin);
+
+    const conv = createConversation();
+
+    // Reserve first, then overwrite — exactly the B3 sequence consumers will
+    // follow.
+    const reserved = await reserveMessage(conv.id, "assistant");
+    expect(getMessageById(reserved.id, conv.id)?.content).toBe("[]");
+
+    const result = await runPipeline<PersistArgs, PersistResult>(
+      "persistence",
+      getMiddlewaresFor("persistence"),
+      defaultPersistenceTerminal,
+      {
+        op: "updateContent",
+        messageId: reserved.id,
+        content: JSON.stringify([{ type: "text", text: "Hello" }]),
+      },
+      makeCtx({ conversationId: conv.id }),
+      DEFAULT_TIMEOUTS.persistence,
+    );
+    expect(result).toEqual({ op: "updateContent" });
+
+    // Content updated in place; row id unchanged.
+    const row = getMessageById(reserved.id, conv.id);
+    expect(row).not.toBeNull();
+    expect(JSON.parse(row!.content)).toEqual([{ type: "text", text: "Hello" }]);
+
+    // Direct-call parity: a fresh reserve + direct updateMessageContent
+    // should land the same content shape.
+    const baselineReserved = await reserveMessage(conv.id, "assistant");
+    updateMessageContent(
+      baselineReserved.id,
+      JSON.stringify([{ type: "text", text: "Hello" }]),
+    );
+    const baselineRow = getMessageById(baselineReserved.id, conv.id);
+    expect(baselineRow?.content).toBe(row?.content);
+  });
+
   test("custom plugin: short-circuits every op onto a mock in-memory store", async () => {
     type Stored = {
       id: string;
@@ -248,6 +325,33 @@ describe("persistence pipeline", () => {
                 createdAt: 123,
               },
             };
+          }
+          case "reserve": {
+            const id = `mock-${nextId++}`;
+            mockStore.set(id, {
+              id,
+              conversationId: args.conversationId,
+              role: args.role,
+              content: "[]",
+              metadata: { ...(args.metadata ?? {}) },
+            });
+            return {
+              op: "reserve",
+              message: {
+                id,
+                conversationId: args.conversationId,
+                role: args.role,
+                content: "[]",
+                createdAt: 123,
+              },
+            };
+          }
+          case "updateContent": {
+            const existing = mockStore.get(args.messageId);
+            if (existing) {
+              existing.content = args.content;
+            }
+            return { op: "updateContent" };
           }
           case "update": {
             const existing = mockStore.get(args.messageId);
@@ -298,6 +402,40 @@ describe("persistence pipeline", () => {
     expect(addResult.message.id).toBe("mock-1");
     expect(mockStore.size).toBe(1);
 
+    const reserveResult = (await runPipeline<PersistArgs, PersistResult>(
+      "persistence",
+      getMiddlewaresFor("persistence"),
+      defaultPersistenceTerminal,
+      {
+        op: "reserve",
+        conversationId: conv.id,
+        role: "assistant",
+        metadata: { reservedFor: "mock-anchor" },
+      },
+      makeCtx({ conversationId: conv.id }),
+      DEFAULT_TIMEOUTS.persistence,
+    )) as PersistReserveResult;
+    expect(reserveResult.op).toBe("reserve");
+    expect(reserveResult.message.id).toBe("mock-2");
+    expect(reserveResult.message.content).toBe("[]");
+    expect(mockStore.get("mock-2")?.content).toBe("[]");
+
+    await runPipeline<PersistArgs, PersistResult>(
+      "persistence",
+      getMiddlewaresFor("persistence"),
+      defaultPersistenceTerminal,
+      {
+        op: "updateContent",
+        messageId: "mock-2",
+        content: '[{"type":"text","text":"finalized"}]',
+      },
+      makeCtx({ conversationId: conv.id }),
+      DEFAULT_TIMEOUTS.persistence,
+    );
+    expect(mockStore.get("mock-2")?.content).toBe(
+      '[{"type":"text","text":"finalized"}]',
+    );
+
     await runPipeline<PersistArgs, PersistResult>(
       "persistence",
       getMiddlewaresFor("persistence"),
@@ -326,7 +464,7 @@ describe("persistence pipeline", () => {
     expect(delResult.op).toBe("delete");
     expect(mockStore.has("mock-1")).toBe(false);
 
-    // The real DB must not have been touched by any of the three ops.
+    // The real DB must not have been touched by any of the ops.
     expect(getMessages(conv.id)).toHaveLength(dbRowsBefore);
   });
 

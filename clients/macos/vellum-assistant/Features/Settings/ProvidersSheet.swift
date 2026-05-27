@@ -61,15 +61,23 @@ struct ProvidersSheet: View {
     @State private var chatgptOAuthStoredState = ""
 
     /// True when the ChatGPT subscription OAuth section should be visible:
-    /// feature flag enabled, provider is "openai", and we're in create mode.
+    /// feature flag enabled, provider is "openai", and either we're in create
+    /// mode (new connection) or editing an existing oauth_subscription
+    /// connection (so the user can re-authenticate if needed).
     private var isChatgptSubscriptionVisible: Bool {
         guard let flagStore = assistantFeatureFlagStore,
               flagStore.isEnabled("chatgpt-subscription-auth"),
-              editorDraft.provider == "openai",
-              case .create = editorState else {
+              editorDraft.provider == "openai" else {
             return false
         }
-        return true
+        switch editorState {
+        case .create:
+            return true
+        case .edit, .managedEdit:
+            return editorDraft.authType == "oauth_subscription"
+        case .none:
+            return false
+        }
     }
 
     // MARK: - Nested Types
@@ -399,13 +407,13 @@ struct ProvidersSheet: View {
                             editorNoneNote
                         } else if editorDraft.authType == "oauth_subscription" {
                             editorOAuthSubscriptionNote
+                            if isChatgptSubscriptionVisible {
+                                chatgptSubscriptionSection
+                            }
                         }
                     }
                     .disabled(isAuthLocked)
                     editorStatusToggle
-                    if isChatgptSubscriptionVisible {
-                        chatgptSubscriptionSection
-                    }
                     if let actionError {
                         Text(actionError)
                             .font(VFont.bodySmallDefault)
@@ -584,6 +592,15 @@ struct ProvidersSheet: View {
         ]
         if store.isPlatformCapable(provider) {
             options.append((label: "Platform (managed by Vellum)", value: "platform"))
+        }
+        // Offer ChatGPT Subscription when the feature flag is on and
+        // the provider is OpenAI. In create mode this lets the user
+        // pick the OAuth flow; in edit mode the fallback below handles
+        // connections that already carry this auth type.
+        if provider == "openai",
+           let flagStore = assistantFeatureFlagStore,
+           flagStore.isEnabled("chatgpt-subscription-auth") {
+            options.append((label: "ChatGPT Subscription", value: "oauth_subscription"))
         }
         // Preserve the current auth type in edit mode so existing connections
         // display their saved value even if the type is no longer offered for
@@ -1281,6 +1298,18 @@ struct ProvidersSheet: View {
         // belongs here.
         guard !draft.provider.isEmpty else {
             actionError = "Select a provider."
+            return
+        }
+
+        // OAuth subscription connections are created by the OAuth sign-in
+        // flow (handleChatgptUrlSubmit), not the Create/Save button. Block
+        // commitEditor in create mode so a user who selects "ChatGPT
+        // Subscription" and clicks Create without completing the OAuth flow
+        // doesn't end up with a broken connection missing OAuth tokens.
+        // In edit mode the OAuth tokens are already set up, so allow saves
+        // for display name / status changes.
+        if draft.authType == "oauth_subscription" && editorState == .create {
+            actionError = "Use the \"Sign in with ChatGPT\" button to connect your subscription."
             return
         }
 

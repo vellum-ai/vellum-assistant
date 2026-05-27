@@ -22,6 +22,13 @@ import { publishConversationListChanged } from "../sync/resource-sync-events.js"
 import { BadRequestError, ForbiddenError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
+const groupSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  sortPosition: z.number(),
+  isSystemGroup: z.boolean(),
+});
+
 function serializeGroup(group: ReturnType<typeof getGroup>) {
   if (!group) return null;
   return {
@@ -41,14 +48,17 @@ function handleListGroups() {
   return { groups: groups.map(serializeGroup) };
 }
 
-function handleCreateGroup({ body = {} }: RouteHandlerArgs) {
+function handleCreateGroup({ body = {}, headers }: RouteHandlerArgs) {
   const name = body.name;
   if (!name || typeof name !== "string") {
     throw new BadRequestError("Missing or invalid name");
   }
   try {
     const group = createGroup(name);
-    publishConversationListChanged("created");
+    publishConversationListChanged(
+      "created",
+      headers?.["x-vellum-client-id"]?.trim() || undefined,
+    );
     return serializeGroup(group);
   } catch (err) {
     if (
@@ -63,7 +73,11 @@ function handleCreateGroup({ body = {} }: RouteHandlerArgs) {
   }
 }
 
-function handleUpdateGroup({ pathParams = {}, body = {} }: RouteHandlerArgs) {
+function handleUpdateGroup({
+  pathParams = {},
+  body = {},
+  headers,
+}: RouteHandlerArgs) {
   const groupId = pathParams.groupId;
   const existing = getGroup(groupId);
   if (!existing) {
@@ -92,11 +106,14 @@ function handleUpdateGroup({ pathParams = {}, body = {} }: RouteHandlerArgs) {
   if (!updated) {
     throw new NotFoundError("Group not found");
   }
-  publishConversationListChanged("reordered");
+  publishConversationListChanged(
+    "reordered",
+    headers?.["x-vellum-client-id"]?.trim() || undefined,
+  );
   return serializeGroup(updated);
 }
 
-function handleDeleteGroup({ pathParams = {} }: RouteHandlerArgs) {
+function handleDeleteGroup({ pathParams = {}, headers }: RouteHandlerArgs) {
   const groupId = pathParams.groupId;
   const existing = getGroup(groupId);
   if (!existing) {
@@ -106,10 +123,13 @@ function handleDeleteGroup({ pathParams = {} }: RouteHandlerArgs) {
     throw new ForbiddenError("System groups cannot be deleted");
   }
   deleteGroup(groupId);
-  publishConversationListChanged("reordered");
+  publishConversationListChanged(
+    "reordered",
+    headers?.["x-vellum-client-id"]?.trim() || undefined,
+  );
 }
 
-function handleReorderGroups({ body = {} }: RouteHandlerArgs) {
+function handleReorderGroups({ body = {}, headers }: RouteHandlerArgs) {
   const updates = body.updates as
     | Array<{ groupId: string; sortPosition: number }>
     | undefined;
@@ -135,7 +155,10 @@ function handleReorderGroups({ body = {} }: RouteHandlerArgs) {
     }
   }
   reorderGroups(updates);
-  publishConversationListChanged("reordered");
+  publishConversationListChanged(
+    "reordered",
+    headers?.["x-vellum-client-id"]?.trim() || undefined,
+  );
   return { ok: true };
 }
 
@@ -153,6 +176,7 @@ export const ROUTES: RouteDefinition[] = [
     summary: "List groups",
     description: "Return all conversation groups.",
     tags: ["groups"],
+    responseBody: z.object({ groups: z.array(groupSchema) }),
   },
   {
     operationId: "groups_create",
@@ -168,6 +192,7 @@ export const ROUTES: RouteDefinition[] = [
     requestBody: z.object({
       name: z.string().describe("Group name"),
     }),
+    responseBody: groupSchema,
     additionalResponses: {
       "400": {
         description:
@@ -188,6 +213,7 @@ export const ROUTES: RouteDefinition[] = [
       name: z.string().optional(),
       sortPosition: z.number().optional(),
     }),
+    responseBody: groupSchema,
     additionalResponses: {
       "403": {
         description: "System group sort position cannot be changed",
@@ -235,6 +261,7 @@ export const ROUTES: RouteDefinition[] = [
         )
         .describe("Array of { groupId, sortPosition } objects"),
     }),
+    responseBody: z.object({ ok: z.boolean() }),
     additionalResponses: {
       "403": {
         description: "Cannot reorder system groups",

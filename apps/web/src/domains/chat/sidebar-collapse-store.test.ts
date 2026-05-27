@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { useSidebarCollapseStore } from "@/domains/chat/sidebar-collapse-store.js";
+import { useSidebarCollapseStore } from "@/domains/chat/sidebar-collapse-store";
 
 function resetStore() {
   useSidebarCollapseStore.setState({

@@ -1,16 +1,15 @@
-import { newStableId } from "@/domains/chat/utils/stable-id.js";
 import {
   applyToolProgress,
   applyToolResult,
   upsertToolCall,
-} from "@/domains/chat/hooks/stream-message-updaters.js";
-import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types.js";
+} from "@/domains/chat/hooks/stream-message-updaters";
+import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 import type {
   ChatMessageToolCall,
   ToolProgressEvent,
   ToolResultEvent,
-  ToolUseStartEvent,
-} from "@/domains/chat/api/event-types.js";
+} from "@/domains/chat/api/event-types";
+import type { ToolUseStartEvent } from "@vellumai/assistant-api";
 
 export function handleToolUseStart(
   event: ToolUseStartEvent,
@@ -27,16 +26,16 @@ export function handleToolUseStart(
     status: "running",
     startedAt: Date.now(),
   };
-  const shouldCreateNewBubble = ctx.needsNewBubbleRef.current;
-  ctx.needsNewBubbleRef.current = false;
-  let stableId: string | undefined;
-  if (shouldCreateNewBubble) {
-    stableId = newStableId("assistant-tool");
-    ctx.currentAssistantStableIdRef.current = stableId;
-  }
-  ctx.setMessages((prev) =>
-    upsertToolCall(prev, newToolCall, shouldCreateNewBubble, stableId),
-  );
+  ctx.setMessages((prev) => {
+    const next = upsertToolCall(prev, newToolCall);
+    const tail = next[next.length - 1];
+    // Stamp the current-assistant ref to the streaming tail. See parallel
+    // logic in handleAssistantTextDelta.
+    if (tail?.role === "assistant" && tail.isStreaming) {
+      ctx.currentAssistantMessageIdRef.current = tail.id;
+    }
+    return next;
+  });
 }
 
 export function handleToolProgress(

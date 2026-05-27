@@ -19,7 +19,7 @@ import {
   formatAttachmentSize,
   middleTruncate,
   type AttachmentIconKind,
-} from "@/domains/chat/components/chat-attachments/utils.js";
+} from "@/domains/chat/components/chat-attachments/utils";
 
 interface MessageAttachmentSquareProps {
   filename: string;

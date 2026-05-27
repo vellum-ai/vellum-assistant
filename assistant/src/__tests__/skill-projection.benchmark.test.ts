@@ -23,7 +23,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 // Mock config loader and feature flags to avoid filesystem reads on CI.
-// getConfig returns a minimal config; all feature flags default to enabled.
+// The benchmark fixture treats every feature flag as enabled.
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({}),
   loadConfig: () => ({}),
@@ -102,23 +102,16 @@ mock.module("../tools/skills/skill-tool-factory.js", () => ({
     entries: Array<{ name: string; description: string; input_schema: object }>,
     skillId: string,
     _skillDir: string,
-    versionHash: string,
-    bundled?: boolean,
+    _versionHash: string,
+    _bundled?: boolean,
   ) =>
     entries.map((e) => ({
       name: e.name,
       description: e.description,
       category: "skill",
       defaultRiskLevel: "low",
-      origin: "skill" as const,
-      ownerSkillId: skillId,
-      ownerSkillVersionHash: versionHash,
-      ownerSkillBundled: bundled,
-      getDefinition: () => ({
-        name: e.name,
-        description: e.description,
-        input_schema: e.input_schema,
-      }),
+      owner: { kind: "skill" as const, id: skillId },
+      input_schema: e.input_schema,
       execute: async () => ({ content: "", isError: false }),
     })),
 }));
@@ -170,7 +163,8 @@ mock.module("../tools/registry.js", () => ({
   },
   unregisterSkillTools: (skillId: string) => {
     for (const [name, t] of benchmarkRegistry) {
-      if ((t as { ownerSkillId?: string }).ownerSkillId === skillId)
+      const owner = (t as { owner?: { kind: string; id: string } }).owner;
+      if (owner?.kind === "skill" && owner.id === skillId)
         benchmarkRegistry.delete(name);
     }
   },

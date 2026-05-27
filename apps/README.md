@@ -32,7 +32,13 @@ follow-up PRs.
 
 ## Planned moves
 
-The current Chrome extension at `clients/chrome-extension/` is the first
-candidate for relocation under this directory. That move is intentionally
-scoped to a separate follow-up PR so its impact on Chrome Web Store release
-workflows can be reviewed in isolation.
+- **Chrome extension** — `clients/chrome-extension/` will move to
+  `apps/chrome-extension/` (preserving its name) in a follow-up PR. Scoped
+  separately so its impact on Chrome Web Store release workflows can be
+  reviewed in isolation.
+- **macOS workflow filenames** — `apps/macos/` is the canonical platform-named
+  directory, but its CI workflow files are still named
+  `pr-electron.yaml` / `ci-main-electron.yaml` because
+  `.github/workflows/ci-main-macos.yaml` is taken by the legacy native Swift
+  app at `clients/macos/`. The workflow filenames will be renamed to
+  `-macos.yaml` once `clients/macos/` retires.

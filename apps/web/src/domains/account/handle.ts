@@ -12,17 +12,17 @@
 import {
   assistantsHandleAvailableRetrieve,
   assistantsPartialUpdate,
-} from "@/generated/api/sdk.gen.js";
-import type { Assistant } from "@/generated/api/types.gen.js";
+} from "@/generated/api/sdk.gen";
+import type { Assistant } from "@/generated/api/types.gen";
 import {
   ApiError,
   assertHasResponse,
   extractErrorMessage,
-} from "@/lib/api-errors.js";
+} from "@/lib/api-errors";
 import {
   USERNAME_ERROR_COPY,
   type UsernameErrorCode,
-} from "@/domains/account/profile.js";
+} from "@/domains/account/profile";
 
 // Mirror of ``apps/web/src/assistant/api.ts`` — when running under
 // `bun:test` there's no `window`, so point the SDK at localhost so it can

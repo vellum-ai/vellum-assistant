@@ -1,10 +1,10 @@
-import { client } from "@/generated/api/client.gen.js";
+import { client } from "@/generated/api/client.gen";
 
 import {
   ApiError,
   assertHasResponse,
   extractErrorMessage,
-} from "@/lib/api-errors.js";
+} from "@/lib/api-errors";
 
 // ---------------------------------------------------------------------------
 // Types

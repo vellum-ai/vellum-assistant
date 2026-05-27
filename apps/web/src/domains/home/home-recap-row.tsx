@@ -1,9 +1,47 @@
-import { RotateCcw, X } from "lucide-react";
+import { Mail, MailOpen, MessageSquare, RotateCcw, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import { cn } from "@vellum/design-library";
-import { CATEGORY_STYLES } from "./home-feed-filter-bar.js";
-import type { FeedItem, FeedItemCategory } from "./types.js";
+import { CATEGORY_STYLES } from "./home-feed-filter-bar";
+import type { FeedItem, FeedItemCategory, FeedItemStatus } from "./types";
+
+function HoverIconButton({
+  title,
+  onClick,
+  className,
+  children,
+}: {
+  title: string;
+  onClick: () => void;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <span
+      role="button"
+      tabIndex={0}
+      title={title}
+      aria-label={title}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.stopPropagation();
+          e.preventDefault();
+          onClick();
+        }
+      }}
+      className={cn(
+        "cursor-pointer text-[var(--content-disabled)] transition-colors hover:text-[var(--content-secondary)]",
+        className,
+      )}
+    >
+      {children}
+    </span>
+  );
+}
 
 function resolveStyle(category?: FeedItemCategory) {
   if (category && CATEGORY_STYLES[category]) {
@@ -16,15 +54,21 @@ export type HomeRecapRowTrailingAction = "dismiss" | "restore";
 
 export interface HomeRecapRowProps {
   item: FeedItem;
+  validConversationIds?: Set<string>;
   onSelect: (item: FeedItem) => void;
   onDismiss: (itemId: string) => void;
+  onToggleRead?: (itemId: string, newStatus: FeedItemStatus) => void;
+  onGoToThread?: (conversationId: string) => void;
   trailingAction?: HomeRecapRowTrailingAction;
 }
 
 export function HomeRecapRow({
   item,
+  validConversationIds,
   onSelect,
   onDismiss,
+  onToggleRead,
+  onGoToThread,
   trailingAction = "dismiss",
 }: HomeRecapRowProps) {
   const [isHovering, setIsHovering] = useState(false);
@@ -32,8 +76,6 @@ export function HomeRecapRow({
   const Icon = style.icon;
   const isUnread = item.status === "new";
   const isRestore = trailingAction === "restore";
-  const TrailingIcon = isRestore ? RotateCcw : X;
-  const trailingLabel = isRestore ? "Restore" : "Dismiss";
 
   return (
     <button
@@ -76,30 +118,45 @@ export function HomeRecapRow({
         {item.title ?? item.summary}
       </span>
 
-      {isHovering ? (
-        <span
-          role="button"
-          tabIndex={0}
-          aria-label={trailingLabel}
-          onClick={(e) => {
-            e.stopPropagation();
-            onDismiss(item.id);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.stopPropagation();
-              e.preventDefault();
-              onDismiss(item.id);
-            }
-          }}
-          className={cn(
-            "flex shrink-0 cursor-pointer items-center gap-[var(--app-spacing-xs)]",
-            "text-[var(--content-disabled)]",
+      {isHovering && !isRestore ? (
+        <span className="flex shrink-0 items-center gap-[var(--app-spacing-sm)]">
+          {onToggleRead && (
+            <HoverIconButton
+              title={isUnread ? "Mark as read" : "Mark as unread"}
+              onClick={() => onToggleRead(item.id, isUnread ? "seen" : "new")}
+            >
+              {isUnread ? <MailOpen width={14} height={14} /> : <Mail width={14} height={14} />}
+            </HoverIconButton>
           )}
-        >
-          <TrailingIcon width={7} height={7} aria-hidden="true" />
-          <span className="text-body-small-default">{trailingLabel}</span>
+          {onGoToThread && item.conversationId && (!validConversationIds || validConversationIds.has(item.conversationId)) && (
+            <HoverIconButton
+              title="Go to thread"
+              onClick={() => {
+                if (isUnread && onToggleRead) {
+                  onToggleRead(item.id, "seen");
+                }
+                onGoToThread(item.conversationId!);
+              }}
+            >
+              <MessageSquare width={14} height={14} />
+            </HoverIconButton>
+          )}
+          <HoverIconButton
+            title="Dismiss"
+            onClick={() => onDismiss(item.id)}
+          >
+            <Trash2 width={14} height={14} />
+          </HoverIconButton>
         </span>
+      ) : isHovering && isRestore ? (
+        <HoverIconButton
+          title="Restore"
+          onClick={() => onDismiss(item.id)}
+          className="flex shrink-0 items-center gap-[var(--app-spacing-xs)]"
+        >
+          <RotateCcw width={14} height={14} aria-hidden="true" />
+          <span className="text-body-small-default">Restore</span>
+        </HoverIconButton>
       ) : null}
     </button>
   );

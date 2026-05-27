@@ -24,7 +24,11 @@ import type { ChannelId, InterfaceId } from "../channels/types.js";
 import { parseChannelId, parseInterfaceId } from "../channels/types.js";
 import { CHANNEL_IDS, isChannelId } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
+import { findDisplayTurnEndIndex } from "../conversations/message-consolidation.js";
+import { conversationMetadataSyncTag } from "../daemon/message-types/sync.js";
 import type { TrustContext } from "../daemon/trust-context.js";
+import { clearAllConversationIds } from "../home/feed-writer.js";
+import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { UserError } from "../util/errors.js";
 import { safeParseRecord } from "../util/json.js";
 import { getLogger } from "../util/logger.js";
@@ -47,6 +51,7 @@ import {
 } from "./conversation-disk-view.js";
 import { ensureDisplayOrderMigration } from "./conversation-display-order-migration.js";
 import { ensureGroupMigration } from "./conversation-group-migration.js";
+import { runAsyncSqlite } from "./db-async-query.js";
 import { getDb, getSqliteFrom } from "./db-connection.js";
 import { forkGraphMemoryState } from "./graph/graph-memory-state-store.js";
 import { indexMessageNow } from "./indexer.js";
@@ -574,6 +579,20 @@ export function forkConversation(params: {
     throw new UserError(`Conversation ${conversationId} not found`);
   }
   const sourceMessages = getMessages(conversationId);
+  if (throughMessageId != null) {
+    // `getMessages` orders by `createdAt` only; when rows share an identical
+    // millisecond timestamp the tie order is unspecified. Callers that pin the
+    // fork to a cutoff choose it from a `(createdAt, id)` cursor (e.g. the
+    // memory-retrospective job, via `getMessagesAfter`), so slicing through
+    // `throughMessageId` under the unstable order could include same-timestamp
+    // siblings the cursor considers *after* the cutoff (reprocessed next run)
+    // or exclude ones it considers *before* it (skipped forever). Re-sort on
+    // `(createdAt, id)` so the slice agrees with the cutoff. The unpinned full
+    // fork copies every row regardless of order, so it keeps source order.
+    sourceMessages.sort(
+      (a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id),
+    );
+  }
 
   if (sourceMessages.length === 0) {
     throw new UserError(
@@ -581,16 +600,29 @@ export function forkConversation(params: {
     );
   }
 
-  const copyBoundaryIndex =
+  const initialBoundaryIndex =
     throughMessageId == null
       ? sourceMessages.length - 1
       : sourceMessages.findIndex((message) => message.id === throughMessageId);
 
-  if (throughMessageId != null && copyBoundaryIndex === -1) {
+  if (throughMessageId != null && initialBoundaryIndex === -1) {
     throw new UserError(
       `Message ${throughMessageId} does not belong to conversation ${conversationId}`,
     );
   }
+
+  // Extend the boundary to cover the full display turn the client
+  // addressed. The read-path collapses each assistant turn across
+  // multiple DB rows — consecutive assistant rows AND tool-result-only
+  // user rows between them — so "fork through message X" semantically
+  // means "fork through the entire display turn containing X" no matter
+  // which DB row in the cluster the client supplied. Single source of
+  // truth is `findDisplayTurnEndIndex`, shared with the read path so
+  // both stay in sync.
+  const copyBoundaryIndex = findDisplayTurnEndIndex(
+    sourceMessages,
+    initialBoundaryIndex,
+  );
 
   const visibleWindowStartIndex = Math.max(
     0,
@@ -1075,11 +1107,16 @@ export async function addMessage(
 
   if (role === "assistant") {
     try {
-      projectAssistantMessage({
+      const attentionStateChanged = projectAssistantMessage({
         conversationId,
         messageId: message.id,
         messageAt: message.createdAt,
       });
+      if (attentionStateChanged) {
+        void publishSyncInvalidation([
+          conversationMetadataSyncTag(conversationId),
+        ]);
+      }
     } catch (err) {
       log.warn(
         { err, conversationId, messageId: message.id },
@@ -1273,10 +1310,29 @@ export function hasMessages(conversationId: string): boolean {
 interface PaginatedMessagesResult {
   messages: MessageRow[];
   hasMore: boolean;
+  /**
+   * Position of the last row scanned when the loop stops on
+   * `PAGINATION_SCAN_CAP` rather than DB exhaustion. Callers derive their
+   * client cursor from the visible page's oldest row, but a cap-truncated
+   * page can be empty (a contiguous block of filtered-out rows longer than
+   * the cap), leaving nothing to resume from. Surfacing the last scanned
+   * `(createdAt, id)` lets the caller hand the client a cursor so it can
+   * request the next window and keep draining instead of stalling.
+   */
+  nextCursor?: { createdAt: number; id: string };
 }
 
 const PAGINATION_CHUNK_MIN = 50;
 const PAGINATION_SCAN_CAP = 10_000;
+
+// Test-only override for PAGINATION_SCAN_CAP so tests can exercise the
+// cap-truncation branch with a small cap instead of seeding >10k rows (which
+// makes the suite slow and the post-test DELETE flaky under parallel CI load).
+// `undefined` restores the production cap.
+let paginationScanCapOverride: number | undefined;
+export function _setPaginationScanCapForTesting(cap: number | undefined): void {
+  paginationScanCapOverride = cap;
+}
 
 export function getMessagesPaginated(
   conversationId: string,
@@ -1318,8 +1374,19 @@ export function getMessagesPaginated(
   // row — otherwise a pathological filter against a huge conversation would
   // tie up a connection for thousands of roundtrips.
   let rowsScanned = 0;
+  // Distinguish "stopped because we hit the scan cap" from "stopped because the
+  // DB ran out of rows". On a cap-truncated stop there may be more visible rows
+  // past the scanned window, so `hasMore` must stay true and we record the last
+  // scanned position as a resume cursor (the visible page may be empty).
+  let scanCapTruncated = false;
+  let lastScanned: { createdAt: number; id: string } | undefined;
+  const scanCap = paginationScanCapOverride ?? PAGINATION_SCAN_CAP;
 
-  while (visible.length < limit + 1 && rowsScanned < PAGINATION_SCAN_CAP) {
+  while (visible.length < limit + 1) {
+    if (rowsScanned >= scanCap) {
+      scanCapTruncated = true;
+      break;
+    }
     const cursorPredicate =
       cursorCreatedAt === undefined
         ? undefined
@@ -1352,15 +1419,25 @@ export function getMessagesPaginated(
 
     if (chunk.length < chunkSize) break;
     const lastRow = chunk[chunk.length - 1];
+    lastScanned = { createdAt: lastRow.createdAt, id: lastRow.id };
     cursorCreatedAt = lastRow.createdAt;
     cursorMessageId = lastRow.id;
   }
 
-  const hasMore = visible.length > limit;
-  if (hasMore) visible.splice(limit);
+  const filledPage = visible.length > limit;
+  // A cap-truncated stop means the DB may still hold older visible rows past
+  // the scanned window, so report `hasMore: true` to keep the client draining
+  // — returning `false` here is the stall this loop exists to prevent.
+  const hasMore = filledPage || scanCapTruncated;
+  if (filledPage) visible.splice(limit);
   visible.reverse();
 
-  return { messages: visible, hasMore };
+  // Only hand back a resume cursor when the cap (not DB exhaustion) cut the
+  // search short; callers fall back to it when the visible page came back
+  // empty and has no oldest row to anchor the next request.
+  const nextCursor = scanCapTruncated ? lastScanned : undefined;
+
+  return { messages: visible, hasMore, nextCursor };
 }
 
 export function getLastUserTimestampBefore(
@@ -1706,12 +1783,34 @@ export function setLastNotifiedInferenceProfile(
  * Delete all conversations, messages, and related data (tool invocations,
  * memory segments, etc.) from the daemon database.
  * Returns { conversations, messages } counts.
+ *
+ * Each bulk DELETE is dispatched through {@link runAsyncSqlite}: when
+ * the host has a `sqlite3` CLI it executes in a subprocess and the
+ * daemon's main event loop stays responsive while large tables
+ * (`llm_request_logs`, `tool_invocations`, etc.) are wiped. On hosts
+ * without the CLI the abstraction falls back to in-process blocking
+ * execution — the same behaviour the daemon had before.
  */
-export function clearAll(): { conversations: number; messages: number } {
+export async function clearAll(): Promise<{
+  conversations: number;
+  messages: number;
+}> {
   const msgCount =
     rawGet<{ c: number }>("SELECT COUNT(*) AS c FROM messages")?.c ?? 0;
   const convCount =
     rawGet<{ c: number }>("SELECT COUNT(*) AS c FROM conversations")?.c ?? 0;
+
+  // Each DELETE goes through `runAsyncSqlite`. The original code threw
+  // on rawExec failure; mirror that here by throwing when the async
+  // result reports `ok: false`, so the route handler still returns 500.
+  const runOrThrow = async (sql: string): Promise<void> => {
+    const result = await runAsyncSqlite(sql);
+    if (!result.ok) {
+      throw new Error(
+        `clearAll: \`${sql}\` failed (${result.backend}): ${result.error ?? "unknown"}`,
+      );
+    }
+  };
 
   // Delete in dependency order. Cascades handle memory_segments and
   // tool_invocations, but we explicitly clear non-cascading memory
@@ -1722,22 +1821,21 @@ export function clearAll(): { conversations: number; messages: number } {
   // triggers so that the subsequent base-table DELETEs don't also fail
   // (SQLite triggers are atomic with the triggering statement, so a
   // corrupted FTS table would roll back every base-table DELETE).
-  rawExec("DELETE FROM memory_segments");
-  rawExec("DELETE FROM memory_summaries");
-  rawExec("DELETE FROM memory_embeddings");
-  rawExec("DELETE FROM memory_jobs");
-  rawExec("DELETE FROM memory_checkpoints");
-  rawExec("DELETE FROM llm_request_logs");
-  rawExec("DELETE FROM llm_usage_events");
-  rawExec("DELETE FROM message_attachments");
-  rawExec("DELETE FROM attachments");
-  rawExec("DELETE FROM tool_invocations");
+  await runOrThrow("DELETE FROM memory_segments");
+  await runOrThrow("DELETE FROM memory_summaries");
+  await runOrThrow("DELETE FROM memory_embeddings");
+  await runOrThrow("DELETE FROM memory_jobs");
+  await runOrThrow("DELETE FROM memory_checkpoints");
+  await runOrThrow("DELETE FROM llm_request_logs");
+  await runOrThrow("DELETE FROM llm_usage_events");
+  await runOrThrow("DELETE FROM message_attachments");
+  await runOrThrow("DELETE FROM attachments");
+  await runOrThrow("DELETE FROM tool_invocations");
   let messagesFtsCorrupted = false;
-  try {
-    rawExec("DELETE FROM messages_fts");
-  } catch (err) {
+  const ftsResult = await runAsyncSqlite("DELETE FROM messages_fts");
+  if (!ftsResult.ok) {
     log.warn(
-      { err },
+      { error: ftsResult.error, backend: ftsResult.backend },
       "clearAll: failed to clear messages_fts — dropping triggers so base-table cleanup can proceed",
     );
     rawExec("DROP TRIGGER IF EXISTS messages_fts_ai");
@@ -1745,8 +1843,8 @@ export function clearAll(): { conversations: number; messages: number } {
     rawExec("DROP TRIGGER IF EXISTS messages_fts_au");
     messagesFtsCorrupted = true;
   }
-  rawExec("DELETE FROM messages");
-  rawExec("DELETE FROM conversations");
+  await runOrThrow("DELETE FROM messages");
+  await runOrThrow("DELETE FROM conversations");
 
   // Record audit event — lifecycle_events is NOT deleted by clearAll(),
   // so this survives the wipe and provides a permanent trail.
@@ -1784,6 +1882,8 @@ export function clearAll(): { conversations: number; messages: number } {
   } catch (err) {
     log.warn({ err }, "clearAll: failed to reset conversations directory");
   }
+
+  void clearAllConversationIds();
 
   return { conversations: convCount, messages: msgCount };
 }
@@ -1875,6 +1975,104 @@ interface DeletedMemoryIds {
 
 interface WipeConversationResult extends DeletedMemoryIds {
   cancelledJobCount: number;
+}
+
+/**
+ * Reserve an empty message row at a known id, so the agent loop can stamp
+ * outbound streaming events with a stable identity before any content is
+ * produced. The returned row has `content: "[]"` and no metadata-side
+ * effects beyond `addMessage`'s usual conversation-row bump.
+ *
+ * Intentionally skips both Qdrant indexing and attention projection — an
+ * empty placeholder is not meaningful for either. The caller will later
+ * write final content via {@link updateMessageContent} (and is responsible
+ * for triggering any indexing/projection at that point if it cares).
+ *
+ * Mirrors {@link addMessage}'s SQLITE_BUSY/SQLITE_IOERR retry shape so the
+ * primitives behave consistently under WAL contention.
+ */
+export async function reserveMessage(
+  conversationId: string,
+  role: string,
+  metadata?: Record<string, unknown>,
+) {
+  const db = getDb();
+  const messageId = uuid();
+
+  if (metadata) {
+    const result = messageMetadataSchema.safeParse(metadata);
+    if (!result.success) {
+      log.warn(
+        { conversationId, messageId, issues: result.error.issues },
+        "Invalid message metadata, storing as-is",
+      );
+    }
+  }
+
+  const metadataStr = metadata ? JSON.stringify(metadata) : undefined;
+  const originChannelCandidate =
+    metadata && isChannelId(metadata.userMessageChannel)
+      ? metadata.userMessageChannel
+      : null;
+
+  const MAX_RETRIES = 3;
+  let now!: number;
+  for (let attempt = 0; ; attempt++) {
+    now = monotonicNow();
+    try {
+      const values = {
+        id: messageId,
+        conversationId,
+        role,
+        content: "[]",
+        createdAt: now,
+        ...(metadataStr ? { metadata: metadataStr } : {}),
+      };
+      db.transaction((tx) => {
+        tx.insert(messages).values(values).run();
+        if (originChannelCandidate) {
+          tx.update(conversations)
+            .set({ originChannel: originChannelCandidate })
+            .where(
+              and(
+                eq(conversations.id, conversationId),
+                isNull(conversations.originChannel),
+              ),
+            )
+            .run();
+        }
+        tx.update(conversations)
+          .set({ updatedAt: now, lastMessageAt: now })
+          .where(eq(conversations.id, conversationId))
+          .run();
+      });
+      break;
+    } catch (err) {
+      const errCode = (err as { code?: string }).code ?? "";
+      if (
+        attempt < MAX_RETRIES &&
+        (errCode.startsWith("SQLITE_BUSY") ||
+          errCode.startsWith("SQLITE_IOERR"))
+      ) {
+        log.warn(
+          { attempt, conversationId, code: errCode },
+          "reserveMessage: transient SQLite error, retrying",
+        );
+        await Bun.sleep(50 * (attempt + 1));
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  return {
+    id: messageId,
+    conversationId,
+    role,
+    content: "[]",
+    createdAt: now,
+    ...(metadataStr ? { metadata: metadataStr } : {}),
+  };
 }
 
 /**
@@ -2150,7 +2348,7 @@ export function batchSetDisplayOrders(
   updates: Array<{
     id: string;
     displayOrder: number | null;
-    isPinned: boolean;
+    isPinned?: boolean;
     groupId?: string | null;
   }>,
 ): void {
@@ -2183,35 +2381,36 @@ export function batchSetDisplayOrders(
           safeGroupId,
           update.id,
         );
+      } else if (update.isPinned === undefined) {
+        // Only displayOrder provided — preserve existing pin state and group.
+        rawRun(
+          "UPDATE conversations SET display_order = ? WHERE id = ?",
+          update.displayOrder,
+          update.id,
+        );
+      } else if (update.isPinned) {
+        rawRun(
+          "UPDATE conversations SET display_order = ?, is_pinned = 1, group_id = 'system:pinned' WHERE id = ?",
+          update.displayOrder,
+          update.id,
+        );
       } else {
-        // Old client: no groupId in payload
-        // isPinned true -> set group_id = system:pinned
-        // isPinned false -> clear group_id ONLY IF currently system:pinned
-        //                   otherwise preserve existing group_id
-        if (update.isPinned) {
-          rawRun(
-            "UPDATE conversations SET display_order = ?, is_pinned = 1, group_id = 'system:pinned' WHERE id = ?",
-            update.displayOrder,
-            update.id,
-          );
-        } else {
-          // Restore system group from source/conversationType when old clients
-          // unpin, instead of clearing to NULL (which would lose provenance).
-          rawRun(
-            `UPDATE conversations SET display_order = ?, is_pinned = 0,
-             group_id = CASE WHEN group_id = 'system:pinned' THEN
-               CASE
-                 WHEN source IN ('schedule', 'reminder') THEN 'system:scheduled'
-                 WHEN source IN ('heartbeat', 'task') THEN 'system:background'
-                 WHEN conversation_type = 'background' AND COALESCE(source, '') != 'notification' THEN 'system:background'
-                 ELSE 'system:all'
-               END
-             ELSE group_id END
-             WHERE id = ?`,
-            update.displayOrder,
-            update.id,
-          );
-        }
+        // Restore system group from source/conversationType when unpinning,
+        // instead of clearing to NULL (which would lose provenance).
+        rawRun(
+          `UPDATE conversations SET display_order = ?, is_pinned = 0,
+           group_id = CASE WHEN group_id = 'system:pinned' THEN
+             CASE
+               WHEN source IN ('schedule', 'reminder') THEN 'system:scheduled'
+               WHEN source IN ('heartbeat', 'task') THEN 'system:background'
+               WHEN conversation_type = 'background' AND COALESCE(source, '') != 'notification' THEN 'system:background'
+               ELSE 'system:all'
+             END
+           ELSE group_id END
+           WHERE id = ?`,
+          update.displayOrder,
+          update.id,
+        );
       }
     }
     rawExec("COMMIT");

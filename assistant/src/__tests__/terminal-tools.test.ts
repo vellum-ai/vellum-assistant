@@ -288,7 +288,7 @@ describe("Shell tool input validation", () => {
   });
 
   test("tool definition includes required schema fields", () => {
-    const def = shellTool.getDefinition();
+    const def = shellTool;
     const schema = def.input_schema as {
       required: string[];
       properties: Record<string, unknown>;

@@ -28,6 +28,7 @@ import {
   undoLastMessage,
 } from "../../daemon/handlers/conversations.js";
 import { normalizeConversationType } from "../../daemon/message-types/shared.js";
+import { stripConversationIds } from "../../home/feed-writer.js";
 import {
   archiveConversation,
   batchSetDisplayOrders,
@@ -54,6 +55,7 @@ import {
   publishConversationListChanged,
   publishConversationTitleChanged,
 } from "../sync/resource-sync-events.js";
+import { conversationSummarySchema } from "./conversation-list-routes.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import { setInferenceProfileSession } from "./inference-profile-session-handler.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -84,7 +86,7 @@ function cancelScheduleIfLast(conversationId: string): void {
 // Handlers
 // ---------------------------------------------------------------------------
 
-function handleCreateConversation({ body = {} }: RouteHandlerArgs) {
+function handleCreateConversation({ body = {}, headers }: RouteHandlerArgs) {
   const conversationKey =
     (body.conversationKey as string | undefined) ?? crypto.randomUUID();
   const result = getOrCreateConversation(conversationKey, {
@@ -92,7 +94,11 @@ function handleCreateConversation({ body = {} }: RouteHandlerArgs) {
   });
   if (result.created) {
     updateConversationTitle(result.conversationId, "New Conversation");
-    publishConversationListAndMetadataChanged("created", result.conversationId);
+    publishConversationListAndMetadataChanged(
+      "created",
+      result.conversationId,
+      headers?.["x-vellum-client-id"]?.trim() || undefined,
+    );
   }
   log.info(
     {
@@ -110,7 +116,10 @@ function handleCreateConversation({ body = {} }: RouteHandlerArgs) {
   };
 }
 
-async function handleForkConversation({ body = {} }: RouteHandlerArgs) {
+async function handleForkConversation({
+  body = {},
+  headers,
+}: RouteHandlerArgs) {
   const conversationId = body.conversationId as string | undefined;
   if (!conversationId || typeof conversationId !== "string") {
     throw new BadRequestError("Missing conversationId");
@@ -136,7 +145,11 @@ async function handleForkConversation({ body = {} }: RouteHandlerArgs) {
         `Forked conversation ${forkedConversation.id} could not be loaded`,
       );
     }
-    publishConversationListAndMetadataChanged("created", forkedConversation.id);
+    publishConversationListAndMetadataChanged(
+      "created",
+      forkedConversation.id,
+      headers?.["x-vellum-client-id"]?.trim() || undefined,
+    );
     return { conversation: detail.conversation };
   } catch (err) {
     if (err instanceof UserError) {
@@ -171,6 +184,7 @@ async function handleSwitchConversation({ body = {} }: RouteHandlerArgs) {
 async function handleSetInferenceProfile({
   pathParams = {},
   body = {},
+  headers,
 }: RouteHandlerArgs) {
   if (
     body.profile !== null &&
@@ -184,6 +198,7 @@ async function handleSetInferenceProfile({
     profile: body.profile as string | null,
     ttlSeconds: body.ttlSeconds as number | null | undefined,
     sessionId: body.sessionId as string | undefined,
+    originClientId: headers?.["x-vellum-client-id"]?.trim() || undefined,
   });
 
   return result;
@@ -192,6 +207,7 @@ async function handleSetInferenceProfile({
 function handleRenameConversation({
   pathParams = {},
   body = {},
+  headers,
 }: RouteHandlerArgs) {
   const name = body.name as string | undefined;
   if (!name || typeof name !== "string") {
@@ -203,12 +219,16 @@ function handleRenameConversation({
   }
   updateConversationTitle(pathParams.id!, name, 0);
 
-  publishConversationTitleChanged(pathParams.id!, name);
+  publishConversationTitleChanged(
+    pathParams.id!,
+    name,
+    headers?.["x-vellum-client-id"]?.trim() || undefined,
+  );
 
   return { ok: true };
 }
 
-function handleClearAllConversations({ headers = {} }: RouteHandlerArgs) {
+async function handleClearAllConversations({ headers = {} }: RouteHandlerArgs) {
   const confirm = headers["x-confirm-destructive"];
   if (confirm !== "clear-all-conversations") {
     throw new BadRequestError(
@@ -216,12 +236,18 @@ function handleClearAllConversations({ headers = {} }: RouteHandlerArgs) {
         "To confirm, set header X-Confirm-Destructive: clear-all-conversations",
     );
   }
-  clearAllConversations();
-  publishConversationListChanged("deleted");
+  await clearAllConversations();
+  publishConversationListChanged(
+    "deleted",
+    headers["x-vellum-client-id"]?.trim() || undefined,
+  );
   return undefined;
 }
 
-function handleWipeConversation({ pathParams = {} }: RouteHandlerArgs) {
+function handleWipeConversation({
+  pathParams = {},
+  headers,
+}: RouteHandlerArgs) {
   const resolvedId = resolveOrThrow(pathParams.id!);
 
   cancelScheduleIfLast(resolvedId);
@@ -248,7 +274,14 @@ function handleWipeConversation({ pathParams = {} }: RouteHandlerArgs) {
     },
     "Wiped conversation and reverted memory changes",
   );
-  publishConversationListAndMetadataChanged("deleted", resolvedId);
+  publishConversationListAndMetadataChanged(
+    "deleted",
+    resolvedId,
+    headers?.["x-vellum-client-id"]?.trim() || undefined,
+  );
+
+  void stripConversationIds(resolvedId);
+
   return {
     wiped: true,
     unsupersededItems: 0,
@@ -257,7 +290,10 @@ function handleWipeConversation({ pathParams = {} }: RouteHandlerArgs) {
   };
 }
 
-function handleDeleteConversation({ pathParams = {} }: RouteHandlerArgs) {
+function handleDeleteConversation({
+  pathParams = {},
+  headers,
+}: RouteHandlerArgs) {
   const resolvedId = resolveOrThrow(pathParams.id!);
 
   cancelScheduleIfLast(resolvedId);
@@ -278,28 +314,48 @@ function handleDeleteConversation({ pathParams = {} }: RouteHandlerArgs) {
   }
   log.info({ conversationId: resolvedId }, "Deleted conversation");
 
-  publishConversationListAndMetadataChanged("deleted", resolvedId);
+  publishConversationListAndMetadataChanged(
+    "deleted",
+    resolvedId,
+    headers?.["x-vellum-client-id"]?.trim() || undefined,
+  );
+
+  void stripConversationIds(resolvedId);
 
   return undefined;
 }
 
-function handleArchiveConversation({ pathParams = {} }: RouteHandlerArgs) {
+function handleArchiveConversation({
+  pathParams = {},
+  headers,
+}: RouteHandlerArgs) {
   const resolvedId = resolveOrThrow(pathParams.id!);
   const archived = archiveConversation(resolvedId);
   if (!archived) {
     throw new NotFoundError(`Conversation ${pathParams.id} not found`);
   }
-  publishConversationListAndMetadataChanged("reordered", resolvedId);
+  publishConversationListAndMetadataChanged(
+    "reordered",
+    resolvedId,
+    headers?.["x-vellum-client-id"]?.trim() || undefined,
+  );
   return { ok: true, conversationId: resolvedId };
 }
 
-function handleUnarchiveConversation({ pathParams = {} }: RouteHandlerArgs) {
+function handleUnarchiveConversation({
+  pathParams = {},
+  headers,
+}: RouteHandlerArgs) {
   const resolvedId = resolveOrThrow(pathParams.id!);
   const unarchived = unarchiveConversation(resolvedId);
   if (!unarchived) {
     throw new NotFoundError(`Conversation ${pathParams.id} not found`);
   }
-  publishConversationListAndMetadataChanged("reordered", resolvedId);
+  publishConversationListAndMetadataChanged(
+    "reordered",
+    resolvedId,
+    headers?.["x-vellum-client-id"]?.trim() || undefined,
+  );
   return { ok: true, conversationId: resolvedId };
 }
 
@@ -339,7 +395,7 @@ async function handleRegenerateResponse({ pathParams = {} }: RouteHandlerArgs) {
   }
 }
 
-function handleReorderConversations({ body = {} }: RouteHandlerArgs) {
+function handleReorderConversations({ body = {}, headers }: RouteHandlerArgs) {
   const updates = body.updates as
     | Array<{
         conversationId: string;
@@ -355,13 +411,14 @@ function handleReorderConversations({ body = {} }: RouteHandlerArgs) {
     updates.map((u) => ({
       id: u.conversationId,
       displayOrder: u.displayOrder ?? null,
-      isPinned: u.isPinned ?? false,
+      isPinned: u.isPinned,
       groupId: u.groupId,
     })),
   );
   publishConversationListAndMetadataChanged(
     "reordered",
     updates.map((u) => u.conversationId),
+    headers?.["x-vellum-client-id"]?.trim() || undefined,
   );
   return { ok: true };
 }
@@ -382,15 +439,24 @@ export const ROUTES: RouteDefinition[] = [
     requestBody: z.object({
       conversationKey: z
         .string()
-        .describe("Idempotency key for the conversation"),
+        .optional()
+        .describe(
+          "Optional external key. Echoed back in the response. Non-vellum channels (Telegram, WhatsApp) use this to scope to a logical channel thread; vellum-web clients can omit it and rely on the assistant-minted `id`.",
+        ),
       conversationType: z
         .literal("standard")
         .optional()
         .describe("Only standard conversations are created by this endpoint"),
     }),
     responseBody: z.object({
-      id: z.string(),
-      conversationKey: z.string(),
+      id: z
+        .string()
+        .describe(
+          "Assistant-minted internal conversation id. The authoritative identifier for the conversation.",
+        ),
+      conversationKey: z
+        .string()
+        .describe("Echo of the optional external key supplied by the client."),
       conversationType: z.string(),
       created: z.boolean(),
     }),
@@ -411,6 +477,9 @@ export const ROUTES: RouteDefinition[] = [
         .string()
         .describe("Truncate the fork at this message")
         .optional(),
+    }),
+    responseBody: z.object({
+      conversation: conversationSummarySchema,
     }),
     handler: handleForkConversation,
   },
@@ -481,6 +550,7 @@ export const ROUTES: RouteDefinition[] = [
     requestBody: z.object({
       name: z.string(),
     }),
+    responseBody: z.object({ ok: z.boolean() }),
     handler: handleRenameConversation,
   },
   {
@@ -533,6 +603,10 @@ export const ROUTES: RouteDefinition[] = [
     description: "Move a conversation to the archived state.",
     tags: ["conversations"],
     pathParams: [{ name: "id", type: "uuid" }],
+    responseBody: z.object({
+      ok: z.boolean(),
+      conversationId: z.string(),
+    }),
     handler: handleArchiveConversation,
   },
   {
@@ -545,6 +619,10 @@ export const ROUTES: RouteDefinition[] = [
       "Restore an archived conversation back to the default sidebar.",
     tags: ["conversations"],
     pathParams: [{ name: "id", type: "uuid" }],
+    responseBody: z.object({
+      ok: z.boolean(),
+      conversationId: z.string(),
+    }),
     handler: handleUnarchiveConversation,
   },
   {
@@ -602,12 +680,16 @@ export const ROUTES: RouteDefinition[] = [
     description: "Batch-update display order and pin state for conversations.",
     tags: ["conversations"],
     requestBody: z.object({
-      updates: z
-        .array(z.unknown())
-        .describe(
-          "Array of { conversationId, displayOrder?, isPinned? } objects",
-        ),
+      updates: z.array(
+        z.object({
+          conversationId: z.string(),
+          displayOrder: z.number().optional(),
+          isPinned: z.boolean().optional(),
+          groupId: z.string().nullable().optional(),
+        }),
+      ),
     }),
+    responseBody: z.object({ ok: z.boolean() }),
     handler: handleReorderConversations,
   },
 ];

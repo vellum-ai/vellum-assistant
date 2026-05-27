@@ -8,14 +8,15 @@ import {
   projectAssistantMessage,
   recordConversationSeenSignal,
 } from "../memory/conversation-attention-store.js";
-import { createConversation } from "../memory/conversation-crud.js";
-import { getDb, resetDb } from "../memory/db-connection.js";
+import { addMessage, createConversation } from "../memory/conversation-crud.js";
+import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import type { AssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { ROUTES as CONVERSATION_LIST_ROUTES } from "../runtime/routes/conversation-list-routes.js";
 import { ROUTES as CONVERSATION_MANAGEMENT_ROUTES } from "../runtime/routes/conversation-management-routes.js";
 import type { RouteDefinition } from "../runtime/routes/types.js";
+import { resetDbForTesting } from "./db-test-helpers.js";
 import { waitFor } from "./helpers/wait-for.js";
 
 initializeDb();
@@ -70,10 +71,19 @@ describe("conversation sync tags", () => {
   });
 
   afterAll(() => {
-    resetDb();
+    resetDbForTesting();
   });
 
-  test("rename emits legacy title/list events and conversation metadata sync tags", async () => {
+  test("rename emits the typed title event and a metadata-only sync tag (no list umbrella)", async () => {
+    // Rename is a content-only change: the row stays in place, the list
+    // shape is unchanged, only the title field flips. Web patches the
+    // single cached row via the typed `conversation_title_updated` event
+    // (`patchConversation` in `metadata-handlers.ts`) and the per-
+    // conversation `sync_changed` metadata tag is included as a belt-and-
+    // suspenders signal for sibling-tab consumers that missed the typed
+    // event. The legacy `conversation_list_invalidated` broadcast is
+    // scoped to `targetInterfaceId: "macos"` and therefore not visible to
+    // this process-type subscriber.
     const conversation = createConversation("Old title");
     const route = findRoute(
       CONVERSATION_MANAGEMENT_ROUTES,
@@ -85,23 +95,39 @@ describe("conversation sync tags", () => {
         pathParams: { id: conversation.id },
         body: { name: "New title" },
       });
-    }, 3);
+    }, 2);
 
     expect(received.map((event) => event.message.type)).toEqual([
       "conversation_title_updated",
-      "conversation_list_invalidated",
       "sync_changed",
     ]);
-    expect(received[2]!.message).toEqual({
+    expect(received[1]!.message).toEqual({
       type: "sync_changed",
-      tags: [
-        SYNC_TAGS.conversationsList,
-        conversationMetadataSyncTag(conversation.id),
-      ],
+      tags: [conversationMetadataSyncTag(conversation.id)],
     });
+    // Defense-in-depth: the umbrella `conversationsList` tag would force
+    // web to redrain the full paginated list — we deliberately omit it
+    // for content-only reasons.
+    expect((received[1]!.message as { tags: string[] }).tags).not.toContain(
+      SYNC_TAGS.conversationsList,
+    );
+    // The legacy invalidation broadcast is macOS-scoped and must not
+    // reach this process-type subscriber.
+    expect(
+      received.some(
+        (event) => event.message.type === "conversation_list_invalidated",
+      ),
+    ).toBe(false);
   });
 
-  test("create emits legacy list invalidation and list/metadata sync tags", async () => {
+  test("create emits a sync_changed with the conversationsList umbrella tag", async () => {
+    // Create is shape-changing — a row is added to the paginated list,
+    // so web must redrain the list (cannot patch a row it has never
+    // fetched). The umbrella `conversationsList` tag is the signal for
+    // that redrain. Per-conversation metadata is included so any future
+    // single-row consumer can patch the freshly added row in place
+    // without an extra GET. The legacy macOS-only invalidation broadcast
+    // is not visible to process subscribers.
     const route = findRoute(
       CONVERSATION_MANAGEMENT_ROUTES,
       "createConversation",
@@ -113,23 +139,33 @@ describe("conversation sync tags", () => {
         body: { conversationKey: "sync-create-test" },
       })) as { id: string };
       conversationId = result.id;
-    }, 2);
+    }, 1);
 
     expect(conversationId).toBeDefined();
     expect(received.map((event) => event.message.type)).toEqual([
-      "conversation_list_invalidated",
       "sync_changed",
     ]);
-    expect(received[1]!.message).toEqual({
+    expect(received[0]!.message).toEqual({
       type: "sync_changed",
       tags: [
         SYNC_TAGS.conversationsList,
         conversationMetadataSyncTag(conversationId!),
       ],
     });
+    expect(
+      received.some(
+        (event) => event.message.type === "conversation_list_invalidated",
+      ),
+    ).toBe(false);
   });
 
-  test("reorder emits list invalidation and metadata sync tags for touched conversations", async () => {
+  test("reorder emits a sync_changed with the umbrella tag and per-conversation metadata tags", async () => {
+    // Reorder changes the row position in the paginated list — also
+    // shape-changing. The umbrella `conversationsList` tag forces a
+    // redrain so the new ordering shows. Per-conversation metadata tags
+    // are bundled in to give any single-row consumer a hint that the
+    // touched conversations' positions have moved (currently web
+    // consumes only the umbrella tag; metadata tags are forward-compat).
     const first = createConversation("First");
     const second = createConversation("Second");
     const route = findRoute(
@@ -146,13 +182,12 @@ describe("conversation sync tags", () => {
           ],
         },
       });
-    }, 2);
+    }, 1);
 
     expect(received.map((event) => event.message.type)).toEqual([
-      "conversation_list_invalidated",
       "sync_changed",
     ]);
-    expect(received[1]!.message).toEqual({
+    expect(received[0]!.message).toEqual({
       type: "sync_changed",
       tags: [
         SYNC_TAGS.conversationsList,
@@ -160,9 +195,28 @@ describe("conversation sync tags", () => {
         conversationMetadataSyncTag(second.id),
       ],
     });
+    expect(
+      received.some(
+        (event) => event.message.type === "conversation_list_invalidated",
+      ),
+    ).toBe(false);
   });
 
-  test("record seen emits list invalidation and metadata sync tags for the touched conversation", async () => {
+  test("record seen emits only a per-conversation metadata sync tag (no list umbrella)", async () => {
+    // Seen state is per-conversation attention metadata, not list-
+    // shaped. The old behavior emitted `sync_changed` carrying the
+    // umbrella `conversationsList` tag, which forced every subscribed
+    // web client to redrain the full paginated sidebar on every
+    // conversation switch that landed on an unseen conversation (~14
+    // requests at ~300 conversations). The current behavior emits a
+    // single `sync_changed` with only the per-conversation
+    // `conversation:<id>:metadata` tag, which web consumes by GET-and-
+    // patching the single cached row via `refreshConversationRow`.
+    //
+    // The legacy `conversation_list_invalidated` broadcast is still
+    // emitted for macOS (which has no per-row patcher) but is scoped
+    // to `targetInterfaceId: "macos"` and therefore not visible to
+    // this process-type subscriber.
     const conversation = createConversation("Attention");
     projectAssistantMessage({
       conversationId: conversation.id,
@@ -181,22 +235,32 @@ describe("conversation sync tags", () => {
           source: "test",
         },
       });
-    }, 2);
+    }, 1);
 
     expect(received.map((event) => event.message.type)).toEqual([
-      "conversation_list_invalidated",
       "sync_changed",
     ]);
-    expect(received[1]!.message).toEqual({
+    expect(received[0]!.message).toEqual({
       type: "sync_changed",
-      tags: [
-        SYNC_TAGS.conversationsList,
-        conversationMetadataSyncTag(conversation.id),
-      ],
+      tags: [conversationMetadataSyncTag(conversation.id)],
     });
+    // Defense-in-depth: the umbrella `conversationsList` tag would
+    // force the very paginated-list drain this redesign exists to
+    // avoid. It must not appear here.
+    expect((received[0]!.message as { tags: string[] }).tags).not.toContain(
+      SYNC_TAGS.conversationsList,
+    );
+    expect(
+      received.some(
+        (event) => event.message.type === "conversation_list_invalidated",
+      ),
+    ).toBe(false);
   });
 
-  test("mark unread emits list invalidation and metadata sync tags for the touched conversation", async () => {
+  test("mark unread emits only a per-conversation metadata sync tag (no list umbrella)", async () => {
+    // Symmetric with `record seen`: mark-unread flips the per-conversation
+    // hasUnseen flag back to true. Same per-conversation sync tag, same
+    // absence of list-level fan-out.
     const conversation = createConversation("Attention");
     projectAssistantMessage({
       conversationId: conversation.id,
@@ -218,18 +282,119 @@ describe("conversation sync tags", () => {
           conversationId: conversation.id,
         },
       });
-    }, 2);
+    }, 1);
 
     expect(received.map((event) => event.message.type)).toEqual([
-      "conversation_list_invalidated",
       "sync_changed",
     ]);
-    expect(received[1]!.message).toEqual({
+    expect(received[0]!.message).toEqual({
       type: "sync_changed",
-      tags: [
-        SYNC_TAGS.conversationsList,
-        conversationMetadataSyncTag(conversation.id),
-      ],
+      tags: [conversationMetadataSyncTag(conversation.id)],
     });
+    expect((received[0]!.message as { tags: string[] }).tags).not.toContain(
+      SYNC_TAGS.conversationsList,
+    );
+    expect(
+      received.some(
+        (event) => event.message.type === "conversation_list_invalidated",
+      ),
+    ).toBe(false);
+  });
+
+  test("addMessage('assistant') emits a metadata sync tag when attention state transitions", async () => {
+    // When an assistant message transitions a conversation from seen to
+    // unseen, `addMessage` emits `conversation:<id>:metadata` so the web
+    // sidebar picks up the attention state change without a full list
+    // refetch. This is the fix for LUM-1907: background processes that
+    // add assistant messages (notification delivery, proactive artifacts)
+    // now automatically notify clients.
+    const conversation = createConversation("Attention sync");
+
+    const received = await captureEvents(async () => {
+      await addMessage(
+        conversation.id,
+        "assistant",
+        JSON.stringify([{ type: "text", text: "hello" }]),
+      );
+    }, 1);
+
+    expect(received.map((event) => event.message.type)).toEqual([
+      "sync_changed",
+    ]);
+    expect(received[0]!.message).toEqual({
+      type: "sync_changed",
+      tags: [conversationMetadataSyncTag(conversation.id)],
+    });
+  });
+
+  test("addMessage('assistant') does not emit a metadata sync tag when already unseen", async () => {
+    // When the conversation is already unseen (attention cursor was
+    // already past the seen cursor), a subsequent assistant message
+    // should NOT emit a metadata tag — no state transition occurred.
+    const conversation = createConversation("Already unseen");
+    await addMessage(
+      conversation.id,
+      "assistant",
+      JSON.stringify([{ type: "text", text: "first" }]),
+    );
+
+    const received: AssistantEvent[] = [];
+    const subscription = assistantEventHub.subscribe({
+      type: "process",
+      callback: (event) => {
+        received.push(event);
+      },
+    });
+    try {
+      await addMessage(
+        conversation.id,
+        "assistant",
+        JSON.stringify([{ type: "text", text: "second" }]),
+      );
+      // Brief wait to ensure no event is emitted
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const metadataEvents = received.filter(
+        (event) =>
+          event.message.type === "sync_changed" &&
+          (event.message as { tags: string[] }).tags.some((tag: string) =>
+            tag.includes(":metadata"),
+          ),
+      );
+      expect(metadataEvents).toHaveLength(0);
+    } finally {
+      subscription.dispose();
+    }
+  });
+
+  test("addMessage('user') does not emit a metadata sync tag", async () => {
+    // User messages never affect attention state — only assistant
+    // messages advance the attention cursor via projectAssistantMessage.
+    const conversation = createConversation("User message");
+
+    const received: AssistantEvent[] = [];
+    const subscription = assistantEventHub.subscribe({
+      type: "process",
+      callback: (event) => {
+        received.push(event);
+      },
+    });
+    try {
+      await addMessage(
+        conversation.id,
+        "user",
+        JSON.stringify([{ type: "text", text: "hello" }]),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const metadataEvents = received.filter(
+        (event) =>
+          event.message.type === "sync_changed" &&
+          (event.message as { tags: string[] }).tags.some((tag: string) =>
+            tag.includes(":metadata"),
+          ),
+      );
+      expect(metadataEvents).toHaveLength(0);
+    } finally {
+      subscription.dispose();
+    }
   });
 });

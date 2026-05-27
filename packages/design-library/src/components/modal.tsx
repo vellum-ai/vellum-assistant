@@ -1,9 +1,25 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { X, type LucideIcon } from "lucide-react";
-import { type ComponentProps, type ReactNode } from "react";
+import { createContext, useContext, type ComponentProps, type ReactNode } from "react";
 
-import { cn } from "../utils/cn.js";
-import { usePortalContainer } from "../utils/portal-container.js";
+import { cn } from "../utils/cn";
+import { usePortalContainer } from "../utils/portal-container";
+
+/**
+ * Internal context that threads `onOpenChange` from `Root` to `Content` so
+ * the overlay can explicitly dismiss the modal on click.
+ *
+ * iOS Safari/WKWebView only fires `click` events from elements it considers
+ * "clickable". Radix's DismissableLayer defers touch-dismiss to a `click`
+ * listener on the document, which never fires from the plain overlay div on
+ * iOS. An explicit `onClick` on the overlay ensures the modal dismisses on
+ * tap-outside.
+ *
+ * @see https://developer.apple.com/library/archive/documentation/AppleApplications/Reference/SafariWebContent/HandlingEvents/HandlingEvents.html
+ */
+const ModalContext = createContext<{
+  onOpenChange?: (open: boolean) => void;
+}>({});
 
 /**
  * Modal primitive built on `@radix-ui/react-dialog`.
@@ -28,7 +44,16 @@ const SIZE_CLASSES: Record<ModalSize, string> = {
   xl: "max-w-[1100px]",
 };
 
-const Root = Dialog.Root;
+function Root({
+  onOpenChange,
+  ...props
+}: ComponentProps<typeof Dialog.Root>) {
+  return (
+    <ModalContext value={{ onOpenChange }}>
+      <Dialog.Root onOpenChange={onOpenChange} {...props} />
+    </ModalContext>
+  );
+}
 
 function Trigger(props: ComponentProps<typeof Dialog.Trigger>) {
   return <Dialog.Trigger data-slot="modal-trigger" {...props} />;
@@ -51,6 +76,7 @@ function Content({
   ...props
 }: ModalContentProps) {
   const container = usePortalContainer();
+  const { onOpenChange } = useContext(ModalContext);
   return (
     <Dialog.Portal container={container ?? undefined}>
       <Dialog.Overlay
@@ -59,6 +85,9 @@ function Content({
           "fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4",
           overlayClassName,
         )}
+        onClick={(e) => {
+          if (e.target === e.currentTarget) onOpenChange?.(false);
+        }}
       >
         <Dialog.Content
           ref={ref}
@@ -196,7 +225,7 @@ function Footer({
   return (
     <div
       data-slot="modal-footer"
-      className={cn("flex justify-end gap-2 px-4 pb-4", className)}
+      className={cn("flex justify-end gap-2 px-4 py-4", className)}
       {...props}
     >
       {children}

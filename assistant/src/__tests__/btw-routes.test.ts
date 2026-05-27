@@ -38,6 +38,7 @@ const mockAddMessage = mock(() => {});
 
 mock.module("../memory/conversation-crud.js", () => ({
   addMessage: mockAddMessage,
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 const MOCK_TOOLS = [
@@ -317,12 +318,11 @@ describe("POST /v1/btw", () => {
 
     expect(tools).toEqual(MOCK_TOOLS);
     expect(systemPrompt).toBe(MOCK_SYSTEM_PROMPT);
+    // Persona is resolved internally now; btw-routes no longer plumbs
+    // it through to buildSystemPrompt.
     expect(mockBuildSystemPrompt).toHaveBeenCalledWith({
-      channelPersona: null,
       excludeBootstrap: true,
       excludeCustomPrefix: true,
-      userPersona: null,
-      userSlug: null,
     });
     expect(options!.config!.tool_choice).toEqual({ type: "none" });
     expect(options!.config!.callSite).toBe("identityIntro");

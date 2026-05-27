@@ -4,12 +4,12 @@ import type {
   SetStateAction,
 } from "react";
 import type { QueryClient } from "@tanstack/react-query";
-import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
-import type { TurnActions, TurnState } from "@/domains/messaging/turn-store.js";
-import type { DiskPressureStatusEventPayload } from "@/assistant/use-disk-pressure-monitor.js";
-import type { ChatError, PendingQuestionState } from "@/domains/chat/types.js";
-import type { ChatEventStream } from "@/domains/chat/api/stream.js";
+import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { TurnActions, TurnState } from "@/domains/messaging/turn-store";
+import type { DiskPressureStatusEventPayload } from "@/assistant/use-disk-pressure-monitor";
+import type { ChatError, PendingQuestionState } from "@/domains/chat/types";
+import type { ChatEventStream } from "@/domains/chat/api/stream";
 
 export type { PendingQuestionState };
 
@@ -34,13 +34,12 @@ export interface StreamHandlerContext {
 
   // --- Stream context ---
   streamContextRef: MutableRefObject<StreamContext | null>;
-  activeConversationKeyRef: MutableRefObject<string | null>;
+  activeConversationIdRef: MutableRefObject<string | null>;
   assistantIdRef: MutableRefObject<string | null>;
 
   // --- Messages ---
   setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
   messagesRef: MutableRefObject<DisplayMessage[]>;
-  needsNewBubbleRef: MutableRefObject<boolean>;
 
   // --- Turn state ---
   turnActions: TurnActions;
@@ -86,8 +85,8 @@ export interface StreamHandlerContext {
   invalidateAvatar: () => void;
 
   // --- Queue management ---
-  pendingQueuedStableIdsRef: MutableRefObject<string[]>;
-  requestIdToStableIdRef: MutableRefObject<Map<string, string>>;
+  pendingQueuedMessageIdsRef: MutableRefObject<string[]>;
+  requestIdToMessageIdRef: MutableRefObject<Map<string, string>>;
   pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
 
   // --- Hook-owned refs ---
@@ -95,9 +94,9 @@ export interface StreamHandlerContext {
   toolCallIdCounterRef: MutableRefObject<number>;
 
   // --- Synchronous message tracking ---
-  /** StableId of the current assistant message being streamed.
-   *  Updated synchronously at dispatch time (before setMessages) so
+  /** Id of the current assistant message being streamed. Updated
+   *  synchronously at dispatch time (before setMessages) so
    *  subagent_spawned can read the correct parent without waiting for
    *  React's batched render. Mirrors macOS `currentAssistantMessageId`. */
-  currentAssistantStableIdRef: MutableRefObject<string | undefined>;
+  currentAssistantMessageIdRef: MutableRefObject<string | undefined>;
 }

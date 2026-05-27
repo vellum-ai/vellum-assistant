@@ -27,7 +27,7 @@ mock.module("../../util/logger.js", () => ({
 // Imports under test
 // ---------------------------------------------------------------------------
 
-import { _setStorePath } from "../encrypted-store.js";
+import { setStorePathForTesting } from "../../__tests__/encrypted-store-test-helpers.js";
 import { _resetBackend, getProviderKeyAsync } from "../secure-keys.js";
 
 const TEST_DIR = join(
@@ -61,7 +61,7 @@ describe("getProviderKeyAsync env-var fallback (regression #27126)", () => {
     // Fresh encrypted store (no saved credentials → forces env-var fallback).
     if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });
     mkdirSync(TEST_DIR, { recursive: true });
-    _setStorePath(STORE_PATH);
+    setStorePathForTesting(STORE_PATH);
     _resetBackend();
 
     // Snapshot env so each test starts clean.
@@ -72,7 +72,7 @@ describe("getProviderKeyAsync env-var fallback (regression #27126)", () => {
   });
 
   afterEach(() => {
-    _setStorePath(null);
+    setStorePathForTesting(null);
     _resetBackend();
     for (const name of MANAGED_VARS) {
       const saved = SAVED_ENV[name];

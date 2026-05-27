@@ -10,6 +10,8 @@
  */
 import type { LlmRequestLogSource } from "./llm-request-log-source.js";
 import {
+  getCompactionLogsBetween,
+  getPreviousNonCompactionCallCreatedAt,
   getRequestLogById,
   getRequestLogsByConversationId,
   getRequestLogsByMessageId,
@@ -29,5 +31,27 @@ export class LocalLlmRequestLogSource implements LlmRequestLogSource {
     conversationId: string,
   ): Promise<LogRow[]> {
     return getRequestLogsByConversationId(conversationId);
+  }
+
+  async getCompactionLogsBetween(
+    conversationId: string,
+    afterCreatedAt: number | null,
+    beforeCreatedAt: number,
+  ): Promise<LogRow[]> {
+    return getCompactionLogsBetween(
+      conversationId,
+      afterCreatedAt,
+      beforeCreatedAt,
+    );
+  }
+
+  async getPreviousNonCompactionCallCreatedAt(
+    conversationId: string,
+    beforeCreatedAt: number,
+  ): Promise<number | null> {
+    return getPreviousNonCompactionCallCreatedAt(
+      conversationId,
+      beforeCreatedAt,
+    );
   }
 }

@@ -30,7 +30,7 @@ export async function run(
   });
   if (!credentials) {
     return {
-      content: errorHint ?? "Image generation is not configured.",
+      content: `${errorHint ?? "Image generation is not configured."}\n\nReport this error to the user. Do not change service configuration (mode, provider, or model) to try to fix it.`,
       isError: true,
     };
   }
@@ -131,7 +131,7 @@ export async function run(
     };
   } catch (error) {
     return {
-      content: mapImageGenError(provider, error),
+      content: `${mapImageGenError(provider, error)}\n\nReport this error to the user. Do not change service configuration (mode, provider, or model) to try to fix it.`,
       isError: true,
     };
   }

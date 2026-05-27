@@ -1,4 +1,6 @@
-import { Crown, Loader2, Palmtree, type LucideIcon } from "lucide-react";
+import { Crown, FileText, Loader2, Palmtree, type LucideIcon } from "lucide-react";
+
+import { useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 
@@ -7,15 +9,16 @@ import { Button } from "@vellum/design-library/components/button";
 import { Card } from "@vellum/design-library/components/card";
 import { Notice } from "@vellum/design-library/components/notice";
 import { Typography } from "@vellum/design-library/components/typography";
-import { PlanFeatureList } from "./plan-feature-list.js";
+import { InvoicesModal } from "./invoices-modal";
+import { PlanFeatureList } from "./plan-feature-list";
 import {
   organizationsBillingPlansRetrieveOptions,
   organizationsBillingSubscriptionRetrieveOptions,
-} from "@/generated/api/@tanstack/react-query.gen.js";
+} from "@/generated/api/@tanstack/react-query.gen";
 import {
   formatGraceDate,
   getEffectiveCancelDate,
-} from "@/domains/settings/hooks/use-billing-portal-session.js";
+} from "@/domains/settings/hooks/use-billing-portal-session";
 
 interface PlanDisplay {
   icon: LucideIcon;
@@ -70,6 +73,7 @@ function PlanHeading() {
 }
 
 export function PlanCard({ onManage }: PlanCardProps) {
+  const [invoicesOpen, setInvoicesOpen] = useState(false);
   const subscriptionQuery = useQuery(
     organizationsBillingSubscriptionRetrieveOptions(),
   );
@@ -119,7 +123,17 @@ export function PlanCard({ onManage }: PlanCardProps) {
   return (
     <Card padding="lg">
       <div className="flex flex-col gap-4">
-        <PlanHeading />
+        <div className="flex items-start justify-between gap-3">
+          <PlanHeading />
+          <Button
+            variant="outlined"
+            leftIcon={<FileText />}
+            onClick={() => setInvoicesOpen(true)}
+            data-testid="plan-card-invoices-button"
+          >
+            Invoices
+          </Button>
+        </div>
         <div className="flex items-center gap-3 rounded-lg bg-[var(--surface-base)] p-3">
           <span
             aria-hidden
@@ -164,6 +178,7 @@ export function PlanCard({ onManage }: PlanCardProps) {
           </Typography>
         )}
       </div>
+      <InvoicesModal open={invoicesOpen} onOpenChange={setInvoicesOpen} />
     </Card>
   );
 }

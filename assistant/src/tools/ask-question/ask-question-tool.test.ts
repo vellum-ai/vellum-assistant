@@ -51,7 +51,7 @@ const singleQ = {
 
 describe("AskQuestionTool definition", () => {
   test("exposes the expected schema shape and description language", () => {
-    const def = new AskQuestionTool().getDefinition();
+    const def = new AskQuestionTool();
     expect(def.name).toBe("ask_question");
     expect(def.description).toContain("free-text fallback is always added");
     expect(def.description).toContain("do not");
@@ -463,8 +463,8 @@ describe("AskQuestionTool batched input", () => {
 
 describe("AskQuestionTool definition (batched schema)", () => {
   test("exposes `questions[]` shape, keeps legacy fields, omits per-question id", () => {
-    const def = new AskQuestionTool().getDefinition();
-    const schema = def.input_schema as {
+    const def = new AskQuestionTool();
+    const schema = def.input_schema as unknown as {
       properties: Record<
         string,
         {

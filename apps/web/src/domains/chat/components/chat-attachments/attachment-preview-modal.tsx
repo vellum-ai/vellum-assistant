@@ -6,11 +6,11 @@ import { createPortal } from "react-dom";
 
 import { Button } from "@vellum/design-library";
 import { Typography } from "@vellum/design-library";
-import { buildVellumHeaders } from "@/lib/auth/request-headers.js";
+import { buildVellumHeaders } from "@/lib/auth/request-headers";
 
-import { PdfPreview } from "@/domains/chat/components/chat-attachments/pdf-preview.js";
-import { TextPreview } from "@/domains/chat/components/chat-attachments/text-preview.js";
-import { formatAttachmentSize } from "@/domains/chat/components/chat-attachments/utils.js";
+import { PdfPreview } from "@/domains/chat/components/chat-attachments/pdf-preview";
+import { TextPreview } from "@/domains/chat/components/chat-attachments/text-preview";
+import { formatAttachmentSize } from "@/domains/chat/components/chat-attachments/utils";
 
 // File extensions we route to the TextPreview branch even when the upstream
 // MIME type is something generic like application/octet-stream. Keep in sync
@@ -158,7 +158,7 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
 
   const handleDownload = useCallback(async () => {
     if (!effectiveUrl) return;
-    const { saveFile } = await import("@/runtime/native-file.js");
+    const { saveFile } = await import("@/runtime/native-file");
     await saveFile(effectiveUrl, attachment.filename);
   }, [effectiveUrl, attachment.filename]);
 

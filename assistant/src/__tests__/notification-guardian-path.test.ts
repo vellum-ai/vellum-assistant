@@ -66,7 +66,6 @@ mock.module("../notifications/emit-signal.js", () => ({
     }
     return mockEmitResult;
   },
-  registerBroadcastFn: () => {},
 }));
 
 import {

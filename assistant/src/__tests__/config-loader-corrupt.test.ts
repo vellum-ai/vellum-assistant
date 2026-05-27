@@ -23,7 +23,7 @@ import {
   loadConfig,
   loadRawConfig,
 } from "../config/loader.js";
-import { _setStorePath } from "../security/encrypted-store.js";
+import { setStorePathForTesting } from "./encrypted-store-test-helpers.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -65,12 +65,12 @@ function listQuarantinedFiles(): string[] {
 describe("loadConfig corrupt-file recovery", () => {
   beforeEach(() => {
     resetWorkspace();
-    _setStorePath(join(WORKSPACE_DIR, "keys.enc"));
+    setStorePathForTesting(join(WORKSPACE_DIR, "keys.enc"));
     invalidateConfigCache();
   });
 
   afterEach(() => {
-    _setStorePath(null);
+    setStorePathForTesting(null);
     invalidateConfigCache();
   });
 
@@ -187,12 +187,12 @@ describe("loadConfig corrupt-file recovery", () => {
 describe("loadRawConfig corrupt-file recovery", () => {
   beforeEach(() => {
     resetWorkspace();
-    _setStorePath(join(WORKSPACE_DIR, "keys.enc"));
+    setStorePathForTesting(join(WORKSPACE_DIR, "keys.enc"));
     invalidateConfigCache();
   });
 
   afterEach(() => {
-    _setStorePath(null);
+    setStorePathForTesting(null);
     invalidateConfigCache();
   });
 

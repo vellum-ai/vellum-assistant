@@ -154,7 +154,6 @@ import {
   setSlackChannelConfig,
 } from "../daemon/handlers/config-slack-channel.js";
 import { credentialKey } from "../security/credential-key.js";
-import { _setStorePath } from "../security/encrypted-store.js";
 import * as secureKeys from "../security/secure-keys.js";
 import {
   _resetBackend,
@@ -167,11 +166,12 @@ import {
   listCredentialMetadata,
   upsertCredentialMetadata,
 } from "../tools/credentials/metadata-store.js";
+import { setStorePathForTesting } from "./encrypted-store-test-helpers.js";
 
 afterAll(() => {
   globalThis.fetch = originalFetch;
   _setMetadataPath(null);
-  _setStorePath(null);
+  setStorePathForTesting(null);
   _resetBackend();
   if (originalVellumDev === undefined) {
     delete process.env.VELLUM_DEV;
@@ -187,7 +187,7 @@ describe("Slack channel config handler", () => {
     globalThis.fetch = originalFetch;
     rmSync(secureStorePath, { force: true });
     rmSync(metadataPath, { force: true });
-    _setStorePath(secureStorePath);
+    setStorePathForTesting(secureStorePath);
     _resetBackend();
     _setMetadataPath(metadataPath);
   });

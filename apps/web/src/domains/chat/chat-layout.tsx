@@ -10,46 +10,48 @@ import {
 import { Outlet, useLocation, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { haptic } from "@/utils/haptics.js";
-import { routes } from "@/utils/routes.js";
-import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile.js";
-import { useAssistantSyncStream } from "@/domains/chat/hooks/use-assistant-sync-stream.js";
-import { useRootOutletContext } from "@/root-layout.js";
-import { useAssistantIdentityInit } from "@/hooks/use-assistant-identity-init.js";
-import { useAssistantAvatar } from "@/domains/avatar/use-assistant-avatar.js";
-import { useDynamicFavicon } from "@/domains/avatar/use-dynamic-favicon.js";
-import { useHomeUnreadBadge } from "@/hooks/use-home-unread-badge.js";
-import type { AssistantContextValue } from "@/components/layout/assistant-context.js";
+import { haptic } from "@/utils/haptics";
+import { routes } from "@/utils/routes";
+import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile";
+import { useRootOutletContext } from "@/root-layout";
+import { useAssistantIdentityInit } from "@/hooks/use-assistant-identity-init";
+import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
+import { useDynamicFavicon } from "@/hooks/use-dynamic-favicon";
+import { useHomeUnreadBadge } from "@/hooks/use-home-unread-badge";
+import type { AssistantContextValue } from "@/components/layout/assistant-context";
 
-import { useConversationStore } from "@/domains/conversations/conversation-store.js";
+import { useConversationStore } from "@/domains/conversations/conversation-store";
 import {
-  chatContextQueryKey,
+  conversationsQueryKey,
   useConversationGroupsQuery,
   useConversationListQuery,
-} from "@/domains/conversations/conversation-queries.js";
-import { useAttentionTracking } from "@/domains/conversations/use-attention-tracking.js";
-import { useConversationActions } from "@/domains/conversations/use-conversation-actions.js";
-import { useConversationGroupActions } from "@/domains/conversations/use-conversation-group-actions.js";
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
-import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
-import { useViewerStore } from "@/stores/viewer-store.js";
-import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
-import { useAuthStore } from "@/stores/auth-store.js";
-import { canUseLlmInspector } from "@/domains/chat/inspector/access.js";
-import type { Conversation } from "@/domains/chat/api/conversations.js";
+} from "@/domains/conversations/conversation-queries";
+import { useAttentionTracking } from "@/domains/conversations/use-attention-tracking";
+import { useConversationActions } from "@/domains/conversations/use-conversation-actions";
+import { useConversationGroupActions } from "@/domains/conversations/use-conversation-group-actions";
+import { RenameConversationDialog } from "@/domains/conversations/rename-conversation-dialog";
+import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
+import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
+import { useViewerStore } from "@/stores/viewer-store";
+import { useSubagentStore } from "@/domains/subagents/subagent-store";
+import { useAuthStore } from "@/stores/auth-store";
+import { canUseLlmInspector } from "@/domains/chat/inspector/access";
+import type { Conversation } from "@/types/conversation-types";
 
-import { OfflineBanner } from "@/components/offline-banner.js";
-import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu.js";
-import { PreferencesMenu } from "@/domains/chat/components/preferences-menu.js";
-import { useAssistantIdentityStore } from "@/stores/assistant-identity-store.js";
-import { createDraftConversationKey } from "@/domains/chat/utils/conversation-selection.js";
-import { ChatLayoutHeader } from "./chat-layout-header.js";
+import { OfflineBanner } from "@/components/offline-banner";
+import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
+import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
+import { ChatLayoutHeader } from "./chat-layout-header";
 
 /**
  * LocalStorage key used to persist the collapsed state of the sidebar rail
  * across reloads.
  */
 export const SIDEBAR_COLLAPSED_STORAGE_KEY = "assistantSidebarCollapsed";
+export const SIDEBAR_WIDTH_STORAGE_KEY = "assistantSidebarWidth";
+const DEFAULT_SIDEBAR_WIDTH = 230;
 
 const FOCUSABLE_SELECTOR = [
   "a[href]",
@@ -68,6 +70,24 @@ export function readPersistedCollapsed(): boolean {
   } catch {
     return false;
   }
+}
+
+const MIN_SIDEBAR_WIDTH = 220;
+const MAX_SIDEBAR_WIDTH = 400;
+
+export function readPersistedWidth(): number {
+  try {
+    const stored = window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY);
+    if (stored != null) {
+      const parsed = Number(stored);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, parsed));
+      }
+    }
+  } catch {
+    // Storage unavailable
+  }
+  return DEFAULT_SIDEBAR_WIDTH;
 }
 
 export function shouldCloseDrawerOnViewportChange(isMobile: boolean): boolean {
@@ -109,6 +129,8 @@ export type SideMenuVariant = "rail" | "overlay";
 interface SideMenuRenderArgs {
   collapsed: boolean;
   variant: SideMenuVariant;
+  width?: number;
+  onWidthChange?: (width: number) => void;
   onClose?: () => void;
   onSearch?: () => void;
 }
@@ -185,12 +207,6 @@ export function ChatLayout() {
     layoutAvatar.traits,
   );
 
-  // Routes assistant-global sync events from `bus.sse.event` into the
-  // avatar / identity / config / sounds / schedules / conversation
-  // list query caches so the sidebar stays live on every chat-layout
-  // child route.
-  useAssistantSyncStream(lifecycle.assistantId, isAssistantActive);
-
   // Home page unread indicator — drives the red dot on the Home button in
   // the layout header. Gated on the homePage feature flag so the hook
   // doesn't fire its query when the home route is disabled.
@@ -201,7 +217,6 @@ export function ChatLayout() {
   // --- Layout slot state for child route content ---
   const [topBarCenter, setTopBarCenter] = useState<ReactNode>(null);
   const [topBarRightSlot, setTopBarRightSlot] = useState<ReactNode>(null);
-  const [footerBanner, setFooterBanner] = useState<ReactNode>(null);
   const onSearchClickRef = useRef<(() => void) | null>(null);
   const setOnSearchClick = useCallback((cb: (() => void) | null) => {
     onSearchClickRef.current = cb;
@@ -223,7 +238,6 @@ export function ChatLayout() {
       setTopBarCenter,
       setTopBarRightSlot,
       setOnSearchClick,
-      setFooterBanner,
     }),
     [
       lifecycle.assistantId,
@@ -234,7 +248,6 @@ export function ChatLayout() {
       lifecycle.setAssistantId,
       lifecycle.autoGreetRef,
       setOnSearchClick,
-      setFooterBanner,
     ],
   );
 
@@ -258,9 +271,9 @@ export function ChatLayout() {
   const handleStartNewConversation = useCallback(() => {
     haptic.light();
     useViewerStore.getState().setMainView("chat");
-    const draftKey = createDraftConversationKey();
-    useConversationStore.getState().setActiveKey(draftKey);
-    void navigate(routes.conversation(draftKey));
+    const draftConversationId = createDraftConversationId();
+    useConversationStore.getState().setActiveConversationId(draftConversationId);
+    void navigate(routes.conversation(draftConversationId));
   }, [navigate]);
 
   const handleOpenHome = useCallback(() => {
@@ -288,6 +301,7 @@ export function ChatLayout() {
 
   // --- Sidebar collapsed / drawer state ---
   const [collapsed, setCollapsed] = useState<boolean>(readPersistedCollapsed);
+  const [sidebarWidth, setSidebarWidth] = useState<number>(readPersistedWidth);
 
   useEffect(() => {
     try {
@@ -299,6 +313,15 @@ export function ChatLayout() {
       // Storage unavailable (private mode, quota, etc.)
     }
   }, [collapsed]);
+
+  const handleSidebarWidthChange = useCallback((width: number) => {
+    setSidebarWidth(width);
+    try {
+      window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(Math.round(width)));
+    } catch {
+      // Storage unavailable
+    }
+  }, []);
 
   const isMobile = useIsMobile();
   const [drawerOpen, setDrawerOpen] = useState<boolean>(false);
@@ -410,21 +433,21 @@ export function ChatLayout() {
     };
   }, [drawerVisible]);
 
-  const activeConversationKey = useConversationStore.use.activeConversationKey();
-  const processingKeys = useConversationStore.use.processingKeys();
-  const attentionKeys = useConversationStore.use.attentionKeys();
-  const setActiveKey = useConversationStore.use.setActiveKey();
+  const activeConversationId = useConversationStore.use.activeConversationId();
+  const processingConversationIds = useConversationStore.use.processingConversationIds();
+  const attentionConversationIds = useConversationStore.use.attentionConversationIds();
+  const setActiveConversationId = useConversationStore.use.setActiveConversationId();
 
   const handleSelectConversation = useCallback(
     (key: string) => {
       haptic.light();
       useViewerStore.getState().setMainView("chat");
       useSubagentStore.getState().reset();
-      setActiveKey(key);
+      setActiveConversationId(key);
       navigate(routes.conversation(key));
       setDrawerOpen(false);
     },
-    [setActiveKey, navigate],
+    [setActiveConversationId, navigate],
   );
 
   // --- Sidebar conversation actions (pin / rename / archive / mark / move) ---
@@ -442,7 +465,7 @@ export function ChatLayout() {
     if (!lifecycle.assistantId) return;
     try {
       await queryClient.invalidateQueries({
-        queryKey: chatContextQueryKey(lifecycle.assistantId),
+        queryKey: conversationsQueryKey(lifecycle.assistantId),
       });
     } catch (err) {
       Sentry.captureException(err, {
@@ -459,9 +482,9 @@ export function ChatLayout() {
     ({ silent }: { silent?: boolean } = {}) => {
       if (!silent) haptic.light();
       useViewerStore.getState().setMainView("chat");
-      const draftKey = createDraftConversationKey();
-      useConversationStore.getState().setActiveKey(draftKey);
-      void navigate(routes.conversation(draftKey));
+      const draftConversationId = createDraftConversationId();
+      useConversationStore.getState().setActiveConversationId(draftConversationId);
+      void navigate(routes.conversation(draftConversationId));
     },
     [navigate],
   );
@@ -475,9 +498,12 @@ export function ChatLayout() {
     handleMoveToGroup,
     handleRemoveFromGroup,
     handleRenameConversation,
+    renameRequest,
+    submitRenameConversation,
+    cancelRenameConversation,
   } = useConversationActions({
     assistantId: lifecycle.assistantId,
-    activeConversationKey,
+    activeConversationId,
     conversations,
     refreshConversations,
     switchConversation: handleSelectConversation,
@@ -495,15 +521,13 @@ export function ChatLayout() {
   // (in `chat-page.tsx`) uses `useConversationSecondaryActions` so it can
   // enrich the URL with the latest assistant `messageId` from the active
   // transcript. The sidebar doesn't hold transcript state, so we navigate
-  // with just `conversationKey` and let `InspectPage` resolve the latest
-  // assistant message via `ResolveLatestMessage`.
+  // with just the conversation path and let `InspectPage` resolve the
+  // latest assistant message via `ResolveLatestMessage`.
   const authUser = useAuthStore.use.user();
   const showLlmInspector = canUseLlmInspector(authUser);
   const handleInspectConversation = useCallback(
     (conversation: Conversation) => {
-      const params = new URLSearchParams();
-      params.set("conversationKey", conversation.conversationKey);
-      void navigate(`${routes.inspect}?${params.toString()}`);
+      void navigate(routes.inspect(conversation.conversationId));
     },
     [navigate],
   );
@@ -515,11 +539,13 @@ export function ChatLayout() {
         assistantName={assistantName}
         collapsed={args.collapsed}
         variant={args.variant}
+        width={args.width}
+        onWidthChange={args.onWidthChange}
         conversations={conversations}
         conversationGroups={conversationGroups}
-        activeConversationKey={activeConversationKey ?? undefined}
-        processingConversationKeys={processingKeys}
-        attentionConversationKeys={attentionKeys}
+        activeConversationId={activeConversationId ?? undefined}
+        processingConversationIds={processingConversationIds}
+        attentionConversationIds={attentionConversationIds}
         onSelectConversation={handleSelectConversation}
         onStartNewConversation={handleStartNewConversation}
         isIntelligenceActive={isIdentityActive}
@@ -537,12 +563,11 @@ export function ChatLayout() {
         onRenameGroup={handleRenameGroup}
         onDeleteGroup={handleDeleteGroup}
         onInspect={showLlmInspector ? handleInspectConversation : undefined}
-        footerBanner={footerBanner}
         footerAction={
           <PreferencesMenu
             assistantId={lifecycle.assistantId}
             assistantVersion={assistantVersion}
-            activeConversationKey={activeConversationKey}
+            activeConversationId={activeConversationId}
           />
         }
         onClose={args.onClose}
@@ -555,9 +580,9 @@ export function ChatLayout() {
       assistantVersion,
       conversations,
       conversationGroups,
-      activeConversationKey,
-      processingKeys,
-      attentionKeys,
+      activeConversationId,
+      processingConversationIds,
+      attentionConversationIds,
       handleSelectConversation,
       handleStartNewConversation,
       handleTogglePinConversation,
@@ -576,7 +601,6 @@ export function ChatLayout() {
       handleOpenLibrary,
       showLlmInspector,
       handleInspectConversation,
-      footerBanner,
     ],
   );
 
@@ -586,6 +610,7 @@ export function ChatLayout() {
         isMobile={isMobile}
         drawerOpen={drawerOpen}
         collapsed={collapsed}
+        sidebarWidth={sidebarWidth}
         toggleSidebar={toggleSidebar}
         topBarCenter={topBarCenter}
         topBarRightSlot={topBarRightSlot}
@@ -645,13 +670,20 @@ export function ChatLayout() {
             className="shrink-0"
             aria-label="Navigation"
           >
-            {renderSideMenu({ collapsed, variant: "rail", onSearch: () => onSearchClickRef.current?.() })}
+            {renderSideMenu({ collapsed, variant: "rail", width: sidebarWidth, onWidthChange: handleSidebarWidthChange, onSearch: () => onSearchClickRef.current?.() })}
           </aside>
           <main className="flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden">
             <Outlet context={assistantContext} />
           </main>
         </div>
       )}
+
+      <RenameConversationDialog
+        open={renameRequest !== null}
+        currentTitle={renameRequest?.currentTitle ?? ""}
+        onSubmit={submitRenameConversation}
+        onCancel={cancelRenameConversation}
+      />
     </>
   );
 }

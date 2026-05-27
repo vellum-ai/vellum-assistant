@@ -78,6 +78,9 @@ mock.module("../../../memory/v2/injection-events.js", () => ({
 // sentinel object is sufficient.
 mock.module("../../../memory/db-connection.js", () => ({
   getDb: () => ({ __stub: true }),
+  getSqlite: () => ({ __stub: true }),
+  getSqliteFrom: () => ({ __stub: true }),
+  resetDb: () => {},
 }));
 
 // Config loader. The simulate route reads `memory.v2.enabled` (must be
@@ -124,9 +127,54 @@ mock.module("../../../providers/provider-send-message.js", () => ({
 // Platform helpers. `getWorkspaceDir` must return the per-test tmp dir so
 // the route's page index points at the test workspace.
 let workspaceDir = "";
-mock.module("../../../util/platform.js", () => ({
-  getWorkspaceDir: () => workspaceDir,
-}));
+mock.module("../../../util/platform.js", () => {
+  const stub = () => workspaceDir;
+  return {
+    getWorkspaceDir: () => workspaceDir,
+    vellumRoot: stub,
+    isMacOS: () => false,
+    isLinux: () => true,
+    isWindows: () => false,
+    getPlatformName: () => "linux",
+    normalizeAssistantId: (id: string) => id,
+    getDataDir: stub,
+    getEmbeddingModelsDir: stub,
+    getSandboxRootDir: stub,
+    getSandboxWorkingDir: stub,
+    getSoundsDir: stub,
+    getAvatarDir: stub,
+    AVATAR_IMAGE_FILENAME: "avatar-image.png",
+    getAvatarImagePath: stub,
+    getXdgVellumConfigDirName: () => ".vellum",
+    getPidPath: stub,
+    getDbPath: stub,
+    getLogsDir: stub,
+    getHistoryPath: stub,
+    getProtectedDir: stub,
+    getSignalsDir: stub,
+    getDaemonStderrLogPath: stub,
+    getDaemonStartupLockPath: stub,
+    getExternalDir: stub,
+    getBinDir: stub,
+    getDotEnvPath: stub,
+    getEmbedWorkerPidPath: stub,
+    getWorkspaceDirDisplay: stub,
+    getWorkspaceConfigPath: stub,
+    getWorkspaceSkillsDir: stub,
+    getWorkspaceHooksDir: stub,
+    getWorkspacePluginsDir: stub,
+    getWorkspaceRoutesDir: stub,
+    getDeprecatedDir: stub,
+    getConversationsDir: stub,
+    getWorkspacePromptPath: stub,
+    getProfilerRootDir: stub,
+    getProfilerRunsDir: stub,
+    getProfilerRunDir: stub,
+    getSkillRuntimePath: stub,
+    getBundledBunPath: () => undefined,
+    ensureDataDir: () => {},
+  };
+});
 
 // ---------------------------------------------------------------------------
 // Import under test (after all mocks above)
@@ -210,7 +258,11 @@ describe("handleSimulateRouter", () => {
     providerStub = makeProvider([3, 1]);
 
     const result = await handleSimulateRouter({
-      body: { userMessage: "what's relevant?" },
+      body: {
+        recentTurnPairs: [
+          { assistantMessage: "", userMessage: "what's relevant?" },
+        ],
+      },
     });
 
     expect(result.failureReason).toBeNull();
@@ -228,7 +280,7 @@ describe("handleSimulateRouter", () => {
 
     const result = await handleSimulateRouter({
       body: {
-        userMessage: "test",
+        recentTurnPairs: [{ assistantMessage: "", userMessage: "test" }],
         configOverrides: {
           tier1_size: 50,
           batch_size: 25,
@@ -249,22 +301,37 @@ describe("handleSimulateRouter", () => {
     providerStub = makeProvider([1, 2]);
 
     await handleSimulateRouter({
-      body: { userMessage: "should not record" },
+      body: {
+        recentTurnPairs: [
+          { assistantMessage: "", userMessage: "should not record" },
+        ],
+      },
     });
 
     expect(recordCalls).toEqual([]);
   });
 
-  test("rejects an empty userMessage at the schema layer", async () => {
+  test("rejects an empty last-pair userMessage at the schema layer", async () => {
     await expect(
-      handleSimulateRouter({ body: { userMessage: "" } }),
+      handleSimulateRouter({
+        body: { recentTurnPairs: [{ assistantMessage: "", userMessage: "" }] },
+      }),
+    ).rejects.toThrow();
+  });
+
+  test("rejects an empty recentTurnPairs array at the schema layer", async () => {
+    await expect(
+      handleSimulateRouter({ body: { recentTurnPairs: [] } }),
     ).rejects.toThrow();
   });
 
   test("rejects negative tier size at the schema layer", async () => {
     await expect(
       handleSimulateRouter({
-        body: { userMessage: "test", configOverrides: { tier1_size: -5 } },
+        body: {
+          recentTurnPairs: [{ assistantMessage: "", userMessage: "test" }],
+          configOverrides: { tier1_size: -5 },
+        },
       }),
     ).rejects.toThrow();
   });

@@ -50,13 +50,13 @@ const darkPairedColorScaleRules = [
 const universalAuthRules = [
   // No new `createClient(...)` outside generated/. There must be exactly
   // one HeyAPI client instance per app — the generated singleton. Hand-
-  // written wrappers import `client` from `@/generated/api/client.gen.js`.
+  // written wrappers import `client` from `@/generated/api/client.gen`.
   // Note: `src/generated/**` is globally ignored, so this effectively
   // means "no createClient anywhere we lint".
   {
     selector: "CallExpression[callee.name='createClient']",
     message:
-      'Do not call createClient(...) outside src/generated/. Import the singleton: `import { client } from "@/generated/api/client.gen.js"`. A second instance does not inherit the auth-header interceptors and silently sends unauthenticated requests.',
+      'Do not call createClient(...) outside src/generated/. Import the singleton: `import { client } from "@/generated/api/client.gen"`. A second instance does not inherit the auth-header interceptors and silently sends unauthenticated requests.',
   },
 
   // No `localStorage.setItem(key, …)` / `sessionStorage.setItem(key, …)`
@@ -132,14 +132,20 @@ const headerLiteralRules = [
 // Paths that legitimately produce/consume the auth headers.
 // Exempt from `headerLiteralRules` but still subject to
 // `universalAuthRules` and `darkPairedColorScaleRules`.
+//
+// `api-interceptors.test.ts` lives inside the auth boundary by design — it
+// exercises the central interceptor and must assert on the exact header
+// names. Centralizing the test next to the implementation it tests does
+// not weaken the guardrail.
 const authBoundaryAllowedPaths = [
   "src/lib/auth/**",
   "src/lib/api-interceptors.ts",
+  "src/lib/api-interceptors.test.ts",
 ];
 
 const eslintConfig = defineConfig([
   ...tseslint.configs.recommended,
-  globalIgnores(["dist/**", "src/generated/**"]),
+  globalIgnores(["dist/**", "src/generated/**", "storybook-static/**"]),
   {
     plugins: {
       local: { rules: { "no-cross-domain-imports": noCrossDomainImports } },

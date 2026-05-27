@@ -264,7 +264,7 @@ describe("host_bash — baseline: no sandbox isolation", () => {
 // These tests lock that boundary so any accidental addition is caught.
 
 describe("host_bash — regression: no proxied-mode additions", () => {
-  const definition = hostShellTool.getDefinition();
+  const definition = hostShellTool;
   const schemaProps = (definition.input_schema as Record<string, unknown>)
     .properties as Record<string, unknown>;
 
@@ -863,9 +863,10 @@ describe("host_bash — proxy delegation", () => {
 
   test("propagates VELLUM_UNTRUSTED_SHELL env to proxy under CES lockdown", async () => {
     // Enable CES shell lockdown via the override cache
-    const { _setOverridesForTesting } =
-      await import("../config/assistant-feature-flags.js");
-    _setOverridesForTesting({
+    const { setOverridesForTesting } = await import(
+  "./feature-flag-test-helpers.js"
+);
+    setOverridesForTesting({
       "ces-shell-lockdown": true,
     });
 
@@ -899,7 +900,7 @@ describe("host_bash — proxy delegation", () => {
         __CONVERSATION_ID: "test-conversation",
       });
     } finally {
-      _setOverridesForTesting({});
+      setOverridesForTesting({});
       restoreEnv(envSnapshot);
     }
   });

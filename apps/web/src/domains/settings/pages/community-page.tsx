@@ -15,13 +15,13 @@ import type { ComponentType, ReactNode } from "react";
 import { Button } from "@vellum/design-library/components/button";
 import { Card } from "@vellum/design-library/components/card";
 import { Tag } from "@vellum/design-library/components/tag";
-import { DiscordLogo } from "@/components/icons/discord-logo.js";
-import { GitHubLogo } from "@/components/icons/github-logo.js";
-import { YouTubeLogo } from "@/components/icons/youtube-logo.js";
-import { XLogo } from "@/components/icons/x-logo.js";
-import { GITHUB_REPO_URL } from "@/domains/nudges/github-constants.js";
-import { useGitHubNudgeState } from "@/domains/nudges/github-prefs.js";
-import { joinDiscord } from "@/domains/nudges/discord-prefs.js";
+import { DiscordLogo } from "@/components/icons/discord-logo";
+import { GitHubLogo } from "@/components/icons/github-logo";
+import { YouTubeLogo } from "@/components/icons/youtube-logo";
+import { XLogo } from "@/components/icons/x-logo";
+import { GITHUB_REPO_URL, useGitHubNudgeState } from "@/hooks/use-github-nudge";
+import { joinDiscord } from "@/hooks/use-discord-nudge";
+import { VELLUM_COMMUNITY_URL } from "@/utils/external-urls";
 
 function HeroBanner() {
   return (
@@ -278,7 +278,7 @@ export function CommunityPage() {
             iconBg="#22c55e"
             title="Community Hub"
             description="Showcases, guides, and projects shared by the community."
-            href="https://vellum.ai/community"
+            href={VELLUM_COMMUNITY_URL}
           />
           <ResourceCard
             icon={<XLogo size={20} />}

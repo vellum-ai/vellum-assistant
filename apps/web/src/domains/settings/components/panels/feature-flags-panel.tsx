@@ -1,18 +1,25 @@
+import { useQuery } from "@tanstack/react-query";
 import { Search } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { Tag, type TagTone } from "@vellum/design-library/components/tag";
 import { Toggle } from "@vellum/design-library/components/toggle";
-import { SettingsCard } from "@/domains/settings/components/settings-card.js";
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
-import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
+import { DetailCard } from "@/components/detail-card";
+import { assistantsActiveRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
+import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
+import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
 import {
   ALL_FLAGS,
-  ldKeyToStoreKey,
+  flagKeyToStoreKey,
   scopeIncludes,
   type FlagScope,
   type SingleScope,
-} from "@/lib/feature-flags/feature-flag-catalog.js";
+} from "@/lib/feature-flags/feature-flag-catalog";
+import { useFlagQueryFreshness } from "@/lib/backwards-compat/flag-query-freshness";
+import {
+  assistantFlagValuesQueryKey,
+  fetchAssistantFlagValues,
+} from "@/lib/feature-flags/use-assistant-feature-flag-sync";
 
 const SCOPE_TONE: Record<SingleScope, TagTone> = {
   client: "warning",
@@ -29,6 +36,22 @@ interface FlagDisplayEntry {
 }
 
 export function FeatureFlagsPanel() {
+  const { data: activeAssistant } = useQuery(assistantsActiveRetrieveOptions());
+  const assistantId = activeAssistant?.id ?? null;
+
+  // Same-key observer: TanStack dedups with `useAssistantFeatureFlagSync`'s
+  // root-level query. Kept so the panel stays live while toggling on
+  // older daemons; on push-capable daemons this resolves to a no-op
+  // (`refetchInterval: false`).
+  const freshness = useFlagQueryFreshness();
+  useQuery({
+    queryKey: assistantFlagValuesQueryKey(assistantId),
+    queryFn: () => fetchAssistantFlagValues(assistantId!),
+    enabled: assistantId !== null,
+    ...freshness,
+    retry: 1,
+  });
+
   const [searchText, setSearchText] = useState("");
   const clientState = useClientFeatureFlagStore();
   const assistantState = useAssistantFeatureFlagStore();
@@ -36,7 +59,7 @@ export function FeatureFlagsPanel() {
   const flags: FlagDisplayEntry[] = useMemo(() => {
     const entries: FlagDisplayEntry[] = [];
     for (const flag of ALL_FLAGS) {
-      const storeKey = ldKeyToStoreKey(flag.key);
+      const storeKey = flagKeyToStoreKey(flag.key);
       const clientVal = clientState[storeKey];
       const assistantVal = assistantState[storeKey];
       const value =
@@ -77,7 +100,7 @@ export function FeatureFlagsPanel() {
   }, [flags, searchText]);
 
   return (
-    <SettingsCard
+    <DetailCard
       title="Feature Flags"
       subtitle="Active feature flags evaluated for the current session."
     >
@@ -102,17 +125,27 @@ export function FeatureFlagsPanel() {
         {filteredFlags.length > 0 && (
           <div className="max-h-[500px] space-y-2 overflow-y-auto">
             {filteredFlags.map((flag) => (
-              <FeatureFlagRow key={flag.storeKey} flag={flag} />
+              <FeatureFlagRow
+                key={flag.storeKey}
+                flag={flag}
+                assistantId={assistantId}
+              />
             ))}
           </div>
         )}
       </div>
-    </SettingsCard>
+    </DetailCard>
   );
 }
 
 interface FeatureFlagRowProps {
   flag: FlagDisplayEntry;
+  /**
+   * Active assistant id for PATCH'ing assistant-scoped overrides.
+   * `null` while the active-assistant query is still in-flight; toggle
+   * is still functional client-side, the server PATCH is just skipped.
+   */
+  assistantId: string | null;
 }
 
 function ScopeChips({ scope }: { scope: FlagScope }) {
@@ -127,7 +160,7 @@ function ScopeChips({ scope }: { scope: FlagScope }) {
   return <Tag tone={SCOPE_TONE[scope]}>{scope}</Tag>;
 }
 
-function FeatureFlagRow({ flag }: FeatureFlagRowProps) {
+function FeatureFlagRow({ flag, assistantId }: FeatureFlagRowProps) {
   const clientSetFlag = useClientFeatureFlagStore.use.setFlag();
   const assistantSetFlag = useAssistantFeatureFlagStore.use.setFlag();
 
@@ -136,7 +169,7 @@ function FeatureFlagRow({ flag }: FeatureFlagRowProps) {
       clientSetFlag(flag.storeKey, next);
     }
     if (scopeIncludes(flag.scope, "assistant")) {
-      assistantSetFlag(flag.storeKey, next);
+      assistantSetFlag(flag.storeKey, next, assistantId);
     }
   };
 

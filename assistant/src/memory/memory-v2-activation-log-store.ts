@@ -1,8 +1,9 @@
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lte, ne } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "./db-connection.js";
 import { memoryV2ActivationLogs } from "./schema.js";
+import type { ShadowDiffLogRow } from "./v3/shadow-diff.js";
 
 export interface MemoryV2ConceptRowRecord {
   slug: string;
@@ -94,6 +95,14 @@ export interface MemoryV2ConceptRowRecord {
     | "not_injected"
     | "page_missing"
     | "corrupt";
+  /**
+   * v3 shadow only: the retrieval lane that surfaced this slug
+   * (`hot` | `sparse` | `dense` | `tree` | `edge`). Lets a shadow run be
+   * analyzed by provenance — which lane each v3 pick came from. Undefined on
+   * `router`/`per-turn`/etc. v2 rows; stored in the JSON concept blob, so older
+   * rows decode with `undefined`.
+   */
+  lane?: string;
 }
 
 export interface MemoryV2ConfigSnapshot {
@@ -115,11 +124,15 @@ export interface RecordMemoryV2ActivationLogParams {
    * `per-turn` for normal append injections, `errored` when `injectMemoryV2Block`
    * threw before completing — telemetry is still written so silent failures
    * are observable in the database, with whatever `concepts` rows had been
-   * built so far (possibly empty). `router` indicates the Sonnet
-   * router selected the per-turn page set; router-mode rows carry zeroed
-   * activation values and `source: "router"` on every concept row.
+   * built so far (possibly empty). `router` indicates the LLM router selected
+   * the per-turn page set; router-mode rows carry zeroed activation values and
+   * `source: "router"` on every concept row. `v3_shadow` is written by the
+   * live-shadow v3 retrieval middleware: it records v3's selection set for
+   * comparison without affecting injected context. The harness oracle filters
+   * `mode='router'`, so `v3_shadow` rows never pollute it; the inspector can
+   * still surface them.
    */
-  mode: "context-load" | "per-turn" | "errored" | "router";
+  mode: "context-load" | "per-turn" | "errored" | "router" | "v3_shadow";
   concepts: MemoryV2ConceptRowRecord[];
   config: MemoryV2ConfigSnapshot;
 }
@@ -153,12 +166,16 @@ export function backfillMemoryV2ActivationMessageId(
   messageId: string,
 ): void {
   const db = getDb();
+  // `v3_shadow` rows are detached telemetry written outside the live turn with
+  // a null messageId; they are not tied to any specific message. Excluding them
+  // keeps their messageId null instead of stamping them with a later turn's id.
   db.update(memoryV2ActivationLogs)
     .set({ messageId })
     .where(
       and(
         eq(memoryV2ActivationLogs.conversationId, conversationId),
         isNull(memoryV2ActivationLogs.messageId),
+        ne(memoryV2ActivationLogs.mode, "v3_shadow"),
       ),
     )
     .run();
@@ -167,7 +184,7 @@ export function backfillMemoryV2ActivationMessageId(
 export interface MemoryV2ActivationLog {
   conversationId: string;
   turn: number;
-  mode: "context-load" | "per-turn" | "errored" | "router";
+  mode: "context-load" | "per-turn" | "errored" | "router" | "v3_shadow";
   concepts: MemoryV2ConceptRowRecord[];
   config: MemoryV2ConfigSnapshot;
 }
@@ -188,8 +205,94 @@ export function getMemoryV2ActivationLogByMessageIds(
   return {
     conversationId: row.conversationId,
     turn: row.turn,
-    mode: row.mode as "context-load" | "per-turn" | "errored" | "router",
+    mode: row.mode as
+      | "context-load"
+      | "per-turn"
+      | "errored"
+      | "router"
+      | "v3_shadow",
     concepts: JSON.parse(row.conceptsJson) as MemoryV2ConceptRowRecord[],
     config: JSON.parse(row.configJson) as MemoryV2ConfigSnapshot,
   };
+}
+
+function parseConcepts(conceptsJson: string): MemoryV2ConceptRowRecord[] {
+  try {
+    const parsed = JSON.parse(conceptsJson);
+    return Array.isArray(parsed) ? (parsed as MemoryV2ConceptRowRecord[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Read the activation-log rows the v3 shadow-diff needs: every `v3_shadow` row
+ * (optionally newer than `sinceMs`), plus the `router` rows that could pair
+ * with them. The router read is bounded to the shadow rows' conversations and
+ * their time span (padded by `paddingMs`) so a shadow-diff over a few turns
+ * never scans the entire multi-GB log table. Returns `{ shadow, router }` for
+ * {@link computeShadowDiff} to pair and diff.
+ */
+export function readActivationLogsForShadowDiff(opts: {
+  sinceMs: number | null;
+  paddingMs: number;
+}): { shadow: ShadowDiffLogRow[]; router: ShadowDiffLogRow[] } {
+  const db = getDb();
+
+  const shadow = db
+    .select({
+      conversationId: memoryV2ActivationLogs.conversationId,
+      createdAt: memoryV2ActivationLogs.createdAt,
+      conceptsJson: memoryV2ActivationLogs.conceptsJson,
+    })
+    .from(memoryV2ActivationLogs)
+    .where(
+      opts.sinceMs !== null
+        ? and(
+            eq(memoryV2ActivationLogs.mode, "v3_shadow"),
+            gte(memoryV2ActivationLogs.createdAt, opts.sinceMs),
+          )
+        : eq(memoryV2ActivationLogs.mode, "v3_shadow"),
+    )
+    .orderBy(memoryV2ActivationLogs.createdAt)
+    .all()
+    .map((row) => ({
+      conversationId: row.conversationId,
+      createdAt: row.createdAt,
+      concepts: parseConcepts(row.conceptsJson),
+    }));
+
+  if (shadow.length === 0) return { shadow: [], router: [] };
+
+  const convIds = [...new Set(shadow.map((s) => s.conversationId))];
+  let tMin = Number.POSITIVE_INFINITY;
+  let tMax = Number.NEGATIVE_INFINITY;
+  for (const s of shadow) {
+    if (s.createdAt < tMin) tMin = s.createdAt;
+    if (s.createdAt > tMax) tMax = s.createdAt;
+  }
+
+  const router = db
+    .select({
+      conversationId: memoryV2ActivationLogs.conversationId,
+      createdAt: memoryV2ActivationLogs.createdAt,
+      conceptsJson: memoryV2ActivationLogs.conceptsJson,
+    })
+    .from(memoryV2ActivationLogs)
+    .where(
+      and(
+        eq(memoryV2ActivationLogs.mode, "router"),
+        inArray(memoryV2ActivationLogs.conversationId, convIds),
+        gte(memoryV2ActivationLogs.createdAt, tMin - opts.paddingMs),
+        lte(memoryV2ActivationLogs.createdAt, tMax + opts.paddingMs),
+      ),
+    )
+    .all()
+    .map((row) => ({
+      conversationId: row.conversationId,
+      createdAt: row.createdAt,
+      concepts: parseConcepts(row.conceptsJson),
+    }));
+
+  return { shadow, router };
 }

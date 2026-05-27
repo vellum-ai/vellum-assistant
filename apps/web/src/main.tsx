@@ -1,20 +1,25 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { RouterProvider } from "react-router";
+import * as Sentry from "@sentry/react";
 
-import { useAuthStore, setupAuthListeners } from "@/stores/auth-store.js";
-import { setupOrganizationStore } from "@/stores/organization-store.js";
-import { AppProviders } from "@/components/providers.js";
-import { router } from "./routes.js";
+import { migrateDeviceSettings } from "@/lib/device-settings";
+import { initSentry } from "@/lib/sentry/sentry-init";
+import { useAuthStore, setupAuthListeners } from "@/stores/auth-store";
+import { setupOrganizationStore } from "@/stores/organization-store";
+import { AppProviders } from "@/components/providers";
+import { isChunkLoadError } from "@/lib/chunk-errors";
+import { router } from "./routes";
 
-import "@/lib/sentry/sentry-init.js";
-import "@/lib/api-interceptors.js";
+import "@/lib/api-interceptors";
 import "./index.css";
 
-import { initSafeAreaBridge } from "@/runtime/native-safe-area.js";
+import { initSafeAreaBridge } from "@/runtime/native-safe-area";
 
 async function boot() {
   await initSafeAreaBridge();
+  migrateDeviceSettings();
+  initSentry();
 
   setupOrganizationStore();
   useAuthStore.getState().initSession();
@@ -26,7 +31,21 @@ async function boot() {
   createRoot(rootEl).render(
     <StrictMode>
       <AppProviders>
-        <RouterProvider router={router} />
+        <RouterProvider
+          router={router}
+          onError={(error) => {
+            // Single Sentry capture point for every router error.
+            // `RouteErrorBoundary` (used at every layer of the tree) owns
+            // only the UI variant and intentionally does NOT capture again
+            // to avoid duplicate events.
+            Sentry.captureException(error, {
+              tags: {
+                context: "RouterProvider",
+                boundary: isChunkLoadError(error) ? "lazy-route" : "route-render",
+              },
+            });
+          }}
+        />
       </AppProviders>
     </StrictMode>,
   );

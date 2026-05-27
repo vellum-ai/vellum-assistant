@@ -73,6 +73,7 @@ mock.module("../permissions/checker.js", () => ({
 
 mock.module("../memory/conversation-crud.js", () => ({
   createConversation: (title: string) => ({ id: "conversation-1", title }),
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 // Mock every export so downstream test files that dynamically import modules
@@ -80,7 +81,7 @@ mock.module("../memory/conversation-crud.js", () => ({
 mock.module("../memory/tool-usage-store.js", () => ({
   recordToolInvocation: () => {},
   getRecentInvocations: () => [],
-  rotateToolInvocations: () => 0,
+  rotateToolInvocations: async () => 0,
 }));
 
 mock.module("../tools/registry.js", () => ({
@@ -91,7 +92,7 @@ mock.module("../tools/registry.js", () => ({
       description: "test tool",
       category: "test",
       defaultRiskLevel: "low",
-      getDefinition: () => ({}),
+      input_schema: {},
       execute: async () => fakeToolResult,
     };
   },

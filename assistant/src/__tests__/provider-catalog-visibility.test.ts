@@ -1,16 +1,16 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../config/schema.js";
 import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
 import { getVisibleProviderCatalog } from "../providers/provider-catalog-visibility.js";
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
 beforeEach(() => {
-  _setOverridesForTesting({});
+  setOverridesForTesting({});
 });
 
 afterEach(() => {
-  _setOverridesForTesting({});
+  setOverridesForTesting({});
 });
 
 /** Minimal AssistantConfig stub for feature-flag resolution. */
@@ -20,7 +20,7 @@ function makeConfig(): AssistantConfig {
 
 describe("getVisibleProviderCatalog", () => {
   test("hides openai-compatible endpoints by default", () => {
-    _setOverridesForTesting({});
+    setOverridesForTesting({});
 
     const visible = getVisibleProviderCatalog(makeConfig());
 
@@ -28,7 +28,7 @@ describe("getVisibleProviderCatalog", () => {
   });
 
   test("shows openai-compatible endpoints when its flag is enabled", () => {
-    _setOverridesForTesting({ "openai-compatible-endpoints": true });
+    setOverridesForTesting({ "openai-compatible-endpoints": true });
 
     const visible = getVisibleProviderCatalog(makeConfig());
 
@@ -43,7 +43,7 @@ describe("getVisibleProviderCatalog", () => {
         if (model.featureFlag) allFlags[model.featureFlag] = true;
       }
     }
-    _setOverridesForTesting(allFlags);
+    setOverridesForTesting(allFlags);
 
     const visible = getVisibleProviderCatalog(makeConfig());
     expect(visible.length).toBe(PROVIDER_CATALOG.length);
@@ -58,7 +58,7 @@ describe("getVisibleProviderCatalog", () => {
         if (model.featureFlag) allFlags[model.featureFlag] = true;
       }
     }
-    _setOverridesForTesting({ ...allFlags, "test-provider-flag": false });
+    setOverridesForTesting({ ...allFlags, "test-provider-flag": false });
 
     const original = [...PROVIDER_CATALOG];
     PROVIDER_CATALOG.push({
@@ -87,7 +87,7 @@ describe("getVisibleProviderCatalog", () => {
   });
 
   test("hides a model whose featureFlag is disabled but keeps the provider", () => {
-    _setOverridesForTesting({ "test-model-flag": false });
+    setOverridesForTesting({ "test-model-flag": false });
 
     const original = [...PROVIDER_CATALOG];
     PROVIDER_CATALOG.push({
@@ -121,7 +121,7 @@ describe("getVisibleProviderCatalog", () => {
   });
 
   test("hides a provider entirely when all its models are flagged off", () => {
-    _setOverridesForTesting({
+    setOverridesForTesting({
       "flag-a": false,
       "flag-b": false,
     });

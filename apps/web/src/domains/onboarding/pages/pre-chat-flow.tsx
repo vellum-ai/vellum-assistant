@@ -1,12 +1,15 @@
 import * as Sentry from "@sentry/browser";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
-import { useIsIOSWeb } from "@/domains/nudges/ios-app-platform.js";
-import { readIOSAppDownloaded } from "@/domains/nudges/ios-app-prefs.js";
-import { useIsMacOSWeb } from "@/domains/nudges/mac-app-platform.js";
-import { readMacOsAppDownloaded } from "@/domains/nudges/mac-app-prefs.js";
+import { useIsIOSWeb, useIsMacOSWeb } from "@/utils/platform-detection";
+import { readIOSAppDownloaded } from "@/hooks/use-ios-app-nudge";
+import { readMacOsAppDownloaded } from "@/hooks/use-macos-app-nudge";
+import {
+  fetchOnboardingRecipe,
+  type OnboardingRecipe,
+} from "@/domains/onboarding/recipe-client.js";
 import { GetIOSAppScreen } from "@/domains/onboarding/screens/get-ios-app-screen.js";
 import { GetMacOSAppScreen } from "@/domains/onboarding/screens/get-macos-app-screen.js";
 import { GoogleConnectScreen } from "@/domains/onboarding/screens/google-connect-screen.js";
@@ -20,30 +23,29 @@ import { assistantsActiveRetrieveOptions } from "@/generated/api/@tanstack/react
 import { usePrefilledInput } from "@/hooks/use-prefilled-input.js";
 import {
   setPendingAssistantName,
-  setPendingInitialMessage,
   setPendingPreChatContext,
   type PreChatOnboardingContext,
-} from "@/domains/onboarding/prechat.js";
+} from "@/domains/onboarding/prechat";
 import {
   DEFAULT_GROUP_ID,
   sampleSuggestionNames,
-} from "@/domains/onboarding/prechat-names.js";
+} from "@/domains/onboarding/prechat-names";
 import {
   GOOGLE_TOOL_IDS,
   stripOtherPrefix,
-} from "@/domains/onboarding/prechat-tools.js";
+} from "@/domains/onboarding/prechat-tools";
 import {
   readOnboardingCompleted,
   readTosAccepted,
   useOnboardingCompleted,
-} from "@/domains/onboarding/prefs.js";
+} from "@/domains/onboarding/prefs";
 import {
   clearPrivacyConsent,
   hasRecentPrivacyConsent,
 } from "@/domains/onboarding/signals.js";
-import { resolveUserCohort } from "@/domains/onboarding/utm-cohort.js";
 import { useIsNativePlatform } from "@/runtime/native-auth.js";
 import { useAuthStore } from "@/stores/auth-store.js";
+import { useRootOutletContext } from "@/root-layout";
 import { routes } from "@/utils/routes.js";
 
 /**
@@ -68,8 +70,14 @@ export function PreChatFlow() {
   const firstName = user?.firstName ?? "";
   const lastName = user?.lastName ?? "";
   const isNative = useIsNativePlatform();
+  const {
+    lifecycle: { checkAssistant },
+  } = useRootOutletContext();
   const [, setOnboardingCompleted] = useOnboardingCompleted();
-  const [cohort, setCohort] = useState<string | null>(null);
+  const [recipe, setRecipe] = useState<OnboardingRecipe | null>(null);
+  const [recipeLoadState, setRecipeLoadState] = useState<"loading" | "ready">(
+    "loading",
+  );
 
   const isMacOSWeb = useIsMacOSWeb();
   const isIOSWeb = useIsIOSWeb();
@@ -122,6 +130,11 @@ export function PreChatFlow() {
     enabled: !isAuthLoading && isLoggedIn,
   });
 
+  const navigateToChatAfterLifecycleRefresh = useCallback(async () => {
+    await checkAssistant();
+    void navigate(`${routes.assistant}?onboarding=1`, { replace: true });
+  }, [checkAssistant, navigate]);
+
   type ConsentSnapshot = {
     userId: string | null;
     decision: "pending" | "ok" | "missing";
@@ -148,13 +161,31 @@ export function PreChatFlow() {
   }, [consent, isAuthLoading, isLoggedIn, userId]);
 
   useEffect(() => {
-    if (isAuthLoading || !isLoggedIn) return;
+    if (isAuthLoading || !isLoggedIn) {
+      setRecipe(null);
+      setRecipeLoadState("loading");
+      return;
+    }
+    if (isNative) {
+      setRecipe(null);
+      setRecipeLoadState("ready");
+      return;
+    }
     let cancelled = false;
-    void resolveUserCohort().then((resolved) => {
-      if (!cancelled && resolved) setCohort(resolved);
-    });
+    setRecipe(null);
+    setRecipeLoadState("loading");
+    void fetchOnboardingRecipe()
+      .then((fetched) => {
+        if (!cancelled) setRecipe(fetched);
+      })
+      .catch(() => {
+        if (!cancelled) setRecipe(null);
+      })
+      .finally(() => {
+        if (!cancelled) setRecipeLoadState("ready");
+      });
     return () => { cancelled = true; };
-  }, [isAuthLoading, isLoggedIn]);
+  }, [isAuthLoading, isLoggedIn, isNative, userId]);
 
   useEffect(() => {
     if (isAuthLoading) return;
@@ -163,7 +194,7 @@ export function PreChatFlow() {
       return;
     }
     if (readOnboardingCompleted()) {
-      void navigate(`${routes.assistant}?onboarding=1`, { replace: true });
+      void navigateToChatAfterLifecycleRefresh();
       return;
     }
     if (consentDecision === "missing" && !isNative) {
@@ -177,14 +208,15 @@ export function PreChatFlow() {
     isLoggedIn,
     isNative,
     navigate,
+    navigateToChatAfterLifecycleRefresh,
     setOnboardingCompleted,
     userId,
   ]);
 
-  // ── Content-automation cohort: skip all pre-chat screens (web only) ──
+  // ── Recipe-driven auto-skip: skip all pre-chat screens (web only) ──
   const autoSkippedRef = useRef(false);
   useEffect(() => {
-    if (cohort !== "content-automation" || isNative) return;
+    if (!recipe?.skipPrechat || isNative) return;
     if (isAuthLoading || !isLoggedIn || consentDecision !== "ok") return;
     if (readOnboardingCompleted()) return;
     if (autoSkippedRef.current) return;
@@ -192,25 +224,27 @@ export function PreChatFlow() {
 
     const context: PreChatOnboardingContext = {
       tools: [],
-      tasks: ["writing", "research", "project-management"],
-      tone: DEFAULT_GROUP_ID,
+      tasks: recipe.tasks,
+      tone: recipe.tone,
       googleConnected: false,
-      cohort: "content-automation",
-      initialMessage: "I want to write articles that rank better for GEO.",
+      cohort: recipe.cohort,
+      initialMessage: recipe.initialMessage,
+      bootstrapTemplate: recipe.bootstrapTemplate,
+      skills: recipe.skills,
     };
     setPendingPreChatContext(context);
     try {
       setOnboardingCompleted(true);
     } catch (err) {
       Sentry.captureException(err, {
-        tags: { context: "prechat_auto_skip_content_automation" },
+        tags: { context: "prechat_auto_skip_recipe" },
       });
     }
     clearPrivacyConsent();
-    void navigate(`${routes.assistant}?onboarding=1`, { replace: true });
-  }, [cohort, isNative, isAuthLoading, isLoggedIn, consentDecision, navigate, setOnboardingCompleted]);
+    void navigateToChatAfterLifecycleRefresh();
+  }, [recipe, isNative, isAuthLoading, isLoggedIn, consentDecision, navigateToChatAfterLifecycleRefresh, setOnboardingCompleted]);
 
-  function finish(connectedScopes?: string[]): void {
+  async function finish(connectedScopes?: string[]): Promise<void> {
     const context: PreChatOnboardingContext = {
       tools: stripOtherPrefix([...selectedTools]),
       tasks: [...selectedTasks].sort(),
@@ -236,7 +270,6 @@ export function PreChatFlow() {
 
     setPendingPreChatContext(context);
     if (trimmedAssistant) setPendingAssistantName(trimmedAssistant);
-    setPendingInitialMessage(context.initialMessage!);
     try {
       setOnboardingCompleted(true);
     } catch (err) {
@@ -245,20 +278,22 @@ export function PreChatFlow() {
       });
     }
     clearPrivacyConsent();
-    void navigate(`${routes.assistant}?onboarding=1`, { replace: true });
+    await navigateToChatAfterLifecycleRefresh();
   }
 
   const consentReady = isNative || consentDecision === "ok";
+  const recipeReady = isNative || recipeLoadState === "ready";
   if (
     isAuthLoading ||
     !isLoggedIn ||
     !consentReady ||
+    !recipeReady ||
     readOnboardingCompleted()
   ) {
     return null;
   }
 
-  if (cohort === "content-automation" && !isNative) {
+  if (recipe?.skipPrechat && !isNative) {
     return null;
   }
 
@@ -312,7 +347,6 @@ export function PreChatFlow() {
       if (trimmedAssistant) {
         setPendingAssistantName(trimmedAssistant);
       }
-      setPendingInitialMessage(context.initialMessage);
       if (screenStorageKey) {
         try {
           sessionStorage.removeItem(screenStorageKey);
@@ -386,7 +420,7 @@ export function PreChatFlow() {
     } else if (showAppStep) {
       setScreen(5);
     } else {
-      finish();
+      void finish();
     }
   };
 
@@ -432,18 +466,38 @@ export function PreChatFlow() {
           if (showAppStep) {
             setScreen(5);
           } else {
-            finish(scopes);
+            void finish(scopes);
           }
         }}
-        onSkip={showAppStep ? () => setScreen(5) : () => finish()}
+        onSkip={
+          showAppStep
+            ? () => setScreen(5)
+            : () => {
+                void finish();
+              }
+        }
         onBack={() => setScreen(3)}
       />
     );
   }
 
   if (screen === 5) {
-    if (isIOSWeb) return <GetIOSAppScreen onComplete={() => finish()} />;
-    return <GetMacOSAppScreen onComplete={() => finish()} />;
+    if (isIOSWeb) {
+      return (
+        <GetIOSAppScreen
+          onComplete={() => {
+            void finish();
+          }}
+        />
+      );
+    }
+    return (
+      <GetMacOSAppScreen
+        onComplete={() => {
+          void finish();
+        }}
+      />
+    );
   }
 
   return null;

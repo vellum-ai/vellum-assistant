@@ -1,19 +1,17 @@
 import { describe, expect, it } from "bun:test";
 
-import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers.js";
-import { chatContextQueryKey } from "@/domains/conversations/conversation-queries.js";
-import type { Conversation } from "@/domains/chat/api/conversations.js";
-import type { ChatContext } from "@/domains/chat/api/assistant.js";
+import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers";
+import { conversationsQueryKey } from "@/domains/conversations/conversation-queries";
+import type { Conversation } from "@/types/conversation-types";
 import {
   handleUsageUpdate,
-  handleConversationListInvalidated,
   handleConversationTitleUpdated,
   handleCompactionCircuitOpen,
   handleCompactionCircuitClosed,
   handleDiskPressureStatusChanged,
   handleIdentityChanged,
   handleAvatarUpdated,
-} from "@/domains/chat/utils/stream-handlers/metadata-handlers.js";
+} from "@/domains/chat/utils/stream-handlers/metadata-handlers";
 
 describe("handleUsageUpdate", () => {
   it("computes fill ratio and updates context window usage", () => {
@@ -77,29 +75,14 @@ describe("handleUsageUpdate", () => {
   });
 });
 
-describe("handleConversationListInvalidated", () => {
-  it("schedules conversation list refetch", () => {
-    const ctx = makeCtx();
-    handleConversationListInvalidated(
-      { type: "conversation_list_invalidated", reason: "created" },
-      ctx,
-    );
-    expect(ctx.scheduleConversationListRefetch).toHaveBeenCalled();
-  });
-});
-
 describe("handleConversationTitleUpdated", () => {
-  it("patches conversation title in the chat-context query cache", () => {
+  it("patches conversation title in the conversations query cache", () => {
     const ctx = makeCtx();
-    ctx.queryClient.setQueryData<ChatContext | null>(
-      chatContextQueryKey(ctx.assistantIdRef.current),
-      {
-        assistantId: ctx.assistantIdRef.current ?? "",
-        conversationKey: "conv-1",
-        conversations: [
-          { conversationKey: "conv-1", title: "Old Title" } as Conversation,
-        ],
-      },
+    ctx.queryClient.setQueryData<Conversation[]>(
+      conversationsQueryKey(ctx.assistantIdRef.current),
+      [
+        { conversationId: "conv-1", title: "Old Title" } as Conversation,
+      ],
     );
 
     handleConversationTitleUpdated(
@@ -111,11 +94,11 @@ describe("handleConversationTitleUpdated", () => {
       ctx,
     );
 
-    const cached = ctx.queryClient.getQueryData<ChatContext | null>(
-      chatContextQueryKey(ctx.assistantIdRef.current),
+    const cached = ctx.queryClient.getQueryData<Conversation[]>(
+      conversationsQueryKey(ctx.assistantIdRef.current),
     );
-    const conv = cached?.conversations.find(
-      (c) => c.conversationKey === "conv-1",
+    const conv = cached?.find(
+      (c) => c.conversationId === "conv-1",
     );
     expect(conv?.title).toBe("New Title");
   });

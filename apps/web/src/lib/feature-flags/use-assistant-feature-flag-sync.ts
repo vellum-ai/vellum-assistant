@@ -1,13 +1,14 @@
 import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 
-import { client } from "@/generated/api/client.gen.js";
-import { assertHasResponse } from "@/lib/api-errors.js";
-import { useAssistantFeatureFlagStore, setAssistantIdForFlags } from "@/lib/feature-flags/assistant-feature-flag-store.js";
+import { client } from "@/generated/api/client.gen";
+import { assertHasResponse } from "@/lib/api-errors";
+import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
 import {
   ASSISTANT_FLAG_DEFAULTS,
-  ldKeyToStoreKey,
-} from "@/lib/feature-flags/feature-flag-catalog.js";
+  flagKeyToStoreKey,
+} from "@/lib/feature-flags/feature-flag-catalog";
+import { useFlagQueryFreshness } from "@/lib/backwards-compat/flag-query-freshness";
 
 interface FeatureFlagEntry {
   key: string;
@@ -23,12 +24,22 @@ interface AssistantFlagValuesResponse {
 
 const VALID_KEYS = new Set(Object.keys(ASSISTANT_FLAG_DEFAULTS));
 
+export const ASSISTANT_FLAG_VALUES_QUERY_KEY = "assistant-feature-flag-values" as const;
+
+/**
+ * Shared so the Developer panel can layer a same-key observer on the
+ * exact same query and let TanStack Query dedupe the fetch.
+ */
+export function assistantFlagValuesQueryKey(assistantId: string | null) {
+  return [ASSISTANT_FLAG_VALUES_QUERY_KEY, assistantId] as const;
+}
+
 function mapFlags(
   entries: FeatureFlagEntry[],
 ): Record<string, boolean> {
   const mapped: Record<string, boolean> = {};
   for (const entry of entries) {
-    const storeKey = ldKeyToStoreKey(entry.key);
+    const storeKey = flagKeyToStoreKey(entry.key);
     if (VALID_KEYS.has(storeKey)) {
       mapped[storeKey] = entry.enabled;
     }
@@ -36,7 +47,7 @@ function mapFlags(
   return mapped;
 }
 
-async function fetchAssistantFlagValues(
+export async function fetchAssistantFlagValues(
   assistantId: string,
 ): Promise<AssistantFlagValuesResponse> {
   const { data, error, response } = await client.get<
@@ -60,6 +71,10 @@ async function fetchAssistantFlagValues(
   return data as AssistantFlagValuesResponse;
 }
 
+/**
+ * Fetches `/v1/assistants/:id/feature-flags` once per assistant and
+ * resets the store on assistant switch. Mount on `RootLayout`.
+ */
 export function useAssistantFeatureFlagSync(assistantId: string | null) {
   const enabled = assistantId !== null;
   const prevAssistantId = useRef(assistantId);
@@ -72,15 +87,14 @@ export function useAssistantFeatureFlagSync(assistantId: string | null) {
       useAssistantFeatureFlagStore.getState().resetForAssistantSwitch();
       prevAssistantId.current = assistantId;
     }
-    setAssistantIdForFlags(assistantId);
   }, [assistantId]);
 
+  const freshness = useFlagQueryFreshness();
   const { data } = useQuery({
-    queryKey: ["assistant-feature-flag-values", assistantId] as const,
+    queryKey: assistantFlagValuesQueryKey(assistantId),
     queryFn: () => fetchAssistantFlagValues(assistantId!),
     enabled,
-    staleTime: 5_000,
-    refetchInterval: 5_000,
+    ...freshness,
     retry: 1,
   });
 
@@ -95,3 +109,5 @@ export function useAssistantFeatureFlagSync(assistantId: string | null) {
     }
   }, [data]);
 }
+
+

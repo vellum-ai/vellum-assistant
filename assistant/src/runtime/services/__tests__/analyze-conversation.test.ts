@@ -46,6 +46,7 @@ mock.module("../../../memory/conversation-crud.js", () => ({
   addMessage: mockAddMessage,
   findAnalysisConversationFor: mockFindAnalysisConversationFor,
   getConversationSource: mockGetConversationSource,
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 mock.module("../../../export/transcript-formatter.js", () => ({
@@ -80,6 +81,7 @@ const testHub = new AssistantEventHub();
 mock.module("../../assistant-event-hub.js", () => ({
   AssistantEventHub,
   assistantEventHub: testHub,
+  broadcastMessage: async () => {},
 }));
 
 import { analyzeConversation } from "../analyze-conversation.js";

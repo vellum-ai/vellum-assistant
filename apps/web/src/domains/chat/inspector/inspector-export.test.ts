@@ -1,17 +1,16 @@
 import { describe, expect, test } from "bun:test";
 
-import type { LlmLogPayload } from "@/domains/chat/inspector/inspector-payload-api.js";
-import type { LlmContextResponse } from "@/domains/chat/types/inspector-types.js";
+import type { LlmLogPayload } from "@/domains/chat/inspector/inspector-payload-api";
+import type { LlmContextResponse } from "@/domains/chat/types/inspector-types";
 
 import {
   buildInspectorExportFilename,
   buildInspectorExportFiles,
-} from "@/domains/chat/inspector/inspector-export.js";
+} from "@/domains/chat/inspector/inspector-export";
 
 function makeContext(): LlmContextResponse {
   return {
     conversationId: "conv/with spaces",
-    conversationKey: "conversation-key",
     conversationKind: "chat",
     conversationTotalEstimatedCostUsd: 0.0123,
     memoryRecall: {
@@ -118,7 +117,6 @@ describe("inspector export", () => {
       JSON.parse(fileContents(files, "conversation/actual-user-messages.json")),
     ).toMatchObject({
       conversationId: "conv/with spaces",
-      conversationKey: "conversation-key",
       messageId: null,
       messages: [
         {
@@ -139,4 +137,5 @@ describe("inspector export", () => {
       messages: [{ role: "user", content: "provider envelope" }],
     });
   });
+
 });

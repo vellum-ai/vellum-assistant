@@ -16,6 +16,7 @@ Create and edit long-form documents using the built-in rich text editor. Documen
 
 ## Tools
 
+- **document_open** - Opens an existing document in the editor panel by `surface_id`. Use this when a document exists but isn't visible in the editor — for example after the user switches devices, refreshes the page, or when the editor panel was closed. Fetches the document from storage and sends it to the client.
 - **document_create** - Opens a new document editor with an optional title and initial Markdown content. Returns a `surface_id` for subsequent updates.
 - **document_update** - Updates content in an open document editor by `surface_id`. Supports `replace` (overwrite) and `append` (add to end) modes.
 - **document_read** - Reads the current content of a document by `surface_id` when it belongs to the current conversation, or when the current actor is the guardian/local user. Use to verify content before editing.
@@ -28,11 +29,13 @@ Create and edit long-form documents using the built-in rich text editor. Documen
 
 When the user asks to see, open, or pull up a document:
 
-1. Check the `<active_documents>` block in your context — it lists all documents in this conversation with their `surface_id` and title. If the document is there, call `document_read` with its `surface_id`. Done in one call.
+1. Check the `<active_documents>` block in your context — it lists all documents in this conversation with their `surface_id` and title.
 2. If the document is NOT in `<active_documents>`, call `document_list` with a `query` matching the document title. For guardian/local users, this searches across previous conversations and sessions.
-3. Once you have the `surface_id`, call `document_read` to retrieve the content.
+3. Once you have the `surface_id`, call `document_open` to open the editor panel. This both surfaces the editor on the client and returns the document content. If the user only needs the text (not the editor), use `document_read` instead.
 
 **Never** search the filesystem, conversation history, or archives to find a document. Always use `document_list` with a `query`.
+
+**If the user says they can't see a document you know exists** (e.g. after switching from macOS to web, or after a page refresh), call `document_open` with the `surface_id` to re-surface the editor panel on their current client.
 
 ## Creating a new document
 
@@ -106,6 +109,12 @@ Users can leave inline comments on documents. Open comments are surfaced in a `<
 2. For each comment, edit the document to address the feedback.
 3. Call `comment_resolve` on comments you have addressed.
 4. If a comment is ambiguous, call `comment_reply` to ask for clarification instead of guessing.
+
+## Anti-Patterns
+
+- **Don't use `app_create` for blog posts, articles, or written content.** Use `document_create` — apps are for interactive content with state/data.
+- **Don't output the full content in chat.** The content goes in the document editor, not in the chat response. Acknowledge what you're doing and stream to the editor.
+- **Don't wait to generate everything before sending.** Stream content in chunks via `document_update` with `mode: "append"` so users see progress in real time.
 
 ## Usage Notes
 

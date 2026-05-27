@@ -209,6 +209,20 @@ cat >> "${VELLUM_COMP_DIR}/completions.zsh" << 'ZSH_COMP_END'
 compdef _vellum vellum
 ZSH_COMP_END
 
+# — Ensure ~/.bun/bin is on PATH in shell rc files —
+BUN_BIN="${HOME}/.bun/bin"
+if [ -f "${HOME}/.bashrc" ]; then
+  if ! grep -q "${BUN_BIN}" "${HOME}/.bashrc"; then
+    printf '\nexport PATH="%s:$PATH"\n' "${BUN_BIN}" >> "${HOME}/.bashrc"
+  fi
+fi
+
+if [ -f "${HOME}/.zshrc" ]; then
+  if ! grep -q "${BUN_BIN}" "${HOME}/.zshrc"; then
+    printf '\nexport PATH="%s:$PATH"\n' "${BUN_BIN}" >> "${HOME}/.zshrc"
+  fi
+fi
+
 # — Source completions from shell rc files —
 if [ -f "${HOME}/.bashrc" ]; then
   if ! grep -q '.config/vellum/completions/completions.bash' "${HOME}/.bashrc"; then

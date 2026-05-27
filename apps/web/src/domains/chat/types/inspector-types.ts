@@ -6,69 +6,13 @@
  * route is reachable on web through the gateway's runtime-proxy
  * wildcard at
  * `/v1/assistants/{assistantId}/conversations/llm-context/`.
+ *
+ * The per-row shape (`LLMRequestLogEntry`, `LLMCallSummary`,
+ * `LLMContextSection`) is the canonical wire contract and lives in the
+ * `@vellumai/assistant-api` package; import those types from there.
  */
 
-/**
- * Provider-normalized summary the daemon attaches to each request log.
- * `null` / missing fields are common and the formatters fall back to a
- * shared "Unavailable" placeholder.
- */
-export interface LLMCallSummary {
-  provider?: string | null;
-  model?: string | null;
-  status?: string | null;
-  inputTokens?: number | null;
-  outputTokens?: number | null;
-  cacheCreationInputTokens?: number | null;
-  cacheReadInputTokens?: number | null;
-  stopReason?: string | null;
-  requestMessageCount?: number | null;
-  requestToolCount?: number | null;
-  responseMessageCount?: number | null;
-  responseToolCallCount?: number | null;
-  responsePreview?: string | null;
-  toolCallNames?: string[] | null;
-  estimatedCostUsd?: number | null;
-  /**
-   * Wall-clock duration in milliseconds. Not in the macOS reference
-   * shape today but the daemon already populates it for some providers
-   * — surfaced when present so web debugging gets the extra signal.
-   */
-  durationMs?: number | null;
-}
-
-/**
- * A single normalized request- or response-side section. The daemon
- * splits a provider payload into kind-tagged blocks before returning;
- * each block becomes one card in the Prompt / Response tabs.
- */
-export interface LLMContextSection {
-  kind: string;
-  label?: string | null;
-  role?: string | null;
-  text?: string | null;
-  toolName?: string | null;
-  data?: unknown;
-  language?: string | null;
-}
-
-/**
- * One LLM request log row. `requestPayload` / `responsePayload` are
- * always `null` on the list endpoint — the raw JSON is fetched
- * lazily through `/v1/llm-request-logs/{logId}/payload` (added in a
- * follow-up PR).
- */
-export interface LLMRequestLogEntry {
-  id: string;
-  createdAt: number;
-  requestPayload: null;
-  responsePayload: null;
-  provider?: string | null;
-  summary?: LLMCallSummary | null;
-  requestSections?: LLMContextSection[] | null;
-  responseSections?: LLMContextSection[] | null;
-  agentLoopExitReason?: string | null;
-}
+import type { LLMRequestLogEntry } from "@vellumai/assistant-api";
 
 /**
  * A single recalled memory candidate, normalized by the daemon from the

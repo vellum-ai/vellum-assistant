@@ -7,15 +7,15 @@ import { Card } from "@vellum/design-library/components/card";
 import { Dropdown } from "@vellum/design-library/components/dropdown";
 import {
   assistantsListOptions,
-} from "@/generated/api/@tanstack/react-query.gen.js";
+} from "@/generated/api/@tanstack/react-query.gen";
 import {
   getGlobalThresholds,
   setGlobalThresholds,
-} from "@/domains/chat/api/threshold-api.js";
+} from "@/lib/threshold-api";
 import {
   THRESHOLD_PRESETS,
   presetFromThreshold,
-} from "@/domains/chat/utils/threshold-presets.js";
+} from "@/utils/threshold-presets";
 
 function Divider() {
   return (

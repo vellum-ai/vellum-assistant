@@ -3,7 +3,6 @@ import { extname } from "node:path";
 import { supportsHostProxy } from "../../channels/types.js";
 import { HostFileProxy } from "../../daemon/host-file-proxy.js";
 import { RiskLevel } from "../../permissions/types.js";
-import type { ToolDefinition } from "../../providers/types.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
 import { FileSystemOps } from "../shared/filesystem/file-ops-service.js";
 import {
@@ -18,13 +17,10 @@ class HostFileReadTool implements Tool {
   description =
     "Read the contents of a file on your guardian's device, including images (JPEG, PNG, GIF, WebP). For files on your own machine, use file_read instead.";
   category = "host-filesystem";
+  executionTarget = "host" as const;
   defaultRiskLevel = RiskLevel.Medium;
 
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
+  input_schema = {
         type: "object",
         properties: {
           path: {
@@ -46,9 +42,7 @@ class HostFileReadTool implements Tool {
           },
         },
         required: ["path"],
-      },
-    };
-  }
+      };
 
   async execute(
     input: Record<string, unknown>,

@@ -61,7 +61,7 @@ When reviewing PRs that add or modify design library components, verify:
 - [ ] Component uses function declaration, not `const` + arrow
 - [ ] CVA-based components export their variants function
 - [ ] No string interpolation for Tailwind classes
-- [ ] `.js` extension on all relative imports (NodeNext resolution)
+- [ ] No `.js` extensions on relative imports (Bundler resolution)
 
 ## Commands
 

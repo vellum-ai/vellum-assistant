@@ -8,7 +8,6 @@
  */
 
 import { RiskLevel } from "../../permissions/types.js";
-import type { ToolDefinition } from "../../providers/types.js";
 import type { Tool, ToolExecutionResult } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -42,12 +41,9 @@ export const uiShowTool: Tool = {
   category: "ui-surface",
   defaultRiskLevel: RiskLevel.Low,
   executionMode: "proxy",
+  executionTarget: "host",
 
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
+  input_schema: {
         type: "object",
         properties: {
           surface_type: {
@@ -109,8 +105,6 @@ export const uiShowTool: Tool = {
         },
         required: ["surface_type", "data"],
       },
-    };
-  },
 
   execute: proxyExecute,
 };
@@ -127,12 +121,9 @@ const uiUpdateTool: Tool = {
   category: "ui-surface",
   defaultRiskLevel: RiskLevel.Low,
   executionMode: "proxy",
+  executionTarget: "host",
 
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
+  input_schema: {
         type: "object",
         properties: {
           surface_id: {
@@ -146,8 +137,6 @@ const uiUpdateTool: Tool = {
         },
         required: ["surface_id", "data"],
       },
-    };
-  },
 
   execute: proxyExecute,
 };
@@ -162,12 +151,9 @@ const uiDismissTool: Tool = {
   category: "ui-surface",
   defaultRiskLevel: RiskLevel.Low,
   executionMode: "proxy",
+  executionTarget: "host",
 
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
+  input_schema: {
         type: "object",
         properties: {
           surface_id: {
@@ -177,8 +163,6 @@ const uiDismissTool: Tool = {
         },
         required: ["surface_id"],
       },
-    };
-  },
 
   execute: proxyExecute,
 };

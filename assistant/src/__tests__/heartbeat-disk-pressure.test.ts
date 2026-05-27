@@ -74,6 +74,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   // addMessage. Disk-pressure short-circuits before addMessage ever runs,
   // but the mock module must still expose every name the real module does.
   addMessage: () => Promise.resolve({ id: "mock-msg-id" }),
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 const mockProcessMessage = mock(() => Promise.resolve({ messageId: "msg-1" }));
@@ -91,6 +92,10 @@ mock.module("../notifications/emit-signal.js", () => ({
 mock.module("../prompts/persona-resolver.js", () => ({
   GUARDIAN_PERSONA_TEMPLATE: "# User Profile\n",
   resolveGuardianPersona: () => "# User Profile\n",
+  // buildSystemPrompt now uses resolveUserSlug (for ctx) instead of
+  // resolvePersonaContext — give the mock a noop so the import
+  // doesn't fail.
+  resolveUserSlug: () => null,
 }));
 
 mock.module("../memory/conversation-title-service.js", () => ({

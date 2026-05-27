@@ -1,6 +1,6 @@
 import { type ComponentProps, type ReactNode } from "react";
 
-import { cn } from "../utils/cn.js";
+import { cn } from "../utils/cn";
 
 export interface SkillRowProps extends Omit<ComponentProps<"div">, "title"> {
   icon?: ReactNode;

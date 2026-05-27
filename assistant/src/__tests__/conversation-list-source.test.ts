@@ -44,9 +44,10 @@ mock.module("../config/loader.js", () => ({
 }));
 
 import { createConversation } from "../memory/conversation-crud.js";
-import { getDb, resetDb } from "../memory/db-connection.js";
+import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
+import { resetDbForTesting } from "./db-test-helpers.js";
 
 initializeDb();
 
@@ -68,7 +69,7 @@ describe("GET /v1/conversations includes source discriminator", () => {
 
   afterAll(async () => {
     await server?.stop();
-    resetDb();
+    resetDbForTesting();
   });
 
   test("returns source for every listed conversation", async () => {

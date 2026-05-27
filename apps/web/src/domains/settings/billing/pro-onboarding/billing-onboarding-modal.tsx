@@ -3,22 +3,22 @@ import { useCallback, useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { Modal } from "@vellum/design-library/components/modal";
-import type { MachineTierEnum } from "@/generated/api/types.gen.js";
+import type { MachineTierEnum } from "@/generated/api/types.gen";
 import {
   assistantsActiveRetrieveOptions,
   organizationsBillingSubscriptionOnboardingRetrieveOptions,
   organizationsBillingSubscriptionOnboardingRetrieveQueryKey,
   organizationsBillingSubscriptionRetrieveOptions,
   organizationsBillingSubscriptionRetrieveQueryKey,
-} from "@/generated/api/@tanstack/react-query.gen.js";
+} from "@/generated/api/@tanstack/react-query.gen";
 
-import { CompleteState } from "./complete-state.js";
-import { DomainStep } from "./domain-step.js";
-import { FetchErrorState, TimeoutState } from "./error-states.js";
-import { PendingState } from "./pending-state.js";
-import { SetupStep } from "./setup-step.js";
-import { PRO_POLL_INTERVAL_MS, PRO_POLL_TIMEOUT_MS } from "./utils.js";
-import { WelcomeState } from "./welcome-state.js";
+import { CompleteState } from "./complete-state";
+import { DomainStep } from "./domain-step";
+import { FetchErrorState, TimeoutState } from "./error-states";
+import { PendingState } from "./pending-state";
+import { SetupStep } from "./setup-step";
+import { PRO_POLL_INTERVAL_MS, PRO_POLL_TIMEOUT_MS } from "./utils";
+import { WelcomeState } from "./welcome-state";
 
 type WizardStep = "confirm-pro" | "welcome" | "setup" | "domain" | "complete";
 

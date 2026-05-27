@@ -223,8 +223,9 @@ export type HostBrowserSessionInvalidatedResolution =
 export function resolveHostBrowserSessionInvalidated(frame: {
   targetId?: unknown;
   reason?: unknown;
+  clientId?: unknown;
 }): HostBrowserSessionInvalidatedResolution {
-  const { targetId, reason } = frame;
+  const { targetId, reason, clientId } = frame;
 
   if (targetId !== undefined && typeof targetId !== "string") {
     return {
@@ -234,6 +235,9 @@ export function resolveHostBrowserSessionInvalidated(frame: {
       message: "targetId must be a string when present",
     };
   }
+
+  const resolvedClientId =
+    typeof clientId === "string" && clientId.length > 0 ? clientId : undefined;
 
   if (typeof targetId === "string" && targetId.length > 0) {
     markTargetInvalidated(
@@ -245,7 +249,7 @@ export function resolveHostBrowserSessionInvalidated(frame: {
     // Without this, a user closing the pinned tab manually would see
     // their next browser command fail with a `cdp_session_not_found`
     // until the daemon process restarts.
-    clearPinnedTabByTabId(targetId);
+    clearPinnedTabByTabId(targetId, resolvedClientId);
   }
 
   return { ok: true };
@@ -387,6 +391,10 @@ export const ROUTES: RouteDefinition[] = [
         .optional()
         .describe("CDP target that was detached"),
       reason: z.string().optional().describe("Detach reason"),
+      clientId: z
+        .string()
+        .optional()
+        .describe("Extension client ID that reported the invalidation"),
     }),
     responseBody: z.object({
       accepted: z.boolean(),

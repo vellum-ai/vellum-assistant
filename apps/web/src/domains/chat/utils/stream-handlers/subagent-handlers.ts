@@ -1,6 +1,6 @@
-import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
-import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types.js";
-import type { SubagentSpawnedEvent, SubagentStatusChangedEvent, SubagentEventWrapperEvent } from "@/domains/chat/api/event-types.js";
+import { useSubagentStore } from "@/domains/subagents/subagent-store";
+import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
+import type { SubagentSpawnedEvent, SubagentStatusChangedEvent, SubagentEventWrapperEvent } from "@/domains/chat/api/event-types";
 
 export function handleSubagentSpawned(
   event: SubagentSpawnedEvent,
@@ -12,7 +12,8 @@ export function handleSubagentSpawned(
     objective: event.objective,
     isFork: event.isFork,
     timestamp: Date.now(),
-    parentMessageStableId: ctx.currentAssistantStableIdRef.current,
+    parentMessageStableId: ctx.currentAssistantMessageIdRef.current,
+    parentToolUseId: event.parentToolUseId,
   });
 }
 
@@ -38,9 +39,28 @@ export function handleSubagentEvent(
   if (event.conversationId) {
     store.setConversationId(event.subagentId, event.conversationId);
   }
+
+  const inner = event.event;
+  if (inner.type === "usage_progress") {
+    const data = inner as unknown as Record<string, unknown>;
+    const inputTokens =
+      typeof data.inputTokens === "number" ? data.inputTokens : 0;
+    const outputTokens =
+      typeof data.outputTokens === "number" ? data.outputTokens : 0;
+    const estimatedCost =
+      typeof data.estimatedCost === "number" ? data.estimatedCost : 0;
+    store.updateUsage({
+      subagentId: event.subagentId,
+      inputTokens,
+      outputTokens,
+      estimatedCost,
+    });
+    return;
+  }
+
   store.receiveEvent({
     subagentId: event.subagentId,
-    event: event.event,
+    event: inner,
     timestamp: Date.now(),
   });
 }

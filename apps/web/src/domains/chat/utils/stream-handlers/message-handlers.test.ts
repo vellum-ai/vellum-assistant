@@ -1,13 +1,14 @@
 import { describe, expect, it } from "bun:test";
 
-import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers.js";
+import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers";
 import {
   handleAssistantTextDelta,
   handleAssistantActivityState,
   handleMessageComplete,
   handleGenerationHandoff,
   handleGenerationCancelled,
-} from "@/domains/chat/utils/stream-handlers/message-handlers.js";
+} from "@/domains/chat/utils/stream-handlers/message-handlers";
+import { useSubagentStore } from "@/domains/subagents/subagent-store";
 
 describe("handleAssistantTextDelta", () => {
   it("cancels reconciliation and dispatches ASSISTANT_TEXT_DELTA", () => {
@@ -21,14 +22,25 @@ describe("handleAssistantTextDelta", () => {
     expect(ctx.setMessages).toHaveBeenCalled();
   });
 
-  it("creates a new bubble when needsNewBubbleRef is true", () => {
-    const ctx = makeCtx({ needsNewBubbleRef: { current: true } });
+  it("creates a new bubble when the tail is not a streaming assistant", () => {
+    // Empty messages → tail derivation says "create new bubble".
+    const ctx = makeCtx();
     handleAssistantTextDelta(
       { type: "assistant_text_delta", text: "Hi" },
       ctx,
     );
-    expect(ctx.needsNewBubbleRef.current).toBe(false);
     expect(ctx.setMessages).toHaveBeenCalled();
+    // Apply the updater to an empty array to confirm a new bubble emerges.
+    const updater = (ctx.setMessages as unknown as ReturnType<typeof Object>).mock.calls[0][0] as (
+      prev: never[],
+    ) => unknown[];
+    const next = updater([]);
+    expect(next).toHaveLength(1);
+    expect(next[0]).toMatchObject({
+      role: "assistant",
+      isStreaming: true,
+      content: "Hi",
+    });
   });
 });
 
@@ -45,14 +57,13 @@ describe("handleAssistantActivityState", () => {
         reason: "thinking_delta",
         conversationId: "conv-1",
       },
-      1,
       ctx,
     );
     expect(ctx.turnActions.onActivityThinking).not.toHaveBeenCalled();
     expect(ctx.turnActions.completeTurn).not.toHaveBeenCalled();
   });
 
-  it("updates version and handles idle phase", () => {
+  it("updates version and handles idle phase without starting reconcile", () => {
     const ctx = makeCtx();
     handleAssistantActivityState(
       {
@@ -63,15 +74,13 @@ describe("handleAssistantActivityState", () => {
         reason: "message_complete",
         conversationId: "conv-1",
       },
-      1,
       ctx,
     );
     expect(ctx.lastActivityVersionRef.current.get("conv-1")).toBe(1);
     expect(ctx.setMessages).toHaveBeenCalled();
-    expect(ctx.needsNewBubbleRef.current).toBe(true);
     expect(ctx.turnActions.completeTurn).toHaveBeenCalled();
     expect(ctx.clearProcessingKey).toHaveBeenCalledWith("conv-1");
-    expect(ctx.startReconciliationLoop).toHaveBeenCalledWith(1);
+    expect(ctx.startReconciliationLoop).not.toHaveBeenCalled();
   });
 
   it("calls onActivityThinking for thinking phase", () => {
@@ -85,7 +94,6 @@ describe("handleAssistantActivityState", () => {
         reason: "tool_result_received",
         conversationId: "conv-1",
       },
-      1,
       ctx,
     );
     expect(ctx.lastActivityVersionRef.current.get("conv-1")).toBe(2);
@@ -106,7 +114,6 @@ describe("handleAssistantActivityState", () => {
         statusText: "Processing bash results",
         conversationId: "conv-1",
       },
-      1,
       ctx,
     );
     expect(ctx.turnActions.onActivityThinking).toHaveBeenCalledWith("Processing bash results");
@@ -122,7 +129,6 @@ describe("handleAssistantActivityState", () => {
         anchor: "assistant_turn",
         reason: "first_text_delta",
       },
-      1,
       ctx,
     );
     expect(ctx.lastActivityVersionRef.current.get(
@@ -134,23 +140,98 @@ describe("handleAssistantActivityState", () => {
 });
 
 describe("handleMessageComplete", () => {
-  it("finalizes message and starts reconciliation", () => {
+  it("finalizes message and completes turn without starting reconcile", () => {
     const ctx = makeCtx();
     handleMessageComplete(
       { type: "message_complete", messageId: "msg-1", content: "Done" },
-      1,
       ctx,
     );
     expect(ctx.setMessages).toHaveBeenCalled();
-    expect(ctx.needsNewBubbleRef.current).toBe(true);
     expect(ctx.turnActions.completeTurn).toHaveBeenCalled();
     expect(ctx.clearProcessingKey).toHaveBeenCalledWith("conv-1");
-    expect(ctx.startReconciliationLoop).toHaveBeenCalledWith(1);
+    expect(ctx.startReconciliationLoop).not.toHaveBeenCalled();
+  });
+
+  it("re-anchors a spawned subagent from the streaming id to the server messageId", () => {
+    useSubagentStore.getState().reset();
+    // Spawn stamped with the optimistic streaming bubble id.
+    useSubagentStore.getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "Researcher",
+      objective: "Investigate",
+      timestamp: 1,
+      parentMessageStableId: "stream-bubble-1",
+    });
+    expect(
+      useSubagentStore.getState().byParent.get("stream-bubble-1"),
+    ).toHaveLength(1);
+
+    const ctx = makeCtx({
+      currentAssistantMessageIdRef: { current: "stream-bubble-1" },
+    });
+    handleMessageComplete(
+      { type: "message_complete", messageId: "server-msg-1", content: "Done" },
+      ctx,
+    );
+
+    // Entry is now reachable via the durable server messageId.
+    const byServer = useSubagentStore.getState().byParent.get("server-msg-1");
+    expect(byServer).toHaveLength(1);
+    expect(byServer?.[0]?.subagentId).toBe("sa-1");
+    expect(useSubagentStore.getState().byId["sa-1"]?.parentMessageId).toBe(
+      "server-msg-1",
+    );
+  });
+
+  it("does not re-anchor when the event has no messageId", () => {
+    useSubagentStore.getState().reset();
+    useSubagentStore.getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "Researcher",
+      objective: "Investigate",
+      timestamp: 1,
+      parentMessageStableId: "stream-bubble-1",
+    });
+
+    const ctx = makeCtx({
+      currentAssistantMessageIdRef: { current: "stream-bubble-1" },
+    });
+    handleMessageComplete({ type: "message_complete", content: "Done" }, ctx);
+
+    expect(useSubagentStore.getState().byId["sa-1"]?.parentMessageId).toBe(
+      undefined,
+    );
+  });
+
+  it("does not re-anchor when there is no current assistant message id", () => {
+    useSubagentStore.getState().reset();
+    useSubagentStore.getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "Researcher",
+      objective: "Investigate",
+      timestamp: 1,
+      parentMessageStableId: "stream-bubble-1",
+    });
+
+    const ctx = makeCtx({
+      currentAssistantMessageIdRef: { current: undefined },
+    });
+    handleMessageComplete(
+      { type: "message_complete", messageId: "server-msg-1", content: "Done" },
+      ctx,
+    );
+
+    expect(
+      useSubagentStore.getState().byParent.get("server-msg-1"),
+    ).toBeUndefined();
+    expect(useSubagentStore.getState().byId["sa-1"]?.parentMessageId).toBe(
+      undefined,
+    );
   });
 });
 
 describe("handleGenerationHandoff", () => {
-  it("cancels reconciliation and sets needsNewBubble", () => {
+  it("cancels reconciliation and finalizes streaming tail", () => {
     const ctx = makeCtx();
     handleGenerationHandoff(
       { type: "generation_handoff", messageId: "msg-1" },
@@ -158,7 +239,7 @@ describe("handleGenerationHandoff", () => {
     );
     expect(ctx.cancelReconciliation).toHaveBeenCalled();
     expect(ctx.turnActions.handoffGeneration).toHaveBeenCalled();
-    expect(ctx.needsNewBubbleRef.current).toBe(true);
+    expect(ctx.setMessages).toHaveBeenCalled();
   });
 });
 
@@ -169,6 +250,5 @@ describe("handleGenerationCancelled", () => {
     expect(ctx.turnActions.cancelGeneration).toHaveBeenCalled();
     expect(ctx.clearProcessingKey).toHaveBeenCalledWith("conv-1");
     expect(ctx.setMessages).toHaveBeenCalled();
-    expect(ctx.needsNewBubbleRef.current).toBe(true);
   });
 });

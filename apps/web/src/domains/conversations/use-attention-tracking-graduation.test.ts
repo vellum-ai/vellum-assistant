@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
 
-import { decideGraduationDispatches } from "@/domains/conversations/use-attention-tracking.js";
+import { decideGraduationDispatches } from "@/domains/conversations/use-attention-tracking";
 
 // ---------------------------------------------------------------------------
 // Tests for the graduation-decision helper used by `useAttentionTracking`.
 //
 // The helper signals "do nothing" by returning [] when `pendingKeys` is
 // null (the hook passes null on bulk-fetch failure). Keys stay in
-// `processingKeys` with their snapshots intact; the next render retries.
+// `processingConversationIds` with their snapshots intact; the next render retries.
 // Conversations with real pending approvals keep their processing indicator
 // even when the bulk fetch fails.
 // ---------------------------------------------------------------------------

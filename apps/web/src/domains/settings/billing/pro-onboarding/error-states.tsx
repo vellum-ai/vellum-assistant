@@ -3,7 +3,7 @@ import { AlertCircle } from "lucide-react";
 import { Button } from "@vellum/design-library/components/button";
 import { Typography } from "@vellum/design-library/components/typography";
 
-import { IconBadge } from "./primitives.js";
+import { IconBadge } from "./primitives";
 
 export function FetchErrorState({ onGoToBilling }: { onGoToBilling: () => void }) {
   return (

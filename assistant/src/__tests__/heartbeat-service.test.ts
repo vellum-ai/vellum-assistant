@@ -112,6 +112,10 @@ let mockGuardianPersona: string | null = null;
 mock.module("../prompts/persona-resolver.js", () => ({
   GUARDIAN_PERSONA_TEMPLATE,
   resolveGuardianPersona: () => mockGuardianPersona,
+  // buildSystemPrompt now uses resolveUserSlug (for ctx) instead of
+  // resolvePersonaContext — give the mock a noop so the import
+  // doesn't fail.
+  resolveUserSlug: () => null,
 }));
 
 // Mock conversation store
@@ -155,6 +159,7 @@ mock.module("../memory/conversation-crud.js", () => ({
     createdConversations.push(opts);
     return { id: `conv-${++conversationIdCounter}`, ...opts };
   },
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 // Mock logger — capture warn calls for unreachable-credential assertions

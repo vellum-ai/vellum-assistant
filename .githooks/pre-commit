@@ -940,11 +940,11 @@ else
     echo -e "${YELLOW}⚠️  bun not found — skipping generic-examples check${NC}"
 fi
 
-# --- Prettier & Lint checks for assistant, cli, and gateway ---
+# --- Prettier & Lint checks for assistant, cli, gateway, and web ---
 # When files in these directories are staged, run prettier --check and eslint
 # on the staged files to catch formatting and lint issues before commit.
-
-DIRS_TO_CHECK=("assistant" "cli" "gateway")
+DIRS_WITH_PRETTIER=("assistant" "cli" "gateway")
+DIRS_TO_CHECK=("${DIRS_WITH_PRETTIER[@]}" "apps/web" "clients/web")
 
 # Detect bun location (reused by message contract check below)
 BUN="${BUN:-$(command -v bun 2>/dev/null || echo "$HOME/.bun/bin/bun")}"
@@ -969,32 +969,37 @@ for DIR in "${DIRS_TO_CHECK[@]}"; do
         continue
     fi
 
-    # --- Prettier check ---
-    # Filter to files prettier handles
-    PRETTIER_FILES=()
-    for F in "${STAGED_FILES[@]}"; do
-        if [[ "$F" =~ \.(ts|tsx|js|jsx|mjs|json|md|css|html|yaml|yml)$ ]]; then
-            PRETTIER_FILES+=("$F")
-        fi
+    # --- Prettier check (only for dirs with prettier configured) ---
+    _HAS_PRETTIER=0
+    for _PD in "${DIRS_WITH_PRETTIER[@]}"; do
+        [ "$DIR" = "$_PD" ] && _HAS_PRETTIER=1 && break
     done
 
-    if [ ${#PRETTIER_FILES[@]} -gt 0 ]; then
-        echo "🔍 Checking formatting in ${DIR}/..."
-        # Convert to paths relative to the directory
-        REL_FILES=()
-        for F in "${PRETTIER_FILES[@]}"; do
-            REL_FILES+=("${F#$DIR/}")
+    if [ $_HAS_PRETTIER -eq 1 ]; then
+        PRETTIER_FILES=()
+        for F in "${STAGED_FILES[@]}"; do
+            if [[ "$F" =~ \.(ts|tsx|js|jsx|mjs|json|md|css|html|yaml|yml)$ ]]; then
+                PRETTIER_FILES+=("$F")
+            fi
         done
-        if ! (cd "$DIR" && "$BUN" x prettier --check "${REL_FILES[@]}") 2>&1; then
-            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-            echo -e "${RED}Prettier formatting issues found in ${DIR}/!${NC}"
-            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-            echo ""
-            echo "Run: cd ${DIR} && bunx prettier --write ${REL_FILES[*]}"
-            echo "Then stage the fixed files and commit again."
-            exit 1
+
+        if [ ${#PRETTIER_FILES[@]} -gt 0 ]; then
+            echo "🔍 Checking formatting in ${DIR}/..."
+            REL_FILES=()
+            for F in "${PRETTIER_FILES[@]}"; do
+                REL_FILES+=("${F#$DIR/}")
+            done
+            if ! (cd "$DIR" && "$BUN" x prettier --check "${REL_FILES[@]}") 2>&1; then
+                echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+                echo -e "${RED}Prettier formatting issues found in ${DIR}/!${NC}"
+                echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+                echo ""
+                echo "Run: cd ${DIR} && bunx prettier --write ${REL_FILES[*]}"
+                echo "Then stage the fixed files and commit again."
+                exit 1
+            fi
+            echo "✅ Formatting OK in ${DIR}/"
         fi
-        echo "✅ Formatting OK in ${DIR}/"
     fi
 
     # --- Lint check ---
@@ -1023,12 +1028,19 @@ for DIR in "${DIRS_TO_CHECK[@]}"; do
     fi
 done
 
-# --- TypeScript type-check for assistant/ ---
+# --- TypeScript type-check for assistant/, apps/web/, and clients/web/ ---
 # Full-project tsc catches cross-file type errors that per-file lint misses.
-# Uses --incremental + --declaration false to keep warm runs at ~5s.
+# assistant/ uses --incremental + --declaration false to keep warm runs at ~5s.
 # Without --declaration false, the tsconfig's declaration:true causes tsc to
 # mark all 1600+ files as "pending emit" on every --noEmit run, defeating
 # incremental caching and falling back to ~20s full rebuilds.
+# apps/web/ and clients/web/ don't need that workaround (no declaration:true).
+
+# Shared worktree detection (skip tsc in worktrees — cold cache is slow).
+_GIT_DIR="$(git rev-parse --git-dir 2>/dev/null)"
+_GIT_COMMON="$(git rev-parse --git-common-dir 2>/dev/null)"
+_IS_WORKTREE=0
+[ "$_GIT_DIR" != "$_GIT_COMMON" ] && _IS_WORKTREE=1
 
 ASSISTANT_TS_STAGED=0
 while IFS= read -r -d '' FILE; do
@@ -1039,11 +1051,7 @@ while IFS= read -r -d '' FILE; do
 done < "$STAGED_ALL_FILE"
 
 if [ $ASSISTANT_TS_STAGED -eq 1 ]; then
-    # Skip tsc in worktrees — the cold cache costs ~20s and CI catches errors.
-    # git rev-parse --git-common-dir differs from --git-dir only in worktrees.
-    _GIT_DIR="$(git rev-parse --git-dir 2>/dev/null)"
-    _GIT_COMMON="$(git rev-parse --git-common-dir 2>/dev/null)"
-    if [ "$_GIT_DIR" != "$_GIT_COMMON" ]; then
+    if [ $_IS_WORKTREE -eq 1 ]; then
         echo "⏩ Skipping type check in worktree (CI will catch errors)"
     elif [ ! -x "$BUN" ]; then
         echo -e "${YELLOW}⚠️  bun not found — skipping type check for assistant/${NC}"
@@ -1060,6 +1068,37 @@ if [ $ASSISTANT_TS_STAGED -eq 1 ]; then
         echo "✅ Type check OK in assistant/"
     fi
 fi
+
+# Type-check apps/web/ and clients/web/
+TYPECHECK_WEB_DIRS=("apps/web" "clients/web")
+for WEB_DIR in "${TYPECHECK_WEB_DIRS[@]}"; do
+    WEB_TS_STAGED=0
+    while IFS= read -r -d '' FILE; do
+        if [[ "$FILE" == "$WEB_DIR/"*.ts ]] || [[ "$FILE" == "$WEB_DIR/"*.tsx ]]; then
+            WEB_TS_STAGED=1
+            break
+        fi
+    done < "$STAGED_ALL_FILE"
+
+    if [ $WEB_TS_STAGED -eq 1 ]; then
+        if [ $_IS_WORKTREE -eq 1 ]; then
+            echo "⏩ Skipping type check for ${WEB_DIR}/ in worktree (CI will catch errors)"
+        elif [ ! -x "$BUN" ]; then
+            echo -e "${YELLOW}⚠️  bun not found — skipping type check for ${WEB_DIR}/${NC}"
+        else
+            echo "🔍 Type-checking ${WEB_DIR}/..."
+            if ! (cd "$WEB_DIR" && "$BUN" run typecheck) 2>&1; then
+                echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+                echo -e "${RED}TypeScript type errors found in ${WEB_DIR}/!${NC}"
+                echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+                echo ""
+                echo "Fix the type errors and commit again."
+                exit 1
+            fi
+            echo "✅ Type check OK in ${WEB_DIR}/"
+        fi
+    fi
+done
 
 # --- system-prompt.ts modification warning ---
 # Non-blocking reminder to consider whether changes belong in a skill or

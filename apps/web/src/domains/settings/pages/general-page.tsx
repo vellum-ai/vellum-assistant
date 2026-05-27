@@ -2,38 +2,38 @@ import { Heart, Monitor, Moon, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { SegmentControl } from "@vellum/design-library/components/segment-control";
-import { AssistantPicker } from "@/domains/settings/components/assistant-picker.js";
-import { AssistantSleepPolicy } from "@/domains/settings/components/assistant-sleep-policy.js";
-import { AssistantUpgrades } from "@/domains/settings/components/assistant-upgrades.js";
-import { ResizeCard } from "@/domains/settings/components/resize-card.js";
-import { DeleteAccountSection } from "@/domains/settings/components/delete-account-section.js";
-import { IOSAppCard } from "@/domains/settings/components/ios-app-card.js";
-import { MediaEmbedsCard } from "@/domains/settings/components/media-embeds-card.js";
-import { PreviewReleaseChannel } from "@/domains/settings/components/preview-release-channel.js";
-import { RetireAssistant } from "@/domains/settings/components/retire-assistant.js";
-import { SettingsCard } from "@/domains/settings/components/settings-card.js";
-import { TimezonePicker } from "@/domains/settings/components/timezone-picker.js";
-import { ProfileCard } from "@/domains/settings/components/profile-card.js";
-import { AssistantOutOfStorageBanner } from "@/domains/settings/components/assistant-out-of-storage-banner.js";
+import { AssistantPicker } from "@/domains/settings/components/assistant-picker";
+import { AssistantSleepPolicy } from "@/domains/settings/components/assistant-sleep-policy";
+import { AssistantUpgrades } from "@/domains/settings/components/assistant-upgrades";
+import { ResizeCard } from "@/domains/settings/components/resize-card";
+import { DeleteAccountSection } from "@/domains/settings/components/delete-account-section";
+import { IOSAppCard } from "@/domains/settings/components/ios-app-card";
+import { MediaEmbedsCard } from "@/domains/settings/components/media-embeds-card";
+import { PreviewReleaseChannel } from "@/domains/settings/components/preview-release-channel";
+import { RetireAssistant } from "@/domains/settings/components/retire-assistant";
+import { DetailCard } from "@/components/detail-card";
+import { TimezonePicker } from "@/domains/settings/components/timezone-picker";
+import { ProfileCard } from "@/components/profile-card";
+import { AssistantOutOfStorageBanner } from "@/domains/settings/components/assistant-out-of-storage-banner";
 import {
   AssistantStatusPanel,
   useAssistantWithHealthz,
-} from "@/domains/settings/components/assistant-status-panel.js";
+} from "@/domains/settings/components/assistant-status-panel";
 
-import { useAuthStore } from "@/stores/auth-store.js";
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
-import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
+import { useAuthStore } from "@/stores/auth-store";
+import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
+import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
 import {
   applyThemePreference,
-  normalizeThemePreference,
   readStoredThemePreference,
   type ThemePreference,
   writeStoredThemePreference,
-} from "@/domains/settings/utils/theme-preferences.js";
+} from "@/domains/settings/utils/theme-preferences";
 import {
-  getLocalSetting,
-  setLocalSetting,
-} from "@/lib/local-settings.js";
+  getDeviceSetting,
+  setDeviceSetting,
+  watchDeviceSetting,
+} from "@/lib/device-settings";
 
 function ThemeCard() {
   const velvet = useClientFeatureFlagStore.use.velvet();
@@ -46,21 +46,9 @@ function ThemeCard() {
   }, [velvet]);
 
   useEffect(() => {
-    const handleExternalThemeChange = (event: CustomEvent<string>) => {
-      setTheme(
-        normalizeThemePreference(event.detail, { velvetEnabled: velvet }),
-      );
-    };
-    window.addEventListener(
-      "vellumThemeChange",
-      handleExternalThemeChange as EventListener,
-    );
-    return () => {
-      window.removeEventListener(
-        "vellumThemeChange",
-        handleExternalThemeChange as EventListener,
-      );
-    };
+    return watchDeviceSetting("theme", () => {
+      setTheme(readStoredThemePreference({ velvetEnabled: velvet }));
+    });
   }, [velvet]);
 
   useEffect(() => {
@@ -101,7 +89,7 @@ function ThemeCard() {
   ];
 
   return (
-    <SettingsCard title="Theme">
+    <DetailCard title="Theme">
       <div className="max-w-[360px]">
         <SegmentControl<ThemePreference>
           ariaLabel="Theme"
@@ -110,33 +98,40 @@ function ThemeCard() {
           items={themeItems}
         />
       </div>
-    </SettingsCard>
+    </DetailCard>
   );
 }
 
 function TimezoneCard() {
   const [timezone, setTimezone] = useState<string>(() =>
-    getLocalSetting("vellum_timezone", ""),
+    getDeviceSetting("timezone", ""),
   );
 
   const handleChange = (value: string) => {
     setTimezone(value);
-    setLocalSetting("vellum_timezone", value);
+    setDeviceSetting("timezone", value);
   };
 
   return (
-    <SettingsCard
+    <DetailCard
       title="Timezone"
       subtitle="Used when displaying times and scheduling reminders."
     >
       <TimezonePicker value={timezone} onChange={handleChange} />
-    </SettingsCard>
+    </DetailCard>
   );
 }
 
 export function GeneralPage() {
-  const { assistant, assistantLoading, healthz, healthzLoading, refetch } =
-    useAssistantWithHealthz();
+  const {
+    assistant,
+    assistantLoading,
+    healthz,
+    healthzLoading,
+    healthzPolling,
+    refetch,
+    refetchUntilResized,
+  } = useAssistantWithHealthz();
   const accountDeletion = useAssistantFeatureFlagStore.use.accountDeletion();
   const multiPlatformAssistant = useAssistantFeatureFlagStore.use.multiPlatformAssistant();
   const settingsSleepPolicy = useAssistantFeatureFlagStore.use.settingsSleepPolicy();
@@ -161,14 +156,14 @@ export function GeneralPage() {
       {platformAssistant && (
         <AssistantOutOfStorageBanner assistantId={platformAssistant.id} />
       )}
-      <SettingsCard title="General">
+      <DetailCard title="General">
         <AssistantStatusPanel
           assistant={platformAssistant}
           assistantLoading={assistantLoading}
           healthz={healthz}
           healthzLoading={healthzLoading}
         />
-      </SettingsCard>
+      </DetailCard>
 
       {isLoggedIn && <ProfileCard assistant={platformAssistant} />}
 
@@ -177,14 +172,16 @@ export function GeneralPage() {
           assistant={assistant}
           healthz={healthz}
           healthzLoading={healthzLoading}
+          healthzPolling={healthzPolling}
           refetch={refetch}
+          refetchUntilResized={refetchUntilResized}
         />
       )}
 
       <ThemeCard />
 
       {platformAssistant && (
-        <SettingsCard title="Software Updates">
+        <DetailCard title="Software Updates">
           <AssistantUpgrades
             assistantId={platformAssistant.id}
             currentVersion={
@@ -203,18 +200,18 @@ export function GeneralPage() {
               void refetch();
             }}
           />
-        </SettingsCard>
+        </DetailCard>
       )}
 
       <IOSAppCard />
 
       {platformAssistant && settingsSleepPolicy && (
-        <SettingsCard
+        <DetailCard
           title="Sleep Policy"
           subtitle="Control how long this assistant stays awake when idle."
         >
           <AssistantSleepPolicy assistantId={platformAssistant.id} />
-        </SettingsCard>
+        </DetailCard>
       )}
 
       <TimezoneCard />
@@ -224,13 +221,13 @@ export function GeneralPage() {
       {multiPlatformAssistant && <AssistantPicker />}
 
       {platformAssistant && (
-        <SettingsCard
+        <DetailCard
           variant="danger"
           title="Retire Assistant"
           subtitle="Permanently retire this assistant and delete all associated data."
         >
           <RetireAssistant assistantId={platformAssistant.id} />
-        </SettingsCard>
+        </DetailCard>
       )}
 
       {accountDeletion && <DeleteAccountSection />}

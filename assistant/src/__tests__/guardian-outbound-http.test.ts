@@ -88,7 +88,7 @@ globalThis.fetch = (async (
 // Now import modules under test (after mocks are in place)
 // ---------------------------------------------------------------------------
 
-import { getDb, resetDb } from "../memory/db-connection.js";
+import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { updateSessionDelivery } from "../runtime/channel-verification-service.js";
 import {
@@ -102,13 +102,14 @@ import {
   resendOutbound,
   startOutbound,
 } from "../runtime/verification-outbound-actions.js";
+import { resetDbForTesting } from "./db-test-helpers.js";
 
 // Initialize the database (creates all tables)
 initializeDb();
 
 afterAll(() => {
   globalThis.fetch = originalFetch;
-  resetDb();
+  resetDbForTesting();
 });
 
 function resetTables(): void {
@@ -280,11 +281,13 @@ describe("startOutbound", () => {
     expect(voiceCallInitCalls.length).toBe(1);
   });
 
-  test("unsupported channel returns unsupported_channel", async () => {
-    // Cast to bypass type checking for test purposes
-    const result = await startOutbound({ channel: "email" as never });
-    expect(result.success).toBe(false);
-    expect(result.error).toBe("unsupported_channel");
+  test("email channel creates outbound session", async () => {
+    const result = await startOutbound({
+      channel: "email",
+      destination: "user@example.com",
+    });
+    expect(result.success).toBe(true);
+    expect(result.channel).toBe("email");
   });
 });
 

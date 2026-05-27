@@ -12,6 +12,7 @@ let mockProviders: Array<{
   pingMethod: string | null;
   pingHeaders: string | null;
   pingBody: string | null;
+  managedServiceConfigKey?: string;
 }> = [];
 
 let mockConnections: Map<
@@ -32,6 +33,24 @@ let mockFetchResponse: { ok: boolean; status: number } = {
   status: 200,
 };
 let mockFetchThrows = false;
+
+// Per-test refresh outcome — drives the withValidToken mock.
+//   "ok"          → refresh succeeds (or wasn't needed); callback runs with token
+//   "refresh_failed" → refresh throws TokenExpiredError (revoked refresh token)
+type RefreshOutcome = "ok" | "refresh_failed";
+let mockRefreshOutcome: RefreshOutcome = "ok";
+
+// Managed-path mock state.
+const managedProviders = new Set<string>();
+let managedListResponse: {
+  ok: boolean;
+  status: number;
+  body?: unknown;
+} = { ok: true, status: 200, body: { results: [] } };
+let managedPingOutcome:
+  | { kind: "status"; status: number }
+  | { kind: "credential_required" }
+  | { kind: "throw"; message: string } = { kind: "status", status: 200 };
 
 // ── Module mocks ─────────────────────────────────────────────────────
 
@@ -81,6 +100,88 @@ mock.module("../util/logger.js", () => ({
   }),
 }));
 
+class MockTokenExpiredError extends Error {
+  constructor(service: string, message?: string) {
+    super(message ?? `Token expired for "${service}"`);
+    this.name = "TokenExpiredError";
+  }
+}
+
+mock.module("../security/token-manager.js", () => ({
+  TokenExpiredError: MockTokenExpiredError,
+  withValidToken: async (
+    service: string,
+    callback: (token: string) => Promise<unknown>,
+    opts: { connectionId: string },
+  ) => {
+    if (mockRefreshOutcome === "refresh_failed") {
+      throw new MockTokenExpiredError(service);
+    }
+    const token =
+      secureKeyValues.get(
+        `oauth_connection/${opts.connectionId}/access_token`,
+      ) ?? "refreshed-token";
+    return callback(token);
+  },
+}));
+
+// Managed-path mocks: services schema, config loader, platform client,
+// PlatformOAuthConnection. The managed code path uses dynamic imports for
+// these so they only matter when a managed test scenario is exercised.
+mock.module("../config/schemas/services.js", () => ({
+  ServicesSchema: {
+    shape: {
+      "google-oauth": {},
+      "notion-oauth": {},
+    },
+  },
+  getServiceMode: (_services: unknown, key: string) =>
+    managedProviders.has(key) ? "managed" : "your-own",
+}));
+
+mock.module("../config/loader.js", () => ({
+  getConfig: () => ({ services: {} }),
+}));
+
+mock.module("../platform/client.js", () => ({
+  VellumPlatformClient: {
+    create: async () => ({
+      platformAssistantId: "test-assistant",
+      fetch: async (_path: string) => ({
+        ok: managedListResponse.ok,
+        status: managedListResponse.status,
+        json: async () => managedListResponse.body ?? { results: [] },
+      }),
+    }),
+  },
+}));
+
+class MockCredentialRequiredError extends Error {
+  constructor() {
+    super("credential required");
+    this.name = "CredentialRequiredError";
+  }
+}
+
+mock.module("../oauth/platform-connection.js", () => ({
+  PlatformOAuthConnection: class {
+    constructor(_opts: unknown) {}
+    async request(_req: unknown) {
+      if (managedPingOutcome.kind === "credential_required") {
+        throw new MockCredentialRequiredError();
+      }
+      if (managedPingOutcome.kind === "throw") {
+        throw new Error(managedPingOutcome.message);
+      }
+      return {
+        status: managedPingOutcome.status,
+        headers: {},
+        body: {},
+      };
+    }
+  },
+}));
+
 // ── Import under test ────────────────────────────────────────────────
 
 const { checkAllCredentials, checkCredentialForProvider, _setFetchFn } =
@@ -106,6 +207,7 @@ function addProvider(
     defaultScopes?: string[];
     pingUrl?: string | null;
     pingMethod?: string | null;
+    managedServiceConfigKey?: string;
   },
 ) {
   mockProviders.push({
@@ -115,6 +217,10 @@ function addProvider(
     pingMethod: opts?.pingMethod ?? null,
     pingHeaders: null,
     pingBody: null,
+    // checkManagedProvider reads this field via OAuthProviderRow; the
+    // health-check code branches to the managed path only when set AND
+    // when managedProviders includes the corresponding config key.
+    managedServiceConfigKey: opts?.managedServiceConfigKey,
   });
 }
 
@@ -159,6 +265,10 @@ describe("credential-health-service", () => {
     mockConnections = new Map();
     mockFetchResponse = { ok: true, status: 200 };
     mockFetchThrows = false;
+    mockRefreshOutcome = "ok";
+    managedProviders.clear();
+    managedListResponse = { ok: true, status: 200, body: { results: [] } };
+    managedPingOutcome = { kind: "status", status: 200 };
   });
 
   test("returns empty report when no providers exist", async () => {
@@ -238,8 +348,12 @@ describe("credential-health-service", () => {
     expect(report.results[0]!.canAutoRecover).toBe(false);
   });
 
-  test("returns expiring when token is past expiresAt with refresh token", async () => {
-    addProvider("google");
+  test("returns healthy when expired token has a refresh token, no ping URL, and refresh succeeds via the ping path", async () => {
+    // Without a pingUrl there's no opportunity to exercise the refresh —
+    // the connection is reported as healthy on the trust that the next
+    // real API call will refresh transparently. This matches the contract
+    // for connections that have a refresh token but no liveness endpoint.
+    addProvider("google"); // no pingUrl
     addConnection("google", "conn-1", {
       expiresAt: Date.now() - 60_000, // 1 minute ago
       hasRefreshToken: true,
@@ -247,8 +361,59 @@ describe("credential-health-service", () => {
     setToken("conn-1");
 
     const report = await checkAllCredentials();
-    expect(report.results[0]!.status).toBe("expiring");
+    expect(report.results[0]!.status).toBe("healthy");
     expect(report.results[0]!.canAutoRecover).toBe(true);
+  });
+
+  test("expired BYO token + successful refresh + 200 ping → healthy", async () => {
+    // The withValidToken mock returns "refreshed" by default; pingProvider
+    // sees a fresh token and the upstream returns 200.
+    mockFetchResponse = { ok: true, status: 200 };
+    addProvider("google", {
+      pingUrl: "https://www.googleapis.com/oauth2/v2/userinfo",
+    });
+    addConnection("google", "conn-1", {
+      expiresAt: Date.now() - 60_000,
+      hasRefreshToken: true,
+    });
+    setToken("conn-1");
+
+    const report = await checkAllCredentials();
+    expect(report.results[0]!.status).toBe("healthy");
+  });
+
+  test("expired BYO token + refresh fails (revoked refresh token) → revoked", async () => {
+    mockRefreshOutcome = "refresh_failed";
+    addProvider("google", {
+      pingUrl: "https://www.googleapis.com/oauth2/v2/userinfo",
+    });
+    addConnection("google", "conn-1", {
+      expiresAt: Date.now() - 60_000,
+      hasRefreshToken: true,
+    });
+    setToken("conn-1");
+
+    const report = await checkAllCredentials();
+    expect(report.results[0]!.status).toBe("revoked");
+    expect(report.results[0]!.canAutoRecover).toBe(false);
+  });
+
+  test("BYO ping that still returns 401 after a refresh attempt → revoked", async () => {
+    // Refresh succeeds (mockRefreshOutcome stays "ok") but the upstream
+    // still returns 401 — the token was genuinely revoked by the provider.
+    mockFetchResponse = { ok: false, status: 401 };
+    addProvider("google", {
+      pingUrl: "https://www.googleapis.com/oauth2/v2/userinfo",
+    });
+    addConnection("google", "conn-1", {
+      expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000,
+      hasRefreshToken: true,
+    });
+    setToken("conn-1");
+
+    const report = await checkAllCredentials();
+    expect(report.results[0]!.status).toBe("revoked");
+    expect(report.results[0]!.details).toContain("after a refresh attempt");
   });
 
   test("returns expiring when token expires within 7 days without refresh token", async () => {
@@ -456,6 +621,90 @@ describe("credential-health-service", () => {
       expect(report.results).toHaveLength(1);
       expect(report.results[0]!.status).toBe("unreachable");
       expect(report.results[0]!.canAutoRecover).toBe(true);
+    });
+  });
+
+  describe("managed-provider path", () => {
+    // Distinguishing managed-path failure modes: a 424 from the platform
+    // proxy (CredentialRequiredError) means the platform tried and gave up
+    // on refresh — actionable, fire reconnect alert. A bare 401/403 from
+    // the upstream provider could be a transient platform-side miss (proxy
+    // didn't refresh-before-forward) and should NOT fire reconnect alerts
+    // without further evidence — demote to ping_failed.
+
+    function setupManagedGoogle(opts?: { hasActiveConnection?: boolean }) {
+      addProvider("google", {
+        pingUrl: "https://www.googleapis.com/oauth2/v2/userinfo",
+        managedServiceConfigKey: "google-oauth",
+      });
+      managedProviders.add("google-oauth");
+      if (opts?.hasActiveConnection !== false) {
+        managedListResponse = {
+          ok: true,
+          status: 200,
+          body: {
+            results: [
+              {
+                id: "platform-conn-1",
+                account_label: "user@example.com",
+                status: "ACTIVE",
+              },
+            ],
+          },
+        };
+      }
+    }
+
+    test("managed 2xx ping → healthy", async () => {
+      setupManagedGoogle();
+      managedPingOutcome = { kind: "status", status: 200 };
+
+      const report = await checkAllCredentials();
+      const google = report.results.find((r) => r.provider === "google");
+      expect(google!.status).toBe("healthy");
+    });
+
+    test("managed 424 (CredentialRequiredError) → revoked", async () => {
+      setupManagedGoogle();
+      managedPingOutcome = { kind: "credential_required" };
+
+      const report = await checkAllCredentials();
+      const google = report.results.find((r) => r.provider === "google");
+      expect(google!.status).toBe("revoked");
+      expect(google!.canAutoRecover).toBe(false);
+      expect(google!.details).toContain("cannot be refreshed");
+    });
+
+    test("managed 401 from upstream → ping_failed, not revoked", async () => {
+      // This is the key change: previously this would fire a user-facing
+      // reconnect alert (because "revoked" is in hardFailureStatuses). Now
+      // we treat upstream 401 as potentially transient — only a 424 from
+      // the platform proxy is trusted enough to trigger the alert.
+      setupManagedGoogle();
+      managedPingOutcome = { kind: "status", status: 401 };
+
+      const report = await checkAllCredentials();
+      const google = report.results.find((r) => r.provider === "google");
+      expect(google!.status).toBe("ping_failed");
+      expect(google!.status).not.toBe("revoked");
+    });
+
+    test("managed 403 from upstream → ping_failed, not revoked", async () => {
+      setupManagedGoogle();
+      managedPingOutcome = { kind: "status", status: 403 };
+
+      const report = await checkAllCredentials();
+      const google = report.results.find((r) => r.provider === "google");
+      expect(google!.status).toBe("ping_failed");
+    });
+
+    test("managed 500 from upstream → ping_failed", async () => {
+      setupManagedGoogle();
+      managedPingOutcome = { kind: "status", status: 500 };
+
+      const report = await checkAllCredentials();
+      const google = report.results.find((r) => r.provider === "google");
+      expect(google!.status).toBe("ping_failed");
     });
   });
 

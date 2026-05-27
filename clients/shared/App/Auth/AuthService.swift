@@ -110,7 +110,7 @@ public final class AuthService {
             case .noOrganizations:
                 return "No organizations found for this account"
             case .multipleOrganizations:
-                return "Multiple organizations found. Multi-org support is not yet available — please contact support."
+                return "Multiple organizations found. Multi-org support is not yet available — visit vellum.ai/community for help."
             }
         }
     }

@@ -57,7 +57,7 @@ which is produced by the burst-limited reachability retry in
 
 | Event | Payload | Produced when |
 |---|---|---|
-| `sse.event` | `AssistantEvent` | Every event the bus-owned SSE connection sees. Consumers narrow on `payload.type` and filter on `payload.conversationKey` themselves. |
+| `sse.event` | `AssistantEvent` | Every event the bus-owned SSE connection sees. Consumers narrow on `payload.type` and filter on `payload.conversationId` themselves. |
 | `sse.opened` | `{ assistantId; cause: "fresh" \| "error" \| "watchdog" \| "resume" }` | After each successful (re)open. `cause` lets consumers distinguish a fresh connection from a watchdog-driven recovery. |
 | `sse.closed` | `{ reason }` | Transport error on the SSE connection. Not published for intentional teardowns (hidden tab, reachability bounce). |
 | `app.resume` | `{ signal: "visibility" \| "app_state" \| "online" }` | Page visible, app foregrounded, or network came back online. |
@@ -74,7 +74,7 @@ In a React hook or component, use `useBusSubscription` from
 re-register on every render.
 
 ```ts
-import { useBusSubscription } from "@/hooks/use-bus-subscription.js";
+import { useBusSubscription } from "@/hooks/use-bus-subscription";
 
 useBusSubscription("app.resume", ({ signal }) => {
   // Refetch stale-while-revalidate data here.
@@ -87,7 +87,7 @@ store the returned unsubscribe handle alongside the bootstrap's other
 teardown:
 
 ```ts
-import { subscribeBus } from "@/hooks/use-bus-subscription.js";
+import { subscribeBus } from "@/hooks/use-bus-subscription";
 
 const unsubscribeResume = subscribeBus("app.resume", () => {
   refetchIfStale();
@@ -141,7 +141,7 @@ useEventBusStore.getState().publish("reachability.retry-requested", {});
   nested presentational components.
 - **Filter inside the handler.** `bus.sse.event` is unfiltered;
   consumers narrow on `payload.type` and (for conversation-scoped
-  consumers) on `payload.conversationKey`. The bus delivers every
+  consumers) on `payload.conversationId`. The bus delivers every
   event the SSE connection sees.
 - **Skip resume signals you don't care about.** `app.resume` fires for
   visibility, app foregrounding, AND network online. A handler that

@@ -157,10 +157,31 @@ function emptyBatchResult(
   return { selectedSlugs: [], failureReason: reason };
 }
 
+/**
+ * One `(assistant, user)` turn pair rendered inside `<last_turn>`. The
+ * pair represents the assistant's reply followed by the user message
+ * that came after. The most recent pair's `userMessage` is the
+ * just-arrived turn that triggered the router; older pairs are walked
+ * back from conversation history. `assistantMessage` is the empty
+ * string for the oldest pair when there was no prior assistant reply
+ * (conversation start) — `runRouterBatch` skips the `[assistant]:`
+ * line entirely in that case.
+ */
+export interface RouterTurnPair {
+  assistantMessage: string;
+  userMessage: string;
+}
+
 interface RunRouterParams {
   workspaceDir: string;
-  userMessage: string;
-  assistantMessage: string;
+  /**
+   * Recent assistant/user turn pairs, oldest first. Must contain at
+   * least one entry. The last entry's `userMessage` is the just-arrived
+   * user turn the router is routing for; entries before it are walked
+   * back from conversation history. The number of pairs the production
+   * caller passes is controlled by `memory.v2.router.historical_pairs`.
+   */
+  recentTurnPairs: readonly RouterTurnPair[];
   /** Verbatim contents to inject into `<now>...</now>` on this turn. */
   nowText: string;
   /** Slugs already injected on prior turns (used to seed `<already_injected_ids>`). */
@@ -362,8 +383,7 @@ async function runRouterBatch(
 ): Promise<RouterBatchResult> {
   const {
     workspaceDir,
-    userMessage,
-    assistantMessage,
+    recentTurnPairs,
     nowText,
     priorEverInjected,
     config,
@@ -392,15 +412,27 @@ async function runRouterBatch(
     if (local) priorIds.push(local.id);
   }
 
-  // Render `<last_turn>` chronologically: the prior assistant reply came
-  // first, then the just-arrived user message that triggered this call.
-  // On conversation start `assistantMessage` is the empty string — skip the
-  // assistant line in that case so we don't emit a dangling `[assistant]:`.
+  // Trim the pairs down to the configured `<last_turn>` content budget,
+  // newest-message-first so the just-arrived user turn keeps full claim
+  // on the cap and the oldest still-includable message is front-truncated
+  // (rather than dropping the most recent message). `null` is a no-op.
+  const cappedPairs = applyHistoricalCharBudget(
+    recentTurnPairs,
+    config.memory?.v2?.router?.historical_pairs_max_chars ?? null,
+  );
+
+  // Render `<last_turn>` chronologically: each pair emits the prior
+  // assistant reply followed by the user message that came after.
+  // `assistantMessage` is the empty string on the oldest pair when there
+  // was no prior assistant reply (conversation start) — skip that line
+  // so we don't emit a dangling `[assistant]:`.
   const lastTurnLines: string[] = [];
-  if (assistantMessage.trim().length > 0) {
-    lastTurnLines.push(`[assistant]: ${assistantMessage}`);
+  for (const pair of cappedPairs) {
+    if (pair.assistantMessage.trim().length > 0) {
+      lastTurnLines.push(`[assistant]: ${pair.assistantMessage}`);
+    }
+    lastTurnLines.push(`[user]: ${pair.userMessage}`);
   }
-  lastTurnLines.push(`[user]: ${userMessage}`);
   const lastTurnBlock = `<last_turn>\n${lastTurnLines.join("\n")}\n</last_turn>`;
 
   const userMsg: Message = {
@@ -495,6 +527,83 @@ async function runRouterBatch(
   }
 
   return { selectedSlugs, failureReason: null };
+}
+
+/** Truncation marker prepended to a front-truncated historical message. */
+const HISTORICAL_TRUNCATION_MARKER = "…";
+
+/**
+ * Apply the `<last_turn>` content character budget to a chronological
+ * pairs array. The just-arrived user message has first claim on the
+ * budget; older messages are added newest-first until exhausted. The
+ * oldest still-includable message is front-truncated with a leading
+ * `…` so it joins coherently with the next message in time. Older pairs
+ * whose content doesn't fit are dropped entirely.
+ *
+ * Counts message content only — framing characters (`[assistant]: `,
+ * `[user]: `, newlines) are not deducted from the budget. The cap is a
+ * conservative upper bound on the dialogue content surfaced to the
+ * router, not on the exact rendered block size.
+ *
+ * Exported for tests; production calls it via `runRouterBatch`.
+ */
+export function applyHistoricalCharBudget(
+  pairs: readonly RouterTurnPair[],
+  maxChars: number | null,
+): RouterTurnPair[] {
+  if (maxChars === null || maxChars <= 0) return [...pairs];
+
+  type WalkedMsg = {
+    role: "user" | "assistant";
+    text: string;
+    pairIdx: number;
+  };
+  // Walk every message newest-first. Within a single pair the user
+  // message came AFTER the assistant message chronologically, so the
+  // user line gets first claim on the budget.
+  const walked: WalkedMsg[] = [];
+  for (let i = pairs.length - 1; i >= 0; i--) {
+    walked.push({ role: "user", text: pairs[i].userMessage, pairIdx: i });
+    walked.push({
+      role: "assistant",
+      text: pairs[i].assistantMessage,
+      pairIdx: i,
+    });
+  }
+
+  let used = 0;
+  const included = new Map<number, { assistant: string; user: string }>();
+  for (const msg of walked) {
+    const remaining = maxChars - used;
+    if (remaining <= 0) break;
+    let textToInclude: string;
+    let stop = false;
+    if (msg.text.length <= remaining) {
+      textToInclude = msg.text;
+      used += msg.text.length;
+    } else {
+      // Front-truncate so the surviving suffix of an older message
+      // connects to the next message (in chronological order) without
+      // a syntactic seam. The marker counts toward the budget so the
+      // emitted text never exceeds `maxChars` cumulatively.
+      if (remaining <= HISTORICAL_TRUNCATION_MARKER.length) break;
+      const keepChars = remaining - HISTORICAL_TRUNCATION_MARKER.length;
+      textToInclude = HISTORICAL_TRUNCATION_MARKER + msg.text.slice(-keepChars);
+      used = maxChars;
+      stop = true;
+    }
+    const slot = included.get(msg.pairIdx) ?? { assistant: "", user: "" };
+    if (msg.role === "user") slot.user = textToInclude;
+    else slot.assistant = textToInclude;
+    included.set(msg.pairIdx, slot);
+    if (stop) break;
+  }
+
+  const sortedIdxs = [...included.keys()].sort((a, b) => a - b);
+  return sortedIdxs.map((idx) => {
+    const slot = included.get(idx)!;
+    return { assistantMessage: slot.assistant, userMessage: slot.user };
+  });
 }
 
 /**

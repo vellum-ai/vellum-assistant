@@ -1,8 +1,8 @@
 import { Capacitor } from "@capacitor/core";
 
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
-import type { AssistantEvent } from "@/domains/chat/api/event-types.js";
-import type { RuntimeMessage } from "@/domains/chat/api/messages.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { AssistantEvent } from "@/domains/chat/api/event-types";
+import type { RuntimeMessage } from "@/domains/chat/api/messages";
 
 const MAX_EVENTS = 200;
 const STORAGE_KEY = "vellum:chat-diagnostics:v1";
@@ -140,8 +140,7 @@ function roleCounts(messages: Array<{ role: string }>): Record<string, number> {
 
 export function summarizeDisplayMessage(message: DisplayMessage): Record<string, unknown> {
   return {
-    stableId: message.stableId,
-    id: message.id ?? null,
+    id: message.id,
     role: message.role,
     contentLength: message.content.length,
     timestamp: message.timestamp ?? null,
@@ -247,7 +246,6 @@ export function summarizeAssistantEvent(
 
   for (const key of [
     "messageId",
-    "conversationKey",
     "requestId",
     "surfaceId",
     "surfaceType",

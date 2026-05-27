@@ -1,5 +1,5 @@
 
-import { BusyIndicator } from "@/domains/chat/components/busy-indicator.js";
+import { BusyIndicator } from "@/domains/chat/components/busy-indicator";
 import {
   Camera,
   CheckCircle2,
@@ -20,16 +20,16 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
-import { getRiskBadgeStyle, getProvenanceText, wasExpected } from "@/domains/chat/utils/risk-utils.js";
-import { useElapsedTime } from "@/domains/chat/hooks/use-elapsed-time.js";
+import { getRiskBadgeStyle, getProvenanceText, wasExpected, getEffectiveRiskDisplay } from "@/domains/chat/utils/risk-utils";
+import { formatStartTime, useElapsedTime } from "@/domains/chat/hooks/use-elapsed-time";
 
-import type { AllowlistOption, ChatMessageToolCall, ConfirmationDecision, DirectoryScopeOption, ScopeOption } from "@/domains/chat/api/event-types.js";
+import type { AllowlistOption, ChatMessageToolCall, ConfirmationDecision, DirectoryScopeOption, ScopeOption } from "@/domains/chat/api/event-types";
 import {
   extractInputSummary,
   friendlyRunningLabel,
   friendlyToolIcon,
   friendlyToolLabel,
-} from "@/domains/chat/components/tool-call-chip/utils.js";
+} from "@/domains/chat/components/tool-call-chip/utils";
 
 export interface ToolCallChipProps {
   toolCall: ChatMessageToolCall;
@@ -262,6 +262,7 @@ export function ToolCallChip({
   const isError = toolCall.status === "error" || toolCall.isError;
   const hasPendingConfirmation = !!toolCall.pendingConfirmation;
   const duration = useElapsedTime(toolCall.startedAt, !isRunning, toolCall.completedAt);
+  const startTimeLabel = formatStartTime(toolCall.startedAt);
 
   const inputSummary = extractInputSummary(toolCall.toolName, toolCall.input);
   const activity = toolCall.input?.activity ?? toolCall.input?.reason;
@@ -301,10 +302,23 @@ export function ToolCallChip({
       {!embedded && getIcon(toolCall.toolName, inputSummary)}
       <span className="min-w-0 truncate text-[var(--content-secondary)]">{label}</span>
       {toolCall.riskLevel && toolCall.status !== "running" && !(hasPendingConfirmation && isActiveConfirmation) && (() => {
-        const badge = getRiskBadgeStyle(toolCall.riskLevel);
-        const unexpected = !wasExpected(toolCall.approvalMode, toolCall.riskLevel, toolCall.riskThreshold);
+        const { displayLevel, inherentRisk } = getEffectiveRiskDisplay(toolCall.approvalReason, toolCall.riskLevel);
+        const badge = getRiskBadgeStyle(displayLevel);
+        const isWorkspace = displayLevel === "workspace";
+
+        // For workspace chips, skip provenance — the chip itself is the provenance indicator.
+        // For normal badges, check wasExpected against the original riskLevel.
+        const unexpected = !isWorkspace && !wasExpected(toolCall.approvalMode, toolCall.riskLevel, toolCall.riskThreshold);
         const provenance = unexpected ? getProvenanceText(toolCall.approvalReason) : null;
-        const displayLabel = provenance ? `${badge.label} ${provenance}` : badge.label;
+
+        let displayLabel: string;
+        if (isWorkspace) {
+          const capitalizedRisk = inherentRisk ? inherentRisk.charAt(0).toUpperCase() + inherentRisk.slice(1) : "Unknown";
+          displayLabel = `Workspace · Inherent risk: ${capitalizedRisk}`;
+        } else {
+          displayLabel = provenance ? `${badge.label} ${provenance}` : badge.label;
+        }
+
         return (
           <button
             type="button"
@@ -321,19 +335,21 @@ export function ToolCallChip({
               });
             }}
             // typography: off-scale — compact risk badge pill
-             
-            className={`${embedded ? "" : "ml-auto "}max-w-[45%] shrink-0 truncate rounded-full px-2 py-0.5 text-[11px] font-medium leading-tight ${badge.bg} ${badge.text} ${onOpenRuleEditor ? "cursor-pointer hover:opacity-80" : "cursor-default"}`}
+
+            className={`${embedded ? "" : "ml-auto "}max-w-[45%] shrink-0 truncate rounded-full px-2 py-0.5 text-[11px] font-medium leading-tight ${badge.bg} ${badge.text} ${badge.border ?? ""} ${onOpenRuleEditor ? "cursor-pointer hover:opacity-80" : "cursor-default"}`}
             title={displayLabel}
           >
             <span className="sm:hidden">{badge.label}</span>
-            <span className="hidden sm:inline">{displayLabel}</span>
+            <span className="hidden sm:inline">{isWorkspace ? badge.label : displayLabel}</span>
           </button>
         );
       })()}
       {embedded && (
         <span className="ml-auto flex items-center gap-1.5 text-[var(--content-tertiary)]">
           {duration && (
-            <span className="text-label-small-default">{duration}</span>
+            <span className="text-label-small-default" title={startTimeLabel}>
+              {duration}
+            </span>
           )}
           {canExpand && (expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />)}
         </span>
@@ -361,14 +377,13 @@ export function ToolCallChip({
             <div className="mb-1.5 text-label-small-default uppercase tracking-wider text-[var(--content-tertiary)]">
               Technical Details
             </div>
-            {toolCall.result !== undefined && (
-              <div className="text-[var(--content-secondary)]">
-                {isError ? "Error output" : "Output text"}
-              </div>
-            )}
+            <div className="text-[var(--content-secondary)]">Tool Name</div>
             <div className="text-[var(--content-secondary)]">
               {toolCall.toolName.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
             </div>
+            {startTimeLabel && (
+              <div className="mt-0.5 text-[var(--content-tertiary)]">{startTimeLabel}</div>
+            )}
             {Object.entries(toolCall.input).map(([key, value]) => (
               <div key={key} className="mt-0.5">
                 <span className="text-label-medium-default text-[var(--content-default)]">
@@ -495,7 +510,10 @@ export function ToolCallChip({
         </span>
         <span className="ml-auto flex items-center gap-1.5 text-[var(--content-tertiary)]">
           {duration && (
-            <span className="text-label-small-default text-[var(--content-tertiary)]">
+            <span
+              className="text-label-small-default text-[var(--content-tertiary)]"
+              title={startTimeLabel}
+            >
               {duration}
             </span>
           )}

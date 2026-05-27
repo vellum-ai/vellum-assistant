@@ -38,7 +38,7 @@ export function DowngradeReconfirmModal({
             variant="body-medium-default"
             className="text-(--content-secondary)"
           >
-            Downgrading removes the following Pro features.
+            Downgrading removes the following Pro features:
           </Typography>
           <ul className="mt-4 list-disc space-y-2 pl-5">
             {lostFeatures.map((feature) => (

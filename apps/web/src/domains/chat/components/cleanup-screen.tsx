@@ -1,7 +1,8 @@
 
 import { type ReactNode, useEffect, useState } from "react";
 
-import { useHintRotation } from "@/domains/chat/hooks/use-hint-rotation.js";
+import { useHintRotation } from "@/domains/chat/hooks/use-hint-rotation";
+import { VELLUM_COMMUNITY_URL } from "@/utils/external-urls";
 
 const CLEANUP_HINTS = [
   "Cleaning up your assistant\u2026",
@@ -41,14 +42,16 @@ export function CleanupScreen() {
           Cleanup is taking longer than expected
         </h2>
         <p className="mt-3 max-w-md text-center text-body-medium-lighter text-[var(--content-tertiary)]">
-          Please reach out to{" "}
+          Try running Vellum Doctor to diagnose the issue, or{" "}
           <a
-            href="mailto:support@vellum.ai"
+            href={VELLUM_COMMUNITY_URL}
+            target="_blank"
+            rel="noopener noreferrer"
             className="text-body-medium-default underline text-[var(--system-positive-strong)] hover:opacity-90"
           >
-            Vellum Support
+            ask the community
           </a>{" "}
-          for help on how to hatch a new assistant.
+          for help.
         </p>
       </CleanupLayout>
     );

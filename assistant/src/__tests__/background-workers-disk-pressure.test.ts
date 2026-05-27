@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { createMockLoggerModule } from "./helpers/mock-logger.js";
+
 // Default the warm-pool gate to OPEN — these tests probe background-job
 // disk-pressure behavior, not the pre-first-message guard.
 mock.module("../runtime/pre-first-message-gate.js", () => ({
@@ -7,14 +9,7 @@ mock.module("../runtime/pre-first-message-gate.js", () => ({
   _resetPreFirstMessageGateCacheForTests: () => {},
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () => ({
-    info: () => {},
-    debug: () => {},
-    warn: () => {},
-    error: () => {},
-  }),
-}));
+mock.module("../util/logger.js", () => createMockLoggerModule());
 
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
@@ -115,7 +110,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   countConversationsByScheduleJobId: mock(() => 0),
   countMessagesAfter: mock(() => 0),
   deleteMessageById: mock(() => {}),
-  clearAll: mock(() => ({ conversations: 0, messages: 0 })),
+  clearAll: mock(async () => ({ conversations: 0, messages: 0 })),
   deleteConversation: mock(() => ({ memoryIds: [] })),
   deleteLastExchange: mock(() => 0),
   findAnalysisConversationFor: mock(() => null),
@@ -157,6 +152,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   setLastNotifiedInferenceProfile: mock(() => {}),
   setConversationHistoryStrippedAt: mock(() => {}),
   wipeConversation: mock(() => ({ memoryIds: [] })),
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 mock.module("../memory/conversation-title-service.js", () => ({
@@ -181,6 +177,7 @@ mock.module("../memory/jobs-store.js", () => ({
   failStalledJobs: mockFailStalledJobs,
   getMemoryJobCounts: mock(() => ({})),
   hasActiveJobOfType: mock(() => false),
+  isMemoryEnabled: () => true,
   resetRunningJobsToPending: mock(() => 0),
   SLOW_LLM_JOB_TYPES: [],
   upsertAutoAnalysisJob: mock(() => "job-auto-analysis"),

@@ -1,6 +1,12 @@
-import { existsSync, readFileSync, unlinkSync } from "fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  unlinkSync,
+} from "fs";
 import { homedir } from "os";
-import { join } from "path";
+import { basename, dirname, join } from "path";
 
 import { saveAssistantEntry } from "../lib/assistant-config";
 import type { AssistantEntry } from "../lib/assistant-config";
@@ -21,8 +27,22 @@ export async function recover(): Promise<void> {
       "Restore a previously retired local assistant from its archive.",
     );
     console.log("");
+    console.log(
+      "Extracts the archived workspace data back to its original location,",
+    );
+    console.log(
+      "restores the lockfile entry, and starts the assistant and gateway.",
+    );
+    console.log(
+      "Archives are stored in $XDG_DATA_HOME/vellum/retired/ (default: ~/.local/share/vellum/retired/).",
+    );
+    console.log("");
     console.log("Arguments:");
     console.log("  <name>    Name of the retired assistant to recover");
+    console.log("");
+    console.log("Examples:");
+    console.log("  $ vellum recover my-assistant");
+    console.log("  $ vellum recover aria-7f3a");
     process.exit(0);
   }
 
@@ -61,11 +81,27 @@ export async function recover(): Promise<void> {
     process.exit(1);
   }
 
-  // 4. Extract archive
-  // TODO: extraction target is hardcoded to homedir(); multi-instance entries
-  //       whose instanceDir differs from homedir will extract to the wrong
-  //       location. Tracked separately from the collision-check regression.
-  await exec("tar", ["xzf", archivePath, "-C", homedir()]);
+  // 4. Determine the original target directory, then extract and rename.
+  //
+  // retireLocal archives either the full instanceDir (named instances) or just
+  // the .vellum/ subdirectory (default instance whose instanceDir === homedir()).
+  // The directory is staged under `<archive>.staging` inside the retired dir
+  // before being packed with `tar -C <retiredDir> <stagingBasename>`, so the
+  // top-level entry inside the tarball is always `<name>.tar.gz.staging`.
+  //
+  // Correct restoration: extract to retiredDir, then rename the staging entry
+  // back to the original target path.  Using homedir() as the -C target was
+  // wrong for any instance stored outside the home directory.
+  const isNamedInstance = entry.resources.instanceDir !== homedir();
+  const targetDir = isNamedInstance
+    ? entry.resources.instanceDir
+    : join(entry.resources.instanceDir, ".vellum");
+  const retiredDir = dirname(archivePath);
+  const extractedPath = join(retiredDir, basename(archivePath) + ".staging");
+
+  await exec("tar", ["xzf", archivePath, "-C", retiredDir]);
+  mkdirSync(dirname(targetDir), { recursive: true });
+  renameSync(extractedPath, targetDir);
 
   // 5. Restore lockfile entry
   saveAssistantEntry(entry);

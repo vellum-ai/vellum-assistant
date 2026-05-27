@@ -1,11 +1,13 @@
 /**
- * Caching layer for the LLM-generated identity intro text.
+ * Caching layer for identity greetings.
  *
- * The intro (a short identity tagline) is generated via the
- * /v1/btw endpoint and displayed on the Identity panel. To avoid redundant LLM
- * calls, we cache the result for 4 hours with content-hash-based invalidation:
- * when IDENTITY.md, SOUL.md, or the guardian's per-user persona file change,
- * the cache is busted.
+ * Greetings are sourced from (in priority order):
+ * 1. A `## Greetings` section in SOUL.md (user-defined bullet list)
+ * 2. A cached greetings array (populated by the BTW side-chain LLM call)
+ * 3. Fallback: the assistant name from IDENTITY.md
+ *
+ * Cache uses TTL + content-hash invalidation: when IDENTITY.md, SOUL.md, or
+ * the guardian persona change, the cache is busted.
  *
  * Storage uses the existing `memory_checkpoints` table (simple key-value store).
  */
@@ -26,7 +28,7 @@ import { getWorkspacePromptPath } from "../../util/platform.js";
 
 const CACHE_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
 
-const CHECKPOINT_KEY_TEXT = "identity:intro:text";
+const CHECKPOINT_KEY_GREETINGS = "identity:intro:greetings";
 const CHECKPOINT_KEY_HASH = "identity:intro:content_hash";
 const CHECKPOINT_KEY_TIMESTAMP = "identity:intro:cached_at";
 
@@ -78,6 +80,40 @@ export function readWorkspaceIdentityIntro(): string | null {
   );
 }
 
+/**
+ * Parse the `## Greetings` section from SOUL.md. Returns bullet items as an
+ * array of strings, or `null` if the section is missing or empty.
+ */
+export function parseGreetingsSection(content: string): string[] | null {
+  let inSection = false;
+  const greetings: string[] = [];
+
+  for (const line of content.split("\n")) {
+    const trimmed = line.trim();
+    if (/^#+\s/.test(trimmed)) {
+      if (inSection) break;
+      inSection = /^#+\s+greetings\s*$/i.test(trimmed);
+      continue;
+    }
+    if (!inSection) continue;
+    const bullet = trimmed.replace(/^[-*]\s+/, "");
+    if (bullet.length > 0 && bullet !== trimmed) {
+      greetings.push(bullet);
+    }
+  }
+
+  return greetings.length > 0 ? greetings : null;
+}
+
+/**
+ * Read user-defined greetings from the `## Greetings` section of SOUL.md.
+ */
+export function readWorkspaceGreetings(): string[] | null {
+  const soulContent = readWorkspaceFile("SOUL.md");
+  if (!soulContent) return null;
+  return parseGreetingsSection(soulContent);
+}
+
 /** Compute a SHA-256 hex hash of the concatenated identity file contents. */
 export function computeIdentityContentHash(): string {
   const staticFiles = IDENTITY_FILES.map(readWorkspaceFile).join("\n---\n");
@@ -91,22 +127,22 @@ export function computeIdentityContentHash(): string {
 // ---------------------------------------------------------------------------
 
 export interface CachedIntro {
-  text: string;
+  greetings: string[];
 }
 
 /**
- * Retrieve the cached identity intro if it exists, is within the TTL window,
+ * Retrieve the cached greetings array if it exists, is within the TTL window,
  * and the identity files have not changed since it was generated.
  *
  * Returns `null` when the cache is missing, expired, or invalidated.
  */
 export function getCachedIntro(): CachedIntro | null {
   try {
-    const text = getMemoryCheckpoint(CHECKPOINT_KEY_TEXT);
+    const raw = getMemoryCheckpoint(CHECKPOINT_KEY_GREETINGS);
     const hash = getMemoryCheckpoint(CHECKPOINT_KEY_HASH);
     const timestampStr = getMemoryCheckpoint(CHECKPOINT_KEY_TIMESTAMP);
 
-    if (!text || !hash || !timestampStr) return null;
+    if (!raw || !hash || !timestampStr) return null;
 
     // TTL check
     const cachedAt = Number(timestampStr);
@@ -116,21 +152,30 @@ export function getCachedIntro(): CachedIntro | null {
     const currentHash = computeIdentityContentHash();
     if (currentHash !== hash) return null;
 
-    return { text };
+    // Parse stored value — handles both JSON array and legacy single string
+    let greetings: string[];
+    try {
+      const parsed = JSON.parse(raw);
+      greetings = Array.isArray(parsed) ? parsed : [raw];
+    } catch {
+      greetings = [raw];
+    }
+
+    return { greetings };
   } catch {
     return null;
   }
 }
 
 /**
- * Store the generated identity intro text in the cache along with
- * the current content hash and timestamp.
+ * Store a greetings array in the cache along with the current content hash
+ * and timestamp.
  */
-export function setCachedIntro(text: string): void {
+export function setCachedIntro(greetings: string[]): void {
   try {
     const hash = computeIdentityContentHash();
     const now = String(Date.now());
-    setMemoryCheckpoint(CHECKPOINT_KEY_TEXT, text);
+    setMemoryCheckpoint(CHECKPOINT_KEY_GREETINGS, JSON.stringify(greetings));
     setMemoryCheckpoint(CHECKPOINT_KEY_HASH, hash);
     setMemoryCheckpoint(CHECKPOINT_KEY_TIMESTAMP, now);
   } catch {

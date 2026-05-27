@@ -34,6 +34,78 @@ export function removeLocalSetting(key: string): void {
   notifyChange(key, null);
 }
 
+// ---------------------------------------------------------------------------
+// Typed helpers — boolean and number
+// ---------------------------------------------------------------------------
+
+export function getLocalBool(key: string, fallback: boolean): boolean {
+  if (typeof window === "undefined") return fallback;
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw === "true") return true;
+    if (raw === "false") return false;
+    return fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+export function setLocalBool(key: string, value: boolean): void {
+  setLocalSetting(key, value ? "true" : "false");
+}
+
+export function getLocalNumber(key: string, fallback: number): number {
+  if (typeof window === "undefined") return fallback;
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw === null) return fallback;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+export function setLocalNumber(key: string, value: number): void {
+  setLocalSetting(key, String(value));
+}
+
+// ---------------------------------------------------------------------------
+// Change watcher — listens for both cross-tab (storage) and same-tab
+// (vellum:pref-changed) events for a specific key.
+// ---------------------------------------------------------------------------
+
+interface PrefChangedDetail {
+  key: string;
+  value: string | null;
+}
+
+export function watchSetting(
+  key: string,
+  callback: () => void,
+): () => void {
+  if (typeof window === "undefined") return () => {};
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === key) callback();
+  };
+  const onPrefChanged = (event: Event) => {
+    const detail = (event as CustomEvent<PrefChangedDetail>).detail;
+    if (detail?.key === key) callback();
+  };
+  window.addEventListener("storage", onStorage);
+  window.addEventListener(PREF_CHANGED_EVENT, onPrefChanged);
+  return () => {
+    window.removeEventListener("storage", onStorage);
+    window.removeEventListener(PREF_CHANGED_EVENT, onPrefChanged);
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Same-tab notification
+// ---------------------------------------------------------------------------
+
+const PREF_CHANGED_EVENT = "vellum:pref-changed";
+
 // `localStorage.setItem` fires the native `storage` event in *other* tabs
 // only. Same-tab observers (e.g. the Sentry gate that toggles crash
 // reporting when the user flips Share Diagnostics on `/onboarding/privacy`
@@ -42,7 +114,7 @@ export function removeLocalSetting(key: string): void {
 function notifyChange(key: string, value: string | null): void {
   try {
     window.dispatchEvent(
-      new CustomEvent("vellum:pref-changed", { detail: { key, value } }),
+      new CustomEvent(PREF_CHANGED_EVENT, { detail: { key, value } }),
     );
   } catch {
     // CustomEvent construction shouldn't fail; swallow defensively so a

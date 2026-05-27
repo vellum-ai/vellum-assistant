@@ -11,12 +11,12 @@ import { useState } from "react";
 
 import { Tag } from "@vellum/design-library";
 
-import { assistantsSystemEventsListInfiniteOptions } from "@/generated/api/@tanstack/react-query.gen.js";
+import { assistantsSystemEventsListInfiniteOptions } from "@/generated/api/@tanstack/react-query.gen";
 import type {
   AssistantSystemEvent,
   EventStatusEnum,
   SystemEventTypeEnum,
-} from "@/generated/api/types.gen.js";
+} from "@/generated/api/types.gen";
 
 type TagTone = "positive" | "negative" | "warning" | "neutral";
 

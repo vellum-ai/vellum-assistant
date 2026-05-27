@@ -10,20 +10,25 @@ import {
   type ReactNode,
 } from "react";
 
-import { SubagentProgressCard } from "@/domains/chat/components/subagent-progress-card.js";
-import type { SubagentEntry } from "@/domains/subagents/subagent-store.js";
-import { partitionLatestTurn } from "@/domains/chat/transcript/partition-latest-turn.js";
-import type { TranscriptItem } from "@/domains/chat/transcript/types.js";
+import { partitionLatestTurn } from "@/domains/chat/transcript/partition-latest-turn";
+import type { TranscriptItem } from "@/domains/chat/transcript/types";
 
-import { LatestTurnRow } from "@/domains/chat/transcript/latest-turn-row.js";
-import { PullRefreshSpinner } from "@/domains/chat/transcript/pull-refresh-spinner.js";
-import { TranscriptRow } from "@/domains/chat/transcript/transcript-row.js";
+import { LatestTurnRow } from "@/domains/chat/transcript/latest-turn-row";
+import { PullRefreshSpinner } from "@/domains/chat/transcript/pull-refresh-spinner";
+import { TranscriptRow } from "@/domains/chat/transcript/transcript-row";
+import { useTranscriptScrollOnAttach } from "@/domains/chat/transcript/transcript-scroll";
 import {
   PULL_THRESHOLD_PX,
   usePullToRefresh,
-} from "@/domains/chat/transcript/use-pull-to-refresh.js";
-import { useViewportMinHeight } from "@/domains/chat/transcript/use-viewport-min-height.js";
-import type { ConfirmationDecision } from "@/domains/chat/api/event-types.js";
+} from "@/domains/chat/transcript/use-pull-to-refresh";
+import { useViewportMinHeight } from "@/domains/chat/transcript/use-viewport-min-height";
+import type { ConfirmationDecision } from "@/domains/chat/api/event-types";
+
+/** Distance from the bottom (in px) at or below which the transcript is
+ *  considered pinned to the latest message. Surfaced through
+ *  `TranscriptHandle.getScrollState()` for the debug API. Kept in sync
+ *  with the same threshold inside `useDeprecatedTranscriptScroll`. */
+const PINNED_THRESHOLD_PX = 64;
 
 /** Outcome of a pull-to-refresh, returned by the consumer's
  *  `onPullRefresh` handler so the page can render the right feedback
@@ -35,6 +40,7 @@ export type RefreshOutcome =
 
 export interface TranscriptProps {
   items: TranscriptItem[];
+  conversationId: string | null;
   assistantDisplayName?: string | null;
   onSecretSubmit: (requestId: string, value: string) => void;
   onConfirmationDecision: (requestId: string, decision: string) => void;
@@ -70,9 +76,9 @@ export interface TranscriptProps {
     riskLevel?: string;
     riskReason?: string;
     input?: Record<string, unknown>;
-    allowlistOptions: import("@/domains/chat/api/event-types.js").AllowlistOption[];
-    scopeOptions: import("@/domains/chat/api/event-types.js").ScopeOption[];
-    directoryScopeOptions: import("@/domains/chat/api/event-types.js").DirectoryScopeOption[];
+    allowlistOptions: import("@/domains/chat/api/event-types").AllowlistOption[];
+    scopeOptions: import("@/domains/chat/api/event-types").ScopeOption[];
+    directoryScopeOptions: import("@/domains/chat/api/event-types").DirectoryScopeOption[];
   }) => void;
   /** Set of tool-call ids that should display the "command not recognized"
    *  nudge below their chip. */
@@ -92,12 +98,10 @@ export interface TranscriptProps {
   onOpenDocument?: (documentSurfaceId: string) => void;
   /** Forwarded to inline app surfaces so they can render live preview iframes. */
   assistantId?: string | null;
-  /** Ordered subagent entries to render via SubagentProgressCard on assistant
-   *  messages. When empty or undefined, no progress card renders. */
-  subagentEntries?: SubagentEntry[];
-  /** Click handler when the user clicks a subagent row in the progress card. */
+  /** Click handler when the user clicks the "open timeline" button on an
+   *  inline subagent progress card. */
   onSubagentClick?: (subagentId: string) => void;
-  /** Callback to abort/stop a running subagent. */
+  /** Callback to abort/stop a running subagent from an inline card. */
   onStopSubagent?: (subagentId: string) => void;
   /** Optional render-prop that produces the chat avatar element to mount
    *  at the bottom of the latest assistant cluster (forwarded to
@@ -118,9 +122,10 @@ export interface TranscriptProps {
    *  listeners attach. */
   pullRefreshEnabled?: boolean;
   /** Scroll coordinator state snapshot for debug API inspection. Optional —
-   *  when omitted, getScrollState() returns a default "not pinned" state. */
+   *  when omitted, getScrollState() falls back to defaults. `isPinned`
+   *  is derived from scroll geometry inside `getScrollState()` rather
+   *  than passed in. */
   scrollCoordinatorState?: {
-    isPinnedToLatest: boolean;
     showScrollToLatest: boolean;
     shouldLoadOlder: boolean;
   };
@@ -147,9 +152,15 @@ export interface TranscriptHandle {
 
 export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
   function Transcript(props, ref) {
-    const { items, onPullRefresh, pullRefreshEnabled, ...rest } = props;
+    const { items, conversationId, onPullRefresh, pullRefreshEnabled, ...rest } =
+      props;
     const scrollRef = useRef<HTMLDivElement | null>(null);
     const contentRef = useRef<HTMLDivElement | null>(null);
+    const { scrollContainerCallbackRef, contentCallbackRef } =
+      useTranscriptScrollOnAttach({
+        scrollContainerRef: scrollRef,
+        contentRef,
+      });
     const viewportMinHeight = useViewportMinHeight(scrollRef);
 
     const pullEnabled = !!pullRefreshEnabled && !!onPullRefresh;
@@ -170,35 +181,6 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
     const [expandedCardIds] = useState(() => new Map<string, boolean>());
 
     const partition = useMemo(() => partitionLatestTurn(items), [items]);
-
-    const subagentsByParent = useMemo(() => {
-      if (!rest.subagentEntries?.length) return null;
-
-      // Build a reverse lookup from daemon message UUID → item key (stableId).
-      // Used to resolve subagent entries reconstructed from history where
-      // parentMessageId (stable UUID) is set but parentMessageStableId
-      // (ephemeral, regenerated each load) won't match.
-      const messageIdToItemKey = new Map<string, string>();
-      for (const item of items) {
-        if (item.kind === "message" && item.message.id) {
-          messageIdToItemKey.set(item.message.id, item.key);
-        }
-      }
-
-      const groups = new Map<string, SubagentEntry[]>();
-      for (const entry of rest.subagentEntries) {
-        const itemKey =
-          entry.parentMessageStableId ??
-          (entry.parentMessageId
-            ? messageIdToItemKey.get(entry.parentMessageId)
-            : undefined);
-        if (!itemKey) continue;
-        const list = groups.get(itemKey) ?? [];
-        list.push(entry);
-        groups.set(itemKey, list);
-      }
-      return groups.size > 0 ? groups : null;
-    }, [rest.subagentEntries, items]);
 
     useImperativeHandle(
       ref,
@@ -236,7 +218,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
           );
           return {
             distanceFromBottom,
-            isPinned: rest.scrollCoordinatorState?.isPinnedToLatest ?? true,
+            isPinned: distanceFromBottom <= PINNED_THRESHOLD_PX,
             showScrollToLatest: rest.scrollCoordinatorState?.showScrollToLatest ?? false,
             shouldLoadOlder: rest.scrollCoordinatorState?.shouldLoadOlder ?? false,
           };
@@ -269,11 +251,14 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
       onOpenApp: rest.onOpenApp,
       onOpenDocument: rest.onOpenDocument,
       assistantId: rest.assistantId,
+      onSubagentClick: rest.onSubagentClick,
+      onStopSubagent: rest.onStopSubagent,
     };
 
     return (
       <div
-        ref={scrollRef}
+        key={conversationId}
+        ref={scrollContainerCallbackRef}
         data-testid="transcript-scroll-container"
         className="flex h-full w-full flex-col overflow-y-auto overscroll-none [overflow-anchor:none]"
       >
@@ -282,21 +267,12 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
          *  height changes (async min-height settle, late image loads,
          *  streaming growth). Wrapping all rows in a single observed
          *  element is cheaper than observing each row individually. */}
-        <div ref={contentRef} className="flex w-full flex-col">
+        <div ref={contentCallbackRef} className="flex w-full flex-col">
           {/* History items in chronological order — oldest at top. */}
           {partition.historyItems.map((item) => (
             <Fragment key={item.key}>
               <div className="mx-auto w-full max-w-[var(--chat-max-width)] contain-content px-4 sm:px-6">
                 <TranscriptRow item={item} {...rowProps} />
-                {item.kind === "message" &&
-                  subagentsByParent?.get(item.key) &&
-                  rest.onSubagentClick && (
-                    <SubagentProgressCard
-                      entries={subagentsByParent.get(item.key)!}
-                      onSubagentClick={rest.onSubagentClick}
-                      onStopSubagent={rest.onStopSubagent}
-                    />
-                  )}
               </div>
             </Fragment>
           ))}
@@ -308,9 +284,6 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
                 responseItems={partition.responseItems}
                 viewportMinHeight={viewportMinHeight}
                 avatarSlot={rest.renderAvatar ? rest.renderAvatar() : undefined}
-                subagentsByParent={subagentsByParent}
-                onSubagentClick={rest.onSubagentClick}
-                onStopSubagent={rest.onStopSubagent}
                 {...rowProps}
               />
             </div>

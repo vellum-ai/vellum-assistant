@@ -28,8 +28,8 @@ mock.module("../util/logger.js", () => ({
 // Use encrypted backend with a temp store path
 // ---------------------------------------------------------------------------
 
-import { _setStorePath } from "../security/encrypted-store.js";
 import { _resetBackend } from "../security/secure-keys.js";
+import { setStorePathForTesting } from "./encrypted-store-test-helpers.js";
 
 const TEST_DIR = join(
   tmpdir(),
@@ -74,7 +74,7 @@ describe("CredentialBroker.browserFill", () => {
     for (const entry of readdirSync(TEST_DIR)) {
       rmSync(join(TEST_DIR, entry), { recursive: true, force: true });
     }
-    _setStorePath(STORE_PATH);
+    setStorePathForTesting(STORE_PATH);
     _resetBackend();
     _setMetadataPath(join(TEST_DIR, "metadata.json"));
     broker = new CredentialBroker();
@@ -82,7 +82,7 @@ describe("CredentialBroker.browserFill", () => {
 
   afterEach(() => {
     _setMetadataPath(null);
-    _setStorePath(null);
+    setStorePathForTesting(null);
     _resetBackend();
   });
 

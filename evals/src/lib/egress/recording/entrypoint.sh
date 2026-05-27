@@ -3,7 +3,7 @@
 #
 # Runs in two phases:
 #   1. As root: apply iptables filter + NAT rules (needs NET_ADMIN).
-#   2. Drop to `mitmproxyuser` and exec mitmdump in transparent mode
+#   2. Drop to the `mitmproxy` user and exec mitmdump in transparent mode
 #      with the recording addon loaded.
 #
 # The split-user approach is what lets the iptables REDIRECT rule
@@ -26,7 +26,7 @@ export MITM_UID MITM_PORT RECORDING_OUTPUT_PATH
 # Phase 1: install iptables rules in this container's network namespace.
 /opt/recording/apply-recording-jail.sh
 
-# Make sure the output directory exists and is writable by mitmproxyuser.
+# Make sure the output directory exists and is writable by the mitmproxy user.
 mkdir -p "$(dirname "$RECORDING_OUTPUT_PATH")"
 touch "$RECORDING_OUTPUT_PATH"
 chown -R "$MITM_UID":"$MITM_UID" "$(dirname "$RECORDING_OUTPUT_PATH")"
@@ -55,5 +55,5 @@ exec su -s /bin/sh -c "exec mitmdump \
   --showhost \
   --allow-hosts \"$RECORDING_TLS_HOSTS_RE\" \
   --set block_global=false \
-  --set confdir=/home/mitmproxyuser/.mitmproxy \
-  --scripts /opt/recording/addon.py" mitmproxyuser
+  --set confdir=/home/mitmproxy/.mitmproxy \
+  --scripts /opt/recording/addon.py" mitmproxy

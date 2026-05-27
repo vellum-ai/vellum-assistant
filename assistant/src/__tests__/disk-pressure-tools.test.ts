@@ -80,8 +80,9 @@ mock.module("../util/disk-usage.js", () => ({
   getDiskUsageInfo: () => diskSample,
 }));
 
-const { _setOverridesForTesting } =
-  await import("../config/assistant-feature-flags.js");
+const { setOverridesForTesting } = await import(
+  "./feature-flag-test-helpers.js"
+);
 const {
   DISK_PRESSURE_THRESHOLD_PERCENT,
   __resetDiskPressureGuardForTests,
@@ -127,14 +128,14 @@ function setDiskUsage(usedMb: number, totalMb = 100): void {
 beforeEach(() => {
   _clearRegistryForTesting();
   __resetDiskPressureGuardForTests();
-  _setOverridesForTesting({ "safe-storage-limits": true });
+  setOverridesForTesting({ "safe-storage-limits": true });
   setDiskUsage(10);
 });
 
 afterEach(() => {
   _clearRegistryForTesting();
   __resetDiskPressureGuardForTests();
-  _setOverridesForTesting({});
+  setOverridesForTesting({});
   diskSample = null;
 });
 

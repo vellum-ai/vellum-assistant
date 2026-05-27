@@ -1199,6 +1199,36 @@
       "supportsPlatformAuth": false,
       "defaultModel": "",
       "models": []
+    },
+    {
+      "id": "minimax",
+      "displayName": "MiniMax",
+      "subtitle": "MiniMax AI models. Requires a MiniMax API key.",
+      "setupMode": "api-key",
+      "setupHint": "Enter your MiniMax API key to enable MiniMax models.",
+      "envVar": "MINIMAX_API_KEY",
+      "apiKeyPlaceholder": "sk-cp-...",
+      "credentialsGuide": {
+        "description": "Sign in to the MiniMax dashboard and create an API key.",
+        "url": "https://platform.minimax.io/",
+        "linkLabel": "Open MiniMax Dashboard"
+      },
+      "supportsPlatformAuth": false,
+      "defaultModel": "MiniMax-M2.7",
+      "models": [
+        {
+          "id": "MiniMax-M2.7",
+          "displayName": "MiniMax M2.7",
+          "contextWindowTokens": 200000,
+          "maxOutputTokens": 16384,
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "unsupported",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": false,
+          "supportsToolUse": true
+        }
+      ]
     }
   ]
 }

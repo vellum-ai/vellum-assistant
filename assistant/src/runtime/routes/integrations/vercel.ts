@@ -9,6 +9,8 @@
  * ("set" or "delete") rather than using HTTP verbs directly.
  */
 
+import { z } from "zod";
+
 import {
   deleteVercelConfig,
   getVercelConfig,
@@ -16,6 +18,12 @@ import {
 } from "../../../daemon/handlers/config-vercel.js";
 import { BadRequestError } from "../errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "../types.js";
+
+const vercelConfigResponseSchema = z.object({
+  hasToken: z.boolean(),
+  success: z.boolean(),
+  error: z.string().optional(),
+});
 
 // ---------------------------------------------------------------------------
 // Handlers
@@ -66,6 +74,7 @@ export const ROUTES: RouteDefinition[] = [
     description: "Check if a Vercel API token is stored.",
     tags: ["integrations"],
     requirePolicyEnforcement: true,
+    responseBody: vercelConfigResponseSchema,
     handler: () => handleGetVercelConfig(),
   },
   {
@@ -77,6 +86,11 @@ export const ROUTES: RouteDefinition[] = [
       "Set or delete the Vercel API token. Action is determined by the body action field.",
     tags: ["integrations"],
     requirePolicyEnforcement: true,
+    requestBody: z.object({
+      action: z.enum(["get", "set", "delete"]).optional(),
+      apiToken: z.string().optional(),
+    }),
+    responseBody: vercelConfigResponseSchema,
     handler: handlePostVercelConfig,
   },
   {
@@ -87,6 +101,7 @@ export const ROUTES: RouteDefinition[] = [
     description: "Delete the stored Vercel API token.",
     tags: ["integrations"],
     requirePolicyEnforcement: true,
+    responseBody: vercelConfigResponseSchema,
     handler: () => handleDeleteVercelConfig(),
   },
 ];

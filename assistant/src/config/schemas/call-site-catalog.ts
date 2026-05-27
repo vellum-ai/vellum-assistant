@@ -121,6 +121,27 @@ const CATALOG_RECORD: CatalogRecord = {
       "Selects which concept pages to inject for the next agent turn by routing over a cached page index.",
     domain: "memory",
   },
+  memoryV3Filter: {
+    id: "memoryV3Filter",
+    displayName: "Memory V3 Filter",
+    description:
+      "Cheaply filters the V3 multi-lane candidate set before descent.",
+    domain: "memory",
+  },
+  memoryV3Descent: {
+    id: "memoryV3Descent",
+    displayName: "Memory V3 Descent",
+    description:
+      "Drives the V3 bounded-descent traversal through the memory tree.",
+    domain: "memory",
+  },
+  memoryV3Gate: {
+    id: "memoryV3Gate",
+    displayName: "Memory V3 Gate",
+    description:
+      "Final capable gate that decides which V3 candidates are injected for the next turn.",
+    domain: "memory",
+  },
   memoryV2Consolidation: {
     id: "memoryV2Consolidation",
     displayName: "Memory V2 Consolidation",
@@ -313,13 +334,6 @@ const CATALOG_RECORD: CatalogRecord = {
     description:
       "Generates contextual conversation-starter suggestions for the Home page.",
     domain: "ui",
-  },
-  queryComplexityRouter: {
-    id: "queryComplexityRouter",
-    displayName: "Query Complexity Router",
-    description:
-      "Classifies user message complexity to route to the appropriate inference profile.",
-    domain: "agentLoop",
   },
 };
 

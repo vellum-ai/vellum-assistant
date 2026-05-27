@@ -41,7 +41,7 @@ describe("DynamicPageSurfaceData shape", () => {
 
 describe("Tool definition includes dynamic_page", () => {
   test("input_schema surface_type enum includes dynamic_page", () => {
-    const definition = uiShowTool.getDefinition();
+    const definition = uiShowTool;
     const surfaceTypeEnum = (
       definition.input_schema as {
         properties: { surface_type: { enum: string[] } };
@@ -52,7 +52,7 @@ describe("Tool definition includes dynamic_page", () => {
   });
 
   test("description mentions dynamic_page", () => {
-    const definition = uiShowTool.getDefinition();
+    const definition = uiShowTool;
     expect(definition.description).toContain("dynamic_page");
   });
 });

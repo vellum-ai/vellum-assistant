@@ -10,10 +10,8 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type {
-  LlmContextResponse,
-  LLMRequestLogEntry,
-} from "@/domains/chat/types/inspector-types.js";
+import type { LLMRequestLogEntry } from "@vellumai/assistant-api";
+import type { LlmContextResponse } from "@/domains/chat/types/inspector-types";
 
 interface FakeRequest {
   url: string;
@@ -28,9 +26,9 @@ interface FakeResponse {
 
 const requests: FakeRequest[] = [];
 let nextResponses: FakeResponse[] = [];
-let mockMessages: Array<{ id: string; daemonMessageId?: string }> = [];
+let mockMessages: Array<{ id: string }> = [];
 
-mock.module("@/generated/api/client.gen.js", () => ({
+mock.module("@/generated/api/client.gen", () => ({
   client: {
     get: async ({
       url,
@@ -63,7 +61,7 @@ mock.module("@/generated/api/client.gen.js", () => ({
   },
 }));
 
-mock.module("@/domains/chat/api/messages.js", () => ({
+mock.module("@/domains/chat/api/messages", () => ({
   fetchConversationMessages: async () => mockMessages,
 }));
 
@@ -71,7 +69,7 @@ mock.module("@/domains/chat/api/messages.js", () => ({
 import {
   fetchConversationLlmContext,
   fetchMessageLlmContextOrThrow,
-} from "@/domains/chat/inspector/inspector-api.js";
+} from "@/domains/chat/inspector/inspector-api";
 
 beforeEach(() => {
   requests.length = 0;
@@ -114,7 +112,6 @@ describe("fetchConversationLlmContext — happy path", () => {
     expect(requests[0]!.path).toEqual({ assistant_id: "asst-1" });
     expect(requests[0]!.query).toEqual({
       conversationId: "conv-1",
-      conversationKey: "conv-1",
     });
     expect(result).toEqual(body);
   });
@@ -147,8 +144,7 @@ describe("fetchConversationLlmContext — legacy fallback (404)", () => {
 
     expect(requests).toHaveLength(1); // only the initial new-endpoint attempt
     expect(result).toEqual({
-      conversationKey: "conv-empty",
-      conversationId: null,
+      conversationId: "conv-empty",
       conversationKind: "user",
       conversationTotalEstimatedCostUsd: null,
       logs: [],
@@ -211,22 +207,20 @@ describe("fetchConversationLlmContext — legacy fallback (404)", () => {
       message_id: "msg-2",
     });
 
-    expect(result.conversationKey).toBe("conv-x");
-    expect(result.conversationId).toBe(null);
+    expect(result.conversationId).toBe("conv-x");
     expect(result.conversationKind).toBe("user");
     expect(result.conversationTotalEstimatedCostUsd).toBe(0.5);
     // Sorted ascending by createdAt; deduped on log.id.
     expect(result.logs.map((l) => l.id)).toEqual(["log-a", "log-b", "log-c"]);
   });
 
-  test("prefers daemonMessageId when present, falls back to id, and dedupes", async () => {
+  test("fetches by message id and dedupes consecutive duplicates", async () => {
     nextResponses = [
       { status: 404, body: null }, // new endpoint absent
-      // First message is fetched by its daemonMessageId.
       {
         status: 200,
         body: {
-          messageId: "daemon-1",
+          messageId: "raw-1",
           conversationKey: null,
           conversationId: null,
           conversationKind: "user",
@@ -251,7 +245,7 @@ describe("fetchConversationLlmContext — legacy fallback (404)", () => {
       },
     ];
     mockMessages = [
-      { id: "raw-1", daemonMessageId: "daemon-1" },
+      { id: "raw-1" },
       { id: "raw-2" },
       // Duplicate of #2 — should be deduped, not refetched.
       { id: "raw-2" },
@@ -262,7 +256,7 @@ describe("fetchConversationLlmContext — legacy fallback (404)", () => {
     expect(requests).toHaveLength(3); // 1 initial + 2 per-message
     expect(requests[1]!.path).toEqual({
       assistant_id: "asst-1",
-      message_id: "daemon-1",
+      message_id: "raw-1",
     });
     expect(requests[2]!.path).toEqual({
       assistant_id: "asst-1",

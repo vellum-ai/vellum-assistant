@@ -15,7 +15,7 @@ import { describe, expect, mock, test } from "bun:test";
 // `ChatMarkdownMessage` pulls in `react-markdown` + `remark-gfm`. They render
 // fine under `renderToStaticMarkup`, but to keep these tests hermetic we
 // replace it with a plain passthrough.
-mock.module("@/domains/chat/components/chat-markdown-message.js", () => ({
+mock.module("@/domains/chat/components/chat-markdown-message", () => ({
   ChatMarkdownMessage: ({ content }: { content: string }) => (
     <div data-testid="markdown">{content}</div>
   ),
@@ -31,15 +31,15 @@ mock.module("@/components/assistant/surfaces", () => ({
 
 // `MessageHoverActions` uses `navigator.clipboard` in a handler; replace
 // with a minimal stub so the server render is deterministic.
-mock.module("@/domains/chat/components/message-hover-actions/message-hover-actions.js", () => ({
+mock.module("@/domains/chat/components/message-hover-actions/message-hover-actions", () => ({
   MessageHoverActions: () => <div data-testid="hover-actions" />,
 }));
 
-mock.module("@/domains/chat/components/tool-call-chip/tool-call-chip.js", () => ({
+mock.module("@/domains/chat/components/tool-call-chip/tool-call-chip", () => ({
   ToolCallChip: () => <div data-testid="tool-call" />,
 }));
 
-mock.module("@/domains/chat/components/chat-attachments/message-attachments.js", () => ({
+mock.module("@/domains/chat/components/chat-attachments/message-attachments", () => ({
   MessageAttachments: () => <div data-testid="attachments" />,
 }));
 
@@ -49,14 +49,13 @@ mock.module("@/domains/chat/components/chat-attachments/message-attachments.js",
 
 import { renderToStaticMarkup } from "react-dom/server";
 
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
-import type { TranscriptItem } from "@/domains/chat/transcript/types.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { TranscriptItem } from "@/domains/chat/transcript/types";
 
-import { Transcript } from "@/domains/chat/transcript/transcript.js";
+import { Transcript } from "@/domains/chat/transcript/transcript";
 
 function userMessage(id: string, content: string): TranscriptItem {
   const msg: DisplayMessage = {
-    stableId: id,
     id,
     role: "user",
     content,
@@ -66,7 +65,6 @@ function userMessage(id: string, content: string): TranscriptItem {
 
 function assistantMessage(id: string, content: string): TranscriptItem {
   const msg: DisplayMessage = {
-    stableId: id,
     id,
     role: "assistant",
     content,
@@ -81,6 +79,7 @@ describe("Transcript", () => {
     const html = renderToStaticMarkup(
       <Transcript
         items={[]}
+        conversationId={null}
         onSecretSubmit={noop}
         onConfirmationDecision={noop}
         onSurfaceAction={noop}
@@ -96,6 +95,7 @@ describe("Transcript", () => {
     const html = renderToStaticMarkup(
       <Transcript
         items={[]}
+        conversationId={null}
         onSecretSubmit={noop}
         onConfirmationDecision={noop}
         onSurfaceAction={noop}
@@ -119,6 +119,7 @@ describe("Transcript", () => {
     const html = renderToStaticMarkup(
       <Transcript
         items={items}
+        conversationId={null}
         onSecretSubmit={noop}
         onConfirmationDecision={noop}
         onSurfaceAction={noop}
@@ -148,6 +149,7 @@ describe("Transcript", () => {
     const html = renderToStaticMarkup(
       <Transcript
         items={items}
+        conversationId={null}
         onSecretSubmit={noop}
         onConfirmationDecision={noop}
         onSurfaceAction={noop}
@@ -171,6 +173,7 @@ describe("Transcript", () => {
     const html = renderToStaticMarkup(
       <Transcript
         items={items}
+        conversationId={null}
         onSecretSubmit={noop}
         onConfirmationDecision={noop}
         onSurfaceAction={noop}

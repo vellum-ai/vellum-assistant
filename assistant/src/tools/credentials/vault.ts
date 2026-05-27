@@ -10,7 +10,6 @@ import {
   getActiveConnection,
 } from "../../oauth/oauth-store.js";
 import { RiskLevel } from "../../permissions/types.js";
-import type { ToolDefinition } from "../../providers/types.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
   deleteSecureKeyAsync,
@@ -75,13 +74,10 @@ class CredentialStoreTool implements Tool {
   description =
     "Store, list, delete, or prompt for credentials in the secure vault";
   category = "credentials";
+  executionTarget = "sandbox" as const;
   defaultRiskLevel = RiskLevel.Low;
 
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
+  input_schema = {
         type: "object",
         properties: {
           action: {
@@ -181,9 +177,7 @@ class CredentialStoreTool implements Tool {
           },
         },
         required: ["action"],
-      },
-    };
-  }
+      };
 
   async execute(
     input: Record<string, unknown>,

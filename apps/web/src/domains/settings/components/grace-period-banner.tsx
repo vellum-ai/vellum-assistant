@@ -5,13 +5,13 @@ import { useQuery } from "@tanstack/react-query";
 
 import { Button } from "@vellum/design-library/components/button";
 import { Notice } from "@vellum/design-library/components/notice";
-import { organizationsBillingSubscriptionRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen.js";
+import { organizationsBillingSubscriptionRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
 import {
   buildPortalReturnSnapshot,
   formatGraceDate,
   getEffectiveCancelDate,
   useBillingPortalSession,
-} from "@/domains/settings/hooks/use-billing-portal-session.js";
+} from "@/domains/settings/hooks/use-billing-portal-session";
 
 /**
  * In-flow banner shown on the billing settings surface when the org's Pro

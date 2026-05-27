@@ -1,7 +1,7 @@
 import { type ReactNode, useId } from "react";
 
-import { Typography } from "./typography.js";
-import { cn } from "../utils/cn.js";
+import { Typography } from "./typography";
+import { cn } from "../utils/cn";
 
 export interface ToggleProps {
   checked: boolean;

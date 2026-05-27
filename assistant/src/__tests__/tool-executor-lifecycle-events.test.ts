@@ -72,6 +72,7 @@ mock.module("../permissions/checker.js", () => ({
 
 mock.module("../memory/conversation-crud.js", () => ({
   createConversation: (title: string) => ({ id: "conversation-1", title }),
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 // Mock every export so downstream test files that dynamically import modules
@@ -79,23 +80,24 @@ mock.module("../memory/conversation-crud.js", () => ({
 mock.module("../memory/tool-usage-store.js", () => ({
   recordToolInvocation: () => {},
   getRecentInvocations: () => [],
-  rotateToolInvocations: () => 0,
+  rotateToolInvocations: async () => 0,
 }));
 
 mock.module("../tools/registry.js", () => ({
   getTool: (name: string) => {
     if (name === "unknown_tool") return undefined;
-    // Skill tools carry origin and executionTarget from their manifest
+    // Skill tools carry executionTarget from their manifest. Ownership lives
+    // on the registry (mocked below via getToolOwner reading the override's
+    // owner field), so it doesn't appear on the Tool object itself.
     if (name === "skill_host_tool") {
       return {
         name,
         description: "skill host tool",
         category: "skill",
         defaultRiskLevel: "low",
-        origin: "skill" as const,
-        ownerSkillId: "test-skill",
+        owner: { kind: "skill", id: "test-skill" },
         executionTarget: "host" as const,
-        getDefinition: () => ({}),
+        input_schema: {},
         execute: async () => {
           if (toolThrow) throw toolThrow;
           return fakeToolResult;
@@ -108,10 +110,9 @@ mock.module("../tools/registry.js", () => ({
         description: "skill sandbox tool",
         category: "skill",
         defaultRiskLevel: "low",
-        origin: "skill" as const,
-        ownerSkillId: "test-skill",
+        owner: { kind: "skill", id: "test-skill" },
         executionTarget: "sandbox" as const,
-        getDefinition: () => ({}),
+        input_schema: {},
         execute: async () => {
           if (toolThrow) throw toolThrow;
           return fakeToolResult;
@@ -126,27 +127,49 @@ mock.module("../tools/registry.js", () => ({
         description: "skill tool with host_ prefix but sandbox target",
         category: "skill",
         defaultRiskLevel: "low",
-        origin: "skill" as const,
-        ownerSkillId: "test-skill",
+        owner: { kind: "skill", id: "test-skill" },
         executionTarget: "sandbox" as const,
-        getDefinition: () => ({}),
+        input_schema: {},
         execute: async () => {
           if (toolThrow) throw toolThrow;
           return fakeToolResult;
         },
       };
     }
+    // Mirror what the real loader stamps onto a tool at registration time
+    // (every registered Tool has `executionTarget` set). Mirror the
+    // prefix heuristic here so the tests that exercise built-in tools
+    // (`bash`, `host_bash`, `file_read`) still observe production-shaped
+    // executionTarget values.
+    const executionTarget =
+      name.startsWith("host_") || name.startsWith("computer_use_")
+        ? ("host" as const)
+        : ("sandbox" as const);
     return {
       name,
       description: "test tool",
       category: "test",
       defaultRiskLevel: "low",
-      getDefinition: () => ({}),
+      executionTarget,
+      input_schema: {},
       execute: async () => {
         if (toolThrow) throw toolThrow;
         return fakeToolResult;
       },
     };
+  },
+  // Ownership lives on the registry post-refactor. Mirror that by surfacing
+  // the optional `owner`-shaped field set inline on the override-produced
+  // tool (see the skill_* branches above).
+  getToolOwner: (name: string) => {
+    if (
+      name === "skill_host_tool" ||
+      name === "skill_sandbox_tool" ||
+      name === "host_skill_sandboxed"
+    ) {
+      return { kind: "skill" as const, id: "test-skill" };
+    }
+    return undefined;
   },
 }));
 

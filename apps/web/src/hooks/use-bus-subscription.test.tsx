@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
 
-import { __resetEventBusForTesting, useEventBusStore } from "@/stores/event-bus-store.js";
-import { subscribeBus, useBusSubscription } from "@/hooks/use-bus-subscription.js";
+import { __resetEventBusForTesting, useEventBusStore } from "@/stores/event-bus-store";
+import { subscribeBus, useBusSubscription } from "@/hooks/use-bus-subscription";
 
 beforeEach(() => {
   __resetEventBusForTesting();

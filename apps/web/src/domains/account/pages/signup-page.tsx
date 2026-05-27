@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 
-import { PROVIDER_CALLBACK_URL, PROVIDER_ID } from "@/domains/account/login-flow.js";
-import { startAuthFlow } from "@/runtime/native-auth.js";
+import {
+  PROVIDER_ID,
+  buildProviderCallbackUrl,
+} from "@/domains/account/login-flow";
+import { startAuthFlow } from "@/runtime/native-auth";
 
 /**
  * Signup redirect page. Immediately triggers the auth flow with
@@ -23,9 +26,9 @@ export function SignupPage() {
     didRedirect.current = true;
 
     const returnTo = searchParams.get("returnTo");
-    const callbackUrl = returnTo
-      ? `${PROVIDER_CALLBACK_URL}?returnTo=${encodeURIComponent(returnTo)}`
-      : PROVIDER_CALLBACK_URL;
+    const callbackUrl = buildProviderCallbackUrl(returnTo, {
+      authIntent: "signup",
+    });
 
     startAuthFlow(PROVIDER_ID, callbackUrl, {
       intent: "signup",

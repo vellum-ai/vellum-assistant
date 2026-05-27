@@ -103,6 +103,7 @@ final class MessageListProjectionCacheTests: XCTestCase {
             assistantActivityAnchor: "assistant_turn",
             assistantActivityReason: nil,
             assistantStatusText: nil,
+            autoRoutedProfileLabel: nil,
             selectedModel: "",
             configuredProviders: [],
             providerCatalog: [],

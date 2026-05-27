@@ -38,6 +38,37 @@ export interface LlmRequestLogSource {
    * and orphaned logs are all included because they share conversation_id.
    */
   getRequestLogsByConversationId(conversationId: string): Promise<LogRow[]>;
+
+  /**
+   * Fetch every `callSite = "compactionAgent"` log row in the conversation
+   * whose `createdAt` falls in the **open window**
+   * `(afterCreatedAt, beforeCreatedAt)`, ordered chronologically.
+   *
+   * Drives the Inspector's Compaction tab. The route handler resolves
+   * both bounds: the selected LLM call's `createdAt` (ceiling) and the
+   * previous non-`compactionAgent` call's `createdAt` (floor) — passing
+   * `null` for the floor when the selected call is the first real call
+   * in the conversation. See `getCompactionLogsBetween` and
+   * `getPreviousNonCompactionCallCreatedAt` in `llm-request-log-store.ts`
+   * for the full bound semantics.
+   */
+  getCompactionLogsBetween(
+    conversationId: string,
+    afterCreatedAt: number | null,
+    beforeCreatedAt: number,
+  ): Promise<LogRow[]>;
+
+  /**
+   * Find the `createdAt` of the most recent non-`compactionAgent` LLM
+   * call in the conversation strictly before `beforeCreatedAt`, or
+   * `null` when no such call exists. Pairs with
+   * `getCompactionLogsBetween` to bound the compaction trail to the
+   * window between the prior real call and the selected call.
+   */
+  getPreviousNonCompactionCallCreatedAt(
+    conversationId: string,
+    beforeCreatedAt: number,
+  ): Promise<number | null>;
 }
 
 /**

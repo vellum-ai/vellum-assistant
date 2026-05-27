@@ -8,7 +8,7 @@ import {
   Shield,
   SlidersHorizontal,
 } from "lucide-react";
-import { useState } from "react";
+import { lazy, useState } from "react";
 import { useNavigate } from "react-router";
 
 import {
@@ -18,22 +18,32 @@ import {
   SideMenu,
 } from "@vellum/design-library";
 
-import { useIsMobile } from "@/hooks/use-is-mobile.js";
-import { useAuthStore } from "@/stores/auth-store.js";
-import { adminUrl, routes } from "@/utils/routes.js";
-import { ShareFeedbackModal } from "@/components/share-feedback-modal.js";
-import { ThemeToggle } from "@/components/theme-toggle.js";
+import { LazyBoundary } from "@/components/lazy-boundary";
+import { useIsMobile } from "@/hooks/use-is-mobile";
+import { hardNavigate } from "@/lib/auth/hard-navigate";
+import { useAuthStore } from "@/stores/auth-store";
+import { adminUrl, routes } from "@/utils/routes";
+import { ThemeToggle } from "@/components/theme-toggle";
+
+// Modal only opens when the user clicks "Share Feedback" — defer loading
+// until then to keep the modal's form deps (markdown editor, etc.) out of
+// the initial bundle.
+const ShareFeedbackModal = lazy(() =>
+  import("@/components/share-feedback-modal").then((m) => ({
+    default: m.ShareFeedbackModal,
+  })),
+);
 
 export interface PreferencesMenuProps {
   assistantId?: string | null;
   assistantVersion?: string | null;
-  activeConversationKey?: string | null;
+  activeConversationId?: string | null;
 }
 
 export function PreferencesMenu({
   assistantId,
   assistantVersion,
-  activeConversationKey,
+  activeConversationId,
 }: PreferencesMenuProps) {
   const isLoggedIn = useAuthStore.use.isLoggedIn();
   const isMobile = useIsMobile();
@@ -88,13 +98,17 @@ export function PreferencesMenu({
         </Popover.Root>
       )}
 
-      <ShareFeedbackModal
-        open={isFeedbackOpen}
-        onClose={() => setIsFeedbackOpen(false)}
-        assistantId={assistantId}
-        assistantVersion={assistantVersion}
-        activeConversationKey={activeConversationKey}
-      />
+      {isFeedbackOpen ? (
+        <LazyBoundary>
+          <ShareFeedbackModal
+            open={isFeedbackOpen}
+            onClose={() => setIsFeedbackOpen(false)}
+            assistantId={assistantId}
+            assistantVersion={assistantVersion}
+            activeConversationId={activeConversationId}
+          />
+        </LazyBoundary>
+      ) : null}
     </>
   );
 }
@@ -162,7 +176,7 @@ function PreferencesMenuContent({
         onSelect={async () => {
           await logout();
           onClose();
-          navigate(routes.account.login);
+          hardNavigate(routes.account.login);
         }}
       />
     </>

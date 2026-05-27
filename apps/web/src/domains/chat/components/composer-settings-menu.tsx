@@ -7,26 +7,26 @@ import { BottomSheet } from "@vellum/design-library";
 import { Button } from "@vellum/design-library";
 import { Menu } from "@vellum/design-library";
 import { PanelItem } from "@vellum/design-library";
-import { client } from "@/generated/api/client.gen.js";
-import { useIsMobile } from "@/hooks/use-is-mobile.js";
+import { client } from "@/generated/api/client.gen";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import {
   profilePickerLabel,
   visibleProfilesForPicker,
   type ProfilePickerEntry,
-} from "@/assistant/profile-pickers.js";
+} from "@/assistant/profile-pickers";
 import {
   deleteConversationOverride,
   getConversationOverride,
   getGlobalThresholds,
   setConversationOverride,
   setGlobalThresholds,
-} from "@/domains/chat/api/threshold-api.js";
+} from "@/lib/threshold-api";
 import {
   THRESHOLD_PRESETS,
   overrideAction,
   presetFromThreshold,
   type ThresholdPreset,
-} from "@/domains/chat/utils/threshold-presets.js";
+} from "@/utils/threshold-presets";
 
 interface Props {
   assistantId: string;
@@ -414,6 +414,7 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
                   leftIcon={<Sparkles className="h-3.5 w-3.5" />}
                   className={isActive ? "bg-[var(--surface-active)] text-[var(--content-emphasised)]" : ""}
                   shortcut={isActive ? <Check className="h-3.5 w-3.5 text-[var(--system-positive-strong)]" /> : undefined}
+                  title={entry.name === "auto" ? "Automatically switches profiles based on the query" : undefined}
                 >
                   {profilePickerLabel(entry)}
                 </Menu.Item>

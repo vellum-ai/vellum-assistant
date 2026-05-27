@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { isSurfaceInteractive, type Surface } from "@/domains/chat/types/types.js";
+import { isSurfaceInteractive, type Surface } from "@/domains/chat/types/types";
 
 function makeSurface(
   overrides: Partial<Surface> = {},

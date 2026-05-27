@@ -353,6 +353,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   // Always return undefined for the row read so the test fails fast unless
   // executeSubagentSpawn reads from context.overrideProfile first.
   getConversationOverrideProfile: () => undefined,
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 import { getSubagentManager } from "../subagent/index.js";

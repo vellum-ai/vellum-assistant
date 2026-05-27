@@ -82,7 +82,16 @@ export const ROUTES: RouteDefinition[] = [
       },
     ],
     responseBody: z.object({
-      documents: z.array(z.unknown()).describe("Document summary objects"),
+      documents: z.array(
+        z.object({
+          surfaceId: z.string(),
+          conversationId: z.string(),
+          title: z.string(),
+          wordCount: z.number(),
+          createdAt: z.number(),
+          updatedAt: z.number(),
+        }),
+      ),
     }),
     handler: ({ queryParams }) => {
       const conversationId = queryParams?.conversationId ?? undefined;

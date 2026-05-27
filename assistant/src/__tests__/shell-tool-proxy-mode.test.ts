@@ -287,7 +287,7 @@ describe("shell tool proxy mode", () => {
   });
 
   test("schema includes network_mode and credential_ids", () => {
-    const def = shellTool.getDefinition();
+    const def = shellTool;
     const props = (def.input_schema as { properties: Record<string, unknown> })
       .properties;
     expect(props.network_mode).toBeDefined();

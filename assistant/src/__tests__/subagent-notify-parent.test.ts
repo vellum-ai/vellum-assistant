@@ -27,6 +27,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   getConversationOriginChannel: () => null,
   getMessages: () => null,
   createConversation: () => ({ id: "mock-conv" }),
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 /**
@@ -146,7 +147,7 @@ function clearCaptured(): void {
 
 describe("notify_parent tool definition", () => {
   test("has correct core tool definition", () => {
-    const def = notifyParentTool.getDefinition();
+    const def = notifyParentTool;
     const schema = def.input_schema as Record<string, unknown>;
     expect(def.name).toBe("notify_parent");
     expect(schema.required).toContain("message");

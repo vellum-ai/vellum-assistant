@@ -324,7 +324,7 @@ describe("GET /v1/feature-flags handler", () => {
   });
 
   test("reflects updated flags after remote sync writes new values (stale cache regression)", async () => {
-    // Scenario: the LD poller (RemoteFeatureFlagSync) writes
+    // Scenario: the remote poller (RemoteFeatureFlagSync) writes
     // email-channel: false, the gateway caches it, then a subsequent
     // poll writes email-channel: true. The GET handler should return
     // the updated value because writeRemoteFeatureFlags() updates
@@ -395,6 +395,45 @@ describe("GET /v1/feature-flags handler", () => {
     );
     expect(browserFlag).toBeDefined();
     expect(browserFlag.enabled).toBe(true);
+    expect(browserFlag.defaultEnabled).toBe(true);
+  });
+
+  test("declared flags missing from a remote snapshot default to disabled", async () => {
+    // No local override
+    if (existsSync(featureFlagStorePath)) {
+      rmSync(featureFlagStorePath);
+    }
+    clearFeatureFlagStoreCache();
+
+    // Remote snapshot exists, but browser is absent as it would be when the
+    // platform has no LaunchDarkly value for that key.
+    writeFileSync(
+      remoteFeatureFlagStorePath,
+      JSON.stringify({
+        version: 1,
+        values: { "email-channel": true },
+      }),
+    );
+    clearRemoteFeatureFlagStoreCache();
+
+    const handler = createFeatureFlagsGetHandler();
+    const res = await handler(
+      new Request("http://gateway.test/v1/feature-flags"),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    const emailFlag = body.flags.find(
+      (f: { key: string }) => f.key === "email-channel",
+    );
+    expect(emailFlag.enabled).toBe(true);
+
+    const browserFlag = body.flags.find(
+      (f: { key: string }) => f.key === "browser",
+    );
+    expect(browserFlag).toBeDefined();
+    expect(browserFlag.enabled).toBe(false);
     expect(browserFlag.defaultEnabled).toBe(true);
   });
 

@@ -321,14 +321,12 @@ export interface GenerationHandoff {
   queuedCount: number;
   attachments?: UserMessageAttachment[];
   attachmentWarnings?: string[];
-  /** Database ID of the final persisted assistant row, if any. */
-  messageId?: string;
   /**
-   * Database ID used by clients for the rendered assistant bubble. Tool turns
-   * may persist multiple assistant rows; this matches the history row that
-   * survives query-time merging.
+   * Database ID of the completed assistant turn — the id that survives
+   * query-time merging when a turn persists multiple assistant rows. Matches
+   * the row the messages route returns.
    */
-  displayMessageId?: string;
+  messageId?: string;
 }
 
 export interface ModelInfo {
@@ -404,10 +402,8 @@ export interface HistoryResponse {
   type: "history_response";
   conversationId: string;
   messages: Array<{
-    /** Database ID used by clients for the rendered message bubble. */
+    /** Database ID used by clients for the rendered message. */
     id?: string;
-    /** Concrete persisted row ID for row-scoped actions such as TTS/fork. */
-    daemonMessageId?: string;
     role: string;
     text: string;
     timestamp: number;
@@ -458,6 +454,20 @@ export interface UsageUpdate {
   model: string;
   contextWindowTokens?: number;
   contextWindowMaxTokens?: number;
+}
+
+/**
+ * Emitted after each LLM call with per-call token deltas and estimated cost.
+ * Clients accumulate these additively for live-updating usage metrics.
+ * This is a UI-only hint — it does not persist to DB or affect billing.
+ */
+export interface UsageProgress {
+  type: "usage_progress";
+  conversationId: string;
+  inputTokens: number;
+  outputTokens: number;
+  estimatedCost: number;
+  model: string;
 }
 
 export interface UsageResponse {
@@ -556,6 +566,7 @@ export type ConversationErrorCode =
   | "PROVIDER_INVALID_KEY"
   | "MANAGED_KEY_INVALID"
   | "CONTEXT_TOO_LARGE"
+  | "BUDGET_YIELD_UNRECOVERED"
   | "CONVERSATION_ABORTED"
   | "CONVERSATION_PROCESSING_FAILED"
   | "DISK_SPACE_CRITICAL"
@@ -654,6 +665,7 @@ export type _ConversationsServerMessages =
   | HistoryResponse
   | UndoComplete
   | UsageUpdate
+  | UsageProgress
   | UsageResponse
   | ContextCompacted
   | CompactionCircuitOpen

@@ -7,6 +7,7 @@ import { client } from "./commands/client";
 import { env } from "./commands/env";
 import { events } from "./commands/events";
 import { exec } from "./commands/exec";
+import { flags } from "./commands/flags";
 import { hatch } from "./commands/hatch";
 import { login, logout, whoami } from "./commands/login";
 import { logs } from "./commands/logs";
@@ -14,6 +15,7 @@ import { message } from "./commands/message";
 import { ps } from "./commands/ps";
 import { recover } from "./commands/recover";
 import { restore } from "./commands/restore";
+import { roadmap } from "./commands/roadmap";
 import { retire } from "./commands/retire";
 import { rollback } from "./commands/rollback";
 import { setup } from "./commands/setup";
@@ -36,6 +38,7 @@ const commands = {
   env,
   events,
   exec,
+  flags,
   hatch,
   login,
   logout,
@@ -45,6 +48,7 @@ const commands = {
   recover,
   restore,
   retire,
+  roadmap,
   rollback,
   setup,
   sleep,
@@ -70,6 +74,7 @@ function printHelp(): void {
   console.log("  env      Manage the default CLI environment");
   console.log("  events   Stream events from a running assistant");
   console.log("  exec     Execute a command inside an assistant's container");
+  console.log("  flags    Show and toggle feature flags");
   console.log("  hatch    Create a new assistant instance");
   console.log("  logs     View logs from an assistant instance");
   console.log("  login    Log in to the Vellum platform");
@@ -83,6 +88,7 @@ function printHelp(): void {
     "  restore  Restore data (and optionally version) from a .vbundle backup",
   );
   console.log("  retire   Delete an assistant instance");
+  console.log("  roadmap  Manage roadmap items");
   console.log("  rollback  Roll back an assistant to a previous version");
   console.log("  setup    Configure API keys interactively");
   console.log("  sleep    Stop the assistant process");

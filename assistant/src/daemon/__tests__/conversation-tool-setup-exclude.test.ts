@@ -29,8 +29,7 @@ function mcpTool(name: string): Tool {
   return {
     name,
     description: name,
-    origin: "mcp",
-    getDefinition: () => def(name),
+    input_schema: def(name).input_schema,
   } as unknown as Tool;
 }
 
@@ -89,7 +88,7 @@ describe("createResolveToolsCallback — config.tools.exclude", () => {
   });
 
   test("excluded MCP tool is omitted from the resolved tool list", () => {
-    registerMcpTools([
+    registerMcpTools("test-server", [
       mcpTool("mcp__server__navigate"),
       mcpTool("mcp__server__click"),
     ]);

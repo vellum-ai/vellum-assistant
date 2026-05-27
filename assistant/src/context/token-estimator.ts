@@ -154,11 +154,16 @@ function estimateGeminiImageTokens(width: number, height: number): number {
   ) {
     return GEMINI_IMAGE_TOKENS_PER_TILE;
   }
-  // Gemini resizes images so the longest side is ≤3072px before tiling.
-  const clampedWidth = Math.min(width, GEMINI_IMAGE_MAX_DIMENSION);
-  const clampedHeight = Math.min(height, GEMINI_IMAGE_MAX_DIMENSION);
-  const tilesWide = Math.ceil(clampedWidth / GEMINI_IMAGE_TILE_SIZE);
-  const tilesHigh = Math.ceil(clampedHeight / GEMINI_IMAGE_TILE_SIZE);
+  // Gemini rescales both dimensions by a single aspect-preserving factor so
+  // the longest side is ≤3072px before tiling. Clamping each side
+  // independently would over-count tiles for extreme aspect ratios
+  // (e.g. 10000×1000 → 3072×307, not 3072×1000).
+  const scale = Math.min(
+    1,
+    GEMINI_IMAGE_MAX_DIMENSION / Math.max(width, height),
+  );
+  const tilesWide = Math.ceil((width * scale) / GEMINI_IMAGE_TILE_SIZE);
+  const tilesHigh = Math.ceil((height * scale) / GEMINI_IMAGE_TILE_SIZE);
   return tilesWide * tilesHigh * GEMINI_IMAGE_TOKENS_PER_TILE;
 }
 

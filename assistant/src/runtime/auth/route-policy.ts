@@ -442,6 +442,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "messages/content", scopes: ["chat.read"] },
   { endpoint: "messages/llm-context", scopes: ["chat.read"] },
   { endpoint: "conversations/llm-context", scopes: ["chat.read"] },
+  { endpoint: "conversations/compaction", scopes: ["chat.read"] },
   { endpoint: "llm-request-logs/payload", scopes: ["chat.read"] },
   { endpoint: "messages/tts", scopes: ["chat.read"] },
   { endpoint: "tts/synthesize", scopes: ["chat.read"] },
@@ -460,6 +461,11 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "skills:DELETE", scopes: ["settings.write"] },
   { endpoint: "skills:PATCH", scopes: ["settings.write"] },
 
+  // Plugins (read-only for now — install / uninstall stay CLI-side)
+  { endpoint: "plugins:GET", scopes: ["settings.read"] },
+  { endpoint: "plugins/search:GET", scopes: ["settings.read"] },
+  { endpoint: "plugins:DELETE", scopes: ["settings.write"] },
+
   // Memory items
   { endpoint: "memory-items:GET", scopes: ["settings.read"] },
   { endpoint: "memory-items:POST", scopes: ["settings.write"] },
@@ -474,10 +480,19 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "memory/v2/ema-scores:POST", scopes: ["settings.read"] },
   { endpoint: "memory/v2/simulate-router:POST", scopes: ["settings.read"] },
   {
+    endpoint: "memory/v2/compare-retrievers:POST",
+    scopes: ["settings.read"],
+  },
+  {
     endpoint: "memory/v2/router-prompt-template:GET",
     scopes: ["settings.read"],
   },
   { endpoint: "memory/v2/now-text:GET", scopes: ["settings.read"] },
+  { endpoint: "memory/v3/validate:POST", scopes: ["settings.read"] },
+  { endpoint: "memory/v3/tree:POST", scopes: ["settings.read"] },
+  { endpoint: "memory/v3/simulate:POST", scopes: ["settings.read"] },
+  { endpoint: "memory/v3/shadow-diff:POST", scopes: ["settings.read"] },
+  { endpoint: "memory/v3/seed-edges:POST", scopes: ["settings.write"] },
 
   // Trust rule listing
   { endpoint: "trust-rules/manage:GET", scopes: ["settings.read"] },
@@ -900,6 +915,12 @@ registerPolicy("browser/execute", {
   allowedPrincipalTypes: ["local"],
 });
 
+// Browser tabs operations (list/select/new/close): local-only (CLI / IPC callers)
+registerPolicy("browser/tabs", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
 // Background tools: local-only (CLI / IPC callers)
 registerPolicy("background-tools", {
   requiredScopes: ["settings.read"],
@@ -931,6 +952,11 @@ registerPolicy("domain/register", {
 });
 
 registerPolicy("domain/status", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("domain/verification-status", {
   requiredScopes: ["settings.read"],
   allowedPrincipalTypes: ["local"],
 });

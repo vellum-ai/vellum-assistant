@@ -1,5 +1,3 @@
-/* eslint-disable no-restricted-syntax -- LUM-1768: file contains dark: pairs pending semantic-token migration */
-
 import {
   Cloud,
   CloudFog,
@@ -300,7 +298,7 @@ function UnitToggle({
   onToggle: (f: boolean) => void;
 }) {
   return (
-    <div className="flex overflow-hidden rounded-md border border-stone-200 dark:border-moss-500">
+    <div className="flex overflow-hidden rounded-md border border-[var(--border-element)]">
       <button
         type="button"
         onClick={() => onToggle(true)}
@@ -363,13 +361,13 @@ function HeroSection({
     <div>
       <div className="flex items-start justify-between">
         <div>
-          <div className="text-body-medium-default text-stone-600 dark:text-stone-300">
+          <div className="text-body-medium-default text-[var(--content-tertiary)]">
             {locationName}
           </div>
           {currentTempStr !== null && (
             // typography: off-scale -- large hero temperature display matching macOS weather widget
              
-            <div className="mt-1 text-4xl font-light text-stone-800 dark:text-stone-100">
+            <div className="mt-1 text-4xl font-light text-[var(--content-default)]">
               {currentTempStr}&deg;{unitSymbol}
             </div>
           )}
@@ -394,13 +392,13 @@ function HeroSection({
           </span>
         )}
         {windStr && (
-          <span className="inline-flex items-center gap-1 rounded-full bg-stone-100 px-2 py-0.5 text-label-medium-default text-stone-600 dark:bg-moss-600 dark:text-stone-300">
+          <span className="inline-flex items-center gap-1 rounded-full bg-[var(--tag-bg-neutral)] px-2 py-0.5 text-label-medium-default text-[var(--content-tertiary)]">
             <Wind width={12} height={12} />
             {windStr}
           </span>
         )}
         {data.humidity !== undefined && (
-          <span className="inline-flex items-center gap-1 rounded-full bg-stone-100 px-2 py-0.5 text-label-medium-default text-stone-600 dark:bg-moss-600 dark:text-stone-300">
+          <span className="inline-flex items-center gap-1 rounded-full bg-[var(--tag-bg-neutral)] px-2 py-0.5 text-label-medium-default text-[var(--content-tertiary)]">
             <Droplets width={12} height={12} />
             {data.humidity}%
           </span>
@@ -420,7 +418,7 @@ function HourlySection({
   useFahrenheit: boolean;
 }) {
   return (
-    <div className="mt-3 border-t border-stone-200 pt-3 dark:border-moss-500">
+    <div className="mt-3 border-t border-[var(--border-element)] pt-3">
       <div className="flex gap-3 overflow-x-auto">
         {hourly.map((item, i) => {
           const isNow = item.time.toLowerCase() === "now";
@@ -433,7 +431,7 @@ function HourlySection({
               <span
                 className={
                   isNow
-                    ? "text-body-small-emphasised text-stone-800 dark:text-stone-100"
+                    ? "text-body-small-emphasised text-[var(--content-default)]"
                     : "text-label-medium-default text-[var(--content-quiet)]"
                 }
               >
@@ -441,7 +439,7 @@ function HourlySection({
               </span>
               <WeatherIcon icon={item.icon} size={18} />
               {tempStr !== null && (
-                <span className="text-body-small-default text-stone-700 dark:text-stone-200">
+                <span className="text-body-small-default text-[var(--content-default)]">
                   {tempStr}&deg;
                 </span>
               )}
@@ -480,7 +478,7 @@ function DailySection({
   const range = globalMax - globalMin || 1;
 
   return (
-    <div className="mt-3 border-t border-stone-200 pt-3 dark:border-moss-500">
+    <div className="mt-3 border-t border-[var(--border-element)] pt-3">
       <div className="flex flex-col gap-2">
         {forecast.map((item, i) => {
           const dayName = item.dayLabel ?? item.day ?? `Day ${i + 1}`;
@@ -515,7 +513,7 @@ function DailySection({
               <span
                 className={`w-12 shrink-0 truncate text-body-small-default ${
                   isToday
-                    ? "text-stone-800 dark:text-stone-100"
+                    ? "text-[var(--content-default)]"
                     : "text-[var(--content-quiet)]"
                 }`}
               >
@@ -535,7 +533,7 @@ function DailySection({
                 {lowStr !== null ? `${lowStr}°` : "--"}
               </span>
 
-              <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-stone-200 dark:bg-moss-600">
+              <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--border-subtle)]">
                 <div
                   className="absolute top-0 h-full rounded-full bg-forest-500"
                   style={{
@@ -545,7 +543,7 @@ function DailySection({
                 />
                 {dotPosition !== null && (
                   <div
-                    className="absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-white shadow-sm dark:border-moss-700 dark:bg-stone-200"
+                    className="absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[var(--aux-white)] bg-[var(--aux-white)] shadow-sm"
                     style={{
                       left: `${barLeft + (dotPosition / 100) * barWidth}%`,
                     }}
@@ -553,7 +551,7 @@ function DailySection({
                 )}
               </div>
 
-              <span className="w-7 shrink-0 text-right text-body-small-default text-stone-700 dark:text-stone-200">
+              <span className="w-7 shrink-0 text-right text-body-small-default text-[var(--content-default)]">
                 {highStr !== null ? `${highStr}°` : "--"}
               </span>
             </div>

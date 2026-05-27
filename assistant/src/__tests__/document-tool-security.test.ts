@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import { getDocumentById } from "../documents/document-store.js";
-import { getSqlite, resetDb } from "../memory/db-connection.js";
+import { getSqlite } from "../memory/db-connection.js";
 import {
   executeDocumentDelete,
   executeDocumentList,
@@ -9,6 +9,7 @@ import {
   executeDocumentUpdate,
 } from "../tools/document/document-tool.js";
 import type { ToolContext, ToolExecutionResult } from "../tools/types.js";
+import { resetDbForTesting } from "./db-test-helpers.js";
 
 function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
@@ -25,7 +26,7 @@ function parseResult<T>(result: ToolExecutionResult): T {
 }
 
 function bootstrapDocumentTables(): void {
-  resetDb();
+  resetDbForTesting();
   const raw = getSqlite();
   raw.exec(/*sql*/ `
     DROP TABLE IF EXISTS document_conversations;

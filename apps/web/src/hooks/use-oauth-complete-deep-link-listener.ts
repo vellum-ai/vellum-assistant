@@ -3,7 +3,7 @@ import { useEffect } from "react";
 import {
   OAUTH_COMPLETE_DEEP_LINK_EVENT,
   type OAuthCompleteDeepLinkPayload,
-} from "@/runtime/native-deep-link.js";
+} from "@/runtime/native-deep-link";
 
 /**
  * Subscribes to the window event the deep-link router dispatches when

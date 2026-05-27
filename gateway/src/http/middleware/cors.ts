@@ -19,10 +19,18 @@ const WEBVIEW_ORIGIN_RE = /^https:\/\/[a-z0-9-]+\.vellum\.local$/;
 const ALLOWED_METHODS = "GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS";
 
 /**
- * Headers the webview bridge sends (auth + content type + org id).
+ * Headers the webview bridge sends (auth + content type + org id + client
+ * identity for ATL-703 self-echo suppression).
+ *
+ * `X-Vellum-Client-Id` / `X-Vellum-Interface-Id` mirror the headers the
+ * Chrome extension already sends (see `extensionCorsHeaders` below) and the
+ * raw SSE streams attach via `getClientRegistrationHeaders()`. The web SPA's
+ * central HeyAPI interceptor (`apps/web/src/lib/api-interceptors.ts`)
+ * attaches them to every generated-client request so the daemon route
+ * handlers can echo the id back on `sync_changed`.
  */
 const ALLOWED_HEADERS =
-  "Authorization, Content-Type, X-Session-Token, Vellum-Organization-Id, X-Trace-Id";
+  "Authorization, Content-Type, X-Session-Token, Vellum-Organization-Id, X-Trace-Id, X-Vellum-Client-Id, X-Vellum-Interface-Id";
 
 /**
  * Check whether the request `Origin` header matches a known Vellum Chrome
@@ -106,6 +114,10 @@ export function withExtensionCorsHeaders(
     });
   }
 }
+
+// ---------------------------------------------------------------------------
+// WKWebView CORS
+// ---------------------------------------------------------------------------
 
 /**
  * Check whether the request `Origin` header matches a known webview origin.

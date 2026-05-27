@@ -118,6 +118,7 @@ import {
   migrateInviteCodeHashColumn,
   migrateInviteContactId,
   migrateLlmRequestLogAgentLoopExitReason,
+  migrateLlmRequestLogCallSite,
   migrateLlmRequestLogMessageId,
   migrateLlmRequestLogProvider,
   migrateLlmRequestLogsCreatedAtIndex,
@@ -129,6 +130,8 @@ import {
   migrateMemoryRetrospectiveState,
   migrateMemoryV2ActivationLogs,
   migrateMemoryV2InjectionEvents,
+  migrateMemoryV3AutoEdges,
+  migrateMemoryV3Coactivation,
   migrateMessageBookmarks,
   migrateMessagesConversationCreatedAtIndex,
   migrateMessagesFtsBackfill,
@@ -456,6 +459,9 @@ export function initializeDb(): void {
     migrateConversationCleanedAt,
     migrateRenameCleanedAt,
     migrateLlmUsageAddRawUsage,
+    migrateMemoryV3Coactivation,
+    migrateMemoryV3AutoEdges,
+    migrateLlmRequestLogCallSite,
   ];
 
   // Run each migration step, catching and logging individual failures so one

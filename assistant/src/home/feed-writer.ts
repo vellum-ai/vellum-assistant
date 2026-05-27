@@ -155,6 +155,40 @@ export async function patchFeedItemStatus(
   return resultPromise;
 }
 
+/**
+ * Remove the `conversationId` field from all feed items that reference
+ * the given conversation. Returns the number of items modified.
+ *
+ * This is the daemon-side cleanup path invoked when a conversation is
+ * deleted — it prevents "Go to Thread" buttons from linking to a
+ * conversation that no longer exists. Goes through the same coalescing
+ * queue as appends and patches so there are no file-I/O races.
+ */
+export async function stripConversationIds(
+  conversationId: string,
+): Promise<number> {
+  let resolveResult!: (count: number) => void;
+  const resultPromise = new Promise<number>((resolve) => {
+    resolveResult = resolve;
+  });
+  pendingStrips.push({ conversationId, resolve: resolveResult });
+  void scheduleWrite();
+  return resultPromise;
+}
+
+/**
+ * Remove the `conversationId` field from ALL feed items that have one.
+ * Returns the number of items modified.
+ *
+ * Used by the clear-all-conversations flow to bulk-invalidate every
+ * "Go to Thread" link at once. Uses the same coalescing queue with a
+ * `"*"` sentinel that the strip loop in `runWrite` treats as "match
+ * all items with a conversationId".
+ */
+export async function clearAllConversationIds(): Promise<number> {
+  return stripConversationIds("*");
+}
+
 // ─── Internal: coalescing queue ────────────────────────────────────────
 
 /**
@@ -167,6 +201,10 @@ const pendingPatches: Array<{
   id: string;
   status: FeedItemStatus;
   resolve: (value: FeedItem | null) => void;
+}> = [];
+const pendingStrips: Array<{
+  conversationId: string;
+  resolve: (count: number) => void;
 }> = [];
 
 let writeInFlight: Promise<void> | null = null;
@@ -206,6 +244,7 @@ function scheduleWrite(): Promise<void> {
 async function runWrite(): Promise<void> {
   const appendsToApply = pendingAppends.splice(0, pendingAppends.length);
   const patchesToApply = pendingPatches.splice(0, pendingPatches.length);
+  const stripsToApply = pendingStrips.splice(0, pendingStrips.length);
 
   const current = readHomeFeed();
   let items = current.items.slice();
@@ -233,6 +272,24 @@ async function runWrite(): Promise<void> {
     patchResults.push({ resolve: patch.resolve, value: updated });
   }
 
+  // Strip conversationId from matching items.
+  const stripResults: Array<{
+    resolve: (count: number) => void;
+    count: number;
+  }> = [];
+  for (const strip of stripsToApply) {
+    let count = 0;
+    for (let i = 0; i < items.length; i++) {
+      const matchAll = strip.conversationId === "*";
+      const matchOne = items[i]!.conversationId === strip.conversationId;
+      if (matchAll ? items[i]!.conversationId != null : matchOne) {
+        items[i] = { ...items[i]!, conversationId: undefined };
+        count++;
+      }
+    }
+    stripResults.push({ resolve: strip.resolve, count });
+  }
+
   items.sort(compareFeedItems);
 
   const updatedAt = new Date().toISOString();
@@ -258,16 +315,20 @@ async function runWrite(): Promise<void> {
     publishHomeFeedUpdated(updatedAt, newItemCount);
   }
 
-  // Resolve pending patch promises AFTER we've emitted the SSE event
-  // so callers awaiting `patchFeedItemStatus` observe a fully
-  // consistent world: the on-disk file, the SSE event, and the
-  // returned `FeedItem` all reflect the same write.
+  // Resolve pending patch and strip promises AFTER we've emitted the
+  // SSE event so callers awaiting `patchFeedItemStatus` or
+  // `stripConversationIds` observe a fully consistent world: the
+  // on-disk file, the SSE event, and the returned value all reflect
+  // the same write.
   //
-  // If the write failed, resolve all patch promises with `null` — the
-  // state was not persisted, and callers (e.g. HTTP route handlers)
-  // must not report success when the underlying write failed.
+  // If the write failed, resolve patch promises with `null` and strip
+  // promises with `0` — the state was not persisted, and callers must
+  // not report success when the underlying write failed.
   for (const { resolve, value } of patchResults) {
     resolve(wrote ? value : null);
+  }
+  for (const { resolve, count } of stripResults) {
+    resolve(wrote ? count : 0);
   }
 }
 

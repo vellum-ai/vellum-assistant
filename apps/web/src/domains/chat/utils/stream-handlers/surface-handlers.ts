@@ -2,16 +2,16 @@ import {
   classifySurfaceDisplay,
   isSurfaceInteractive,
   type Surface,
-} from "@/domains/chat/types/types.js";
-import { saveDismissedSurfaceIds } from "@/domains/chat/utils/dismissed-surfaces-storage.js";
+} from "@/domains/chat/types/types";
+import { saveDismissedSurfaceIds } from "@/domains/chat/utils/dismissed-surfaces-storage";
 import {
   attachSurface,
   completeSurface,
   dismissSurface,
   updateSurfaceData,
-} from "@/domains/chat/hooks/stream-message-updaters.js";
-import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types.js";
-import type { UISurfaceCompleteEvent, UISurfaceDismissEvent, UISurfaceShowEvent, UISurfaceUpdateEvent } from "@/domains/chat/api/event-types.js";
+} from "@/domains/chat/hooks/stream-message-updaters";
+import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
+import type { UISurfaceCompleteEvent, UISurfaceDismissEvent, UISurfaceShowEvent, UISurfaceUpdateEvent } from "@/domains/chat/api/event-types";
 
 export function handleUISurfaceShow(
   event: UISurfaceShowEvent,

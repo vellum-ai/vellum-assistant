@@ -1,12 +1,14 @@
-/* eslint-disable no-restricted-syntax -- LUM-1768: file contains dark: pairs pending semantic-token migration */
 import {
+  AlertCircle,
   Check,
+  Clock,
   Crown,
   ExternalLink,
   Info,
   Loader2,
+  Trash2,
 } from "lucide-react";
-import { useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import {
   type ReactNode,
   useCallback,
@@ -19,20 +21,23 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { Button } from "@vellum/design-library/components/button";
+import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog";
 import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { Input } from "@vellum/design-library/components/input";
 import { Notice } from "@vellum/design-library/components/notice";
 import { SegmentControl } from "@vellum/design-library/components/segment-control";
-import { SettingsCard } from "@/domains/settings/components/settings-card.js";
+import { DomainField } from "@/domains/settings/components/domain-field";
+import { DetailCard } from "@/components/detail-card";
 import { Typography } from "@vellum/design-library/components/typography";
 
 import { toast } from "@vellum/design-library/components/toast";
-import { client } from "@/generated/api/client.gen.js";
+import { client } from "@/generated/api/client.gen";
 import {
   assistantsDomainsCreateMutation,
   assistantsDomainsDestroyMutation,
   assistantsDomainsListOptions,
   assistantsDomainsListQueryKey,
+  assistantsDomainsVerificationStatusRetrieveOptions,
   assistantsEmailAddressesCreateMutation,
   assistantsEmailAddressesDestroyMutation,
   assistantsEmailAddressesListOptions,
@@ -40,31 +45,32 @@ import {
   assistantsEmailAddressesStatusRetrieveOptions,
   assistantsEmailAddressesStatusRetrieveQueryKey,
   assistantsListOptions,
+  assistantsListQueryKey,
   organizationsBillingSubscriptionRetrieveOptions,
-} from "@/generated/api/@tanstack/react-query.gen.js";
-import { reportError } from "@/lib/errors/report.js";
-import { useEnvironmentStore } from "@/lib/environment/environment-store.js";
+} from "@/generated/api/@tanstack/react-query.gen";
+import { reportError } from "@/lib/errors/report";
+import { useEnvironmentStore } from "@/lib/environment/environment-store";
 import {
   type LlmCatalogModel,
   PROVIDER_DISPLAY_NAMES,
-} from "@/assistant/llm-model-catalog.js";
+} from "@/assistant/llm-model-catalog";
 import {
   WEB_SEARCH_BYOK_PROVIDER_IDS,
   WEB_SEARCH_PROVIDER_DISPLAY_NAMES,
   WEB_SEARCH_PROVIDER_IDS,
   WEB_SEARCH_PROVIDER_KEY_PLACEHOLDERS,
   WEB_SEARCH_PROVIDER_KEY_STORAGE,
-} from "@/assistant/generated/web-search-provider-catalog.gen.js";
-import { routes } from "@/utils/routes.js";
-import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags.js";
-import { synthesizeTTS } from "@/domains/voice/tts-synthesize.js";
-import { getLocalSetting, removeLocalSetting, setLocalSetting } from "@/lib/local-settings.js";
-import { CallSiteOverridesModal, type CallSiteOverrideDraft } from "@/domains/settings/ai/call-site-overrides-modal.js";
-import { ManageProfilesModal } from "@/domains/settings/ai/manage-profiles-modal.js";
-import { ManageProvidersModal } from "@/domains/settings/ai/manage-providers-modal.js";
-import { profilePickerLabel, visibleProfilesForPicker } from "@/domains/settings/ai/profile-pickers.js";
-import { readSecret } from "@/domains/settings/ai/provider-connections-client.js";
-import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder.js";
+} from "@/assistant/generated/web-search-provider-catalog.gen";
+import { routes } from "@/utils/routes";
+import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
+import { synthesizeTTS } from "@/lib/tts-synthesize";
+import { getLocalSetting, removeLocalSetting, setLocalSetting } from "@/lib/local-settings";
+import { CallSiteOverridesModal, type CallSiteOverrideDraft } from "@/domains/settings/ai/call-site-overrides-modal";
+import { ManageProfilesModal } from "@/domains/settings/ai/manage-profiles-modal";
+import { ManageProvidersModal } from "@/domains/settings/ai/manage-providers-modal";
+import { profilePickerLabel, visibleProfilesForPicker } from "@/domains/settings/ai/profile-pickers";
+import { readSecret } from "@/domains/settings/ai/provider-connections-client";
+import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
 
 // ---------------------------------------------------------------------------
 // Constants (mirrored from desktop SettingsStore)
@@ -436,6 +442,7 @@ function ModeToggle({ mode, onChange }: ModeToggleProps) {
 }
 
 interface ServiceCardProps {
+  id?: string;
   title: string;
   subtitle: string;
   mode: ServiceMode;
@@ -443,16 +450,17 @@ interface ServiceCardProps {
   children: ReactNode;
 }
 
-function ServiceCard({ title, subtitle, mode, onModeChange, children }: ServiceCardProps) {
+function ServiceCard({ id, title, subtitle, mode, onModeChange, children }: ServiceCardProps) {
   return (
-    <SettingsCard
+    <DetailCard
+      id={id}
       title={title}
       subtitle={subtitle}
       accessory={<ModeToggle mode={mode} onChange={onModeChange} />}
     >
-      <div className="h-px bg-[var(--surface-active)] dark:bg-[var(--surface-lift)]" />
+      <div className="h-px bg-[var(--surface-active)]" />
       <div className="mt-4">{children}</div>
-    </SettingsCard>
+    </DetailCard>
   );
 }
 
@@ -492,10 +500,10 @@ interface ByoServiceCardProps {
 // own key" services that don't offer a managed mode (TTS / STT).
 function ByoServiceCard({ title, subtitle, children }: ByoServiceCardProps) {
   return (
-    <SettingsCard title={title} subtitle={subtitle}>
-      <div className="h-px bg-[var(--surface-active)] dark:bg-[var(--surface-lift)]" />
+    <DetailCard title={title} subtitle={subtitle}>
+      <div className="h-px bg-[var(--surface-active)]" />
       <div className="mt-4">{children}</div>
-    </SettingsCard>
+    </DetailCard>
   );
 }
 
@@ -505,15 +513,15 @@ interface CredentialsGuideProps {
 
 function CredentialsGuide({ guide }: CredentialsGuideProps) {
   return (
-    <div className="flex items-start gap-2 rounded-lg border border-stone-200 bg-stone-50 p-3 text-body-small-default text-stone-600 dark:border-moss-600 dark:bg-moss-800 dark:text-stone-300">
-      <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-forest-700 dark:text-forest-400" />
+    <div className="flex items-start gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-sunken)] p-3 text-body-small-default text-[var(--content-tertiary)]">
+      <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--system-positive-strong)]" />
       <div className="flex flex-col gap-1">
         <span>{guide.description}</span>
         <a
           href={guide.url}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-forest-700 underline hover:text-forest-800 dark:text-forest-400"
+          className="inline-flex items-center gap-1 text-[var(--system-positive-strong)] underline hover:opacity-80"
         >
           {guide.linkLabel}
           <ExternalLink className="h-3 w-3" />
@@ -852,13 +860,79 @@ const EMAIL_BYO_PROVIDERS: readonly EmailByoProvider[] = [
   },
 ];
 
-interface EmailServiceCardProps {
-  assistantId: string | undefined;
+function DomainVerificationChip({
+  status,
+  message: _message,
+  isLoading,
+}: {
+  status: string | undefined;
+  message: string | undefined;
+  isLoading: boolean;
+}) {
+  if (isLoading) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-[var(--tag-bg-neutral)] px-2.5 py-0.5 text-body-small-default text-[var(--content-quiet)]">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        Checking domain…
+      </span>
+    );
+  }
+
+  if (!status) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded-full bg-[var(--tag-bg-neutral)] px-2.5 py-0.5 text-body-small-default text-[var(--content-quiet)]"
+        title="Unable to retrieve domain verification status."
+      >
+        Unknown status
+      </span>
+    );
+  }
+
+  if (status === "verified") {
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded-full bg-[var(--system-positive-weak)] px-2.5 py-0.5 text-body-small-default text-[var(--system-positive-strong)]"
+        title="DNS records have been verified. Your domain is ready to send and receive email."
+      >
+        <Check className="h-3 w-3" />
+        Domain verified
+      </span>
+    );
+  }
+
+  if (status === "pending" || status === "not_started") {
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded-full bg-[var(--system-mid-weak)] px-2.5 py-0.5 text-body-small-default text-[var(--system-mid-strong)]"
+        title="DNS records have been provisioned. Waiting for the email provider to verify them — this usually takes a few minutes."
+      >
+        <Clock className="h-3 w-3" />
+        Verifying domain…
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-full bg-[var(--system-negative-weak)] px-2.5 py-0.5 text-body-small-default text-[var(--system-negative-strong)]"
+      title="Domain verification failed. DNS records may not have propagated correctly. You could try releasing and re-registering the domain."
+    >
+      <AlertCircle className="h-3 w-3" />
+      Verification failed
+    </span>
+  );
 }
 
-function EmailServiceCard({ assistantId }: EmailServiceCardProps) {
+interface EmailServiceCardProps {
+  assistantId: string | undefined;
+  assistantHandle: string | undefined;
+}
+
+export function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceCardProps) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const emailRootDomain = useEnvironmentStore.use.emailRootDomain();
   const [mode, setMode] = useState<ServiceMode>(
     () => getLocalSetting(LS_EMAIL_MODE, "managed") as ServiceMode,
@@ -867,28 +941,48 @@ function EmailServiceCard({ assistantId }: EmailServiceCardProps) {
     () =>
       getLocalSetting(
         LS_EMAIL_BYO_PROVIDER,
-        "mailgun",
+        "resend",
       ) as EmailByoProvider["id"],
   );
   const [subdomainDraft, setSubdomainDraft] = useState("");
+  const [subdomainPrefilled, setSubdomainPrefilled] = useState(false);
+  const [subdomainError, setSubdomainError] = useState<string | null>(null);
   const [usernameDraft, setUsernameDraft] = useState("");
+  const [usernameError, setUsernameError] = useState<string | null>(null);
   const [savingMode, setSavingMode] = useState(false);
+  const [registerConfirmOpen, setRegisterConfirmOpen] = useState(false);
+  const [releaseConfirmOpen, setReleaseConfirmOpen] = useState(false);
+  const [removeAddressConfirmOpen, setRemoveAddressConfirmOpen] = useState(false);
 
-  // -- Subscription gate (managed mode requires Pro) -------------------------
-  // We separate "definitely not Pro" from "unknown" so a failed subscription
-  // fetch (transient 5xx, network blip) doesn't lock Pro users out of their
-  // own managed email. React Query preserves last-known `data` across failed
-  // refetches, so `isExplicitlyNotPro` only flips true when the server told
-  // us so. The backend `MANAGED_EMAIL` entitlement remains the source of
-  // truth — this gate is just a UX hint to keep Base orgs out of a form that
-  // would 403 anyway.
+  useEffect(() => {
+    if (subdomainPrefilled || !assistantHandle || subdomainDraft) return;
+    setSubdomainDraft(assistantHandle);
+    setSubdomainPrefilled(true);
+  }, [assistantHandle, subdomainPrefilled, subdomainDraft]);
+
+  // -- Subscription gate (managed mode requires the managed_email entitlement)
+  // We read the `managed_email` entitlement directly rather than inferring it
+  // from the plan, so an admin `EntitlementOverride` (which flips a Base org to
+  // entitled) is honored in-product. We separate "definitely not entitled"
+  // from "unknown" so a failed subscription fetch (transient 5xx, network
+  // blip) doesn't lock entitled users out of their own managed email. React
+  // Query preserves last-known `data` across failed refetches, so
+  // `isExplicitlyNotEntitled` only flips true when the server told us so. The
+  // backend `assert_entitlement` remains the source of truth — this gate is
+  // just a UX hint to keep non-entitled orgs out of a form that would 403
+  // anyway.
   const subscriptionQuery = useQuery({
     ...organizationsBillingSubscriptionRetrieveOptions(),
     enabled: mode === "managed",
   });
   const subscriptionData = subscriptionQuery.data;
-  const isPro = subscriptionData?.plan_id === "pro";
-  const isExplicitlyNotPro = !!subscriptionData && !isPro;
+  const entitlements = subscriptionData?.entitlements;
+  const hasManagedEmail = entitlements?.managed_email === true;
+  // Only an explicit denial when the server returned an entitlements object that
+  // omits managed_email. A successful payload lacking entitlements entirely
+  // (older platform deploy / partial response) is treated as unknown and fails
+  // open, preserving the definitely-not vs unknown split.
+  const isExplicitlyNotEntitled = !!entitlements && !hasManagedEmail;
   const subscriptionUnknown =
     !subscriptionData &&
     subscriptionQuery.isError &&
@@ -899,13 +993,13 @@ function EmailServiceCard({ assistantId }: EmailServiceCardProps) {
     ...assistantsDomainsListOptions({
       path: { assistant_id: assistantId ?? "" },
     }),
-    enabled: !!assistantId && mode === "managed" && !isExplicitlyNotPro,
+    enabled: !!assistantId && mode === "managed" && !isExplicitlyNotEntitled,
   });
   const addressesQuery = useQuery({
     ...assistantsEmailAddressesListOptions({
       path: { assistant_id: assistantId ?? "" },
     }),
-    enabled: !!assistantId && mode === "managed" && !isExplicitlyNotPro,
+    enabled: !!assistantId && mode === "managed" && !isExplicitlyNotEntitled,
   });
 
   const domain = domainsQuery.data?.results?.[0];
@@ -919,6 +1013,29 @@ function EmailServiceCard({ assistantId }: EmailServiceCardProps) {
     enabled: !!assistantId && !!address?.id && mode === "managed",
     refetchOnWindowFocus: false,
   });
+
+  const verificationQuery = useQuery({
+    ...assistantsDomainsVerificationStatusRetrieveOptions({
+      path: { assistant_id: assistantId ?? "", id: domain?.id ?? "" },
+    }),
+    enabled: !!assistantId && !!domain?.id && mode === "managed",
+    refetchInterval: (query) => {
+      const st = query.state.data?.status;
+      if (st === "verified" || st === "failed") return false;
+      return 10_000;
+    },
+    refetchOnWindowFocus: true,
+  });
+
+  useEffect(() => {
+    if (searchParams.get("release") !== "1" || !domain || address) return;
+    setReleaseConfirmOpen(true);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete("release");
+      return next;
+    }, { replace: true });
+  }, [address, domain, searchParams, setSearchParams]);
 
   // -- Mutations -------------------------------------------------------------
   const registerDomain = useMutation(assistantsDomainsCreateMutation());
@@ -942,6 +1059,11 @@ function EmailServiceCard({ assistantId }: EmailServiceCardProps) {
         }),
       });
     }
+    // Domain registration can change the assistant's handle; invalidate the
+    // assistant list so the cached handle stays fresh.
+    void queryClient.invalidateQueries({
+      queryKey: assistantsListQueryKey(),
+    });
   }, [address?.id, assistantId, queryClient]);
 
   // -- Handlers --------------------------------------------------------------
@@ -949,23 +1071,24 @@ function EmailServiceCard({ assistantId }: EmailServiceCardProps) {
     if (!assistantId) return;
     const trimmed = subdomainDraft.trim().toLowerCase();
     if (!trimmed) {
-      toast.error("Enter a subdomain.");
+      setSubdomainError("Enter a subdomain.");
       return;
     }
+    setRegisterConfirmOpen(false);
     try {
       await registerDomain.mutateAsync({
         path: { assistant_id: assistantId },
         body: { subdomain: trimmed },
       });
       setSubdomainDraft("");
+      setSubdomainError(null);
       invalidateEmailQueries();
       toast.success(`Domain ${trimmed}.${emailRootDomain} registered.`);
     } catch (err) {
-      const message =
-        err instanceof Error && err.message
-          ? err.message
-          : "Failed to register domain.";
-      toast.error(message);
+      const rec = err as Record<string, unknown> | undefined;
+      const detail = rec && typeof rec.detail === "string" ? rec.detail : null;
+      const message = detail ?? (err instanceof Error && err.message ? err.message : "Failed to register domain.");
+      setSubdomainError(message);
     }
   }, [
     assistantId,
@@ -979,7 +1102,7 @@ function EmailServiceCard({ assistantId }: EmailServiceCardProps) {
     if (!assistantId) return;
     const trimmed = usernameDraft.trim().toLowerCase();
     if (!trimmed) {
-      toast.error("Enter an email username.");
+      setUsernameError("Enter an email username.");
       return;
     }
     try {
@@ -988,19 +1111,20 @@ function EmailServiceCard({ assistantId }: EmailServiceCardProps) {
         body: { username: trimmed },
       });
       setUsernameDraft("");
+      setUsernameError(null);
       invalidateEmailQueries();
       toast.success("Email address created.");
     } catch (err) {
-      const message =
-        err instanceof Error && err.message
-          ? err.message
-          : "Failed to register email address.";
-      toast.error(message);
+      const rec = err as Record<string, unknown> | undefined;
+      const detail = rec && typeof rec.detail === "string" ? rec.detail : null;
+      const message = detail ?? (err instanceof Error && err.message ? err.message : "Failed to create email address.");
+      setUsernameError(message);
     }
   }, [assistantId, invalidateEmailQueries, registerAddress, usernameDraft]);
 
   const handleDeleteAddress = useCallback(async () => {
     if (!assistantId || !address?.id) return;
+    setRemoveAddressConfirmOpen(false);
     try {
       await deleteAddress.mutateAsync({
         path: { assistant_id: assistantId, id: address.id },
@@ -1018,10 +1142,13 @@ function EmailServiceCard({ assistantId }: EmailServiceCardProps) {
       toast.error("Remove the email address first.");
       return;
     }
+    setReleaseConfirmOpen(false);
+    const releasedSubdomain = domain.subdomain;
     try {
       await deleteDomain.mutateAsync({
         path: { assistant_id: assistantId, id: domain.id },
       });
+      setSubdomainDraft(releasedSubdomain);
       invalidateEmailQueries();
       toast.success("Domain released.");
     } catch {
@@ -1032,6 +1159,7 @@ function EmailServiceCard({ assistantId }: EmailServiceCardProps) {
     assistantId,
     deleteDomain,
     domain?.id,
+    domain?.subdomain,
     invalidateEmailQueries,
   ]);
 
@@ -1062,6 +1190,7 @@ function EmailServiceCard({ assistantId }: EmailServiceCardProps) {
 
   return (
     <ServiceCard
+      id="email"
       title="Email"
       subtitle="Configure how your assistant sends and receives email"
       mode={mode}
@@ -1084,8 +1213,8 @@ function EmailServiceCard({ assistantId }: EmailServiceCardProps) {
               }
             >
               We couldn&apos;t reach the billing service. The form below
-              assumes you&apos;re on Pro — if you&apos;re not, registering a
-              domain will fail.
+              assumes managed email is enabled for your org — if it isn&apos;t,
+              registering a domain will fail.
             </Notice>
           )}
           {subscriptionQuery.isLoading ? (
@@ -1093,23 +1222,24 @@ function EmailServiceCard({ assistantId }: EmailServiceCardProps) {
               <Loader2 className="h-4 w-4 animate-spin" />
               Checking subscription…
             </div>
-          ) : isExplicitlyNotPro ? (
+          ) : isExplicitlyNotEntitled ? (
             <Notice
               tone="info"
               icon={<Crown className="h-4 w-4" aria-hidden />}
-              title="Managed email is a Pro plan feature"
+              title="Get a dedicated email address for your assistant"
               actions={
                 <Button
                   size="compact"
-                  onClick={() => navigate(routes.settings.billing)}
+                  onClick={() => navigate(`${routes.settings.billing}?adjust_plan`)}
                 >
                   Upgrade to Pro
                 </Button>
               }
             >
-              Upgrade to register a {`<your-subdomain>.${emailRootDomain}`}{" "}
-              address managed by Vellum, or switch to <strong>Your Own</strong>{" "}
-              to bring your own provider.
+              Pro plans include a managed{" "}
+              {`<your-subdomain>.${emailRootDomain}`} inbox — no provider
+              setup required. Or switch to <strong>Your Own</strong> to bring
+              an existing provider.
             </Notice>
           ) : !assistantId ? (
             <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
@@ -1117,71 +1247,94 @@ function EmailServiceCard({ assistantId }: EmailServiceCardProps) {
             </p>
           ) : !domain ? (
             <div className="space-y-3">
-              <label className="block text-body-small-default text-[var(--content-tertiary)]">
+              <label className="block text-body-small-default text-[var(--content-quiet)]">
                 Subdomain
               </label>
-              <div className="flex items-center gap-2">
-                <Input
-                  value={subdomainDraft}
-                  onChange={(e) =>
-                    setSubdomainDraft(e.target.value.toLowerCase())
-                  }
-                  placeholder="myassistant"
-                  fullWidth
-                />
-                <span className="shrink-0 text-body-small-default text-[var(--content-tertiary)]">
-                  .{emailRootDomain}
-                </span>
-              </div>
+              <DomainField
+                subdomain={subdomainDraft}
+                onSubdomainChange={(v) => {
+                  setSubdomainDraft(v);
+                  if (subdomainError) setSubdomainError(null);
+                }}
+                domainSuffix={emailRootDomain}
+                subdomainPlaceholder="my-assistant"
+                error={subdomainError}
+              />
               <p className="text-body-small-default text-[var(--content-tertiary)]">
                 Each assistant gets its own subdomain. Lowercase letters,
                 numbers, and hyphens only.
               </p>
               <Button
-                onClick={handleRegisterDomain}
+                onClick={() => setRegisterConfirmOpen(true)}
                 disabled={registerDomain.isPending || !subdomainDraft.trim()}
               >
                 {registerDomain.isPending ? "Registering…" : "Register"}
               </Button>
+              <ConfirmDialog
+                open={registerConfirmOpen}
+                title="Set Subdomain"
+                message={<><code className="rounded bg-[var(--surface-active)] px-1 py-0.5 font-mono text-[0.9em]">{subdomainDraft.trim().toLowerCase() || "subdomain"}</code> will also become your assistant's public handle. You won't be able to change it once set.</>}
+                confirmLabel="Confirm"
+                onConfirm={handleRegisterDomain}
+                onCancel={() => setRegisterConfirmOpen(false)}
+              />
             </div>
           ) : !address ? (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="space-y-0.5">
-                  <label className="block text-body-small-default text-[var(--content-tertiary)]">
-                    Domain
-                  </label>
-                  <span className="inline-flex items-center gap-1 rounded-full bg-[var(--system-positive-weak)] px-2.5 py-0.5 text-body-small-default text-[var(--system-positive-strong)]">
-                    <Check className="h-3 w-3" />
-                    {fullDomain}
-                  </span>
-                </div>
-                <Button
-                  variant="dangerGhost"
-                  size="compact"
-                  onClick={handleDeleteDomain}
-                  disabled={deleteDomain.isPending}
-                >
-                  Release
-                </Button>
-              </div>
-
-              <div className="space-y-1">
-                <label className="block text-body-small-default text-[var(--content-tertiary)]">
-                  Email username
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="block text-body-small-default text-[var(--content-quiet)]">
+                  Domain
                 </label>
                 <div className="flex items-center gap-2">
-                  <Input
-                    value={usernameDraft}
-                    onChange={(e) =>
-                      setUsernameDraft(e.target.value.toLowerCase())
-                    }
-                    placeholder="hi"
-                    fullWidth
-                  />
-                  <span className="shrink-0 text-body-small-default text-[var(--content-tertiary)]">
-                    @{fullDomain}
+                  <span className="font-mono text-body-small-default text-[var(--content-default)]">
+                    {domain.subdomain}.{emailRootDomain}
                   </span>
+                  <DomainVerificationChip
+                    status={verificationQuery.data?.status}
+                    message={verificationQuery.data?.message}
+                    isLoading={verificationQuery.isLoading}
+                  />
+                  <Button
+                    variant="dangerGhost"
+                    size="compact"
+                    iconOnly={<Trash2 />}
+                    onClick={() => setReleaseConfirmOpen(true)}
+                    disabled={deleteDomain.isPending}
+                    aria-label="Release domain"
+                  />
+                </div>
+                <ConfirmDialog
+                  open={releaseConfirmOpen}
+                  title="Release Domain"
+                  message={<>Are you sure you want to release <code className="rounded bg-[var(--surface-active)] px-1 py-0.5 font-mono text-[0.9em]">{domain.subdomain}.{emailRootDomain}</code>? The subdomain will become available for others to claim.</>}
+                  confirmLabel="Release"
+                  destructive
+                  onConfirm={handleDeleteDomain}
+                  onCancel={() => setReleaseConfirmOpen(false)}
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-body-small-default text-[var(--content-quiet)]">
+                  Email address
+                </label>
+                <div className="flex items-center gap-2">
+                  <div className={`flex h-9 min-w-0 flex-1 items-center rounded-md border bg-[var(--field-bg)] text-body-medium-lighter transition-[border-color] duration-150 ${usernameError ? "border-[var(--system-negative-strong)]" : "border-[var(--field-border)] focus-within:border-[var(--border-active)]"}`}>
+                    <input
+                      value={usernameDraft}
+                      onChange={(e) => {
+                        setUsernameDraft(e.target.value.toLowerCase());
+                        if (usernameError) setUsernameError(null);
+                      }}
+                      placeholder="hi"
+                      aria-label="Email username"
+                      aria-invalid={!!usernameError}
+                      className="h-full min-w-0 flex-1 bg-transparent pl-3 pr-1 text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] outline-none"
+                    />
+                    <span className="shrink-0 pr-3 font-mono text-[var(--content-secondary)]">
+                      @{fullDomain}
+                    </span>
+                  </div>
                   <Button
                     onClick={handleRegisterAddress}
                     disabled={
@@ -1191,28 +1344,46 @@ function EmailServiceCard({ assistantId }: EmailServiceCardProps) {
                     {registerAddress.isPending ? "Creating…" : "Create"}
                   </Button>
                 </div>
+                {usernameError && (
+                  <p className="text-body-small-default text-[var(--system-negative-strong)]">
+                    {usernameError}
+                  </p>
+                )}
               </div>
             </div>
           ) : (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="space-y-1">
-                  <label className="block text-body-small-default text-[var(--content-tertiary)]">
-                    Address
-                  </label>
-                  <span className="inline-flex items-center gap-1 rounded-full bg-[var(--system-positive-weak)] px-2.5 py-0.5 text-body-small-default text-[var(--system-positive-strong)]">
-                    <Check className="h-3 w-3" />
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="block text-body-small-default text-[var(--content-quiet)]">
+                  Address
+                </label>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-body-small-default text-[var(--content-default)]">
                     {address.address}
                   </span>
+                  <DomainVerificationChip
+                    status={verificationQuery.data?.status}
+                    message={verificationQuery.data?.message}
+                    isLoading={verificationQuery.isLoading}
+                  />
+                  <Button
+                    variant="dangerGhost"
+                    size="compact"
+                    iconOnly={<Trash2 />}
+                    onClick={() => setRemoveAddressConfirmOpen(true)}
+                    disabled={deleteAddress.isPending}
+                    aria-label="Remove email address"
+                  />
                 </div>
-                <Button
-                  variant="dangerGhost"
-                  size="compact"
-                  onClick={handleDeleteAddress}
-                  disabled={deleteAddress.isPending}
-                >
-                  Remove
-                </Button>
+                <ConfirmDialog
+                  open={removeAddressConfirmOpen}
+                  title="Remove Email Address"
+                  message={<>Are you sure you want to remove <code className="rounded bg-[var(--surface-active)] px-1 py-0.5 font-mono text-[0.9em]">{address.address}</code>? Your assistant will no longer be able to send or receive email at this address.</>}
+                  confirmLabel="Remove"
+                  destructive
+                  onConfirm={handleDeleteAddress}
+                  onCancel={() => setRemoveAddressConfirmOpen(false)}
+                />
               </div>
 
               {statusQuery.data?.usage && (
@@ -1243,8 +1414,8 @@ function EmailServiceCard({ assistantId }: EmailServiceCardProps) {
             />
           </div>
 
-          <div className="flex items-start gap-2 rounded-lg border border-stone-200 bg-stone-50 p-3 text-body-small-default text-stone-600 dark:border-moss-600 dark:bg-moss-800 dark:text-stone-300">
-            <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-forest-700 dark:text-forest-400" />
+          <div className="flex items-start gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-sunken)] p-3 text-body-small-default text-[var(--content-tertiary)]">
+            <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--system-positive-strong)]" />
             <div className="flex flex-col gap-1">
               <span>
                 Configure {selectedByoProvider.displayName} via the assistant
@@ -1259,7 +1430,7 @@ function EmailServiceCard({ assistantId }: EmailServiceCardProps) {
                 href={selectedByoProvider.docsUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-forest-700 underline hover:text-forest-800 dark:text-forest-400"
+                className="inline-flex items-center gap-1 text-[var(--system-positive-strong)] underline hover:opacity-80"
               >
                 Open {selectedByoProvider.displayName}
                 <ExternalLink className="h-3 w-3" />
@@ -1296,6 +1467,14 @@ export function AiPage() {
   const [manageProfilesOpen, setManageProfilesOpen] = useState(false);
   const [overridesOpen, setOverridesOpen] = useState(false);
   const [manageProvidersOpen, setManageProvidersOpen] = useState(false);
+
+  useEffect(() => {
+    const hash = window.location.hash.slice(1);
+    if (!hash) return;
+    requestAnimationFrame(() => {
+      document.getElementById(hash)?.scrollIntoView({ block: "start" });
+    });
+  }, []);
 
   // -- Backend provisioning (matches desktop SettingsStore) --
   const queryClient = useQueryClient();
@@ -1786,7 +1965,7 @@ export function AiPage() {
           alongside 3 lines of body text, which read as two competing
           blocks. `items-start` plus a small mt-0.5 on the Info icon
           keep the icon aligned with the first line of wrapping text. */}
-      <div className="flex items-start gap-2 rounded-lg border border-[var(--border-base)] bg-[var(--surface-base)] px-4 py-2.5 dark:border-[var(--border-base)] dark:bg-[var(--surface-lift)]">
+      <div className="flex items-start gap-2 rounded-lg border border-[var(--border-base)] bg-[var(--surface-base)] px-4 py-2.5">
         <Info className="mt-0.5 h-4 w-4 shrink-0 text-[var(--content-tertiary)]" />
         <p className="text-body-medium-lighter text-[var(--content-secondary)]">
           Managed services are metered and deducted from your Vellum account
@@ -1821,9 +2000,19 @@ export function AiPage() {
               placeholder="Select a default profile…"
               options={defaultProfilePickerEntries.map((p) => ({
                 value: p.name,
-                label: profilePickerLabel(p),
+                label:
+                  p.name === "auto"
+                    ? "Automatically switch between profiles"
+                    : profilePickerLabel(p),
               }))}
             />
+            {activeProfile === "auto" && (
+              <div className="flex items-center gap-2 rounded-lg bg-[var(--surface-warning-subtle)] px-3 py-2">
+                <span className="text-body-small-default text-[var(--content-warning)]">
+                  Auto may use more powerful models when needed, which can increase costs.
+                </span>
+              </div>
+            )}
             {defaultProfilePickerEntries.length === 0 ? (
               <Typography
                 variant="body-small-default"
@@ -1926,7 +2115,7 @@ export function AiPage() {
       </ServiceCard>
 
       {/* Email */}
-      <EmailServiceCard assistantId={assistantId} />
+      <EmailServiceCard assistantId={assistantId} assistantHandle={assistantList?.results?.[0]?.handle} />
 
       {/* Image Generation */}
       <ServiceCard

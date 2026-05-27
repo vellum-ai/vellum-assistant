@@ -1,13 +1,21 @@
-/* eslint-disable no-restricted-syntax -- LUM-1768: file contains dark: pairs pending semantic-token migration */
-
+import { lazy } from "react";
 import { Circle, CircleCheck, CircleX, Clock, Loader2 } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
-import type { Surface } from "@/domains/chat/types/types.js";
+import type { Surface } from "@/domains/chat/types/types";
 
-import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message.js";
-import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container.js";
-import { WeatherForecastDisplay } from "@/domains/chat/components/surfaces/weather-forecast-display.js";
+import { LazyBoundary } from "@/components/lazy-boundary";
+import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
+import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container";
+
+// Weather card has its own data-shape parsing and forecast UI that is only
+// rendered when a card surface advertises a weather template. Defer loading
+// to keep it out of the chat-critical bundle.
+const WeatherForecastDisplay = lazy(() =>
+  import("@/domains/chat/components/surfaces/weather-forecast-display").then(
+    (m) => ({ default: m.WeatherForecastDisplay }),
+  ),
+);
 
 // ---------------------------------------------------------------------------
 // Types
@@ -103,7 +111,7 @@ function TaskProgressBar({ templateData }: { templateData: Record<string, unknow
         </span>
         <span>{percent}%</span>
       </div>
-      <div className="h-2 w-full overflow-hidden rounded-full bg-stone-200 dark:bg-moss-600">
+      <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--border-subtle)]">
         <div
           className="h-full rounded-full bg-forest-500 transition-all"
           style={{ width: `${percent}%` }}
@@ -141,7 +149,7 @@ function TaskStepList({ steps }: { steps: TaskStepItem[] }) {
         const showDetailOnRight = step.status === "in_progress" && !!step.detail;
         return (
           <div key={step.id || index} className="flex items-center gap-2.5 py-2 first:pt-0 last:pb-0">
-            <span className="inline-flex h-6 min-w-6 shrink-0 items-center justify-center rounded-md bg-stone-100 px-1.5 text-label-medium-default tabular-nums text-[var(--content-tertiary)] dark:bg-moss-600">
+            <span className="inline-flex h-6 min-w-6 shrink-0 items-center justify-center rounded-md bg-[var(--tag-bg-neutral)] px-1.5 text-label-medium-default tabular-nums text-[var(--content-tertiary)]">
               {index + 1}
             </span>
             <div className="min-w-0 flex-1">
@@ -217,17 +225,32 @@ export function CardSurface({ surface, onAction }: CardSurfaceProps) {
         )}
 
         {isWeather ? (
-          <WeatherForecastDisplay templateData={data.templateData!} fallback={
-            <ChatMarkdownMessage
-              content={data.body}
-              className="mt-2 text-body-medium-lighter text-stone-600 dark:text-stone-300"
-            />
-          } />
+          <LazyBoundary
+            fallback={
+              <ChatMarkdownMessage
+                content={data.body}
+                className="mt-2 text-body-medium-lighter text-[var(--content-tertiary)]"
+              />
+            }
+            errorFallback={
+              <ChatMarkdownMessage
+                content={data.body}
+                className="mt-2 text-body-medium-lighter text-[var(--content-tertiary)]"
+              />
+            }
+          >
+            <WeatherForecastDisplay templateData={data.templateData!} fallback={
+              <ChatMarkdownMessage
+                content={data.body}
+                className="mt-2 text-body-medium-lighter text-[var(--content-tertiary)]"
+              />
+            } />
+          </LazyBoundary>
         ) : (
           <>
             <ChatMarkdownMessage
               content={data.body}
-              className="mt-2 text-body-medium-lighter text-stone-600 dark:text-stone-300"
+              className="mt-2 text-body-medium-lighter text-[var(--content-tertiary)]"
             />
 
             {data.metadata && data.metadata.length > 0 && (

@@ -1,26 +1,84 @@
-import { ArrowLeft, Cpu } from "lucide-react";
-import { useMemo, useState } from "react";
+import { ArrowLeft, ArrowRight, Cpu, HardDrive, Server } from "lucide-react";
+import { useState } from "react";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
 
 import { Button } from "@vellum/design-library/components/button";
-import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { Modal } from "@vellum/design-library/components/modal";
 import { Notice } from "@vellum/design-library/components/notice";
-import { Tag } from "@vellum/design-library/components/tag";
 import { Typography } from "@vellum/design-library/components/typography";
-import type { MachineSizeEnum, MachineTierEnum } from "@/generated/api/types.gen.js";
+import type { MachineSizeEnum, MachineTierEnum } from "@/generated/api/types.gen";
 import {
   assistantsActiveRetrieveOptions,
   assistantsResizeMutation,
-} from "@/generated/api/@tanstack/react-query.gen.js";
-import { buildMachineSizeOptions } from "@/lib/billing/machine-sizes.js";
+} from "@/generated/api/@tanstack/react-query.gen";
+import {
+  SIZE_DESCRIPTION,
+  SIZE_LABEL,
+} from "@/lib/billing/machine-sizes";
 
-import { IconBadge, StepDots } from "./primitives.js";
+import { IconBadge, StepDots } from "./primitives";
 import {
   allowedMachineSizesForTier,
   extractOnboardingErrorMessage,
-} from "./utils.js";
+} from "./utils";
+
+function ResourceCard({
+  icon: Icon,
+  label,
+  from,
+  fromDetail,
+  to,
+  toDetail,
+}: {
+  icon: typeof Server;
+  label: string;
+  from: string;
+  fromDetail?: string;
+  to: string;
+  toDetail?: string;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-lg bg-[var(--surface-base)] p-3">
+      <span
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
+        style={{
+          backgroundColor: "color-mix(in oklab, var(--system-positive-strong) 10%, transparent)",
+        }}
+      >
+        <Icon className="h-4 w-4 text-[var(--system-positive-strong)]" />
+      </span>
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <span className="text-label-small-default text-[var(--content-tertiary)]">
+          {label}
+        </span>
+        <div className="flex items-center gap-2">
+          <div className="flex flex-col">
+            <span className="text-label-medium-default text-[var(--content-tertiary)] line-through">
+              {from}
+            </span>
+            {fromDetail && (
+              <span className="text-label-small-default text-[var(--content-tertiary)] line-through">
+                {fromDetail}
+              </span>
+            )}
+          </div>
+          <ArrowRight className="h-3 w-3 shrink-0 text-[var(--content-tertiary)]" />
+          <div className="flex flex-col">
+            <span className="text-label-medium-default text-[var(--content-default)]">
+              {to}
+            </span>
+            {toDetail && (
+              <span className="text-label-small-default text-[var(--content-tertiary)]">
+                {toDetail}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function SetupStep({
   storageGib,
@@ -34,21 +92,18 @@ export function SetupStep({
   onAdvance: () => void;
 }) {
   const { data: activeAssistant } = useQuery(assistantsActiveRetrieveOptions());
-  const currentSize = activeAssistant?.machine_size as MachineSizeEnum | null | undefined;
-  const machineSizeOptions = useMemo(
-    () =>
-      buildMachineSizeOptions(
-        allowedMachineSizesForTier(maxTier),
-        currentSize,
-        <Tag tone="positive">Current</Tag>,
-      ),
-    [maxTier, currentSize],
-  );
-  const [selectedSize, setSelectedSize] = useState<MachineSizeEnum>(
-    machineSizeOptions[0]?.value ?? "small",
-  );
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const currentSize = (activeAssistant?.machine_size as MachineSizeEnum) || "small";
+  const currentGib = activeAssistant?.provisioned_storage_gib ?? null;
 
+  const allowedSizes = allowedMachineSizesForTier(maxTier);
+  const targetSize: MachineSizeEnum =
+    allowedSizes.length > 0 ? allowedSizes[allowedSizes.length - 1] : currentSize;
+
+  const machineChanged = targetSize !== currentSize;
+  const canGrowStorage =
+    storageGib != null && (currentGib == null || currentGib < storageGib);
+
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const resizeMutation = useMutation(assistantsResizeMutation());
 
   const handleContinue = () => {
@@ -57,7 +112,7 @@ export function SetupStep({
       {
         path: { id: activeAssistant.id },
         body: {
-          machine_size: selectedSize,
+          machine_size: targetSize,
           ...(storageGib != null ? { storage_gib: storageGib } : {}),
         },
       },
@@ -78,10 +133,6 @@ export function SetupStep({
     );
   };
 
-  const description = storageGib != null
-    ? `Pick a machine size and we'll apply your ${storageGib} GiB of included storage.`
-    : "Pick a machine size for your assistant.";
-
   return (
     <>
       <Modal.Body
@@ -92,36 +143,43 @@ export function SetupStep({
           <IconBadge icon={Cpu} />
           <div className="space-y-2">
             <Typography variant="title-small" as="h1">
-              Choose your compute
+              Your assistant's new resources
             </Typography>
             <Typography
               variant="body-medium-lighter"
               as="p"
               className="text-[var(--content-secondary)]"
             >
-              {description}
+              Your assistant will go offline briefly while it resizes.
             </Typography>
           </div>
         </div>
 
-        <div className="space-y-1">
-          <Typography
-            variant="label-small-default"
-            as="label"
-            className="text-[var(--content-secondary)]"
-          >
-            Machine size
-          </Typography>
-          <Dropdown
-            options={machineSizeOptions}
-            value={selectedSize}
-            onChange={setSelectedSize}
-            aria-label="Machine size"
-            data-testid="onboarding-machine-size"
-          />
+        <div className="flex flex-col gap-2">
+          {machineChanged && (
+            <ResourceCard
+              icon={Cpu}
+              label="Machine"
+              from={SIZE_LABEL[currentSize]}
+              fromDetail={SIZE_DESCRIPTION[currentSize]}
+              to={SIZE_LABEL[targetSize]}
+              toDetail={SIZE_DESCRIPTION[targetSize]}
+            />
+          )}
+          {canGrowStorage && (
+            <ResourceCard
+              icon={HardDrive}
+              label="Storage"
+              from={currentGib != null ? `${currentGib} GiB` : "—"}
+              to={`${storageGib} GiB`}
+            />
+          )}
+          {!machineChanged && !canGrowStorage && (
+            <Notice tone="neutral">
+              Your assistant is already running at the maximum size for your plan.
+            </Notice>
+          )}
         </div>
-
-        <Notice tone="info">Your assistant will go offline briefly while it resizes.</Notice>
 
         {errorMsg ? <Notice tone="error">{errorMsg}</Notice> : null}
       </Modal.Body>
@@ -153,7 +211,7 @@ export function SetupStep({
             disabled={resizeMutation.isPending || !activeAssistant?.id}
             onClick={handleContinue}
           >
-            Continue
+            Apply & Restart
           </Button>
         </div>
       </Modal.Footer>

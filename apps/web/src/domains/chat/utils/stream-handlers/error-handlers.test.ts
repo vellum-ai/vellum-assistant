@@ -1,10 +1,10 @@
 import { describe, expect, it, mock } from "bun:test";
 
-import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers.js";
+import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers";
 import {
   handleStreamError,
   handleConversationErrorEvent,
-} from "@/domains/chat/utils/stream-handlers/error-handlers.js";
+} from "@/domains/chat/utils/stream-handlers/error-handlers";
 
 describe("handleStreamError", () => {
   it("sets error, cancels stream, and clears processing", () => {

@@ -2,7 +2,7 @@ import type {
   FeedItem,
   FeedItemCategory,
   FeedTimeGroup,
-} from "../types.js";
+} from "../types";
 
 /**
  * Sort feed items by priority descending, then by createdAt descending.

@@ -1,13 +1,14 @@
 import { describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import type { Surface } from "@/domains/chat/types/types.js";
+import type { Surface } from "@/domains/chat/types/types";
 
-mock.module("@/domains/chat/api/apps", () => ({
+mock.module("@/utils/app-html-cache", () => ({
   getCachedAppHtml: () => Promise.resolve("<html></html>"),
+  clearAppHtmlCache: () => {},
 }));
 
-mock.module("@/domains/chat/pinned-apps-store", () => {
+mock.module("@/stores/pinned-apps-store", () => {
   const emptyStore = {
     use: {
       pinnedApps: () => [],
@@ -27,7 +28,7 @@ mock.module("@/domains/chat/pinned-apps-store", () => {
   return { usePinnedAppsStore: emptyStore };
 });
 
-import { DynamicPageSurface } from "@/domains/chat/components/surfaces/dynamic-page-surface.js";
+import { DynamicPageSurface } from "@/domains/chat/components/surfaces/dynamic-page-surface";
 
 function surface(data: Record<string, unknown>): Surface {
   return {

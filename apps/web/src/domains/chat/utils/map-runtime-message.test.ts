@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import type { RuntimeMessage } from "@/domains/chat/api/messages.js";
+import type { RuntimeMessage } from "@/domains/chat/api/messages";
 import {
   mapRuntimeToDisplayMessage,
   prepareServerMessage,
-} from "@/domains/chat/utils/map-runtime-message.js";
+} from "@/domains/chat/utils/map-runtime-message";
 
 function makeMessage(overrides: Partial<RuntimeMessage>): RuntimeMessage {
   return {
@@ -185,7 +185,6 @@ describe("mapRuntimeToDisplayMessage", () => {
   test("preserves Slack message metadata alongside mapped message fields", () => {
     const m = makeMessage({
       id: "msg-slack",
-      daemonMessageId: "daemon-msg-slack",
       role: "user",
       content: "Slack reply",
       metadata: { source: "slack" },
@@ -221,7 +220,6 @@ describe("mapRuntimeToDisplayMessage", () => {
 
     expect(display).toMatchObject({
       id: "msg-slack",
-      daemonMessageId: "daemon-msg-slack",
       role: "user",
       content: "Slack reply",
       metadata: { source: "slack" },

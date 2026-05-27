@@ -10,12 +10,14 @@ import type {
   UsageSummary,
 } from "./metrics";
 import type {
+  DockerArtifactFile,
   ReportRunDetail,
   ReportSessionDetail,
   ReportSessionSummary,
   ReportTestInSession,
   SessionProfileAggregate,
   SessionTestEntry,
+  SubprocessLogFile,
 } from "./report-data";
 import type { TranscriptTurn } from "./transcript";
 
@@ -204,6 +206,13 @@ button.bad:hover { background: rgba(251,113,133,.15); border-color: var(--bad); 
 .artifact-link { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; color: var(--accent2); display: inline-flex; align-items: center; gap: 8px; word-break: break-all; }
 .artifact-link::before { content: "↗"; opacity: .65; font-size: 12px; }
 .artifact-link:hover { color: var(--text); text-decoration: underline; }
+.subprocess-log-block { margin-top: 12px; }
+.subprocess-log-block:first-child { margin-top: 0; }
+.subprocess-log-head { display: flex; gap: 10px; align-items: baseline; margin-bottom: 6px; flex-wrap: wrap; }
+.subprocess-log-head strong { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; color: var(--accent2); }
+.subprocess-log-head .raw-link { font-size: 12px; color: var(--muted); }
+.subprocess-log-head .raw-link:hover { color: var(--accent2); }
+.subprocess-log-empty { color: var(--muted); font-size: 12.5px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; padding: 8px 12px; border-radius: 8px; background: rgba(0,0,0,.25); }
 @media (max-width: 980px) { .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 620px) { .shell { padding: 18px; } .cards { grid-template-columns: 1fr; } .hero { display: block; } }
 `;
@@ -745,6 +754,121 @@ function ContainerLogs({
   );
 }
 
+/**
+ * One parsed entry from a subprocess log file. `ts` and `tag` and
+ * `glyph` are set when the line matched the canonical
+ * `[YYYY-MM-DD HH:MM:SS] [step]  glyph  msg` shape; otherwise `raw`
+ * carries the line verbatim and the structured fields stay undefined
+ * so the renderer can fall back to a single uncolored column.
+ */
+interface ParsedSubprocessLogLine {
+  ts?: string;
+  tag?: string;
+  glyph?: string;
+  message?: string;
+  raw: string;
+}
+
+/**
+ * Regex matching the `formatSubprocessLogLine` output:
+ *
+ *   [YYYY-MM-DD HH:MM:SS] [step      ] glyph rest-of-line
+ *
+ * The step slot is space-padded so we tolerate any run of whitespace
+ * between `]` and the glyph. `glyph` is a single non-space symbol
+ * (`•` or `✗`) followed by exactly one space, then the message.
+ */
+const SUBPROCESS_LINE_RE =
+  /^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\] \[([^\]]+)\]\s+(\S+)\s(.*)$/;
+
+/**
+ * Parse the raw contents of a subprocess log into one entry per line,
+ * preserving order. Trailing blank line (from the `join("\n") + "\n"`
+ * the writer emits) is dropped so the UI doesn't render an empty row.
+ * Lines that don't match the canonical shape (legacy `[STDOUT]` /
+ * `[STDERR]` artifacts, child processes that wrote ANSI control
+ * sequences, …) fall through with `raw` set so they're still visible.
+ *
+ * Exported for tests.
+ */
+export function parseSubprocessLog(content: string): ParsedSubprocessLogLine[] {
+  if (content.length === 0) return [];
+  const rows = content.split("\n");
+  if (rows.length > 0 && rows[rows.length - 1].length === 0) rows.pop();
+  return rows.map((raw) => {
+    const match = SUBPROCESS_LINE_RE.exec(raw);
+    if (!match) return { raw };
+    return {
+      ts: match[1],
+      tag: match[2],
+      glyph: match[3],
+      message: match[4],
+      raw,
+    };
+  });
+}
+
+function SubprocessLog({ log }: { log: SubprocessLogFile }) {
+  const lines = parseSubprocessLog(log.content);
+  if (lines.length === 0) {
+    return <div className="subprocess-log-empty">(empty)</div>;
+  }
+  return (
+    <pre className="log">
+      {lines.map((line, index) => {
+        if (line.ts === undefined) {
+          // Unparsable line — render in one column so a legacy
+          // `[STDOUT] foo` artifact still shows up.
+          return (
+            <div key={index} className="log-line">
+              <span className="log-msg">{line.raw}</span>
+            </div>
+          );
+        }
+        return (
+          <div key={index} className="log-line">
+            <span className="log-ts">{line.ts}</span>
+            <span className="log-tag">
+              [{line.tag}/{line.glyph}]
+            </span>
+            <span className="log-msg">{line.message}</span>
+          </div>
+        );
+      })}
+    </pre>
+  );
+}
+
+/**
+ * Inline view of one docker-forensics artifact. JSON inspects are
+ * pretty-printed so a `State.Error` / `ExitCode` / port-binding diff
+ * lands on its own line; plain-text logs are rendered verbatim. Both
+ * variants live in the same `<pre>` so the section reads top-to-bottom
+ * like the subprocess log section right below it.
+ *
+ * Falls back to a one-line "(empty)" stub when the file existed but
+ * was zero-length (best-effort write path swallows errors, and
+ * `docker logs` on a never-started container returns empty stdout).
+ */
+function DockerArtifact({ artifact }: { artifact: DockerArtifactFile }) {
+  const content = artifact.content;
+  if (content.length === 0) {
+    return <div className="subprocess-log-empty">(empty)</div>;
+  }
+  let body = content;
+  if (artifact.kind === "json") {
+    try {
+      const parsed: unknown = JSON.parse(content);
+      body = JSON.stringify(parsed, null, 2);
+    } catch {
+      // Malformed JSON (e.g. truncated `docker inspect` mid-write) —
+      // render the raw bytes so the operator can still see what was
+      // captured instead of replacing the whole snapshot with an error.
+    }
+  }
+  return <pre className="log docker-artifact-body">{body}</pre>;
+}
+
 function RunnerLogs({ events }: { events: PersistedProgressEvent[] }) {
   if (events.length === 0) {
     return (
@@ -854,22 +978,30 @@ function ExecutionPage({ run }: { run: ReportRunDetail }) {
           <h2>Docker snapshot</h2>
           <p className="section-subtle">
             Container forensics captured at hatch failure, before{" "}
-            <code>vellum retire</code> removed the container.
+            <code>vellum retire</code> removed the container. Each block is the
+            full <code>docker inspect</code> /{" "}
+            <code>docker logs --tail 200</code> for a sibling container (
+            <code>assistant</code> / <code>gateway</code> /{" "}
+            <code>credential-executor</code>), inlined here so port collisions
+            and crash exits land in the same scroll as the subprocess logs
+            below.
           </p>
-          <ul className="artifact-list">
-            {run.dockerArtifacts.map((name) => (
-              <li key={name}>
+          {run.dockerArtifacts.map((artifact) => (
+            <div key={artifact.name} className="subprocess-log-block">
+              <div className="subprocess-log-head">
+                <strong>{artifact.name}</strong>
                 <a
-                  className="artifact-link"
-                  href={`/api/runs/${encodeURIComponent(run.runId)}/files/${encodeURIComponent(name)}`}
+                  className="raw-link"
+                  href={`/api/runs/${encodeURIComponent(run.runId)}/files/${encodeURIComponent(artifact.name)}`}
                   target="_blank"
                   rel="noopener"
                 >
-                  {name}
+                  raw
                 </a>
-              </li>
-            ))}
-          </ul>
+              </div>
+              <DockerArtifact artifact={artifact} />
+            </div>
+          ))}
         </section>
       )}
 
@@ -877,24 +1009,28 @@ function ExecutionPage({ run }: { run: ReportRunDetail }) {
         <section className="section">
           <h2>Subprocess logs</h2>
           <p className="section-subtle">
-            Raw stdout/stderr from every CLI subprocess the adapter spawned —
-            useful when a hatch or setup step failed silently and the error
-            message alone doesn't tell you why.
+            Stdout/stderr from every CLI subprocess the adapter spawned — useful
+            when a hatch or setup step failed silently and the error message
+            alone doesn't tell you why. Each line is timestamped and tagged in
+            the same format as the test runner log so they line up
+            column-for-column when read side by side.
           </p>
-          <ul className="artifact-list">
-            {run.subprocessLogs.map((name) => (
-              <li key={name}>
+          {run.subprocessLogs.map((log) => (
+            <div key={log.name} className="subprocess-log-block">
+              <div className="subprocess-log-head">
+                <strong>{log.name}</strong>
                 <a
-                  className="artifact-link"
-                  href={`/api/runs/${encodeURIComponent(run.runId)}/files/${encodeURIComponent(name)}`}
+                  className="raw-link"
+                  href={`/api/runs/${encodeURIComponent(run.runId)}/files/${encodeURIComponent(log.name)}`}
                   target="_blank"
                   rel="noopener"
                 >
-                  {name}
+                  raw
                 </a>
-              </li>
-            ))}
-          </ul>
+              </div>
+              <SubprocessLog log={log} />
+            </div>
+          ))}
         </section>
       )}
 

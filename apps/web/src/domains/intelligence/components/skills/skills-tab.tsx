@@ -30,22 +30,22 @@ import { Button, Card, ConfirmDialog, Input, Popover } from "@vellum/design-libr
 import {
   MobileSidebarDrawer,
   MobileSidebarTrigger,
-} from "@/components/mobile-sidebar-drawer.js";
-import { CategorySidebar } from "@/domains/intelligence/components/skills/category-sidebar.js";
-import { SkillDetail } from "@/domains/intelligence/components/skills/skill-detail.js";
-import { SkillRow } from "@/domains/intelligence/components/skills/skill-row.js";
+} from "@/components/mobile-sidebar-drawer";
+import { CategorySidebar } from "@/domains/intelligence/components/skills/category-sidebar";
+import { SkillDetail } from "@/domains/intelligence/components/skills/skill-detail";
+import { SkillRow } from "@/domains/intelligence/components/skills/skill-row";
 import {
   fetchSkills,
   installSkill,
   uninstallSkill,
-} from "@/domains/intelligence/skills/api.js";
-import { inferCategory } from "@/domains/intelligence/skills/category.js";
+} from "@/domains/intelligence/skills/api";
+import { inferCategory } from "@/domains/intelligence/skills/category";
 import {
   isInstalledSkill,
   type SkillCategory,
   type SkillFilter,
   type SkillInfo,
-} from "@/domains/intelligence/skills/types.js";
+} from "@/domains/intelligence/skills/types";
 
 interface SkillsTabProps {
   assistantId: string;

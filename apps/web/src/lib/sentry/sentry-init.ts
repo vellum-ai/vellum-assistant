@@ -3,8 +3,8 @@ import type { BrowserOptions } from "@sentry/react";
 import {
   installSentryControlListeners,
   syncSentryClient,
-} from "@/lib/sentry/sentry-control.js";
-import { sanitizeUrl } from "@/lib/sentry/url-sanitize.js";
+} from "@/lib/sentry/sentry-control";
+import { sanitizeUrl } from "@/lib/sentry/url-sanitize";
 
 /**
  * Browser-side Sentry initialization, gated on the user's Share Diagnostics
@@ -28,6 +28,7 @@ import { sanitizeUrl } from "@/lib/sentry/url-sanitize.js";
 const options: BrowserOptions = {
   dsn: import.meta.env.VITE_SENTRY_DSN,
   environment: import.meta.env.VITE_SENTRY_ENVIRONMENT ?? "local",
+  release: import.meta.env.VITE_APP_VERSION,
   tracesSampleRate: 0,
   // Attach a synthetic JS stack to `Sentry.captureMessage` calls so events
   // emitted without a thrown exception still resolve to a source location
@@ -73,5 +74,12 @@ const options: BrowserOptions = {
   ],
 };
 
-syncSentryClient(options);
-installSentryControlListeners(options);
+/**
+ * Bootstrap Sentry consent gating. Must be called after
+ * `migrateDeviceSettings()` so the `device:share_diagnostics` key
+ * is available when `readConsent()` reads localStorage.
+ */
+export function initSentry(): void {
+  syncSentryClient(options);
+  installSentryControlListeners(options);
+}

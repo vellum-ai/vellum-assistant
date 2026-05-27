@@ -11,13 +11,13 @@ import type {
   EmailAddress,
   Flow,
   ProviderAccount,
-} from "@/generated/auth/types.gen.js";
+} from "@/generated/auth/types.gen";
 import {
   deleteAllauthByClientV1AuthSession,
   getAllauthByClientV1AuthSession,
   getAllauthByClientV1AuthProviderSignup,
   postAllauthByClientV1AuthProviderSignup,
-} from "@/generated/auth/sdk.gen.js";
+} from "@/generated/auth/sdk.gen";
 
 export type AllauthResult<T = unknown> =
   | { ok: true; data: T }

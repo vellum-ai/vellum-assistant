@@ -97,6 +97,16 @@ function recordReengagementTimestamp(): void {
   }
 }
 
+function refreshBackgroundWakeIntentSoon(reason: string): void {
+  void import("../background-wake/publisher.js")
+    .then(({ refreshBackgroundWakeIntent }) =>
+      refreshBackgroundWakeIntent(reason),
+    )
+    .catch((err) =>
+      log.warn({ err, reason }, "Failed to queue background wake refresh"),
+    );
+}
+
 export interface HeartbeatDeps {
   alerter: (alert: HeartbeatAlert) => void;
   onConversationCreated?: (info: {
@@ -105,6 +115,19 @@ export interface HeartbeatDeps {
   }) => void;
   /** Override for current hour (0-23), for testing. */
   getCurrentHour?: () => number;
+}
+
+export interface ManagedWakeHeartbeatRunOptions {
+  now?: number;
+  toleranceMs?: number;
+  assumeDue?: boolean;
+  scheduledFor?: number;
+}
+
+export interface ManagedWakeHeartbeatRunResult {
+  due: boolean;
+  completed: number;
+  skipped: number;
 }
 
 export class HeartbeatService {
@@ -153,12 +176,47 @@ export class HeartbeatService {
     return this._nextRunAt;
   }
 
+  async runManagedWakeIfDue(
+    options: ManagedWakeHeartbeatRunOptions = {},
+  ): Promise<ManagedWakeHeartbeatRunResult> {
+    const now = options.now ?? Date.now();
+    const toleranceMs = options.toleranceMs ?? 0;
+    const dueByLocalTimer =
+      this._nextRunAt != null && this._nextRunAt <= now + toleranceMs;
+
+    if (!dueByLocalTimer && options.assumeDue !== true) {
+      return { due: false, completed: 0, skipped: 0 };
+    }
+
+    if (!dueByLocalTimer) {
+      if (this._pendingRunId) {
+        supersedePendingRun(this._pendingRunId);
+        this._pendingRunId = null;
+      }
+      this._nextRunAt = options.scheduledFor ?? now;
+      this._pendingRunId = insertPendingHeartbeatRun(this._nextRunAt);
+    }
+
+    const completed = await this.runOnce({ force: false });
+
+    if (this.cronMode && !this.stopped) {
+      this.scheduleNextCronRun(getConfig().heartbeat);
+    }
+
+    return {
+      due: true,
+      completed: completed ? 1 : 0,
+      skipped: completed ? 0 : 1,
+    };
+  }
+
   start(): void {
     this.stopped = false;
     const config = getConfig().heartbeat;
     if (!config.enabled) {
       log.info("Heartbeat disabled by config");
       this._nextRunAt = null;
+      refreshBackgroundWakeIntentSoon("heartbeat-disabled");
       return;
     }
     if (this.timer) return;
@@ -283,6 +341,7 @@ export class HeartbeatService {
         { nextRunAt: new Date(nextRunAt).toISOString(), delayMs },
         "Heartbeat cron run scheduled",
       );
+      refreshBackgroundWakeIntentSoon("heartbeat-cron-scheduled");
     } catch (err) {
       log.warn(
         { err },
@@ -309,6 +368,7 @@ export class HeartbeatService {
     this._nextRunAt = null;
     this.cronMode = false;
     this.start();
+    refreshBackgroundWakeIntentSoon("heartbeat-reconfigured");
   }
 
   /**
@@ -386,6 +446,7 @@ export class HeartbeatService {
 
     if (!force && !config.enabled) {
       if (runId) skipHeartbeatRun(runId, "disabled");
+      refreshBackgroundWakeIntentSoon("heartbeat-disabled");
       return false;
     }
 
@@ -510,6 +571,7 @@ export class HeartbeatService {
       if (!this.cronMode) {
         this.scheduleNextRun(getConfig().heartbeat.intervalMs);
       }
+      refreshBackgroundWakeIntentSoon("heartbeat-run-complete");
     }
     return true;
   }
@@ -520,6 +582,7 @@ export class HeartbeatService {
     }
     this._nextRunAt = Date.now() + intervalMs;
     this._pendingRunId = insertPendingHeartbeatRun(this._nextRunAt);
+    refreshBackgroundWakeIntentSoon("heartbeat-interval-scheduled");
   }
 
   /**

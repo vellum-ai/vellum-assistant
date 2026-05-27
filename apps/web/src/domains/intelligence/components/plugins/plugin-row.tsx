@@ -1,7 +1,7 @@
 import type { KeyboardEvent } from "react";
 
 import { Card } from "@vellum/design-library";
-import type { PluginInfo } from "@/domains/intelligence/plugins/types.js";
+import type { PluginInfo } from "@/domains/intelligence/plugins/types";
 
 interface PluginRowProps {
   plugin: PluginInfo;

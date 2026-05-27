@@ -1,0 +1,24 @@
+{
+  "name": "@vellumai/macos",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Electron wrapper for the Vellum Assistant macOS app.",
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "dist": "electron-vite build && electron-builder",
+    "typecheck": "bunx tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.5",
+    "electron": "42.2.0",
+    "electron-builder": "26.8.1",
+    "electron-vite": "5.0.0",
+    "typescript": "5.9.3",
+    "vite": "7.3.3"
+  },
+  "dependencies": {
+    "electron-store": "11.0.2"
+  }
+}

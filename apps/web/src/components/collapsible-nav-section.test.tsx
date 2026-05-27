@@ -11,7 +11,7 @@ import { Clock } from "lucide-react";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { CollapsibleNavSection } from "./collapsible-nav-section.js";
+import { CollapsibleNavSection } from "./collapsible-nav-section";
 
 function renderSingleSection(opts: {
   value: string;

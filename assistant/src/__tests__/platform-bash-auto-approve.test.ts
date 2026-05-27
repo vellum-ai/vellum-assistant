@@ -100,7 +100,7 @@ mock.module("../permissions/checker.js", () => ({
 mock.module("../memory/tool-usage-store.js", () => ({
   recordToolInvocation: () => {},
   getRecentInvocations: () => [],
-  rotateToolInvocations: () => 0,
+  rotateToolInvocations: async () => 0,
 }));
 
 mock.module("../tools/registry.js", () => ({
@@ -111,7 +111,7 @@ mock.module("../tools/registry.js", () => ({
       description: "test tool",
       category: "shell",
       defaultRiskLevel: "medium",
-      getDefinition: () => ({}),
+      input_schema: {},
       execute: async () => fakeToolResult,
     };
   },

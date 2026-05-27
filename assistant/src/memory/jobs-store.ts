@@ -1,6 +1,7 @@
 import { and, asc, eq, inArray, lte, notInArray, or, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import { getConfig } from "../config/loader.js";
 import { getLogger } from "../util/logger.js";
 import { truncate } from "../util/truncate.js";
 import { getDb } from "./db-connection.js";
@@ -43,6 +44,9 @@ export type MemoryJobType =
   | "memory_v2_migrate"
   | "memory_v2_reembed"
   | "memory_v2_activation_recompute"
+  | "memory_v3_consolidate"
+  | "memory_v3_index_maintenance"
+  | "memory_v3_edge_learning"
   | "memory_retrospective";
 
 export const EMBED_JOB_TYPES: MemoryJobType[] = [
@@ -66,11 +70,21 @@ export const SLOW_LLM_JOB_TYPES: MemoryJobType[] = [
   "generate_conversation_starters",
   "memory_v2_sweep",
   "memory_v2_consolidate",
+  "memory_v3_consolidate",
   "memory_v2_migrate",
   "memory_retrospective",
   "backfill",
   "graph_bootstrap",
 ];
+
+/** Returns `false` only when `config.memory.enabled` is explicitly `false`; defaults to `true` on missing config or load errors. */
+export function isMemoryEnabled(): boolean {
+  try {
+    return getConfig().memory?.enabled !== false;
+  } catch {
+    return true;
+  }
+}
 
 export interface MemoryJob<T = Record<string, unknown>> {
   id: string;

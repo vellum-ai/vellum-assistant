@@ -1,13 +1,13 @@
 import { describe, expect, it } from "bun:test";
 
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
-import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers";
 import {
   handleUISurfaceShow,
   handleUISurfaceUpdate,
   handleUISurfaceDismiss,
   handleUISurfaceComplete,
-} from "@/domains/chat/utils/stream-handlers/surface-handlers.js";
+} from "@/domains/chat/utils/stream-handlers/surface-handlers";
 
 describe("handleUISurfaceShow", () => {
   it("increments assets refresh key for dynamic_page", () => {
@@ -68,7 +68,7 @@ describe("handleUISurfaceDismiss", () => {
 describe("handleUISurfaceComplete", () => {
   it("increments refresh key when completed surface is dynamic_page", () => {
     const msg: DisplayMessage = {
-      stableId: "m-1",
+      id: "m-1",
       role: "assistant",
       content: "",
       timestamp: 1,
@@ -87,7 +87,7 @@ describe("handleUISurfaceComplete", () => {
 
   it("does not increment refresh key for non-dynamic surface types", () => {
     const msg: DisplayMessage = {
-      stableId: "m-1",
+      id: "m-1",
       role: "assistant",
       content: "",
       timestamp: 1,

@@ -131,7 +131,7 @@ mock.module("../permissions/checker.js", () => ({
 mock.module("../memory/tool-usage-store.js", () => ({
   recordToolInvocation: () => {},
   getRecentInvocations: () => [],
-  rotateToolInvocations: () => 0,
+  rotateToolInvocations: async () => 0,
 }));
 
 mock.module("../tools/registry.js", () => ({
@@ -143,11 +143,21 @@ mock.module("../tools/registry.js", () => ({
       description: "test tool",
       category: "test",
       defaultRiskLevel: "low",
-      getDefinition: () => ({}),
+      input_schema: {},
       execute: async () => fakeToolResult,
     };
   },
   getAllTools: () => (getAllToolsOverride ? getAllToolsOverride() : []),
+  // Ownership lives on the registry post-refactor; production reads it via
+  // getToolOwner(name) rather than a field on the Tool object. Mirror that by
+  // surfacing the optional `owner`-shaped field from the override-produced
+  // tool so existing tests can encode owner inline.
+  getToolOwner: (name: string) => {
+    const t = getToolOverride?.(name) as
+      | { owner?: { kind: "skill" | "mcp" | "plugin"; id: string } }
+      | undefined;
+    return t?.owner;
+  },
 }));
 
 mock.module("../tools/shared/filesystem/path-policy.js", () => ({
@@ -285,11 +295,7 @@ describe("ToolExecutor allowedToolNames gating", () => {
         description: "test tool",
         category: "test",
         defaultRiskLevel: RiskLevel.Low,
-        getDefinition: () => ({
-          name,
-          description: "test tool",
-          input_schema: { type: "object" as const, properties: {} },
-        }),
+        input_schema: { type: "object" as const, properties: {} },
         execute: async () => fakeToolResult,
       }) as unknown as Tool;
     getAllToolsOverride = () => [
@@ -337,13 +343,9 @@ describe("ToolExecutor allowedToolNames gating", () => {
         description: "tool from a skill",
         category: "skill",
         defaultRiskLevel: RiskLevel.Low,
-        origin: "skill" as const,
-        ownerSkillId: "my-skill",
-        getDefinition: () => ({
-          name,
-          description: "tool from a skill",
-          input_schema: { type: "object" as const, properties: {} },
-        }),
+        executionTarget: "sandbox" as const,
+        owner: { kind: "skill", id: "my-skill" },
+        input_schema: { type: "object" as const, properties: {} },
         execute: async () => fakeToolResult,
       };
     };
@@ -378,15 +380,9 @@ describe("ToolExecutor policy context plumbing", () => {
         description: "skill tool",
         category: "skill",
         defaultRiskLevel: RiskLevel.Low,
-        origin: "skill" as const,
-        ownerSkillId: "my-skill-123",
-        ownerSkillVersionHash: "abc123hash",
+        owner: { kind: "skill", id: "my-skill-123" },
         executionTarget: "sandbox" as const,
-        getDefinition: () => ({
-          name,
-          description: "skill tool",
-          input_schema: { type: "object" as const, properties: {} },
-        }),
+        input_schema: { type: "object" as const, properties: {} },
         execute: async () => fakeToolResult,
       };
     };
@@ -434,12 +430,8 @@ describe("ToolExecutor policy context plumbing", () => {
         description: "core tool",
         category: "core",
         defaultRiskLevel: RiskLevel.Low,
-        origin: "core" as const,
-        getDefinition: () => ({
-          name,
-          description: "core tool",
-          input_schema: { type: "object" as const, properties: {} },
-        }),
+        executionTarget: "sandbox" as const,
+        input_schema: { type: "object" as const, properties: {} },
         execute: async () => fakeToolResult,
       };
     };
@@ -467,15 +459,9 @@ describe("ToolExecutor policy context plumbing", () => {
         description: "host skill tool",
         category: "skill",
         defaultRiskLevel: RiskLevel.Low,
-        origin: "skill" as const,
-        ownerSkillId: "host-skill",
-        ownerSkillVersionHash: "host-hash",
+        owner: { kind: "skill", id: "host-skill" },
         executionTarget: "host" as const,
-        getDefinition: () => ({
-          name,
-          description: "host skill tool",
-          input_schema: { type: "object" as const, properties: {} },
-        }),
+        input_schema: { type: "object" as const, properties: {} },
         execute: async () => fakeToolResult,
       };
     };
@@ -493,42 +479,6 @@ describe("ToolExecutor policy context plumbing", () => {
       conversationId: "conversation-1",
       executionContext: "conversation",
       executionTarget: "host",
-    });
-  });
-
-  test("skill tool without executionTarget passes undefined executionTarget", async () => {
-    getToolOverride = (name: string) => {
-      if (name === "unknown_tool") return undefined;
-      return {
-        name,
-        description: "skill without target",
-        category: "skill",
-        defaultRiskLevel: RiskLevel.Low,
-        origin: "skill" as const,
-        ownerSkillId: "no-target-skill",
-        // executionTarget intentionally omitted
-        getDefinition: () => ({
-          name,
-          description: "skill tool",
-          input_schema: { type: "object" as const, properties: {} },
-        }),
-        execute: async () => fakeToolResult,
-      };
-    };
-
-    const executor = new ToolExecutor(makePrompter());
-    const result = await executor.execute(
-      "no_target_tool",
-      {},
-      makeContext({ requireFreshApproval: true }),
-    );
-
-    expect(result.isError).toBe(false);
-    expect(lastCheckArgs).toBeDefined();
-    expect(lastCheckArgs!.policyContext).toEqual({
-      conversationId: "conversation-1",
-      executionContext: "conversation",
-      executionTarget: undefined,
     });
   });
 });

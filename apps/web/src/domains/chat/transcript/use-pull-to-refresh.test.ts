@@ -21,7 +21,7 @@ import {
   classifyPull,
   computePullExtent,
   shouldFireThresholdHaptic,
-} from "@/domains/chat/transcript/use-pull-to-refresh.js";
+} from "@/domains/chat/transcript/use-pull-to-refresh";
 
 /** Build a metrics fixture for a transcript where the visual bottom
  *  (max scrollTop) is at `scrollHeight − clientHeight = 1000`. Then

@@ -46,7 +46,7 @@ import {
   type ToolResultTruncateResult,
   type TurnContext,
 } from "../plugins/types.js";
-import type { LoadedPluginTool } from "../tools/types.js";
+import type { LoadedTool } from "../tools/types.js";
 
 const sampleTrust: TrustContext = {
   sourceChannel: "vellum",
@@ -207,10 +207,11 @@ describe("plugin core types", () => {
       },
     };
 
-    const sampleTool: LoadedPluginTool = {
+    const sampleTool: LoadedTool = {
       name: "sample-tool",
       description: "Sample plugin tool",
       defaultRiskLevel: RiskLevel.Low,
+      executionTarget: "sandbox",
       input_schema: { type: "object", properties: {}, required: [] },
       async execute() {
         return { content: "ok", isError: false };

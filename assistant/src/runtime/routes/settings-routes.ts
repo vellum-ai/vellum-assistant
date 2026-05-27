@@ -78,7 +78,10 @@ function handleVoiceConfigUpdate({ body = {} }: RouteHandlerArgs) {
 // Avatar generation
 // ---------------------------------------------------------------------------
 
-async function handleGenerateAvatar({ body = {} }: RouteHandlerArgs) {
+async function handleGenerateAvatar({
+  body = {},
+  headers,
+}: RouteHandlerArgs) {
   const { description } = body as { description?: string };
   if (!description?.trim()) {
     throw new BadRequestError("Description is required.");
@@ -95,7 +98,7 @@ async function handleGenerateAvatar({ body = {} }: RouteHandlerArgs) {
 
     const avatarPath = getAvatarImagePath();
 
-    publishAvatarChanged();
+    publishAvatarChanged(headers?.["x-vellum-client-id"]?.trim() || undefined);
 
     return { ok: true, avatarPath };
   } catch (err) {
@@ -381,14 +384,7 @@ function handleToolNamesList() {
   };
   const schemas: Record<string, SchemaShape> = {};
 
-  const rawDefs: ToolDefinition[] = [];
-  for (const tool of tools) {
-    try {
-      rawDefs.push(tool.getDefinition());
-    } catch {
-      // Skip tools whose definitions can't be resolved
-    }
-  }
+  const rawDefs: ToolDefinition[] = tools;
 
   const transformedDefs = injectActivityField(rawDefs, ACTIVITY_SKIP_SET);
   for (const def of transformedDefs) {
@@ -444,7 +440,12 @@ async function handleToolPermissionSimulate({ body = {} }: RouteHandlerArgs) {
 
   try {
     const manifestOverride = resolveManifestOverride(toolName);
-    const executionTarget = resolveExecutionTarget(toolName, manifestOverride);
+    // Permission Simulator path: registered tool wins, then explicit
+    // manifest override, then the standard inference rules.
+    const executionTarget =
+      getTool(toolName)?.executionTarget ??
+      manifestOverride?.execution_target ??
+      resolveExecutionTarget({ name: toolName });
     const executionContext =
       isInteractive === false ? "headless" : "conversation";
     const policyContext = { executionTarget, executionContext } as const;

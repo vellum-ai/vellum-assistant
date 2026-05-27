@@ -1,7 +1,12 @@
 /** `evals run` — Cartesian profile × test runner. */
+import { randomBytes } from "crypto";
+
 import type { Command } from "commander";
 
-import { runEvalOnce } from "../lib/runner/run-once";
+import {
+  runEvalOnce,
+  wasErrorReportedToProgress,
+} from "../lib/runner/run-once";
 import {
   createConsoleReporter,
   createSummaryOnlyReporter,
@@ -10,6 +15,8 @@ import {
   abandonAllRunningRunsSync,
   scavengeAbandonedRuns,
 } from "../lib/metrics";
+import { loadBenchmark } from "../lib/benchmark";
+import { DEFAULT_BENCHMARK_ID, listBenchmarkUnitIds } from "../lib/catalog";
 import { loadProfile } from "../lib/profile";
 import { loadTestDef } from "../lib/test-def";
 import { openInBrowser, startReportServer } from "./server";
@@ -31,11 +38,22 @@ function splitCsv(raw: string): string[] {
     .filter((s) => s.length > 0);
 }
 
+/**
+ * Run ID suffix used to disambiguate concurrent evals invocations.
+ *
+ * Format: `YYYYMMDDhhmmssSSS-XXXX` (17-digit ms-precision timestamp + 4
+ * hex chars of randomness). The ms precision + ~65k random variants
+ * give effectively-zero collisions across parallel `evals run`
+ * invocations, which is what lets the Vellum adapter's catch-path
+ * teardown safely operate only on its own docker resources.
+ */
 function timestampSuffix(): string {
-  return new Date()
+  const ms = new Date()
     .toISOString()
     .replace(/[^0-9]/g, "")
-    .slice(0, 14);
+    .slice(0, 17);
+  const rand = randomBytes(2).toString("hex");
+  return `${ms}-${rand}`;
 }
 
 function slugifyLabel(label: string): string {
@@ -59,18 +77,27 @@ function runId(profileId: string, testId: string, timestamp: string): string {
 export function registerRunCommand(program: Command): void {
   program
     .command("run")
-    .description("Run profile × test combinations")
+    .description("Run profile × benchmark-unit combinations")
     .requiredOption(
       "--profiles <ids>",
       "Comma-separated profile ids (each maps to profiles/<id>/manifest.json)",
     )
-    .requiredOption(
+    .option(
+      "--benchmark <id>",
+      `Benchmark id under benchmarks/ (defaults to ${DEFAULT_BENCHMARK_ID})`,
+      DEFAULT_BENCHMARK_ID,
+    )
+    .option(
+      "--filter <ids>",
+      "Comma-separated unit ids to run within the benchmark. Omit to run every unit.",
+    )
+    .option(
       "--tests <ids>",
-      "Comma-separated test ids (each maps to tests/<id>/SPEC.md)",
+      "[DEPRECATED] Alias for --filter. Use --benchmark <id> --filter <ids> instead.",
     )
     .option(
       "--label <label>",
-      "Human-readable tag stamped onto every (profile, test) execution in this run, so they cluster together in the report server",
+      "Human-readable tag stamped onto every (profile, unit) execution in this run, so they cluster together in the report server",
     )
     .option("--max-turns <n>", "Maximum simulator turns per run", (value) =>
       Number(value),
@@ -86,7 +113,9 @@ export function registerRunCommand(program: Command): void {
     .action(
       async (opts: {
         profiles: string;
-        tests: string;
+        benchmark: string;
+        filter?: string;
+        tests?: string;
         label?: string;
         maxTurns?: number;
         quiet?: boolean;
@@ -112,17 +141,56 @@ export function registerRunCommand(program: Command): void {
         // `evals run` against the same .runs/ directory).
         await scavengeAbandonedRuns();
 
+        // Note: we no longer pre-sweep docker resources from prior eval
+        // runs. The previous orphan-cleanup pass existed to free up the
+        // gateway's host port (e.g. 20100) when an earlier hatch crashed
+        // mid-flight. That's now obsolete because `hatchDocker` discovers
+        // an open port at hatch time via `findOpenPort()` (see
+        // `cli/src/lib/port-allocator.ts`), so a stuck previous container
+        // can no longer wedge the next hatch. Dead docker resources from
+        // crashed runs are now garbage to be reaped on demand (e.g. via
+        // `docker container prune` / `docker volume prune`) rather than
+        // a prerequisite for forward progress.
+
+        // `--tests` is the legacy spelling of `--filter`. Treat it as an
+        // alias against the benchmark's units, but reject the ambiguous
+        // case where both are supplied with different values — we don't
+        // want to silently pick one.
+        let filter = opts.filter;
+        if (opts.tests !== undefined) {
+          console.warn(
+            "[evals] --tests is deprecated; use --benchmark <id> --filter <ids>.",
+          );
+          if (filter !== undefined && filter !== opts.tests) {
+            throw new Error(
+              "Pass either --filter or the deprecated --tests, not both.",
+            );
+          }
+          filter = filter ?? opts.tests;
+        }
+
         const profiles = await Promise.all(
           splitCsv(opts.profiles).map((id) => loadProfile(id)),
         );
-        const tests = await Promise.all(
-          splitCsv(opts.tests).map((id) => loadTestDef(id)),
-        );
-
         if (profiles.length === 0)
           throw new Error("--profiles is empty after splitting on commas");
-        if (tests.length === 0)
-          throw new Error("--tests is empty after splitting on commas");
+
+        const benchmark = await loadBenchmark(opts.benchmark);
+        const filterIds = filter !== undefined ? splitCsv(filter) : [];
+        const unitIds =
+          filterIds.length > 0
+            ? filterIds
+            : await listBenchmarkUnitIds(benchmark.unitsDir);
+        if (unitIds.length === 0) {
+          throw new Error(
+            filter !== undefined
+              ? "--filter is empty after splitting on commas"
+              : `Benchmark "${benchmark.id}" has no ${benchmark.manifest.unitNoun} units at ${benchmark.unitsDir}`,
+          );
+        }
+        const tests = await Promise.all(
+          unitIds.map((id) => loadTestDef(id, benchmark.unitsDir)),
+        );
 
         // `--quiet` still lets the per-run `result` summary and any
         // `status: "error"` events through so operators get one line per
@@ -156,14 +224,32 @@ export function registerRunCommand(program: Command): void {
               // No stdout dump: the runner has already emitted the
               // `result` progress event with per-metric scores in the
               // same timestamped/labeled format as every other step.
-            } catch {
+            } catch (err) {
               // Per-test isolation: a crash in one combination (e.g. the
               // user simulator returning unparseable content) shouldn't
-              // take down the rest of the suite. The run-once layer has
-              // already written status:"failed" + error to the run's
-              // metadata and emitted a red `status: "error"` progress
-              // event with diagnostic details, so we just flip the
-              // exit-code flag and move on.
+              // take down the rest of the suite.
+              //
+              // The run-once layer normally already writes status:"failed"
+              // + error to the run's metadata and emits a red
+              // `status:"error"` progress event with diagnostic details
+              // before re-throwing — at which point we just flip the
+              // exit-code flag and move on. `wasErrorReportedToProgress`
+              // is the explicit signal that path completed.
+              //
+              // Without the marker we'd be in the "throw bypassed
+              // run-once's inner catch" case (e.g. a future regression
+              // moves construction back outside the try, or runEvalOnce
+              // throws synchronously from its function header). Emit one
+              // line through the same reporter so the operator gets
+              // SOMETHING — silent exit with exit-code 1 was the actual
+              // diagnostic gap that motivated this guard.
+              if (!wasErrorReportedToProgress(err)) {
+                progress({
+                  step: "shutdown",
+                  status: "error",
+                  message: err instanceof Error ? err.message : String(err),
+                });
+              }
               anyFailed = true;
             }
           }

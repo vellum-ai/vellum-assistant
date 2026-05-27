@@ -4,11 +4,11 @@ import { useSyncExternalStore } from "react";
 import {
   type ProviderRedirectOptions,
   startProviderRedirect,
-} from "@/domains/account/social-auth.js";
-import { sanitizeReturnTo } from "@/domains/account/return-to.js";
-import { getSession } from "@/lib/auth/allauth-client.js";
-import { isBiometricEnabled, storeBiometricToken } from "@/runtime/native-biometric.js";
-import { routes } from "@/utils/routes.js";
+} from "@/domains/account/social-auth";
+import { sanitizeReturnTo } from "@/domains/account/return-to";
+import { getSession } from "@/lib/auth/allauth-client";
+import { isBiometricEnabled, storeBiometricToken } from "@/runtime/native-biometric";
+import { routes } from "@/utils/routes";
 
 /**
  * JS ↔ native bridge for the `NativeAuth` Capacitor plugin registered by
@@ -159,7 +159,7 @@ export async function startNativeLogin(options?: {
  * finally settles, and a stuck loop here would block the user worse
  * than a possible re-login.
  */
-async function waitForNativeSessionCookie(): Promise<void> {
+export async function waitForNativeSessionCookie(): Promise<void> {
   const MAX_ATTEMPTS = 6;
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     try {
@@ -225,7 +225,10 @@ export async function startAuthFlow(
   if (isNativePlatform()) {
     try {
       await startNativeLogin({
-        returnTo: options.returnTo ?? null,
+        returnTo:
+          options.intent === "signup"
+            ? routes.onboarding.privacy
+            : options.returnTo ?? null,
         loginHint: options.loginHint,
         providerHint: options.providerHint,
       });

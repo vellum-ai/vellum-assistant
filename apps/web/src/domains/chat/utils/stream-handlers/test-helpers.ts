@@ -2,9 +2,9 @@ import { mock } from "bun:test";
 
 import { QueryClient } from "@tanstack/react-query";
 
-import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types.js";
-import type { TurnActions, TurnState } from "@/domains/messaging/turn-store.js";
-import { INITIAL_TURN_STATE } from "@/domains/messaging/turn-store.js";
+import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
+import type { TurnActions, TurnState } from "@/domains/messaging/turn-store";
+import { INITIAL_TURN_STATE } from "@/domains/messaging/turn-store";
 
 /** Build a minimal mock StreamHandlerContext with spies on every callback. */
 export function makeCtx(
@@ -16,11 +16,10 @@ export function makeCtx(
     streamContextRef: {
       current: { assistantId: "ast-1", conversationId: "conv-1" },
     },
-    activeConversationKeyRef: { current: "conv-1" },
+    activeConversationIdRef: { current: "conv-1" },
     assistantIdRef: { current: "ast-1" },
     setMessages: mock(() => {}),
     messagesRef: { current: [] },
-    needsNewBubbleRef: { current: false },
     turnActions: {
       requestSend: mock(() => {}),
       acceptSend: mock(() => {}),
@@ -45,6 +44,7 @@ export function makeCtx(
       onPollReconciled: mock(() => {}),
       onTurnTimeout: mock(() => {}),
       resetTurn: mock(() => {}),
+      onProfileAutoRouted: mock(() => {}),
       enqueueMessage: mock(() => {}),
       dequeueMessage: mock(() => {}),
       deleteQueuedMessage: mock(() => {}),
@@ -66,12 +66,12 @@ export function makeCtx(
     applyDiskPressureStatusEvent: mock(() => {}),
     refreshAssistantIdentity: mock(() => Promise.resolve()),
     invalidateAvatar: mock(() => {}),
-    pendingQueuedStableIdsRef: { current: [] },
-    requestIdToStableIdRef: { current: new Map() },
+    pendingQueuedMessageIdsRef: { current: [] },
+    requestIdToMessageIdRef: { current: new Map() },
     pendingLocalDeletionsRef: { current: new Set() },
     lastActivityVersionRef: { current: new Map() },
     toolCallIdCounterRef: { current: 0 },
-    currentAssistantStableIdRef: { current: undefined },
+    currentAssistantMessageIdRef: { current: undefined },
     ...overrides,
   };
 }

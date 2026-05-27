@@ -42,8 +42,9 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   },
 }));
 
-const { _setOverridesForTesting } =
-  await import("../config/assistant-feature-flags.js");
+const { setOverridesForTesting } = await import(
+  "./feature-flag-test-helpers.js"
+);
 const {
   DISK_PRESSURE_OVERRIDE_CONFIRMATION,
   DISK_PRESSURE_THRESHOLD_PERCENT,
@@ -74,7 +75,7 @@ type DiskPressureRouteResult = {
 };
 
 function setFeatureFlag(enabled: boolean): void {
-  _setOverridesForTesting({ "safe-storage-limits": enabled });
+  setOverridesForTesting({ "safe-storage-limits": enabled });
 }
 
 function setDiskUsage(usedMb: number, totalMb = 100): void {
@@ -143,7 +144,7 @@ beforeEach(() => {
 
 afterEach(() => {
   __resetDiskPressureGuardForTests();
-  _setOverridesForTesting({});
+  setOverridesForTesting({});
   diskSample = null;
   eventSubscribers.clear();
 });

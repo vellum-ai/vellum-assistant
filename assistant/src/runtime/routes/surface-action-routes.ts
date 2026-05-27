@@ -11,13 +11,6 @@ import { z } from "zod";
 
 import type { ChannelId } from "../../channels/types.js";
 import { isHttpAuthDisabled } from "../../config/env.js";
-import type { Conversation } from "../../daemon/conversation.js";
-import {
-  findConversation,
-  findConversationBySurfaceId,
-  getOrCreateConversation,
-} from "../../daemon/conversation-store.js";
-import { rawGet } from "../../memory/raw-query.js";
 import { getLogger } from "../../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { healGuardianBindingDrift } from "../guardian-vellum-migration.js";
@@ -27,6 +20,7 @@ import {
   withSourceChannel,
 } from "../trust-context-resolver.js";
 import { BadRequestError, InternalError, NotFoundError, RouteError } from "./errors.js";
+import { resolveSurfaceConversation } from "./surface-conversation-resolver.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("surface-action-routes");
@@ -88,37 +82,6 @@ function applyTrustContext(
   } else {
     conversation.setTrustContext({ trustClass: "guardian", sourceChannel });
   }
-}
-
-/**
- * Resolve the conversation owning a surface, rehydrating from the DB when
- * the in-memory lookup misses (daemon restart or LRU eviction). The DB scan
- * is also the source of truth that the surface exists — without it,
- * `getOrCreateConversation` would silently create a phantom conversation
- * for any caller-supplied id.
- */
-async function resolveSurfaceConversation(
-  conversationId: string | null | undefined,
-  surfaceId: string,
-): Promise<Conversation | undefined> {
-  const found = conversationId
-    ? findConversation(conversationId)
-    : findConversationBySurfaceId(surfaceId);
-  if (found) return found;
-
-  // Escape LIKE wildcards so a `surfaceId` like "%" or "_" can't match
-  // unrelated rows.
-  const escaped = surfaceId.replace(/[\\%_]/g, "\\$&");
-  const row = rawGet<{ conversation_id: string }>(
-    `SELECT conversation_id FROM messages
-     WHERE content LIKE ? ESCAPE '\\'
-     ORDER BY created_at DESC
-     LIMIT 1`,
-    `%"surfaceId":"${escaped}"%`,
-  );
-  if (!row) return undefined;
-  if (conversationId && conversationId !== row.conversation_id) return undefined;
-  return await getOrCreateConversation(row.conversation_id);
 }
 
 // ---------------------------------------------------------------------------

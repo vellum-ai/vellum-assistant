@@ -60,7 +60,6 @@ import { shouldExposePersonalMemory } from "../memory/v2/static-context.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { UserDecision } from "../permissions/types.js";
-import { resolvePersonaContext } from "../prompts/persona-resolver.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import type { Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
@@ -492,19 +491,12 @@ export class Conversation {
       const resolved: ResolvedSystemPrompt = {
         systemPrompt: this.hasSystemPromptOverride
           ? systemPrompt
-          : (() => {
-              const persona = resolvePersonaContext(
-                this.currentTurnTrustContext,
-                this.currentTurnChannelCapabilities,
-              );
-              return buildSystemPrompt({
-                hasNoClient: this.hasNoClient,
-                userPersona: persona.userPersona,
-                channelPersona: persona.channelPersona,
-                userSlug: persona.userSlug,
-                onboardingContext: this.getOnboardingContext(),
-              });
-            })(),
+          : buildSystemPrompt({
+              hasNoClient: this.hasNoClient,
+              trustContext: this.currentTurnTrustContext,
+              channelCapabilities: this.currentTurnChannelCapabilities,
+              onboardingContext: this.getOnboardingContext(),
+            }),
       };
       if (configuredMaxTokens !== undefined) {
         resolved.maxTokens = configuredMaxTokens;
@@ -583,19 +575,12 @@ export class Conversation {
 
     const systemPrompt = this.hasSystemPromptOverride
       ? this.systemPrompt
-      : (() => {
-          const persona = resolvePersonaContext(
-            this.currentTurnTrustContext,
-            this.currentTurnChannelCapabilities,
-          );
-          return buildSystemPrompt({
-            hasNoClient: this.hasNoClient,
-            userPersona: persona.userPersona,
-            channelPersona: persona.channelPersona,
-            userSlug: persona.userSlug,
-            onboardingContext: this.getOnboardingContext(),
-          });
-        })();
+      : buildSystemPrompt({
+          hasNoClient: this.hasNoClient,
+          trustContext: this.currentTurnTrustContext,
+          channelCapabilities: this.currentTurnChannelCapabilities,
+          onboardingContext: this.getOnboardingContext(),
+        });
     const tools = buildToolDefinitions();
     const provider = this.provider;
 

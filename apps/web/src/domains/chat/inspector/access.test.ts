@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import { canUseLlmInspector } from "@/domains/chat/inspector/access.js";
-import type { AuthUser } from "@/stores/auth-store.js";
+import { canUseLlmInspector } from "@/domains/chat/inspector/access";
+import type { AuthUser } from "@/stores/auth-store";
 
 function user(overrides: Partial<AuthUser>): AuthUser {
   return {

@@ -173,6 +173,10 @@ const EXCLUDED_FROM_SCHEMA = new Set([
   "/v1/pair",
   // A2A agent card discovery — read-only, unauthenticated per spec
   "/.well-known/agent-card.json",
+  // Internal-only: reachable only via vembda's trusted gateway-query proxy
+  "/v1/contacts/guardian/channel",
+  // BFF token auth — loopback-only, not part of the public gateway API
+  "/auth/token",
 ]);
 
 // ── Schema paths that don't map to a discrete route definition ──

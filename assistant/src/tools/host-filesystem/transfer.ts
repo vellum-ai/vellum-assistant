@@ -5,7 +5,6 @@ import { dirname, isAbsolute } from "node:path";
 import { supportsHostProxy } from "../../channels/types.js";
 import { HostTransferProxy } from "../../daemon/host-transfer-proxy.js";
 import { RiskLevel } from "../../permissions/types.js";
-import type { ToolDefinition } from "../../providers/types.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
 import { sandboxPolicy } from "../shared/filesystem/path-policy.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
@@ -15,13 +14,10 @@ class HostFileTransferTool implements Tool {
   description =
     "Copy a file between the assistant's workspace and the host machine. Set direction to 'to_host' to send a workspace file to the host, or 'to_sandbox' to pull a host file into the workspace. When multiple clients support host_file, specify which one to use with target_client_id.";
   category = "host-filesystem";
+  executionTarget = "host" as const;
   defaultRiskLevel = RiskLevel.Medium;
 
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
+  input_schema = {
         type: "object",
         properties: {
           source_path: {
@@ -57,9 +53,7 @@ class HostFileTransferTool implements Tool {
           },
         },
         required: ["source_path", "dest_path", "direction"],
-      },
-    };
-  }
+      };
 
   async execute(
     input: Record<string, unknown>,

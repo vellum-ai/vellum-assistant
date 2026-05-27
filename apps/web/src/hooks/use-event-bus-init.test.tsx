@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
 
-import type { AssistantEvent } from "@/domains/chat/api/event-types.js";
+import type { AssistantEvent } from "@/domains/chat/api/event-types";
 import {
   __resetEventBusForTesting,
   useEventBusStore,
-} from "@/stores/event-bus-store.js";
+} from "@/stores/event-bus-store";
 
 type EventHandler = (event: AssistantEvent) => void;
 type ReconnectHandler = (cause: "error" | "watchdog") => void;
@@ -34,11 +34,11 @@ const subscribeChatEventsMock = mock(
   },
 );
 
-mock.module("@/domains/chat/api/stream.js", () => ({
+mock.module("@/domains/chat/api/stream", () => ({
   subscribeChatEvents: subscribeChatEventsMock,
 }));
 
-const { useEventBusInit } = await import("@/hooks/use-event-bus-init.js");
+const { useEventBusInit } = await import("@/hooks/use-event-bus-init");
 
 beforeEach(() => {
   __resetEventBusForTesting();

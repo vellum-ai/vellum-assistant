@@ -2,8 +2,8 @@ import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Settings } from "lucide-react";
 
-import { Button } from "./button.js";
-import { Modal, type ModalSize } from "./modal.js";
+import { Button } from "./button";
+import { Modal, type ModalSize } from "./modal";
 
 interface ModalStoryArgs {
   size: ModalSize;

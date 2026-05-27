@@ -20,6 +20,10 @@ import {
 } from "../../channels/types.js";
 import { isHttpAuthDisabled } from "../../config/env.js";
 import { getConfig } from "../../config/loader.js";
+import {
+  mergeConsecutiveAssistantMessages,
+  mergeToolResultsIntoAssistantMessages,
+} from "../../conversations/message-consolidation.js";
 import { createApprovalConversationGenerator } from "../../daemon/approval-generators.js";
 import type { Conversation } from "../../daemon/conversation.js";
 import {
@@ -121,7 +125,12 @@ import {
   resolveTrustContext,
   withSourceChannel,
 } from "../trust-context-resolver.js";
-import { BadRequestError, InternalError, RouteError } from "./errors.js";
+import {
+  BadRequestError,
+  InternalError,
+  NotFoundError,
+  RouteError,
+} from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 import { RouteResponse } from "./types.js";
 
@@ -140,6 +149,34 @@ function isValidRiskThreshold(value: unknown): value is RiskThreshold {
     typeof value === "string" &&
     VALID_RISK_THRESHOLDS.includes(value as RiskThreshold)
   );
+}
+
+// ---------------------------------------------------------------------------
+// Temporary fix — remove when #31994 lands
+// ---------------------------------------------------------------------------
+//
+// The canned-response paths in this file (canned greeting, inline approval
+// reply, slash command, /compact, /clean) bypass the agent loop and so don't
+// pick up the per-turn anchor id allocated in conversation-agent-loop.ts.
+// Their `message_complete` events therefore went out without `messageId`,
+// and the macOS client filter at ChatActionHandler.swift:507 dropped those
+// events when they raced past the 50 ms streaming-buffer flush — leaving
+// `isSending` stuck for the full 60 s watchdog window.
+//
+// Centralized so the patch surface is one helper + N one-line callers rather
+// than N duplicated literals. When #31994 lands and stamps these sites with
+// `state.assistantTurnId` directly, grep for `emitCannedMessageComplete` to
+// find every call site and inline-then-delete.
+function emitCannedMessageComplete(
+  send: (msg: ServerMessage) => void,
+  conversationId: string,
+  persistedAssistantId: string,
+): void {
+  send({
+    type: "message_complete",
+    conversationId,
+    messageId: persistedAssistantId,
+  });
 }
 
 /**
@@ -283,6 +320,8 @@ async function tryConsumeCanonicalGuardianReply(params: {
   verifiedActorExternalUserId?: string;
   /** Verified actor principal ID for principal-based authorization. */
   verifiedActorPrincipalId?: string;
+  /** Originating client identifier for sync_changed self-echo suppression. */
+  originClientId?: string;
 }): Promise<{ consumed: boolean; messageId?: string }> {
   const {
     conversationId,
@@ -295,6 +334,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
     approvalConversationGenerator,
     verifiedActorExternalUserId,
     verifiedActorPrincipalId,
+    originClientId,
   } = params;
   const trimmedContent = content.trim();
 
@@ -392,7 +432,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
         ? "Decision applied."
         : "Request already resolved.");
     const assistantMessage = createAssistantMessage(replyText);
-    await addMessage(
+    const persistedAssistant = await addMessage(
       conversationId,
       "assistant",
       JSON.stringify(assistantMessage.content),
@@ -407,9 +447,9 @@ async function tryConsumeCanonicalGuardianReply(params: {
         text: replyText,
         conversationId: conversationId,
       });
-      onEvent({ type: "message_complete", conversationId: conversationId });
+      emitCannedMessageComplete(onEvent, conversationId, persistedAssistant.id);
     }
-    publishConversationMessagesChanged(conversationId);
+    publishConversationMessagesChanged(conversationId, originClientId);
   } catch (err) {
     log.warn(
       { err, conversationId },
@@ -498,6 +538,10 @@ export function handleListMessages({
 
   let rawMessages: MessageRow[];
   let hasMore = false;
+  // Resume cursor surfaced when the paginated scan stops on its row cap with a
+  // (possibly empty) page — lets us still emit an oldest cursor so the client
+  // can request the next window instead of stalling.
+  let scanResumeCursor: { createdAt: number; id: string } | undefined;
 
   // Drop messages flagged as hidden in metadata (e.g. internal scaffolding
   // like retrospective instructions). The LLM-side history loader
@@ -521,6 +565,7 @@ export function handleListMessages({
     );
     rawMessages = result.messages;
     hasMore = result.hasMore;
+    scanResumeCursor = result.nextCursor;
   } else {
     rawMessages = getMessages(resolvedConversationId).filter(visibleFilter);
   }
@@ -715,10 +760,13 @@ export function handleListMessages({
 
     // Align msgAttachments order with the file-block order captured by
     // renderHistoryContent. When a file block was persisted with
-    // `_attachmentId`, we can join on that id to position the chip inline
-    // (the `attachment:N` entries in contentOrder index into msgAttachments).
-    // DB rows without a matching ref go to the tail as orphan chips;
-    // unmatched refs drop their contentOrder entry and trigger a remap.
+    // `_attachmentId` (user-message uploads), we join on that id to position
+    // the chip inline (the `attachment:N` entries in contentOrder index into
+    // msgAttachments). DB rows without a matching ref go to the tail as orphan
+    // chips; unmatched refs drop their contentOrder entry and trigger a remap.
+    // Assistant-authored file blocks carry no `_attachmentId`, so when no ids
+    // match we fall back to positional alignment if the ref and row counts
+    // agree; otherwise we strip the markers and let chips fall to the tail.
     let alignedContentOrder = m.contentOrder;
     if (
       m.attachmentRefs.length > 0 &&
@@ -769,14 +817,18 @@ export function handleListMessages({
               : undefined;
           })
           .filter((e): e is string => e !== undefined);
-      } else {
-        // No refs carried an attachmentId we could match — strip any
-        // attachment:N entries so the client doesn't try to position
-        // attachments inline against a misaligned array.
+      } else if (m.attachmentRefs.length !== msgAttachments.length) {
+        // No ref carried an attachmentId we could match and the counts
+        // disagree, so positional mapping can't be trusted — strip any
+        // attachment:N entries so the client doesn't position attachments
+        // inline against a misaligned array (they fall to the tail instead).
         alignedContentOrder = m.contentOrder.filter(
           (entry) => !ATTACHMENT_ENTRY_RE.test(entry),
         );
       }
+      // Otherwise no ref matched an id but the counts agree (the
+      // assistant-authored case): the Nth marker maps to the Nth row
+      // positionally, so the original contentOrder is left untouched.
     } else if (m.attachmentRefs.length > 0 && msgAttachments.length === 0) {
       // Refs were captured but no DB rows came back — drop the
       // contentOrder entries to avoid out-of-bounds renders.
@@ -792,14 +844,8 @@ export function handleListMessages({
     // on createdAt. The mismatch is benign — it may return slightly extra
     // data on a page boundary but never loses messages.
     const displayTimestamp = m.sentAt ?? m.timestamp;
-    const mergedMessageIds = mergedIdMap.get(m.id) ?? [];
-    const daemonMessageId =
-      m.role === "assistant"
-        ? (mergedMessageIds[mergedMessageIds.length - 1] ?? m.id)
-        : undefined;
     return {
       id: m.id ?? "",
-      ...(daemonMessageId ? { daemonMessageId } : {}),
       role: m.role,
       content: m.text,
       timestamp: new Date(displayTimestamp).toISOString(),
@@ -821,10 +867,16 @@ export function handleListMessages({
   });
 
   if (isPaginated) {
+    // Prefer the page's oldest visible row (the documented cursor semantic).
+    // When a scan-cap-truncated page comes back empty there's no visible row
+    // to anchor on, so fall back to the resume cursor so the client still gets
+    // a `(timestamp, id)` to continue paginating from instead of stalling.
     const oldestTimestamp =
-      rawMessages.length > 0 ? rawMessages[0].createdAt : undefined;
+      rawMessages.length > 0
+        ? rawMessages[0].createdAt
+        : scanResumeCursor?.createdAt;
     const oldestMessageId =
-      rawMessages.length > 0 ? rawMessages[0].id : undefined;
+      rawMessages.length > 0 ? rawMessages[0].id : scanResumeCursor?.id;
     // `page=latest` always emits both metadata fields so the web client has
     // a stable contract; emit `null` when the conversation is empty.
     // The existing `beforeTimestamp` branch keeps its conditional shape to
@@ -849,305 +901,6 @@ export function handleListMessages({
   return { messages };
 }
 
-// ── Tool-result merging ─────────────────────────────────────────────
-
-function isToolResultType(type: string): boolean {
-  return type === "tool_result" || type === "web_search_tool_result";
-}
-
-function isSystemNoticeText(block: Record<string, unknown>): boolean {
-  if (block.type !== "text") return false;
-  const text = typeof block.text === "string" ? block.text : "";
-  return (
-    text.startsWith("<system_notice>") && text.endsWith("</system_notice>")
-  );
-}
-
-/**
- * Merge tool_result blocks from user messages into the preceding assistant
- * message's content array. This lets renderHistoryContent's pendingToolUses
- * map pair tool_use and tool_result blocks, preventing "unknown" tool names.
- *
- * User messages that consist entirely of tool_result blocks (and optional
- * system_notice text) are removed from the output. Mixed messages (tool_result
- * + real user text) keep only the non-tool-result blocks.
- */
-function mergeToolResultsIntoAssistantMessages(
-  messages: MessageRow[],
-): MessageRow[] {
-  // Index of the most recent assistant message in the output array.
-  let lastAssistantIdx = -1;
-  // Parsed content caches — lazily populated per assistant message.
-  const parsedAssistantContent = new Map<number, unknown[]>();
-
-  const result: MessageRow[] = [];
-
-  for (const msg of messages) {
-    if (msg.role === "assistant") {
-      lastAssistantIdx = result.length;
-      result.push(msg);
-      continue;
-    }
-
-    // Only process user messages — other roles pass through.
-    if (msg.role !== "user") {
-      result.push(msg);
-      continue;
-    }
-
-    let blocks: unknown[];
-    try {
-      const parsed = JSON.parse(msg.content);
-      if (!Array.isArray(parsed)) {
-        result.push(msg);
-        continue;
-      }
-      blocks = parsed;
-    } catch {
-      result.push(msg);
-      continue;
-    }
-
-    // Separate tool-result blocks from real user content.
-    const toolResultBlocks: unknown[] = [];
-    const otherBlocks: unknown[] = [];
-    for (const block of blocks) {
-      if (
-        typeof block === "object" &&
-        block !== null &&
-        typeof (block as Record<string, unknown>).type === "string"
-      ) {
-        const rec = block as Record<string, unknown>;
-        if (isToolResultType(rec.type as string)) {
-          toolResultBlocks.push(block);
-        } else if (isSystemNoticeText(rec)) {
-          // System notices don't count as user content — drop them when
-          // the message is otherwise tool-result-only.
-          otherBlocks.push(block);
-        } else {
-          otherBlocks.push(block);
-        }
-      } else {
-        otherBlocks.push(block);
-      }
-    }
-
-    // No tool results → pass through unchanged. System notices are only
-    // injected alongside tool results in the agent loop, so a pure user
-    // message (no tool_result blocks) should never be filtered — even if
-    // the user's text happens to look like a system_notice tag.
-    if (toolResultBlocks.length === 0) {
-      result.push(msg);
-      continue;
-    }
-
-    // Append tool_result blocks to the preceding assistant message's content.
-    if (lastAssistantIdx >= 0) {
-      const assistant = result[lastAssistantIdx];
-      let assistantContent = parsedAssistantContent.get(lastAssistantIdx);
-      if (!assistantContent) {
-        try {
-          const parsed = JSON.parse(assistant.content);
-          assistantContent = Array.isArray(parsed) ? parsed : [parsed];
-        } catch {
-          assistantContent = [];
-        }
-        parsedAssistantContent.set(lastAssistantIdx, assistantContent);
-      }
-      assistantContent.push(...toolResultBlocks);
-    } else {
-      // No preceding assistant message (pagination boundary) — keep the
-      // original message as-is to avoid permanent data loss. The preceding
-      // assistant tool_use lives in the previous page; dropping the result
-      // here would be unrecoverable.
-      // Still strip system notices so internal prompt text isn't exposed.
-      const filteredBlocks = blocks.filter(
-        (b) =>
-          !(
-            typeof b === "object" &&
-            b !== null &&
-            isSystemNoticeText(b as Record<string, unknown>)
-          ),
-      );
-      result.push({
-        ...msg,
-        content:
-          filteredBlocks.length === blocks.length
-            ? msg.content
-            : JSON.stringify(filteredBlocks),
-      });
-      continue;
-    }
-
-    // If the user message had only tool_result (+ system_notice) blocks,
-    // suppress it entirely. Otherwise keep the non-tool-result content.
-    const realUserContent = otherBlocks.filter(
-      (b) =>
-        !(
-          typeof b === "object" &&
-          b !== null &&
-          isSystemNoticeText(b as Record<string, unknown>)
-        ),
-    );
-    if (realUserContent.length > 0) {
-      result.push({ ...msg, content: JSON.stringify(otherBlocks) });
-    }
-    // else: tool-result-only → suppressed (results already merged above)
-  }
-
-  // Write back any modified assistant message content.
-  for (const [idx, content] of parsedAssistantContent) {
-    result[idx] = { ...result[idx], content: JSON.stringify(content) };
-  }
-
-  return result;
-}
-
-// ── Consecutive assistant message merging ────────────────────────────
-
-/** Parse a message's JSON content into an array of content blocks. */
-function parseContentBlocks(content: string): unknown[] {
-  try {
-    const parsed = JSON.parse(content);
-    return Array.isArray(parsed) ? parsed : [parsed];
-  } catch (err) {
-    log.warn(
-      { err },
-      "Failed to parse content blocks during assistant message merge",
-    );
-    return [];
-  }
-}
-
-/**
- * Append content blocks from a donor message onto a target block array.
- * Parses the donor's JSON content and pushes each block into `target`.
- */
-function appendContentBlocks(target: unknown[], donorContent: string): void {
-  try {
-    const parsed = JSON.parse(donorContent);
-    if (Array.isArray(parsed)) {
-      target.push(...parsed);
-    } else {
-      target.push(parsed);
-    }
-  } catch (err) {
-    log.warn(
-      { err },
-      "Failed to parse donor content blocks during assistant message merge",
-    );
-  }
-}
-
-/**
- * Promote metadata fields from a donor message to the surviving message
- * when the survivor lacks them. Currently promotes `subagentNotification`.
- * Returns a new MessageRow if promotion occurred, otherwise the original.
- */
-function promoteMetadata(survivor: MessageRow, donor: MessageRow): MessageRow {
-  if (donor.metadata && survivor.metadata) {
-    try {
-      const survivorMeta = JSON.parse(survivor.metadata);
-      const donorMeta = JSON.parse(donor.metadata);
-      if (
-        !survivorMeta.subagentNotification &&
-        donorMeta.subagentNotification
-      ) {
-        survivorMeta.subagentNotification = donorMeta.subagentNotification;
-        return { ...survivor, metadata: JSON.stringify(survivorMeta) };
-      }
-    } catch (err) {
-      log.warn(
-        { err },
-        "Failed to parse metadata during assistant message merge",
-      );
-    }
-  } else if (donor.metadata && !survivor.metadata) {
-    return { ...survivor, metadata: donor.metadata };
-  }
-  return survivor;
-}
-
-/**
- * Merge consecutive assistant messages into a single message at query time.
- *
- * During streaming, all assistant turns within one agent loop accumulate on
- * a single client-side ChatMessage. In the DB, each API turn is stored as a
- * separate assistant row (consolidation is deferred to compaction for
- * prefix-cache stability). This produces N separate assistant messages that
- * the client renders as N individual bubbles — each showing "Completed 1
- * step" instead of one grouped "Completed N steps" accordion.
- *
- * This function concatenates the content block arrays of consecutive
- * assistant messages (no intervening user messages after tool-result
- * merging) into the first message of each run. The merged messages are
- * removed from the output. This is query-time only — the DB is not
- * modified.
- *
- * The first message in each run keeps its id, createdAt, and metadata so
- * that attachment lookups, display timestamps, and subagent notifications
- * continue to work. Metadata from later messages in the run (e.g.
- * subagentNotification) is preserved by promoting it to the surviving
- * message when the surviving message has no metadata of its own for that
- * field.
- */
-function mergeConsecutiveAssistantMessages(messages: MessageRow[]): {
-  messages: MessageRow[];
-  /** Maps each surviving message ID → all original message IDs merged into it. */
-  mergedIdMap: Map<string, string[]>;
-} {
-  const result: MessageRow[] = [];
-  // Key = index in `result`, value = accumulated content blocks.
-  const pendingMerges = new Map<number, unknown[]>();
-  // Key = index in `result`, value = IDs of messages merged into the target.
-  const mergedIds = new Map<number, string[]>();
-
-  for (const msg of messages) {
-    const lastIdx = result.length - 1;
-    const isConsecutiveAssistant =
-      msg.role === "assistant" &&
-      lastIdx >= 0 &&
-      result[lastIdx].role === "assistant";
-
-    if (!isConsecutiveAssistant) {
-      result.push(msg);
-      continue;
-    }
-
-    // Track the donor message ID.
-    let ids = mergedIds.get(lastIdx);
-    if (!ids) {
-      ids = [];
-      mergedIds.set(lastIdx, ids);
-    }
-    ids.push(msg.id);
-
-    // Lazily parse the target's content on first merge.
-    let targetContent = pendingMerges.get(lastIdx);
-    if (!targetContent) {
-      targetContent = parseContentBlocks(result[lastIdx].content);
-      pendingMerges.set(lastIdx, targetContent);
-    }
-
-    appendContentBlocks(targetContent, msg.content);
-    result[lastIdx] = promoteMetadata(result[lastIdx], msg);
-  }
-
-  // Write back merged content for any messages that were targets.
-  for (const [idx, content] of pendingMerges) {
-    result[idx] = { ...result[idx], content: JSON.stringify(content) };
-  }
-
-  // Build the merged ID map keyed by surviving message ID.
-  const mergedIdMap = new Map<string, string[]>();
-  for (const [idx, ids] of mergedIds) {
-    mergedIdMap.set(result[idx].id, ids);
-  }
-
-  return { messages: result, mergedIdMap };
-}
-
-/**
 /**
  * Persist the pre-chat onboarding payload to disk.
  *
@@ -1240,6 +993,7 @@ export async function handleSendMessage(
 ): Promise<unknown> {
   const body = (rawBody ?? {}) as {
     conversationKey?: string;
+    conversationId?: string;
     content?: string;
     attachmentIds?: string[];
     sourceChannel?: string;
@@ -1266,13 +1020,21 @@ export async function handleSendMessage(
       cohort?: string;
       websiteUrl?: string;
       contentSourceUrl?: string;
+      bootstrapTemplate?: string;
+      initialMessage?: string;
+      skills?: string[];
     };
   };
 
   const actorPrincipalId = headers?.["x-vellum-actor-principal-id"];
   const principalType = headers?.["x-vellum-principal-type"];
+  const originClientId = headers?.["x-vellum-client-id"]?.trim() || undefined;
 
   const { conversationKey, content, attachmentIds } = body;
+  const inboundConversationId =
+    typeof body.conversationId === "string" && body.conversationId.length > 0
+      ? body.conversationId
+      : undefined;
   const clientMessageId =
     typeof body.clientMessageId === "string" ? body.clientMessageId : undefined;
   const requestedInferenceProfile =
@@ -1340,12 +1102,6 @@ export async function handleSendMessage(
       ? (canonicalizeTimeZone(body.clientTimezone) ?? undefined)
       : undefined;
 
-  // When conversationKey is omitted, derive a stable default from
-  // sourceChannel + sourceInterface so that repeated calls from the same
-  // channel/interface pair share a single conversation thread.
-  const resolvedConversationKey =
-    conversationKey ?? `default:${sourceChannel}:${sourceInterface}`;
-
   // Reject non-string content values (numbers, objects, etc.)
   if (content != null && typeof content !== "string") {
     throw new BadRequestError("content must be a string");
@@ -1409,9 +1165,45 @@ export async function handleSendMessage(
   // timer so the next heartbeat is a full interval after this interaction.
   HeartbeatService.getInstance()?.resetTimer();
 
-  const mapping = getOrCreateConversation(resolvedConversationKey, {
-    conversationType: "standard",
-  });
+  // Resolve the target conversation. Fetch by `conversationId` (the
+  // assistant-minted internal id) when the client supplies it — clients
+  // must obtain this id from a prior daemon response, so a missing row
+  // is a 404. Otherwise fall through to the external-key path: the
+  // client-supplied `conversationKey` (external-key lookup; materializes
+  // on first use) or, when neither is provided, a channel-dependent
+  // default. The vellum channel mints a fresh conversation on every
+  // empty-handed send so first-message-of-a-new-chat surfaces with a
+  // server-minted id; other channels (phone, slack, …) share a stable
+  // `default:<channel>:<interface>` thread so repeated calls from the
+  // same channel/interface stay co-located.
+  let mapping: {
+    conversationId: string;
+    conversationType: string;
+    created: boolean;
+  };
+  if (inboundConversationId !== undefined) {
+    const existing = getConversation(inboundConversationId);
+    if (!existing) {
+      throw new NotFoundError(
+        `Conversation ${inboundConversationId} not found`,
+      );
+    }
+    mapping = {
+      conversationId: existing.id,
+      conversationType: existing.conversationType,
+      created: false,
+    };
+  } else {
+    const resolvedConversationKey =
+      conversationKey && conversationKey.length > 0
+        ? conversationKey
+        : sourceChannel === "vellum"
+          ? crypto.randomUUID()
+          : `default:${sourceChannel}:${sourceInterface}`;
+    mapping = getOrCreateConversation(resolvedConversationKey, {
+      conversationType: "standard",
+    });
+  }
 
   if (requestedRiskThreshold !== undefined) {
     const result = await ipcCall("set_conversation_threshold", {
@@ -1445,6 +1237,7 @@ export async function handleSendMessage(
       publishConversationListAndMetadataChanged(
         "created",
         mapping.conversationId,
+        originClientId,
       );
     }
   }
@@ -1620,10 +1413,8 @@ export async function handleSendMessage(
       : ("content-source" as const);
     effectiveContent = buildScanFirstMessage(scanUrl, scanVariant);
     // Fall through to normal inference path below
-  } else if (isWakeUp && body.onboarding?.cohort === "content-automation") {
-    effectiveContent = "I want to write articles that rank better in GEO";
-    // Fall through to normal inference path — the bootstrap template
-    // and geo-writing skill handle this message.
+  } else if (isWakeUp && body.onboarding?.initialMessage) {
+    effectiveContent = body.onboarding.initialMessage;
   } else if (isWakeUp) {
     const cannedGreeting = getCannedFirstGreeting(body.onboarding ?? undefined);
 
@@ -1664,7 +1455,7 @@ export async function handleSendMessage(
       const conversationId = mapping.conversationId;
 
       const assistantMsg = createAssistantMessage(cannedGreeting);
-      await addMessage(
+      const persistedAssistant = await addMessage(
         mapping.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
@@ -1708,8 +1499,12 @@ export async function handleSendMessage(
           text: cannedGreeting,
           conversationId,
         });
-        broadcastMessage({ type: "message_complete", conversationId });
-        publishConversationMessagesChanged(conversationId);
+        emitCannedMessageComplete(
+          broadcastMessage,
+          conversationId,
+          persistedAssistant.id,
+        );
+        publishConversationMessagesChanged(conversationId, originClientId);
         conversation.processing = false;
         silentlyWithLog(
           conversation.drainQueue(),
@@ -1787,6 +1582,7 @@ export async function handleSendMessage(
           : deps.approvalConversationGenerator,
       verifiedActorExternalUserId,
       verifiedActorPrincipalId,
+      originClientId,
     });
     if (inlineReplyResult.consumed) {
       return {
@@ -1975,7 +1771,7 @@ export async function handleSendMessage(
       conversation.getMessages().push(llmMsg);
 
       const assistantMsg = createAssistantMessage(slashResult.message);
-      await addMessage(
+      const persistedAssistant = await addMessage(
         mapping.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
@@ -2030,11 +1826,12 @@ export async function handleSendMessage(
           text: message,
           conversationId,
         });
-        broadcastMessage({
-          type: "message_complete",
-          conversationId: conversationId,
-        });
-        publishConversationMessagesChanged(conversationId);
+        emitCannedMessageComplete(
+          broadcastMessage,
+          conversationId,
+          persistedAssistant.id,
+        );
+        publishConversationMessagesChanged(conversationId, originClientId);
         conversation.processing = false;
         silentlyWithLog(conversation.drainQueue(), "slash-command queue drain");
       }, 0);
@@ -2062,12 +1859,22 @@ export async function handleSendMessage(
       assistantMessageInterface: sourceInterface,
     };
     const cleanMsg = createUserMessage(rawContent, attachments);
-    const persisted = await addMessage(
-      mapping.conversationId,
-      "user",
-      JSON.stringify(cleanMsg.content),
-      channelMeta,
-    );
+    let persisted: Awaited<ReturnType<typeof addMessage>>;
+    try {
+      persisted = await addMessage(
+        mapping.conversationId,
+        "user",
+        JSON.stringify(cleanMsg.content),
+        channelMeta,
+      );
+    } catch (err) {
+      // The fire-and-forget compaction below owns clearing `processing`, but a
+      // throw from this initial persist never reaches it — reset here so the
+      // conversation isn't stranded in queued mode.
+      conversation.processing = false;
+      silentlyWithLog(conversation.drainQueue(), "compact-command queue drain");
+      throw err;
+    }
     conversation.getMessages().push(cleanMsg);
 
     const conversationId = mapping.conversationId;
@@ -2085,7 +1892,7 @@ export async function handleSendMessage(
           messageId: persisted.id,
           clientMessageId,
         });
-        publishConversationMessagesChanged(conversationId);
+        publishConversationMessagesChanged(conversationId, originClientId);
         conversation.emitActivityState(
           "thinking",
           "context_compacting",
@@ -2097,7 +1904,7 @@ export async function handleSendMessage(
         const responseText = formatCompactResult(result);
 
         const assistantMsg = createAssistantMessage(responseText);
-        await addMessage(
+        const persistedAssistant = await addMessage(
           conversationId,
           "assistant",
           JSON.stringify(assistantMsg.content),
@@ -2111,11 +1918,15 @@ export async function handleSendMessage(
           text: responseText,
           conversationId,
         });
-        broadcastMessage({ type: "message_complete", conversationId });
-        publishConversationMessagesChanged(conversationId);
+        emitCannedMessageComplete(
+          broadcastMessage,
+          conversationId,
+          persistedAssistant.id,
+        );
+        publishConversationMessagesChanged(conversationId, originClientId);
       } catch (err) {
         if (assistantMessagePersisted) {
-          publishConversationMessagesChanged(conversationId);
+          publishConversationMessagesChanged(conversationId, originClientId);
         }
         log.error({ err, conversationId }, "Compact command failed");
         broadcastMessage({
@@ -2143,78 +1954,87 @@ export async function handleSendMessage(
 
   if (slashResult.kind === "clean") {
     conversation.processing = true;
-    const provenance = provenanceFromTrustContext(conversation.trustContext);
-    const channelMeta = {
-      ...provenance,
-      userMessageChannel: sourceChannel,
-      assistantMessageChannel: sourceChannel,
-      userMessageInterface: sourceInterface,
-      assistantMessageInterface: sourceInterface,
-    };
-    const cleanMsg = createUserMessage(rawContent, attachments);
-    const persisted = await addMessage(
-      mapping.conversationId,
-      "user",
-      JSON.stringify(cleanMsg.content),
-      channelMeta,
-    );
-    conversation.getMessages().push(cleanMsg);
-
     const conversationId = mapping.conversationId;
-
-    let assistantMessagePersisted = false;
+    // Outer try/finally guarantees the processing flag is cleared (and the
+    // queue drained) on every failure path — including a throw from the
+    // initial user-message persist below, which would otherwise leave the
+    // conversation stuck in queued mode indefinitely.
     try {
-      broadcastMessage({
-        type: "user_message_echo",
-        text: rawContent,
-        conversationId,
-        messageId: persisted.id,
-        clientMessageId,
-      });
-      publishConversationMessagesChanged(conversationId);
-
-      const result = await conversation.forceClean();
-      const responseText = formatCleanResult(result);
-
-      const assistantMsg = createAssistantMessage(responseText);
-      await addMessage(
-        conversationId,
-        "assistant",
-        JSON.stringify(assistantMsg.content),
+      const provenance = provenanceFromTrustContext(conversation.trustContext);
+      const channelMeta = {
+        ...provenance,
+        userMessageChannel: sourceChannel,
+        assistantMessageChannel: sourceChannel,
+        userMessageInterface: sourceInterface,
+        assistantMessageInterface: sourceInterface,
+      };
+      const cleanMsg = createUserMessage(rawContent, attachments);
+      const persisted = await addMessage(
+        mapping.conversationId,
+        "user",
+        JSON.stringify(cleanMsg.content),
         channelMeta,
       );
-      assistantMessagePersisted = true;
-      conversation.getMessages().push(assistantMsg);
+      conversation.getMessages().push(cleanMsg);
 
-      broadcastMessage({
-        type: "assistant_text_delta",
-        text: responseText,
-        conversationId,
-      });
-      broadcastMessage({ type: "message_complete", conversationId });
-      publishConversationMessagesChanged(conversationId);
-    } catch (err) {
-      if (assistantMessagePersisted) {
-        publishConversationMessagesChanged(conversationId);
+      let assistantMessagePersisted = false;
+      try {
+        broadcastMessage({
+          type: "user_message_echo",
+          text: rawContent,
+          conversationId,
+          messageId: persisted.id,
+          clientMessageId,
+        });
+        publishConversationMessagesChanged(conversationId, originClientId);
+
+        const result = await conversation.forceClean();
+        const responseText = formatCleanResult(result);
+
+        const assistantMsg = createAssistantMessage(responseText);
+        const persistedAssistant = await addMessage(
+          conversationId,
+          "assistant",
+          JSON.stringify(assistantMsg.content),
+          channelMeta,
+        );
+        assistantMessagePersisted = true;
+        conversation.getMessages().push(assistantMsg);
+
+        broadcastMessage({
+          type: "assistant_text_delta",
+          text: responseText,
+          conversationId,
+        });
+        emitCannedMessageComplete(
+          broadcastMessage,
+          conversationId,
+          persistedAssistant.id,
+        );
+        publishConversationMessagesChanged(conversationId, originClientId);
+      } catch (err) {
+        if (assistantMessagePersisted) {
+          publishConversationMessagesChanged(conversationId, originClientId);
+        }
+        log.error({ err, conversationId }, "Clean command failed");
+        broadcastMessage({
+          type: "conversation_error",
+          conversationId,
+          code: "UNKNOWN",
+          userMessage: `Clean failed: ${err instanceof Error ? err.message : String(err)}`,
+          retryable: true,
+        });
       }
-      log.error({ err, conversationId }, "Clean command failed");
-      broadcastMessage({
-        type: "conversation_error",
+
+      return {
+        accepted: true,
+        messageId: persisted.id,
         conversationId,
-        code: "UNKNOWN",
-        userMessage: `Clean failed: ${err instanceof Error ? err.message : String(err)}`,
-        retryable: true,
-      });
+      };
     } finally {
       conversation.processing = false;
       silentlyWithLog(conversation.drainQueue(), "clean-command queue drain");
     }
-
-    return {
-      accepted: true,
-      messageId: persisted.id,
-      conversationId,
-    };
   }
 
   const resolvedContent = slashResult.content;
@@ -2240,7 +2060,7 @@ export async function handleSendMessage(
     requestId,
     clientMessageId,
   });
-  publishConversationMessagesChanged(mapping.conversationId);
+  publishConversationMessagesChanged(mapping.conversationId, originClientId);
 
   // Fire-and-forget the agent loop; events flow to the hub via broadcastMessage.
   conversation
@@ -2285,14 +2105,25 @@ async function generateLlmSuggestion(
         ? escapeXmlContent(priorUserText)
         : priorUserText;
 
-  const systemPrompt =
-    "You generate short, casual reply suggestions a user might type next in a chat. Match the tone and register of the preceding conversation. Output only the reply text inside the requested tags — no preamble, no commentary.";
+  const systemPrompt = [
+    "You generate short, casual reply suggestions a user might type next in a chat.",
+    "Match the tone and register of the preceding conversation.",
+    "",
+    "CRITICAL — write from the USER'S perspective only, NEVER from the assistant's:",
+    "- The suggestion is what the USER will type into the chat input",
+    '- Use first-person "I" only if the user has used it in their prior messages',
+    '- NEVER start with phrases like "I can help", "Here\'s what", "Let me", "I\'d suggest" — those are assistant-voice',
+    "- Think: if you were the user reading the assistant's reply, what question or follow-up would you ask next?",
+    "",
+    "Output only the reply text inside the requested tags — no preamble, no commentary.",
+  ].join("\n");
 
   const userPrompt =
     `Here is the end of a conversation:\n\n` +
     `<user_message>${truncatedUser ?? "(no prior user message)"}</user_message>\n` +
     `<assistant_message>${truncatedAssistant}</assistant_message>\n\n` +
-    `Write the user's next reply, focusing on the LAST question or call-to-action in the assistant message. Keep it short (under 15 words), casual, and in the user's voice. Respond in this exact format:\n\n` +
+    `Write the USER'S next reply — what the user would type. Focus on the LAST question or call-to-action in the assistant message. Keep it short (under 15 words), casual, and in the user's voice. ` +
+    `The reply must read as something typed BY the user, not something the assistant would say. Respond in this exact format:\n\n` +
     `<reply>YOUR_REPLY_HERE</reply>`;
 
   // Single user message only — no assistant-role prefill. Anthropic
@@ -2642,10 +2473,31 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Return an LLM-generated follow-up suggestion for the most recent assistant message.",
     tags: ["messages"],
+    queryParams: [
+      {
+        name: "conversationId",
+        type: "string",
+        description:
+          "Conversation ID to fetch a suggestion for. Either this or conversationKey is required.",
+      },
+      {
+        name: "conversationKey",
+        type: "string",
+        description:
+          "Legacy conversation key. Either this or conversationId is required.",
+      },
+      {
+        name: "messageId",
+        type: "string",
+        description:
+          "Optional. Latest assistant message ID the client has seen — used to detect staleness.",
+      },
+    ],
     responseBody: z.object({
-      suggestion: z.string(),
-      messageId: z.string(),
+      suggestion: z.string().nullable(),
+      messageId: z.string().nullable(),
       source: z.string(),
+      stale: z.boolean().optional(),
     }),
     handler: async (args) =>
       handleGetSuggestion(args, {

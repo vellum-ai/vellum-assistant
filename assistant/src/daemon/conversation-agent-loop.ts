@@ -26,7 +26,6 @@ import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import {
   contextWindowConfigFromEffective,
   type EffectiveContextWindow,
@@ -80,7 +79,10 @@ import {
 } from "../memory/conversation-title-service.js";
 import { isBackgroundConversationType } from "../memory/conversation-types.js";
 import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
-import { backfillMessageIdOnLogs } from "../memory/llm-request-log-store.js";
+import {
+  backfillMessageIdOnLogs,
+  recordSyntheticAgentErrorMessageLog,
+} from "../memory/llm-request-log-store.js";
 import { recordMemoryRecallLog } from "../memory/memory-recall-log-store.js";
 import { enqueueMemoryRetrospectiveOnCompaction } from "../memory/memory-retrospective-enqueue.js";
 import { PKB_WORKSPACE_SCOPE } from "../memory/pkb/types.js";
@@ -163,13 +165,13 @@ import {
   createEventHandlerState,
   dispatchAgentEvent,
   type EventHandlerDeps,
-  getClientDisplayMessageId,
 } from "./conversation-agent-loop-handlers.js";
 import {
   approveHostAttachmentRead,
   resolveAssistantAttachments,
 } from "./conversation-attachments.js";
 import {
+  budgetYieldUnrecoveredClassification,
   buildConversationErrorMessage,
   classifyConversationError,
   isUserCancellation,
@@ -222,15 +224,35 @@ import {
   SYNC_TAGS,
 } from "./message-types/sync.js";
 import { parseActualTokensFromError } from "./parse-actual-tokens-from-error.js";
-import {
-  classifyQueryComplexity,
-  complexityTierToProfileKey,
-} from "./query-complexity-router.js";
 import type { TraceEmitter } from "./trace-emitter.js";
 import type { TrustContext } from "./trust-context.js";
 import { stripHistoricalWebSearchResults } from "./web-search-history.js";
 
 const log = getLogger("conversation-agent-loop");
+
+/**
+ * Best-effort persistence of the history-stripped marker after an
+ * injection-strip event (compaction / overflow recovery). The marker is a
+ * durability hint, not turn-critical state — a transient SQLite write failure
+ * (SQLITE_BUSY, disk-full, read-only FS) must not abort the turn. Logs a
+ * warning and continues on failure, preserving the long-standing non-fatal
+ * contract for this metadata write.
+ */
+function markHistoryStrippedBestEffort(
+  conversationId: string,
+  strippedAt: number,
+  logger: ReturnType<typeof getLogger>,
+): void {
+  try {
+    setConversationHistoryStrippedAt(conversationId, strippedAt);
+  } catch (err) {
+    logger.warn(
+      { err },
+      "Failed to persist history-stripped marker after compaction strip (non-fatal)",
+    );
+  }
+}
+
 const DISK_PRESSURE_ERROR_CODE = "DISK_SPACE_CRITICAL" as const;
 const DISK_PRESSURE_ERROR_CATEGORY = "disk_pressure";
 
@@ -539,6 +561,13 @@ export interface AgentLoopConversationContext {
    * is inherited by later tool executions and nested subagents.
    */
   currentTurnOverrideProfile?: string;
+  /**
+   * Set by the `switch_inference_profile` tool when the model self-selects a
+   * different profile mid-turn. Read by `readCurrentOverrideProfile` in the
+   * agent loop so the next LLM call uses the switched profile. Reset at
+   * turn start.
+   */
+  toolRoutedProfile?: string;
   commandIntent?: { type: string; payload?: string; languageCode?: string };
   trustContext?: TrustContext;
   /** Task-run scope for the current turn. Cleared at turn end so queued/drained turns don't inherit it. */
@@ -681,6 +710,13 @@ export async function runAgentLoopImpl(
   let yieldedForHandoff = false;
   let yieldedForBudget = false;
   let pendingCheckpointYield: "budget" | "handoff" | null = null;
+  // Captured when the auto_compress_latest_turn rerun yields at the mid-loop
+  // budget checkpoint. SSE emission happens immediately at the detection site;
+  // assistant-row persistence is deferred until after the pendingToolResults
+  // flush so we don't orphan tool_use/tool_result pairs in the durable history.
+  let budgetYieldClassification: ReturnType<
+    typeof budgetYieldUnrecoveredClassification
+  > | null = null;
   let emitTerminalExit:
     | ((reason: AgentLoopExitReason) => Promise<void>)
     | null = null;
@@ -711,50 +747,19 @@ export async function runAgentLoopImpl(
 
   const config = getConfig();
 
-  // Query complexity routing: when no explicit user override is set and the
-  // feature flag is enabled, classify the query and route to the appropriate
-  // profile for this turn. The override is ephemeral (not persisted).
-  let turnOverrideProfile = userExplicitOverride;
-  if (
-    !userExplicitOverride &&
-    turnCallSite === "mainAgent" &&
-    isAssistantFeatureFlagEnabled("query-complexity-routing", config)
-  ) {
-    const tier = await classifyQueryComplexity(content);
-    if (tier && tier !== "balanced") {
-      const routedProfile = complexityTierToProfileKey(tier);
-      if (config.llm.profiles?.[routedProfile]) {
-        turnOverrideProfile = routedProfile;
-      }
-    }
-  }
+  // Tool-based auto-routing: the switch_inference_profile tool lets the model
+  // self-select a different profile mid-turn. Reset the per-turn slot so a
+  // stale selection from a previous turn doesn't leak forward.
+  ctx.toolRoutedProfile = undefined;
 
-  // Notify clients when the auto-router selected a non-default profile.
-  if (turnOverrideProfile && turnOverrideProfile !== userExplicitOverride) {
-    const profileEntry = config.llm.profiles?.[turnOverrideProfile];
-    const label = profileEntry?.label ?? turnOverrideProfile;
-    broadcastMessage({
-      type: "turn_profile_auto_routed",
-      conversationId: ctx.conversationId,
-      profile: turnOverrideProfile,
-      profileLabel: label,
-    });
-  }
+  const turnOverrideProfile = userExplicitOverride;
 
-  // Only use the complexity-routed profile as a fallback — not the initial
-  // explicit override. If a mid-turn session expiry clears the conversation
-  // override, the old behavior (return undefined → revert to workspace
-  // defaults) must be preserved for non-routed turns.
-  const complexityRoutedProfile =
-    turnOverrideProfile !== userExplicitOverride
-      ? turnOverrideProfile
-      : undefined;
   const readCurrentOverrideProfile = (): string | undefined =>
     options?.overrideProfile ??
     getConversationOverrideProfileFromRow(
       getConversation(ctx.conversationId),
     ) ??
-    complexityRoutedProfile;
+    ctx.toolRoutedProfile;
 
   const effectiveContextWindow = resolveEffectiveContextWindow({
     llm: config.llm,
@@ -776,6 +781,7 @@ export async function runAgentLoopImpl(
   contextWindowManager.updateConfig?.(currentContextWindowConfig);
 
   let appliedOverrideProfile = turnOverrideProfile;
+  let emittedToolRoutedProfile: string | undefined;
   const refreshCurrentProfileState = (): string | undefined => {
     const currentOverrideProfile = readCurrentOverrideProfile();
     if (currentOverrideProfile !== appliedOverrideProfile) {
@@ -797,6 +803,24 @@ export async function runAgentLoopImpl(
         "Turn inference profile changed mid-loop",
       );
     }
+
+    // Emit turn_profile_auto_routed when the tool-based router selects a
+    // new profile. Deduplicated so the event fires at most once per profile.
+    if (
+      ctx.toolRoutedProfile &&
+      ctx.toolRoutedProfile !== emittedToolRoutedProfile
+    ) {
+      emittedToolRoutedProfile = ctx.toolRoutedProfile;
+      const profileEntry = config.llm.profiles?.[ctx.toolRoutedProfile];
+      const label = profileEntry?.label ?? ctx.toolRoutedProfile;
+      broadcastMessage({
+        type: "turn_profile_auto_routed",
+        conversationId: ctx.conversationId,
+        profile: ctx.toolRoutedProfile,
+        profileLabel: label,
+      });
+    }
+
     ctx.currentTurnOverrideProfile = currentOverrideProfile;
     return currentOverrideProfile;
   };
@@ -1645,7 +1669,7 @@ export async function runAgentLoopImpl(
     // V2 static memory block (essentials/threads/recent/buffer).
     // `currentMemoryV2Static` is the trust-gated content reused by every
     // re-injection path — it stays non-null on non-full-mode turns so
-    // that mid-turn reducer compaction (which strips the prior `<memory>`
+    // that mid-turn reducer compaction (which strips the prior `<info>`
     // block) can restore the freshest content. `memoryV2Static` is the
     // first-turn / post-compaction cadence-gated value for initial
     // injection only. `readMemoryV2StaticContent` self-gates on the v2
@@ -2307,7 +2331,7 @@ export async function runAgentLoopImpl(
       // so we compact the "raw" persistent messages.
       const rawHistory = stripInjectionsForCompaction(updatedHistory);
       ctx.messages = rawHistory;
-      setConversationHistoryStrippedAt(ctx.conversationId, Date.now());
+      markHistoryStrippedBestEffort(ctx.conversationId, Date.now(), rlog);
 
       ctx.emitActivityState(
         "thinking",
@@ -2591,7 +2615,7 @@ export async function runAgentLoopImpl(
 
       if (updatedHistory.length > preRunHistoryLength) {
         ctx.messages = stripInjectionsForCompaction(updatedHistory);
-        setConversationHistoryStrippedAt(ctx.conversationId, Date.now());
+        markHistoryStrippedBestEffort(ctx.conversationId, Date.now(), rlog);
         convergenceStripped = true;
         preRepairMessages = updatedHistory;
         preRunHistoryLength = updatedHistory.length;
@@ -2836,7 +2860,7 @@ export async function runAgentLoopImpl(
           // pre-rerun messages.
           if (updatedHistory.length > preRunHistoryLength) {
             ctx.messages = stripInjectionsForCompaction(updatedHistory);
-            setConversationHistoryStrippedAt(ctx.conversationId, Date.now());
+            markHistoryStrippedBestEffort(ctx.conversationId, Date.now(), rlog);
             convergenceStripped = true;
             preRepairMessages = updatedHistory;
             preRunHistoryLength = updatedHistory.length;
@@ -2985,6 +3009,32 @@ export async function runAgentLoopImpl(
         await emitTerminalExit?.("context_too_large");
         pendingCheckpointYield = null;
         onEvent(buildConversationErrorMessage(ctx.conversationId, classified));
+      } else if (yieldedForBudget && !abortController.signal.aborted) {
+        // The auto_compress_latest_turn rerun (action === "auto_compress_latest_turn"
+        // above) reset `contextTooLargeDetected` to false before its final
+        // `agentLoop.run`, so the context-too-large branch above won't fire
+        // even when that rerun yields at the mid-loop budget checkpoint with
+        // no further recovery layer to re-enter. Without surfacing this here,
+        // the turn terminates silently — the inspector sees `agent_loop_exit_reason
+        // = NULL` and the user sees no message at all (just a "ghost" turn).
+        //
+        // Unlike provider-error persistence at L3091 — which only fires when
+        // the loop produced NO assistant output — budget_yield_unrecovered
+        // typically yields AFTER one or more successful tool-use iterations,
+        // so `hasAssistantResponse` is true and that path would skip us. We
+        // capture the classification here so the live SSE event fires
+        // immediately, and persist a dedicated notice row below — after the
+        // pendingToolResults flush — so the transcript reads as: tool-use →
+        // tool results → "I couldn't fit the next step…" notice. Persisting
+        // earlier would orphan an assistant(tool_use) from its user(tool_result),
+        // breaking provider adjacency on replay.
+        budgetYieldClassification = budgetYieldUnrecoveredClassification();
+        onEvent(
+          buildConversationErrorMessage(
+            ctx.conversationId,
+            budgetYieldClassification,
+          ),
+        );
       }
     }
 
@@ -3058,6 +3108,99 @@ export async function runAgentLoopImpl(
         DEFAULT_TIMEOUTS.persistence,
       );
       state.pendingToolResults.clear();
+    }
+
+    // Persist the budget_yield_unrecovered notice now that any pending
+    // tool_results have flushed. The SSE event already fired upstream; this
+    // makes the row durable in the right position: tool-use → tool-results →
+    // notice. Doing it earlier (e.g. at the detection site) would land the
+    // assistant row between a tool_use and its tool_result and break provider
+    // adjacency on replay.
+    if (budgetYieldClassification && !abortController.signal.aborted) {
+      const yieldNoticeMessage = createAssistantMessage(
+        budgetYieldClassification.userMessage,
+      );
+      const yieldNoticeMetadata = {
+        ...provenanceFromTrustContext(ctx.trustContext),
+        userMessageChannel: capturedTurnChannelContext.userMessageChannel,
+        assistantMessageChannel:
+          capturedTurnChannelContext.assistantMessageChannel,
+        userMessageInterface: capturedTurnInterfaceContext.userMessageInterface,
+        assistantMessageInterface:
+          capturedTurnInterfaceContext.assistantMessageInterface,
+      };
+      let yieldNoticePersistedId: string | null = null;
+      try {
+        const yieldPersistResult = (await runPipeline<
+          PersistArgs,
+          PersistResult
+        >(
+          "persistence",
+          getMiddlewaresFor("persistence"),
+          defaultPersistenceTerminal,
+          {
+            op: "add",
+            conversationId: ctx.conversationId,
+            role: "assistant",
+            content: JSON.stringify(yieldNoticeMessage.content),
+            metadata: yieldNoticeMetadata,
+          },
+          buildPluginTurnContext(ctx, reqId),
+          DEFAULT_TIMEOUTS.persistence,
+        )) as PersistAddResult;
+        yieldNoticePersistedId = yieldPersistResult.message.id;
+      } catch (err) {
+        // Non-fatal — a DB hiccup must not escalate a budget-yield exit into
+        // a turn-level throw. The live SSE event was already emitted, so the
+        // user still sees the notice this turn even if the durable row missed.
+        rlog.warn(
+          { err },
+          "Failed to persist budget_yield_unrecovered notice (non-fatal)",
+        );
+      }
+      // Record a synthetic `llm_request_logs` row for the yield so the
+      // inspector's call rail surfaces a clickable, distinctly-rendered
+      // entry for the failure itself. Without this row, the loop yields
+      // silently — the user sees the notice in chat but the inspector
+      // call list ends at the last actual LLM call with no way to scope
+      // the "what compactions led to this failure?" question to the
+      // yield event.
+      //
+      // Recorded *before* emitTerminalExit so the synthetic row exists
+      // by the time the dispatcher's post-loop hook runs. The row
+      // already carries `agent_loop_exit_reason` at insert time, so
+      // `setAgentLoopExitReasonOnLatestLog`'s IS NULL guard skips it
+      // and stamps the prior real mainAgent call instead — preserving
+      // the existing "latest LLM call carries the exit reason"
+      // invariant other consumers depend on.
+      //
+      // `preparedRequest` snapshots the best-known LLM request state
+      // at yield time — `updatedHistory` (the conversation state the
+      // next call would have been built from) plus the input-token
+      // budget that just failed. Mirrors the role of `request_payload`
+      // on real LLM-call rows; the notice text lives on
+      // `response_payload`.
+      if (yieldNoticePersistedId !== null && budgetYieldClassification) {
+        try {
+          recordSyntheticAgentErrorMessageLog({
+            conversationId: ctx.conversationId,
+            messageId: yieldNoticePersistedId,
+            exitReason: "budget_yield_unrecovered",
+            noticeText: budgetYieldClassification.userMessage,
+            preparedRequest: {
+              messages: updatedHistory,
+              maxInputTokensBudget: resolveCurrentMaxInputTokens() ?? null,
+            },
+            createdAt: Date.now(),
+          });
+        } catch (err) {
+          rlog.warn(
+            { err },
+            "Failed to record budget_yield_unrecovered synthetic call log (non-fatal)",
+          );
+        }
+      }
+      await emitTerminalExit?.("budget_yield_unrecovered");
     }
 
     // Reconstruct history
@@ -3242,7 +3385,6 @@ export async function runAgentLoopImpl(
       ctx.lastAssistantAttachments = assistantAttachments;
       ctx.lastAttachmentWarnings = attachmentResult.directiveWarnings;
       syncLastAssistantMessageToDisk();
-      const clientDisplayMessageId = getClientDisplayMessageId(state);
 
       // Re-check: the user may have cancelled during attachment resolution
       if (abortController.signal.aborted) {
@@ -3288,9 +3430,6 @@ export async function runAgentLoopImpl(
           ...(state.lastAssistantMessageId
             ? { messageId: state.lastAssistantMessageId }
             : {}),
-          ...(clientDisplayMessageId
-            ? { displayMessageId: clientDisplayMessageId }
-            : {}),
         });
         publishLoopMessagesChanged();
       } else {
@@ -3314,9 +3453,6 @@ export async function runAgentLoopImpl(
             : {}),
           ...(state.lastAssistantMessageId
             ? { messageId: state.lastAssistantMessageId }
-            : {}),
-          ...(clientDisplayMessageId
-            ? { displayMessageId: clientDisplayMessageId }
             : {}),
         });
         publishLoopMessagesChanged();
@@ -3624,7 +3760,7 @@ export async function applyCompactionResult(
     result.summaryText,
     ctx.contextCompactedMessageCount,
   );
-  setConversationHistoryStrippedAt(ctx.conversationId, compactedAt);
+  markHistoryStrippedBestEffort(ctx.conversationId, compactedAt, log);
   if (options.slackContextCompactionWatermarkTs) {
     updateConversationSlackContextWatermark(
       ctx.conversationId,

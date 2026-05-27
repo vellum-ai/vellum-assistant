@@ -118,13 +118,13 @@ feature module.
 
 ```ts
 // Good — alias for cross-module imports
-import { useMessageStore } from "@/domains/messages/message-store.js";
+import { useMessageStore } from "@/domains/messages/message-store";
 
 // Good — relative within same domain
-import { messageReducer } from "./message-reducer.js";
+import { messageReducer } from "./message-reducer";
 
 // Avoid — deep relative path crossing module boundaries
-import { useMessageStore } from "../../../domains/messages/message-store.js";
+import { useMessageStore } from "../../../domains/messages/message-store";
 ```
 
 Reference: [Vite — resolve.alias](https://vite.dev/config/shared-options.html#resolve-alias)
@@ -142,9 +142,9 @@ import { useCallback, useMemo } from "react";
 import { useParams } from "react-router";
 import { Button } from "@vellum/design-library";
 
-import { useMessageStore } from "@/domains/messages/message-store.js";
+import { useMessageStore } from "@/domains/messages/message-store";
 
-import { messageReducer } from "./message-reducer.js";
+import { messageReducer } from "./message-reducer";
 ```
 
 Reference: [typescript-eslint — Organizing imports](https://typescript-eslint.io/rules/consistent-type-imports/)
@@ -172,8 +172,8 @@ ensures they are erased at build time and prevents accidental runtime
 dependencies on type-only modules.
 
 ```ts
-import { type Conversation } from "@/domains/conversations/types.js";
-import type { DisplayMessage } from "@/domains/messages/types.js";
+import { type Conversation } from "@/domains/conversations/types";
+import type { DisplayMessage } from "@/domains/messages/types";
 ```
 
 Both `import { type X }` and `import type { X }` are acceptable.

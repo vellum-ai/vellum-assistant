@@ -329,7 +329,7 @@ Attachments are sent inline (base64) in `message_complete`, `generation_handoff`
 
 #### Runtime HTTP API
 
-The `GET /v1/assistants/:id/messages?conversationKey=<key>` endpoint returns attachment metadata on each message (the `conversationKey` query parameter is required):
+The `GET /v1/assistants/:id/messages?conversationId=<id>` endpoint returns attachment metadata on each message. The endpoint accepts either `conversationId` (the assistant-minted internal UUID; preferred) or the legacy `conversationKey` (the external key used by non-vellum channel adapters):
 
 ```json
 {
@@ -397,7 +397,7 @@ The runtime HTTP server exposes a Server-Sent Events (SSE) endpoint that streams
 #### Endpoint
 
 ```
-GET /v1/events?conversationKey=<key>
+GET /v1/events?conversationId=<id>
 ```
 
 **Auth**: JWT bearer token (same rules as other runtime HTTP endpoints). The SSE endpoint requires a valid JWT with the `chat.read` scope, passed as `Authorization: Bearer <jwt>`. JWTs are issued by the assistant's auth system (see Vellum Guardian Identity for the bootstrap flow). The route policy in `route-policy.ts` enforces scope requirements per endpoint.
@@ -406,7 +406,8 @@ GET /v1/events?conversationKey=<key>
 
 | Parameter | Required | Description |
 |-----------|----------|-------------|
-| `conversationKey` | No | Stable, client-chosen key that maps to a conversation. Same key used for `POST /v1/assistants/:id/runs`. When omitted, subscribes to events from all conversations. |
+| `conversationId` | No | The assistant-minted internal conversation UUID. Preferred for vellum-managed conversations. When supplied, looks up the conversation directly; 404 if it doesn't exist. When omitted (along with `conversationKey`), subscribes to events from all conversations. |
+| `conversationKey` | No | The external key used by non-vellum channel adapters (Telegram, WhatsApp, etc.) — same key used for `POST /v1/assistants/:id/runs`. Legacy alias on this endpoint; supported indefinitely for external clients. When both are supplied, `conversationId` wins. |
 
 **Response**: `200 OK` with `Content-Type: text/event-stream`. Each frame is a standard SSE event:
 
@@ -471,7 +472,7 @@ The standard browser `EventSource` API does not support custom request headers, 
 ```js
 const TOKEN = '<jwt>'; // JWT obtained via the guardian bootstrap flow or assistant auth system
 const res = await fetch(
-  'http://localhost:3001/v1/events?conversationKey=my-conversation',
+  'http://localhost:3001/v1/events?conversationId=a1b2c3d4-e5f6-7890-abcd-ef1234567890',
   { headers: { Authorization: `Bearer ${TOKEN}` } },
 );
 

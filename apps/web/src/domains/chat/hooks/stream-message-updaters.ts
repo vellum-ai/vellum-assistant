@@ -9,11 +9,11 @@
  * @see https://react.dev/reference/react/useState#updating-state-based-on-the-previous-state
  */
 
-import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/utils/reconcile.js";
-import type { Surface } from "@/domains/chat/types/types.js";
-import { newStableId } from "@/domains/chat/utils/stable-id.js";
-import type { AllowlistOption, ChatMessageToolCall, DirectoryScopeOption, ScopeOption } from "@/domains/chat/api/event-types.js";
-import type { ToolActivityMetadata } from "@/assistant/web-activity-types.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { Surface } from "@/domains/chat/types/types";
+import { toDisplayAttachments } from "@/domains/chat/api/event-parser";
+import type { AllowlistOption, ChatMessageToolCall, DirectoryScopeOption, MessageCompleteEvent, ScopeOption } from "@/domains/chat/api/event-types";
+import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -31,6 +31,20 @@ export function finalizeRunningToolCalls(
   );
 }
 
+/**
+ * Whether the next streaming chunk should extend the tail bubble or start
+ * a fresh one. Derived directly from the message array — the boundary
+ * events that previously latched this decision (idle, message_complete,
+ * generation_handoff, generation_cancelled, dequeued, conversation switch)
+ * all leave the tail in a state where `isStreaming` is either `false` or
+ * the tail is no longer an assistant row, so the derivation answers
+ * correctly without any shared flag.
+ */
+export function tailIsStreamingAssistant(prev: DisplayMessage[]): boolean {
+  const last = prev[prev.length - 1];
+  return !!last && last.role === "assistant" && !!last.isStreaming;
+}
+
 // ---------------------------------------------------------------------------
 // assistant_text_delta
 // ---------------------------------------------------------------------------
@@ -40,14 +54,12 @@ export function createStreamingBubble(
   prev: DisplayMessage[],
   text: string,
   messageId?: string,
-  stableId?: string,
 ): DisplayMessage[] {
   return [
     ...prev,
     {
-      stableId: stableId ?? newStableId("assistant-stream"),
-      id: messageId,
-      ...(messageId ? { daemonMessageId: messageId } : {}),
+      id: messageId ?? crypto.randomUUID(),
+      ...(messageId ? {} : { isOptimistic: true }),
       role: "assistant",
       content: text,
       isStreaming: true,
@@ -58,15 +70,27 @@ export function createStreamingBubble(
   ];
 }
 
-/** Append text to the last streaming assistant bubble. */
+/**
+ * Append text to the streaming assistant tail bubble, creating one if the
+ * tail isn't a streaming assistant row.
+ *
+ * The "should I open a new bubble" question is derived from the message
+ * array itself — when the previous turn finalized (via `finalizeOnIdle`,
+ * `finalizeMessageComplete`, `stopStreaming`, conversation switch, or a
+ * user message append), the tail's `isStreaming` flag is already false
+ * (or the tail is no longer an assistant row), so this updater branches
+ * to `createStreamingBubble` without needing a shared latch.
+ */
 export function appendTextDelta(
   prev: DisplayMessage[],
   text: string,
   messageId?: string,
 ): DisplayMessage[] {
-  const last = prev[prev.length - 1];
-  if (!last || last.role !== "assistant" || !last.isStreaming) return prev;
+  if (!tailIsStreamingAssistant(prev)) {
+    return createStreamingBubble(prev, text, messageId);
+  }
 
+  const last = prev[prev.length - 1]!;
   const segments = [...(last.textSegments ?? [])];
   const order = [...(last.contentOrder ?? [])];
   const lastOrderEntry = order[order.length - 1];
@@ -85,13 +109,13 @@ export function appendTextDelta(
     order.push({ type: "text", id: String(newIndex) });
   }
 
+  // First-id-wins: keep the original anchor even if a later delta carries
+  // a different `messageId`. The id is locked from bubble creation.
   return [
     ...prev.slice(0, -1),
     {
       ...last,
       content: last.content + text,
-      id: messageId ?? last.id,
-      daemonMessageId: messageId ?? last.daemonMessageId,
       textSegments: segments,
       contentOrder: order,
     },
@@ -102,14 +126,28 @@ export function appendTextDelta(
 // assistant_activity_state (idle)
 // ---------------------------------------------------------------------------
 
-/** Finalize running tool calls on ALL streaming assistant messages (idle signal). */
+/**
+ * Finalize all streaming assistant messages when the daemon signals turn
+ * idle. Sets `isStreaming: false` on each streaming assistant row and
+ * marks any running tool calls as completed.
+ *
+ * Flipping `isStreaming` here is what lets `appendTextDelta` /
+ * `upsertToolCall` derive "next chunk should open a new bubble" from the
+ * message array alone — without this, the previous turn's tail would
+ * still look like a streaming assistant when the next turn's first chunk
+ * arrives, and the next chunk would erroneously extend it.
+ */
 export function finalizeOnIdle(prev: DisplayMessage[]): DisplayMessage[] {
   let changed = false;
   const updated = prev.map((m) => {
     if (m.role !== "assistant" || !m.isStreaming) return m;
-    if (!m.toolCalls?.some((tc) => tc.status === "running")) return m;
     changed = true;
-    return { ...m, toolCalls: finalizeRunningToolCalls(m.toolCalls)! };
+    const finalized = finalizeRunningToolCalls(m.toolCalls);
+    return {
+      ...m,
+      isStreaming: false,
+      ...(finalized ? { toolCalls: finalized } : {}),
+    };
   });
   return changed ? updated : prev;
 }
@@ -118,74 +156,78 @@ export function finalizeOnIdle(prev: DisplayMessage[]): DisplayMessage[] {
 // message_complete
 // ---------------------------------------------------------------------------
 
-/** Finalize a streaming message with its completed content and attachments. */
+/**
+ * Apply a `message_complete` event to the message array.
+ *
+ * Decision is role-based on the tail:
+ *   - tail is user (or array empty) → push a new finalized assistant bubble
+ *     stamped with `event.messageId`. This covers the start-of-turn case
+ *     where no streaming bubble was opened (e.g. tool-only or aux turns).
+ *   - tail is assistant → finalize it: flip `isStreaming: false`, complete
+ *     any running tool calls, merge in `event.content` / `event.attachments`.
+ *     The first `message_complete` for an *optimistic* row also adopts
+ *     `event.messageId` as the row id (clearing `isOptimistic`) so the
+ *     post-turn history reconcile matches by id instead of falling back to
+ *     brittle content matching — the latter breaks for multi-LLM-call turns
+ *     (e.g. subagent spawns) where the daemon's collapsed server content
+ *     diverges from the finalized bubble's text, producing a duplicate row.
+ *     Subsequent `message_complete` events from later LLM calls in the same
+ *     agent turn fold into the same bubble and **keep the adopted id** — the
+ *     mirror of the daemon's server-side merge which collapses to the first
+ *     row's id (later events carry constituent ids the daemon discards).
+ */
 export function finalizeMessageComplete(
   prev: DisplayMessage[],
-  opts: {
-    content?: string;
-    rowMessageId?: string;
-    displayMessageId?: string;
-    attachments?: DisplayAttachment[];
-  },
+  event: MessageCompleteEvent,
 ): DisplayMessage[] {
-  const { content, rowMessageId, displayMessageId, attachments } = opts;
   const last = prev[prev.length - 1];
+  const attachments = toDisplayAttachments(event.attachments);
 
-  if (last?.role === "assistant" && last.isStreaming) {
-    const finalized = finalizeRunningToolCalls(last.toolCalls);
-    return [
-      ...prev.slice(0, -1),
-      {
-        ...last,
-        isStreaming: false,
-        id: displayMessageId ?? last.id,
-        ...(rowMessageId ? { daemonMessageId: rowMessageId } : {}),
-        content: content || last.content,
-        ...(attachments ? { attachments } : {}),
-        ...(finalized ? { toolCalls: finalized } : {}),
-      },
-    ];
-  }
-
-  if (content || attachments) {
-    if (displayMessageId && prev.some((m) => m.id === displayMessageId)) {
-      return prev.map((m) =>
-        m.id === displayMessageId
-          ? {
-              ...m,
-              ...(rowMessageId ? { daemonMessageId: rowMessageId } : {}),
-              ...(content ? { content } : {}),
-              ...(attachments && !m.attachments ? { attachments } : {}),
-            }
-          : m,
-      );
-    }
+  if (last?.role !== "assistant") {
+    if (!event.content && !attachments) return prev;
     return [
       ...prev,
       {
-        stableId: newStableId("assistant-complete"),
-        id: displayMessageId,
-        ...(rowMessageId ? { daemonMessageId: rowMessageId } : {}),
+        id: event.messageId ?? crypto.randomUUID(),
+        ...(event.messageId ? {} : { isOptimistic: true }),
         role: "assistant" as const,
-        content: content ?? "",
+        content: event.content ?? "",
         timestamp: Date.now(),
         ...(attachments ? { attachments } : {}),
       },
     ];
   }
 
-  return prev;
+  const finalized = finalizeRunningToolCalls(last.toolCalls);
+  // Adopt the server `messageId` the first time it lands for this display row
+  // (the bubble is still optimistic), swapping off the optimistic client UUID
+  // so the row reconciles by id. Gated on `isOptimistic` so later
+  // `message_complete` events in the same multi-LLM-call turn — which carry
+  // constituent row ids the daemon collapses away — don't re-stamp the row off
+  // its canonical first-row id.
+  const adoptServerId = last.isOptimistic === true && !!event.messageId;
+  return [
+    ...prev.slice(0, -1),
+    {
+      ...last,
+      ...(adoptServerId ? { id: event.messageId!, isOptimistic: false } : {}),
+      isStreaming: false,
+      content: event.content || last.content,
+      ...(attachments ? { attachments } : {}),
+      ...(finalized ? { toolCalls: finalized } : {}),
+    },
+  ];
 }
 
 // ---------------------------------------------------------------------------
 // generation_handoff / stream stop
 // ---------------------------------------------------------------------------
 
-/** Stop streaming on the last assistant message (handoff or cancellation). */
-export function stopStreaming(
-  prev: DisplayMessage[],
-  opts?: { displayMessageId?: string; rowMessageId?: string },
-): DisplayMessage[] {
+/**
+ * Stop streaming on the tail assistant bubble (handoff or cancellation).
+ * Keeps `tail.id` — same anchor preservation as `finalizeMessageComplete`.
+ */
+export function stopStreaming(prev: DisplayMessage[]): DisplayMessage[] {
   const last = prev[prev.length - 1];
   if (!last || last.role !== "assistant" || !last.isStreaming) return prev;
 
@@ -194,10 +236,6 @@ export function stopStreaming(
     {
       ...last,
       isStreaming: false,
-      ...(opts?.displayMessageId ? { id: opts.displayMessageId } : {}),
-      ...(opts?.rowMessageId
-        ? { daemonMessageId: opts.rowMessageId }
-        : {}),
     },
   ];
 }
@@ -243,9 +281,7 @@ export function attachSurface(
   let targetIdx = -1;
 
   if (messageId) {
-    targetIdx = prev.findIndex(
-      (m) => m.id === messageId || m.daemonMessageId === messageId,
-    );
+    targetIdx = prev.findIndex((m) => m.id === messageId);
   }
   if (targetIdx === -1) {
     for (let i = prev.length - 1; i >= 0; i--) {
@@ -266,8 +302,12 @@ export function attachSurface(
 
   const updated = [...prev];
   if (targetIdx === -1) {
+    // Surface-only assistant rows have no wire messageId — `ui_surface_*`
+    // events identify by surfaceId, not message. The row gets its server
+    // id when a later message_complete or history fetch lands.
     updated.push({
-      stableId: newStableId("assistant-surface"),
+      id: crypto.randomUUID(),
+      isOptimistic: true,
       role: "assistant" as const,
       content: "",
       isStreaming: true,
@@ -389,21 +429,22 @@ export function completeSurface(
 // tool_use_start
 // ---------------------------------------------------------------------------
 
-/** Insert or update a tool call on an assistant message. */
+/**
+ * Insert or update a tool call on the streaming assistant tail bubble,
+ * creating a new bubble if the tail isn't a streaming assistant row.
+ *
+ * The bubble-creation decision is derived from `prev` itself — no shared
+ * latch passes through. Same finalization invariant as `appendTextDelta`:
+ * boundary events leave the tail with `isStreaming: false` (or non-
+ * assistant), so this updater opens a fresh bubble correctly.
+ */
 export function upsertToolCall(
   prev: DisplayMessage[],
   toolCall: ChatMessageToolCall,
-  shouldCreateNewBubble: boolean,
-  stableId?: string,
 ): DisplayMessage[] {
-  const lastIdx = prev.length - 1;
-  const last = prev[lastIdx];
-
-  if (
-    !shouldCreateNewBubble &&
-    last?.role === "assistant" &&
-    last.isStreaming
-  ) {
+  if (tailIsStreamingAssistant(prev)) {
+    const lastIdx = prev.length - 1;
+    const last = prev[lastIdx]!;
     const existingIdx =
       last.toolCalls?.findIndex((tc) => tc.id === toolCall.id) ?? -1;
     if (existingIdx !== -1) {
@@ -428,10 +469,14 @@ export function upsertToolCall(
     return updated;
   }
 
+  // Tool-only assistant rows have no wire messageId — `tool_use_*` events
+  // identify by toolCall.id, not message. The row gets its server id when
+  // a later message_complete or history fetch lands.
   return [
     ...prev,
     {
-      stableId: stableId ?? newStableId("assistant-tool"),
+      id: crypto.randomUUID(),
+      isOptimistic: true,
       role: "assistant" as const,
       content: "",
       isStreaming: true,
@@ -584,33 +629,33 @@ export function applyToolProgress(
 // Queue updaters
 // ---------------------------------------------------------------------------
 
-/** Set queue position on a message by stable ID. */
+/** Set queue position on a message by id. */
 export function setQueuePosition(
   prev: DisplayMessage[],
-  stableId: string,
+  id: string,
   position: number,
 ): DisplayMessage[] {
   return prev.map((m) =>
-    m.stableId === stableId ? { ...m, queuePosition: position } : m,
+    m.id === id ? { ...m, queuePosition: position } : m,
   );
 }
 
-/** Clear queue status on a message by stable ID. */
+/** Clear queue status on a message by id. */
 export function clearQueueStatus(
   prev: DisplayMessage[],
-  stableId: string,
+  id: string,
 ): DisplayMessage[] {
   return prev.map((m) =>
-    m.stableId === stableId
+    m.id === id
       ? { ...m, queueStatus: undefined, queuePosition: undefined }
       : m,
   );
 }
 
-/** Remove a queued message by stable ID. */
+/** Remove a queued message by id. */
 export function removeQueuedMessage(
   prev: DisplayMessage[],
-  stableId: string,
+  id: string,
 ): DisplayMessage[] {
-  return prev.filter((m) => m.stableId !== stableId);
+  return prev.filter((m) => m.id !== id);
 }

@@ -1,0 +1,10 @@
+{
+  "name": "@vellumai/assistant-api",
+  "version": "0.0.0-source",
+  "description": "Public API surface for consumers of the assistant API (web client, gateway, evals, etc.).",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./index.ts"
+  }
+}

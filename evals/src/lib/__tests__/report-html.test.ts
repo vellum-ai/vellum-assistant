@@ -343,40 +343,136 @@ describe("report html", () => {
     }
   });
 
-  test("execution page surfaces docker forensics artifacts as links to the file endpoint", () => {
+  test("execution page inlines docker forensics in the same block shape as subprocess logs", () => {
+    // Vargas's request: the Docker snapshot section reads in the same
+    // scroll as the subprocess logs below it — no clicking through to
+    // a raw file just to see why hatch crashed. JSON inspects are
+    // pretty-printed; text logs render verbatim. A sibling `raw` link
+    // still points at the file endpoint for downloads / large logs.
+    const inspectContent = JSON.stringify({
+      State: { ExitCode: 137, OOMKilled: true },
+      HostConfig: { PortBindings: { "8000/tcp": [{ HostPort: "8000" }] } },
+    });
+    const logsContent =
+      "2026-05-25T00:25:30Z fatal: bind: address already in use\n";
     const html = renderReportPage({
       kind: "execution",
       run: {
         ...executionDetail,
         status: "failed",
-        dockerArtifacts: ["docker-inspect.json", "docker-logs.txt"],
+        dockerArtifacts: [
+          {
+            name: "docker-inspect-assistant.json",
+            content: inspectContent,
+            kind: "json",
+          },
+          {
+            name: "docker-logs-assistant.txt",
+            content: logsContent,
+            kind: "text",
+          },
+        ],
       },
     });
     expect(html).toContain("Docker snapshot");
-    expect(html).toContain("docker-inspect.json");
+    // Filename labels above each block.
+    expect(html).toContain("docker-inspect-assistant.json");
+    expect(html).toContain("docker-logs-assistant.txt");
+    // Inline content — pretty-printed JSON keys + the actual log line,
+    // not just the filename or a link.
+    expect(html).toContain("OOMKilled");
+    expect(html).toContain("ExitCode");
+    expect(html).toContain("bind: address already in use");
+    // Raw download links still emitted as a sibling per block.
     expect(html).toContain(
-      `/api/runs/${encodeURIComponent(executionDetail.runId)}/files/docker-inspect.json`,
+      `/api/runs/${encodeURIComponent(executionDetail.runId)}/files/docker-inspect-assistant.json`,
     );
     expect(html).toContain(
-      `/api/runs/${encodeURIComponent(executionDetail.runId)}/files/docker-logs.txt`,
+      `/api/runs/${encodeURIComponent(executionDetail.runId)}/files/docker-logs-assistant.txt`,
     );
   });
 
-  test("execution page surfaces subprocess logs as links to the file endpoint", () => {
+  test("execution page inlines subprocess logs in the same format as the test runner log", () => {
+    // Vargas's r2 feedback: each subprocess log must render inline,
+    // line-by-line, in the same `[ts] [step] glyph msg` shape the
+    // runner log already uses — no more clicking through to a raw
+    // file just to see why hatch failed. The raw download is still
+    // available via a sibling `raw` link.
+    const hatchContent =
+      "[2026-05-23 14:42:05] [hatch]     \u2022 @vellumai/cli v0.8.4\n" +
+      "[2026-05-23 14:42:06] [hatch]     \u2717 docker: bind: address already in use\n";
+    const setupContent =
+      "[2026-05-23 14:42:08] [setup-1]   \u2022 assistant plugins install simple-memory\n";
     const html = renderReportPage({
       kind: "execution",
       run: {
         ...executionDetail,
         status: "failed",
-        subprocessLogs: ["subprocess-hatch.log", "subprocess-setup-1.log"],
+        subprocessLogs: [
+          { name: "subprocess-hatch.log", content: hatchContent },
+          { name: "subprocess-setup-1.log", content: setupContent },
+        ],
       },
     });
     expect(html).toContain("Subprocess logs");
+    // Filename labels above each block.
     expect(html).toContain("subprocess-hatch.log");
     expect(html).toContain("subprocess-setup-1.log");
+    // Inline content — the actual lines, not just the filename.
+    expect(html).toContain("@vellumai/cli v0.8.4");
+    expect(html).toContain("bind: address already in use");
+    expect(html).toContain("assistant plugins install simple-memory");
+    // Tag column reuses the runner log's `[step/glyph]` shape so the
+    // operator can read both panels with the same eye scan. React
+    // escapes the bullet/cross glyphs as HTML entities.
+    expect(html).toMatch(/\[hatch\/(?:&#x2022;|&bull;|\u2022)\]/);
+    expect(html).toMatch(/\[hatch\/(?:&#x2717;|\u2717)\]/);
+    expect(html).toMatch(/\[setup-1\/(?:&#x2022;|&bull;|\u2022)\]/);
+    // No legacy `[STDOUT]` / `[STDERR]` markers leak through.
+    expect(html).not.toContain("[STDOUT]");
+    expect(html).not.toContain("[STDERR]");
+    // Raw download link still present for piping into other tools.
     expect(html).toContain(
       `/api/runs/${encodeURIComponent(executionDetail.runId)}/files/subprocess-hatch.log`,
     );
+    expect(html).toContain(">raw</a>");
+  });
+
+  test("execution page renders unparsable subprocess content as raw lines", () => {
+    // Legacy `[STDOUT] foo` / `[STDERR] bar` log files (predate r2) or
+    // anything else that doesn't match the canonical `[ts] [step] glyph
+    // msg` shape should still appear — fall back to a one-column row
+    // so an operator inspecting an older run can still read the log.
+    const legacyContent =
+      "[STDOUT] legacy line without timestamp\nfree-form garbage\n";
+    const html = renderReportPage({
+      kind: "execution",
+      run: {
+        ...executionDetail,
+        status: "failed",
+        subprocessLogs: [
+          { name: "subprocess-hatch.log", content: legacyContent },
+        ],
+      },
+    });
+    expect(html).toContain("[STDOUT] legacy line without timestamp");
+    expect(html).toContain("free-form garbage");
+  });
+
+  test("execution page renders the (empty) placeholder when a subprocess log file is empty", () => {
+    // An empty file means the subprocess emitted zero output; don't
+    // collapse the section since the operator may still want to
+    // click through to the raw endpoint (or notice the absence).
+    const html = renderReportPage({
+      kind: "execution",
+      run: {
+        ...executionDetail,
+        status: "failed",
+        subprocessLogs: [{ name: "subprocess-hatch.log", content: "" }],
+      },
+    });
+    expect(html).toContain("subprocess-hatch.log");
+    expect(html).toContain("(empty)");
   });
 
   test("execution page omits Docker/Subprocess sections when there are no artifacts", () => {

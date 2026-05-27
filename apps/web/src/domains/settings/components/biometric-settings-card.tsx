@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 
 import { Toggle } from "@vellum/design-library/components/toggle";
-import { SettingsCard } from "@/domains/settings/components/settings-card.js";
-import { useIsNativePlatform, getSessionTokenFromCookies } from "@/runtime/native-auth.js";
+import { DetailCard } from "@/components/detail-card";
+import { useIsNativePlatform, getSessionTokenFromCookies } from "@/runtime/native-auth";
 import {
   deleteBiometricToken,
   getBiometricTypeLabel,
@@ -10,7 +10,7 @@ import {
   isBiometricEnabled,
   setBiometricEnabled,
   storeBiometricToken,
-} from "@/runtime/native-biometric.js";
+} from "@/runtime/native-biometric";
 
 export function BiometricSettingsCard() {
   const isNative = useIsNativePlatform();
@@ -49,7 +49,7 @@ export function BiometricSettingsCard() {
   };
 
   return (
-    <SettingsCard title="Security">
+    <DetailCard title="Security">
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1">
           <div className="text-body-medium-default text-[var(--content-default)]">
@@ -66,6 +66,6 @@ export function BiometricSettingsCard() {
           disabled={toggling}
         />
       </div>
-    </SettingsCard>
+    </DetailCard>
   );
 }

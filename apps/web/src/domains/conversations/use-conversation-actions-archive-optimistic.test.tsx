@@ -30,34 +30,33 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createElement, type ReactNode } from "react";
 
-import * as conversationsApi from "@/domains/chat/api/conversations.js";
-import type { Conversation } from "@/domains/chat/api/conversations.js";
-import { chatContextQueryKey } from "@/lib/sync/query-tags.js";
+import * as sdkGen from "@/generated/daemon/sdk.gen";
+import type { Conversation } from "@/types/conversation-types";
+import { conversationsQueryKey } from "@/lib/sync/query-tags";
 
 // ---------------------------------------------------------------------------
 // Module mocks. Archive/unarchive impls are pulled from module-level holders
 // so each test can inject a deferred or failing implementation. The mock
-// spreads the real module so unrelated consumers in the import graph (group
-// CRUD, sub-agent fetch, conversation-list query, etc.) keep working — we
-// only override the two functions whose timing the hook is responsible for.
+// spreads the real module so unrelated consumers in the import graph keep
+// working — we only override the functions whose timing the hook controls.
 // ---------------------------------------------------------------------------
 
-type ApiImpl = (assistantId: string, conversationKey: string) => Promise<void>;
+type ArchiveImpl = (opts: { path: { assistant_id: string; id: string }; throwOnError: boolean }) => Promise<{ data: undefined; response: { ok: boolean } }>;
 
-let archiveImpl: ApiImpl = async () => {};
-let unarchiveImpl: ApiImpl = async () => {};
+let archiveImpl: ArchiveImpl = async () => ({ data: undefined, response: { ok: true } });
+let unarchiveImpl: ArchiveImpl = async () => ({ data: undefined, response: { ok: true } });
 
-mock.module("@/domains/chat/api/conversations.js", () => ({
-  ...conversationsApi,
-  archiveConversation: (assistantId: string, conversationKey: string) =>
-    archiveImpl(assistantId, conversationKey),
-  unarchiveConversation: (assistantId: string, conversationKey: string) =>
-    unarchiveImpl(assistantId, conversationKey),
+mock.module("@/generated/daemon/sdk.gen", () => ({
+  ...sdkGen,
+  conversationsByIdArchivePost: (opts: { path: { assistant_id: string; id: string }; throwOnError: boolean }) =>
+    archiveImpl(opts),
+  conversationsByIdUnarchivePost: (opts: { path: { assistant_id: string; id: string }; throwOnError: boolean }) =>
+    unarchiveImpl(opts),
 }));
 
 // Stub haptics — Capacitor's web shim works fine in a node test environment,
 // but stubbing avoids the unrelated side-effect noise.
-mock.module("@/utils/haptics.js", () => ({
+mock.module("@/utils/haptics", () => ({
   haptic: { medium: () => {}, light: () => {} },
 }));
 
@@ -68,7 +67,7 @@ mock.module("@sentry/react", () => ({
 }));
 
 const { useConversationActions } = await import(
-  "@/domains/conversations/use-conversation-actions.js"
+  "@/domains/conversations/use-conversation-actions"
 );
 
 // ---------------------------------------------------------------------------
@@ -78,23 +77,20 @@ const { useConversationActions } = await import(
 const ASSISTANT_ID = "asst-1";
 
 function makeConversation(overrides: Partial<Conversation> = {}): Conversation {
-  return { conversationKey: "conv-1", ...overrides };
+  return { conversationId: "conv-1", ...overrides };
 }
 
 function seedClient(conversations: Conversation[]): QueryClient {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
-  client.setQueryData(chatContextQueryKey(ASSISTANT_ID), {
-    conversations,
-    conversationGroups: [],
-  });
+  client.setQueryData(conversationsQueryKey(ASSISTANT_ID), conversations);
   return client;
 }
 
 function setupHook(opts: {
   conversations: Conversation[];
-  activeKey?: string | null;
+  activeConversationId?: string | null;
 }) {
   const client = seedClient(opts.conversations);
   const switchCalls: string[] = [];
@@ -105,13 +101,13 @@ function setupHook(opts: {
     () =>
       useConversationActions({
         assistantId: ASSISTANT_ID,
-        activeConversationKey: opts.activeKey ?? null,
+        activeConversationId: opts.activeConversationId ?? null,
         conversations: opts.conversations,
         refreshConversations: async () => {
           refreshCalls += 1;
         },
-        switchConversation: (key: string) => {
-          switchCalls.push(key);
+        switchConversation: (conversationId: string) => {
+          switchCalls.push(conversationId);
         },
         startNewConversation: () => {
           startNewCalls.push(Date.now());
@@ -135,16 +131,16 @@ function setupHook(opts: {
 
 function readArchived(
   client: QueryClient,
-  key: string,
+  conversationId: string,
 ): number | undefined {
-  const ctx = client.getQueryData<{ conversations: Conversation[] }>(
-    chatContextQueryKey(ASSISTANT_ID),
+  const list = client.getQueryData<Conversation[]>(
+    conversationsQueryKey(ASSISTANT_ID),
   );
-  return ctx?.conversations.find((c) => c.conversationKey === key)?.archivedAt;
+  return list?.find((c) => c.conversationId === conversationId)?.archivedAt;
 }
 
 /** Manually-controlled promise for staging in-flight API states in tests. */
-function deferred<T = void>() {
+function deferred<T = { data: undefined; response: { ok: boolean } }>() {
   let resolve!: (value: T) => void;
   let reject!: (err: unknown) => void;
   const promise = new Promise<T>((res, rej) => {
@@ -155,8 +151,8 @@ function deferred<T = void>() {
 }
 
 beforeEach(() => {
-  archiveImpl = async () => {};
-  unarchiveImpl = async () => {};
+  archiveImpl = async () => ({ data: undefined, response: { ok: true } });
+  unarchiveImpl = async () => ({ data: undefined, response: { ok: true } });
 });
 
 afterEach(() => {
@@ -169,7 +165,7 @@ afterEach(() => {
 
 describe("handleArchiveConversation — optimistic update", () => {
   test("patches archivedAt in the cache before the API resolves", async () => {
-    const conv = makeConversation({ conversationKey: "conv-1" });
+    const conv = makeConversation({ conversationId: "conv-1" });
     const { result, client } = setupHook({ conversations: [conv] });
 
     const d = deferred();
@@ -184,7 +180,7 @@ describe("handleArchiveConversation — optimistic update", () => {
     // waiting for the network round trip to complete.
     expect(readArchived(client, "conv-1")).toEqual(expect.any(Number));
 
-    d.resolve(undefined);
+    d.resolve({ data: undefined, response: { ok: true } });
     await archivePromise;
 
     // Post-resolution the row stays archived; in production this value
@@ -194,11 +190,11 @@ describe("handleArchiveConversation — optimistic update", () => {
   });
 
   test("switches to the next foreground conversation before the API resolves", async () => {
-    const archived = makeConversation({ conversationKey: "active" });
-    const next = makeConversation({ conversationKey: "next" });
+    const archived = makeConversation({ conversationId: "active" });
+    const next = makeConversation({ conversationId: "next" });
     const { result, switchCalls } = setupHook({
       conversations: [archived, next],
-      activeKey: "active",
+      activeConversationId: "active",
     });
 
     const d = deferred();
@@ -212,12 +208,12 @@ describe("handleArchiveConversation — optimistic update", () => {
     // The switch fires synchronously, before the network round trip.
     expect(switchCalls).toEqual(["next"]);
 
-    d.resolve(undefined);
+    d.resolve({ data: undefined, response: { ok: true } });
     await archivePromise;
   });
 
   test("rolls back the cache patch when the API rejects", async () => {
-    const conv = makeConversation({ conversationKey: "conv-1" });
+    const conv = makeConversation({ conversationId: "conv-1" });
     const { result, client } = setupHook({ conversations: [conv] });
 
     archiveImpl = async () => {
@@ -234,7 +230,7 @@ describe("handleArchiveConversation — optimistic update", () => {
   });
 
   test("calls refreshConversations once on success", async () => {
-    const conv = makeConversation({ conversationKey: "conv-1" });
+    const conv = makeConversation({ conversationId: "conv-1" });
     const { result, getRefreshCalls } = setupHook({ conversations: [conv] });
 
     await act(async () => {
@@ -245,7 +241,7 @@ describe("handleArchiveConversation — optimistic update", () => {
   });
 
   test("does not refresh when the archive API fails", async () => {
-    const conv = makeConversation({ conversationKey: "conv-1" });
+    const conv = makeConversation({ conversationId: "conv-1" });
     const { result, getRefreshCalls } = setupHook({ conversations: [conv] });
 
     archiveImpl = async () => {
@@ -267,7 +263,7 @@ describe("handleArchiveConversation — optimistic update", () => {
 describe("handleUnarchiveConversation — optimistic update", () => {
   test("clears archivedAt in the cache before the API resolves", async () => {
     const conv = makeConversation({
-      conversationKey: "conv-1",
+      conversationId: "conv-1",
       archivedAt: 1234,
     });
     const { result, client } = setupHook({ conversations: [conv] });
@@ -284,7 +280,7 @@ describe("handleUnarchiveConversation — optimistic update", () => {
     // mirroring the archive path.
     expect(readArchived(client, "conv-1")).toBeUndefined();
 
-    d.resolve(undefined);
+    d.resolve({ data: undefined, response: { ok: true } });
     await unarchivePromise;
 
     expect(readArchived(client, "conv-1")).toBeUndefined();
@@ -292,7 +288,7 @@ describe("handleUnarchiveConversation — optimistic update", () => {
 
   test("rolls back to the prior archivedAt when the API rejects", async () => {
     const conv = makeConversation({
-      conversationKey: "conv-1",
+      conversationId: "conv-1",
       archivedAt: 1234,
     });
     const { result, client } = setupHook({ conversations: [conv] });

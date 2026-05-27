@@ -19,17 +19,17 @@ import { useCallback, useMemo, useRef } from "react";
 import {
   type CommandPaletteItemData,
   type CommandPaletteSection,
-} from "@/components/command-palette/command-palette.js";
+} from "@/components/command-palette/command-palette";
 import {
   useCommandPalette,
   type UseCommandPaletteReturn,
-} from "@/components/command-palette/use-command-palette.js";
-import type { GlobalSearchResponse } from "@/domains/chat/api/global-search.js";
-import { haptic } from "@/utils/haptics.js";
-import { routes } from "@/utils/routes.js";
+} from "@/components/command-palette/use-command-palette";
+import type { GlobalSearchResponse } from "@/domains/chat/api/global-search";
+import { haptic } from "@/utils/haptics";
+import { routes } from "@/utils/routes";
 
-import { formatRelativeTime } from "@/domains/chat/utils/chat-utils.js";
-import type { Conversation } from "@/domains/chat/api/conversations.js";
+import { formatRelativeTime } from "@/domains/chat/utils/chat-utils";
+import type { Conversation } from "@/types/conversation-types";
 
 // ---------------------------------------------------------------------------
 // Helpers — pure functions, no React state
@@ -62,7 +62,7 @@ function buildRecentsSection(conversations: Conversation[]): CommandPaletteSecti
     id: "conversations",
     label: "Recent",
     items: recent.map((conv) => ({
-      id: `conv-${conv.conversationKey}`,
+      id: `conv-${conv.conversationId}`,
       icon: MessageSquare,
       title: conv.title ?? "Untitled",
       subtitle: conv.lastMessageAt ? formatRelativeTime(conv.lastMessageAt) : undefined,
@@ -76,12 +76,12 @@ function buildRecentsSection(conversations: Conversation[]): CommandPaletteSecti
  */
 export function buildServerResultSections(
   results: GlobalSearchResponse,
-  recentConversationKeys: Set<string>,
+  recentConversationIds: Set<string>,
 ): CommandPaletteSection[] {
   const sections: CommandPaletteSection[] = [];
 
   const serverConvItems = results.conversations
-    .filter((c) => !recentConversationKeys.has(c.id))
+    .filter((c) => !recentConversationIds.has(c.id))
     .map((c) => ({
       id: `search-conv-${c.id}`,
       icon: MessageSquare,
@@ -123,7 +123,7 @@ interface CommandPaletteActionContext {
   startNewConversation: () => void;
   switchConversation: (key: string) => void;
   navigate: (to: string | number) => void;
-  activeConversationKey: string | undefined;
+  activeConversationId: string | undefined;
   navigateToSettings: () => void;
 }
 
@@ -192,7 +192,7 @@ interface UseCommandPaletteSectionsParams {
   assistantId: string | null;
   assistantName: string | undefined;
   conversations: Conversation[];
-  activeConversationKey: string | undefined;
+  activeConversationId: string | undefined;
   startNewConversation: () => void;
   switchConversation: (key: string) => void;
   navigate: (to: string | number) => void;
@@ -209,7 +209,7 @@ export function useCommandPaletteSections({
   assistantId,
   assistantName,
   conversations,
-  activeConversationKey,
+  activeConversationId,
   startNewConversation,
   switchConversation,
   navigate,
@@ -223,8 +223,8 @@ export function useCommandPaletteSections({
   }, [conversations, assistantName]);
 
   // Deduplicate server results against local recents.
-  const recentConversationKeys = useMemo(
-    () => new Set(conversations.slice(0, 5).map((c) => c.conversationKey)),
+  const recentConversationIds = useMemo(
+    () => new Set(conversations.slice(0, 5).map((c) => c.conversationId)),
     [conversations],
   );
 
@@ -235,11 +235,11 @@ export function useCommandPaletteSections({
         startNewConversation,
         switchConversation,
         navigate,
-        activeConversationKey,
+        activeConversationId,
         navigateToSettings,
       });
     },
-    [startNewConversation, switchConversation, navigate, activeConversationKey, navigateToSettings],
+    [startNewConversation, switchConversation, navigate, activeConversationId, navigateToSettings],
   );
 
   // Ref-based indirection so the index-based onSelect callback doesn't
@@ -290,10 +290,10 @@ export function useCommandPaletteSections({
   // Merge local filtered sections with server search results.
   const mergedSections = useMemo((): CommandPaletteSection[] => {
     const serverSections = commandPalette.searchResults
-      ? buildServerResultSections(commandPalette.searchResults, recentConversationKeys)
+      ? buildServerResultSections(commandPalette.searchResults, recentConversationIds)
       : [];
     return [...filteredLocalSections, ...serverSections];
-  }, [filteredLocalSections, commandPalette.searchResults, recentConversationKeys]);
+  }, [filteredLocalSections, commandPalette.searchResults, recentConversationIds]);
 
   // Keep the ref in sync so keyboard nav and onSelect always use the latest sections.
   mergedSectionsRef.current = mergedSections;

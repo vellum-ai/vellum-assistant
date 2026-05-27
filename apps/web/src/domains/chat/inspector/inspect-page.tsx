@@ -1,66 +1,67 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { AlertCircle, ArrowLeft, Download, MessageSquare } from "lucide-react";
-import { Link, useNavigate, useSearchParams } from "react-router";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { useMemo, useState, type ReactNode } from "react";
 
 import { Button } from "@vellum/design-library";
-import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate.js";
-import type { RuntimeMessage } from "@/domains/chat/api/messages.js";
-import { canUseLlmInspector } from "@/domains/chat/inspector/access.js";
+import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate";
+import type { RuntimeMessage } from "@/domains/chat/api/messages";
+import { canUseLlmInspector } from "@/domains/chat/inspector/access";
 import {
   useConversationMessageList,
   useLlmContext,
-} from "@/domains/chat/inspector/inspector-api.js";
+} from "@/domains/chat/inspector/inspector-api";
 import {
   buildInspectorExportFilename,
   buildInspectorExportZipBlob,
   downloadBlob,
-} from "@/domains/chat/inspector/inspector-export.js";
+} from "@/domains/chat/inspector/inspector-export";
 import {
   llmLogPayloadQueryOptions,
   type LlmLogPayload,
-} from "@/domains/chat/inspector/inspector-payload-api.js";
-import type {
-  LlmContextResponse,
-  LLMRequestLogEntry,
-} from "@/domains/chat/types/inspector-types.js";
-import { useAuthStore } from "@/stores/auth-store.js";
-import { routes } from "@/utils/routes.js";
+} from "@/domains/chat/inspector/inspector-payload-api";
+import type { LLMRequestLogEntry } from "@vellumai/assistant-api";
+import type { LlmContextResponse } from "@/domains/chat/types/inspector-types";
+import { useAuthStore } from "@/stores/auth-store";
+import { routes } from "@/utils/routes";
 
-import { CallRail } from "./components/call-rail.js";
-import { TabBar, type InspectorTab } from "./components/tab-bar.js";
-import { MemoryTab } from "./components/tabs/memory-tab.js";
-import { SkillsTab } from "./components/tabs/skills-tab.js";
-import { OverviewTab } from "./components/tabs/overview-tab.js";
-import { PromptTab } from "./components/tabs/prompt-tab.js";
-import { RawTab } from "./components/tabs/raw-tab.js";
-import { ResponseTab } from "./components/tabs/response-tab.js";
+import { CallRail } from "./components/call-rail";
+import { TabBar, type InspectorTab } from "./components/tab-bar";
+import { CompactionTab } from "./components/tabs/compaction-tab";
+import { MemoryTab } from "./components/tabs/memory-tab";
+import { SkillsTab } from "./components/tabs/skills-tab";
+import { OverviewTab } from "./components/tabs/overview-tab";
+import { PromptTab } from "./components/tabs/prompt-tab";
+import { RawTab } from "./components/tabs/raw-tab";
+import { ResponseTab } from "./components/tabs/response-tab";
 
 /**
- * `/assistant/inspect` page. Two scopes, both encoded in the URL:
+ * `/assistant/conversations/:conversationId/inspect` page. The conversation
+ * lives in the URL path; the page supports two scopes layered on top:
  *
- * - **Conversation mode** — `?conversationKey=...` only. Shows every
- *   LLM call recorded for the conversation. Header carries a "Filter
- *   to message" dropdown that switches into message mode for a
- *   specific message in the transcript.
+ * - **Conversation mode** — path only. Shows every LLM call recorded for
+ *   the conversation. Header carries a "Filter to message" dropdown that
+ *   switches into message mode for a specific message in the transcript.
  *
- * - **Message mode** — `?conversationKey=...&messageId=...`. Shows
- *   only the calls produced by the turn containing that message.
- *   Header carries a "View all conversation calls" link that drops
- *   back into conversation mode.
+ * - **Message mode** — `?messageId=...`. Shows only the calls produced by
+ *   the turn containing that message. Header carries a "View all
+ *   conversation calls" link that drops back into conversation mode.
  *
  * Web counterpart of macOS's `MessageInspectorView`
  * (`clients/macos/vellum-assistant/Features/Chat/MessageInspectorView.swift`).
- * The selected call is encoded as `?callId=...` in the URL so each
- * row in the rail is a real hyperlink — sharable, right-click-openable,
- * and back/forward navigable. Falls back to the most recent call when
- * `callId` is absent or no longer points to a known log.
+ * The selected call is encoded as `?callId=...` in the URL so each row in
+ * the rail is a real hyperlink — sharable, right-click-openable, and
+ * back/forward navigable. Falls back to the most recent call when `callId`
+ * is absent or no longer points to a known log.
  */
 export function InspectPage(): ReactNode {
   const user = useAuthStore.use.user();
   const authLoading = useAuthStore.use.isLoading();
+  // React Router's :conversationId segment is the source of truth; the
+  // route definition guarantees it's present, but useParams still types
+  // it as optional so we narrow defensively.
+  const { conversationId } = useParams<{ conversationId: string }>();
   const [searchParams] = useSearchParams();
-  const conversationKey = searchParams.get("conversationKey");
   const messageId = searchParams.get("messageId");
 
   if (authLoading) {
@@ -75,21 +76,23 @@ export function InspectPage(): ReactNode {
     );
   }
 
-  if (!conversationKey) {
-    return <MissingConversationKeyState />;
+  if (!conversationId) {
+    // Defensive only — React Router would render NotFound before reaching
+    // this branch, but we keep a graceful fallback rather than crashing.
+    return <CenteredMessage tone="muted">Loading…</CenteredMessage>;
   }
 
   return (
-    <Inspector conversationKey={conversationKey} messageId={messageId} />
+    <Inspector conversationId={conversationId} messageId={messageId} />
   );
 }
 
 interface InspectorProps {
-  conversationKey: string;
+  conversationId: string;
   messageId: string | null;
 }
 
-function Inspector({ conversationKey, messageId }: InspectorProps): ReactNode {
+function Inspector({ conversationId, messageId }: InspectorProps): ReactNode {
   const { assistantId } = useActiveAssistantContext();
   const {
     data,
@@ -97,7 +100,7 @@ function Inspector({ conversationKey, messageId }: InspectorProps): ReactNode {
     isError,
     error,
     refetch,
-  } = useLlmContext(assistantId, conversationKey, messageId);
+  } = useLlmContext(assistantId, conversationId, messageId);
 
   const logs = useMemo(() => data?.logs ?? [], [data?.logs]);
   const [searchParams] = useSearchParams();
@@ -123,19 +126,18 @@ function Inspector({ conversationKey, messageId }: InspectorProps): ReactNode {
     () =>
       (logId: string): string => {
         const params = new URLSearchParams();
-        params.set("conversationKey", conversationKey);
         if (messageId) params.set("messageId", messageId);
         params.set("callId", logId);
-        return `${routes.inspect}?${params.toString()}`;
+        return `${routes.inspect(conversationId)}?${params.toString()}`;
       },
-    [conversationKey, messageId],
+    [conversationId, messageId],
   );
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <Header
         assistantId={assistantId}
-        conversationKey={conversationKey}
+        conversationId={conversationId}
         messageId={messageId}
         context={data}
         callCount={data ? logs.length : null}
@@ -158,6 +160,7 @@ function Inspector({ conversationKey, messageId }: InspectorProps): ReactNode {
             selectedLogId={selectedLogId}
             buildCallHref={buildCallHref}
             assistantId={assistantId}
+            conversationId={conversationId}
           />
         )}
       </div>
@@ -167,7 +170,7 @@ function Inspector({ conversationKey, messageId }: InspectorProps): ReactNode {
 
 interface HeaderProps {
   assistantId: string | undefined;
-  conversationKey: string;
+  conversationId: string;
   messageId: string | null;
   context: LlmContextResponse | undefined;
   callCount: number | null;
@@ -175,7 +178,7 @@ interface HeaderProps {
 
 function Header({
   assistantId,
-  conversationKey,
+  conversationId,
   messageId,
   context,
   callCount,
@@ -202,7 +205,7 @@ function Header({
       downloadBlob(
         blob,
         buildInspectorExportFilename(
-          context.conversationId ?? context.conversationKey ?? conversationKey,
+          context.conversationId ?? conversationId,
         ),
       );
     } catch (err) {
@@ -226,7 +229,7 @@ function Header({
           leftIcon={<ArrowLeft size={16} aria-hidden />}
         >
           <Link
-            to={routes.conversation(conversationKey)}
+            to={routes.conversation(conversationId)}
             aria-label="Back to conversation"
           >
             Back
@@ -240,7 +243,7 @@ function Header({
             LLM Context Inspector
           </h1>
           <ScopeSubtitle
-            conversationKey={conversationKey}
+            conversationId={conversationId}
             messageId={messageId}
           />
         </div>
@@ -278,7 +281,7 @@ function Header({
       </div>
       <ScopeControls
         assistantId={assistantId}
-        conversationKey={conversationKey}
+        conversationId={conversationId}
         messageId={messageId}
         isMessageScoped={isMessageScoped}
       />
@@ -287,15 +290,15 @@ function Header({
 }
 
 interface ScopeSubtitleProps {
-  conversationKey: string;
+  conversationId: string;
   messageId: string | null;
 }
 
 function ScopeSubtitle({
-  conversationKey,
+  conversationId,
   messageId,
 }: ScopeSubtitleProps): ReactNode {
-  void conversationKey;
+  void conversationId;
   if (messageId) {
     return (
       <p
@@ -324,21 +327,21 @@ function ScopeSubtitle({
 
 interface ScopeControlsProps {
   assistantId: string | undefined;
-  conversationKey: string;
+  conversationId: string;
   messageId: string | null;
   isMessageScoped: boolean;
 }
 
 function ScopeControls({
   assistantId,
-  conversationKey,
+  conversationId,
   messageId,
   isMessageScoped,
 }: ScopeControlsProps): ReactNode {
   const navigate = useNavigate();
   const { data: messages } = useConversationMessageList(
     assistantId,
-    conversationKey,
+    conversationId,
   );
   const options = useMemo(
     () => buildMessageScopeOptions(messages ?? []),
@@ -347,9 +350,10 @@ function ScopeControls({
 
   const navigateToScope = (nextMessageId: string | null) => {
     const params = new URLSearchParams();
-    params.set("conversationKey", conversationKey);
     if (nextMessageId) params.set("messageId", nextMessageId);
-    navigate(`${routes.inspect}?${params.toString()}`);
+    const qs = params.toString();
+    const base = routes.inspect(conversationId);
+    navigate(qs ? `${base}?${qs}` : base);
   };
 
   if (isMessageScoped) {
@@ -412,7 +416,7 @@ function buildMessageScopeOptions(messages: RuntimeMessage[]): ScopeOption[] {
   const options: ScopeOption[] = [];
   let index = 1;
   for (const m of messages) {
-    const id = m.daemonMessageId ?? m.id;
+    const id = m.id;
     if (!id || seen.has(id)) continue;
     seen.add(id);
     const preview = previewContent(m.content);
@@ -444,6 +448,7 @@ interface LoadedProps {
   selectedLogId: string | undefined;
   buildCallHref: (logId: string) => string;
   assistantId: string | undefined;
+  conversationId: string;
 }
 
 function Loaded({
@@ -453,6 +458,7 @@ function Loaded({
   selectedLogId,
   buildCallHref,
   assistantId,
+  conversationId,
 }: LoadedProps): ReactNode {
   const [tab, setTab] = useState<InspectorTab>("overview");
 
@@ -481,6 +487,7 @@ function Loaded({
               logs={logs}
               buildCallHref={buildCallHref}
               assistantId={assistantId}
+              conversationId={conversationId}
               context={context}
               conversationTotalEstimatedCostUsd={
                 context?.conversationTotalEstimatedCostUsd
@@ -503,6 +510,7 @@ interface TabContentProps {
   logs: LLMRequestLogEntry[];
   buildCallHref: (logId: string) => string;
   assistantId: string | undefined;
+  conversationId: string;
   context: LlmContextResponse | undefined;
   conversationTotalEstimatedCostUsd: number | null | undefined;
 }
@@ -513,6 +521,7 @@ function TabContent({
   logs,
   buildCallHref,
   assistantId,
+  conversationId,
   context,
   conversationTotalEstimatedCostUsd,
 }: TabContentProps): ReactNode {
@@ -530,6 +539,14 @@ function TabContent({
       return <ResponseTab entry={entry} />;
     case "raw":
       return <RawTab entry={entry} assistantId={assistantId} />;
+    case "compaction":
+      return (
+        <CompactionTab
+          assistantId={assistantId}
+          conversationId={conversationId}
+          entry={entry}
+        />
+      );
     case "skills":
       return <SkillsTab logs={logs} buildCallHref={buildCallHref} />;
     case "memory":
@@ -554,26 +571,6 @@ function CenteredMessage({
       style={{ color }}
     >
       {children}
-    </div>
-  );
-}
-
-function MissingConversationKeyState(): ReactNode {
-  return (
-    <div className="flex h-full w-full flex-col items-center justify-center gap-2 p-8 text-center">
-      <h2
-        className="text-body-medium-default"
-        style={{ color: "var(--content-default)" }}
-      >
-        Missing inspector parameters
-      </h2>
-      <p
-        className="max-w-md text-label-default"
-        style={{ color: "var(--content-secondary)" }}
-      >
-        Open the inspector from a conversation&rsquo;s overflow menu — direct
-        navigation requires a <code>conversationKey</code>.
-      </p>
     </div>
   );
 }

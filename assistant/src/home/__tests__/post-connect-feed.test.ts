@@ -11,6 +11,7 @@ mock.module("../../runtime/assistant-event-hub.js", () => ({
     publish: publishSpy,
     subscribe: () => () => {},
   },
+  broadcastMessage: async () => {},
 }));
 
 const { emitPostConnectNudge } = await import("../post-connect-feed.js");

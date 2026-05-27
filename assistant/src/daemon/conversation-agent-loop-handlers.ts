@@ -49,6 +49,10 @@ import type { ContentBlock, ImageContent } from "../providers/types.js";
 import { isContextOverflowError } from "../providers/types.js";
 import { redactSecrets } from "../security/secret-scanner.js";
 import { extractDomain } from "../tools/network/domain-normalize.js";
+import {
+  buildPricingUsage,
+  resolveStructuredPricing,
+} from "../usage/pricing.js";
 import { ProviderError } from "../util/errors.js";
 import { faviconUrlForDomain } from "../util/favicon.js";
 import { getLogger } from "../util/logger.js";
@@ -144,11 +148,6 @@ export interface EventHandlerState {
    */
   contextTooLargeError: unknown;
   providerErrorUserMessage: string | null;
-  /**
-   * First persisted assistant row in this run; history keeps this id when it
-   * merges tool-turn rows into one display bubble.
-   */
-  firstAssistantMessageId: string | undefined;
   lastAssistantMessageId: string | undefined;
   readonly pendingToolResults: Map<string, PendingToolResult>;
   readonly persistedToolUseIds: Set<string>;
@@ -249,7 +248,6 @@ export function createEventHandlerState(): EventHandlerState {
     imageTooLargeDetected: false,
     contextTooLargeError: null,
     providerErrorUserMessage: null,
-    firstAssistantMessageId: undefined,
     lastAssistantMessageId: undefined,
     pendingToolResults: new Map(),
     persistedToolUseIds: new Set(),
@@ -273,12 +271,6 @@ export function createEventHandlerState(): EventHandlerState {
     serverToolStartedAt: new Map(),
     serverToolInputs: new Map(),
   };
-}
-
-export function getClientDisplayMessageId(
-  state: EventHandlerState,
-): string | undefined {
-  return state.firstAssistantMessageId ?? state.lastAssistantMessageId;
 }
 
 // ── Shared Helper ────────────────────────────────────────────────────
@@ -1111,7 +1103,6 @@ export async function handleMessageComplete(
     DEFAULT_TIMEOUTS.persistence,
   )) as PersistAddResult;
   const assistantMsg = assistantPersistResult.message;
-  state.firstAssistantMessageId ??= assistantMsg.id;
   state.lastAssistantMessageId = assistantMsg.id;
 
   // Backfill message_id on all LLM request logs from this turn.
@@ -1222,6 +1213,7 @@ function handleUsage(
         JSON.stringify(event.rawResponse),
         undefined,
         providerName,
+        "mainAgent",
       );
     } catch (err) {
       deps.rlog.warn({ err }, "Failed to persist LLM request log (non-fatal)");
@@ -1248,6 +1240,36 @@ function handleUsage(
     },
   );
   state.llmCallStartedEmitted = false;
+
+  // Emit a lightweight per-call usage progress event so clients can show
+  // live-updating token/cost metrics. This is a UI hint only — no DB writes.
+  const pricingUsage = buildPricingUsage({
+    providerName,
+    model: event.model,
+    inputTokens: event.inputTokens,
+    outputTokens: event.outputTokens,
+    cacheCreationInputTokens: event.cacheCreationInputTokens,
+    cacheReadInputTokens: event.cacheReadInputTokens,
+    rawResponse: event.rawResponse,
+  });
+  const pricing = resolveStructuredPricing(
+    providerName,
+    event.model,
+    pricingUsage,
+  );
+  const estimatedCost =
+    pricing.pricingStatus === "priced" && pricing.estimatedCostUsd != null
+      ? pricing.estimatedCostUsd
+      : 0;
+
+  deps.onEvent({
+    type: "usage_progress",
+    conversationId: deps.ctx.conversationId,
+    inputTokens: event.inputTokens,
+    outputTokens: event.outputTokens,
+    estimatedCost,
+    model: event.model,
+  });
 }
 
 /**
@@ -1287,6 +1309,7 @@ function handleProviderError(
       JSON.stringify(buildProviderErrorResponsePayload(event.error)),
       undefined,
       event.actualProvider,
+      "mainAgent",
     );
   } catch (err) {
     deps.rlog.warn(

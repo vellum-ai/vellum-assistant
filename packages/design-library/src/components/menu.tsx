@@ -2,9 +2,9 @@ import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import { Check, ChevronRight, Circle } from "lucide-react";
 import { type ComponentProps, type ReactNode, useRef } from "react";
 
-import { cn } from "../utils/cn.js";
-import { menuContentBase, menuItemBase } from "../utils/menu-styles.js";
-import { usePortalContainer } from "../utils/portal-container.js";
+import { cn } from "../utils/cn";
+import { menuContentBase, menuItemBase } from "../utils/menu-styles";
+import { usePortalContainer } from "../utils/portal-container";
 
 /**
  * `Menu` is a command / action menu primitive built on

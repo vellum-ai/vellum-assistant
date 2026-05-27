@@ -22,6 +22,7 @@ import {
   createScheduleRun,
   failOneShotPermanently,
   getLastScheduleConversationId,
+  listSchedules,
   resetRetryCount,
   retryOneShot,
   type RoutingIntent,
@@ -48,7 +49,25 @@ type ScheduleConversationCreatedNotifier = (info: {
 
 export interface SchedulerHandle {
   runOnce(): Promise<number>;
+  runDueWorkOnce(
+    options?: SchedulerRunDueWorkOptions,
+  ): Promise<SchedulerDueWorkResult>;
   stop(): void;
+}
+
+export interface SchedulerRunDueWorkOptions {
+  now?: number;
+  deadlineAt?: number;
+  minStartBudgetMs?: number;
+  includeStillPending?: boolean;
+}
+
+export interface SchedulerDueWorkResult {
+  claimed: number;
+  completed: number;
+  failed: number;
+  skipped: number;
+  stillPending: number;
 }
 
 const TICK_INTERVAL_MS = 15_000;
@@ -140,6 +159,17 @@ export function startScheduler(
         onScheduleConversationCreated,
       );
     },
+    async runDueWorkOnce(
+      options?: SchedulerRunDueWorkOptions,
+    ): Promise<SchedulerDueWorkResult> {
+      return runScheduleDueWorkOnce(
+        processMessage,
+        notifyScheduleOneShot,
+        watcherNotifier,
+        onScheduleConversationCreated,
+        options,
+      );
+    },
     stop(): void {
       stopped = true;
       clearInterval(timer);
@@ -153,8 +183,45 @@ export async function runScheduleOnce(
   watcherNotifier?: WatcherNotifier,
   onScheduleConversationCreated?: ScheduleConversationCreatedNotifier,
 ): Promise<number> {
-  const now = Date.now();
-  let processed = 0;
+  const result = await runScheduleDueWorkOnce(
+    processMessage,
+    notifyScheduleOneShot,
+    watcherNotifier,
+    onScheduleConversationCreated,
+  );
+  return result.completed + result.failed + result.skipped;
+}
+
+export async function runScheduleDueWorkOnce(
+  processMessage: ScheduleMessageProcessor,
+  notifyScheduleOneShot: ScheduleNotifyModeNotifier,
+  watcherNotifier?: WatcherNotifier,
+  onScheduleConversationCreated?: ScheduleConversationCreatedNotifier,
+  options: SchedulerRunDueWorkOptions = {},
+): Promise<SchedulerDueWorkResult> {
+  const now = options.now ?? Date.now();
+  const minStartBudgetMs = options.minStartBudgetMs ?? 0;
+  const result: SchedulerDueWorkResult = {
+    claimed: 0,
+    completed: 0,
+    failed: 0,
+    skipped: 0,
+    stillPending: 0,
+  };
+  const mark = (status: "completed" | "failed" | "skipped") => {
+    result[status] += 1;
+  };
+
+  if (
+    options.deadlineAt != null &&
+    options.deadlineAt - Date.now() < minStartBudgetMs
+  ) {
+    result.stillPending = options.includeStillPending
+      ? countDueScheduleJobs(now)
+      : 0;
+    result.skipped = result.stillPending;
+    return result;
+  }
 
   const diskPressureGate = checkDiskPressureBackgroundGate("background-work");
   if (diskPressureGate.action === "skip") {
@@ -167,16 +234,21 @@ export async function runScheduleOnce(
         "Schedule tick skipped during disk pressure cleanup mode",
       );
     }
-    return 0;
+    result.stillPending = options.includeStillPending
+      ? countDueScheduleJobs(now)
+      : 0;
+    return result;
   }
 
   // ── Schedules (recurring cron/RRULE + one-shot) ─────────────────────
   const jobs = claimDueSchedules(now);
+  result.claimed = jobs.length;
   for (const job of jobs) {
     const isOneShot = job.expression == null;
 
     // ── Notify mode (one-shot or recurring) ─────────────────────────
     if (job.mode === "notify") {
+      let failed = false;
       try {
         log.info(
           { jobId: job.id, name: job.name, isOneShot },
@@ -208,8 +280,9 @@ export async function runScheduleOnce(
         const errorRunId = createScheduleRun(job.id, `notify-error:${job.id}`);
         completeScheduleRun(errorRunId, { status: "error", error: errorMsg });
         handleExecutionFailure({ job, errorMsg, isOneShot });
+        failed = true;
       }
-      processed += 1;
+      mark(failed ? "failed" : "completed");
       continue;
     }
 
@@ -220,10 +293,11 @@ export async function runScheduleOnce(
           { jobId: job.id, name: job.name },
           "Script schedule has no script command — skipping",
         );
-        processed += 1;
+        mark("skipped");
         continue;
       }
       const runId = createScheduleRun(job.id, `script:${job.id}`);
+      let failed = false;
       try {
         log.info(
           { jobId: job.id, name: job.name, isOneShot },
@@ -241,6 +315,7 @@ export async function runScheduleOnce(
           const errorMsg =
             result.stderr || "Script exited with non-zero status";
           handleExecutionFailure({ job, errorMsg, isOneShot });
+          failed = true;
         }
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : String(err);
@@ -250,8 +325,9 @@ export async function runScheduleOnce(
         );
         completeScheduleRun(runId, { status: "error", error: errorMsg });
         handleExecutionFailure({ job, errorMsg, isOneShot });
+        failed = true;
       }
-      processed += 1;
+      mark(failed ? "failed" : "completed");
       continue;
     }
 
@@ -264,10 +340,11 @@ export async function runScheduleOnce(
           "Wake schedule missing wakeConversationId — completing as no-op",
         );
         if (isOneShot) completeOneShot(job.id);
-        processed += 1;
+        mark("skipped");
         continue;
       }
 
+      let failed = false;
       try {
         log.info(
           { jobId: job.id, name: job.name, wakeConversationId, isOneShot },
@@ -305,7 +382,7 @@ export async function runScheduleOnce(
             );
             retryOneShot(job.id);
           }
-          processed += 1;
+          mark("skipped");
           continue;
         }
 
@@ -323,7 +400,7 @@ export async function runScheduleOnce(
             "Wake not invoked; skipping feed event",
           );
           if (isOneShot) completeOneShot(job.id);
-          processed += 1;
+          mark("skipped");
           continue;
         }
 
@@ -347,8 +424,9 @@ export async function runScheduleOnce(
           error: errorMsg,
         });
         handleExecutionFailure({ job, errorMsg, isOneShot });
+        failed = true;
       }
-      processed += 1;
+      mark(failed ? "failed" : "completed");
       continue;
     }
 
@@ -362,6 +440,7 @@ export async function runScheduleOnce(
         job.syntax === "rrule" &&
         job.expression != null &&
         hasSetConstructs(job.expression);
+      let failed = false;
       try {
         log.info(
           {
@@ -415,11 +494,11 @@ export async function runScheduleOnce(
             errorMsg: errorMessage,
             isOneShot,
           });
+          failed = true;
         } else {
           completeScheduleRun(runId, { status: "ok" });
           if (isOneShot) completeOneShot(job.id);
         }
-        processed += 1;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log.warn(
@@ -461,7 +540,9 @@ export async function runScheduleOnce(
           errorMsg: message,
           isOneShot,
         });
+        failed = true;
       }
+      mark(failed ? "failed" : "completed");
       continue;
     }
 
@@ -567,7 +648,7 @@ export async function runScheduleOnce(
     if (ok) {
       completeScheduleRun(runId, { status: "ok" });
       if (isOneShot) completeOneShot(job.id);
-      processed += 1;
+      mark("completed");
     } else {
       log.warn(
         {
@@ -605,6 +686,7 @@ export async function runScheduleOnce(
           );
         }
       }
+      mark("failed");
     }
   }
 
@@ -612,7 +694,7 @@ export async function runScheduleOnce(
   if (watcherNotifier) {
     try {
       const watcherProcessed = await runWatchersOnce(watcherNotifier);
-      processed += watcherProcessed;
+      result.completed += watcherProcessed;
     } catch (err) {
       log.error({ err }, "Watcher tick failed");
     }
@@ -621,15 +703,29 @@ export async function runScheduleOnce(
   // ── Sequences (multi-step outreach) ──────────────────────────────
   try {
     const sequenceProcessed = await runSequencesOnce();
-    processed += sequenceProcessed;
+    result.completed += sequenceProcessed;
   } catch (err) {
     log.error({ err }, "Sequence engine tick failed");
   }
 
+  if (options.includeStillPending) {
+    result.stillPending = countDueScheduleJobs(Date.now());
+  }
+  const processed = result.completed + result.failed + result.skipped;
   if (processed > 0) {
     log.info({ processed }, "Schedule tick complete");
   }
-  return processed;
+  return result;
+}
+
+function countDueScheduleJobs(now: number): number {
+  return listSchedules({ enabledOnly: true }).filter(
+    (job) =>
+      job.status === "active" &&
+      Number.isFinite(job.nextRunAt) &&
+      job.nextRunAt > 0 &&
+      job.nextRunAt <= now,
+  ).length;
 }
 
 /**

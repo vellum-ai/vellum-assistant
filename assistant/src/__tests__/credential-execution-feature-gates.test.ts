@@ -10,10 +10,7 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import {
-  _setOverridesForTesting,
-  isAssistantFeatureFlagEnabled,
-} from "../config/assistant-feature-flags.js";
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../config/schema.js";
 import {
   CES_GRANT_AUDIT_FLAG_KEY,
@@ -25,20 +22,21 @@ import {
   isCesShellLockdownEnabled,
   isCesToolsEnabled,
 } from "../credential-execution/feature-gates.js";
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
 beforeEach(() => {
-  _setOverridesForTesting({});
+  setOverridesForTesting({});
 });
 
 afterEach(() => {
-  _setOverridesForTesting({});
+  setOverridesForTesting({});
 });
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Create a minimal AssistantConfig (flag overrides are now set via _setOverridesForTesting). */
+/** Create a minimal AssistantConfig (flag overrides are now set via setOverridesForTesting). */
 function makeConfig(): AssistantConfig {
   return {} as AssistantConfig;
 }
@@ -120,13 +118,13 @@ describe("CES flags match registry defaults", () => {
 describe("CES flags can be toggled independently", () => {
   for (const { name, fn, key } of ALL_CES_PREDICATES) {
     test(`enabling ${key} makes ${name} return true`, () => {
-      _setOverridesForTesting({ [key]: true });
+      setOverridesForTesting({ [key]: true });
       const config = makeConfig();
       expect(fn(config)).toBe(true);
     });
 
     test(`enabling ${key} does not change other CES flags from their defaults`, () => {
-      _setOverridesForTesting({ [key]: true });
+      setOverridesForTesting({ [key]: true });
       const config = makeConfig();
       for (const {
         fn: otherFn,
@@ -147,7 +145,7 @@ describe("CES flags can be toggled independently", () => {
 describe("CES flags respect explicit false overrides", () => {
   for (const { name, fn, key } of ALL_CES_PREDICATES) {
     test(`${name} returns false when explicitly set to false`, () => {
-      _setOverridesForTesting({ [key]: false });
+      setOverridesForTesting({ [key]: false });
       const config = makeConfig();
       expect(fn(config)).toBe(false);
     });
@@ -159,29 +157,31 @@ describe("CES flags respect explicit false overrides", () => {
 // ---------------------------------------------------------------------------
 
 describe("CES flags do not affect unrelated flags", () => {
-  test("enabling all CES flags does not change browser flag (defaultEnabled: true)", () => {
+  test("enabling all CES flags does not change declared default-enabled flags", () => {
     const overrides: Record<string, boolean> = {};
     for (const key of ALL_CES_FLAG_KEYS) {
       overrides[key] = true;
     }
-    _setOverridesForTesting(overrides);
+    setOverridesForTesting(overrides);
     const config = makeConfig();
 
-    // browser defaults to true in the registry and should stay true
-    expect(isAssistantFeatureFlagEnabled("browser", config)).toBe(true);
+    // account-deletion defaults to true in the registry and should stay true.
+    expect(isAssistantFeatureFlagEnabled("account-deletion", config)).toBe(
+      true,
+    );
   });
 
-  test("enabling all CES flags does not change unrelated default-open flags", () => {
+  test("enabling all CES flags does not change unrelated fail-closed flags", () => {
     const overrides: Record<string, boolean> = {};
     for (const key of ALL_CES_FLAG_KEYS) {
       overrides[key] = true;
     }
-    _setOverridesForTesting(overrides);
+    setOverridesForTesting(overrides);
     const config = makeConfig();
 
-    // Unknown flags default open unless explicitly overridden.
+    // Unknown flags fail closed unless explicitly overridden.
     expect(
-      isAssistantFeatureFlagEnabled("unrelated-default-open", config),
-    ).toBe(true);
+      isAssistantFeatureFlagEnabled("unrelated-default-closed", config),
+    ).toBe(false);
   });
 });

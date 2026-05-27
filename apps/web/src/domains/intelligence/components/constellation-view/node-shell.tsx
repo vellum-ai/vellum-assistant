@@ -2,11 +2,11 @@
 import { motion } from "motion/react";
 import { type CSSProperties, type ReactNode } from "react";
 
-import { NODE_SPRING, NODE_VARIANT_CONFIGS, type NodeShellVariant } from "@/domains/intelligence/components/constellation-view/constants.js";
-import { useNodeClickHandlers } from "@/domains/intelligence/components/constellation-view/use-node-click-handlers.js";
-import { mixedBg, type NodeVisibility } from "@/domains/intelligence/components/constellation-view/utils.js";
+import { NODE_SPRING, NODE_VARIANT_CONFIGS, type NodeShellVariant } from "@/domains/intelligence/components/constellation-view/constants";
+import { useNodeClickHandlers } from "@/domains/intelligence/components/constellation-view/use-node-click-handlers";
+import { mixedBg, type NodeVisibility } from "@/domains/intelligence/components/constellation-view/utils";
 
-export type { NodeShellVariant } from "@/domains/intelligence/components/constellation-view/constants.js";
+export type { NodeShellVariant } from "@/domains/intelligence/components/constellation-view/constants";
 
 export interface NodeShellProps {
   variant: NodeShellVariant;

@@ -38,6 +38,7 @@ worktrees/
 .worktrees/
 .codex-worktrees/
 *-worktrees/
+.playwright-mcp/
 .DS_Store
 .githooks/.githooks
 *.pem

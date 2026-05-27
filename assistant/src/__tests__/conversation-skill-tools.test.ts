@@ -92,45 +92,35 @@ mock.module("../skills/tool-manifest.js", () => ({
 }));
 
 mock.module("../tools/skills/skill-tool-factory.js", () => ({
+  // Mirrors the real factory: no skillId in/out — ownership is recorded by
+  // the registry at `registerSkillTools(skillId, tools)` time.
   createSkillToolsFromManifest: (
     entries: SkillToolManifest["tools"],
-    skillId: string,
     _skillDir: string,
-    versionHash: string,
-    bundled?: boolean,
+    _versionHash: string,
+    _bundled?: boolean,
   ): Tool[] => {
     return entries.map((entry) => ({
       name: entry.name,
       description: entry.description,
       category: entry.category,
       defaultRiskLevel: RiskLevel.Medium,
-      origin: "skill" as const,
-      ownerSkillId: skillId,
-      ownerSkillVersionHash: versionHash,
-      ownerSkillBundled: bundled ?? undefined,
-      getDefinition: () => ({
-        name: entry.name,
-        description: entry.description,
-        input_schema: entry.input_schema as object,
-      }),
+      executionTarget: "sandbox" as const,
+      input_schema: entry.input_schema as object,
       execute: async () => ({ content: "", isError: false }),
     }));
   },
 }));
 
 mock.module("../tools/registry.js", () => ({
-  registerSkillTools: (tools: Tool[]) => {
-    const skillIds = new Set<string>();
-    for (const tool of tools) {
-      const skillId = tool.ownerSkillId!;
-      skillIds.add(skillId);
-      const existing = mockRegisteredTools.get(skillId) ?? [];
-      existing.push(tool);
-      mockRegisteredTools.set(skillId, existing);
-    }
-    for (const id of skillIds) {
-      mockSkillRefCount.set(id, (mockSkillRefCount.get(id) ?? 0) + 1);
-    }
+  // Matches the new signature: `registerSkillTools(skillId, tools)`. The
+  // skillId comes from the caller (conversation-skill-tools) and is the
+  // sole source of truth for ownership.
+  registerSkillTools: (skillId: string, tools: Tool[]) => {
+    const existing = mockRegisteredTools.get(skillId) ?? [];
+    existing.push(...tools);
+    mockRegisteredTools.set(skillId, existing);
+    mockSkillRefCount.set(skillId, (mockSkillRefCount.get(skillId) ?? 0) + 1);
     return tools;
   },
   unregisterSkillTools: (skillId: string) => {
@@ -153,6 +143,22 @@ mock.module("../tools/registry.js", () => ({
       }
     }
     return found;
+  },
+  // Mirrors the registry's `ownersByName` accessor: the mock derives the
+  // owning skillId from `mockRegisteredTools` (which is keyed by skillId)
+  // and reports it back as the `OwnerInfo` shape production callers expect.
+  getToolOwner: (
+    name: string,
+  ): { kind: "skill" | "plugin" | "mcp"; id: string } | undefined => {
+    let ownerSkillId: string | undefined;
+    for (const [skillId, tools] of mockRegisteredTools.entries()) {
+      for (const tool of tools) {
+        if (tool.name === name) ownerSkillId = skillId;
+      }
+    }
+    return ownerSkillId === undefined
+      ? undefined
+      : { kind: "skill", id: ownerSkillId };
   },
   getSkillToolNames: () => {
     const names: string[] = [];
@@ -1733,11 +1739,11 @@ describe("bundled skill: app-builder", () => {
     expect(tools).toBeDefined();
     expect(tools!.length).toBe(4);
 
-    // All tools should have skill origin metadata
-    for (const tool of tools!) {
-      expect(tool.origin).toBe("skill");
-      expect(tool.ownerSkillId).toBe("app-builder");
-    }
+    // Ownership is asserted by the fact that
+    // `mockRegisteredTools.get("app-builder")` returned the tools — i.e. the
+    // mock `registerSkillTools(skillId, tools)` was called with skillId
+    // "app-builder", which is what the registry would record in production.
+    // The Tool object itself no longer carries a kind/origin field.
   });
 });
 
@@ -2232,7 +2238,7 @@ describe("hash change re-prompt regressions (PR 35)", () => {
     expect(sessionState.get("oncall")).toBe("v2:oncall-edited");
   });
 
-  test("registered tools carry updated ownerSkillId after hash change re-registration", () => {
+  test("registered tools carry updated owner after hash change re-registration", () => {
     mockCatalog = [makeSkill("deploy")];
     mockManifests = { deploy: makeManifest(["deploy_run"]) };
     mockVersionHashes = { deploy: "v1:pre-edit" };
@@ -2241,12 +2247,14 @@ describe("hash change re-prompt regressions (PR 35)", () => {
       ...skillLoadMessages('<loaded_skill id="deploy" />'),
     ];
 
-    // Turn 1
+    // Turn 1: ownership is asserted by the mock registry's keying — the
+    // tools landing under skillId "deploy" in `mockRegisteredTools` means
+    // `registerSkillTools("deploy", tools)` was called, which is the only
+    // path that records ownership in the real registry.
     projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
     const toolsV1 = mockRegisteredTools.get("deploy");
     expect(toolsV1).toBeDefined();
     expect(toolsV1!.length).toBe(1);
-    expect(toolsV1![0].ownerSkillId).toBe("deploy");
 
     // Edit
     mockVersionHashes = { deploy: "v2:post-edit" };
@@ -2256,121 +2264,6 @@ describe("hash change re-prompt regressions (PR 35)", () => {
     const toolsV2 = mockRegisteredTools.get("deploy");
     expect(toolsV2).toBeDefined();
     expect(toolsV2!.length).toBeGreaterThanOrEqual(1);
-    expect(toolsV2![0].ownerSkillId).toBe("deploy");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Version hash plumbing regression tests
-// Verify that createSkillToolsFromManifest receives the computed hash and
-// that projected tools carry ownerSkillVersionHash, which downstream
-// components (executor.ts) use to build policy context.
-// ---------------------------------------------------------------------------
-
-describe("version hash plumbing to projected tools", () => {
-  let sessionState: Map<string, string>;
-
-  beforeEach(() => {
-    mockCatalog = [];
-    mockManifests = {};
-    mockRegisteredTools = new Map();
-    mockUnregisteredSkillIds = [];
-    mockSkillRefCount = new Map();
-    mockVersionHashes = {};
-    mockVersionHashErrors = new Set();
-    sessionState = new Map<string, string>();
-  });
-
-  test("projected tools carry ownerSkillVersionHash matching the computed hash", () => {
-    mockCatalog = [makeSkill("deploy")];
-    mockManifests = { deploy: makeManifest(["deploy_run", "deploy_status"]) };
-    mockVersionHashes = { deploy: "v1:secure-hash-abc" };
-
-    const history: Message[] = [
-      ...skillLoadMessages('<loaded_skill id="deploy" />'),
-    ];
-
-    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
-
-    const tools = mockRegisteredTools.get("deploy");
-    expect(tools).toBeDefined();
-    expect(tools!.length).toBe(2);
-
-    // Every tool created for this skill must carry the version hash
-    for (const tool of tools!) {
-      expect(tool.ownerSkillVersionHash).toBe("v1:secure-hash-abc");
-    }
-  });
-
-  test("after hash change re-registration, new tools carry the updated hash", () => {
-    mockCatalog = [makeSkill("deploy")];
-    mockManifests = { deploy: makeManifest(["deploy_run"]) };
-    mockVersionHashes = { deploy: "v1:hash-before" };
-
-    const history: Message[] = [
-      ...skillLoadMessages('<loaded_skill id="deploy" />'),
-    ];
-
-    // Turn 1: register with original hash
-    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
-    const toolsV1 = mockRegisteredTools.get("deploy");
-    expect(toolsV1).toBeDefined();
-    expect(toolsV1![0].ownerSkillVersionHash).toBe("v1:hash-before");
-
-    // Simulate file edit — hash changes
-    mockVersionHashes = { deploy: "v2:hash-after" };
-
-    // Turn 2: re-registration with new hash
-    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
-    const toolsV2 = mockRegisteredTools.get("deploy");
-    expect(toolsV2).toBeDefined();
-
-    // The most recently registered tool should carry the new hash
-    const lastTool = toolsV2![toolsV2!.length - 1];
-    expect(lastTool.ownerSkillVersionHash).toBe("v2:hash-after");
-  });
-
-  test("tools for multiple co-active skills each carry their own version hash", () => {
-    mockCatalog = [makeSkill("deploy"), makeSkill("oncall")];
-    mockManifests = {
-      deploy: makeManifest(["deploy_run"]),
-      oncall: makeManifest(["oncall_page"]),
-    };
-    mockVersionHashes = {
-      deploy: "v1:deploy-hash-123",
-      oncall: "v1:oncall-hash-456",
-    };
-
-    const history: Message[] = [
-      ...skillLoadMessages('<loaded_skill id="deploy" />'),
-      ...skillLoadMessages('<loaded_skill id="oncall" />'),
-    ];
-
-    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
-
-    const deployTools = mockRegisteredTools.get("deploy");
-    expect(deployTools).toBeDefined();
-    expect(deployTools![0].ownerSkillVersionHash).toBe("v1:deploy-hash-123");
-
-    const oncallTools = mockRegisteredTools.get("oncall");
-    expect(oncallTools).toBeDefined();
-    expect(oncallTools![0].ownerSkillVersionHash).toBe("v1:oncall-hash-456");
-  });
-
-  test("default hash is used and plumbed when no explicit hash override is set", () => {
-    mockCatalog = [makeSkill("deploy")];
-    mockManifests = { deploy: makeManifest(["deploy_run"]) };
-    // No mockVersionHashes override — mock returns 'v1:default-hash-deploy'
-
-    const history: Message[] = [
-      ...skillLoadMessages('<loaded_skill id="deploy" />'),
-    ];
-
-    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
-
-    const tools = mockRegisteredTools.get("deploy");
-    expect(tools).toBeDefined();
-    expect(tools![0].ownerSkillVersionHash).toBe("v1:default-hash-deploy");
   });
 });
 

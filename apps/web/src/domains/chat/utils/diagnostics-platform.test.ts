@@ -11,7 +11,7 @@ mock.module("@capacitor/core", () => ({
 import {
   getChatDiagnosticsEvents,
   recordChatDiagnostic,
-} from "@/domains/chat/utils/diagnostics.js";
+} from "@/domains/chat/utils/diagnostics";
 
 // ---------------------------------------------------------------------------
 // recordChatDiagnostic — centralized platform tag injection

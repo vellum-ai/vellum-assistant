@@ -23,6 +23,7 @@ import { ROUTES as BACKUP_ROUTES } from "./backup-routes.js";
 import { ROUTES as BOOKMARK_ROUTES } from "./bookmark-routes.js";
 import { ROUTES as BRAIN_GRAPH_ROUTES } from "./brain-graph-routes.js";
 import { ROUTES as BROWSER_ROUTES } from "./browser-routes.js";
+import { ROUTES as BROWSER_TABS_ROUTES } from "./browser-tabs-routes.js";
 import { ROUTES as BTW_ROUTES } from "./btw-routes.js";
 import { ROUTES as CACHE_ROUTES } from "./cache-routes.js";
 import { ROUTES as CALL_ROUTES } from "./call-routes.js";
@@ -39,6 +40,7 @@ import { ROUTES as CONTENT_SOURCE_ROUTES } from "./content-source-routes.js";
 import { ROUTES as CONVERSATION_ANALYSIS_ROUTES } from "./conversation-analysis-routes.js";
 import { ROUTES as CONVERSATION_ATTENTION_ROUTES } from "./conversation-attention-routes.js";
 import { ROUTES as CONVERSATION_CLI_ROUTES } from "./conversation-cli-routes.js";
+import { ROUTES as CONVERSATION_COMPACTION_ROUTES } from "./conversation-compaction-routes.js";
 import { ROUTES as CONVERSATION_LIST_ROUTES } from "./conversation-list-routes.js";
 import { ROUTES as CONVERSATION_MANAGEMENT_ROUTES } from "./conversation-management-routes.js";
 import { ROUTES as CONVERSATION_QUERY_ROUTES } from "./conversation-query-routes.js";
@@ -89,6 +91,7 @@ import { ROUTES as LOG_EXPORT_ROUTES } from "./log-export-routes.js";
 import { ROUTES as MCP_AUTH_ROUTES } from "./mcp-auth-routes.js";
 import { ROUTES as MEMORY_ITEM_ROUTES } from "./memory-item-routes.js";
 import { ROUTES as MEMORY_V2_ROUTES } from "./memory-v2-routes.js";
+import { ROUTES as MEMORY_V3_ROUTES } from "./memory-v3-routes.js";
 import { ROUTES as MIGRATION_ROLLBACK_ROUTES } from "./migration-rollback-routes.js";
 import { ROUTES as MIGRATION_ROUTES } from "./migration-routes.js";
 import { ROUTES as NOTIFICATION_ROUTES } from "./notification-routes.js";
@@ -99,6 +102,7 @@ import { ROUTES as OAUTH_LIFECYCLE_ROUTES } from "./oauth-lifecycle-routes.js";
 import { ROUTES as OAUTH_PROVIDERS_ROUTES } from "./oauth-providers.js";
 import { ROUTES as PLATFORM_ROUTES } from "./platform-routes.js";
 import { ROUTES as PLAYGROUND_ROUTES } from "./playground/index.js";
+import { ROUTES as PLUGINS_ROUTES } from "./plugins-routes.js";
 import { ROUTES as PROFILER_ROUTES } from "./profiler-routes.js";
 import { ROUTES as PS_ROUTES } from "./ps-routes.js";
 import { ROUTES as PUBLISH_ROUTES } from "./publish-routes.js";
@@ -158,6 +162,7 @@ export const ROUTES: RouteDefinition[] = [
   ...CHANNEL_AVAILABILITY_ROUTES,
   ...CHANNEL_READINESS_ROUTES,
   ...BROWSER_ROUTES,
+  ...BROWSER_TABS_ROUTES,
   ...BTW_ROUTES,
   ...BRAIN_GRAPH_ROUTES,
   ...CLIENT_ROUTES,
@@ -175,6 +180,7 @@ export const ROUTES: RouteDefinition[] = [
   ...CREDENTIAL_PROMPT_ROUTES,
   ...CREDENTIAL_ROUTES,
   ...DEFER_ROUTES,
+  ...CONVERSATION_COMPACTION_ROUTES,
   ...CONVERSATION_QUERY_ROUTES,
   ...CONVERSATION_STARTER_ROUTES,
   ...DEBUG_BASH_ROUTES,
@@ -213,6 +219,7 @@ export const ROUTES: RouteDefinition[] = [
   ...LLM_CALL_SITES_ROUTES,
   ...MEMORY_ITEM_ROUTES,
   ...MEMORY_V2_ROUTES,
+  ...MEMORY_V3_ROUTES,
   ...MIGRATION_ROLLBACK_ROUTES,
   ...MIGRATION_ROUTES,
   ...NOTIFICATION_ROUTES,
@@ -222,6 +229,7 @@ export const ROUTES: RouteDefinition[] = [
   ...OAUTH_PROVIDERS_ROUTES,
   ...PLATFORM_ROUTES,
   ...PLAYGROUND_ROUTES,
+  ...PLUGINS_ROUTES,
   ...PROFILER_ROUTES,
   ...PS_ROUTES,
   ...PUBLISH_ROUTES,

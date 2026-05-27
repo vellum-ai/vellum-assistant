@@ -1,3 +1,4 @@
+import { ConnectionResolutionError } from "../providers/connection-resolution.js";
 import { getProviderRoutingSource } from "../providers/registry.js";
 import { isAbortReason } from "../util/abort-reasons.js";
 import { ProviderError, ProviderNotConfiguredError } from "../util/errors.js";
@@ -259,6 +260,23 @@ export function classifyConversationError(
     };
   }
 
+  if (error instanceof ConnectionResolutionError) {
+    return {
+      code: "PROVIDER_NOT_CONFIGURED",
+      userMessage:
+        "No compatible provider connection found for this profile. Check your provider connections in Settings.",
+      retryable: true,
+      debugDetails,
+      errorCategory: "provider_not_configured",
+      ...(error.connectionName
+        ? { connectionName: error.connectionName }
+        : {}),
+      ...(attribution.profileName
+        ? { profileName: attribution.profileName }
+        : {}),
+    };
+  }
+
   // Phase-specific overrides
   if (ctx.phase === "regenerate") {
     const base = classifyCore(error, message, attribution);
@@ -437,9 +455,15 @@ function classifyCore(
           errorCategory: "image_dimensions_too_large",
         };
       }
+      // Extract the provider detail after "API error (NNN): " prefix
+      const detailMatch = message.match(/API error \(\d+\):\s*(.+)/i);
+      const detail = detailMatch?.[1];
+      const suffix = detail
+        ? `: ${detail.length > 200 ? detail.slice(0, 200) + "…" : detail}`
+        : "";
       return {
         code: "PROVIDER_API",
-        userMessage: "The AI provider rejected the request.",
+        userMessage: `The AI provider rejected the request (HTTP ${error.statusCode})${suffix}`,
         retryable: true,
         errorCategory: "provider_api_error",
       };
@@ -757,6 +781,30 @@ function classifyByMessage(
     userMessage,
     retryable: true,
     errorCategory: "processing_failed",
+  };
+}
+
+/**
+ * Classify a `budget_yield_unrecovered` terminal exit.
+ *
+ * Emitted when the agent loop's `auto_compress_latest_turn` rerun
+ * (the last layer of the overflow-recovery ladder) still yields at
+ * the mid-loop preflight budget checkpoint. The turn cannot proceed,
+ * but it is not a provider rejection — every compaction the loop ran
+ * has already been applied to the conversation, so the user's next
+ * message starts from the compacted history and typically succeeds.
+ *
+ * The returned `userMessage` is persisted as a `role="assistant"` row
+ * by the same path that already persists `PROVIDER_BILLING` etc., so
+ * the notice is durable across reload (not just a transient banner).
+ */
+export function budgetYieldUnrecoveredClassification(): ClassifiedConversationError {
+  return {
+    code: "BUDGET_YIELD_UNRECOVERED",
+    userMessage:
+      "I tried to compact this conversation but couldn't fit the next step into the model's context window. Send another message to continue — the compaction I did run has been saved, so your next turn starts from a smaller history.",
+    retryable: true,
+    errorCategory: "budget_yield_unrecovered",
   };
 }
 

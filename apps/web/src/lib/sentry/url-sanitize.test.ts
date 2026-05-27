@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 
-import { sanitizeUrl } from "@/lib/sentry/url-sanitize.js";
+import { sanitizeUrl } from "@/lib/sentry/url-sanitize";
 
 describe("sanitizeUrl", () => {
   it("redacts known sensitive query params", () => {
@@ -28,8 +28,11 @@ describe("sanitizeUrl", () => {
   });
 
   it("does not over-scrub routing params containing `key` substrings", () => {
-    expect(sanitizeUrl("https://app/chat?conversationKey=abc123")).toBe(
-      "https://app/chat?conversationKey=abc123",
+    // Bare `key` is intentionally excluded from SENSITIVE_PARAM_KEYS so
+    // routing params whose names contain "key" (e.g. legacy/temporary
+    // routing surfaces) survive untouched.
+    expect(sanitizeUrl("https://app/chat?someRoutingKey=abc123")).toBe(
+      "https://app/chat?someRoutingKey=abc123",
     );
   });
 

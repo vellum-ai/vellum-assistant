@@ -412,6 +412,253 @@ Examples:
   for (const meta of BROWSER_OPERATION_META) {
     buildSubcommand(browser, meta);
   }
+
+  // -- tabs subcommand group
+  const tabs = browser
+    .command("tabs")
+    .description("Manage browser tabs");
+
+  tabs
+    .command("list")
+    .description("List all open browser tabs")
+    .option("--pretty", "Human-readable table output instead of JSON")
+    .action(async (opts: { pretty?: boolean }) => {
+      const parentOpts = browser.opts() as {
+        session?: string;
+        json?: boolean;
+        targetClientId?: string;
+      };
+      const sessionId = parentOpts.session ?? "default";
+      const jsonMode = parentOpts.json ?? false;
+      const conversationId = resolveContextConversationId();
+      const targetClientId = parentOpts.targetClientId;
+
+      const ipcResult = await cliIpcCall<{
+        ok: boolean;
+        tabs?: Array<{
+          tabId?: number;
+          windowId?: number;
+          url?: string;
+          title?: string;
+          active: boolean;
+          pinned: boolean;
+        }>;
+      }>(
+        "browser_tabs",
+        {
+          body: {
+            command: "list",
+            sessionId,
+            ...(conversationId ? { conversationId } : {}),
+            ...(targetClientId ? { targetClientId } : {}),
+          },
+        },
+        { timeoutMs: 30_000 },
+      );
+
+      if (!ipcResult.ok) {
+        if (jsonMode) {
+          process.stdout.write(
+            JSON.stringify({ ok: false, error: ipcResult.error }) + "\n",
+          );
+        } else {
+          log.error(`Error: ${ipcResult.error}`);
+        }
+        process.exitCode = 1;
+        return;
+      }
+
+      const tabList = ipcResult.result?.tabs ?? [];
+
+      if (jsonMode || !opts.pretty) {
+        process.stdout.write(JSON.stringify(tabList) + "\n");
+      } else {
+        if (tabList.length === 0) {
+          log.info("No tabs found.");
+          return;
+        }
+        log.info(
+          `${"ID".padEnd(8)} ${"WIN".padEnd(5)} ${"ACT".padEnd(4)} ${"PIN".padEnd(4)} URL/Title`,
+        );
+        log.info("-".repeat(80));
+        for (const tab of tabList) {
+          const id = String(tab.tabId ?? "?").padEnd(8);
+          const win = String(tab.windowId ?? "?").padEnd(5);
+          const act = (tab.active ? "yes" : "no").padEnd(4);
+          const pin = (tab.pinned ? "yes" : "no").padEnd(4);
+          const label = tab.url ?? tab.title ?? "(untitled)";
+          log.info(`${id} ${win} ${act} ${pin} ${label}`);
+        }
+      }
+    });
+
+  tabs
+    .command("select")
+    .description("Select (activate) a browser tab by ID")
+    .requiredOption("--tab-id <id>", "Tab ID to select", Number)
+    .action(async (opts: { tabId: number }) => {
+      const parentOpts = browser.opts() as {
+        session?: string;
+        json?: boolean;
+        targetClientId?: string;
+      };
+      const sessionId = parentOpts.session ?? "default";
+      const jsonMode = parentOpts.json ?? false;
+      const conversationId = resolveContextConversationId();
+      const targetClientId = parentOpts.targetClientId;
+
+      const ipcResult = await cliIpcCall<{ ok: boolean; tab?: unknown }>(
+        "browser_tabs",
+        {
+          body: {
+            command: "select",
+            sessionId,
+            tabId: opts.tabId,
+            ...(conversationId ? { conversationId } : {}),
+            ...(targetClientId ? { targetClientId } : {}),
+          },
+        },
+        { timeoutMs: 30_000 },
+      );
+
+      if (!ipcResult.ok) {
+        if (jsonMode) {
+          process.stdout.write(
+            JSON.stringify({ ok: false, error: ipcResult.error }) + "\n",
+          );
+        } else {
+          log.error(`Error: ${ipcResult.error}`);
+        }
+        process.exitCode = 1;
+        return;
+      }
+
+      if (jsonMode) {
+        process.stdout.write(
+          JSON.stringify({ ok: true, tab: ipcResult.result?.tab }) + "\n",
+        );
+      } else {
+        log.info(`Selected tab ${opts.tabId}`);
+      }
+    });
+
+  tabs
+    .command("new")
+    .description("Open a new browser tab")
+    .option("--url <url>", "URL to navigate the new tab to")
+    .action(async (opts: { url?: string }) => {
+      const parentOpts = browser.opts() as {
+        session?: string;
+        json?: boolean;
+        targetClientId?: string;
+      };
+      const sessionId = parentOpts.session ?? "default";
+      const jsonMode = parentOpts.json ?? false;
+      const conversationId = resolveContextConversationId();
+      const targetClientId = parentOpts.targetClientId;
+
+      const ipcResult = await cliIpcCall<{
+        ok: boolean;
+        tabId?: string;
+        clientId?: string;
+      }>(
+        "browser_tabs",
+        {
+          body: {
+            command: "new",
+            sessionId,
+            ...(opts.url ? { url: opts.url } : {}),
+            ...(conversationId ? { conversationId } : {}),
+            ...(targetClientId ? { targetClientId } : {}),
+          },
+        },
+        { timeoutMs: 30_000 },
+      );
+
+      if (!ipcResult.ok) {
+        if (jsonMode) {
+          process.stdout.write(
+            JSON.stringify({ ok: false, error: ipcResult.error }) + "\n",
+          );
+        } else {
+          log.error(`Error: ${ipcResult.error}`);
+        }
+        process.exitCode = 1;
+        return;
+      }
+
+      if (jsonMode) {
+        process.stdout.write(
+          JSON.stringify({
+            ok: true,
+            tabId: ipcResult.result?.tabId,
+            clientId: ipcResult.result?.clientId,
+          }) + "\n",
+        );
+      } else {
+        log.info(
+          `Opened new tab${ipcResult.result?.tabId ? ` (ID: ${ipcResult.result.tabId})` : ""}`,
+        );
+      }
+    });
+
+  tabs
+    .command("close")
+    .description("Close a browser tab by ID")
+    .requiredOption("--tab-id <id>", "Tab ID to close", Number)
+    .action(async (opts: { tabId: number }) => {
+      const parentOpts = browser.opts() as {
+        session?: string;
+        json?: boolean;
+        targetClientId?: string;
+      };
+      const sessionId = parentOpts.session ?? "default";
+      const jsonMode = parentOpts.json ?? false;
+      const conversationId = resolveContextConversationId();
+      const targetClientId = parentOpts.targetClientId;
+
+      const ipcResult = await cliIpcCall<{
+        ok: boolean;
+        closed?: boolean;
+        tabId?: number;
+      }>(
+        "browser_tabs",
+        {
+          body: {
+            command: "close",
+            sessionId,
+            tabId: opts.tabId,
+            ...(conversationId ? { conversationId } : {}),
+            ...(targetClientId ? { targetClientId } : {}),
+          },
+        },
+        { timeoutMs: 30_000 },
+      );
+
+      if (!ipcResult.ok) {
+        if (jsonMode) {
+          process.stdout.write(
+            JSON.stringify({ ok: false, error: ipcResult.error }) + "\n",
+          );
+        } else {
+          log.error(`Error: ${ipcResult.error}`);
+        }
+        process.exitCode = 1;
+        return;
+      }
+
+      if (jsonMode) {
+        process.stdout.write(
+          JSON.stringify({
+            ok: true,
+            closed: ipcResult.result?.closed,
+            tabId: opts.tabId,
+          }) + "\n",
+        );
+      } else {
+        log.info(`Closed tab ${opts.tabId}`);
+      }
+    });
     },
   });
 }

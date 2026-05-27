@@ -33,7 +33,6 @@ mock.module("../notifications/emit-signal.js", () => ({
     reason: "ok",
     deliveryResults: [],
   }),
-  registerBroadcastFn: () => {},
 }));
 
 // ── Gateway client mock ──

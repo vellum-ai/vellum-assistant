@@ -9,7 +9,7 @@ import { describe, expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { MarkdownMessage } from "./markdown-message.js";
+import { MarkdownMessage } from "./markdown-message";
 
 describe("MarkdownMessage", () => {
   test("root wrapper carries the chat typography token and data-slot", () => {

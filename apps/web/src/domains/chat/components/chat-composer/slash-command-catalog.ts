@@ -1,5 +1,8 @@
 // Slash command catalog — web-platform subset of ChatSlashCommandCatalog.allCommands.
 
+/** Matches a bare `/` or `/filter` occupying the entire input. */
+export const SLASH_PREFIX_RE = /^\/(\w*)$/;
+
 export type SlashCommandSelectionBehavior = "autoSend" | "insertTrailingSpace";
 
 export interface SlashCommand {

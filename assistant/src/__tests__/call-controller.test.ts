@@ -166,7 +166,6 @@ mock.module("../notifications/emit-signal.js", () => ({
     reason: "mocked",
     deliveryResults: [],
   }),
-  registerBroadcastFn: () => {},
 }));
 
 mock.module("../calls/voice-session-bridge.js", () => {
@@ -253,16 +252,17 @@ import {
   getPendingCanonicalRequestByCallSessionId,
 } from "../memory/canonical-guardian-store.js";
 import { getMessages } from "../memory/conversation-crud.js";
-import { getDb, resetDb } from "../memory/db-connection.js";
+import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { resetTestTables } from "../memory/raw-query.js";
 import { conversations } from "../memory/schema.js";
+import { resetDbForTesting } from "./db-test-helpers.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
 initializeDb();
 
 afterAll(() => {
-  resetDb();
+  resetDbForTesting();
 });
 
 // ── CallTransport mock factory ───────────────────────────────────────

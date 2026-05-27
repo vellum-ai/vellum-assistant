@@ -10,21 +10,21 @@ import {
   assistantsRetrieveOptions,
   assistantsRetrieveQueryKey,
   releasesListOptions,
-} from "@/generated/api/@tanstack/react-query.gen.js";
+} from "@/generated/api/@tanstack/react-query.gen";
 import {
   assistantsRollbackDetailCreate,
   assistantsUpgradeDetailCreate,
-} from "@/generated/api/sdk.gen.js";
+} from "@/generated/api/sdk.gen";
 import type {
   ReleaseChannelEnum,
   ReleaseListItem,
-} from "@/generated/api/types.gen.js";
-import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
+} from "@/generated/api/types.gen";
+import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
+import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
 import {
   compareParsed,
   parseSemver,
-} from "@/utils/semver.js";
+} from "@/utils/semver";
 
 function releaseLabel(
   release: ReleaseListItem,
@@ -186,7 +186,9 @@ export function AssistantUpgrades({
         });
         const isNoOp = result.detail?.includes("Already on the latest");
         if (isNoOp) {
-          toast.success(result.detail);
+          // Not a success — nothing actually happened. Surface a warning so the
+          // user understands why the modal closed without kicking off an update.
+          toast.warning(result.detail);
           return;
         }
         targetVersionRef.current =
@@ -283,6 +285,7 @@ export function AssistantUpgrades({
 
       <Button
         variant={isRollback ? "outlined" : "primary"}
+        className="min-w-[160px]"
         leftIcon={
           upgradeCreate.isPending ||
           rollbackCreate.isPending ||
@@ -309,7 +312,7 @@ export function AssistantUpgrades({
           : isRollback
             ? "Rollback"
             : isPreviewReleaseChannel
-              ? "Update Preview"
+              ? "Update preview"
               : "Update"}
       </Button>
       {isPreviewReleaseChannel && (
@@ -336,23 +339,23 @@ export function AssistantUpgrades({
         open={showConfirmation}
         title={
           isRollback
-            ? "Rollback Assistant"
+            ? "Rollback assistant"
             : isPreviewReleaseChannel
-              ? "Update Preview Release"
-              : "Update Assistant"
+              ? "Update preview release"
+              : "Update assistant"
         }
         message={
           isRollback
             ? `Rollback to version ${effectiveSelectedVersion ?? "unknown"}? The assistant will be briefly unavailable.`
             : isPreviewReleaseChannel
-              ? `Update to Preview version ${effectiveSelectedVersion ?? "latest"}? The assistant will be briefly unavailable during the update.`
+              ? `Update to preview version ${effectiveSelectedVersion ?? "latest"}? The assistant will be briefly unavailable during the update.`
             : `Update to version ${effectiveSelectedVersion ?? "latest"}? The assistant will be briefly unavailable during the update.`
         }
         confirmLabel={
           isRollback
             ? "Rollback"
             : isPreviewReleaseChannel
-              ? "Update Preview"
+              ? "Update preview"
               : "Update"
         }
         onConfirm={handleUpgrade}

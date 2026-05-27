@@ -1,5 +1,5 @@
-import type { DisplayMessage, Surface } from "@/domains/chat/types/types.js";
-import type { ChatMessageToolCall } from "@/domains/chat/api/event-types.js";
+import type { DisplayMessage, Surface } from "@/domains/chat/types/types";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 
 export function messagesEqual(a: DisplayMessage[], b: DisplayMessage[]): boolean {
   if (a.length !== b.length) return false;
@@ -7,8 +7,6 @@ export function messagesEqual(a: DisplayMessage[], b: DisplayMessage[]): boolean
     const am = a[i]!;
     const bm = b[i]!;
     if (
-      am.stableId !== bm.stableId ||
-      am.daemonMessageId !== bm.daemonMessageId ||
       am.id !== bm.id ||
       am.role !== bm.role ||
       am.content !== bm.content ||
@@ -27,8 +25,6 @@ export function messagesEqual(a: DisplayMessage[], b: DisplayMessage[]): boolean
 
     // Compare any arbitrary passthrough fields beyond the known set
     const knownKeys = new Set([
-      "stableId",
-      "daemonMessageId",
       "id",
       "role",
       "content",
@@ -133,12 +129,7 @@ export function mergeDuplicateMessages(
   const merged: DisplayMessage = {
     ...secondary,
     ...preferred,
-    stableId: current.stableId,
   };
-
-  if (!merged.id) {
-    merged.id = current.id ?? incoming.id;
-  }
 
   if (current.isStreaming || incoming.isStreaming) {
     merged.isStreaming = Boolean(current.isStreaming && incoming.isStreaming);
@@ -210,20 +201,29 @@ export function mergeLatestHistoryMessage(
   const merged: DisplayMessage = {
     ...current,
     ...incoming,
-    stableId: current.stableId,
     content: preferredText.content,
   };
 
+  // `isStreaming` is a client-owned, live-only flag. Server snapshots
+  // (history pages, reconcile fetches) never carry it, so we must never
+  // let the merge clear it based on `incoming.isStreaming` being absent.
+  // The previous `else if (!incoming.isStreaming)` branch caused the
+  // live assistant bubble to flip to "completed" mid-turn when a sync
+  // tag fired a history merge during the stream — splitting the bubble
+  // on the next `tool_use_start`. Always preserve the current value.
+  merged.isStreaming = current.isStreaming;
   if (currentHasMoreText) {
-    merged.isStreaming = current.isStreaming;
     merged.textSegments = current.textSegments ?? incoming.textSegments;
-  } else if (!incoming.isStreaming) {
-    merged.isStreaming = false;
   }
 
   if (incoming.role === "user" && incoming.id) {
     delete merged.queueStatus;
     delete merged.queuePosition;
+  }
+
+  // Server id arrived → the row is no longer optimistic.
+  if (incoming.id && current.isOptimistic) {
+    delete merged.isOptimistic;
   }
 
   const toolCalls = mergeByKey(
@@ -311,17 +311,9 @@ function dedupeMessagesByKey(
   return result ?? messages;
 }
 
-/**
- * Collapse duplicate display messages while preserving the first row's
- * stable identity. Server ids are authoritative; stable ids are a second
- * safety net for React row keys before a server id exists.
- */
+/** Collapse duplicate display messages keyed by `id`. */
 export function dedupeDisplayMessages(
   messages: DisplayMessage[],
 ): DisplayMessage[] {
-  const dedupedByServerId = dedupeMessagesByKey(messages, (message) => message.id);
-  return dedupeMessagesByKey(
-    dedupedByServerId,
-    (message) => message.stableId,
-  );
+  return dedupeMessagesByKey(messages, (message) => message.id);
 }

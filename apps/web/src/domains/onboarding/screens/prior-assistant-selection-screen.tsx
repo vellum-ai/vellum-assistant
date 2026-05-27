@@ -4,11 +4,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@vellum/design-library/components/button";
 import { Card } from "@vellum/design-library/components/card";
 import { Input } from "@vellum/design-library/components/input";
-import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout.js";
+import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import {
   PRECHAT_PRIOR_ASSISTANTS,
   type PreChatPriorAssistantItem,
-} from "@/domains/onboarding/prechat-prior-assistants.js";
+} from "@/domains/onboarding/prechat-prior-assistants";
 
 interface PriorAssistantSelectionScreenProps {
   selectedAssistants: Set<string>;

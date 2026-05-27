@@ -118,13 +118,13 @@ mock.module("../config/env.js", () => ({
 // Imports (after mocks so module-level code picks up the stubs)
 // ---------------------------------------------------------------------------
 
-import { resetDb } from "../memory/db-connection.js";
 import { defaultV1Options } from "../runtime/migrations/__tests__/v1-test-helpers.js";
 import { buildVBundle } from "../runtime/migrations/vbundle-builder.js";
 import {
   _setUrlImportValidatorOptionsForTests,
   handleMigrationImport,
 } from "../runtime/routes/migration-routes.js";
+import { resetDbForTesting } from "./db-test-helpers.js";
 import { callHandler } from "./helpers/call-route-handler.js";
 // ---------------------------------------------------------------------------
 // Local http fixture server
@@ -448,7 +448,7 @@ describe("handleMigrationImport — no-swap path omits newer-migration warning",
 
     // Drop any cached Drizzle singleton so getDb() re-opens from the
     // seeded path above when the handler calls it post-import.
-    resetDb();
+    resetDbForTesting();
 
     // All-`vellum:*` credentials bundle: the streaming importer returns
     // ok=true with zero files_created/overwritten (no-swap success),
@@ -505,7 +505,7 @@ describe("handleMigrationImport — no-swap path omits newer-migration warning",
       await fixture.close();
       // Close the cached DB handle before the workspace dir gets rm'd
       // in afterEach so we don't leak WAL/SHM files across tests.
-      resetDb();
+      resetDbForTesting();
     }
   });
 });

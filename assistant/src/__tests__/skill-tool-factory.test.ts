@@ -73,53 +73,23 @@ afterAll(async () => {
 
 describe("createSkillTool", () => {
   test("produces a tool with correct name, description, and category", () => {
-    const tool = createSkillTool(
-      makeEntry(),
-      "my-skill",
-      "/skills/my-skill",
-      "v1:test",
-    );
+    const tool = createSkillTool(makeEntry(), "/skills/my-skill", "v1:test");
 
     expect(tool.name).toBe("test_tool");
     expect(tool.description).toBe("A test tool");
     expect(tool.category).toBe("testing");
   });
 
-  test("sets origin to skill and ownerSkillId", () => {
-    const tool = createSkillTool(
-      makeEntry(),
-      "weather-skill",
-      "/skills/weather",
-      "v1:test",
-    );
-
-    expect(tool.origin).toBe("skill");
-    expect(tool.ownerSkillId).toBe("weather-skill");
-  });
-
-  test("sets ownerSkillVersionHash from versionHash", () => {
-    const hash = "v1:abc123def456";
-    const tool = createSkillTool(
-      makeEntry(),
-      "my-skill",
-      "/skills/my-skill",
-      hash,
-    );
-
-    expect(tool.ownerSkillVersionHash).toBe(hash);
-  });
+  // Removed "sets origin to skill" test — the factory no longer stamps an
+  // origin/kind on the Tool. Ownership is recorded by `registerSkillTools`
+  // in the registry; see registry.test.ts.
 
   test.each([
     ["low", RiskLevel.Low],
     ["medium", RiskLevel.Medium],
     ["high", RiskLevel.High],
   ] as const)('maps risk "%s" to RiskLevel.%s', (risk, expected) => {
-    const tool = createSkillTool(
-      makeEntry({ risk }),
-      "sk",
-      "/skills/sk",
-      "v1:test",
-    );
+    const tool = createSkillTool(makeEntry({ risk }), "/skills/sk", "v1:test");
 
     expect(tool.defaultRiskLevel).toBe(expected);
   });
@@ -140,12 +110,11 @@ describe("createSkillTool", () => {
         description: "Scrape a URL",
         input_schema: schema,
       }),
-      "scraper",
       "/skills/scraper",
       "v1:test",
     );
 
-    const def = tool.getDefinition();
+    const def = tool;
 
     expect(def.name).toBe("web_scrape");
     expect(def.description).toBe("Scrape a URL");
@@ -160,7 +129,6 @@ describe("createSkillTool", () => {
     const hash = computeSkillVersionHash(tempDir);
     const tool = createSkillTool(
       makeEntry({ executor: "echo.ts" }),
-      "my-skill",
       tempDir,
       hash,
     );
@@ -179,7 +147,6 @@ describe("createSkillTool", () => {
     const hash = computeSkillVersionHash(tempDir);
     const tool = createSkillTool(
       makeEntry({ executor: "nonexistent.ts" }),
-      "my-skill",
       tempDir,
       hash,
     );
@@ -205,7 +172,6 @@ describe("createSkillToolsFromManifest", () => {
 
     const tools = createSkillToolsFromManifest(
       entries,
-      "multi-skill",
       "/skills/multi",
       "v1:test",
     );
@@ -219,53 +185,14 @@ describe("createSkillToolsFromManifest", () => {
     ]);
   });
 
-  test("all created tools share the same skillId and origin", () => {
-    const entries: SkillToolEntry[] = [
-      makeEntry({ name: "alpha" }),
-      makeEntry({ name: "beta" }),
-    ];
-
-    const tools = createSkillToolsFromManifest(
-      entries,
-      "shared-skill",
-      "/skills/shared",
-      "v1:test",
-    );
-
-    for (const tool of tools) {
-      expect(tool.origin).toBe("skill");
-      expect(tool.ownerSkillId).toBe("shared-skill");
-    }
-  });
+  // Removed "all created tools share the same origin" — same reason as the
+  // single-tool case above: ownership is recorded by `registerSkillTools` in
+  // the registry, not stamped onto each Tool by the factory.
 
   test("returns an empty array when given no entries", () => {
-    const tools = createSkillToolsFromManifest(
-      [],
-      "empty-skill",
-      "/skills/empty",
-      "v1:test",
-    );
+    const tools = createSkillToolsFromManifest([], "/skills/empty", "v1:test");
 
     expect(tools).toEqual([]);
-  });
-
-  test("passes versionHash through to all created tools", () => {
-    const hash = "v1:deadbeef";
-    const entries: SkillToolEntry[] = [
-      makeEntry({ name: "alpha" }),
-      makeEntry({ name: "beta" }),
-    ];
-
-    const tools = createSkillToolsFromManifest(
-      entries,
-      "versioned-skill",
-      "/skills/versioned",
-      hash,
-    );
-
-    for (const tool of tools) {
-      expect(tool.ownerSkillVersionHash).toBe(hash);
-    }
   });
 });
 
@@ -278,7 +205,6 @@ describe("createSkillTool — unknown parameter validation", () => {
     const hash = computeSkillVersionHash(tempDir);
     const tool = createSkillTool(
       makeEntry({ executor: "echo.ts" }),
-      "my-skill",
       tempDir,
       hash,
     );
@@ -298,7 +224,6 @@ describe("createSkillTool — unknown parameter validation", () => {
     const hash = computeSkillVersionHash(tempDir);
     const tool = createSkillTool(
       makeEntry({ executor: "echo.ts" }),
-      "my-skill",
       tempDir,
       hash,
     );
@@ -318,7 +243,6 @@ describe("createSkillTool — unknown parameter validation", () => {
     const hash = computeSkillVersionHash(tempDir);
     const tool = createSkillTool(
       makeEntry({ executor: "echo.ts" }),
-      "my-skill",
       tempDir,
       hash,
     );
@@ -338,7 +262,6 @@ describe("createSkillTool — unknown parameter validation", () => {
           properties: { query: { type: "string" } },
         },
       }),
-      "my-skill",
       tempDir,
       hash,
     );
@@ -355,7 +278,6 @@ describe("createSkillTool — unknown parameter validation", () => {
         executor: "echo.ts",
         input_schema: { type: "object" },
       }),
-      "my-skill",
       tempDir,
       hash,
     );
@@ -376,7 +298,6 @@ describe("createSkillTool — version hash plumbing to runner", () => {
     const hash = computeSkillVersionHash(tempDir);
     const tool = createSkillTool(
       makeEntry({ executor: "echo.ts" }),
-      "my-skill",
       tempDir,
       hash,
     );
@@ -389,7 +310,5 @@ describe("createSkillTool — version hash plumbing to runner", () => {
     const parsed = JSON.parse(result.content);
     expect(parsed.input).toEqual({ query: "test" });
     expect(parsed.workingDir).toBe("/my/project");
-    // Confirm the tool still has the hash stored
-    expect(tool.ownerSkillVersionHash).toBe(hash);
   });
 });

@@ -40,6 +40,7 @@ import {
   resolveHatchProvider,
 } from "./provider-secrets.js";
 import { logHatchNextSteps } from "./hatch-next-steps.js";
+import { checkProviderApiKey } from "./api-key-check.js";
 
 /**
  * Attempts to place a symlink at the given path pointing to cliBinary.
@@ -177,6 +178,16 @@ export async function hatchLocal(
   console.log(`🥚 Hatching local assistant: ${instanceName}`);
   console.log(`   Species: ${species}`);
   console.log("");
+
+  const apiKeyCheck = checkProviderApiKey();
+  if (!apiKeyCheck.hasKey) {
+    console.warn(
+      "Warning: No LLM provider API key is configured. The assistant will fail when you try to send a message.",
+    );
+    console.warn("  To fix, export your key before running vellum hatch:");
+    console.warn("  export ANTHROPIC_API_KEY=<your-key>");
+    console.warn("");
+  }
 
   if (!process.env.APP_VERSION) {
     process.env.APP_VERSION = cliPkg.version;

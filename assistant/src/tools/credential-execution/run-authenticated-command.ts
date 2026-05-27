@@ -13,7 +13,6 @@
 import { GrantProposalSchema, renderProposal } from "@vellumai/service-contracts/credential-rpc";
 
 import { RiskLevel } from "../../permissions/types.js";
-import type { ToolDefinition } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 
@@ -24,13 +23,10 @@ class RunAuthenticatedCommandTool implements Tool {
   description =
     "Execute a command with credential environment variables injected by CES. The command runs inside the CES sandbox - the assistant never sees raw secrets.";
   category = "credential-execution";
+  executionTarget = "sandbox" as const;
   defaultRiskLevel = RiskLevel.High;
 
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
+  input_schema = {
         type: "object",
         properties: {
           credentialHandle: {
@@ -97,9 +93,7 @@ class RunAuthenticatedCommandTool implements Tool {
           },
         },
         required: ["credentialHandle", "command", "purpose"],
-      },
-    };
-  }
+      };
 
   async execute(
     input: Record<string, unknown>,

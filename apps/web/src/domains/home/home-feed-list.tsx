@@ -2,16 +2,21 @@ import { ChevronRight } from "lucide-react";
 import { useState } from "react";
 
 import { Collapsible, Typography } from "@vellum/design-library";
-import { HomeFeedFilterBar } from "./home-feed-filter-bar.js";
-import { HomeRecapRow } from "./home-recap-row.js";
+import { HomeFeedFilterBar } from "./home-feed-filter-bar";
+import { HomeRecapRow } from "./home-recap-row";
 import {
   excludeHighUrgency,
   filterByCategory,
   getPresentCategories,
   groupByTime,
   sortFeedItems,
-} from "./utils/feed-utils.js";
-import type { FeedItem, FeedItemCategory, FeedTimeGroup } from "./types.js";
+} from "./utils/feed-utils";
+import type {
+  FeedItem,
+  FeedItemCategory,
+  FeedItemStatus,
+  FeedTimeGroup,
+} from "./types";
 
 const TIME_GROUP_LABELS: Record<FeedTimeGroup, string> = {
   today: "Today",
@@ -21,16 +26,22 @@ const TIME_GROUP_LABELS: Record<FeedTimeGroup, string> = {
 
 export interface HomeFeedListProps {
   items: FeedItem[];
+  validConversationIds?: Set<string>;
   onSelectItem: (item: FeedItem) => void;
   onDismissItem: (itemId: string) => void;
   onRestoreItem: (itemId: string) => void;
+  onToggleRead?: (itemId: string, newStatus: FeedItemStatus) => void;
+  onGoToThread?: (conversationId: string) => void;
 }
 
 export function HomeFeedList({
   items,
+  validConversationIds,
   onSelectItem,
   onDismissItem,
   onRestoreItem,
+  onToggleRead,
+  onGoToThread,
 }: HomeFeedListProps) {
   const [activeFilter, setActiveFilter] = useState<FeedItemCategory | null>(
     null,
@@ -67,7 +78,7 @@ export function HomeFeedList({
     );
 
   return (
-    <div className="flex flex-col gap-[var(--app-spacing-sm)]">
+    <div className="flex flex-col gap-[var(--app-spacing-lg)]">
       <HomeFeedFilterBar
         categories={presentCategories}
         activeFilter={effectiveFilter}
@@ -87,7 +98,7 @@ export function HomeFeedList({
         [...grouped.entries()].map(([group, groupItems]) => (
           <section
             key={group}
-            className="flex flex-col gap-[var(--app-spacing-xs)]"
+            className="flex flex-col gap-[var(--app-spacing-md)]"
           >
             <Typography
               variant="body-small-default"
@@ -102,8 +113,11 @@ export function HomeFeedList({
                 <HomeRecapRow
                   key={item.id}
                   item={item}
+                  validConversationIds={validConversationIds}
                   onSelect={onSelectItem}
                   onDismiss={onDismissItem}
+                  onToggleRead={onToggleRead}
+                  onGoToThread={onGoToThread}
                 />
               ))}
             </div>

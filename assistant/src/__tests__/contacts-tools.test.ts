@@ -65,11 +65,12 @@ import { executeContactMerge } from "../config/bundled-skills/contacts/tools/con
 import { executeContactSearch } from "../config/bundled-skills/contacts/tools/contact-search.js";
 import { upsertContact } from "../contacts/contact-store.js";
 import type { ContactWithChannels } from "../contacts/types.js";
-import { getDb, resetDb } from "../memory/db-connection.js";
+import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { ROUTES } from "../runtime/routes/contact-routes.js";
 import { RouteError } from "../runtime/routes/errors.js";
 import type { ToolContext } from "../tools/types.js";
+import { resetDbForTesting } from "./db-test-helpers.js";
 
 initializeDb();
 
@@ -127,7 +128,7 @@ beforeAll(() => {
 
 afterAll(() => {
   testServer?.stop(true);
-  resetDb();
+  resetDbForTesting();
 });
 
 function getRawDb(): Database {

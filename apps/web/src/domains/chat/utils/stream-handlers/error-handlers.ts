@@ -1,11 +1,11 @@
-import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/utils/error-classification.js";
+import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
 import {
   handleConversationError,
   stopStreaming,
-} from "@/domains/chat/hooks/stream-message-updaters.js";
-import { ERROR_MESSAGES } from "@/domains/chat/utils/chat-utils.js";
-import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types.js";
-import type { ConversationErrorEvent, StreamErrorEvent } from "@/domains/chat/api/event-types.js";
+} from "@/domains/chat/hooks/stream-message-updaters";
+import { ERROR_MESSAGES } from "@/domains/chat/utils/chat-utils";
+import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
+import type { ConversationErrorEvent, StreamErrorEvent } from "@/domains/chat/api/event-types";
 
 export function handleStreamError(
   event: StreamErrorEvent,

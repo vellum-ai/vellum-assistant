@@ -9,10 +9,12 @@ mock.module("../providers/registry.js", () => ({
 
 import type { ErrorContext } from "../daemon/conversation-error.js";
 import {
+  budgetYieldUnrecoveredClassification,
   buildConversationErrorMessage,
   classifyConversationError,
   isUserCancellation,
 } from "../daemon/conversation-error.js";
+import { ConnectionResolutionError } from "../providers/connection-resolution.js";
 import {
   type AbortReasonKind,
   createAbortReason,
@@ -945,5 +947,64 @@ describe("buildConversationErrorMessage", () => {
 
     expect(msg.errorCategory).toBe("web_search_ordering");
     expect(msg.code).toBe("PROVIDER_WEB_SEARCH");
+  });
+});
+
+describe("budgetYieldUnrecoveredClassification", () => {
+  it("returns the BUDGET_YIELD_UNRECOVERED code and retryable=true", () => {
+    const classified = budgetYieldUnrecoveredClassification();
+    expect(classified.code).toBe("BUDGET_YIELD_UNRECOVERED");
+    expect(classified.retryable).toBe(true);
+    expect(classified.errorCategory).toBe("budget_yield_unrecovered");
+  });
+
+  it("returns a user-facing message that explains the situation", () => {
+    const classified = budgetYieldUnrecoveredClassification();
+    // The message must communicate (a) compaction was attempted, (b) send
+    // another message to continue. Avoid asserting exact wording so copy
+    // tweaks don't trip the test, but lock down the two semantic anchors
+    // a downstream client could test against.
+    expect(classified.userMessage).toContain("compact");
+    expect(classified.userMessage).toContain("Send another message");
+  });
+
+  it("survives the buildConversationErrorMessage envelope unchanged", () => {
+    const classified = budgetYieldUnrecoveredClassification();
+    const envelope = buildConversationErrorMessage("conv-1", classified);
+    expect(envelope.type).toBe("conversation_error");
+    expect(envelope.conversationId).toBe("conv-1");
+    expect(envelope.code).toBe("BUDGET_YIELD_UNRECOVERED");
+    expect(envelope.retryable).toBe(true);
+    expect(envelope.errorCategory).toBe("budget_yield_unrecovered");
+    expect(envelope.userMessage).toBe(classified.userMessage);
+  });
+});
+
+describe("ConnectionResolutionError classification", () => {
+  const errCtx: ErrorContext = { phase: "agent_loop" };
+
+  it("classifies provider_mismatch as PROVIDER_NOT_CONFIGURED with user-friendly message", () => {
+    const err = new ConnectionResolutionError(
+      "anthropic-managed",
+      "provider_mismatch",
+      'provider_connection "anthropic-managed" has provider="anthropic" but resolving profile declared provider="openai"',
+    );
+    const result = classifyConversationError(err, errCtx);
+    expect(result.code).toBe("PROVIDER_NOT_CONFIGURED");
+    expect(result.userMessage).toContain("No compatible provider connection");
+    expect(result.userMessage).toContain("Settings");
+    expect(result.userMessage).not.toContain("provider_connection");
+    expect(result.connectionName).toBe("anthropic-managed");
+  });
+
+  it("classifies not_found as PROVIDER_NOT_CONFIGURED", () => {
+    const err = new ConnectionResolutionError(
+      "deleted-connection",
+      "not_found",
+      'provider_connection "deleted-connection" not found in DB',
+    );
+    const result = classifyConversationError(err, errCtx);
+    expect(result.code).toBe("PROVIDER_NOT_CONFIGURED");
+    expect(result.userMessage).not.toContain("not found in DB");
   });
 });

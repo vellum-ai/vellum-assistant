@@ -285,6 +285,32 @@ describe("GeminiProvider", () => {
     });
   });
 
+  test("omits thinkingConfig for models that do not support thinking", async () => {
+    fakeChunks = [textChunk("OK"), finishChunk("STOP", 10, 2)];
+
+    // gemini-2.5-flash-lite has supportsThinking: false in the catalog; the
+    // provider must not forward thinking params even when a thinking config is
+    // supplied (gemini is in THINKING_AWARE_PROVIDERS, so retry.ts no longer
+    // strips them).
+    const liteProvider = new GeminiProvider(
+      "test-api-key",
+      "gemini-2.5-flash-lite",
+    );
+    await liteProvider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      undefined,
+      undefined,
+      {
+        config: {
+          thinking: { type: "adaptive", level: "high", streamThinking: false },
+        },
+      },
+    );
+
+    const config = lastStreamParams!.config as Record<string, unknown>;
+    expect(config.thinkingConfig).toBeUndefined();
+  });
+
   test("omits thinkingConfig when wire shape is adaptive with no extras", async () => {
     fakeChunks = [textChunk("OK"), finishChunk("STOP", 10, 2)];
 

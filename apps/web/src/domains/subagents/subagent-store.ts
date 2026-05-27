@@ -12,8 +12,9 @@
 
 import { create } from "zustand";
 
-import { createSelectors } from "@/utils/create-selectors.js";
-import type { SubagentStatus, SubagentInnerEvent } from "@/domains/chat/api/event-types.js";
+import { createSelectors } from "@/utils/create-selectors";
+import type { SubagentStatus, SubagentInnerEvent } from "@/types/interaction-ui-types";
+import { isActiveStatus } from "@/domains/subagents/status-helpers";
 
 // ---------------------------------------------------------------------------
 // State
@@ -26,6 +27,13 @@ export interface SubagentTimelineEvent {
   toolName?: string;
   isError?: boolean;
   timestamp: number;
+  /**
+   * Tool-use block ID copied from the daemon's `tool_use_start` /
+   * `tool_result` envelopes. Lets the UI pair a result with its
+   * originating call when a subagent makes parallel calls to the same
+   * tool (which `toolName` alone cannot disambiguate).
+   */
+  toolUseId?: string;
 }
 
 export interface SubagentEntry {
@@ -46,12 +54,53 @@ export interface SubagentEntry {
   parentMessageStableId?: string;
   /** Daemon UUID of the parent assistant message. Stable across reloads. */
   parentMessageId?: string;
+  /**
+   * Tool-use block ID of the spawning tool call in the parent conversation.
+   * Lets the transcript anchor the inline card to its exact spawn tool call
+   * regardless of optimistic→reconciled message id swaps. Indexed in
+   * `byToolUseId`. Optional — older daemons omit it.
+   */
+  parentToolUseId?: string;
 }
 
 export interface SubagentState {
   byId: Record<string, SubagentEntry>;
   orderedIds: string[];
+  /** Subagent IDs whose terminal status event carried final usage data.
+   *  Further `updateUsage` calls for these IDs are no-ops to prevent
+   *  double-counting. */
+  terminalUsageIds: Set<string>;
+  /**
+   * Indexed view of `byId` keyed by parent assistant message id. Each entry
+   * is registered under up to two keys — `parentMessageStableId` (set during
+   * live streaming) and `parentMessageId` (set when subagent state is
+   * reconstructed from history) — so consumers can look up entries by
+   * either id without walking the full map. Entries inside each bucket are
+   * sorted by `spawnedAt` ascending, matching the historical
+   * `findSubagentEntriesForMessage` contract.
+   *
+   * Identity is stable across unrelated mutations: the map (and the array
+   * for any given parent) only changes when entries are added, removed, or
+   * have their parent ids change. Per-event mutations on a subagent leave
+   * the bucket untouched so message-body subscribers don't re-render.
+   */
+  byParent: Map<string, SubagentEntry[]>;
+  /**
+   * Index of spawning tool-use block id → subagentId. Populated when a
+   * `subagent_spawned` event carries `parentToolUseId`, letting the
+   * transcript anchor the inline card to its exact spawn tool call even
+   * after the optimistic streaming message id is reconciled away.
+   *
+   * The map reference is only replaced when a new `parentToolUseId` is
+   * indexed; unrelated mutations keep it stable so subscribers don't
+   * re-render.
+   */
+  byToolUseId: Map<string, string>;
 }
+
+/** Stable empty array returned for parent ids with no spawned subagents.
+ *  Sharing the reference keeps `useShallow`/`Object.is` comparisons happy. */
+export const EMPTY_SUBAGENT_ENTRIES: readonly SubagentEntry[] = [];
 
 // ---------------------------------------------------------------------------
 // Actions
@@ -69,6 +118,7 @@ export interface SubagentActions {
     error?: string;
     parentMessageStableId?: string;
     parentMessageId?: string;
+    parentToolUseId?: string;
   }) => void;
 
   changeStatus: (params: {
@@ -98,6 +148,23 @@ export interface SubagentActions {
 
   setConversationId: (subagentId: string, conversationId: string) => void;
 
+  /**
+   * Attach the durable server `messageId` to every entry currently anchored
+   * to `stableId` (the optimistic streaming bubble id) and re-index `byParent`
+   * so those entries are reachable under the server id after the parent
+   * message reconciles. No-op when stableId === messageId, when no entry
+   * matches, or when the entry already carries that parentMessageId. Strengthens
+   * the positional/byParent fallback; the toolUseId anchor (PR 2/3) is primary.
+   */
+  reanchorToMessage: (params: { stableId: string; messageId: string }) => void;
+
+  updateUsage: (params: {
+    subagentId: string;
+    inputTokens: number;
+    outputTokens: number;
+    estimatedCost: number;
+  }) => void;
+
   reset: () => void;
 }
 
@@ -110,7 +177,88 @@ export type SubagentStore = SubagentState & SubagentActions;
 const INITIAL_STATE: SubagentState = {
   byId: {},
   orderedIds: [],
+  terminalUsageIds: new Set<string>(),
+  byParent: new Map<string, SubagentEntry[]>(),
+  byToolUseId: new Map<string, string>(),
 };
+
+/** Parent-id keys an entry contributes to in the `byParent` index. */
+function parentKeysForEntry(entry: SubagentEntry): string[] {
+  const keys: string[] = [];
+  if (entry.parentMessageStableId) keys.push(entry.parentMessageStableId);
+  if (
+    entry.parentMessageId &&
+    entry.parentMessageId !== entry.parentMessageStableId
+  ) {
+    keys.push(entry.parentMessageId);
+  }
+  return keys;
+}
+
+/**
+ * Insert a freshly-spawned entry into the existing `byParent` index. Only
+ * the buckets the entry touches are replaced — every other bucket reference
+ * is preserved so unrelated message subscribers don't see their selector
+ * output change. Returns the existing map by reference when the entry has
+ * no parent ids (nothing to index).
+ */
+function addEntryToByParent(
+  byParent: Map<string, SubagentEntry[]>,
+  entry: SubagentEntry,
+): Map<string, SubagentEntry[]> {
+  const keys = parentKeysForEntry(entry);
+  if (keys.length === 0) return byParent;
+
+  const next = new Map(byParent);
+  for (const key of keys) {
+    const existing = next.get(key) ?? [];
+    const merged = [...existing, entry];
+    merged.sort((a, b) => a.spawnedAt - b.spawnedAt);
+    next.set(key, merged);
+  }
+  return next;
+}
+
+/**
+ * Re-index `byParent` after a set of entries gains a new `parentMessageId`.
+ * Only the two affected buckets are rebuilt — the old `stableId` bucket (whose
+ * entry objects are swapped for their updated copies) and the new `messageId`
+ * bucket (which gains any updated entries not already present), each re-sorted
+ * by `spawnedAt`. Every other bucket reference is preserved so unrelated
+ * message subscribers don't see their selector output change.
+ */
+function reindexByParentForReanchor(
+  byParent: Map<string, SubagentEntry[]>,
+  stableId: string,
+  messageId: string,
+  updatedById: Map<string, SubagentEntry>,
+): Map<string, SubagentEntry[]> {
+  const next = new Map(byParent);
+
+  const stableBucket = next.get(stableId);
+  if (stableBucket) {
+    next.set(
+      stableId,
+      stableBucket.map((entry) => updatedById.get(entry.subagentId) ?? entry),
+    );
+  }
+
+  const messageBucket = [...(next.get(messageId) ?? [])];
+  for (const updated of updatedById.values()) {
+    const idx = messageBucket.findIndex(
+      (entry) => entry.subagentId === updated.subagentId,
+    );
+    if (idx === -1) {
+      messageBucket.push(updated);
+    } else {
+      messageBucket[idx] = updated;
+    }
+  }
+  messageBucket.sort((a, b) => a.spawnedAt - b.spawnedAt);
+  next.set(messageId, messageBucket);
+
+  return next;
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -191,11 +339,22 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       conversationId: params.conversationId,
       parentMessageStableId: params.parentMessageStableId,
       parentMessageId: params.parentMessageId,
+      parentToolUseId: params.parentToolUseId,
     };
 
+    const nextById = { ...byId, [params.subagentId]: entry };
+    // Only clone the tool-use index when this spawn carries a
+    // `parentToolUseId`; otherwise keep the existing reference stable so
+    // index subscribers don't re-render.
+    const prevByToolUseId = get().byToolUseId;
+    const nextByToolUseId = params.parentToolUseId
+      ? new Map(prevByToolUseId).set(params.parentToolUseId, params.subagentId)
+      : prevByToolUseId;
     set({
-      byId: { ...byId, [params.subagentId]: entry },
+      byId: nextById,
       orderedIds: [...orderedIds, params.subagentId],
+      byParent: addEntryToByParent(get().byParent, entry),
+      byToolUseId: nextByToolUseId,
     });
   },
 
@@ -217,6 +376,18 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
         },
       },
     });
+
+    // Mark as terminal so subsequent updateUsage calls are ignored,
+    // preventing double-counting when the daemon ships final totals
+    // alongside the terminal status event.
+    if (
+      !isActiveStatus(params.status) &&
+      (params.inputTokens != null ||
+        params.outputTokens != null ||
+        params.totalCost != null)
+    ) {
+      get().terminalUsageIds.add(params.subagentId);
+    }
   },
 
   receiveEvent: (params) => {
@@ -269,6 +440,7 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       toolName: params.event.toolName,
       isError: params.event.isError,
       timestamp: params.timestamp,
+      toolUseId: params.event.toolUseId,
     };
 
     set({
@@ -319,7 +491,64 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
     });
   },
 
-  reset: () => set({ ...INITIAL_STATE }),
+  reanchorToMessage: ({ stableId, messageId }) => {
+    if (stableId === messageId) return;
+
+    const { byId } = get();
+    const updatedById = new Map<string, SubagentEntry>();
+    for (const entry of Object.values(byId)) {
+      if (
+        entry.parentMessageStableId === stableId &&
+        entry.parentMessageId !== messageId
+      ) {
+        updatedById.set(entry.subagentId, { ...entry, parentMessageId: messageId });
+      }
+    }
+    if (updatedById.size === 0) return;
+
+    const nextById = { ...byId };
+    for (const [subagentId, updated] of updatedById) {
+      nextById[subagentId] = updated;
+    }
+
+    set({
+      byId: nextById,
+      byParent: reindexByParentForReanchor(
+        get().byParent,
+        stableId,
+        messageId,
+        updatedById,
+      ),
+    });
+  },
+
+  updateUsage: (params) => {
+    const { byId, terminalUsageIds } = get();
+    if (terminalUsageIds.has(params.subagentId)) return;
+    const existing = byId[params.subagentId];
+    if (!existing) return;
+
+    set({
+      byId: {
+        ...byId,
+        [params.subagentId]: {
+          ...existing,
+          inputTokens: existing.inputTokens + params.inputTokens,
+          outputTokens: existing.outputTokens + params.outputTokens,
+          totalCost: existing.totalCost + params.estimatedCost,
+        },
+      },
+    });
+  },
+
+  reset: () =>
+    set({
+      byId: {},
+      orderedIds: [],
+      terminalUsageIds: new Set<string>(),
+      byParent: new Map<string, SubagentEntry[]>(),
+      byToolUseId: new Map<string, string>(),
+    }),
 }));
 
 export const useSubagentStore = createSelectors(useSubagentStoreBase);

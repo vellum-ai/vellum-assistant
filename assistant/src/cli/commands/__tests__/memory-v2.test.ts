@@ -143,6 +143,7 @@ describe("subcommand registration", () => {
     const subcommandNames = v2!.commands.map((c) => c.name()).sort();
     expect(subcommandNames).toEqual([
       "activation",
+      "compare",
       "ema",
       "reembed",
       "reembed-skills",

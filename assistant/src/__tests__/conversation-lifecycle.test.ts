@@ -102,6 +102,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   },
   setConversationOriginChannelIfUnset: () => {},
   setConversationOriginInterfaceIfUnset: () => {},
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 mock.module("../memory/conversation-queries.js", () => ({
@@ -379,7 +380,7 @@ describe("loadFromDb metadata injection rehydration", () => {
         metadata: JSON.stringify({
           memoryInjectedBlock: "mem payload",
           memoryV2StaticBlock:
-            "<memory>\n## Essentials\n\nAlice prefers VS Code.\n</memory>",
+            "<info>\n## Essentials\n\nAlice prefers VS Code.\n</info>",
           pkbSystemReminderBlock:
             "<system_reminder>\npkb payload\n</system_reminder>",
         }),
@@ -406,11 +407,52 @@ describe("loadFromDb metadata injection rehydration", () => {
       { type: "text", text: "<memory>\nmem payload\n</memory>" },
       {
         type: "text",
-        text: "<memory>\n## Essentials\n\nAlice prefers VS Code.\n</memory>",
+        text: "<info>\n## Essentials\n\nAlice prefers VS Code.\n</info>",
       },
       {
         type: "text",
         text: "<system_reminder>\npkb payload\n</system_reminder>",
+      },
+      { type: "text", text: "First turn" },
+    ]);
+  });
+
+  test("legacy <memory>-wrapped memoryV2StaticBlock rehydrates verbatim", async () => {
+    // `meta.memoryV2StaticBlock` may carry either `<info>…</info>` or
+    // legacy `<memory>…</memory>` wrappers depending on when the row was
+    // persisted. The rehydrate path replays the stored text verbatim,
+    // so both wrappers must round-trip unchanged.
+    mockConversation = defaultConv();
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "First turn" }]),
+        metadata: JSON.stringify({
+          memoryV2StaticBlock:
+            "<memory>\n## Essentials\n\nAlice prefers VS Code.\n</memory>",
+        }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+      },
+      {
+        id: "m3",
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "Tail turn" }]),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    expect(messages[0].content).toEqual([
+      {
+        type: "text",
+        text: "<memory>\n## Essentials\n\nAlice prefers VS Code.\n</memory>",
       },
       { type: "text", text: "First turn" },
     ]);
@@ -434,7 +476,7 @@ describe("loadFromDb metadata injection rehydration", () => {
         role: "user",
         content: JSON.stringify([{ type: "text", text: "Tail" }]),
         metadata: JSON.stringify({
-          memoryV2StaticBlock: "<memory>\n## Essentials\n\nleak\n</memory>",
+          memoryV2StaticBlock: "<info>\n## Essentials\n\nleak\n</info>",
         }),
       },
     ];
@@ -471,7 +513,7 @@ describe("loadFromDb metadata injection rehydration", () => {
           // survive the row-level filter for non-guardian views.
           provenanceTrustClass: "trusted_contact",
           memoryV2StaticBlock:
-            "<memory>\n## Essentials\n\nAlice prefers VS Code.\n</memory>",
+            "<info>\n## Essentials\n\nAlice prefers VS Code.\n</info>",
         }),
       },
       {
@@ -500,7 +542,7 @@ describe("loadFromDb metadata injection rehydration", () => {
     expect(messages[0].content).toEqual([
       {
         type: "text",
-        text: "<memory>\n## Essentials\n\nAlice prefers VS Code.\n</memory>",
+        text: "<info>\n## Essentials\n\nAlice prefers VS Code.\n</info>",
       },
       { type: "text", text: "First" },
     ]);
@@ -510,7 +552,7 @@ describe("loadFromDb metadata injection rehydration", () => {
     // Injection-time layout (per `applyRuntimeInjections` after-memory-
     // prefix splicing in ascending injector order: pkb-context 30,
     // pkb-reminder 35, memory-v2-static 38, now-md 40):
-    //   [<memory __injected>, <memory>v2static</memory>, <NOW.md>,
+    //   [<memory>dynamic</memory>, <info>v2static</info>, <NOW.md>,
     //    <system_reminder>, <knowledge_base>, ...original]
     // Rehydration must reproduce this exactly so Anthropic's prefix cache
     // matches msg[0] across daemon restarts.
@@ -523,7 +565,7 @@ describe("loadFromDb metadata injection rehydration", () => {
         metadata: JSON.stringify({
           memoryInjectedBlock: "mem payload",
           memoryV2StaticBlock:
-            "<memory>\n## Essentials\n\nAlice prefers VS Code.\n</memory>",
+            "<info>\n## Essentials\n\nAlice prefers VS Code.\n</info>",
           nowScratchpadBlock: "<NOW.md>\nnow body\n</NOW.md>",
           pkbSystemReminderBlock:
             "<system_reminder>\npkb reminder body\n</system_reminder>",
@@ -551,7 +593,7 @@ describe("loadFromDb metadata injection rehydration", () => {
       { type: "text", text: "<memory>\nmem payload\n</memory>" },
       {
         type: "text",
-        text: "<memory>\n## Essentials\n\nAlice prefers VS Code.\n</memory>",
+        text: "<info>\n## Essentials\n\nAlice prefers VS Code.\n</info>",
       },
       { type: "text", text: "<NOW.md>\nnow body\n</NOW.md>" },
       {
@@ -575,7 +617,7 @@ describe("loadFromDb metadata injection rehydration", () => {
         metadata: JSON.stringify({
           provenanceTrustClass: "trusted_contact",
           memoryV2StaticBlock:
-            "<memory>\n## Essentials\n\nprivate memory\n</memory>",
+            "<info>\n## Essentials\n\nprivate memory\n</info>",
         }),
       },
       {
@@ -621,7 +663,7 @@ describe("loadFromDb metadata injection rehydration", () => {
         metadata: JSON.stringify({
           provenanceTrustClass: "trusted_contact",
           memoryV2StaticBlock:
-            "<memory>\n## Essentials\n\nprivate memory\n</memory>",
+            "<info>\n## Essentials\n\nprivate memory\n</info>",
         }),
       },
       {
@@ -649,7 +691,7 @@ describe("loadFromDb metadata injection rehydration", () => {
     expect(conversation.getMessages()[0].content).toEqual([
       {
         type: "text",
-        text: "<memory>\n## Essentials\n\nprivate memory\n</memory>",
+        text: "<info>\n## Essentials\n\nprivate memory\n</info>",
       },
       { type: "text", text: "First" },
     ]);

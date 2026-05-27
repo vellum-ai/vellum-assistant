@@ -78,12 +78,11 @@ describe("computer-use skill manifest regression", () => {
     await initializeTools();
 
     for (const cuTool of allComputerUseTools) {
-      const def = cuTool.getDefinition();
       const manifestTool = manifest.tools.find(
-        (t: { name: string }) => t.name === def.name,
+        (t: { name: string }) => t.name === cuTool.name,
       );
       expect(manifestTool).toBeDefined();
-      expect(manifestTool.description).toBe(def.description);
+      expect(manifestTool.description).toBe(cuTool.description);
     }
   });
 
@@ -91,12 +90,11 @@ describe("computer-use skill manifest regression", () => {
     await initializeTools();
 
     for (const cuTool of allComputerUseTools) {
-      const def = cuTool.getDefinition();
       const manifestTool = manifest.tools.find(
-        (t: { name: string }) => t.name === def.name,
+        (t: { name: string }) => t.name === cuTool.name,
       );
       expect(manifestTool).toBeDefined();
-      expect(manifestTool.input_schema).toEqual(def.input_schema);
+      expect(manifestTool.input_schema).toEqual(cuTool.input_schema);
     }
   });
 
@@ -115,26 +113,24 @@ describe("computer-use skill manifest regression", () => {
     await initializeTools();
 
     // Simulate what projectSkillTools() does when the computer-use skill is
-    // activated: create skill-origin Tool objects matching the manifest names
-    // and register them. This must not throw.
+    // activated: create Tool objects matching the manifest names and register
+    // them through `registerSkillTools(skillId, tools)`, which records
+    // ownership in the registry's `ownersByName` map. This must not throw.
     const skillTools: Tool[] = manifest.tools.map(
       (entry: { name: string; description: string }) => ({
         name: entry.name,
         description: entry.description,
+        input_schema: { type: "object" as const, properties: {} },
         category: "computer-use",
         defaultRiskLevel: RiskLevel.Low,
-        origin: "skill" as const,
-        ownerSkillId: "computer-use",
-        getDefinition: () => ({
-          name: entry.name,
-          description: entry.description,
-          input_schema: { type: "object" as const, properties: {} },
-        }),
         execute: async () => ({ content: "stub", isError: false }),
       }),
     );
 
-    expect(() => registerSkillTools(skillTools)).not.toThrow();
+    // Owner flows in through `registerSkillTools(skillId, tools)` and lands
+    // in the registry's `ownersByName` map — the tools themselves carry no
+    // per-tool owner field.
+    expect(() => registerSkillTools("computer-use", skillTools)).not.toThrow();
 
     // Clean up
     unregisterSkillTools("computer-use");

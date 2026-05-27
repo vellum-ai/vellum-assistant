@@ -3,7 +3,7 @@ import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist/legacy/build/pdf.mjs";
 
-import { dataUriToUint8Array } from "@/domains/chat/components/chat-attachments/utils.js";
+import { dataUriToUint8Array } from "@/domains/chat/components/chat-attachments/utils";
 
 /**
  * Inline PDF preview rendered via pdfjs-dist canvas. Bypasses Safari/WebKit

@@ -15,11 +15,9 @@ import {
   RUNS_DIR,
 } from "../../lib/metrics";
 
-// Counter ensures uniqueness even when two seedRuns land inside the same
-// millisecond. The 14-digit suffix matches the prod `isValidRunId` regex
-// (^eval-[a-z0-9\-]+-\d{14}$), so seeded runs flow through the same
-// validation gates as real ones — important for endpoints like the file
-// server and DELETE routes that enforce that pattern.
+// Counter ensures uniqueness even when two seedRuns land inside the
+// same millisecond — mirrors the random-hex suffix
+// `commands/run.ts#timestampSuffix` appends in production.
 let seedCounter = 0;
 
 async function seedRun(input: {
@@ -28,14 +26,15 @@ async function seedRun(input: {
   testId: string;
   sessionLabel?: string;
 }): Promise<string> {
-  // Pad Date.now() (13 digits) to 14 by appending a 0-9 counter digit, then
-  // mix in a slug fragment from inputs. Result: eval-<slug>-<14 digits>.
   const slug = `${input.profileId}-${input.testId}`
     .toLowerCase()
     .replace(/[^a-z0-9-]+/g, "-")
     .replace(/^-+|-+$/g, "");
-  const timestamp = `${Date.now()}${seedCounter++ % 10}`.slice(-14);
-  const runId = `eval-${slug}-${timestamp}`;
+  // Match the production shape exactly: 17-digit ms timestamp + 4 hex.
+  // Date.now() (13 digits) → pad to 17 with a counter-derived suffix.
+  const timestamp = `${Date.now()}${seedCounter++}000`.slice(-17);
+  const rand = `${seedCounter.toString(16).padStart(4, "0")}`.slice(-4);
+  const runId = `eval-${slug}-${timestamp}-${rand}`;
   const artifacts = await ensureRunArtifacts(runId);
   await writeRunMetadata(runId, {
     runId,
@@ -205,21 +204,47 @@ describe("evals server routing", () => {
     expect(body.error).toContain("Invalid file name");
   });
 
-  test("GET /api/runs/:runId/files/:name serves docker forensics artifacts", async () => {
-    const sessionId = `session-route-file-docker-${Date.now()}`;
+  test("GET /api/runs/:runId/files/:name serves per-sibling docker artifacts", async () => {
+    // The vellum adapter writes one `docker-inspect-<service>.json` +
+    // `docker-logs-<service>.txt` pair per sibling container
+    // (assistant / gateway / credential-executor) so the operator can
+    // see WHICH sibling crashed, not just "something in the hatch
+    // chain died". The allowlist must accept these filenames or the
+    // raw-download links the report UI now exposes 404 in the browser.
+    const sessionId = `session-route-file-sibling-${Date.now()}`;
     const runId = await seedRun({ sessionId, profileId: "p1", testId: "t1" });
 
-    // docker-inspect.json is on the allowlist — exercise the
-    // application/json content-type branch.
-    const inspectJson = '{"State":{"Status":"created","ExitCode":0}}';
-    await writeFile(join(RUNS_DIR, runId, "docker-inspect.json"), inspectJson);
-
-    const res = await handleRequest(
-      req(`/api/runs/${encodeURIComponent(runId)}/files/docker-inspect.json`),
+    const gatewayInspect =
+      '{"State":{"Status":"created","ExitCode":0,"Error":"bind for 0.0.0.0:20100 failed"}}';
+    const gatewayLogs = "panic: address already in use\n";
+    await writeFile(
+      join(RUNS_DIR, runId, "docker-inspect-gateway.json"),
+      gatewayInspect,
     );
-    expect(res.status).toBe(200);
-    expect(res.headers.get("content-type")).toContain("application/json");
-    expect(await res.text()).toBe(inspectJson);
+    await writeFile(
+      join(RUNS_DIR, runId, "docker-logs-gateway.txt"),
+      gatewayLogs,
+    );
+
+    const inspectRes = await handleRequest(
+      req(
+        `/api/runs/${encodeURIComponent(runId)}/files/docker-inspect-gateway.json`,
+      ),
+    );
+    expect(inspectRes.status).toBe(200);
+    expect(inspectRes.headers.get("content-type")).toContain(
+      "application/json",
+    );
+    expect(await inspectRes.text()).toBe(gatewayInspect);
+
+    const logsRes = await handleRequest(
+      req(
+        `/api/runs/${encodeURIComponent(runId)}/files/docker-logs-gateway.txt`,
+      ),
+    );
+    expect(logsRes.status).toBe(200);
+    expect(logsRes.headers.get("content-type")).toContain("text/plain");
+    expect(await logsRes.text()).toBe(gatewayLogs);
   });
 
   test("GET /api/runs/:runId/files/:name returns 404 for missing files", async () => {

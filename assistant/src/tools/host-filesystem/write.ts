@@ -1,7 +1,6 @@
 import { supportsHostProxy } from "../../channels/types.js";
 import { HostFileProxy } from "../../daemon/host-file-proxy.js";
 import { RiskLevel } from "../../permissions/types.js";
-import type { ToolDefinition } from "../../providers/types.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
 import { FileSystemOps } from "../shared/filesystem/file-ops-service.js";
 import { formatWriteSummary } from "../shared/filesystem/format-diff.js";
@@ -13,13 +12,10 @@ class HostFileWriteTool implements Tool {
   description =
     "Write content to a file on your guardian's device, creating it if it does not exist. For files on your own machine, use file_write instead.";
   category = "host-filesystem";
+  executionTarget = "host" as const;
   defaultRiskLevel = RiskLevel.Medium;
 
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
+  input_schema = {
         type: "object",
         properties: {
           path: {
@@ -37,9 +33,7 @@ class HostFileWriteTool implements Tool {
           },
         },
         required: ["path", "content"],
-      },
-    };
-  }
+      };
 
   async execute(
     input: Record<string, unknown>,

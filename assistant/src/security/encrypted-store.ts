@@ -31,6 +31,10 @@ import { getIsContainerized } from "../config/env-registry.js";
 import { ensureDir, pathExists } from "../util/fs.js";
 import { getLogger } from "../util/logger.js";
 import { getPlatformName, getProtectedDir } from "../util/platform.js";
+import {
+  getStoreKeyPathOverride,
+  getStorePathOverride,
+} from "./store-path-override.js";
 
 const log = getLogger("encrypted-store");
 
@@ -77,15 +81,8 @@ interface EncryptedEntry {
 // Paths
 // ---------------------------------------------------------------------------
 
-let storePathOverride: string | null = null;
-
 function getStorePath(): string {
-  return storePathOverride ?? join(getProtectedDir(), "keys.enc");
-}
-
-/** @internal Test-only: override the store file path. Pass `null` to reset. */
-export function _setStorePath(path: string | null): void {
-  storePathOverride = path;
+  return getStorePathOverride() ?? join(getProtectedDir(), "keys.enc");
 }
 
 // ---------------------------------------------------------------------------
@@ -95,16 +92,10 @@ export function _setStorePath(path: string | null): void {
 const STORE_KEY_FILENAME = "store.key";
 const STORE_KEY_LENGTH = 32; // bytes
 
-let storeKeyPathOverride: string | null = null;
-
-/** @internal Test-only: override the store key file path. Pass `null` to reset. */
-export function _setStoreKeyPath(path: string | null): void {
-  storeKeyPathOverride = path;
-}
-
 function getStoreKeyPath(): string {
   return (
-    storeKeyPathOverride ?? join(dirname(getStorePath()), STORE_KEY_FILENAME)
+    getStoreKeyPathOverride() ??
+    join(dirname(getStorePath()), STORE_KEY_FILENAME)
   );
 }
 

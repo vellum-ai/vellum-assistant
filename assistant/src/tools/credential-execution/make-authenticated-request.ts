@@ -13,7 +13,6 @@
 import { GrantProposalSchema, renderProposal } from "@vellumai/service-contracts/credential-rpc";
 
 import { RiskLevel } from "../../permissions/types.js";
-import type { ToolDefinition } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 
@@ -24,13 +23,10 @@ class MakeAuthenticatedRequestTool implements Tool {
   description =
     "Execute an authenticated HTTP request through CES. CES injects the credential and returns the response - the assistant never sees raw secrets.";
   category = "credential-execution";
+  executionTarget = "sandbox" as const;
   defaultRiskLevel = RiskLevel.High;
 
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
+  input_schema = {
         type: "object",
         properties: {
           credentialHandle: {
@@ -68,9 +64,7 @@ class MakeAuthenticatedRequestTool implements Tool {
           },
         },
         required: ["credentialHandle", "method", "url", "purpose"],
-      },
-    };
-  }
+      };
 
   async execute(
     input: Record<string, unknown>,

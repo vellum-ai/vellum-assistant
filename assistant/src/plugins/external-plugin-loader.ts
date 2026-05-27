@@ -49,12 +49,8 @@ import semver from "semver";
 import { z } from "zod";
 
 import assistantPkg from "../../package.json" with { type: "json" };
-import type {
-  LoadedPluginTool,
-  PluginTool,
-  RiskLevel,
-  ToolExecutionResult,
-} from "../tools/types.js";
+import { finalizeTool } from "../tools/tool-defaults.js";
+import type { LoadedTool, ToolDefinition } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import { registerPlugin } from "./registry.js";
 import type {
@@ -62,7 +58,6 @@ import type {
   PluginHookFn,
   PluginHooks,
   PluginManifest,
-  PluginToolRegistration,
 } from "./types.js";
 
 const PLUGIN_API_PEER_DEP = "@vellumai/plugin-api";
@@ -120,64 +115,6 @@ function toToolNameSegment(value: string): string {
 
 function deriveToolName(toolFileBaseName: string): string {
   return toToolNameSegment(toolFileBaseName);
-}
-
-/**
- * Defaults applied by {@link applyPluginToolDefaults} when a plugin tool
- * omits one of the normally-required fields. Exported as a constant so
- * tests and callers can reference the same source of truth.
- *
- * The default `execute` returns an error result so the model sees a clear
- * "this tool isn't wired up" signal at call time. The plugin still loads
- * cleanly — broken individual tools must never block daemon boot.
- */
-export const PLUGIN_TOOL_DEFAULTS = Object.freeze({
-  description: "",
-  defaultRiskLevel: "medium" as RiskLevel,
-  input_schema: Object.freeze({
-    type: "object",
-    properties: {},
-    additionalProperties: false,
-  }) as object,
-});
-
-/**
- * Fill the four normally-required {@link PluginTool} fields with documented
- * defaults when the author omitted them. Returns a {@link LoadedPluginTool}
- * that is safe to register.
- */
-function applyPluginToolDefaults(
-  tool: PluginTool,
-  name: string,
-): LoadedPluginTool {
-  const description =
-    typeof tool.description === "string"
-      ? tool.description
-      : PLUGIN_TOOL_DEFAULTS.description;
-  const defaultRiskLevel =
-    typeof tool.defaultRiskLevel === "string"
-      ? tool.defaultRiskLevel
-      : PLUGIN_TOOL_DEFAULTS.defaultRiskLevel;
-  const input_schema =
-    tool.input_schema !== null &&
-    typeof tool.input_schema === "object"
-      ? tool.input_schema
-      : PLUGIN_TOOL_DEFAULTS.input_schema;
-  const execute =
-    typeof tool.execute === "function"
-      ? tool.execute
-      : async (): Promise<ToolExecutionResult> => ({
-          content: `plugin tool ${name} has no execute implementation`,
-          isError: true,
-        });
-  return {
-    ...tool,
-    name,
-    description,
-    defaultRiskLevel,
-    input_schema,
-    execute,
-  };
 }
 
 /**
@@ -339,17 +276,17 @@ async function buildPluginFromDir(pluginDir: string): Promise<Plugin> {
   const hooks = await loadHooks(pluginDir, name);
   if (hooks !== undefined) plugin.hooks = hooks;
 
-  const tools: PluginToolRegistration[] = [];
+  const tools: LoadedTool[] = [];
   for (const { name: toolName, path: toolPath } of listSurfaceDir(
     join(pluginDir, "tools"),
   )) {
-    const tool = await importDefault<PluginTool>(toolPath);
+    const tool = await importDefault<ToolDefinition>(toolPath);
     if (tool === null || typeof tool !== "object") {
       throw new Error(
         `external plugin ${name}: ${toolPath} default export must be an object`,
       );
     }
-    tools.push(applyPluginToolDefaults(tool, deriveToolName(toolName)));
+    tools.push(finalizeTool(tool, deriveToolName(toolName)));
   }
   if (tools.length > 0) plugin.tools = tools;
 

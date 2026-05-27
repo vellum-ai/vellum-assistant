@@ -26,6 +26,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   getConversationOriginChannel: () => null,
   getMessages: () => null,
   createConversation: () => ({ id: "mock-conv" }),
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 import {
@@ -316,6 +317,63 @@ describe("subagent_spawn fork parameter", () => {
     expect(result.content).toContain(
       "parent conversation could not be resolved",
     );
+  });
+
+  test("threads context.toolUseId into config as parentToolUseId", async () => {
+    const manager = getSubagentManager();
+    const originalSpawn = manager.spawn.bind(manager);
+
+    let capturedConfig: Record<string, unknown> | undefined;
+    manager.spawn = async (config: Record<string, unknown>) => {
+      capturedConfig = config;
+      return "tool-use-id-subagent";
+    };
+
+    try {
+      const result = await executeSubagentSpawn(
+        {
+          label: "Stamped task",
+          objective: "Do something",
+        },
+        makeContext("tool-use-conv", {
+          sendToClient: () => {},
+          toolUseId: "toolu_123",
+        }),
+      );
+
+      expect(result.isError).toBe(false);
+      expect(capturedConfig).toBeDefined();
+      expect(capturedConfig!.parentToolUseId).toBe("toolu_123");
+    } finally {
+      manager.spawn = originalSpawn;
+    }
+  });
+
+  test("omits parentToolUseId when no toolUseId is in context", async () => {
+    const manager = getSubagentManager();
+    const originalSpawn = manager.spawn.bind(manager);
+
+    let capturedConfig: Record<string, unknown> | undefined;
+    manager.spawn = async (config: Record<string, unknown>) => {
+      capturedConfig = config;
+      return "no-tool-use-id-subagent";
+    };
+
+    try {
+      const result = await executeSubagentSpawn(
+        {
+          label: "Unstamped task",
+          objective: "Do something",
+        },
+        makeContext("no-tool-use-conv", { sendToClient: () => {} }),
+      );
+
+      expect(result.isError).toBe(false);
+      expect(capturedConfig).toBeDefined();
+      expect(capturedConfig!.parentToolUseId).toBeUndefined();
+    } finally {
+      manager.spawn = originalSpawn;
+    }
   });
 
   test("fork: true shallow copies parent messages", async () => {

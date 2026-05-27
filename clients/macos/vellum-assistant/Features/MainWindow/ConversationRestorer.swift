@@ -430,6 +430,17 @@ final class ConversationRestorer {
         // Snapshot existing conversations so that per-row merges accumulate
         // in-memory instead of triggering N × conversations.didSet.
         var snapshot = delegate.conversations
+
+        // Index by daemon conversation ID for O(1) lookup per server row.
+        // With ~1800 conversations, this eliminates ~3.24M string comparisons
+        // (O(n²) linear scan) in favor of ~3600 hash lookups (O(n)).
+        var snapshotIndexByDaemonId: [String: Int] = Dictionary(minimumCapacity: snapshot.count)
+        for (idx, conv) in snapshot.enumerated() {
+            if let cid = conv.conversationId {
+                snapshotIndexByDaemonId[cid] = idx
+            }
+        }
+
         var restoredConversations: [ConversationModel] = []
         for session in response.conversations {
             let isPinned = session.isPinned ?? false
@@ -445,7 +456,7 @@ final class ConversationRestorer {
             // If a local conversation already exists (e.g. created by
             // createNotificationConversation before the session list response arrived),
             // merge server pin/order metadata into it instead of creating a duplicate.
-            if let existingIdx = snapshot.firstIndex(where: { $0.conversationId == session.id }) {
+            if let existingIdx = snapshotIndexByDaemonId[session.id] {
                 var existing = snapshot[existingIdx]
                 existing.groupId = groupId
                 existing.displayOrder = session.displayOrder.map { Int($0) }
@@ -474,17 +485,9 @@ final class ConversationRestorer {
                 continue
             }
 
-            // Preserve user-set titles: if a conversation with this session already
-            // exists locally and has a non-default title, keep it instead of
-            // overwriting with the daemon's auto-generated title.
-            let existingTitle = snapshot
-                .first(where: { $0.conversationId == session.id && $0.title != "New Conversation" })?
-                .title
-            let title = existingTitle ?? session.title
-
             let effectiveCreatedAt = session.createdAt ?? session.updatedAt
             let conversation = ConversationModel(
-                title: title,
+                title: session.title,
                 createdAt: Date(timeIntervalSince1970: TimeInterval(effectiveCreatedAt) / 1000.0),
                 conversationId: session.id,
                 isArchived: delegate.isConversationArchived(session.id),
@@ -546,7 +549,7 @@ final class ConversationRestorer {
         }
 
         // serverOffset is set by fetchConversationList before merging foreground +
-        // background, so it reflects foreground-only count for correct pagination.
+        // background, so it reflects the foreground-only DB cursor for correct pagination.
         log.info("Restored \(restoredConversations.count) conversations from daemon (hasMore: \(response.hasMore ?? false))")
         delegate.restoreLastActiveConversation()
     }
@@ -675,9 +678,11 @@ final class ConversationRestorer {
             for attempt in 1...maxAttempts {
                 // Fetch foreground and background conversations in parallel so
                 // background conversations don't consume pagination slots from
-                // the main list.
-                async let foregroundResult = conversationListClient.fetchConversationList(offset: 0, limit: 50, conversationType: nil)
-                async let backgroundResult = conversationListClient.fetchConversationList(offset: 0, limit: 50, conversationType: "background")
+                // the main list. Each side paginates until the daemon reports
+                // `hasMore == false`; without this the sidebar truncates at the
+                // first 50 rows (LUM-1618 on web, fixed for macOS here).
+                async let foregroundResult = self.fetchAllConversationPages(conversationType: nil)
+                async let backgroundResult = self.fetchAllConversationPages(conversationType: "background")
                 let foreground = await foregroundResult
                 let background = await backgroundResult
 
@@ -690,14 +695,16 @@ final class ConversationRestorer {
                     let uniqueBackground = (background?.conversations ?? []).filter {
                         seenIds.insert($0.id).inserted
                     }
-                    // Set serverOffset from foreground count BEFORE merging.
-                    // loadMoreConversations pages the foreground endpoint only,
-                    // so the offset must not include merged background rows.
+                    // Set serverOffset to the foreground DB cursor BEFORE
+                    // merging. loadMoreConversations pages the foreground
+                    // endpoint only, so the offset must not include merged
+                    // background rows; nextOffset is the DB cursor (see
+                    // fetchAllConversationPages), not the inflated row count.
                     self.delegate?.serverOffset = foreground.nextOffset ?? foreground.conversations.count
                     let merged = ConversationListResponse(
                         type: foreground.type,
                         conversations: foreground.conversations + uniqueBackground,
-                        hasMore: foreground.hasMore,
+                        hasMore: false,
                         groups: foreground.groups
                     )
                     self.handleConversationListResponse(merged, updateServerOffset: false)
@@ -712,5 +719,60 @@ final class ConversationRestorer {
             log.warning("All \(maxAttempts) conversation list fetch attempts failed, falling back to last active conversation")
             self.delegate?.restoreLastActiveConversation()
         }
+    }
+
+    /// Matches `ConversationListStore.loadAllRemainingConversations` so cold
+    /// restore and "load all" share a tested page size. Larger than the web
+    /// client's 50 because macOS talks to the daemon over loopback — the
+    /// per-request overhead dominates, so fewer round-trips win.
+    private static let conversationListPageSize = 200
+
+    /// Safety cap on the pagination loop — `50 * 200 = 10,000` conversations
+    /// per type. Bounded so a malformed `hasMore` from the server can't spin
+    /// forever.
+    private static let conversationListMaxPages = 50
+
+    /// Page through every conversation of the given type, accumulating until
+    /// the daemon reports `hasMore == false` or the safety cap is hit. Returns
+    /// `nil` if any page request fails so the caller's retry/fallback logic
+    /// can drive recovery from a single-shot failure.
+    private func fetchAllConversationPages(conversationType: String?) async -> ConversationListResponse? {
+        let pageSize = Self.conversationListPageSize
+        var accumulated: [ConversationListResponseItem] = []
+        var firstPage: ConversationListResponse?
+        var nextOffset = 0
+
+        for page in 0..<Self.conversationListMaxPages {
+            let offset = page * pageSize
+            guard let response = await conversationListClient.fetchConversationList(
+                offset: offset, limit: pageSize, conversationType: conversationType
+            ) else {
+                return nil
+            }
+            if firstPage == nil { firstPage = response }
+            accumulated.append(contentsOf: response.conversations)
+            // Track the DB cursor the server actually reached. On page 1
+            // (offset 0) the endpoint appends injected pinned rows, so the
+            // accumulated count overshoots the DB offset; prefer the
+            // server-provided nextOffset so incremental "load more" resumes at
+            // the right cursor instead of skipping rows. Fall back to advancing
+            // by one full page when the daemon omits nextOffset.
+            nextOffset = response.nextOffset ?? (offset + pageSize)
+            let hasMore = response.hasMore ?? false
+            if !hasMore || response.conversations.isEmpty { break }
+        }
+
+        guard let first = firstPage else { return nil }
+        // Groups are sent with the first page only; preserve them on the
+        // synthesized response. `hasMore` is forced to false because we've
+        // already exhausted the server (or hit the safety cap). `nextOffset`
+        // carries the DB cursor reached (tracked above).
+        return ConversationListResponse(
+            type: first.type,
+            conversations: accumulated,
+            hasMore: false,
+            nextOffset: nextOffset,
+            groups: first.groups
+        )
     }
 }

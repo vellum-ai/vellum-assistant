@@ -199,6 +199,9 @@ export const PROVIDER_SEED_DATA: Record<
       },
     ],
     appType: "Public integration",
+    setupNotes: [
+      "Enable Token Rotation on your Notion integration (developer dashboard → your integration → Configuration → Token rotation). Without it, Notion does not issue a refresh token and the connection cannot auto-recover if Notion revokes the access token server-side — you will silently lose access and need to reconnect manually.",
+    ],
     identityUrl: "https://api.notion.com/v1/users/me",
     identityHeaders: { "Notion-Version": "2022-06-28" },
     identityResponsePaths: ["name", "person.email"],

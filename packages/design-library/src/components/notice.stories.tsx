@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
-import { Notice } from "./notice.js";
+import { Notice } from "./notice";
 
 const meta: Meta<typeof Notice> = {
   title: "Components/Notice",

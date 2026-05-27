@@ -3,7 +3,7 @@ import { Mic } from "lucide-react";
 
 import { Button } from "@vellum/design-library";
 import { Modal } from "@vellum/design-library";
-import { isBatchSttSupported } from "@/domains/chat/components/voice-input-button.js";
+import { isBatchSttSupported } from "@/domains/chat/components/voice-input-button";
 
 const MIC_PRIMER_STORAGE_KEY = "voice:permissionPrimerSeen";
 

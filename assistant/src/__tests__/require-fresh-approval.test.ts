@@ -103,7 +103,7 @@ mock.module("../permissions/checker.js", () => ({
 mock.module("../memory/tool-usage-store.js", () => ({
   recordToolInvocation: () => {},
   getRecentInvocations: () => [],
-  rotateToolInvocations: () => 0,
+  rotateToolInvocations: async () => 0,
 }));
 
 mock.module("../tools/registry.js", () => ({
@@ -116,7 +116,7 @@ mock.module("../tools/registry.js", () => ({
       category: isGmailTool ? "gmail" : "credential-execution",
       defaultRiskLevel: "high",
       executionTarget: isGmailTool ? ("host" as const) : undefined,
-      getDefinition: () => ({}),
+      input_schema: {},
       execute: async () => fakeToolResult,
     };
   },

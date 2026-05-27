@@ -130,7 +130,6 @@ mock.module("../runtime/services/analyze-conversation.js", () => ({
 
 // ── Real imports ──────────────────────────────────────────────────
 
-import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 import { conversationAnalyzeJob } from "../memory/conversation-analyze-job.js";
 import { createConversation } from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
@@ -138,6 +137,7 @@ import { initializeDb } from "../memory/db-init.js";
 import { indexMessageNow } from "../memory/indexer.js";
 import type { MemoryJob } from "../memory/jobs-store.js";
 import { conversations, memoryJobs, messages } from "../memory/schema.js";
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
 // ── Helpers ───────────────────────────────────────────────────────
 
@@ -279,14 +279,14 @@ beforeEach(() => {
   resetTables();
   analyzeCalls.length = 0;
   // Clear any stale feature-flag overrides between tests.
-  _setOverridesForTesting({});
+  setOverridesForTesting({});
 });
 
 // ─────────────────────────────────────────────────────────────────
 
 describe("auto-analysis end-to-end trigger path", () => {
   test("flag on, batch threshold reached → conversation_analyze enqueued, handler runs, analysis conversation created", async () => {
-    _setOverridesForTesting({ "auto-analyze": true });
+    setOverridesForTesting({ "auto-analyze": true });
 
     const source = createConversation("source-conv");
 
@@ -329,7 +329,7 @@ describe("auto-analysis end-to-end trigger path", () => {
   });
 
   test("flag off → no conversation_analyze job is ever enqueued", async () => {
-    _setOverridesForTesting({ "auto-analyze": false });
+    setOverridesForTesting({ "auto-analyze": false });
 
     const source = createConversation("source-conv-flag-off");
     await indexMessages(source.id, 3);
@@ -343,7 +343,7 @@ describe("auto-analysis end-to-end trigger path", () => {
   });
 
   test("recursion guard: indexing into an auto-analysis conversation does not enqueue conversation_analyze or graph_extract", async () => {
-    _setOverridesForTesting({ "auto-analyze": true });
+    setOverridesForTesting({ "auto-analyze": true });
 
     // Set up an auto-analysis conversation directly. This is the
     // scenario we need to protect against — the analysis agent writes
@@ -392,7 +392,7 @@ describe("auto-analysis batch trigger uses analysis.batchSize cadence", () => {
   const originalV2Enabled = TEST_CONFIG.memory.v2.enabled;
 
   beforeEach(() => {
-    _setOverridesForTesting({ "auto-analyze": true });
+    setOverridesForTesting({ "auto-analyze": true });
     // memory.v2.enabled gates v1 graph_extract enqueue; force off so
     // these cadence tests can observe the v1 path.
     TEST_CONFIG.memory.v2.enabled = false;

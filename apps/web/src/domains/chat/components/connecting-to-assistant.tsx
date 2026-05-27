@@ -7,10 +7,11 @@ import { Button, Modal, Typography } from "@vellum/design-library";
 import type {
   ConnectionServerState,
   ReachabilityState,
-} from "@/assistant/use-assistant-reachability.js";
-import { MAX_ATTEMPTS } from "@/assistant/use-assistant-reachability.js";
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
-import { routes } from "@/utils/routes.js";
+} from "@/assistant/use-assistant-reachability";
+import { MAX_ATTEMPTS } from "@/assistant/use-assistant-reachability";
+import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
+import { VELLUM_COMMUNITY_URL } from "@/utils/external-urls";
+import { routes } from "@/utils/routes";
 
 interface ConnectingToAssistantProps {
   state: ReachabilityState;
@@ -119,11 +120,11 @@ const FailureBody: FC<FailureBodyProps> = ({
     : "Couldn't connect to your assistant";
   const description = isCrashLoop
     ? doctorEnabled
-      ? "Your assistant reported an error while starting. Try running the Doctor to diagnose the issue. Please contact support if the problem persists."
-      : "Your assistant reported an error while starting. Please contact support if the problem persists."
+      ? "Your assistant reported an error while starting. Try running Vellum Doctor to diagnose the issue, or ask the community for help."
+      : "Your assistant reported an error while starting. Ask the community for help if the problem persists."
     : doctorEnabled
-      ? `We tried ${MAX_ATTEMPTS} times over 60 seconds and still can't reach your assistant. Try running the Doctor to diagnose the issue. Please contact support if the problem persists.`
-      : `We tried ${MAX_ATTEMPTS} times over 60 seconds and still can't reach your assistant. Please contact support if the problem persists.`;
+      ? `We tried ${MAX_ATTEMPTS} times over 60 seconds and still can't reach your assistant. Try running Vellum Doctor to diagnose the issue, or ask the community for help.`
+      : `We tried ${MAX_ATTEMPTS} times over 60 seconds and still can't reach your assistant. Ask the community for help if the problem persists.`;
 
   return (
     <StatusLayout
@@ -144,25 +145,30 @@ const FailureBody: FC<FailureBodyProps> = ({
           >
             Try again
           </Button>
-          {doctorEnabled ? (
+          {doctorEnabled && (
             <Button
               asChild
               variant="outlined"
               data-testid="connection-go-to-doctor-button"
             >
               <Link to={`${routes.settings.debug}?tab=doctor`}>
-                Go to Doctor
+                Vellum Doctor
               </Link>
             </Button>
-          ) : (
-            <Button
-              asChild
-              variant="outlined"
-              data-testid="connection-contact-support-button"
-            >
-              <a href="mailto:support@vellum.ai">Contact support</a>
-            </Button>
           )}
+          <Button
+            asChild
+            variant="outlined"
+            data-testid="connection-community-support-button"
+          >
+            <a
+              href={VELLUM_COMMUNITY_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Community support
+            </a>
+          </Button>
         </>
       }
     />

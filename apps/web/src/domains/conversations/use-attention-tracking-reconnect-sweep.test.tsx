@@ -20,23 +20,25 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { createElement } from "react";
 
-import { useConversationStore } from "@/domains/conversations/conversation-store.js";
+import * as sdkGen from "@/generated/daemon/sdk.gen";
+import { useConversationStore } from "@/domains/conversations/conversation-store";
 import {
   __resetEventBusForTesting,
   useEventBusStore,
-} from "@/stores/event-bus-store.js";
+} from "@/stores/event-bus-store";
 
 // Stub the conversation-list query and the mark-seen endpoint so the
 // hook does not try to hit a real backend during renderHook.
-mock.module("@/domains/conversations/conversation-queries.js", () => ({
+mock.module("@/domains/conversations/conversation-queries", () => ({
   useConversationListQuery: () => ({ conversations: [] }),
   getConversations: () => [],
   findConversation: () => undefined,
   markConversationSeenLocal: () => {},
 }));
 
-mock.module("@/domains/chat/api/conversations.js", () => ({
-  markConversationSeen: async () => {},
+mock.module("@/generated/daemon/sdk.gen", () => ({
+  ...sdkGen,
+  conversationsSeenPost: async () => ({ data: undefined, error: undefined, response: { ok: true } }),
 }));
 
 // Per-test override slot for the bulk fetch. `mock.module` calls in bun
@@ -58,8 +60,8 @@ const stubFromOtherTest = (name: string) => () => {
   );
 };
 
-mock.module("@/domains/chat/api/interactions.js", () => ({
-  listConversationKeysWithPendingInteractions: (assistantId: string) =>
+mock.module("@/domains/chat/api/interactions", () => ({
+  listConversationIdsWithPendingInteractions: (assistantId: string) =>
     bulkFetch.current(assistantId),
   // Other exports of the module — stubbed loudly so a stale leak surfaces.
   getPendingInteractions: stubFromOtherTest("getPendingInteractions"),
@@ -71,7 +73,7 @@ mock.module("@/domains/chat/api/interactions.js", () => ({
 }));
 
 const { useAttentionTracking } = await import(
-  "@/domains/conversations/use-attention-tracking.js"
+  "@/domains/conversations/use-attention-tracking"
 );
 
 function wrapper({ children }: { children: ReactNode }) {
@@ -119,7 +121,7 @@ describe("useAttentionTracking — post-reconnect sweep", () => {
       return new Set<string>();
     };
 
-    useConversationStore.getState().addAttentionKey("conv-stale");
+    useConversationStore.getState().addAttentionConversationId("conv-stale");
     mountHook();
 
     // The initial-sweep effect fires once on mount with an empty
@@ -140,24 +142,24 @@ describe("useAttentionTracking — post-reconnect sweep", () => {
     await Promise.resolve();
 
     expect(calls).toBe(0);
-    // And attentionKeys are untouched (no reconciliation ran).
+    // And attentionConversationIds are untouched (no reconciliation ran).
     expect(
-      useConversationStore.getState().attentionKeys.has("conv-stale"),
+      useConversationStore.getState().attentionConversationIds.has("conv-stale"),
     ).toBe(true);
   });
 
   for (const cause of ["watchdog", "error", "resume"] as const) {
     test(`runs the sweep when cause is '${cause}' and reconciles attention/processing keys`, async () => {
       // Pre-populate sidebar state:
-      //  - conv-stale: in attentionKeys but no longer pending → must be removed
-      //  - conv-promote: in processingKeys AND still pending → must be promoted to attentionKeys
-      //  - conv-new: not tracked at all but pending → must be added to attentionKeys
+      //  - conv-stale: in attentionConversationIds but no longer pending → must be removed
+      //  - conv-promote: in processingConversationIds AND still pending → must be promoted to attentionConversationIds
+      //  - conv-new: not tracked at all but pending → must be added to attentionConversationIds
       //  - conv-active: active key — must NEVER be mutated by the sweep
-      useConversationStore.getState().setActiveKey("conv-active");
-      useConversationStore.getState().addAttentionKey("conv-stale");
-      useConversationStore.getState().addAttentionKey("conv-active");
-      useConversationStore.getState().addProcessingKey("conv-promote");
-      useConversationStore.getState().addProcessingKey("conv-active");
+      useConversationStore.getState().setActiveConversationId("conv-active");
+      useConversationStore.getState().addAttentionConversationId("conv-stale");
+      useConversationStore.getState().addAttentionConversationId("conv-active");
+      useConversationStore.getState().addProcessingConversationId("conv-promote");
+      useConversationStore.getState().addProcessingConversationId("conv-active");
 
       bulkFetch.current = async () =>
         new Set(["conv-promote", "conv-new", "conv-active"]);
@@ -167,28 +169,28 @@ describe("useAttentionTracking — post-reconnect sweep", () => {
 
       await waitFor(() => {
         expect(
-          useConversationStore.getState().attentionKeys.has("conv-new"),
+          useConversationStore.getState().attentionConversationIds.has("conv-new"),
         ).toBe(true);
       });
 
       const state = useConversationStore.getState();
       // Stale attention removed.
-      expect(state.attentionKeys.has("conv-stale")).toBe(false);
+      expect(state.attentionConversationIds.has("conv-stale")).toBe(false);
       // Promoted: now in attention, removed from processing.
-      expect(state.attentionKeys.has("conv-promote")).toBe(true);
-      expect(state.processingKeys.has("conv-promote")).toBe(false);
+      expect(state.attentionConversationIds.has("conv-promote")).toBe(true);
+      expect(state.processingConversationIds.has("conv-promote")).toBe(false);
       // Newly-pending conversation added to attention.
-      expect(state.attentionKeys.has("conv-new")).toBe(true);
+      expect(state.attentionConversationIds.has("conv-new")).toBe(true);
       // Active conversation untouched in both sets, regardless of the
       // fetch payload — the sweep must skip it.
-      expect(state.attentionKeys.has("conv-active")).toBe(true);
-      expect(state.processingKeys.has("conv-active")).toBe(true);
+      expect(state.attentionConversationIds.has("conv-active")).toBe(true);
+      expect(state.processingConversationIds.has("conv-active")).toBe(true);
     });
   }
 
   test("silently no-ops when the bulk fetch throws", async () => {
-    useConversationStore.getState().addAttentionKey("conv-stale");
-    useConversationStore.getState().addProcessingKey("conv-promote");
+    useConversationStore.getState().addAttentionConversationId("conv-stale");
+    useConversationStore.getState().addProcessingConversationId("conv-promote");
 
     let invoked = 0;
     bulkFetch.current = async () => {
@@ -209,7 +211,7 @@ describe("useAttentionTracking — post-reconnect sweep", () => {
 
     // Sidebar state untouched — keys stay until the next successful sweep.
     const state = useConversationStore.getState();
-    expect(state.attentionKeys.has("conv-stale")).toBe(true);
-    expect(state.processingKeys.has("conv-promote")).toBe(true);
+    expect(state.attentionConversationIds.has("conv-stale")).toBe(true);
+    expect(state.processingConversationIds.has("conv-promote")).toBe(true);
   });
 });

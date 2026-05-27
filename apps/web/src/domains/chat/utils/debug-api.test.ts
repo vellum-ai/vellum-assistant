@@ -5,25 +5,25 @@
 import { describe, expect, test } from "bun:test";
 import type { MutableRefObject } from "react";
 
-import type { ChatEventStream } from "@/domains/chat/api/stream.js";
-import type { TranscriptHandle } from "@/domains/chat/transcript/use-transcript-scroll.js";
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
-import type { RuntimeMessage } from "@/domains/chat/api/messages.js";
-import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation.js";
-import type { TranscriptItem } from "@/domains/chat/transcript/types.js";
+import type { ChatEventStream } from "@/domains/chat/api/stream";
+import type { TranscriptHandle } from "@/domains/chat/transcript/use-deprecated-transcript-scroll";
+import type { TranscriptItem } from "@/domains/chat/transcript/types";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { RuntimeMessage } from "@/domains/chat/api/messages";
+import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation";
 import type {
   ChatDebugRefs,
   PendingInteractionsSnapshot,
-} from "@/domains/chat/utils/debug-api.js";
+} from "@/domains/chat/utils/debug-api";
 import {
   createChatDebugApi,
-  installChatDebugApi,
-} from "@/domains/chat/utils/debug-api.js";
+  installVellumDebugApi,
+} from "@/domains/chat/utils/debug-api";
 import {
   INITIAL_TURN_STATE,
   type TurnState,
-} from "@/domains/messaging/turn-store.js";
-import type { UIContext } from "@/domains/messaging/turn-selectors.js";
+} from "@/domains/messaging/turn-store";
+import type { UIContext } from "@/domains/messaging/turn-selectors";
 
 // ---------------------------------------------------------------------------
 //  Helpers
@@ -31,7 +31,6 @@ import type { UIContext } from "@/domains/messaging/turn-selectors.js";
 
 function fakeDisplayMessage(overrides: Partial<DisplayMessage> = {}): DisplayMessage {
   return {
-    stableId: "stable-1",
     id: "msg-1",
     role: "assistant",
     content: "hello",
@@ -48,22 +47,6 @@ function fakeRuntimeMessage(overrides: Partial<RuntimeMessage> = {}): RuntimeMes
     content: "hello",
     timestamp: Date.now(),
     ...overrides,
-  };
-}
-
-function fakeMessageItem(message: DisplayMessage): TranscriptItem {
-  return {
-    kind: "message",
-    key: message.stableId,
-    message,
-  };
-}
-
-function fakeThinkingItem(label?: string): TranscriptItem {
-  return {
-    kind: "thinking",
-    key: "thinking",
-    ...(label ? { label } : {}),
   };
 }
 
@@ -115,6 +98,7 @@ function makeRefs(
   };
   return {
     messagesRef: { current: [] } as MutableRefObject<DisplayMessage[]>,
+    sanitizedMessagesRef: { current: [] } as MutableRefObject<DisplayMessage[]>,
     transcriptItemsRef: { current: [] } as MutableRefObject<TranscriptItem[]>,
     transcriptRef: { current: null as TranscriptHandle | null },
     streamContextRef: { current: null } as MutableRefObject<{
@@ -123,7 +107,7 @@ function makeRefs(
     } | null>,
     streamRef: { current: null } as MutableRefObject<ChatEventStream | null>,
     streamEpochRef: { current: 0 } as MutableRefObject<number>,
-    activeConversationKeyRef: { current: null } as MutableRefObject<string | null>,
+    activeConversationIdRef: { current: null } as MutableRefObject<string | null>,
     getAssistantId: () => "asst-1",
     getTurnState: () => turnState,
     getUIContext: () => resolvedUIContext,
@@ -139,85 +123,187 @@ function makeRefs(
 }
 
 // ---------------------------------------------------------------------------
-//  createChatDebugApi — tail
+//  createChatDebugApi — getClientMessages
 // ---------------------------------------------------------------------------
 
-describe("createChatDebugApi.tail", () => {
-  test("empty transcript → empty tail", () => {
+describe("createChatDebugApi.getClientMessages", () => {
+  test("empty sanitizedMessagesRef → empty result", () => {
     const api = createChatDebugApi(makeRefs());
-    const result = api.tail();
+    const result = api.getClientMessages();
     expect(result).toEqual([]);
   });
 
-  test("returns message items with correct shape", () => {
+  test("returns the underlying DisplayMessage objects untouched", () => {
     const message = fakeDisplayMessage({ content: "hello world" });
-    const transcriptItemsRef = {
-      current: [fakeMessageItem(message)],
-    } as MutableRefObject<TranscriptItem[]>;
-    const api = createChatDebugApi(makeRefs({ transcriptItemsRef }));
-    const result = api.tail();
+    const sanitizedMessagesRef = {
+      current: [message],
+    } as MutableRefObject<DisplayMessage[]>;
+    const api = createChatDebugApi(makeRefs({ sanitizedMessagesRef }));
+    const result = api.getClientMessages();
     expect(result).toHaveLength(1);
-    const item = result[0]!;
-    expect(item.kind).toBe("message");
-    expect(item.index).toBe(0);
-    expect(item.key).toBe("stable-1");
-    expect((item as { role: string }).role).toBe("assistant");
-    expect((item as { contentLength: number }).contentLength).toBe(11);
+    // Identity check — debug API must NOT project to a bespoke shape.
+    expect(result[0]).toBe(message);
   });
 
-  test("returns thinking items", () => {
-    const transcriptItemsRef = {
-      current: [fakeThinkingItem("Processing...")],
-    } as MutableRefObject<TranscriptItem[]>;
-    const api = createChatDebugApi(makeRefs({ transcriptItemsRef }));
-    const result = api.tail();
-    expect(result).toHaveLength(1);
-    expect(result[0]!.kind).toBe("thinking");
-    expect((result[0] as { label: string | null }).label).toBe("Processing...");
-  });
-
-  test("respects limit parameter", () => {
-    const items: TranscriptItem[] = Array.from({ length: 30 }, (_, i) =>
-      fakeMessageItem(fakeDisplayMessage({ stableId: `msg-${i}`, id: `id-${i}` })),
+  test("respects limit parameter (slices from the end)", () => {
+    const items: DisplayMessage[] = Array.from({ length: 30 }, (_, i) =>
+      fakeDisplayMessage({ id: `id-${i}` }),
     );
-    const transcriptItemsRef = { current: items } as MutableRefObject<TranscriptItem[]>;
-    const api = createChatDebugApi(makeRefs({ transcriptItemsRef }));
-    const result = api.tail(5);
+    const sanitizedMessagesRef = {
+      current: items,
+    } as MutableRefObject<DisplayMessage[]>;
+    const api = createChatDebugApi(makeRefs({ sanitizedMessagesRef }));
+    const result = api.getClientMessages(5);
     expect(result).toHaveLength(5);
-    expect(result[0]!.index).toBe(25);
-    expect(result[4]!.index).toBe(29);
+    expect(result[0]!.id).toBe("id-25");
+    expect(result[4]!.id).toBe("id-29");
   });
 
   test("defaults to 20 items when no limit", () => {
-    const items: TranscriptItem[] = Array.from({ length: 30 }, (_, i) =>
-      fakeMessageItem(fakeDisplayMessage({ stableId: `msg-${i}`, id: `id-${i}` })),
+    const items: DisplayMessage[] = Array.from({ length: 30 }, (_, i) =>
+      fakeDisplayMessage({ id: `id-${i}` }),
     );
-    const transcriptItemsRef = { current: items } as MutableRefObject<TranscriptItem[]>;
-    const api = createChatDebugApi(makeRefs({ transcriptItemsRef }));
-    const result = api.tail();
+    const sanitizedMessagesRef = {
+      current: items,
+    } as MutableRefObject<DisplayMessage[]>;
+    const api = createChatDebugApi(makeRefs({ sanitizedMessagesRef }));
+    const result = api.getClientMessages();
     expect(result).toHaveLength(20);
+    expect(result[0]!.id).toBe("id-10");
   });
 
   test("returns all items when fewer than limit", () => {
-    const items: TranscriptItem[] = Array.from({ length: 5 }, (_, i) =>
-      fakeMessageItem(fakeDisplayMessage({ stableId: `msg-${i}`, id: `id-${i}` })),
+    const items: DisplayMessage[] = Array.from({ length: 5 }, (_, i) =>
+      fakeDisplayMessage({ id: `id-${i}` }),
     );
-    const transcriptItemsRef = { current: items } as MutableRefObject<TranscriptItem[]>;
-    const api = createChatDebugApi(makeRefs({ transcriptItemsRef }));
-    const result = api.tail(20);
+    const sanitizedMessagesRef = {
+      current: items,
+    } as MutableRefObject<DisplayMessage[]>;
+    const api = createChatDebugApi(makeRefs({ sanitizedMessagesRef }));
+    const result = api.getClientMessages(20);
     expect(result).toHaveLength(5);
-    expect(result[0]!.index).toBe(0);
+    expect(result[0]!.id).toBe("id-0");
   });
 
   test("coerces invalid limit to default", () => {
-    const items: TranscriptItem[] = Array.from({ length: 30 }, (_, i) =>
-      fakeMessageItem(fakeDisplayMessage({ stableId: `msg-${i}`, id: `id-${i}` })),
+    const items: DisplayMessage[] = Array.from({ length: 30 }, (_, i) =>
+      fakeDisplayMessage({ id: `id-${i}` }),
     );
-    const transcriptItemsRef = { current: items } as MutableRefObject<TranscriptItem[]>;
-    const api = createChatDebugApi(makeRefs({ transcriptItemsRef }));
-    expect(api.tail(-1)).toHaveLength(20);
-    expect(api.tail(NaN)).toHaveLength(20);
-    expect(api.tail(Infinity)).toHaveLength(20);
+    const sanitizedMessagesRef = {
+      current: items,
+    } as MutableRefObject<DisplayMessage[]>;
+    const api = createChatDebugApi(makeRefs({ sanitizedMessagesRef }));
+    expect(api.getClientMessages(-1)).toHaveLength(20);
+    expect(api.getClientMessages(NaN)).toHaveLength(20);
+    expect(api.getClientMessages(Infinity)).toHaveLength(20);
+  });
+
+  test("reads from sanitizedMessagesRef, NOT raw messagesRef", () => {
+    // getClientMessages() is logic-free — it surfaces whatever the render path
+    // already wrote to `sanitizedMessagesRef`. Raw `messagesRef` is
+    // intentionally ignored so DevTools always mirrors the UI.
+    const rawOnly = fakeDisplayMessage({ id: "raw-only" });
+    const sanitizedOnly = fakeDisplayMessage({ id: "sanitized-only" });
+    const api = createChatDebugApi(
+      makeRefs({
+        messagesRef: { current: [rawOnly] } as MutableRefObject<DisplayMessage[]>,
+        sanitizedMessagesRef: {
+          current: [sanitizedOnly],
+        } as MutableRefObject<DisplayMessage[]>,
+      }),
+    );
+    const result = api.getClientMessages();
+    expect(result).toHaveLength(1);
+    expect(result[0]!.id).toBe("sanitized-only");
+  });
+});
+
+// ---------------------------------------------------------------------------
+//  createChatDebugApi — getTranscriptItems
+// ---------------------------------------------------------------------------
+
+describe("createChatDebugApi.getTranscriptItems", () => {
+  test("empty transcriptItemsRef → empty array", () => {
+    const api = createChatDebugApi(makeRefs());
+    expect(api.getTranscriptItems()).toEqual([]);
+  });
+
+  test("returns the same array reference the render path wrote", () => {
+    // getTranscriptItems() must be logic-free — same array <Transcript />
+    // iterates. Identity (===) lets DevTools cross-reference with React
+    // DevTools and confirm we're inspecting the live snapshot, not a copy.
+    const items: TranscriptItem[] = [
+      {
+        kind: "message",
+        key: "msg-a",
+        message: fakeDisplayMessage({ id: "msg-a" }),
+      },
+      { kind: "thinking", key: "thinking", label: "Processing" },
+      { kind: "queuedMarker", key: "queued", count: 2 },
+    ];
+    const api = createChatDebugApi(
+      makeRefs({
+        transcriptItemsRef: { current: items } as MutableRefObject<
+          TranscriptItem[]
+        >,
+      }),
+    );
+    expect(api.getTranscriptItems()).toBe(items);
+  });
+
+  test("surfaces the full discriminated union — not just message rows", () => {
+    // The whole point of getTranscriptItems(): inspect non-message rows
+    // (thinking, pending prompts, queued marker) which getClientMessages()
+    // doesn't carry.
+    const items: TranscriptItem[] = [
+      {
+        kind: "message",
+        key: "msg-a",
+        message: fakeDisplayMessage({ id: "msg-a" }),
+      },
+      { kind: "pendingSecret", key: "ps-1", requestId: "req-1" },
+      {
+        kind: "pendingConfirmation",
+        key: "pc-1",
+        requestId: "req-2",
+      },
+      { kind: "thinking", key: "thinking" },
+    ];
+    const api = createChatDebugApi(
+      makeRefs({
+        transcriptItemsRef: { current: items } as MutableRefObject<
+          TranscriptItem[]
+        >,
+      }),
+    );
+    const result = api.getTranscriptItems();
+    expect(result.map((i) => i.kind)).toEqual([
+      "message",
+      "pendingSecret",
+      "pendingConfirmation",
+      "thinking",
+    ]);
+  });
+
+  test("reads from transcriptItemsRef, NOT derived from sanitizedMessagesRef", () => {
+    // Contract pin: the API must not synthesize TranscriptItems from
+    // DisplayMessages — that would re-run buildTranscriptItems logic
+    // and drift from what the UI is actually rendering. The render path
+    // owns the projection; this method just exposes its output.
+    const msg = fakeDisplayMessage({ id: "from-sanitized" });
+    const api = createChatDebugApi(
+      makeRefs({
+        sanitizedMessagesRef: {
+          current: [msg],
+        } as MutableRefObject<DisplayMessage[]>,
+        // transcriptItemsRef intentionally empty — if the impl projected
+        // from sanitizedMessagesRef, we'd get a non-empty result.
+        transcriptItemsRef: { current: [] } as MutableRefObject<
+          TranscriptItem[]
+        >,
+      }),
+    );
+    expect(api.getTranscriptItems()).toEqual([]);
   });
 });
 
@@ -425,7 +511,7 @@ describe("createChatDebugApi.thinkingIndicator", () => {
 describe("createChatDebugApi.serverMessages", () => {
   test("throws when no context or assistant", async () => {
     const api = createChatDebugApi(
-      makeRefs({ getAssistantId: () => null, activeConversationKeyRef: { current: null } }),
+      makeRefs({ getAssistantId: () => null, activeConversationIdRef: { current: null } }),
     );
     await expect(api.serverMessages()).rejects.toThrow(
       "no active assistant/conversation context",
@@ -433,21 +519,21 @@ describe("createChatDebugApi.serverMessages", () => {
   });
 
   test("returns raw RuntimeMessage[] from injected historyFetcher", async () => {
-    const activeConversationKeyRef = { current: "conv-1" } as MutableRefObject<string | null>;
+    const activeConversationIdRef = { current: "conv-1" } as MutableRefObject<string | null>;
     const serverList = [
       fakeRuntimeMessage({ id: "srv-1" }),
       fakeRuntimeMessage({ id: "srv-2", role: "user" }),
     ];
     const historyFetcher = async () => serverList;
-    const api = createChatDebugApi(makeRefs({ historyFetcher, activeConversationKeyRef }));
+    const api = createChatDebugApi(makeRefs({ historyFetcher, activeConversationIdRef }));
     const result = await api.serverMessages();
     expect(result).toBe(serverList);
     expect(result).toHaveLength(2);
     expect(result[0]!.id).toBe("srv-1");
   });
 
-  test("prefers streamContextRef over activeConversationKeyRef + getAssistantId", async () => {
-    const activeConversationKeyRef = { current: "conv-fallback" } as MutableRefObject<string | null>;
+  test("prefers streamContextRef over activeConversationIdRef + getAssistantId", async () => {
+    const activeConversationIdRef = { current: "conv-fallback" } as MutableRefObject<string | null>;
     const streamContextRef = {
       current: { assistantId: "asst-stream", conversationId: "conv-stream" },
     } as MutableRefObject<{ assistantId: string; conversationId: string } | null>;
@@ -460,7 +546,7 @@ describe("createChatDebugApi.serverMessages", () => {
       makeRefs({
         getAssistantId: () => "asst-fallback",
         streamContextRef,
-        activeConversationKeyRef,
+        activeConversationIdRef,
         historyFetcher,
       }),
     );
@@ -507,7 +593,8 @@ describe("createChatDebugApi.help", () => {
     console.log = originalLog;
 
     const text = consoleSpy.logged.join("\n");
-    expect(text).toContain(".tail(");
+    expect(text).toContain(".getClientMessages(");
+    expect(text).toContain(".getTranscriptItems(");
     expect(text).toContain(".thinkingIndicator()");
     expect(text).toContain(".forceReconcile()");
     expect(text).toContain(".serverMessages()");
@@ -603,41 +690,83 @@ describe("createChatDebugApi.listPendingInteractions", () => {
 });
 
 // ---------------------------------------------------------------------------
-//  installChatDebugApi
+//  installVellumDebugApi
 // ---------------------------------------------------------------------------
 
-describe("installChatDebugApi", () => {
-  test("attaches to window._vellumDebug.chat", () => {
+type DebugWindow = Window & {
+  _vellumDebug?: {
+    chat?: unknown;
+    events?: { getClients: unknown; getEvents: unknown };
+    flags?: {
+      toggleTranscriptScrollController?: (v?: boolean) => boolean;
+      impersonateVersion?: (v?: string | null) => string | null;
+    };
+    other?: unknown;
+  };
+};
+
+const makeFlagsApi = () => ({
+  toggleTranscriptScrollController: (_value?: boolean): boolean => false,
+  impersonateVersion: (_value?: string | null): string | null => null,
+});
+
+describe("installVellumDebugApi", () => {
+  test("attaches .events, .chat, and .flags in one call", () => {
     const api = createChatDebugApi(makeRefs());
-    const uninstall = installChatDebugApi(api);
-    expect(
-      (globalThis as unknown as Window & { _vellumDebug?: { chat?: unknown } })
-        ._vellumDebug?.chat,
-    ).toBe(api);
+    const flags = makeFlagsApi();
+    const uninstall = installVellumDebugApi(api, flags);
+    const root = (globalThis as unknown as DebugWindow)._vellumDebug;
+    expect(root?.chat).toBe(api);
+    expect(root?.events).toBeDefined();
+    expect(typeof root?.events?.getClients).toBe("function");
+    expect(typeof root?.events?.getEvents).toBe("function");
+    expect(typeof root?.flags?.toggleTranscriptScrollController).toBe(
+      "function",
+    );
+    expect(typeof root?.flags?.impersonateVersion).toBe("function");
     uninstall();
   });
 
-  test("removes on uninstall", () => {
+  test("removes .events, .chat, and .flags on uninstall", () => {
     const api = createChatDebugApi(makeRefs());
-    const uninstall = installChatDebugApi(api);
+    const uninstall = installVellumDebugApi(api, makeFlagsApi());
     uninstall();
-    expect(
-      (globalThis as unknown as Window & { _vellumDebug?: { chat?: unknown } })
-        ._vellumDebug?.chat,
-    ).toBeUndefined();
+    const root = (globalThis as unknown as DebugWindow)._vellumDebug;
+    // Root should be gone entirely since nothing else was attached.
+    expect(root).toBeUndefined();
   });
 
   test("preserves sibling debug namespaces when uninstalling", () => {
-    const win = globalThis as {
-      window: { _vellumDebug?: { chat?: unknown; other?: unknown } };
-    };
+    const win = globalThis as unknown as { window: DebugWindow };
     win.window._vellumDebug = { other: "keep" };
 
     const api = createChatDebugApi(makeRefs());
-    const uninstall = installChatDebugApi(api);
+    const uninstall = installVellumDebugApi(api, makeFlagsApi());
     uninstall();
     expect(win.window._vellumDebug?.chat).toBeUndefined();
-    expect(win.window._vellumDebug?.other).toBeDefined();
+    expect(win.window._vellumDebug?.events).toBeUndefined();
+    expect(win.window._vellumDebug?.flags).toBeUndefined();
+    expect(win.window._vellumDebug?.other).toBe("keep");
+
+    // Cleanup so we don't leak state into other tests.
+    delete win.window._vellumDebug;
+  });
+
+  test("identity-checks chat on teardown so a newer mount isn't clobbered", () => {
+    const first = createChatDebugApi(makeRefs());
+    const uninstallFirst = installVellumDebugApi(first, makeFlagsApi());
+
+    const second = createChatDebugApi(makeRefs());
+    installVellumDebugApi(second, makeFlagsApi());
+
+    // First mount's teardown runs after second mount installed —
+    // simulates strict-mode double-mount or hot-reload races.
+    uninstallFirst();
+
+    const root = (globalThis as unknown as DebugWindow)._vellumDebug;
+    expect(root?.chat).toBe(second);
+    expect(root?.events).toBeDefined();
+    expect(root?.flags).toBeDefined();
   });
 });
 
@@ -797,9 +926,9 @@ describe("createChatDebugApi.getScrollState", () => {
     });
     const messagesRef = {
       current: [
-        fakeDisplayMessage({ stableId: "a" }),
-        fakeDisplayMessage({ stableId: "b" }),
-        fakeDisplayMessage({ stableId: "c" }),
+        fakeDisplayMessage({ id: "a" }),
+        fakeDisplayMessage({ id: "b" }),
+        fakeDisplayMessage({ id: "c" }),
       ],
     } as MutableRefObject<DisplayMessage[]>;
     const api = createChatDebugApi(

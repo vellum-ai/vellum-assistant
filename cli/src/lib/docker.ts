@@ -1,5 +1,11 @@
 import { randomBytes } from "crypto";
-import { chmodSync, existsSync, mkdirSync, watch as fsWatch } from "fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  watch as fsWatch,
+} from "fs";
 import { arch, platform } from "os";
 import { dirname, join, resolve } from "path";
 
@@ -35,7 +41,8 @@ import {
   formatProviderName,
   resolveHatchProvider,
 } from "./provider-secrets.js";
-import { exec, execOutput } from "./step-runner";
+import { findOpenPort } from "./port-allocator.js";
+import { exec, execOutput, execWithStdin } from "./step-runner";
 import {
   closeLogFile,
   openLogFile,
@@ -645,7 +652,6 @@ export async function startContainers(
     extraAssistantEnv?: Record<string, string>;
     gatewayPort: number;
     imageTags: Record<ServiceName, string>;
-    defaultWorkspaceConfigPath?: string;
     instanceName: string;
     res: ReturnType<typeof dockerResourceNames>;
   },
@@ -981,7 +987,22 @@ export async function hatchDocker(
     await ensureDockerInstalled();
 
     const instanceName = generateInstanceName(species, name);
-    const gatewayPort = getDefaultPorts(getCurrentEnvironment()).gateway;
+    // Resolve the gateway's host port dynamically. The env-default
+    // (production 7830 / non-prod overrides) is just the *preferred*
+    // starting point — if it's taken by another local assistant, eval
+    // run, or unrelated process, we walk upward until we find a free
+    // port. This replaces the previous "first one in wins, everyone
+    // else gets a docker bind error" behavior and removes the need for
+    // an orphan-cleanup pre-flight in the evals harness.
+    const preferredGatewayPort = getDefaultPorts(
+      getCurrentEnvironment(),
+    ).gateway;
+    const gatewayPort = await findOpenPort(preferredGatewayPort);
+    if (gatewayPort !== preferredGatewayPort) {
+      log(
+        `Preferred gateway port ${preferredGatewayPort} is in use; allocated ${gatewayPort} for this instance.`,
+      );
+    }
 
     const imageTags: Record<ServiceName, string> = {
       assistant: "",
@@ -1150,10 +1171,53 @@ export async function hatchDocker(
       "chown 1001:1001 /workspace /run/assistant-ipc /run/gateway-ipc",
     ]);
 
-    // Write --config key=value pairs to a temp file that gets bind-mounted
-    // into the assistant container and read via VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH.
+    // Stage the BYOK default-workspace-config overlay *inside* the workspace
+    // volume so the daemon's startup loader can consume it. The loader
+    // (`mergeDefaultWorkspaceConfig` in assistant/src/config/loader.ts) does:
+    //   1. JSON.parse + deep-merge into the workspace's config.json.
+    //   2. `renameSync(defaultConfigPath, <workspace>/default-config.json)`
+    //      to mark the overlay consumed so subsequent restarts skip it.
+    //
+    // The rename must be same-filesystem. Bind-mounting the host file into
+    // `/tmp/...` (the pre-#32025 design) crossed filesystems and silently
+    // failed with EXDEV, so every `docker start` re-applied the overlay.
+    // Staging into the workspace volume keeps the rename in-place.
+    //
+    // Streaming the JSON via stdin (instead of bind-mounting the host file
+    // into the staging container) sidesteps macOS Colima's virtiofs share,
+    // which doesn't expose `/var/folders/...` (where `os.tmpdir()` resolves
+    // on macOS) and would otherwise materialize an empty directory at the
+    // bind-mount target.
+    //
+    // @deprecated stopgap. Replacement direction is one of:
+    //   1. Post-hatch API calls (POST /v1/secrets + a small endpoint that
+    //      returns canonical inference-profile templates).
+    //   2. Move inference-profile seeds out of workspace config and into
+    //      Assistant code, eliminating the overlay entirely.
+    // See `cli/src/lib/config-utils.ts` JSDoc for context.
     const hatchConfigValues = buildHatchConfigValues(configValues, provider);
-    const defaultWorkspaceConfigPath = writeInitialConfig(hatchConfigValues);
+    const hostOverlayPath = writeInitialConfig(hatchConfigValues);
+    const stagedOverlayInContainer = "/workspace/.default-config-overlay.json";
+    const extraAssistantEnv: Record<string, string> = {};
+    if (hostOverlayPath) {
+      await execWithStdin(
+        "docker",
+        [
+          "run",
+          "--rm",
+          "-i",
+          "-v",
+          `${res.workspaceVolume}:/workspace`,
+          "busybox",
+          "sh",
+          "-c",
+          `cat > ${stagedOverlayInContainer} && chown 1001:1001 ${stagedOverlayInContainer}`,
+        ],
+        readFileSync(hostOverlayPath, "utf-8"),
+      );
+      extraAssistantEnv.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH =
+        stagedOverlayInContainer;
+    }
 
     const cesServiceToken = randomBytes(32).toString("hex");
     const signingKey = randomBytes(32).toString("hex");
@@ -1175,9 +1239,9 @@ export async function hatchDocker(
         signingKey,
         bootstrapSecret,
         cesServiceToken,
+        extraAssistantEnv,
         gatewayPort,
         imageTags,
-        defaultWorkspaceConfigPath,
         instanceName,
         res,
       },

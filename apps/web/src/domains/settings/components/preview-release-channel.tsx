@@ -23,14 +23,14 @@ import {
   assistantsReleaseChannelRetrieveOptions,
   assistantsReleaseChannelRetrieveQueryKey,
   assistantsRetrieveQueryKey,
-} from "@/generated/api/@tanstack/react-query.gen.js";
+} from "@/generated/api/@tanstack/react-query.gen";
 import type {
   ModeEnum,
   PreviewSafetyBackup,
   ReleaseChannelStatus,
-} from "@/generated/api/types.gen.js";
-import { extractErrorMessage } from "@/lib/api-errors.js";
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
+} from "@/generated/api/types.gen";
+import { extractErrorMessage } from "@/lib/api-errors";
+import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
 
 interface PreviewReleaseChannelProps {
   assistantId: string;
@@ -542,7 +542,7 @@ function OptOutModal({
                 <Notice tone="error" title="Stable requires a safety backup">
                   This Preview release is newer than the latest Stable release,
                   so switching directly is blocked. Wait for a newer Stable
-                  release or contact support if the safety backup is missing.
+                  release, or run Vellum Doctor if the safety backup is missing.
                 </Notice>
               )}
 

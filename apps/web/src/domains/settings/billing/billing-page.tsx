@@ -5,18 +5,19 @@ import { useSearchParams, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { toast } from "@vellum/design-library/components/toast";
-import { BillingOnboardingModal } from "@/domains/settings/billing/pro-onboarding/index.js";
-import { AdjustPlanModal } from "@/domains/settings/components/adjust-plan-modal.js";
-import { BillingPanel } from "@/domains/settings/components/billing-panel.js";
-import { BillingPortalReturnHandler } from "@/domains/settings/components/billing-portal-return-handler.js";
-import { BillingUsagePanel } from "@/domains/settings/components/billing-usage/billing-usage-panel.js";
-import { GracePeriodBanner } from "@/domains/settings/components/grace-period-banner.js";
-import { PaymentMethodsCard } from "@/domains/settings/components/payment-methods-card.js";
-import { PlanCard } from "@/domains/settings/components/plan-card.js";
-import { ReferralPanel } from "@/domains/settings/components/referral-panel.js";
-import { organizationsBillingSummaryRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen.js";
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
-import { routes } from "@/utils/routes.js";
+import { BillingOnboardingModal } from "@/domains/settings/billing/pro-onboarding/index";
+import { AdjustPlanModal } from "@/domains/settings/components/adjust-plan-modal";
+import { BillingPanel } from "@/domains/settings/components/billing-panel";
+import { BillingPortalReturnHandler } from "@/domains/settings/components/billing-portal-return-handler";
+import { BillingUsagePanel } from "@/domains/settings/components/billing-usage/billing-usage-panel";
+import { GracePeriodBanner } from "@/domains/settings/components/grace-period-banner";
+import { PaymentMethodsCard } from "@/domains/settings/components/payment-methods-card";
+import { PlanCard } from "@/domains/settings/components/plan-card";
+import { TierUpgradeResizeModal } from "@/domains/settings/components/tier-upgrade-resize-modal";
+import { ReferralPanel } from "@/domains/settings/components/referral-panel";
+import { organizationsBillingSummaryRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
+import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
+import { routes } from "@/utils/routes";
 
 /**
  * Handles the `billing_status` query parameter that Stripe redirects back with
@@ -57,6 +58,8 @@ export function BillingPage() {
   const [planModalOpen, setPlanModalOpen] = useState(false);
   const openPlanModal = useCallback(() => setPlanModalOpen(true), []);
   const closePlanModal = useCallback(() => setPlanModalOpen(false), []);
+  const [resizeModalOpen, setResizeModalOpen] = useState(false);
+  const onTierUpgraded = useCallback(() => setResizeModalOpen(true), []);
 
   useEffect(() => {
     if (searchParams.has("adjust_plan")) {
@@ -88,7 +91,7 @@ export function BillingPage() {
       {proPlanAdjust && (
         <>
           <PlanCard onManage={openPlanModal} />
-          <AdjustPlanModal open={planModalOpen} onClose={closePlanModal} />
+          <AdjustPlanModal open={planModalOpen} onClose={closePlanModal} onTierUpgraded={onTierUpgraded} />
         </>
       )}
       <PaymentMethodsCard />
@@ -98,6 +101,10 @@ export function BillingPage() {
       <ReferralPanel />
       <BillingUsagePanel />
       <BillingOnboardingModal open={hasSessionId} onClose={closeOnboarding} />
+      <TierUpgradeResizeModal
+        open={resizeModalOpen}
+        onClose={() => setResizeModalOpen(false)}
+      />
     </div>
   );
 }

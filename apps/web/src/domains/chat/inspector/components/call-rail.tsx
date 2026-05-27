@@ -1,3 +1,4 @@
+import { TriangleAlert } from "lucide-react";
 import { type ReactNode } from "react";
 import { Link } from "react-router";
 
@@ -6,8 +7,11 @@ import {
   displayText,
   formattedCreatedAt,
   MISSING_VALUE,
-} from "@/domains/chat/inspector/inspector-formatters.js";
-import type { LLMRequestLogEntry } from "@/domains/chat/types/inspector-types.js";
+} from "@/domains/chat/inspector/inspector-formatters";
+import {
+  CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE,
+  type LLMRequestLogEntry,
+} from "@vellumai/assistant-api";
 
 interface CallRailProps {
   logs: LLMRequestLogEntry[];
@@ -77,12 +81,19 @@ function CallRow({
   isLatest,
   href,
 }: CallRowProps): ReactNode {
-  const provider = displayProvider(entry.summary?.provider ?? null);
-  const model = entry.summary?.model ? displayText(entry.summary.model) : null;
-  const subtitle =
-    [provider !== MISSING_VALUE ? provider : null, model]
-      .filter((value): value is string => Boolean(value))
-      .join(" · ") || "Unrecognized call";
+  const isSynthetic = isSyntheticAgentErrorMessage(entry);
+  const subtitle = buildCallSubtitle(entry) ?? "Unrecognized call";
+
+  // Synthetic rows (e.g. budget_yield_unrecovered) represent agent-loop
+  // error messages with no LLM call backing them. Render with a
+  // warning-tinted border + icon so a yielded turn is spottable in the
+  // rail at a glance, while still occupying a numbered call slot so the
+  // "Call N" framing stays consistent with the rest of the conversation.
+  const borderColor = isSelected
+    ? "var(--border-active)"
+    : isSynthetic
+      ? "var(--system-negative-strong)"
+      : "var(--border-base)";
 
   return (
     <Link
@@ -93,9 +104,7 @@ function CallRow({
         background: isSelected
           ? "var(--surface-active)"
           : "var(--surface-overlay)",
-        border: `1px solid ${
-          isSelected ? "var(--border-active)" : "var(--border-base)"
-        }`,
+        border: `1px solid ${borderColor}`,
       }}
     >
       <div className="flex items-baseline gap-2">
@@ -103,7 +112,18 @@ function CallRow({
           className="line-clamp-1 flex-1 text-body-medium-default"
           style={{ color: "var(--content-default)" }}
         >
-          Call {callNumber}
+          {isSynthetic ? (
+            <span className="inline-flex items-center gap-1.5">
+              <TriangleAlert
+                className="h-3.5 w-3.5"
+                style={{ color: "var(--system-negative-strong)" }}
+                aria-hidden
+              />
+              <span>Call {callNumber}</span>
+            </span>
+          ) : (
+            <>Call {callNumber}</>
+          )}
         </span>
         {isLatest ? (
           <span
@@ -116,7 +136,11 @@ function CallRow({
       </div>
       <div
         className="line-clamp-2 text-label-default"
-        style={{ color: "var(--content-secondary)" }}
+        style={{
+          color: isSynthetic
+            ? "var(--system-negative-strong)"
+            : "var(--content-secondary)",
+        }}
       >
         {subtitle}
       </div>
@@ -128,4 +152,45 @@ function CallRow({
       </div>
     </Link>
   );
+}
+
+function isSyntheticAgentErrorMessage(entry: LLMRequestLogEntry): boolean {
+  return entry.callSite === CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE;
+}
+
+/**
+ * Single source of truth for a rail row's subtitle. For real LLM calls
+ * this is `provider · model`; for synthetic error-message rows it's a
+ * recognizable phrase derived from the `agentLoopExitReason` column.
+ * Returns `null` when the row has neither — caller renders a generic
+ * "Unrecognized call" string.
+ */
+function buildCallSubtitle(entry: LLMRequestLogEntry): string | null {
+  if (isSyntheticAgentErrorMessage(entry)) {
+    return syntheticErrorSubtitle(entry.agentLoopExitReason ?? null);
+  }
+  const provider = displayProvider(entry.summary?.provider ?? null);
+  const model = entry.summary?.model ? displayText(entry.summary.model) : null;
+  const parts = [provider !== MISSING_VALUE ? provider : null, model].filter(
+    (value): value is string => Boolean(value),
+  );
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+/**
+ * Maps the stamped `agent_loop_exit_reason` on a synthetic row to a
+ * recognizable rail subtitle. New exit reasons added in the future
+ * (out_of_funds, …) get their own branch here — the fallback keeps the
+ * row rendering with the raw reason instead of a blank subtitle.
+ */
+function syntheticErrorSubtitle(exitReason: string | null): string {
+  switch (exitReason) {
+    case "budget_yield_unrecovered":
+      return "Yield · compaction couldn't fit next step";
+    case null:
+    case "":
+      return "Agent loop error";
+    default:
+      return `Agent loop error · ${exitReason}`;
+  }
 }

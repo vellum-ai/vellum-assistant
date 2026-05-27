@@ -17,10 +17,10 @@ import {
   useMemo,
 } from "react";
 
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
-import { clearQueueStatus } from "@/domains/chat/hooks/stream-message-updaters.js";
-import { useTurnStore } from "@/domains/messaging/turn-store.js";
-import { deleteQueuedMessage, steerToMessage } from "@/domains/chat/api/messages.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import { clearQueueStatus } from "@/domains/chat/hooks/stream-message-updaters";
+import { useTurnStore } from "@/domains/messaging/turn-store";
+import { deleteQueuedMessage, steerToMessage } from "@/domains/chat/api/messages";
 
 // ---------------------------------------------------------------------------
 // Params
@@ -28,12 +28,12 @@ import { deleteQueuedMessage, steerToMessage } from "@/domains/chat/api/messages
 
 interface UseMessageQueueParams {
   assistantId: string | null;
-  activeConversationKey: string | null;
+  activeConversationId: string | null;
   messages: DisplayMessage[];
 
   // Refs
-  pendingQueuedStableIdsRef: MutableRefObject<string[]>;
-  requestIdToStableIdRef: MutableRefObject<Map<string, string>>;
+  pendingQueuedMessageIdsRef: MutableRefObject<string[]>;
+  requestIdToMessageIdRef: MutableRefObject<Map<string, string>>;
   pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
 
   // State setters
@@ -48,20 +48,20 @@ interface UseMessageQueueParams {
 
 export function useMessageQueue({
   assistantId,
-  activeConversationKey,
+  activeConversationId,
   messages,
-  pendingQueuedStableIdsRef,
-  requestIdToStableIdRef,
+  pendingQueuedMessageIdsRef,
+  requestIdToMessageIdRef,
   pendingLocalDeletionsRef,
   setMessages,
   setInput,
 }: UseMessageQueueParams) {
   /** Remove an optimistically-added queued message and its tracking state. */
   const revertQueuedMessage = useCallback(
-    (stableId: string) => {
-      setMessages((prev) => prev.filter((m) => m.stableId !== stableId));
-      pendingQueuedStableIdsRef.current = pendingQueuedStableIdsRef.current.filter(
-        (id) => id !== stableId,
+    (messageId: string) => {
+      setMessages((prev) => prev.filter((m) => m.id !== messageId));
+      pendingQueuedMessageIdsRef.current = pendingQueuedMessageIdsRef.current.filter(
+        (id) => id !== messageId,
       );
     },
     [],
@@ -76,54 +76,54 @@ export function useMessageQueue({
   );
 
   const handleCancelQueuedMessage = useCallback(
-    (stableId: string) => {
-      if (!assistantId || !activeConversationKey) {
+    (messageId: string) => {
+      if (!assistantId || !activeConversationId) {
         return;
       }
       let targetRequestId: string | undefined;
-      for (const [reqId, sId] of requestIdToStableIdRef.current.entries()) {
-        if (sId === stableId) {
+      for (const [reqId, mId] of requestIdToMessageIdRef.current.entries()) {
+        if (mId === messageId) {
           targetRequestId = reqId;
           break;
         }
       }
-      setMessages((prev) => prev.filter((m) => m.stableId !== stableId));
+      setMessages((prev) => prev.filter((m) => m.id !== messageId));
       if (targetRequestId) {
-        void deleteQueuedMessage(assistantId, activeConversationKey, targetRequestId);
+        void deleteQueuedMessage(assistantId, activeConversationId, targetRequestId);
       } else {
-        pendingLocalDeletionsRef.current.add(stableId);
+        pendingLocalDeletionsRef.current.add(messageId);
         useTurnStore.getState().deleteQueuedMessage();
       }
     },
-    [assistantId, activeConversationKey],
+    [assistantId, activeConversationId],
   );
 
   const handleCancelAllQueued = useCallback(() => {
     for (const msg of queuedMessages) {
-      handleCancelQueuedMessage(msg.stableId);
+      handleCancelQueuedMessage(msg.id);
     }
   }, [queuedMessages, handleCancelQueuedMessage]);
 
   const handleSteerMessage = useCallback(
-    (stableId: string) => {
-      if (!assistantId || !activeConversationKey) {
+    (messageId: string) => {
+      if (!assistantId || !activeConversationId) {
         return;
       }
       let targetRequestId: string | undefined;
-      for (const [reqId, sId] of requestIdToStableIdRef.current.entries()) {
-        if (sId === stableId) {
+      for (const [reqId, mId] of requestIdToMessageIdRef.current.entries()) {
+        if (mId === messageId) {
           targetRequestId = reqId;
           break;
         }
       }
       if (targetRequestId) {
-        setMessages((prev) => clearQueueStatus(prev, stableId));
-        steerToMessage(assistantId, activeConversationKey, targetRequestId).then(
+        setMessages((prev) => clearQueueStatus(prev, messageId));
+        steerToMessage(assistantId, activeConversationId, targetRequestId).then(
           (ok) => {
             if (!ok) {
               setMessages((prev) =>
                 prev.map((m) =>
-                  m.stableId === stableId
+                  m.id === messageId
                     ? { ...m, queueStatus: "queued" as const }
                     : m,
                 ),
@@ -133,7 +133,7 @@ export function useMessageQueue({
         );
       }
     },
-    [assistantId, activeConversationKey],
+    [assistantId, activeConversationId],
   );
 
   const handleEditQueueTail = useCallback(() => {
@@ -145,7 +145,7 @@ export function useMessageQueue({
       return;
     }
     setInput(tail.content);
-    handleCancelQueuedMessage(tail.stableId);
+    handleCancelQueuedMessage(tail.id);
   }, [queuedMessages, handleCancelQueuedMessage]);
 
   return {

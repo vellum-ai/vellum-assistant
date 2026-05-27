@@ -102,6 +102,9 @@ export async function executeSubagentSpawn(
         ...(inheritedOverrideProfile
           ? { overrideProfile: inheritedOverrideProfile }
           : {}),
+        ...(context.toolUseId
+          ? { parentToolUseId: context.toolUseId }
+          : {}),
         ...forkFields,
       },
       sendToClient as (msg: unknown) => void,

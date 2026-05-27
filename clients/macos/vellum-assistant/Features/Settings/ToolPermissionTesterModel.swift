@@ -20,12 +20,22 @@ struct SimulationResult: Equatable {
     /// Execution target resolved by the daemon from the tool name.
     let snapshotExecutionTarget: String?
 
+    /// Inferred approval reason from the decision reason text.
+    let approvalReason: String?
+
+    /// The risk level to display in the badge, which may differ from the raw
+    /// `riskLevel` (e.g. "workspace" for sandbox auto-approved results).
+    var effectiveDisplayLevel: String {
+        effectiveRiskDisplay(approvalReason: approvalReason, riskLevel: riskLevel).displayLevel
+    }
+
     static func == (lhs: SimulationResult, rhs: SimulationResult) -> Bool {
         lhs.decision == rhs.decision
         && lhs.riskLevel == rhs.riskLevel
         && lhs.reason == rhs.reason
         && lhs.matchedTrustRuleId == rhs.matchedTrustRuleId
         && lhs.localOverrideLabel == rhs.localOverrideLabel
+        && lhs.approvalReason == rhs.approvalReason
     }
 }
 
@@ -402,15 +412,23 @@ final class ToolPermissionTesterModel: ObservableObject {
             return
         }
 
+        // Infer approvalReason from the reason text since the simulate
+        // endpoint doesn't return it directly.
+        let reason = response.reason ?? ""
+        let inferredApprovalReason: String? = reason.contains("sandbox auto-approve")
+            ? "sandbox_auto_approve"
+            : nil
+
         lastResult = SimulationResult(
             decision: response.decision ?? "unknown",
             riskLevel: response.riskLevel ?? "unknown",
-            reason: response.reason ?? "",
+            reason: reason,
             matchedTrustRuleId: response.matchedTrustRuleId,
             promptPayload: response.promptPayload,
             snapshotToolName: pendingSnapshotToolName,
             snapshotInputJSON: pendingSnapshotInputJSON,
-            snapshotExecutionTarget: response.executionTarget
+            snapshotExecutionTarget: response.executionTarget,
+            approvalReason: inferredApprovalReason
         )
     }
 

@@ -19,8 +19,8 @@ import {
   writeUsage,
 } from "../metrics";
 import type { TestDef } from "../test-def";
-import scoreAssistantCost from "../../../tests/timeline-recall/metrics/assistant-cost";
-import scoreDateMentioned from "../../../tests/timeline-recall/metrics/date-mentioned";
+import scoreAssistantCost from "../../../benchmarks/personal-intelligence/tests/timeline-recall/metrics/assistant-cost";
+import scoreDateMentioned from "../../../benchmarks/personal-intelligence/tests/timeline-recall/metrics/date-mentioned";
 
 const testDef: TestDef = {
   id: "timeline-recall",
@@ -100,16 +100,17 @@ describe("timeline-recall metrics", () => {
   });
 });
 
-// Counter-padded 14-digit timestamp so seeded runs match the
-// `isValidRunId` regex (^eval-[a-z0-9\-]+-\d{14}$) the server enforces.
+// Counter-padded runId matching the production
+// `^eval-[a-z0-9\-]+-\d{17}-[a-f0-9]{4}$` shape the server enforces.
 let scavCounter = 0;
 async function seedRunningRun(input: {
   startedAt: string;
   lastHeartbeatAt?: string;
   status?: "running" | "completed" | "failed";
 }): Promise<string> {
-  const ts = `${Date.now()}${scavCounter++ % 10}`.slice(-14);
-  const runId = `eval-scav-${ts}`;
+  const ts = `${Date.now()}${scavCounter++}000`.slice(-17);
+  const rand = scavCounter.toString(16).padStart(4, "0").slice(-4);
+  const runId = `eval-scav-${ts}-${rand}`;
   await ensureRunArtifacts(runId);
   await writeRunMetadata(runId, {
     runId,

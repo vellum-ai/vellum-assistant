@@ -26,6 +26,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   getMessages: mockGetMessages,
   createConversation: mockCreateConversation,
   addMessage: mockAddMessage,
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 mock.module("../export/transcript-formatter.js", () => ({

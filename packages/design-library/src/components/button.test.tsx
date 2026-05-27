@@ -10,7 +10,7 @@ import { describe, expect, mock, test } from "bun:test";
 import { createRef } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { Button } from "./button.js";
+import { Button } from "./button";
 
 describe("Button rendering", () => {
   test("renders a <button> by default with type=button and children", () => {

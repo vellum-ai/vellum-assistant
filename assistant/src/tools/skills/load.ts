@@ -11,7 +11,6 @@ import {
   loadSkillCatalog,
 } from "../../config/skills.js";
 import { RiskLevel } from "../../permissions/types.js";
-import type { ToolDefinition } from "../../providers/types.js";
 import {
   autoInstallFromCatalog,
   resolveCatalog,
@@ -126,13 +125,10 @@ export class SkillLoadTool implements Tool {
   description =
     "Load full instructions for a skill. Works for both bundled skills (listed in the catalog) and custom workspace skills.";
   category = "skills";
+  executionTarget = "sandbox" as const;
   defaultRiskLevel = RiskLevel.Low;
 
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
+  input_schema = {
         type: "object",
         properties: {
           skill: {
@@ -141,9 +137,7 @@ export class SkillLoadTool implements Tool {
           },
         },
         required: ["skill"],
-      },
-    };
-  }
+      };
 
   async execute(
     input: Record<string, unknown>,

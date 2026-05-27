@@ -1,8 +1,8 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
-import { Button } from "./button.js";
-import { ConfirmDialog, type ConfirmDialogProps } from "./confirm-dialog.js";
+import { Button } from "./button";
+import { ConfirmDialog, type ConfirmDialogProps } from "./confirm-dialog";
 
 const meta: Meta<ConfirmDialogProps> = {
   title: "Components/ConfirmDialog",

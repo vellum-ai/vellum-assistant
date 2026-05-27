@@ -9,24 +9,24 @@
 // Side-effect import — configures the HeyAPI client (CSRF cookie + active
 // organization header) exactly the same way `./api.ts` does.
 
-import { client } from "@/generated/api/client.gen.js";
+import { client } from "@/generated/api/client.gen";
 import {
   ApiError,
   assertHasResponse,
   extractErrorMessage,
-} from "@/lib/api-errors.js";
+} from "@/lib/api-errors";
 import {
   recordChatDiagnostic,
   summarizeDisplayMessages,
-} from "@/domains/chat/utils/diagnostics.js";
+} from "@/domains/chat/utils/diagnostics";
 
-import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message.js";
-import { dedupeDisplayMessages } from "@/domains/chat/utils/reconcile.js";
-import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types.js";
+import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
+import { dedupeDisplayMessages } from "@/domains/chat/utils/reconcile";
+import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
 import type {
   RuntimeMessage,
   RuntimeSubagentNotification,
-} from "@/domains/chat/api/messages.js";
+} from "@/domains/chat/api/messages";
 
 const SDK_BASE_OPTIONS =
   typeof window === "undefined"
@@ -57,14 +57,14 @@ function parsePaginatedResponse(
         (m as RuntimeMessage).role === "assistant"),
   );
 
-  // Map to display messages first so we can correlate stableIds with
-  // subagent notifications. The two arrays share the same indices.
+  // Map to display messages first so we can correlate ids with subagent
+  // notifications. The two arrays share the same indices.
   const mapped = validMessages.map(mapRuntimeToDisplayMessage);
   const messages = dedupeDisplayMessages(mapped);
 
-  // Extract notifications and associate each with the stableId of the
-  // last non-notification assistant message (the message that spawned
-  // the subagent). This mirrors macOS HistoryReconstructionService.
+  // Extract notifications and associate each with the id of the last
+  // non-notification assistant message (the message that spawned the
+  // subagent). This mirrors macOS HistoryReconstructionService.
   const subagentNotifications: RuntimeSubagentNotification[] = [];
   let lastAssistantMessageId: string | undefined;
   for (let i = 0; i < validMessages.length; i++) {

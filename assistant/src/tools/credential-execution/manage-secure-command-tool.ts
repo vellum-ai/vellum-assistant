@@ -18,7 +18,6 @@
 import type { ManageSecureCommandTool } from "@vellumai/service-contracts/rpc";
 
 import { RiskLevel } from "../../permissions/types.js";
-import type { ToolDefinition } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 
@@ -31,13 +30,10 @@ class ManageSecureCommandToolImpl implements Tool {
     "Accepts only bundle metadata for guardian review - never raw bytes or file paths. " +
     "Each invocation requires fresh approval.";
   category = "credential-execution";
+  executionTarget = "sandbox" as const;
   defaultRiskLevel = RiskLevel.High;
 
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
+  input_schema = {
         type: "object",
         properties: {
           action: {
@@ -236,9 +232,7 @@ class ManageSecureCommandToolImpl implements Tool {
           },
         },
         required: ["action", "toolName"],
-      },
-    };
-  }
+      };
 
   async execute(
     input: Record<string, unknown>,

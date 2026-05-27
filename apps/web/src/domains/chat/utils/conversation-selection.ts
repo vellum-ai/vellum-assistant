@@ -1,20 +1,20 @@
-import type { Conversation } from "@/domains/chat/api/conversations.js";
+import type { Conversation } from "@/types/conversation-types";
 
-interface ResolveBootstrappedConversationKeyArgs {
+interface ResolveBootstrappedConversationIdArgs {
   queryParamKey: string | null;
-  onboardingDraftConversationKey?: string | null;
-  currentConversationKey: string | null;
+  onboardingDraftConversationId?: string | null;
+  currentConversationId: string | null;
   currentAssistantId: string | null;
   nextAssistantId: string;
-  storedConversationKey: string | null;
-  defaultConversationKey: string;
+  storedConversationId: string | null;
+  defaultConversationId: string;
   conversations: Pick<
     Conversation,
-    "conversationKey" | "conversationType" | "groupId"
+    "conversationId" | "conversationType" | "groupId"
   >[];
 }
 
-export function createDraftConversationKey(): string {
+export function createDraftConversationId(): string {
   return typeof globalThis.crypto?.randomUUID === "function"
     ? globalThis.crypto.randomUUID()
     : // crypto.randomUUID is ubiquitous in modern browsers, but guard for edge
@@ -26,12 +26,12 @@ export function createDraftConversationKey(): string {
 function isStoredConversationSelectable(
   conversations: Pick<
     Conversation,
-    "conversationKey" | "conversationType" | "groupId"
+    "conversationId" | "conversationType" | "groupId"
   >[],
   key: string,
 ): boolean {
   const conversation = conversations.find(
-    (item) => item.conversationKey === key,
+    (item) => item.conversationId === key,
   );
   if (!conversation) return false;
   return (
@@ -54,34 +54,34 @@ function isStoredConversationSelectable(
  * the server still lists it as a foreground conversation; background/scheduled
  * conversations require an explicit URL selection.
  */
-export function resolveBootstrappedConversationKey({
+export function resolveBootstrappedConversationId({
   queryParamKey,
-  onboardingDraftConversationKey,
-  currentConversationKey,
+  onboardingDraftConversationId,
+  currentConversationId,
   currentAssistantId,
   nextAssistantId,
-  storedConversationKey,
-  defaultConversationKey,
+  storedConversationId,
+  defaultConversationId,
   conversations,
-}: ResolveBootstrappedConversationKeyArgs): string {
+}: ResolveBootstrappedConversationIdArgs): string {
   if (queryParamKey) {
     return queryParamKey;
   }
 
-  if (onboardingDraftConversationKey) {
-    return onboardingDraftConversationKey;
+  if (onboardingDraftConversationId) {
+    return onboardingDraftConversationId;
   }
 
-  if (currentAssistantId === nextAssistantId && currentConversationKey) {
-    return currentConversationKey;
+  if (currentAssistantId === nextAssistantId && currentConversationId) {
+    return currentConversationId;
   }
 
   if (
-    storedConversationKey &&
-    isStoredConversationSelectable(conversations, storedConversationKey)
+    storedConversationId &&
+    isStoredConversationSelectable(conversations, storedConversationId)
   ) {
-    return storedConversationKey;
+    return storedConversationId;
   }
 
-  return defaultConversationKey;
+  return defaultConversationId;
 }

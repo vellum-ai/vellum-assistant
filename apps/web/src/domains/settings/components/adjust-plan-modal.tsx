@@ -1,4 +1,4 @@
-import { Crown, Loader2, Palmtree } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Crown, Loader2, Palmtree } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -10,32 +10,47 @@ import { Notice } from "@vellum/design-library/components/notice";
 import { Tag } from "@vellum/design-library/components/tag";
 import { toast } from "@vellum/design-library/components/toast";
 import { Typography } from "@vellum/design-library/components/typography";
-import { DowngradeReconfirmModal } from "./downgrade-reconfirm-modal.js";
-import { PlanFeatureList } from "./plan-feature-list.js";
-import { TierPicker, isTierDisabled } from "./tier-picker.js";
+import { DowngradeReconfirmModal } from "./downgrade-reconfirm-modal";
+import { PlanFeatureList } from "./plan-feature-list";
+import { TierPicker, isTierDisabled } from "./tier-picker";
 import type {
   MachineTier,
   MachineTierEnum,
   ProPlan,
   StorageTier,
   StorageTierEnum,
-} from "@/generated/api/types.gen.js";
+  SubscriptionStatusEnum,
+} from "@/generated/api/types.gen";
 import {
   organizationsBillingPlansRetrieveOptions,
   organizationsBillingPlansRetrieveQueryKey,
+  organizationsBillingSubscriptionChangeMachineTierCreateMutation,
+  organizationsBillingSubscriptionChangeStorageTierCreateMutation,
+  organizationsBillingSubscriptionOnboardingRetrieveOptions,
   organizationsBillingSubscriptionOnboardingRetrieveQueryKey,
   organizationsBillingSubscriptionRetrieveOptions,
   organizationsBillingSubscriptionRetrieveQueryKey,
   organizationsBillingSubscriptionUpgradeCreateMutation,
-} from "@/generated/api/@tanstack/react-query.gen.js";
+} from "@/generated/api/@tanstack/react-query.gen";
 import {
   buildPortalReturnSnapshot,
   formatGraceDate,
   getEffectiveCancelDate,
   useBillingPortalSession,
-} from "@/domains/settings/hooks/use-billing-portal-session.js";
-import { openUrl, openUrlFinishedListener } from "@/runtime/browser.js";
+} from "@/domains/settings/hooks/use-billing-portal-session";
+import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
 
+
+/**
+ * Subscription statuses for which Pro tier changes are permitted. Mirrors the
+ * backend `ENTITLEMENT_BEARING_STATUSES` (subscription_service.py) that
+ * `is_pro_active` (app/billing/entitlements.py) checks — the
+ * `change_machine_tier` / `change_storage_tier` endpoints return 403 for any
+ * other status. Pro orgs in non-entitlement statuses (`unpaid`, `incomplete`,
+ * `paused`, etc.) must not be shown a tier-change CTA that cannot succeed.
+ */
+const TIER_CHANGE_ELIGIBLE_STATUSES: ReadonlySet<SubscriptionStatusEnum> =
+  new Set<SubscriptionStatusEnum>(["active", "trialing", "past_due"]);
 
 /**
  * Extract a user-facing message from a subscription mutation error.
@@ -101,9 +116,10 @@ function minTierPriceCents(tiers: (MachineTier | StorageTier)[]): number {
 export interface AdjustPlanModalProps {
   open: boolean;
   onClose: () => void;
+  onTierUpgraded?: () => void;
 }
 
-export function AdjustPlanModal({ open, onClose }: AdjustPlanModalProps) {
+export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanModalProps) {
   const queryClient = useQueryClient();
   const plansQuery = useQuery(organizationsBillingPlansRetrieveOptions());
   const subscriptionQuery = useQuery(
@@ -112,9 +128,16 @@ export function AdjustPlanModal({ open, onClose }: AdjustPlanModalProps) {
   const upgradeMutation = useMutation(
     organizationsBillingSubscriptionUpgradeCreateMutation(),
   );
+  const changeMachineTierMutation = useMutation(
+    organizationsBillingSubscriptionChangeMachineTierCreateMutation(),
+  );
+  const changeStorageTierMutation = useMutation(
+    organizationsBillingSubscriptionChangeStorageTierCreateMutation(),
+  );
   const portalSnapshot = buildPortalReturnSnapshot(subscriptionQuery.data);
   const portalMutation = useBillingPortalSession(portalSnapshot);
-  const [downgradeOpen, setDowngradeOpen] = useState(false);
+  const [view, setView] = useState<"plans" | "downgrade-confirm">("plans");
+  const [tierDowngradeOpen, setTierDowngradeOpen] = useState(false);
   const [selectedMachineTier, setSelectedMachineTier] =
     useState<MachineTierEnum | null>(null);
   const [selectedStorageTier, setSelectedStorageTier] =
@@ -145,16 +168,67 @@ export function AdjustPlanModal({ open, onClose }: AdjustPlanModalProps) {
     });
   }, [queryClient, onClose]);
 
+  const currentPlanId = subscriptionQuery.data?.plan_id;
+  const onPro = currentPlanId === "pro";
+
+  // Reads the org's current Pro selection (max machine tier + storage tier/GiB)
+  // — the same source ResizeCard uses. Pro-only endpoint, so skip until plan
+  // resolves to avoid firing it for Base users.
+  const onboardingQuery = useQuery({
+    ...organizationsBillingSubscriptionOnboardingRetrieveOptions(),
+    enabled: onPro,
+  });
+  const currentMachineTier =
+    (onboardingQuery.data?.max_machine_tier as MachineTierEnum | null) ?? null;
+  const currentStorageTier =
+    (onboardingQuery.data?.selected_storage_tier as StorageTierEnum | null) ??
+    null;
+  const currentStorageGib = onboardingQuery.data?.selected_storage_gib ?? null;
+
+  const cancelAtPeriodEnd =
+    subscriptionQuery.data?.cancel_at_period_end === true ||
+    Boolean(subscriptionQuery.data?.cancel_at);
+  const isCanceled = subscriptionQuery.data?.status === "canceled";
+  const cancelDate = getEffectiveCancelDate(subscriptionQuery.data);
+
+  // Only entitlement-bearing Pro statuses (active/trialing/past_due) can change
+  // tiers — the backend tier-change endpoints 403 otherwise. Statuses like
+  // `unpaid`/`incomplete`/`paused` fall through to the non-tier-change rendering.
+  const tierChangeEligibleStatus = TIER_CHANGE_ELIGIBLE_STATUSES.has(
+    subscriptionQuery.data?.status as SubscriptionStatusEnum,
+  );
+
+  // An active (non-cancelling) Pro subscriber adjusts their existing tiers
+  // rather than upgrading from Base. Tier changes are gated off entirely while
+  // a cancellation is pending — that path offers only reactivation.
+  const proTierChangeMode =
+    onPro && tierChangeEligibleStatus && !cancelAtPeriodEnd && !isCanceled;
+
   const proPlan = plansQuery.data?.plans.find(
     (p): p is ProPlan => p.id === "pro",
   );
 
-  // Default-to-cheapest: when the modal opens and plans land, seed each
-  // selection to the first *enabled* tier, preserving any still-valid choice
-  // the user already made. `resolveTierSelection` also revalidates the prior
-  // choice against the current list, so a refetch that disables or removes the
-  // selected tier re-seeds rather than leaving a stale value the CTA's non-null
-  // gate would submit. Reset to null on close; stays null when none qualify.
+  // For an active Pro subscriber, disable any storage tier strictly below the
+  // current selection — downgrading storage is not allowed. TierPicker honors
+  // the `disabled` flag via `isTierDisabled`; machine tiers stay fully enabled
+  // (changes up and down are permitted). For a Base user upgrading, the live
+  // tiers are used unchanged.
+  const machineTiersForPicker = proPlan?.machine_tiers ?? [];
+  const storageTiersForPicker =
+    proTierChangeMode && currentStorageGib != null
+      ? (proPlan?.storage_tiers ?? []).map((t) =>
+          t.storage_gib < currentStorageGib ? { ...t, disabled: true } : t,
+        )
+      : (proPlan?.storage_tiers ?? []);
+
+  // Seed selections when the modal opens and the relevant data lands.
+  //   - Active Pro: seed to the current tiers (from onboarding state) so the
+  //     pickers reflect what the user has today; wait for onboarding to land.
+  //   - Base upgrade: default to the first *enabled* tier.
+  // `resolveTierSelection` revalidates the prior/seed choice against the live
+  // list, so a refetch that disables or removes the selected tier re-seeds
+  // rather than leaving a stale value the CTA's non-null gate would submit.
+  // Reset to null on close; stays null when none qualify.
   useEffect(() => {
     if (!open) {
       setSelectedMachineTier(null);
@@ -162,26 +236,46 @@ export function AdjustPlanModal({ open, onClose }: AdjustPlanModalProps) {
       return;
     }
     if (!proPlan) return;
+    if (proTierChangeMode) {
+      // Hold off seeding until current tiers are known so we don't briefly
+      // seed to the cheapest and then snap to the current selection.
+      if (currentMachineTier == null || currentStorageTier == null) return;
+      setSelectedMachineTier((prev) =>
+        resolveTierSelection<MachineTierEnum>(
+          machineTiersForPicker,
+          prev ?? currentMachineTier,
+        ),
+      );
+      setSelectedStorageTier((prev) =>
+        resolveTierSelection<StorageTierEnum>(
+          storageTiersForPicker,
+          prev ?? currentStorageTier,
+        ),
+      );
+      return;
+    }
     setSelectedMachineTier((prev) =>
       resolveTierSelection<MachineTierEnum>(proPlan.machine_tiers, prev),
     );
     setSelectedStorageTier((prev) =>
       resolveTierSelection<StorageTierEnum>(proPlan.storage_tiers, prev),
     );
-  }, [open, proPlan]);
+    // machineTiersForPicker/storageTiersForPicker are derived from proPlan +
+    // onboarding values already in the dep list; omitting them keeps the effect
+    // from re-running on each render's fresh array identity.
+  }, [
+    open,
+    proPlan,
+    proTierChangeMode,
+    currentMachineTier,
+    currentStorageTier,
+  ]);
 
   const basePlan = plansQuery.data?.plans.find((p) => p.id === "base");
   const baseFeatureSet = new Set(basePlan?.included_features ?? []);
   const lostFeatures = (proPlan?.included_features ?? []).filter(
     (f) => !baseFeatureSet.has(f),
   );
-
-  const currentPlanId = subscriptionQuery.data?.plan_id;
-  const cancelAtPeriodEnd =
-    subscriptionQuery.data?.cancel_at_period_end === true ||
-    Boolean(subscriptionQuery.data?.cancel_at);
-  const isCanceled = subscriptionQuery.data?.status === "canceled";
-  const cancelDate = getEffectiveCancelDate(subscriptionQuery.data);
 
   const handleUpgrade = () => {
     if (upgradeMutation.isPending) return;
@@ -231,8 +325,124 @@ export function AdjustPlanModal({ open, onClose }: AdjustPlanModalProps) {
 
   const handleConfirmDowngrade = () => {
     if (portalMutation.isPending) return;
-    setDowngradeOpen(false);
+    setView("plans");
     portalMutation.mutate({});
+  };
+
+  // After a tier change lands, the subscription, onboarding state, and plans
+  // queries are all stale (price, current tiers, derived disabled flags).
+  const invalidateBillingQueries = () => {
+    void queryClient.invalidateQueries({
+      queryKey: organizationsBillingSubscriptionRetrieveQueryKey(),
+    });
+    void queryClient.invalidateQueries({
+      queryKey: organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
+    });
+    void queryClient.invalidateQueries({
+      queryKey: organizationsBillingPlansRetrieveQueryKey(),
+    });
+  };
+
+  const tierChangePending =
+    changeMachineTierMutation.isPending || changeStorageTierMutation.isPending;
+
+  // What changed vs. the current selection. Storage downgrades are impossible
+  // (those tiers are disabled), so a storage diff is always an upgrade.
+  const machineChanged =
+    selectedMachineTier != null && selectedMachineTier !== currentMachineTier;
+  const storageChanged =
+    selectedStorageTier != null && selectedStorageTier !== currentStorageTier;
+
+  const priceForMachine = (tier: MachineTierEnum | null): number | null =>
+    machineTiersForPicker.find((t) => t.tier === tier)?.price_cents ?? null;
+  const priceForStorage = (tier: StorageTierEnum | null): number | null =>
+    storageTiersForPicker.find((t) => t.tier === tier)?.price_cents ?? null;
+  // A machine downgrade (cheaper than current) routes through the reconfirm
+  // modal first; an upgrade fires immediately.
+  const nextMachinePrice = priceForMachine(selectedMachineTier);
+  const currentMachinePrice = priceForMachine(currentMachineTier);
+  const currentStoragePrice = priceForStorage(currentStorageTier);
+  const isMachineDowngrade =
+    machineChanged &&
+    nextMachinePrice != null &&
+    currentMachinePrice != null &&
+    nextMachinePrice < currentMachinePrice;
+
+  const submitMachineTierChange = () => {
+    if (tierChangePending || !selectedMachineTier) return;
+    changeMachineTierMutation.mutate(
+      { body: { machine_tier: selectedMachineTier } },
+      {
+        onSuccess: () => {
+          invalidateBillingQueries();
+          if (!isMachineDowngrade && onTierUpgraded) {
+            onClose();
+            onTierUpgraded();
+          } else {
+            toast.success("Machine tier updated.", { id: "pro-tier-change" });
+          }
+        },
+        onError: (error) => {
+          toast.error(
+            extractMutationError(
+              error,
+              "Failed to change machine tier. Please try again.",
+            ),
+            { id: "pro-tier-change-error" },
+          );
+        },
+      },
+    );
+  };
+
+  const submitStorageTierChange = () => {
+    if (tierChangePending || !selectedStorageTier) return;
+    changeStorageTierMutation.mutate(
+      { body: { storage_tier: selectedStorageTier } },
+      {
+        onSuccess: () => {
+          invalidateBillingQueries();
+          if (onTierUpgraded) {
+            onClose();
+            onTierUpgraded();
+          } else {
+            toast.success("Storage tier updated.", { id: "pro-tier-change" });
+          }
+        },
+        onError: (error) => {
+          toast.error(
+            extractMutationError(
+              error,
+              "Failed to change storage tier. Please try again.",
+            ),
+            { id: "pro-tier-change-error" },
+          );
+        },
+      },
+    );
+  };
+
+  // Fire only the dimension(s) that actually changed.
+  const submitTierChanges = () => {
+    if (machineChanged) submitMachineTierChange();
+    if (storageChanged) submitStorageTierChange();
+  };
+
+  // When the machine tier is being lowered, defer the whole apply behind the
+  // reconfirm modal so the user confirms the smaller compute profile before
+  // anything is committed.
+  const handleApplyTierChange = () => {
+    if (tierChangePending) return;
+    if (isMachineDowngrade) {
+      setTierDowngradeOpen(true);
+      return;
+    }
+    submitTierChanges();
+  };
+
+  const handleConfirmTierDowngrade = () => {
+    setTierDowngradeOpen(false);
+    submitTierChanges();
   };
 
   const isLoading = plansQuery.isLoading || subscriptionQuery.isLoading;
@@ -247,10 +457,57 @@ export function AdjustPlanModal({ open, onClose }: AdjustPlanModalProps) {
       <Modal.Root
         open={open}
         onOpenChange={(next) => {
-          if (!next) onClose();
+          if (!next) {
+            setView("plans");
+            onClose();
+          }
         }}
       >
-        <Modal.Content size="lg">
+        <Modal.Content size={view === "plans" ? "lg" : "md"}>
+          {view === "downgrade-confirm" ? (
+            <>
+              <Modal.Header>
+                <Modal.Title icon={AlertTriangle}>Downgrade to Base?</Modal.Title>
+              </Modal.Header>
+              <Modal.Body>
+                <Typography
+                  as="p"
+                  variant="body-medium-default"
+                  className="text-(--content-secondary)"
+                >
+                  Downgrading removes the following Pro features:
+                </Typography>
+                <ul className="mt-4 list-disc space-y-2 pl-5">
+                  {lostFeatures.map((feature) => (
+                    <li key={feature}>
+                      <Typography as="span" variant="body-medium-default">
+                        {feature}
+                      </Typography>
+                    </li>
+                  ))}
+                </ul>
+              </Modal.Body>
+              <Modal.Footer>
+                <Button
+                  variant="ghost"
+                  onClick={() => setView("plans")}
+                  disabled={portalMutation.isPending}
+                  leftIcon={<ArrowLeft className="h-4 w-4" />}
+                >
+                  Back
+                </Button>
+                <Button
+                  variant="danger"
+                  onClick={handleConfirmDowngrade}
+                  disabled={portalMutation.isPending}
+                  data-testid="confirm-downgrade-button"
+                >
+                  Confirm Downgrade
+                </Button>
+              </Modal.Footer>
+            </>
+          ) : (
+            <>
           <Modal.Header>
             <Modal.Title className="sr-only">Upgrade Plan</Modal.Title>
           </Modal.Header>
@@ -285,9 +542,13 @@ export function AdjustPlanModal({ open, onClose }: AdjustPlanModalProps) {
                     const isCurrent = plan.id === currentPlanId;
                     const isProCard = plan.id === "pro";
                     const isBaseCard = plan.id === "base";
-                    const onPro = currentPlanId === "pro";
                     const showCancellationOnPro =
                       isProCard && onPro && cancelAtPeriodEnd && !isCanceled;
+                    // Active Pro subscriber adjusting tiers on their current Pro
+                    // card (suppressed entirely while cancellation is pending —
+                    // that path shows only reactivation).
+                    const showProTierChange =
+                      isProCard && isCurrent && proTierChangeMode;
                     return (
                       <Card
                         key={plan.id}
@@ -345,6 +606,27 @@ export function AdjustPlanModal({ open, onClose }: AdjustPlanModalProps) {
                                   Forever
                                 </Typography>
                               </>
+                            ) : proTierChangeMode &&
+                              currentMachinePrice != null &&
+                              currentStoragePrice != null ? (
+                              <>
+                                <Typography as="p" variant="title-medium">
+                                  Currently $
+                                  {Math.round(
+                                    (plan.base_price_cents +
+                                      currentMachinePrice +
+                                      currentStoragePrice) /
+                                      100,
+                                  )}
+                                </Typography>
+                                <Typography
+                                  as="p"
+                                  variant="body-small-default"
+                                  className="text-[var(--content-tertiary)]"
+                                >
+                                  Billed monthly
+                                </Typography>
+                              </>
                             ) : (
                               <>
                                 <Typography as="p" variant="title-medium">
@@ -399,6 +681,53 @@ export function AdjustPlanModal({ open, onClose }: AdjustPlanModalProps) {
                               </Button>
                             </>
                           )}
+                          {showProTierChange &&
+                            (onboardingQuery.isLoading ? (
+                              <div className="flex items-center gap-2 text-[var(--content-tertiary)]">
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                <Typography
+                                  as="span"
+                                  variant="body-medium-lighter"
+                                >
+                                  Loading your plan...
+                                </Typography>
+                              </div>
+                            ) : (
+                              <>
+                                <hr className="border-t border-[var(--border-base)]" />
+                                <TierPicker
+                                  machineTiers={machineTiersForPicker}
+                                  storageTiers={storageTiersForPicker}
+                                  basePriceCents={plan.base_price_cents}
+                                  selectedMachineTier={selectedMachineTier}
+                                  selectedStorageTier={selectedStorageTier}
+                                  onMachineTierChange={setSelectedMachineTier}
+                                  onStorageTierChange={setSelectedStorageTier}
+                                  currentMachinePriceCents={currentMachinePrice}
+                                  currentStoragePriceCents={currentStoragePrice}
+                                />
+                                {(changeMachineTierMutation.isError || changeStorageTierMutation.isError) && (
+                                  <Notice tone="error">
+                                    {extractMutationError(
+                                      changeMachineTierMutation.error ?? changeStorageTierMutation.error,
+                                      "Failed to update plan. Please try again.",
+                                    )}
+                                  </Notice>
+                                )}
+                                <Button
+                                  variant="primary"
+                                  className="w-full"
+                                  onClick={handleApplyTierChange}
+                                  disabled={
+                                    tierChangePending ||
+                                    (!machineChanged && !storageChanged)
+                                  }
+                                  data-testid="modal-change-tier-button"
+                                >
+                                  Update Plan
+                                </Button>
+                              </>
+                            ))}
                           {!isCurrent &&
                             isBaseCard &&
                             onPro &&
@@ -408,7 +737,7 @@ export function AdjustPlanModal({ open, onClose }: AdjustPlanModalProps) {
                                 <Button
                                   variant="outlined"
                                   className="w-full"
-                                  onClick={() => setDowngradeOpen(true)}
+                                  onClick={() => setView("downgrade-confirm")}
                                   disabled={portalMutation.isPending}
                                   data-testid="modal-downgrade-to-base-button"
                                 >
@@ -458,14 +787,18 @@ export function AdjustPlanModal({ open, onClose }: AdjustPlanModalProps) {
               </Button>
             </div>
           </Modal.Footer>
+            </>
+          )}
         </Modal.Content>
       </Modal.Root>
       <DowngradeReconfirmModal
-        open={downgradeOpen}
-        onCancel={() => setDowngradeOpen(false)}
-        onConfirm={handleConfirmDowngrade}
-        confirming={portalMutation.isPending}
-        lostFeatures={lostFeatures}
+        open={tierDowngradeOpen}
+        onCancel={() => setTierDowngradeOpen(false)}
+        onConfirm={handleConfirmTierDowngrade}
+        confirming={tierChangePending}
+        lostFeatures={[
+          "Reduced CPU and memory for your assistant — it will resize to the smaller compute profile.",
+        ]}
       />
     </>
   );

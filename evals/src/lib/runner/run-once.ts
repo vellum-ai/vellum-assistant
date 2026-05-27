@@ -1,4 +1,9 @@
-import type { AgentEvent, AgentMessage, BaseAgent } from "../adapter";
+import type {
+  AgentEvent,
+  AgentHatchInput,
+  AgentMessage,
+  BaseAgent,
+} from "../adapter";
 import {
   appendAssistantEvents,
   appendProgressEvent,
@@ -24,11 +29,161 @@ import {
   UserSimulator,
 } from "../simulator/user-simulator";
 import type { Simulator } from "../simulator/types";
+import {
+  SubprocessFailedError,
+  type CommandResult,
+} from "../runtime/command-runner";
 import { createAgent } from "./create-agent";
 import { AgentEventCollector } from "./event-collector";
 import type { EvalProgressReporter, EvalProgressStep } from "./progress";
 
-export const EVENT_QUIET_MS = 5_000;
+/**
+ * Maximum number of stdout/stderr lines from a failed subprocess to
+ * inline into the test runner log via `EvalProgressEvent.details`.
+ *
+ * The full log still lands on disk (`subprocess-<step>.log`) and the
+ * report UI renders it inline below the runner log. The runner log
+ * itself stays scannable: 30 lines per stream is enough to spot the
+ * canonical failure modes (`bind: address already in use`, OOM,
+ * compile errors, …) without forcing the operator to scroll through
+ * a multi-megabyte image-build log to find the runner summary.
+ */
+const SUBPROCESS_DETAIL_LINE_CAP = 30;
+
+/**
+ * Build the `details` payload for an `EvalProgressEvent` that's
+ * bubbling up a `SubprocessFailedError`. The shape is intentionally
+ * compact so each entry renders on its own indented line in the
+ * console reporter:
+ *
+ *   exit code: 1
+ *   stderr (last 3 lines):
+ *     docker: Error response from daemon: ...
+ *     bind for 0.0.0.0:20100 failed: port is already allocated
+ *   stdout (last 2 lines):
+ *     building image vellum-assistant:test
+ *     image built in 12s
+ *
+ * Empty streams collapse to a single `stderr: (empty)` line so the
+ * caller can tell the difference between "no output" and "we didn't
+ * capture it".
+ *
+ * Exported for tests.
+ */
+export function subprocessFailureDetails(err: SubprocessFailedError): string[] {
+  const lines: string[] = [`exit code: ${err.result.exitCode}`];
+  appendStreamDetails(lines, "stderr", err.result.stderr);
+  appendStreamDetails(lines, "stdout", err.result.stdout);
+  return lines;
+}
+
+function appendStreamDetails(
+  lines: string[],
+  label: "stdout" | "stderr",
+  body: string,
+): void {
+  const tail = tailNonEmptyLines(body, SUBPROCESS_DETAIL_LINE_CAP);
+  if (tail.length === 0) {
+    lines.push(`${label}: (empty)`);
+    return;
+  }
+  lines.push(
+    `${label} (last ${tail.length} line${tail.length === 1 ? "" : "s"}):`,
+  );
+  for (const line of tail) lines.push(`  ${line}`);
+}
+
+function tailNonEmptyLines(body: string, cap: number): string[] {
+  const all = body.split(/\r?\n/);
+  // Strip purely-empty entries from the end. Subprocesses commonly
+  // emit a trailing newline that produces an empty `""` slot we'd
+  // otherwise count toward the cap.
+  while (all.length > 0 && all[all.length - 1].length === 0) all.pop();
+  if (all.length <= cap) return all;
+  return all.slice(-cap);
+}
+
+/**
+ * Subprocess descriptions baked into the adapter call sites read like
+ * `"hatch Vellum profile p1"`, `"setup command for profile p1"`,
+ * `"start Hermes container for p1"`, etc. Map the description to the
+ * runner step that was in flight so the bubbled-up error lands under
+ * the right header. Falls back to the runner's `currentStep` when no
+ * keyword matches, which is also the right thing for unrelated
+ * errors that happen to land in the same catch.
+ */
+function inferSubprocessStep(
+  description: string,
+  fallback: EvalProgressStep,
+): EvalProgressStep {
+  const lower = description.toLowerCase();
+  if (lower.startsWith("hatch") || lower.includes("hermes container"))
+    return "hatch";
+  if (lower.startsWith("setup")) return "setup";
+  if (lower.startsWith("seed conversation") || lower.startsWith("copy seed"))
+    return "setup";
+  if (lower.startsWith("send")) return "send";
+  return fallback;
+}
+
+// Re-export so tests can reach the helper without importing
+// `command-runner.ts` separately.
+export type { CommandResult };
+
+/**
+ * Tracks errors that `runEvalOnce` already surfaced through the
+ * progress reporter as a `status:"error"` event. The outer
+ * `commands/run.ts` CLI catch reads this set to decide whether to emit
+ * a stderr fallback line — silent CLI exits (e.g. a construction-time
+ * throw that bypassed the inner try) were the diagnostic gap this
+ * marker closes.
+ *
+ * WeakSet so a long-running `evals run --tests=t1,t2,...` over many
+ * profiles can't accumulate references to throwaway error objects.
+ */
+const REPORTED_TO_PROGRESS = new WeakSet<object>();
+
+/**
+ * Stamp `err` as having had a structured `EvalProgressEvent` of
+ * `status:"error"` already emitted for it. Tolerant of `unknown` —
+ * primitives are silently ignored because WeakSet can't hold them
+ * (and the harness only ever throws `Error` instances anyway).
+ */
+export function markErrorAsReportedToProgress(err: unknown): void {
+  if (err !== null && typeof err === "object") REPORTED_TO_PROGRESS.add(err);
+}
+
+/**
+ * Companion to `markErrorAsReportedToProgress`. `true` when
+ * `runEvalOnce` already surfaced this error through the progress
+ * reporter; the CLI then trusts that path and stays quiet. `false`
+ * for primitives, `null`, and any error that escaped before the
+ * inner catch could stamp it — that's the fallback signal.
+ */
+export function wasErrorReportedToProgress(err: unknown): boolean {
+  return (
+    err !== null && typeof err === "object" && REPORTED_TO_PROGRESS.has(err)
+  );
+}
+
+/**
+ * Quiet window before the event collector concludes the turn is done.
+ *
+ * Sized for the longest silent phase in the daemon's per-message pipeline,
+ * not for the typical inter-event gap. On a cold-start hatch the
+ * `memoryRetrieval` plugin pipeline runs ~4–5s of work before the agent
+ * loop begins emitting deltas, and the agent loop's first-token latency
+ * adds another ~1–2s on top. None of those phases emit subscriber-visible
+ * events today, so the collector sees raw silence from `user_message_echo`
+ * (or `conversation_title_updated`) until the first `assistant_*_delta`
+ * lands. A 5s window expires mid-pipeline and the harness gives up before
+ * the assistant's real response is even produced.
+ *
+ * Revisit once the daemon emits in-pipeline heartbeat events (e.g. an
+ * `agent_loop_start` signal at the conversation event hub) — at that point
+ * the collector resets on its own and this can drop back toward 5s.
+ */
+export const EVENT_QUIET_MS = 15_000;
 export const EVENT_MAX_MS = 30_000;
 
 export interface EvalRunInput {
@@ -228,13 +383,22 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
     // process is alive. This is best-effort and never blocks the run.
     void updateHeartbeat(input.runId).catch(() => undefined);
   };
-  const agent = createAgent({
-    profile: input.profile,
-    testId: input.test.id,
-    runId: input.runId,
-  });
-  const simulator =
-    input.simulator ?? new UserSimulator({ maxTurns: input.maxTurns });
+  // Captured up front so it's available to every failed-metadata write
+  // below — including from the catch when something throws before the
+  // run actually starts (createAgent, new UserSimulator,
+  // ensureRunArtifacts).
+  const startedAt = new Date().toISOString();
+  const assistantEvents: AgentEvent[] = [];
+
+  // Resources assigned inside the try. The catch + finally guard each
+  // because the throw site (e.g. missing ANTHROPIC_API_KEY when
+  // constructing the UserSimulator) can fire before any of them are
+  // assigned. Before the diagnostic-gap fix these lived above the try and
+  // any construction-time throw would bypass the structured error path
+  // entirely — the run would exit 1 with no progress event, no metadata,
+  // and no run directory.
+  let agent: ReturnType<typeof createAgent> | undefined;
+  let runDir: string | undefined;
 
   // Per-run heartbeat ticker. Cleared in the `finally` so the timer never
   // outlives a return/throw — and so we never accumulate Node listeners
@@ -250,46 +414,61 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
   // cleanly; clearInterval() in the finally is still the primary stop.
   heartbeatInterval.unref();
 
-  progress({
-    step: "artifacts",
-    status: "start",
-    message: "Preparing run artifacts",
-    detail: input.runId,
-  });
-  const artifacts = await ensureRunArtifacts(input.runId);
-  progress({
-    step: "artifacts",
-    status: "done",
-    message: "Run artifacts ready",
-    detail: artifacts.runDir,
-  });
-  const assistantEvents: AgentEvent[] = [];
-  const startedAt = new Date().toISOString();
-  await writeRunMetadata(input.runId, {
-    runId: input.runId,
-    sessionId,
-    sessionLabel,
-    profileId: input.profile.id,
-    testId: input.test.id,
-    status: "running",
-    startedAt,
-    artifactDir: artifacts.runDir,
-  });
-
-  progress({
-    step: "hatch",
-    status: "start",
-    message: "Hatching assistant",
-    detail: input.profile.id,
-  });
-  await agent.hatch();
-  progress({
-    step: "hatch",
-    status: "done",
-    message: "Assistant ready",
-    detail: agent.id,
-  });
   try {
+    // Construction first — both can throw at this stage (e.g.
+    // ANTHROPIC_API_KEY missing for the simulator) and we want those
+    // failures to flow through the same structured error-reporting path
+    // as any later runtime throw. Simulator before agent so the
+    // missing-key check fires before we construct an agent we'd never
+    // use; both are pure object construction with no side effects, so
+    // the order is otherwise irrelevant.
+    const simulator =
+      input.simulator ?? new UserSimulator({ maxTurns: input.maxTurns });
+    const agentInput: AgentHatchInput = {
+      profile: input.profile,
+      testId: input.test.id,
+      runId: input.runId,
+    };
+    agent = createAgent(agentInput);
+
+    progress({
+      step: "artifacts",
+      status: "start",
+      message: "Preparing run artifacts",
+      detail: input.runId,
+    });
+    const artifacts = await ensureRunArtifacts(input.runId);
+    runDir = artifacts.runDir;
+    progress({
+      step: "artifacts",
+      status: "done",
+      message: "Run artifacts ready",
+      detail: artifacts.runDir,
+    });
+    await writeRunMetadata(input.runId, {
+      runId: input.runId,
+      sessionId,
+      sessionLabel,
+      profileId: input.profile.id,
+      testId: input.test.id,
+      status: "running",
+      startedAt,
+      artifactDir: artifacts.runDir,
+    });
+
+    progress({
+      step: "hatch",
+      status: "start",
+      message: "Hatching assistant",
+      detail: input.profile.id,
+    });
+    await agent.hatch();
+    progress({
+      step: "hatch",
+      status: "done",
+      message: "Assistant ready",
+      detail: agent.id,
+    });
     for (const [index, command] of input.test.setupCommands.entries()) {
       progress({
         step: "setup",
@@ -363,9 +542,15 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
         message: "Sending simulator message",
         turn: simulatorTurns + 1,
       });
+      // Shadow with a const so TS can carry the post-assign narrowing
+      // into the closure below — `agent` is `let`-typed at the outer
+      // scope (so catch + finally can guard `if (agent)` against
+      // pre-assignment throws), and TS won't propagate that narrowing
+      // across a function boundary on its own.
+      const sendingAgent = agent;
       await sendAndPersistSimulatorMessage({
         runId: input.runId,
-        agentSend: (message) => agent.send(message),
+        agentSend: (message) => sendingAgent.send(message),
         message: decision.message,
       });
       progress({
@@ -460,18 +645,28 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
       metrics,
     };
   } catch (err) {
-    await writeRunMetadata(input.runId, {
-      runId: input.runId,
-      sessionId,
-      sessionLabel,
-      profileId: input.profile.id,
-      testId: input.test.id,
-      status: "failed",
-      startedAt,
-      completedAt: new Date().toISOString(),
-      error: err instanceof Error ? err.message : String(err),
-      artifactDir: artifacts.runDir,
-    });
+    // Best-effort failed-metadata write. The artifact directory only
+    // exists if `ensureRunArtifacts` ran to completion — for the rare
+    // construction-time throw (missing ANTHROPIC_API_KEY,
+    // createAgent rejecting the profile species, etc.) we skip the
+    // metadata write and rely on the progress event below as the
+    // operator-visible signal. Best-effort even when the directory
+    // exists so a disk-write failure here can't shadow the original
+    // error.
+    if (runDir) {
+      await writeRunMetadata(input.runId, {
+        runId: input.runId,
+        sessionId,
+        sessionLabel,
+        profileId: input.profile.id,
+        testId: input.test.id,
+        status: "failed",
+        startedAt,
+        completedAt: new Date().toISOString(),
+        error: err instanceof Error ? err.message : String(err),
+        artifactDir: runDir,
+      }).catch(() => undefined);
+    }
     // Surface the failure through the progress reporter so operators see a
     // red `✗ <headline>` line under the step that was in flight, with the
     // structured details (stop_reason / parts / body for simulator parse
@@ -487,6 +682,21 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
         details: err.details,
         turn: currentTurn,
       });
+    } else if (err instanceof SubprocessFailedError) {
+      // Bubble subprocess failures up with full structured detail
+      // (exit code + last 30 stderr/stdout lines) so the test runner
+      // log shows *why* the hatch/setup command failed, not just the
+      // single-line `assertSuccess` summary. Re-derives the step from
+      // the description because the catch can fire from either the
+      // hatch block or the setup loop and `currentStep` only tracks
+      // the runner's own lifecycle.
+      progress({
+        step: inferSubprocessStep(err.description, failedStep),
+        status: "error",
+        message: `${err.description} failed`,
+        details: subprocessFailureDetails(err),
+        turn: currentTurn,
+      });
     } else {
       progress({
         step: failedStep,
@@ -495,32 +705,47 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
         turn: currentTurn,
       });
     }
+    // Marker the outer `commands/run.ts` catch reads. With it set, the
+    // CLI trusts that an `error` progress event is already on stderr and
+    // stays quiet; without it, the CLI emits a fallback line so a future
+    // throw site that bypasses this catch can never silently exit.
+    markErrorAsReportedToProgress(err);
     throw err;
   } finally {
     clearInterval(heartbeatInterval);
-    progress({
-      step: "shutdown",
-      status: "start",
-      message: "Shutting down assistant",
-      detail: agent.id,
-    });
-    await agent.shutdown();
-    progress({
-      step: "shutdown",
-      status: "done",
-      message: "Assistant shut down",
-      detail: agent.id,
-    });
-    // Verify the run didn't somehow exit "running" by accident.
-    const finalMetadata = await readRunMetadata(input.runId);
-    if (finalMetadata?.status === "running") {
-      await writeRunMetadata(input.runId, {
-        ...finalMetadata,
-        status: "failed",
-        completedAt: new Date().toISOString(),
-        error:
-          "Run exited without final status — this should never happen; please file a bug.",
+    // Skip the shutdown lifecycle when construction threw before agent
+    // assignment — there's nothing to retire and emitting fake shutdown
+    // events would muddy the timeline.
+    if (agent) {
+      progress({
+        step: "shutdown",
+        status: "start",
+        message: "Shutting down assistant",
+        detail: agent.id,
       });
+      await agent.shutdown();
+      progress({
+        step: "shutdown",
+        status: "done",
+        message: "Assistant shut down",
+        detail: agent.id,
+      });
+    }
+    // Verify the run didn't somehow exit "running" by accident. Only
+    // makes sense once artifacts existed long enough for the initial
+    // "running" write to land — pre-artifact throws never wrote any
+    // metadata to begin with, so there's nothing to reconcile.
+    if (runDir) {
+      const finalMetadata = await readRunMetadata(input.runId);
+      if (finalMetadata?.status === "running") {
+        await writeRunMetadata(input.runId, {
+          ...finalMetadata,
+          status: "failed",
+          completedAt: new Date().toISOString(),
+          error:
+            "Run exited without final status — this should never happen; please file a bug.",
+        });
+      }
     }
   }
 }

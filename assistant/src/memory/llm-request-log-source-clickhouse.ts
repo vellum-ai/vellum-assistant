@@ -58,6 +58,16 @@ interface ClickHouseRow {
   response_payload: string;
   created_at: string;
   agent_loop_exit_reason: string;
+  /**
+   * Mirrors `llm_request_logs.call_site` from the SQLite source. Added
+   * to the CH `default.llm_request_logs` table via ALTER TABLE (matching
+   * the `agent_loop_exit_reason` precedent — see
+   * `memory/concepts/objects/clickhouse-mirror.md`).
+   *
+   * CH columns are `DEFAULT ''` rather than Nullable, so empty-string
+   * means "not set" — `toLogRow` maps that back to NULL on the JS side.
+   */
+  call_site: string;
 }
 
 /** Injectable fetch override for tests. Defaults to globalThis.fetch. */
@@ -125,7 +135,8 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
         request_payload,
         response_payload,
         toUnixTimestamp64Milli(created_at) AS created_at,
-        agent_loop_exit_reason
+        agent_loop_exit_reason,
+        call_site
       FROM ${this.tableRef()}
       WHERE assistant_id = {assistant_id:String}
         AND id = {log_id:String}
@@ -183,7 +194,8 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
         request_payload,
         response_payload,
         toUnixTimestamp64Milli(created_at) AS created_at,
-        agent_loop_exit_reason
+        agent_loop_exit_reason,
+        call_site
       FROM ${this.tableRef()}
       WHERE assistant_id = {assistant_id:String}
         AND conversation_id = {conversation_id:String}
@@ -195,6 +207,86 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
       conversation_id: conversationId,
     });
     return rows.map((r) => this.toLogRow(r));
+  }
+
+  async getCompactionLogsBetween(
+    conversationId: string,
+    afterCreatedAt: number | null,
+    beforeCreatedAt: number,
+  ): Promise<LogRow[]> {
+    const aid = await this.assistantId();
+    // `call_site` is bound as a literal via type-bound parameter (not
+    // string interpolation) for parity with the rest of this class —
+    // even though "compactionAgent" is a hard-coded identifier today,
+    // future call sites should plug into the same parameter slot
+    // without re-templating the query string.
+    //
+    // The `afterCreatedAt` lower bound is appended dynamically because
+    // type-bound parameter slots that are referenced in the SQL but
+    // unbound at exec time return a server error — so we only template
+    // the predicate in when the caller actually has a floor to enforce.
+    const params: Record<string, string> = {
+      assistant_id: aid,
+      conversation_id: conversationId,
+      call_site: "compactionAgent",
+      before_created_at: String(beforeCreatedAt),
+    };
+    let afterPredicate = "";
+    if (afterCreatedAt !== null) {
+      params.after_created_at = String(afterCreatedAt);
+      afterPredicate =
+        " AND created_at > fromUnixTimestamp64Milli({after_created_at:Int64})";
+    }
+    const sql = `SELECT
+        id,
+        conversation_id,
+        message_id,
+        provider,
+        request_payload,
+        response_payload,
+        toUnixTimestamp64Milli(created_at) AS created_at,
+        agent_loop_exit_reason,
+        call_site
+      FROM ${this.tableRef()}
+      WHERE assistant_id = {assistant_id:String}
+        AND conversation_id = {conversation_id:String}
+        AND call_site = {call_site:String}
+        AND created_at < fromUnixTimestamp64Milli({before_created_at:Int64})${afterPredicate}
+      ORDER BY created_at ASC, id ASC
+      LIMIT 1 BY id
+      FORMAT JSONEachRow`;
+    const rows = await this.exec(sql, params);
+    return rows.map((r) => this.toLogRow(r));
+  }
+
+  async getPreviousNonCompactionCallCreatedAt(
+    conversationId: string,
+    beforeCreatedAt: number,
+  ): Promise<number | null> {
+    const aid = await this.assistantId();
+    // "Non-compactionAgent" includes empty-string `call_site`, which is
+    // what the CH mirror writes for pre-migration-264 rows whose SQLite
+    // value was NULL (CH columns are `DEFAULT ''`, not Nullable — see
+    // `toLogRow`). The local store treats NULL `callSite` the same way,
+    // so the predicate stays in sync.
+    const sql = `SELECT
+        toUnixTimestamp64Milli(created_at) AS created_at
+      FROM ${this.tableRef()}
+      WHERE assistant_id = {assistant_id:String}
+        AND conversation_id = {conversation_id:String}
+        AND created_at < fromUnixTimestamp64Milli({before_created_at:Int64})
+        AND call_site != {call_site:String}
+      ORDER BY created_at DESC, id DESC
+      LIMIT 1
+      FORMAT JSONEachRow`;
+    const rows = await this.exec(sql, {
+      assistant_id: aid,
+      conversation_id: conversationId,
+      call_site: "compactionAgent",
+      before_created_at: String(beforeCreatedAt),
+    });
+    const value = rows[0]?.created_at;
+    return value === undefined ? null : Number(value);
   }
 
   private async selectByMessageIds(ids: string[]): Promise<LogRow[]> {
@@ -223,7 +315,8 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
         request_payload,
         response_payload,
         toUnixTimestamp64Milli(created_at) AS created_at,
-        agent_loop_exit_reason
+        agent_loop_exit_reason,
+        call_site
       FROM ${this.tableRef()}
       WHERE assistant_id = {assistant_id:String}
         AND message_id IN (${placeholders.join(",")})
@@ -314,6 +407,7 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
       createdAt: Number(row.created_at),
       agentLoopExitReason:
         row.agent_loop_exit_reason === "" ? null : row.agent_loop_exit_reason,
+      callSite: row.call_site === "" ? null : row.call_site,
     };
   }
 

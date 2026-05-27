@@ -6,8 +6,8 @@ import { toast } from "@vellum/design-library/components/toast";
 import {
   assistantsAccessConsentRetrieveOptions,
   assistantsAccessConsentRetrieveQueryKey,
-} from "@/generated/api/@tanstack/react-query.gen.js";
-import { assistantsAccessConsentPartialUpdate } from "@/generated/api/sdk.gen.js";
+} from "@/generated/api/@tanstack/react-query.gen";
+import { assistantsAccessConsentPartialUpdate } from "@/generated/api/sdk.gen";
 
 export function AccessConsentSetting() {
   const queryClient = useQueryClient();
@@ -51,9 +51,10 @@ export function AccessConsentSetting() {
         </div>
         <p className="mt-1 text-body-small-default text-[var(--content-tertiary)]">
           Lets Vellum administrators reach privileged data on your assistant
-          pod for debugging — today this means tailing{" "}
+          pod for debugging — today this means tailing the daily assistant log
+          at{" "}
           <code className="rounded bg-[var(--surface-base)] px-1.5 font-mono text-[var(--content-secondary)] dark:bg-[var(--surface-lift)] dark:text-[var(--content-default)]">
-            /workspace/data/logs/vellum.log
+            /workspace/data/logs/assistant-YYYY-MM-DD.log
           </code>
           . Off by default. Turn on temporarily when asking support to
           investigate an issue, then turn off when you&apos;re done.

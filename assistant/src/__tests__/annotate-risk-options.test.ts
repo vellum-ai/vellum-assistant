@@ -57,6 +57,7 @@ mock.module("../memory/conversation-crud.js", () => ({
     updates.push({ id, content });
   },
   provenanceFromTrustContext: () => ({}),
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 mock.module("../memory/llm-request-log-store.js", () => ({

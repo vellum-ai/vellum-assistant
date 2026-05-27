@@ -138,6 +138,16 @@ export const llmRequestLogs = sqliteTable(
     responsePayload: text("response_payload").notNull(),
     createdAt: integer("created_at").notNull(),
     agentLoopExitReason: text("agent_loop_exit_reason"),
+    /**
+     * Logical call site that produced this row — e.g. `mainAgent`,
+     * `compactionAgent`. Stored as free-form text rather than enum-bound
+     * so a new call site can ship without a schema bump, but in practice
+     * callers pass values from `LLMCallSite` (`config/schemas/llm.ts`).
+     *
+     * Historical rows (pre-migration 264) stay NULL — "we don't know"
+     * rather than guessing `mainAgent`.
+     */
+    callSite: text("call_site"),
   },
   (table) => [
     index("idx_llm_request_logs_message_id").on(table.messageId),

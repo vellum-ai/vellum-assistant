@@ -23,10 +23,8 @@ interface JsonSchema {
 }
 
 /** Cast a tool definition's input_schema to a usable JSON Schema shape. */
-function schema(tool: {
-  getDefinition(): { input_schema: object };
-}): JsonSchema {
-  return tool.getDefinition().input_schema as JsonSchema;
+function schema(tool: { input_schema: object }): JsonSchema {
+  return tool.input_schema as JsonSchema;
 }
 
 const ctx: ToolContext = {
