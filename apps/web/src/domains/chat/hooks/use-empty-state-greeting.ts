@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import { SDK_BASE_OPTIONS } from "@/domains/chat/api/client";
-import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf";
+import { client } from "@/domains/chat/api/client";
 import { DEFAULT_EMPTY_STATE_GREETING } from "@/domains/chat/utils/empty-state-constants";
 import { useOrganizationStore } from "@/stores/organization-store";
 
@@ -27,36 +26,26 @@ function pickFallback(): string {
 
 async function streamGreeting(
   assistantId: string,
-  orgId: string,
   signal: AbortSignal,
   onDelta: (text: string) => void,
 ): Promise<string> {
-  const baseUrl =
-    (SDK_BASE_OPTIONS as Record<string, unknown>).baseUrl ?? "";
-  const url = `${baseUrl}/v1/assistants/${encodeURIComponent(assistantId)}/btw`;
-
-  await ensureCsrfCookie();
-  const csrfToken = getCsrfToken();
-
-  const res = await fetch(url, {
+  const { response } = await client.request({
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(csrfToken ? { "X-CSRFToken": csrfToken } : {}),
-      "Vellum-Organization-Id": orgId,
-    },
-    body: JSON.stringify({
+    url: "/v1/assistants/{assistantId}/btw",
+    path: { assistantId },
+    body: {
       conversationKey: "greeting",
       content: GREETING_PROMPT,
-    }),
+    },
+    parseAs: "stream",
     signal,
   });
 
-  if (!res.ok || !res.body) {
-    throw new Error(`BTW request failed: ${res.status}`);
+  if (!response || !response.ok || !response.body) {
+    throw new Error(`BTW request failed: ${response?.status}`);
   }
 
-  const reader = res.body.getReader();
+  const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let accumulated = "";
   let buffer = "";
@@ -100,7 +89,7 @@ export function useEmptyStateGreeting(
 
     const controller = new AbortController();
 
-    streamGreeting(assistantId, orgId, controller.signal, (delta) => {
+    streamGreeting(assistantId, controller.signal, (delta) => {
       setGreeting((prev) => prev + delta);
     })
       .then((final) => {
