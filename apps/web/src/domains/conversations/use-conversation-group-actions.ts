@@ -54,7 +54,7 @@ export function useConversationGroupActions({
 }: UseConversationGroupActionsParams) {
   const queryClient = useQueryClient();
 
-  const createMutation = useMutation({
+  const { mutateAsync: createGroupAsync } = useMutation({
     ...groupsPostMutation(),
     onError: (err) => {
       Sentry.captureException(err, {
@@ -63,7 +63,7 @@ export function useConversationGroupActions({
     },
   });
 
-  const patchMutation = useMutation({
+  const { mutateAsync: patchGroupAsync } = useMutation({
     ...groupsByGroupIdPatchMutation(),
     onError: (err) => {
       Sentry.captureException(err, {
@@ -72,7 +72,7 @@ export function useConversationGroupActions({
     },
   });
 
-  const deleteMutation = useMutation({
+  const { mutateAsync: deleteGroupAsync } = useMutation({
     ...groupsByGroupIdDeleteMutation(),
     onError: (err) => {
       Sentry.captureException(err, {
@@ -96,7 +96,7 @@ export function useConversationGroupActions({
     appendGroup(queryClient, assistantId, { id: optimisticId, name: trimmed, sortPosition: 0, isSystemGroup: false });
 
     try {
-      const created = await createMutation.mutateAsync({
+      const created = await createGroupAsync({
         path: { assistant_id: assistantId },
         body: { name: trimmed },
       } as Options<GroupsPostData>);
@@ -104,7 +104,7 @@ export function useConversationGroupActions({
     } catch {
       removeGroup(queryClient, assistantId, optimisticId);
     }
-  }, [assistantId, queryClient, createMutation]);
+  }, [assistantId, queryClient, createGroupAsync]);
 
   const handleRenameGroup = useCallback(
     async (groupId: string) => {
@@ -121,7 +121,7 @@ export function useConversationGroupActions({
       patchGroup(queryClient, assistantId, groupId, { name: trimmed });
 
       try {
-        await patchMutation.mutateAsync({
+        await patchGroupAsync({
           path: { assistant_id: assistantId, groupId },
           body: { name: trimmed },
         } as Options<GroupsByGroupIdPatchData>);
@@ -129,7 +129,7 @@ export function useConversationGroupActions({
         patchGroup(queryClient, assistantId, groupId, { name: current });
       }
     },
-    [assistantId, conversationGroups, queryClient, patchMutation],
+    [assistantId, conversationGroups, queryClient, patchGroupAsync],
   );
 
   const handleDeleteGroup = useCallback(
@@ -140,7 +140,7 @@ export function useConversationGroupActions({
       deleteGroupAndResetConversations(queryClient, assistantId, groupId);
 
       try {
-        await deleteMutation.mutateAsync({
+        await deleteGroupAsync({
           path: { assistant_id: assistantId, groupId },
         } as Options<GroupsByGroupIdDeleteData>);
       } catch {
@@ -152,7 +152,7 @@ export function useConversationGroupActions({
         });
       }
     },
-    [assistantId, queryClient, deleteMutation],
+    [assistantId, queryClient, deleteGroupAsync],
   );
 
   return {
