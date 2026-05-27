@@ -8,6 +8,8 @@
 import {
   type Dispatch,
   type SetStateAction,
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -51,7 +53,6 @@ import type { WebSyncRouter } from "@/lib/sync/web-sync-router";
 import type { SyncChangedEvent } from "@/lib/sync/types";
 
 import { Button, ConfirmDialog } from "@vellum/design-library";
-import { VercelTokenDialog } from "@/components/vercel-token-dialog";
 import { useSyncChatStore } from "@/domains/chat/chat-store";
 import { useChatAttachments } from "@/domains/chat/components/chat-attachments/use-chat-attachments";
 import { useVoiceInput } from "@/domains/chat/hooks/use-voice-input";
@@ -94,7 +95,19 @@ import { buildMoveToGroupTargets } from "@/domains/chat/utils/group-conversation
 import { ConversationActionsMenu } from "@/domains/chat/components/conversation-actions-menu";
 import { ConversationAssetsPill } from "@/domains/chat/components/conversation-assets-pill";
 import { AddCreditsModal } from "@/components/add-credits-modal";
-import { CommandPalette } from "@/components/command-palette/command-palette";
+// Vercel token dialog is only shown when the deploy flow needs a token, and
+// CommandPalette only renders when the user opens it (Cmd+K / Ctrl+K). Defer
+// loading to keep their form/list deps out of the chat-critical bundle.
+const VercelTokenDialog = lazy(() =>
+  import("@/components/vercel-token-dialog").then((m) => ({
+    default: m.VercelTokenDialog,
+  })),
+);
+const CommandPalette = lazy(() =>
+  import("@/components/command-palette/command-palette").then((m) => ({
+    default: m.CommandPalette,
+  })),
+);
 import { shouldHandleShortcut } from "@/domains/chat/chat-layout";
 import { abortSubagent, fetchSubagentDetail } from "@/domains/chat/api/conversations";
 import { MobileAppOverlay } from "@/domains/chat/components/mobile-app-overlay";
@@ -1589,29 +1602,35 @@ export function ChatPage() {
         onRetry={() => reachability.probe({ showConnectingImmediately: true })}
         onDismiss={reachability.reset}
       />
-      <CommandPalette
-        isOpen={commandPalette.isOpen}
-        onClose={commandPalette.close}
-        query={commandPalette.query}
-        onQueryChange={commandPalette.setQuery}
-        selectedIndex={commandPalette.selectedIndex}
-        sections={mergedSections}
-        isSearching={commandPalette.isSearching}
-        onItemSelect={handleItemSelect}
-        onKeyDown={commandPalette.handleKeyDown}
-      />
-      {assistantId && (
-        <VercelTokenDialog
-          open={isTokenDialogOpen}
-          onOpenChange={(open) => {
-            if (!open) useDeployStore.getState().hideTokenDialog();
-          }}
-          assistantId={assistantId}
-          onTokenSaved={() => {
-            void useDeployStore.getState().deployAfterTokenSaved(assistantId);
-          }}
-        />
-      )}
+      {commandPalette.isOpen ? (
+        <Suspense fallback={null}>
+          <CommandPalette
+            isOpen={commandPalette.isOpen}
+            onClose={commandPalette.close}
+            query={commandPalette.query}
+            onQueryChange={commandPalette.setQuery}
+            selectedIndex={commandPalette.selectedIndex}
+            sections={mergedSections}
+            isSearching={commandPalette.isSearching}
+            onItemSelect={handleItemSelect}
+            onKeyDown={commandPalette.handleKeyDown}
+          />
+        </Suspense>
+      ) : null}
+      {assistantId && isTokenDialogOpen ? (
+        <Suspense fallback={null}>
+          <VercelTokenDialog
+            open={isTokenDialogOpen}
+            onOpenChange={(open) => {
+              if (!open) useDeployStore.getState().hideTokenDialog();
+            }}
+            assistantId={assistantId}
+            onTokenSaved={() => {
+              void useDeployStore.getState().deployAfterTokenSaved(assistantId);
+            }}
+          />
+        </Suspense>
+      ) : null}
       <ConfirmDialog
         open={complexDeployApp !== null}
         title="This app needs a full deploy"

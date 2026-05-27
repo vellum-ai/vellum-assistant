@@ -12,8 +12,8 @@ import { describe, expect, test } from "bun:test";
 import {
   EMOJI_MIN_FILTER_LENGTH,
   EMOJI_TRIGGER_RE,
-  searchEmoji,
 } from "@/domains/chat/components/chat-composer/emoji-catalog";
+import { searchEmoji } from "@/domains/chat/components/chat-composer/emoji-catalog-data";
 import {
   SLASH_PREFIX_RE,
   filteredCommands,

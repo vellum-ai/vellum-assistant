@@ -19,7 +19,7 @@
  */
 
 import * as Sentry from "@sentry/react";
-import { type Dispatch, type FormEvent, type MutableRefObject, type ReactNode, type RefObject, type SetStateAction, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type Dispatch, type FormEvent, type MutableRefObject, type ReactNode, type RefObject, type SetStateAction, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ChatBody } from "@/domains/chat/components/chat-body";
 import { SlackChannelFooter } from "@/domains/chat/components/slack-channel-footer";
@@ -55,7 +55,14 @@ import { DocumentViewerContainer } from "@/domains/chat/components/document-view
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
 import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu";
 import { ContextWindowIndicator, type ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
-import { SubagentDetailPanel } from "@/domains/chat/components/subagent-detail-panel";
+// SubagentDetailPanel is only rendered when the user opens a subagent's
+// detail view; defer loading to keep the avatar-bundled-components and
+// subagent UI subtree out of the chat-critical bundle.
+const SubagentDetailPanel = lazy(() =>
+  import("@/domains/chat/components/subagent-detail-panel").then((m) => ({
+    default: m.SubagentDetailPanel,
+  })),
+);
 import { OnboardingChoiceCard } from "@/domains/chat/components/onboarding-choice-card";
 import { useOnboardingChoice } from "@/domains/chat/hooks/use-onboarding-choice";
 import { useIsNativePlatform } from "@/runtime/native-auth";
@@ -88,7 +95,6 @@ import { isSurfaceInteractive } from "@/domains/chat/types/types";
 
 import type { MainView, OpenedAppState, OpenedDocumentState } from "@/stores/viewer-store";
 import { useActiveProfileModel } from "@/domains/chat/hooks/use-active-profile-model";
-import { modelSupportsVision } from "@/assistant/model-capabilities";
 import { isPointerCoarse } from "@/utils/pointer";
 import { routes } from "@/utils/routes";
 import { haptic } from "@/utils/haptics";
@@ -697,10 +703,11 @@ export function ChatRouteContent({
     assistantId,
     activeConversation?.conversationId,
   );
-  const activeModelSupportsVision = activeProfileModel
-    ? (activeProfileModel.supportsVision ??
-      modelSupportsVision(activeProfileModel.provider, activeProfileModel.model))
-    : true;
+  // `modelSupportsVision` from `assistant/model-capabilities` would pull the
+  // entire LLM model catalog (~12 kB) into the chat-critical bundle just to
+  // return `true` as a permissive fallback. The daemon's `supportsVision` is
+  // the source of truth; fail-open here when it isn't surfaced yet.
+  const activeModelSupportsVision = activeProfileModel?.supportsVision ?? true;
 
   const showUploadBlockedNotice =
     attachmentsUploadingCount > 0 &&
@@ -1508,12 +1515,14 @@ export function ChatRouteContent({
             minRightWidth={400}
             left={chatContent}
             right={
-              <SubagentDetailPanel
-                entry={activeEntry}
-                onClose={onCloseSubagentDetail}
-                onStop={onStopSubagent}
-                onRequestDetail={onRequestSubagentDetail}
-              />
+              <Suspense fallback={null}>
+                <SubagentDetailPanel
+                  entry={activeEntry}
+                  onClose={onCloseSubagentDetail}
+                  onStop={onStopSubagent}
+                  onRequestDetail={onRequestSubagentDetail}
+                />
+              </Suspense>
             }
           />
           {sendErrorModalNode}

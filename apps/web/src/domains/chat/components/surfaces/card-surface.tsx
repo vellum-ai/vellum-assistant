@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { Circle, CircleCheck, CircleX, Clock, Loader2 } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
@@ -5,7 +6,15 @@ import type { Surface } from "@/domains/chat/types/types";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container";
-import { WeatherForecastDisplay } from "@/domains/chat/components/surfaces/weather-forecast-display";
+
+// Weather card has its own data-shape parsing and forecast UI that is only
+// rendered when a card surface advertises a weather template. Defer loading
+// to keep it out of the chat-critical bundle.
+const WeatherForecastDisplay = lazy(() =>
+  import("@/domains/chat/components/surfaces/weather-forecast-display").then(
+    (m) => ({ default: m.WeatherForecastDisplay }),
+  ),
+);
 
 // ---------------------------------------------------------------------------
 // Types
@@ -215,12 +224,21 @@ export function CardSurface({ surface, onAction }: CardSurfaceProps) {
         )}
 
         {isWeather ? (
-          <WeatherForecastDisplay templateData={data.templateData!} fallback={
-            <ChatMarkdownMessage
-              content={data.body}
-              className="mt-2 text-body-medium-lighter text-[var(--content-tertiary)]"
-            />
-          } />
+          <Suspense
+            fallback={
+              <ChatMarkdownMessage
+                content={data.body}
+                className="mt-2 text-body-medium-lighter text-[var(--content-tertiary)]"
+              />
+            }
+          >
+            <WeatherForecastDisplay templateData={data.templateData!} fallback={
+              <ChatMarkdownMessage
+                content={data.body}
+                className="mt-2 text-body-medium-lighter text-[var(--content-tertiary)]"
+              />
+            } />
+          </Suspense>
         ) : (
           <>
             <ChatMarkdownMessage

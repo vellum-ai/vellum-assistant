@@ -1,7 +1,7 @@
-import { Check, Copy, icons } from "lucide-react";
+import { Check, Copy } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { sfSymbolToLucideName } from "@/domains/chat/components/surfaces/sf-symbol-map";
+import { sfSymbolToLucideIcon } from "@/domains/chat/components/surfaces/sf-symbol-map";
 
 import type { Surface } from "@/domains/chat/types/types";
 
@@ -231,8 +231,7 @@ export function TableSurface({ surface, onAction }: TableSurfaceProps) {
                         {isRichCell(cell) ? (
                           <span className="flex items-center gap-1.5">
                             {cell.icon && (() => {
-                              const lucideName = sfSymbolToLucideName(cell.icon);
-                              const LucideIcon = lucideName ? icons[lucideName as keyof typeof icons] : undefined;
+                              const LucideIcon = sfSymbolToLucideIcon(cell.icon);
                               return LucideIcon ? (
                                 <LucideIcon className={`h-4 w-4 ${iconColorClass(cell.iconColor)}`} aria-hidden />
                               ) : (

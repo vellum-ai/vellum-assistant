@@ -8,7 +8,7 @@ import {
   Shield,
   SlidersHorizontal,
 } from "lucide-react";
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { useNavigate } from "react-router";
 
 import {
@@ -22,8 +22,16 @@ import { useIsMobile } from "@/hooks/use-is-mobile";
 import { hardNavigate } from "@/lib/auth/hard-navigate";
 import { useAuthStore } from "@/stores/auth-store";
 import { adminUrl, routes } from "@/utils/routes";
-import { ShareFeedbackModal } from "@/components/share-feedback-modal";
 import { ThemeToggle } from "@/components/theme-toggle";
+
+// Modal only opens when the user clicks "Share Feedback" — defer loading
+// until then to keep the modal's form deps (markdown editor, etc.) out of
+// the initial bundle.
+const ShareFeedbackModal = lazy(() =>
+  import("@/components/share-feedback-modal").then((m) => ({
+    default: m.ShareFeedbackModal,
+  })),
+);
 
 export interface PreferencesMenuProps {
   assistantId?: string | null;
@@ -89,13 +97,17 @@ export function PreferencesMenu({
         </Popover.Root>
       )}
 
-      <ShareFeedbackModal
-        open={isFeedbackOpen}
-        onClose={() => setIsFeedbackOpen(false)}
-        assistantId={assistantId}
-        assistantVersion={assistantVersion}
-        activeConversationId={activeConversationId}
-      />
+      {isFeedbackOpen ? (
+        <Suspense fallback={null}>
+          <ShareFeedbackModal
+            open={isFeedbackOpen}
+            onClose={() => setIsFeedbackOpen(false)}
+            assistantId={assistantId}
+            assistantVersion={assistantVersion}
+            activeConversationId={activeConversationId}
+          />
+        </Suspense>
+      ) : null}
     </>
   );
 }

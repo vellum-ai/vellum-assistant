@@ -24,6 +24,7 @@ import {
   type PreChatOnboardingContext,
 } from "@/domains/onboarding/prechat";
 import { persistPreChatOnboardingProfile } from "@/domains/onboarding/prechat-profile";
+import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
 import { pickConversationIdWireField } from "@/lib/backwards-compat/conversation-id-wire-field";
 
 const POLL_INTERVAL_MS = 1000;
@@ -323,8 +324,6 @@ export async function getChatHistory(
       };
     }
 
-    const { mapRuntimeToDisplayMessage } =
-      await import("@/domains/chat/utils/map-runtime-message");
     const messages = (Array.isArray(data?.messages) ? data.messages : [])
       .filter((m) => m.role === "user" || m.role === "assistant")
       .map(mapRuntimeToDisplayMessage);

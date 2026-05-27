@@ -5,7 +5,6 @@ import { RootLayout } from "@/root-layout";
 import { ChatLayout } from "@/domains/chat/chat-layout";
 import { ChatPage } from "@/domains/chat/chat-page";
 import { ConversationRedirect } from "@/domains/chat/conversation-redirect";
-import { DocumentViewerPage } from "@/domains/chat/document-viewer-page";
 import { NotFound } from "@/components/not-found";
 import { RootErrorBoundary } from "@/components/root-error-boundary";
 import { ActiveAssistantGate } from "@/components/layout/active-assistant-gate";
@@ -125,7 +124,7 @@ export const router = createBrowserRouter(
             // under <ActiveAssistantGate>.
             { index: true, Component: ConversationRedirect },
             { path: "conversations/:conversationId", Component: ChatPage },
-            { path: "documents/:surfaceId", Component: DocumentViewerPage },
+            { path: "documents/:surfaceId", lazy: { Component: () => import("@/domains/chat/document-viewer-page").then((m) => m.DocumentViewerPage) } },
             // Everything below requires a resolved assistantId AND an
             // active daemon. The gate defers child rendering until the
             // lifecycle resolves so route components can rely on a

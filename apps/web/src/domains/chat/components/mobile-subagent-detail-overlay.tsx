@@ -1,5 +1,12 @@
-import { SubagentDetailPanel } from "@/domains/chat/components/subagent-detail-panel";
+import { lazy, Suspense } from "react";
+
 import type { SubagentEntry } from "@/domains/subagents/subagent-store";
+
+const SubagentDetailPanel = lazy(() =>
+  import("@/domains/chat/components/subagent-detail-panel").then((m) => ({
+    default: m.SubagentDetailPanel,
+  })),
+);
 
 interface MobileSubagentDetailOverlayProps {
   /** When `null`, the overlay renders nothing. */
@@ -35,12 +42,14 @@ export function MobileSubagentDetailOverlay({
 
   return (
     <div className="fixed inset-x-0 bottom-0 z-30 h-[100dvh]">
-      <SubagentDetailPanel
-        entry={entry}
-        onClose={onClose}
-        onStop={onStop}
-        onRequestDetail={onRequestDetail}
-      />
+      <Suspense fallback={null}>
+        <SubagentDetailPanel
+          entry={entry}
+          onClose={onClose}
+          onStop={onStop}
+          onRequestDetail={onRequestDetail}
+        />
+      </Suspense>
     </div>
   );
 }
