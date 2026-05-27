@@ -59,18 +59,46 @@ apps/macos/
 ├── electron.vite.config.ts   # main + preload Vite entries (no renderer)
 ├── src/
 │   ├── main/index.ts         # window creation, app://, assistant supervisor
+│   ├── main/settings.ts      # electron-store schema + IPC-backed accessors
 │   └── preload/index.ts      # contextBridge: window.vellum.*
 └── tsconfig.json
 ```
 
 ## Renderer bridge
 
-The preload script exposes a typed `window.vellum` API to the renderer. Today
-it only reports `platform: "electron"`; auth, settings, and helper methods
-are typed stubs to be wired up in follow-up tickets.
+The preload script exposes a typed `window.vellum` API to the renderer:
+
+- `platform: "electron"` — host discriminator.
+- `settings.get<T>(key)` / `settings.set<T>(key, value)` — persisted preferences,
+  backed by `electron-store` in the main process. Writes are validated against
+  a JSON schema (`hotkeys`, `theme`, `featureFlags`); a schema violation
+  surfaces as a rejected `Promise`.
+- `auth.*` and `helper.*` — typed stubs that reject with "not implemented yet"
+  until the corresponding feature tickets land.
 
 Verify the bridge from the renderer:
 
 ```js
 console.log(window.vellum.platform); // "electron"
+await window.vellum.settings.set("theme", "dark");
+console.log(await window.vellum.settings.get("theme")); // "dark"
 ```
+
+### When to extend the bridge with new methods
+
+The generic `settings.{get,set}` surface is appropriate for user preferences
+where the renderer is the source of truth and the value is non-sensitive
+(theme, layout, feature-flag overrides, etc.). For higher-sensitivity
+capabilities — auth tokens, biometric keys, file paths, anything where the
+renderer should not be free to read or write arbitrary keys — add a
+dedicated bridge method (`window.vellum.<capability>.<verb>()`) with its
+own IPC channel. This follows Electron's "one method per IPC message"
+guidance from the [security tutorial](https://www.electronjs.org/docs/latest/tutorial/security#17-validate-the-sender-of-all-ipc-messages),
+which keeps the renderer-exposed surface narrow and auditable.
+
+Renderer-side consumers in `apps/web/` should wrap bridge access in a
+per-capability module (see `apps/web/src/runtime/native-biometric.ts` for
+the established shape) rather than reaching into `window.vellum.*`
+directly from feature code. That keeps the platform-branching logic in
+one place and makes the cross-platform contract (web / iOS / Electron)
+live in TypeScript types.
