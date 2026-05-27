@@ -100,6 +100,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   setConversationHistoryStrippedAt: () => {},
   updateConversationContextWindow: () => {},
   updateConversationSlackContextWatermark: () => {},
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 import { runAgentLoopImpl } from "../daemon/conversation-agent-loop.js";

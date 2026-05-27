@@ -159,6 +159,7 @@ mock.module("../memory/conversation-crud.js", () => ({
     createdConversations.push(opts);
     return { id: `conv-${++conversationIdCounter}`, ...opts };
   },
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 // Mock logger — capture warn calls for unreachable-credential assertions

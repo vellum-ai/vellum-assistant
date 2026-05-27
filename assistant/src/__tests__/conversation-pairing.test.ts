@@ -67,6 +67,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   createConversation: createConversationMock,
   addMessage: addMessageMock,
   getConversation: getConversationMock,
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 /** Simulated bindings for external-conversation-store mock. */

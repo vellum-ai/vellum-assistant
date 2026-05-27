@@ -92,6 +92,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   addMessage: async () => ({ id: "persisted-1" }),
   setConversationOriginChannelIfUnset: () => {},
   setConversationOriginInterfaceIfUnset: () => {},
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 mock.module("../memory/conversation-queries.js", () => ({

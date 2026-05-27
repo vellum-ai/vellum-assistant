@@ -106,6 +106,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   provenanceFromTrustContext: () => undefined,
   setConversationOriginChannelIfUnset: () => {},
   setConversationOriginInterfaceIfUnset: () => {},
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 mock.module("../runtime/local-actor-identity.js", () => ({

@@ -73,6 +73,7 @@ mock.module("../../memory/conversation-crud.js", () => ({
   ) => {
     updateTitleCalls.push({ conversationId, title });
   },
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 // Stub conversation-store so the real `launchConversation` can hydrate

@@ -197,6 +197,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   getConversationOriginChannel: () => null,
   getMessageById: () => mockMessageById,
   getLastUserTimestampBefore: () => 0,
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 afterAll(() => {

@@ -533,8 +533,15 @@ export const MemoryV3ConfigSchema = z
           .describe(
             "Association-strength cutoff for merging the learned co-retrieval graph (memory_v3_auto_edges) into the edge-expansion lane. Seeded edges are weighted seedWeight × NPMI, so this is effectively a minimum-NPMI gate: NPMI ≥ threshold / seedWeight (e.g. with the default seedWeight 2.0, threshold 1.0 ≈ NPMI ≥ 0.5, 1.2 ≈ NPMI ≥ 0.6). When > 0, edges at or above this weight are read via aboveThreshold() and merged with the curated frontmatter graph as expandEdges' extraAdjacency. 0 (default) = OFF: the edge lane uses curated edges only and behavior is unchanged. Seed the learned graph with `assistant memory v3 seed-edges`.",
           ),
+        maxPulls: z
+          .number({ error: "memory.v3.edges.maxPulls must be a number" })
+          .min(0, "memory.v3.edges.maxPulls must be >= 0")
+          .default(400)
+          .describe(
+            "Hard cap on the edge lane's contribution to the gate's candidate pool (the unioned 1–2 hop curated∪learned neighborhood). The shipped default 400 lets a dense curated graph dominate the pool and drown the gate's recall of high-precision hits; lower values (~40) keep the lane focused. 0 effectively disables edge pulls.",
+          ),
       })
-      .default({ learnedAdjacencyThreshold: 0 })
+      .default({ learnedAdjacencyThreshold: 0, maxPulls: 400 })
       .describe(
         "Edge-expansion lane configuration. Gates whether the learned co-retrieval graph augments the curated edge graph.",
       ),
@@ -615,7 +622,7 @@ export const MemoryV3ConfigSchema = z
     denseQuota: { activeDomain: 30, offDomain: 8 },
     hotLimit: 50,
     lanes: { hot: true, sparse: true, dense: true, tree: true, edges: true },
-    edges: { learnedAdjacencyThreshold: 0 },
+    edges: { learnedAdjacencyThreshold: 0, maxPulls: 400 },
     ks: [5, 10, 25, 50],
     write: {
       enabled: false,

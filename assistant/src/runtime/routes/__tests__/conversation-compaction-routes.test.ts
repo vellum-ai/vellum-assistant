@@ -70,6 +70,7 @@ mock.module("../../../memory/conversation-crud.js", () => ({
     state.conversation && state.conversation.id === id
       ? state.conversation
       : null,
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 mock.module("../../../memory/llm-request-log-source.js", () => ({

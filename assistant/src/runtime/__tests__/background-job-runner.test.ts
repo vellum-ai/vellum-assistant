@@ -40,6 +40,7 @@ mock.module("../../memory/conversation-crud.js", () => ({
     addMessageCalls.push({ conversationId, role, content });
     return { id: `msg-${addMessageCalls.length}` };
   },
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 let processMessageImpl: (

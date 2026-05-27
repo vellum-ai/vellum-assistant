@@ -83,6 +83,7 @@ mock.module("../memory/conversation-crud.js", () => ({
     content: string,
     metadata?: Record<string, unknown>,
   ) => addMessageMock(conversationId, role, content, metadata),
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 mock.module("../runtime/local-actor-identity.js", () => ({

@@ -239,6 +239,8 @@ export async function runRetrievalLoop(
         // Merge the learned co-retrieval graph with the curated edges when
         // enabled (undefined = curated-only, the default).
         ...(learnedAdjacency ? { extraAdjacency: learnedAdjacency } : {}),
+        // Cap the lane's contribution to the gate pool (default 400).
+        maxTotalPulls: v3.edges?.maxPulls,
       });
       edgeExpansions = expansion.expansions;
       for (const slug of expansion.pulled) {

@@ -62,10 +62,11 @@ const MAX_SEEDS_EXPANDED = 150;
 const MAX_PULLS_PER_SEED = 32;
 
 /**
- * Hard ceiling on the size of the unioned `pulled` set. This is the load-bearing
- * bound: it caps the lane's contribution to the gate's pool to a few hundred
- * slugs no matter how many seeds or how dense the graph. Once reached, no
- * further seeds are expanded.
+ * Default ceiling on the size of the unioned `pulled` set. This is the
+ * load-bearing bound: it caps the lane's contribution to the gate's pool no
+ * matter how many seeds or how dense the graph. Once reached, no further seeds
+ * are expanded. Overridable per call via {@link ExpandEdgesArgs.maxTotalPulls}
+ * (the loop wires it to `memory.v3.edges.maxPulls`).
  */
 const MAX_TOTAL_PULLS = 400;
 
@@ -120,6 +121,12 @@ export interface ExpandEdgesArgs {
    * above-threshold edges before passing them in.
    */
   extraAdjacency?: ReadonlyMap<string, ReadonlySet<string>>;
+  /**
+   * Hard ceiling on the unioned `pulled` set — the lane's contribution to the
+   * gate pool. Defaults to {@link MAX_TOTAL_PULLS} when omitted or not a finite
+   * number ≥ 0.
+   */
+  maxTotalPulls?: number;
 }
 
 export interface ExpandEdgesResult {
@@ -199,6 +206,15 @@ export async function expandEdges(
     laneBySlug,
   } = args;
 
+  // Per-call override of the union ceiling, falling back to the default constant
+  // for an omitted or invalid (negative/NaN) value.
+  const maxTotal =
+    typeof args.maxTotalPulls === "number" &&
+    Number.isFinite(args.maxTotalPulls) &&
+    args.maxTotalPulls >= 0
+      ? args.maxTotalPulls
+      : MAX_TOTAL_PULLS;
+
   const index = await getEdgeIndex(workspaceDir);
   const pulled = new Set<string>();
   const expansions: EdgeExpansion[] = [];
@@ -232,7 +248,7 @@ export async function expandEdges(
     // Bound the number of seeds expanded, and stop once the union is full —
     // the remaining seeds would only inflate the gate's pool. Checked before
     // doing any per-seed work so an oversized seed set is cheap to truncate.
-    if (seenSeeds.size > MAX_SEEDS_EXPANDED || pulled.size >= MAX_TOTAL_PULLS) {
+    if (seenSeeds.size > MAX_SEEDS_EXPANDED || pulled.size >= maxTotal) {
       break;
     }
 
@@ -257,7 +273,7 @@ export async function expandEdges(
       (slug) => !seedSet.has(slug) && !pulled.has(slug),
     );
 
-    const remaining = MAX_TOTAL_PULLS - pulled.size;
+    const remaining = maxTotal - pulled.size;
     const perSeedCap = Math.min(MAX_PULLS_PER_SEED, remaining);
     const admitted = fresh.slice(0, perSeedCap);
     for (const slug of admitted) pulled.add(slug);

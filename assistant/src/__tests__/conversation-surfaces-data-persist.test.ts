@@ -29,6 +29,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   getMessages: (conversationId: string) => getMessagesImpl(conversationId),
   updateMessageContent: (id: string, content: string) =>
     updateMessageContentSpy(id, content),
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 // Imports must come AFTER mock.module so the surface module picks up

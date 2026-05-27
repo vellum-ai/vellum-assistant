@@ -439,18 +439,25 @@ export interface OverflowReduceResult {
  * Pipeline arguments for `persistence` — a discriminated union over the
  * message-CRUD operations plugins may observe, redirect, or short-circuit:
  *
- * - `add`    — append a new message (`addMessage`). Mirrors
- *              `addMessage(conversationId, role, content, metadata?, opts?)`.
- *              When `syncToDisk` is set, the default plugin also runs
- *              {@link syncMessageToDisk} against the just-persisted row so
- *              the JSONL disk view stays consistent. The `createdAtMs` field
- *              carries the conversation's creation timestamp — needed to
- *              resolve the disk-view directory path.
- * - `update` — shallow-merge metadata into an existing message
- *              (`updateMessageMetadata`). Returns `void`.
- * - `delete` — remove a single message (`deleteMessageById`). Returns the
- *              {@link DeletedMemoryIds}-shaped segment/summary IDs the caller
- *              must clean up out-of-band.
+ * - `add`           — append a new message (`addMessage`). Mirrors
+ *                     `addMessage(conversationId, role, content, metadata?, opts?)`.
+ *                     When `syncToDisk` is set, the default plugin also runs
+ *                     {@link syncMessageToDisk} against the just-persisted row
+ *                     so the JSONL disk view stays consistent. The
+ *                     `createdAtMs` field carries the conversation's creation
+ *                     timestamp — needed to resolve the disk-view directory.
+ * - `reserve`       — pre-allocate an empty assistant anchor row
+ *                     (`reserveMessage`) so the agent loop can stamp streaming
+ *                     events with stable identity before any content is
+ *                     produced. Returns the same row shape as `add`.
+ * - `updateContent` — overwrite the content of an existing message
+ *                     (`updateMessageContent`). Used to finalize a previously
+ *                     reserved row, and by consolidation paths.
+ * - `update`        — shallow-merge metadata into an existing message
+ *                     (`updateMessageMetadata`). Returns `void`.
+ * - `delete`        — remove a single message (`deleteMessageById`). Returns
+ *                     the {@link DeletedMemoryIds}-shaped segment/summary IDs
+ *                     the caller must clean up out-of-band.
  *
  * The discriminated `op` field lets plugin middleware narrow the union and
  * tailor behavior per-operation (e.g. "only observe deletes", "redirect
@@ -473,6 +480,19 @@ export type PersistAddArgs = {
   readonly createdAtMs?: number;
 };
 
+export type PersistReserveArgs = {
+  readonly op: "reserve";
+  readonly conversationId: string;
+  readonly role: string;
+  readonly metadata?: Record<string, unknown>;
+};
+
+export type PersistUpdateContentArgs = {
+  readonly op: "updateContent";
+  readonly messageId: string;
+  readonly content: string;
+};
+
 export type PersistUpdateArgs = {
   readonly op: "update";
   readonly messageId: string;
@@ -486,6 +506,8 @@ export type PersistDeleteArgs = {
 
 export type PersistArgs =
   | PersistAddArgs
+  | PersistReserveArgs
+  | PersistUpdateContentArgs
   | PersistUpdateArgs
   | PersistDeleteArgs;
 
@@ -506,6 +528,25 @@ export type PersistAddResult = {
   };
 };
 
+/**
+ * Result row returned by a `reserve` op — same row shape as `add` but with
+ * empty `content` (`"[]"`) and tagged distinctly so middleware can branch
+ * on intent.
+ */
+export type PersistReserveResult = {
+  readonly op: "reserve";
+  readonly message: {
+    readonly id: string;
+    readonly conversationId: string;
+    readonly role: string;
+    readonly content: string;
+    readonly createdAt: number;
+    readonly metadata?: string;
+  };
+};
+
+export type PersistUpdateContentResult = { readonly op: "updateContent" };
+
 export type PersistUpdateResult = { readonly op: "update" };
 
 /** IDs of segments/summaries the caller must remove from Qdrant. */
@@ -517,6 +558,8 @@ export type PersistDeleteResult = {
 
 export type PersistResult =
   | PersistAddResult
+  | PersistReserveResult
+  | PersistUpdateContentResult
   | PersistUpdateResult
   | PersistDeleteResult;
 
