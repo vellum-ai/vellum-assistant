@@ -4,7 +4,8 @@ import fs from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 
-import { readSetting, writeSetting } from "./settings.js";
+import { installApplicationMenu } from "./menu";
+import { readSetting, writeSetting } from "./settings";
 
 const DEV_SERVER_URL = "http://localhost:5173";
 const DEV_SERVER_ORIGIN = new URL(DEV_SERVER_URL).origin;
@@ -271,6 +272,7 @@ app
     }
     installPermissionHandler();
     installSettingsIpc();
+    installApplicationMenu();
     spawnDaemon();
     createWindow();
 

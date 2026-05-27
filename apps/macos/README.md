@@ -42,6 +42,23 @@ Code signing, notarization, and auto-update wiring live in follow-up tickets.
   logged but does not retry — expected in local dev where the assistant
   isn't bundled yet.
 
+## Native macOS integration
+
+- **Application menu** (`src/main/menu.ts`). Installs a standard macOS menu
+  bar with `Vellum`, `Edit`, `View`, `Window`, and `Help` submenus, all
+  role-based so they work without renderer IPC. `View > Toggle Developer
+  Tools` is gated to dev builds only so the packaged DMG doesn't expose
+  devtools to end users.
+
+  A `File` menu with `New Conversation` / `Current Conversation` /
+  `Mark Unread` is intentionally absent. Those items need a typed
+  command/hotkey system (main-process command bus → typed preload
+  subscription → renderer dispatcher) and the renderer-side handlers in
+  `apps/web` so they actually do work when clicked. That system lands as
+  one cohesive PR that wires main + preload + renderer together. Shipping
+  menu items that no-op on click would be the kind of dormant surface
+  this codebase has been backing out of.
+
 ## Scripts
 
 ```sh
@@ -60,6 +77,7 @@ apps/macos/
 ├── src/
 │   ├── main/index.ts         # window creation, app://, assistant supervisor
 │   ├── main/settings.ts      # electron-store schema + IPC-backed accessors
+│   ├── main/menu.ts          # macOS application menu
 │   └── preload/index.ts      # contextBridge: window.vellum.*
 └── tsconfig.json
 ```
