@@ -1,58 +1,42 @@
-import { client } from "@/generated/api/client.gen";
+/**
+ * Document CRUD operations via the generated daemon SDK.
+ *
+ * Wraps the auto-generated daemon client functions with app-specific
+ * error handling. Types are re-exported from the generated SDK.
+ */
+
+import {
+  documentsByIdConversationsPost,
+  documentsByIdGet,
+  documentsByIdPdfGet,
+  documentsGet,
+  documentsPost,
+} from "@/generated/daemon/sdk.gen";
+import type {
+  DocumentsByIdGetResponse,
+  DocumentsGetResponse,
+} from "@/generated/daemon/types.gen";
 import { ApiError, assertHasResponse, extractErrorMessage } from "@/lib/api-errors";
 
 // ---------------------------------------------------------------------------
-// Types
+// Types — re-exported from generated daemon SDK
 // ---------------------------------------------------------------------------
 
-export interface DocumentSummary {
-  surfaceId: string;
-  conversationId: string;
-  title: string;
-  wordCount: number;
-  createdAt: number;
-  updatedAt: number;
-}
+export type DocumentSummary = DocumentsGetResponse["documents"][number];
 
-interface ListDocumentsResponse {
-  documents: DocumentSummary[];
-}
-
-// ---------------------------------------------------------------------------
-// SDK base options — same pattern as chat/apps.ts
-// ---------------------------------------------------------------------------
-
-const SDK_BASE_OPTIONS =
-  typeof window === "undefined"
-    ? ({ baseUrl: "http://localhost" } as const)
-    : ({} as const);
+export type DocumentContent = DocumentsByIdGetResponse;
 
 // ---------------------------------------------------------------------------
 // API functions
 // ---------------------------------------------------------------------------
-
-export interface DocumentContent {
-  surfaceId: string;
-  conversationId: string;
-  title: string;
-  content: string;
-  wordCount: number;
-  createdAt: number;
-  updatedAt: number;
-}
 
 export async function fetchDocumentContent(
   assistantId: string,
   documentSurfaceId: string,
 ): Promise<DocumentContent | null> {
   try {
-    const { data, error, response } = await client.get<
-      DocumentContent & { success: boolean },
-      unknown
-    >({
-      ...SDK_BASE_OPTIONS,
-      url: "/v1/assistants/{assistant_id}/documents/{document_id}",
-      path: { assistant_id: assistantId, document_id: documentSurfaceId },
+    const { data, error, response } = await documentsByIdGet({
+      path: { assistant_id: assistantId, id: documentSurfaceId },
       throwOnError: false,
     });
     assertHasResponse(response, error, "Failed to fetch document.");
@@ -70,10 +54,8 @@ export async function exportDocumentPDF(
   documentSurfaceId: string,
 ): Promise<Blob | null> {
   try {
-    const { response } = await client.get<unknown, unknown>({
-      ...SDK_BASE_OPTIONS,
-      url: "/v1/assistants/{assistant_id}/documents/{document_id}/pdf",
-      path: { assistant_id: assistantId, document_id: documentSurfaceId },
+    const { response } = await documentsByIdPdfGet({
+      path: { assistant_id: assistantId, id: documentSurfaceId },
       throwOnError: false,
       parseAs: "stream",
     });
@@ -90,18 +72,9 @@ export async function listDocuments(
   assistantId: string,
   conversationId?: string,
 ): Promise<DocumentSummary[]> {
-  const query: Record<string, string> = {};
-  if (conversationId) {
-    query.conversationId = conversationId;
-  }
-  const { data, error, response } = await client.get<
-    ListDocumentsResponse,
-    unknown
-  >({
-    ...SDK_BASE_OPTIONS,
-    url: "/v1/assistants/{assistant_id}/documents",
+  const { data, error, response } = await documentsGet({
     path: { assistant_id: assistantId },
-    query,
+    query: conversationId ? { conversationId } : undefined,
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to list documents.");
@@ -113,8 +86,7 @@ export async function listDocuments(
     );
     throw new ApiError(response.status, msg);
   }
-  const payload = data as ListDocumentsResponse | undefined;
-  return payload?.documents ?? [];
+  return data?.documents ?? [];
 }
 
 export async function saveDocumentContent(
@@ -125,9 +97,7 @@ export async function saveDocumentContent(
   content: string,
 ): Promise<void> {
   const wordCount = content.trim().split(/\s+/).filter((w) => w.length > 0).length;
-  const { error, response } = await client.post<unknown, unknown>({
-    ...SDK_BASE_OPTIONS,
-    url: "/v1/assistants/{assistant_id}/documents",
+  const { error, response } = await documentsPost({
     path: { assistant_id: assistantId },
     body: { surfaceId, conversationId, title, content, wordCount },
     throwOnError: false,
@@ -144,10 +114,8 @@ export async function linkDocumentConversation(
   documentSurfaceId: string,
   conversationId: string,
 ): Promise<void> {
-  const { error, response } = await client.post<unknown, unknown>({
-    ...SDK_BASE_OPTIONS,
-    url: "/v1/assistants/{assistant_id}/documents/{document_id}/conversations",
-    path: { assistant_id: assistantId, document_id: documentSurfaceId },
+  const { error, response } = await documentsByIdConversationsPost({
+    path: { assistant_id: assistantId, id: documentSurfaceId },
     body: { conversationId },
     throwOnError: false,
   });
