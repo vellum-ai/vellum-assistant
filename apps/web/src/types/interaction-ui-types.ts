@@ -54,16 +54,6 @@ export interface QuestionEntry {
 // Chat UI state types — used by interaction store and chat domain
 // ---------------------------------------------------------------------------
 
-export interface ChatError {
-  message: string;
-  code?: string;
-  errorCategory?: string;
-  /** See `types.ts` ChatError for full semantics. */
-  displayAs?: "inline" | "modal";
-  /** See `types.ts` ChatError for full semantics. */
-  restoreContent?: string;
-}
-
 export interface PendingSecretState {
   requestId: string;
   label?: string;
