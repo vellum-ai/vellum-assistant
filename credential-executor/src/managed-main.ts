@@ -145,15 +145,13 @@ function buildHandlers(
   // though handlers are built before the handshake completes.
   const platformBaseUrl = process.env["VELLUM_PLATFORM_URL"] ?? "";
 
-  const {
-    getManagedSubjectOptions,
-    getManagedMaterializerOptions,
-  } = buildLazyGetters({
-    platformBaseUrl,
-    assistantIdRef,
-    apiKeyRef,
-    envApiKey: process.env["ASSISTANT_API_KEY"] || "",
-  });
+  const { getManagedSubjectOptions, getManagedMaterializerOptions } =
+    buildLazyGetters({
+      platformBaseUrl,
+      assistantIdRef,
+      apiKeyRef,
+      envApiKey: process.env["ASSISTANT_API_KEY"] || "",
+    });
 
   if (!platformBaseUrl) {
     log.warn(
@@ -194,7 +192,10 @@ function buildHandlers(
   };
 
   const localSubjectDepsStub: LocalSubjectResolverDeps = {
-    metadataStore: { getById: () => undefined, list: () => [] } as unknown as LocalSubjectResolverDeps["metadataStore"],
+    metadataStore: {
+      getById: () => undefined,
+      list: () => [],
+    } as unknown as LocalSubjectResolverDeps["metadataStore"],
     oauthConnections: { getById: () => undefined },
   };
 
@@ -661,6 +662,29 @@ async function main(): Promise<void> {
   startHealthServer(healthPort, controller.signal, credentialDeps);
   log.info(`Health server listening on port ${healthPort}`);
 
+  // Build the handler registry once, up front, and reuse it across every
+  // assistant session. All CES state lives behind these handlers — file-backed
+  // grant/audit stores plus the in-memory temporary-grant store and the
+  // secure-command tool registry — and must be process-scoped so it survives
+  // an assistant reconnection. In particular, the tool registry mirrors the
+  // persistent toolstore on disk; rebuilding it per session would let a later
+  // `unregister` miss a tool registered in an earlier session and orphan its
+  // bundle. Temporary grants are keyed by session/conversation, so a new
+  // session never matches the previous session's session-scoped grants.
+  //
+  // The mutable refs carry the handshake-provided session ID, API key, and
+  // assistant ID; handlers read them at call time, so updating the refs when
+  // each session's handshake completes is all that's needed per connection.
+  const sessionIdRef: SessionIdRef = { current: `ces-managed-${Date.now()}` };
+  const apiKeyRef: ApiKeyRef = { current: "" };
+  const assistantIdRef: AssistantIdRef = { current: "" };
+  const handlers = buildHandlers(
+    sessionIdRef,
+    apiKeyRef,
+    assistantIdRef,
+    secureKeyBackend,
+  );
+
   // Serve loop. CES is a long-lived sidecar that must outlive any single
   // assistant session: the assistant container can crash and be restarted
   // independently of the CES container (Kubernetes restarts containers, not
@@ -686,24 +710,6 @@ async function main(): Promise<void> {
     }
 
     rpcConnected = true;
-
-    // Build a fresh handler registry per session. Persistent grant and
-    // audit stores are file-backed (re-reading from disk is idempotent),
-    // while in-memory temporary grants and the secure-command registry are
-    // intentionally reset — a reconnecting assistant starts a new session
-    // and must not inherit the previous session's transient state.
-    //
-    // Use mutable refs so the handshake-provided session ID and API key
-    // are available to handlers at call time (after the handshake completes).
-    const sessionIdRef: SessionIdRef = { current: `ces-managed-${Date.now()}` };
-    const apiKeyRef: ApiKeyRef = { current: "" };
-    const assistantIdRef: AssistantIdRef = { current: "" };
-    const handlers = buildHandlers(
-      sessionIdRef,
-      apiKeyRef,
-      assistantIdRef,
-      secureKeyBackend,
-    );
 
     const server = new CesRpcServer({
       input: connection.readable,
