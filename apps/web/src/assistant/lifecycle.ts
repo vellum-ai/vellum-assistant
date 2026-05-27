@@ -78,6 +78,6 @@ export function buildInitializingTimeoutError(): {
   return {
     kind: "error",
     message:
-      "Your assistant is taking longer than expected to start. Please try again or run the Vellum Doctor to diagnose the issue.",
+      "Your assistant is taking longer than expected to start. Please try again, or check the community for help.",
   };
 }
