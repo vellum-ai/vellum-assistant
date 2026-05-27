@@ -61,6 +61,26 @@ Push hooks down to the route component that needs them. Lift shared
 state to the nearest common ancestor — typically a layout route or a
 context provider mounted in `<App />`.
 
+### Layout header slots
+
+`ChatLayout` owns a shared `ChatLayoutHeader` that renders on every
+child route (home, chat, library, identity, etc.). Child routes
+populate the header's center and right sections via
+`setTopBarCenter` / `setTopBarRightSlot` from `useAssistantContext()`.
+Register content in a `useEffect` and clear it on unmount:
+
+```ts
+const { setTopBarCenter } = useAssistantContext();
+useEffect(() => {
+  setTopBarCenter(<span>Page Title</span>);
+  return () => { setTopBarCenter(null); };
+}, [setTopBarCenter]);
+```
+
+Every child route under `ChatLayout` should register its title this
+way. Without it the header center is empty, which is especially
+noticeable on mobile where the sidebar is hidden.
+
 References:
 - [React — Thinking in React](https://react.dev/learn/thinking-in-react)
 - [React Router — Layout Routes](https://reactrouter.com/start/framework/routing#layout-routes)

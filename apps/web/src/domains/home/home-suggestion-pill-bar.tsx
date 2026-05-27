@@ -140,18 +140,20 @@ function resolveIcon(iconName: string | undefined): LucideIcon {
 
 interface HomeSuggestionPillBarProps {
   suggestions: SuggestedPrompt[];
+  maxVisible?: number;
   onSelect: (prompt: SuggestedPrompt) => void;
 }
 
 export function HomeSuggestionPillBar({
   suggestions,
+  maxVisible = 3,
   onSelect,
 }: HomeSuggestionPillBarProps) {
   const [dismissed, setDismissed] = useState(false);
 
   if (dismissed || suggestions.length === 0) return null;
 
-  const visible = suggestions.slice(0, 3);
+  const visible = suggestions.slice(0, maxVisible);
 
   return (
     <div className="flex flex-col gap-[var(--app-spacing-sm)] rounded-2xl border border-[var(--border-disabled)] px-[var(--app-spacing-lg)] py-[var(--app-spacing-lg)]">
