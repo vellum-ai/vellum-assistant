@@ -40,6 +40,7 @@ mock.module("../config/loader.js", () => ({
 }));
 
 interface AddMessageCall {
+  id: string;
   conversationId: string;
   role: string;
   content: string;
@@ -53,14 +54,41 @@ mock.module("../memory/conversation-crud.js", () => ({
     content: string,
     metadata?: Record<string, unknown>,
   ) => {
-    addMessageCalls.push({ conversationId, role, content, metadata });
-    return { id: `mock-msg-${addMessageCalls.length}` };
+    const id = `mock-msg-${addMessageCalls.length + 1}`;
+    addMessageCalls.push({ id, conversationId, role, content, metadata });
+    return { id };
   },
   getConversation: () => null,
   getMessageById: () => null,
-  updateMessageContent: () => {},
+  updateMessageContent: (messageId: string, content: string) => {
+    // Mirror updateContent into the same capture array so existing
+    // `lastPersisted("assistant")` assertions continue to find the row that
+    // was reserved at `llm_call_started` time.
+    const call = addMessageCalls.find((c) => c.id === messageId);
+    if (call) call.content = content;
+  },
   provenanceFromTrustContext: () => ({}),
-  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
+  reserveMessage: mock(
+    async (
+      conversationId: string,
+      role: string,
+      metadata?: Record<string, unknown>,
+    ) => {
+      // B3: production code creates the assistant row at `llm_call_started`
+      // via `reserveMessage`, stamping channel metadata at reserve time.
+      // Mirror that into the addMessage capture array so existing
+      // `lastPersisted("assistant")` assertions keep working.
+      const id = `mock-msg-${addMessageCalls.length + 1}-reserve`;
+      addMessageCalls.push({
+        id,
+        conversationId,
+        role,
+        content: "",
+        metadata,
+      });
+      return { id };
+    },
+  ),
 }));
 
 mock.module("../memory/llm-request-log-store.js", () => ({
@@ -85,6 +113,7 @@ import type {
 } from "../daemon/conversation-agent-loop-handlers.js";
 import {
   createEventHandlerState,
+  handleLlmCallStarted,
   handleMessageComplete,
 } from "../daemon/conversation-agent-loop-handlers.js";
 
@@ -165,7 +194,12 @@ describe("persistence-layer secret redaction", () => {
       isError: false,
     });
 
-    await handleMessageComplete(state, makeDeps(), makeMessageCompleteEvent("done"));
+    await handleLlmCallStarted(state, makeDeps());
+    await handleMessageComplete(
+      state,
+      makeDeps(),
+      makeMessageCompleteEvent("done"),
+    );
 
     const persisted = lastPersisted("user");
     const blocks = JSON.parse(persisted.content) as Array<{
@@ -184,7 +218,12 @@ describe("persistence-layer secret redaction", () => {
       isError: false,
     });
 
-    await handleMessageComplete(state, makeDeps(), makeMessageCompleteEvent("done"));
+    await handleLlmCallStarted(state, makeDeps());
+    await handleMessageComplete(
+      state,
+      makeDeps(),
+      makeMessageCompleteEvent("done"),
+    );
 
     const persisted = lastPersisted("user");
     const blocks = JSON.parse(persisted.content) as Array<{
@@ -196,13 +235,19 @@ describe("persistence-layer secret redaction", () => {
   });
 
   test("does not redact non-secret content (UUID, hex hash) in tool result", async () => {
-    const safe = "id=550e8400-e29b-41d4-a716-446655440000 sha=a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2";
+    const safe =
+      "id=550e8400-e29b-41d4-a716-446655440000 sha=a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2";
     state.pendingToolResults.set("tool-use-3", {
       content: safe,
       isError: false,
     });
 
-    await handleMessageComplete(state, makeDeps(), makeMessageCompleteEvent("done"));
+    await handleLlmCallStarted(state, makeDeps());
+    await handleMessageComplete(
+      state,
+      makeDeps(),
+      makeMessageCompleteEvent("done"),
+    );
 
     const persisted = lastPersisted("user");
     const blocks = JSON.parse(persisted.content) as Array<{
@@ -225,7 +270,12 @@ describe("persistence-layer secret redaction", () => {
     // Capture the content before handleMessageComplete clears pendingToolResults
     const contentSnapshot = state.pendingToolResults.get("tool-use-4")!.content;
 
-    await handleMessageComplete(state, makeDeps(), makeMessageCompleteEvent("done"));
+    await handleLlmCallStarted(state, makeDeps());
+    await handleMessageComplete(
+      state,
+      makeDeps(),
+      makeMessageCompleteEvent("done"),
+    );
 
     // The snapshot taken from live state before the call must be unmodified
     expect(contentSnapshot).toBe(originalContent);
@@ -240,7 +290,12 @@ describe("persistence-layer secret redaction", () => {
       "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     const text = `Your API key is \`${secret}\`. Keep it safe.`;
 
-    await handleMessageComplete(state, makeDeps(), makeMessageCompleteEvent(text));
+    await handleLlmCallStarted(state, makeDeps());
+    await handleMessageComplete(
+      state,
+      makeDeps(),
+      makeMessageCompleteEvent(text),
+    );
 
     const persisted = lastPersisted("assistant");
     const blocks = JSON.parse(persisted.content) as Array<{
@@ -257,7 +312,12 @@ describe("persistence-layer secret redaction", () => {
     const secret = "sk-proj-ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrst";
     const text = `I found this key in the config: ${secret}`;
 
-    await handleMessageComplete(state, makeDeps(), makeMessageCompleteEvent(text));
+    await handleLlmCallStarted(state, makeDeps());
+    await handleMessageComplete(
+      state,
+      makeDeps(),
+      makeMessageCompleteEvent(text),
+    );
 
     const persisted = lastPersisted("assistant");
     const blocks = JSON.parse(persisted.content) as Array<{
@@ -272,7 +332,12 @@ describe("persistence-layer secret redaction", () => {
   test("does not redact non-secret text in assistant message", async () => {
     const safe = "Here is the file list: index.ts, util.ts, main.ts";
 
-    await handleMessageComplete(state, makeDeps(), makeMessageCompleteEvent(safe));
+    await handleLlmCallStarted(state, makeDeps());
+    await handleMessageComplete(
+      state,
+      makeDeps(),
+      makeMessageCompleteEvent(safe),
+    );
 
     const persisted = lastPersisted("assistant");
     const blocks = JSON.parse(persisted.content) as Array<{
@@ -287,7 +352,12 @@ describe("persistence-layer secret redaction", () => {
     // High-entropy but no known credential prefix — should NOT be redacted
     const text = "checksum: 8f14e45fceea167a5a36dedd4bea2543";
 
-    await handleMessageComplete(state, makeDeps(), makeMessageCompleteEvent(text));
+    await handleLlmCallStarted(state, makeDeps());
+    await handleMessageComplete(
+      state,
+      makeDeps(),
+      makeMessageCompleteEvent(text),
+    );
 
     const persisted = lastPersisted("assistant");
     const blocks = JSON.parse(persisted.content) as Array<{

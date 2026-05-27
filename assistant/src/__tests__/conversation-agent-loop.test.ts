@@ -198,6 +198,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   getMessageById: () => mockMessageById,
   getLastUserTimestampBefore: () => 0,
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
+  updateMessageContent: mock(() => {}),
 }));
 
 afterAll(() => {
@@ -784,6 +785,9 @@ describe("session-agent-loop", () => {
         _requestId,
         onCheckpoint,
       ) => {
+        // Prime the assistant row anchor for LLM call 1 — production code
+        // emits this from `AgentLoop.run` just before `provider.sendMessage`.
+        await onEvent({ type: "llm_call_started" });
         await onEvent({
           type: "message_complete",
           message: {
@@ -809,6 +813,9 @@ describe("session-agent-loop", () => {
           hasToolUse: true,
           history: messages,
         });
+        // Prime the anchor again for LLM call 2 — multi-call agent turns
+        // reserve a fresh assistant row per LLM call.
+        await onEvent({ type: "llm_call_started" });
         await onEvent({
           type: "message_complete",
           message: {
@@ -1065,6 +1072,9 @@ describe("session-agent-loop", () => {
       const events: ServerMessage[] = [];
 
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`.
+        await onEvent({ type: "llm_call_started" });
         // Simulate tool_use + error during execution
         onEvent({
           type: "tool_use",
@@ -1114,6 +1124,9 @@ describe("session-agent-loop", () => {
       const events: ServerMessage[] = [];
 
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`.
+        await onEvent({ type: "llm_call_started" });
         onEvent({
           type: "message_complete",
           message: {
@@ -1174,6 +1187,9 @@ describe("session-agent-loop", () => {
       };
 
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`.
+        await onEvent({ type: "llm_call_started" });
         onEvent({
           type: "message_complete",
           message: {
@@ -1239,6 +1255,9 @@ describe("session-agent-loop", () => {
       };
 
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`.
+        await onEvent({ type: "llm_call_started" });
         onEvent({
           type: "message_complete",
           message: {
@@ -1321,6 +1340,9 @@ describe("session-agent-loop", () => {
       };
 
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`.
+        await onEvent({ type: "llm_call_started" });
         onEvent({
           type: "message_complete",
           message: {
@@ -1389,6 +1411,9 @@ describe("session-agent-loop", () => {
       }> = [];
 
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`.
+        await onEvent({ type: "llm_call_started" });
         onEvent({ type: "text_delta", text: "Hi." });
         onEvent({
           type: "message_complete",
@@ -1464,6 +1489,9 @@ describe("session-agent-loop", () => {
       }> = [];
 
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`.
+        await onEvent({ type: "llm_call_started" });
         // No text_delta — pure tool-call response
         onEvent({
           type: "message_complete",
@@ -1527,6 +1555,9 @@ describe("session-agent-loop", () => {
       const events: ServerMessage[] = [];
 
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`.
+        await onEvent({ type: "llm_call_started" });
         onEvent({
           type: "message_complete",
           message: {
@@ -1639,6 +1670,9 @@ describe("session-agent-loop", () => {
       });
 
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`.
+        await onEvent({ type: "llm_call_started" });
         onEvent({
           type: "message_complete",
           message: {
@@ -1729,6 +1763,11 @@ describe("session-agent-loop", () => {
       };
 
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`. Retry branches
+        // need this on every invocation: each agent-loop iteration reserves
+        // its own row.
+        await onEvent({ type: "llm_call_started" });
         callCount++;
         if (callCount === 1) {
           onEvent({
@@ -1856,6 +1895,11 @@ describe("session-agent-loop", () => {
       };
 
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`. Retry branches
+        // need this on every invocation: each agent-loop iteration reserves
+        // its own row.
+        await onEvent({ type: "llm_call_started" });
         callCount++;
         if (callCount === 1) {
           onEvent({
@@ -1941,6 +1985,11 @@ describe("session-agent-loop", () => {
       mockOverflowAction = "auto_compress_latest_turn";
 
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`. Retry branches
+        // need this on every invocation: each agent-loop iteration reserves
+        // its own row.
+        await onEvent({ type: "llm_call_started" });
         callCount++;
         if (callCount <= 2) {
           onEvent({
@@ -2238,6 +2287,9 @@ describe("session-agent-loop", () => {
 
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
         agentLoopCalls++;
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`.
+        await onEvent({ type: "llm_call_started" });
         onEvent({
           type: "message_complete",
           message: {
@@ -2286,6 +2338,11 @@ describe("session-agent-loop", () => {
       let callCount = 0;
 
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`. Retry branches
+        // need this on every invocation: each agent-loop iteration reserves
+        // its own row.
+        await onEvent({ type: "llm_call_started" });
         callCount++;
         if (callCount === 1) {
           onEvent({
@@ -2370,6 +2427,11 @@ describe("session-agent-loop", () => {
         _reqId,
         onCheckpoint,
       ) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`. Retry branches
+        // need this on every invocation: each agent-loop iteration reserves
+        // its own row.
+        await onEvent({ type: "llm_call_started" });
         // Simulate tool use followed by checkpoint
         onEvent({ type: "tool_use", id: "tu-1", name: "file_read", input: {} });
         onEvent({
@@ -2443,6 +2505,11 @@ describe("session-agent-loop", () => {
         _reqId,
         onCheckpoint,
       ) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`. Retry branches
+        // need this on every invocation: each agent-loop iteration reserves
+        // its own row.
+        await onEvent({ type: "llm_call_started" });
         onEvent({ type: "tool_use", id: "tu-1", name: "file_read", input: {} });
         onEvent({
           type: "tool_result",
@@ -2505,6 +2572,9 @@ describe("session-agent-loop", () => {
       const abortController = new AbortController();
 
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`.
+        await onEvent({ type: "llm_call_started" });
         onEvent({
           type: "message_complete",
           message: {
@@ -2565,6 +2635,9 @@ describe("session-agent-loop", () => {
       resolveAssistantAttachmentsMock.mockClear();
 
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`.
+        await onEvent({ type: "llm_call_started" });
         onEvent({
           type: "message_complete",
           message: {
@@ -2604,6 +2677,9 @@ describe("session-agent-loop", () => {
     test("increments turnCount after successful run", async () => {
       const ctx = makeCtx({
         agentLoopRun: async (messages, onEvent) => {
+          // Prime the assistant row anchor — production code emits this from
+          // `AgentLoop.run` just before `provider.sendMessage`.
+          await onEvent({ type: "llm_call_started" });
           onEvent({
             type: "message_complete",
             message: {
@@ -2637,6 +2713,9 @@ describe("session-agent-loop", () => {
     test("clears processing state and abort controller", async () => {
       const ctx = makeCtx({
         agentLoopRun: async (messages, onEvent) => {
+          // Prime the assistant row anchor — production code emits this from
+          // `AgentLoop.run` just before `provider.sendMessage`.
+          await onEvent({ type: "llm_call_started" });
           onEvent({
             type: "message_complete",
             message: {
@@ -2700,8 +2779,13 @@ describe("session-agent-loop", () => {
       const ctx = makeCtx({
         agentLoopRun: async (
           messages: Message[],
-          onEvent: (event: AgentEvent) => void,
+          onEvent: (event: AgentEvent) => void | Promise<void>,
         ) => {
+          // Prime the assistant row anchor — production code emits this from
+          // `AgentLoop.run` just before `provider.sendMessage`. Must be
+          // awaited so the assistant row is reserved before message_complete
+          // tries to write into it.
+          await onEvent({ type: "llm_call_started" });
           onEvent({
             type: "message_complete",
             message: {
@@ -3909,6 +3993,11 @@ describe("session-agent-loop", () => {
       let callCount = 0;
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
         callCount++;
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`. Retry branches
+        // need this on every invocation: each agent-loop iteration reserves
+        // its own row.
+        await onEvent({ type: "llm_call_started" });
         if (callCount === 1) {
           // Trigger convergence path: error + appended assistant message so
           // updatedHistory.length > preRunHistoryLength at the strip site.
@@ -3989,6 +4078,11 @@ describe("session-agent-loop", () => {
       let callCount = 0;
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
         callCount++;
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`. Retry branches
+        // need this on every invocation: each agent-loop iteration reserves
+        // its own row.
+        await onEvent({ type: "llm_call_started" });
         if (callCount === 1) {
           onEvent({
             type: "error",

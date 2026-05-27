@@ -137,6 +137,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   getMessageById: () => null,
   getLastUserTimestampBefore: () => 0,
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
+  updateMessageContent: mock(() => {}),
 }));
 
 mock.module("../memory/conversation-queries.js", () => ({
@@ -255,6 +256,9 @@ mock.module("../agent/loop.js", () => ({
         checkpoint: CheckpointInfo,
       ) => CheckpointDecision | Promise<CheckpointDecision>,
     ): Promise<Message[]> {
+      // Prime the assistant row anchor — production code emits this from
+      // `AgentLoop.run` just before `provider.sendMessage`.
+      await onEvent({ type: "llm_call_started" });
       agentLoopRunCalled = true;
       const assistantMsg: Message = {
         role: "assistant",
