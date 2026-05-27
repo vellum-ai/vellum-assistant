@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 
 import { SDK_BASE_OPTIONS } from "@/domains/chat/api/client";
+import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf";
 import { DEFAULT_EMPTY_STATE_GREETING } from "@/domains/chat/utils/empty-state-constants";
+import { useOrganizationStore } from "@/stores/organization-store";
 
 const GREETING_PROMPT =
   "Generate a short, casual greeting in your voice from you to your user. " +
@@ -25,6 +27,7 @@ function pickFallback(): string {
 
 async function streamGreeting(
   assistantId: string,
+  orgId: string,
   signal: AbortSignal,
   onDelta: (text: string) => void,
 ): Promise<string> {
@@ -32,9 +35,16 @@ async function streamGreeting(
     (SDK_BASE_OPTIONS as Record<string, unknown>).baseUrl ?? "";
   const url = `${baseUrl}/v1/assistants/${encodeURIComponent(assistantId)}/btw`;
 
+  await ensureCsrfCookie();
+  const csrfToken = getCsrfToken();
+
   const res = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(csrfToken ? { "X-CSRFToken": csrfToken } : {}),
+      "Vellum-Organization-Id": orgId,
+    },
     body: JSON.stringify({
       conversationKey: "greeting",
       content: GREETING_PROMPT,
@@ -82,14 +92,15 @@ export function useEmptyStateGreeting(
 ): string {
   const [greeting, setGreeting] = useState("");
   const startedRef = useRef(false);
+  const orgId = useOrganizationStore.use.currentOrganizationId();
 
   useEffect(() => {
-    if (!assistantId || startedRef.current) return;
+    if (!assistantId || !orgId || startedRef.current) return;
     startedRef.current = true;
 
     const controller = new AbortController();
 
-    streamGreeting(assistantId, controller.signal, (delta) => {
+    streamGreeting(assistantId, orgId, controller.signal, (delta) => {
       setGreeting((prev) => prev + delta);
     })
       .then((final) => {
@@ -107,7 +118,7 @@ export function useEmptyStateGreeting(
       });
 
     return () => controller.abort();
-  }, [assistantId]);
+  }, [assistantId, orgId]);
 
   return greeting || DEFAULT_EMPTY_STATE_GREETING;
 }
