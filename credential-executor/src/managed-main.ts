@@ -124,7 +124,7 @@ function buildHandlers(
   apiKeyRef: ApiKeyRef,
   assistantIdRef: AssistantIdRef,
   secureKeyBackend: SecureKeyBackend,
-): RpcHandlerRegistry {
+): { handlers: RpcHandlerRegistry; temporaryGrantStore: TemporaryGrantStore } {
   // -- Grant stores ----------------------------------------------------------
   const persistentGrantStore = new PersistentGrantStore(
     getCesGrantsDir("managed"),
@@ -415,7 +415,7 @@ function buildHandlers(
     return { results };
   }) as (typeof handlers)[string];
 
-  return handlers;
+  return { handlers, temporaryGrantStore };
 }
 
 // ---------------------------------------------------------------------------
@@ -670,8 +670,12 @@ async function main(): Promise<void> {
   // an assistant reconnection. In particular, the tool registry mirrors the
   // persistent toolstore on disk; rebuilding it per session would let a later
   // `unregister` miss a tool registered in an earlier session and orphan its
-  // bundle. Temporary grants are keyed by session/conversation, so a new
-  // session never matches the previous session's session-scoped grants.
+  // bundle.
+  //
+  // The in-memory temporary-grant store is the exception: `allow_once` /
+  // `allow_10m` grants are keyed by proposal hash only (not session), so they
+  // would otherwise leak ephemeral approvals across sessions. It is cleared at
+  // the end of every session below so a reconnecting assistant must re-prompt.
   //
   // The mutable refs carry the handshake-provided session ID, API key, and
   // assistant ID; handlers read them at call time, so updating the refs when
@@ -679,7 +683,7 @@ async function main(): Promise<void> {
   const sessionIdRef: SessionIdRef = { current: `ces-managed-${Date.now()}` };
   const apiKeyRef: ApiKeyRef = { current: "" };
   const assistantIdRef: AssistantIdRef = { current: "" };
-  const handlers = buildHandlers(
+  const { handlers, temporaryGrantStore } = buildHandlers(
     sessionIdRef,
     apiKeyRef,
     assistantIdRef,
@@ -780,6 +784,14 @@ async function main(): Promise<void> {
     }
 
     rpcConnected = false;
+
+    // Drop all ephemeral approvals when the session ends. `allow_once` /
+    // `allow_10m` grants are keyed by proposal hash only, so reusing the
+    // store across a reconnect would let a pre-disconnect approval be
+    // consumed by a later session without re-prompting. Clearing here
+    // restores the prior behavior, where the process exited on stream end
+    // and these grants never survived.
+    temporaryGrantStore.clear();
 
     // A signal-driven end means the process is shutting down; exit the loop.
     // Any other end reason (the assistant disconnected, its stream closed,
