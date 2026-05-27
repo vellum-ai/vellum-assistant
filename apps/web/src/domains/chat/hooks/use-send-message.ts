@@ -186,29 +186,22 @@ export function useSendMessage({
   const queryClient = useQueryClient();
 
   // -------------------------------------------------------------------------
-  // Server-mint race guard
+  // Server-mint in-flight gate
   // -------------------------------------------------------------------------
-  // Tracks the in-flight server-mint POST for the active draft (when
-  // the FIRST message in a brand-new conversation is sent and the
-  // assistant supports `supportsServerMintedConversation()`).
+  // Holds the draft id of an in-flight server-mint POST (the FIRST
+  // message in a brand-new conversation on an assistant that supports
+  // `supportsServerMintedConversation()`). While set, `sendMessage`
+  // refuses to start a new send — the POST 200s quickly so the window
+  // is brief, and blocking is simpler than threading a deferred
+  // through the queue path.
   //
-  // The queue path on `sendMessage` posts with `activeConversationId`,
-  // which is still the local draft key until the first POST returns
-  // and `resolveDraftKey` runs. Without this guard, a follow-up
-  // message submitted during that window would post the draft key to
-  // a 0.8.6+ assistant's strict-lookup endpoint and 404 (the assistant
-  // minted a different id). The queue path awaits this promise so it
-  // posts with the assistant-resolved id instead.
+  // Without this gate, a follow-up send during the window would post
+  // the local draft key to a 0.8.6+ assistant's strict-lookup endpoint
+  // and 404 (the assistant minted a different id).
   //
-  // Cleared after the in-flight POST resolves (or fails). Only the
-  // `sendMessageViaStream` invocation that set the ref ever clears
-  // it — a stale ref left over from a different draft is impossible
-  // because new drafts get new ids and the ref carries the originating
-  // `draftId`.
-  const pendingDraftMintRef = useRef<{
-    draftId: string;
-    promise: Promise<string>;
-  } | null>(null);
+  // Cleared after the POST resolves or rejects. The draft-id check on
+  // clear guards against re-mounts overwriting a newer mint.
+  const pendingDraftMintRef = useRef<string | null>(null);
 
   // -------------------------------------------------------------------------
   // Queue management (delegated to useMessageQueue)
@@ -293,32 +286,10 @@ export function useSendMessage({
       // pre-0.8.6 assistants preserves the legacy `conversationKey`
       // create-or-lookup behavior through `pickConversationIdWireField()`.
       const useServerMint = isDraft && supportsServerMintedConversation();
-      // Race guard: if this is a server-mint send, expose a deferred
-      // that resolves to the assistant's minted id so the queue path
-      // on `sendMessage` can await it before posting follow-up
-      // messages with what would otherwise be the still-unresolved
-      // draft id. See `pendingDraftMintRef` declaration above.
-      //
-      // Definite-assignment (`!:`) on the inner resolve/reject vars is
-      // required because TS can't narrow let-bindings through a
-      // closure, even though the Promise constructor runs its callback
-      // synchronously.
-      const mintDeferred = useServerMint
-        ? (() => {
-            let resolveMint!: (id: string) => void;
-            let rejectMint!: (err: Error) => void;
-            const promise = new Promise<string>((res, rej) => {
-              resolveMint = res;
-              rejectMint = rej;
-            });
-            return { promise, resolve: resolveMint, reject: rejectMint };
-          })()
-        : null;
-      if (mintDeferred) {
-        pendingDraftMintRef.current = {
-          draftId: requestConversationId,
-          promise: mintDeferred.promise,
-        };
+      // While this POST is in flight, `sendMessage` rejects new sends
+      // for this draft — see `pendingDraftMintRef` declaration above.
+      if (useServerMint) {
+        pendingDraftMintRef.current = requestConversationId;
       }
       const postResult = await postChatMessage(
         requestAssistantId,
@@ -327,20 +298,14 @@ export function useSendMessage({
         attachmentIds,
         onboardingContext ?? undefined,
       );
-      if (mintDeferred) {
-        if (postResult.ok) {
-          mintDeferred.resolve(postResult.conversationId);
-        } else {
-          mintDeferred.reject(
-            new Error(postResult.error.detail ?? "Server-mint POST failed"),
-          );
-        }
-        // Only clear the ref if it still points at THIS send's draft —
-        // a re-mount or scope flip during the await could have already
-        // replaced it.
-        if (pendingDraftMintRef.current?.draftId === requestConversationId) {
-          pendingDraftMintRef.current = null;
-        }
+      if (
+        useServerMint &&
+        pendingDraftMintRef.current === requestConversationId
+      ) {
+        // Clear only if we still own the gate. A re-mount or scope flip
+        // during the await could have already replaced it with a newer
+        // draft's mint.
+        pendingDraftMintRef.current = null;
       }
       if (!postResult.ok) {
         if (!isCurrentSendScope()) {
@@ -541,6 +506,16 @@ export function useSendMessage({
         setError({ message: "No active conversation. Please try again." });
         return;
       }
+      // Block any send while a server-mint POST is in flight for the
+      // active draft. The POST 200s quickly so this window is brief;
+      // rejecting is simpler than threading the unresolved id through
+      // the queue path. See `pendingDraftMintRef` declaration.
+      if (pendingDraftMintRef.current === activeConversationId) {
+        setError({
+          message: "Setting up your conversation. Please try again in a moment.",
+        });
+        return;
+      }
       if (diskPressureChatBlockReason) {
         setError({
           message: getDiskPressureChatBlockMessage(
@@ -593,29 +568,9 @@ export function useSendMessage({
         pendingQueuedMessageIdsRef.current.push(userMessage.id);
         const attachmentIds = attachments.map((att) => att.id);
         try {
-          // Server-mint race guard: if the FIRST message in this draft
-          // conversation is still in flight (mint hasn't returned),
-          // wait for the assistant's resolved id before posting. Posting
-          // the local draft key to a 0.8.6+ assistant's strict-lookup
-          // endpoint would 404 because the assistant minted a different
-          // id. See `pendingDraftMintRef` declaration.
-          const pendingMint = pendingDraftMintRef.current;
-          let conversationIdForPost = activeConversationId;
-          if (pendingMint && pendingMint.draftId === activeConversationId) {
-            try {
-              conversationIdForPost = await pendingMint.promise;
-            } catch {
-              revertQueuedMessage(userMessage.id);
-              setError({
-                message:
-                  "Previous message failed to send. Please retry.",
-              });
-              return;
-            }
-          }
           const postResult = await postChatMessage(
             assistantId,
-            conversationIdForPost,
+            activeConversationId,
             content,
             attachmentIds,
           );

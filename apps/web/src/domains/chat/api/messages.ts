@@ -491,35 +491,29 @@ export async function postChatMessage(
   attachmentIds: string[] = [],
   onboarding?: PreChatOnboardingContext,
 ): Promise<PostMessageResult> {
-  // Two id-wire shapes:
-  //   - `conversationId === null` — server-minted flow. Caller has no
-  //     client-side id and is asking the assistant to mint one and echo
-  //     it back in the response. Both wire fields are omitted; the
-  //     assistant mints a fresh row on a `sourceChannel: "vellum"`
-  //     empty-handed send (see
-  //     `assistant/src/runtime/routes/conversation-routes.ts`
-  //     `handleSendMessage`). Callers must gate this on
-  //     `supportsServerMintedConversation()` — older assistant builds
-  //     fall through to the shared `default:vellum:<interface>` thread.
-  //   - non-null — always send `conversationKey` so pre-0.8.6 assistants
-  //     (which don't read `conversationId`) still resolve the id via
-  //     external-key lookup. Additionally, on 0.8.6+ assistants where
-  //     `pickConversationIdWireField()` returns `"conversationId"`,
-  //     also send the value as `conversationId` to trigger the strict
-  //     internal-id lookup. The duplicated id on the wire is harmless:
-  //     pre-0.8.6 ignores the unknown `conversationId` key; 0.8.6+
-  //     reads `conversationId` first when present. See
-  //     `lib/backwards-compat/conversation-id-wire-field.ts`.
+  // Wire-field selection picks exactly one of `conversationId` (0.8.6+
+  // strict internal-id lookup) or `conversationKey` (legacy
+  // create-or-lookup). See `lib/backwards-compat/conversation-id-wire-field.ts`.
+  //
+  // The single skip case is the server-minted flow: `conversationId ===
+  // null` on a 0.8.6+ assistant. Caller is asking the assistant to mint
+  // a conversation row and echo its id back in the response — both
+  // fields must be omitted so the assistant takes the mint branch (see
+  // `assistant/src/runtime/routes/conversation-routes.ts`
+  // `handleSendMessage`). Callers gate `null` on
+  // `supportsServerMintedConversation()`.
+  //
+  // Pre-0.8.6 assistants always receive `conversationKey` — including
+  // `conversationKey: null` for safety, since they have no mint branch
+  // and need the legacy create-or-lookup path either way.
   const body: Record<string, unknown> = {
     content,
     sourceChannel: "vellum",
     interface: "vellum",
   };
-  if (conversationId !== null) {
-    body.conversationKey = conversationId;
-    if (pickConversationIdWireField() === "conversationId") {
-      body.conversationId = conversationId;
-    }
+  const conversationField = pickConversationIdWireField();
+  if (conversationId !== null || conversationField !== "conversationId") {
+    body[conversationField] = conversationId;
   }
   if (attachmentIds.length > 0) {
     body.attachmentIds = attachmentIds;

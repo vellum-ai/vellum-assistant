@@ -189,16 +189,14 @@ describe("postChatMessage onboarding payload", () => {
 });
 
 describe("postChatMessage wire-field bilingual cutover", () => {
-  // Verifies the assistant-version gate selects the right wire fields
-  // on `POST /v1/messages`.
-  //
-  // `conversationKey` is ALWAYS sent on the wire when the caller has an
-  // id (universal back-compat: pre-0.8.6 assistants only read this
-  // field). On 0.8.6+ assistants, `conversationId` is additionally sent
-  // so the assistant's strict internal-id lookup fires — newer
-  // assistants prefer `conversationId` when both are present, older
-  // ones ignore the unknown key. See
-  // `lib/backwards-compat/conversation-id-wire-field.ts`.
+  // Verifies the assistant-version gate picks exactly ONE wire field
+  // on `POST /v1/messages`:
+  //   - 0.8.6+ assistants: `conversationId` only (strict internal-id
+  //     lookup; the server-mint path takes the null branch).
+  //   - pre-0.8.6 assistants: `conversationKey` only (legacy
+  //     create-or-lookup), always sent — including `conversationKey:
+  //     null` — so the legacy path is always exercised.
+  // See `lib/backwards-compat/conversation-id-wire-field.ts`.
   let originalFetch: typeof fetch;
   let originalDocument: unknown;
   let capturedRequests: Array<{ url: string; body: string }> = [];
@@ -245,24 +243,24 @@ describe("postChatMessage wire-field bilingual cutover", () => {
     return JSON.parse(requests[0]!.body) as Record<string, unknown>;
   }
 
-  test("sends both conversationKey and conversationId on 0.8.6 assistants", async () => {
+  test("sends only conversationId on 0.8.6 assistants (no duplicate conversationKey)", async () => {
     useAssistantIdentityStore.getState().setIdentity("Vel", "0.8.6");
 
     await postChatMessage("asst-1", "conv-internal-1", "hi");
 
     const body = getMessageBody();
     expect(body.conversationId).toBe("conv-internal-1");
-    expect(body.conversationKey).toBe("conv-internal-1");
+    expect(body).not.toHaveProperty("conversationKey");
   });
 
-  test("sends both wire fields on newer assistants (e.g. 0.9.0)", async () => {
+  test("sends only conversationId on newer assistants (e.g. 0.9.0)", async () => {
     useAssistantIdentityStore.getState().setIdentity("Vel", "0.9.0");
 
     await postChatMessage("asst-1", "conv-internal-2", "hi");
 
     const body = getMessageBody();
     expect(body.conversationId).toBe("conv-internal-2");
-    expect(body.conversationKey).toBe("conv-internal-2");
+    expect(body).not.toHaveProperty("conversationKey");
   });
 
   test("sends only conversationKey on assistants older than 0.8.6", async () => {
@@ -284,6 +282,22 @@ describe("postChatMessage wire-field bilingual cutover", () => {
 
     const body = getMessageBody();
     expect(body.conversationKey).toBe("conv-internal-4");
+    expect(body).not.toHaveProperty("conversationId");
+  });
+
+  test("still sends conversationKey: null on pre-0.8.6 assistants when caller passes null", async () => {
+    // Defense in depth: a caller that bypasses
+    // `supportsServerMintedConversation()` and passes null to an older
+    // assistant must still hit the legacy create-or-lookup path. The
+    // wire field is sent with a null value rather than omitted so
+    // pre-0.8.6 backends see a familiar shape.
+    useAssistantIdentityStore.getState().setIdentity("Vel", "0.8.5");
+
+    await postChatMessage("asst-1", null, "hi");
+
+    const body = getMessageBody();
+    expect(body).toHaveProperty("conversationKey");
+    expect(body.conversationKey).toBeNull();
     expect(body).not.toHaveProperty("conversationId");
   });
 });
