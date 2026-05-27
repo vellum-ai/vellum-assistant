@@ -10,7 +10,7 @@ import { createOrReuseToolGrantRequest } from "../runtime/tool-grant-request-hel
 import { redactSecrets } from "../security/secret-scanner.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import { getLogger } from "../util/logger.js";
-import { getAllTools, getTool } from "./registry.js";
+import { getAllTools, getTool, getToolOwner } from "./registry.js";
 import { isSideEffectTool } from "./side-effects.js";
 import { summarizeToolInput } from "./tool-input-summary.js";
 import {
@@ -368,8 +368,9 @@ export class ToolApprovalHandler {
 
     // Gate tools not active for the current turn
     if (context.allowedToolNames && !context.allowedToolNames.has(name)) {
+      const owner = getToolOwner(name);
       const ownerSkillId =
-        tool.owner?.kind === "skill" ? tool.owner.id : undefined;
+        owner?.kind === "skill" ? owner.id : undefined;
       const loadHint = ownerSkillId
         ? `Load the "${ownerSkillId}" skill that provides this tool first.`
         : `Load the skill that provides this tool first.`;

@@ -343,7 +343,11 @@ export type LoadedTool = Required<ToolDefinition> & { name: string };
 /** The kind of extension that owns a tool. Core tools have no owner. */
 export type OwnerKind = "skill" | "mcp" | "plugin";
 
-/** Identifies which extension owns a tool (skill / plugin / MCP server). */
+/**
+ * Identifies which extension owns a tool (skill / plugin / MCP server).
+ * Tracked by the tool registry keyed by tool name, not stored on the `Tool`
+ * object itself — query via {@link ../tools/registry.getToolOwner}.
+ */
 export interface OwnerInfo {
   kind: OwnerKind;
   /** ID of the owning extension (skill id / plugin name / MCP server id). */
@@ -356,6 +360,4 @@ export interface Tool extends LoadedTool {
   executionMode?: "local" | "proxy";
   /** Whether this tool is a core built-in, provided by a skill, contributed by a plugin, or from an MCP server. */
   origin?: "core" | "skill" | "mcp" | "plugin";
-  /** Identifies the owning extension when origin is 'skill' / 'plugin' / 'mcp'. Absent for core tools. */
-  owner?: OwnerInfo;
 }

@@ -89,7 +89,7 @@ describe("createResolveToolsCallback — config.tools.exclude", () => {
   });
 
   test("excluded MCP tool is omitted from the resolved tool list", () => {
-    registerMcpTools([
+    registerMcpTools("test-server", [
       mcpTool("mcp__server__navigate"),
       mcpTool("mcp__server__click"),
     ]);
