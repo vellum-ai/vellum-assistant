@@ -72,11 +72,17 @@ property for code splitting. Vite creates a separate chunk per dynamic
 `import()`, so each lazy route loads only when navigated to.
 
 **Eager routes** (critical path — always in the initial bundle):
-`RootLayout`, `ChatLayout`, `ChatPage`, `DocumentViewerPage`,
-`ConversationRedirect`, `ActiveAssistantGate`, `NotFound`.
+`RootLayout`, `ChatLayout`, `ChatPage`, `ConversationRedirect`,
+`ActiveAssistantGate`, `NotFound`.
 
 **Lazy routes** (everything else): settings, logs, account/auth,
-onboarding, intelligence pages, library, inspector, home, connect.
+onboarding, intelligence pages, library, inspector, home, connect,
+documents. `DocumentViewerPage` is reached only from `LibraryPage`
+(itself lazy), so its lazy chunk loads in parallel with code the user
+has already paid the lazy cost on. Its big sub-tree
+(`TiptapDocumentEditor`) is further `React.lazy`-split inside
+`DocumentViewerContainer` so it doesn't reach the main bundle through
+chat either.
 
 ```ts
 // Lazy route — object syntax (preferred)

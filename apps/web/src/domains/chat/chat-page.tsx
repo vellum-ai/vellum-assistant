@@ -8,6 +8,7 @@
 import {
   type Dispatch,
   type SetStateAction,
+  lazy,
   useCallback,
   useEffect,
   useMemo,
@@ -51,7 +52,7 @@ import type { WebSyncRouter } from "@/lib/sync/web-sync-router";
 import type { SyncChangedEvent } from "@/lib/sync/types";
 
 import { Button, ConfirmDialog } from "@vellum/design-library";
-import { VercelTokenDialog } from "@/components/vercel-token-dialog";
+import { LazyBoundary } from "@/components/lazy-boundary";
 import { useSyncChatStore } from "@/domains/chat/chat-store";
 import { useChatAttachments } from "@/domains/chat/components/chat-attachments/use-chat-attachments";
 import { useVoiceInput } from "@/domains/chat/hooks/use-voice-input";
@@ -93,8 +94,24 @@ import { isChannelConversation } from "@/domains/chat/utils/conversation-channel
 import { buildMoveToGroupTargets } from "@/domains/chat/utils/group-conversations";
 import { ConversationActionsMenu } from "@/domains/chat/components/conversation-actions-menu";
 import { ConversationAssetsPill } from "@/domains/chat/components/conversation-assets-pill";
-import { AddCreditsModal } from "@/components/add-credits-modal";
-import { CommandPalette } from "@/components/command-palette/command-palette";
+const AddCreditsModal = lazy(() =>
+  import("@/components/add-credits-modal").then((m) => ({
+    default: m.AddCreditsModal,
+  })),
+);
+// Vercel token dialog is only shown when the deploy flow needs a token, and
+// CommandPalette only renders when the user opens it (Cmd+K / Ctrl+K). Defer
+// loading to keep their form/list deps out of the chat-critical bundle.
+const VercelTokenDialog = lazy(() =>
+  import("@/components/vercel-token-dialog").then((m) => ({
+    default: m.VercelTokenDialog,
+  })),
+);
+const CommandPalette = lazy(() =>
+  import("@/components/command-palette/command-palette").then((m) => ({
+    default: m.CommandPalette,
+  })),
+);
 import { shouldHandleShortcut } from "@/domains/chat/chat-layout";
 import { abortSubagent, fetchSubagentDetail } from "@/domains/chat/api/conversations";
 import { MobileAppOverlay } from "@/domains/chat/components/mobile-app-overlay";
@@ -1580,38 +1597,48 @@ export function ChatPage() {
   return (
     <>
       <ChatRouteContent {...chatRouteProps} />
-      <AddCreditsModal
-        open={showAddCreditsModal}
-        onOpenChange={setShowAddCreditsModal}
-      />
+      {showAddCreditsModal ? (
+        <LazyBoundary>
+          <AddCreditsModal
+            open={showAddCreditsModal}
+            onOpenChange={setShowAddCreditsModal}
+          />
+        </LazyBoundary>
+      ) : null}
       <ConnectingToAssistant
         state={reachability.state}
         onRetry={() => reachability.probe({ showConnectingImmediately: true })}
         onDismiss={reachability.reset}
       />
-      <CommandPalette
-        isOpen={commandPalette.isOpen}
-        onClose={commandPalette.close}
-        query={commandPalette.query}
-        onQueryChange={commandPalette.setQuery}
-        selectedIndex={commandPalette.selectedIndex}
-        sections={mergedSections}
-        isSearching={commandPalette.isSearching}
-        onItemSelect={handleItemSelect}
-        onKeyDown={commandPalette.handleKeyDown}
-      />
-      {assistantId && (
-        <VercelTokenDialog
-          open={isTokenDialogOpen}
-          onOpenChange={(open) => {
-            if (!open) useDeployStore.getState().hideTokenDialog();
-          }}
-          assistantId={assistantId}
-          onTokenSaved={() => {
-            void useDeployStore.getState().deployAfterTokenSaved(assistantId);
-          }}
-        />
-      )}
+      {commandPalette.isOpen ? (
+        <LazyBoundary>
+          <CommandPalette
+            isOpen={commandPalette.isOpen}
+            onClose={commandPalette.close}
+            query={commandPalette.query}
+            onQueryChange={commandPalette.setQuery}
+            selectedIndex={commandPalette.selectedIndex}
+            sections={mergedSections}
+            isSearching={commandPalette.isSearching}
+            onItemSelect={handleItemSelect}
+            onKeyDown={commandPalette.handleKeyDown}
+          />
+        </LazyBoundary>
+      ) : null}
+      {assistantId && isTokenDialogOpen ? (
+        <LazyBoundary>
+          <VercelTokenDialog
+            open={isTokenDialogOpen}
+            onOpenChange={(open) => {
+              if (!open) useDeployStore.getState().hideTokenDialog();
+            }}
+            assistantId={assistantId}
+            onTokenSaved={() => {
+              void useDeployStore.getState().deployAfterTokenSaved(assistantId);
+            }}
+          />
+        </LazyBoundary>
+      ) : null}
       <ConfirmDialog
         open={complexDeployApp !== null}
         title="This app needs a full deploy"
