@@ -43,7 +43,7 @@ import type {
 import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation";
-import { setTranscriptScrollControllerEnabled } from "@/domains/chat/transcript/transcript-scroll-flag";
+import { setTranscriptScrollControllerEnabled } from "@/domains/chat/transcript/transcript-scroll";
 import {
   classifyScrollPosition,
   type TranscriptHandle,
@@ -697,7 +697,7 @@ const API_NS = "api";
  * flip — call from the console to flip a localStorage-persisted flag.
  * Toggles that change React hook ordering (e.g. swapping which scroll
  * coordinator runs) reload the page so the new value takes effect
- * cleanly. See `transcript-scroll-flag.ts` for the storage layer.
+ * cleanly. See `transcript-scroll.ts` for the storage layer.
  */
 export interface VellumDebugFlagsApi {
   /** Flip the parallel `useTranscriptScrollController` path on or off.

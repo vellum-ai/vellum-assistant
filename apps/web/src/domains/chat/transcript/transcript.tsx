@@ -17,6 +17,10 @@ import { LatestTurnRow } from "@/domains/chat/transcript/latest-turn-row";
 import { PullRefreshSpinner } from "@/domains/chat/transcript/pull-refresh-spinner";
 import { TranscriptRow } from "@/domains/chat/transcript/transcript-row";
 import {
+  getTranscriptScrollContainerKey,
+  useTranscriptScrollContainerRef,
+} from "@/domains/chat/transcript/transcript-scroll";
+import {
   PULL_THRESHOLD_PX,
   usePullToRefresh,
 } from "@/domains/chat/transcript/use-pull-to-refresh";
@@ -39,6 +43,10 @@ export type RefreshOutcome =
 
 export interface TranscriptProps {
   items: TranscriptItem[];
+  /** Active conversation id. Drives the scroll container's React key so
+   *  the DOM element re-attaches on conversation switch — that attach
+   *  is the DOM lifecycle event the scroll utilities listen for. */
+  conversationId?: string | null;
   assistantDisplayName?: string | null;
   onSecretSubmit: (requestId: string, value: string) => void;
   onConfirmationDecision: (requestId: string, decision: string) => void;
@@ -150,9 +158,11 @@ export interface TranscriptHandle {
 
 export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
   function Transcript(props, ref) {
-    const { items, onPullRefresh, pullRefreshEnabled, ...rest } = props;
+    const { items, conversationId, onPullRefresh, pullRefreshEnabled, ...rest } =
+      props;
     const scrollRef = useRef<HTMLDivElement | null>(null);
     const contentRef = useRef<HTMLDivElement | null>(null);
+    const scrollContainerRef = useTranscriptScrollContainerRef(scrollRef);
     const viewportMinHeight = useViewportMinHeight(scrollRef);
 
     const pullEnabled = !!pullRefreshEnabled && !!onPullRefresh;
@@ -249,7 +259,8 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
 
     return (
       <div
-        ref={scrollRef}
+        key={getTranscriptScrollContainerKey(conversationId)}
+        ref={scrollContainerRef}
         data-testid="transcript-scroll-container"
         className="flex h-full w-full flex-col overflow-y-auto overscroll-none [overflow-anchor:none]"
       >
