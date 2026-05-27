@@ -42,10 +42,10 @@ function makeFakeTool(name: string): Tool {
 }
 
 function makeSkillTool(name: string): Tool {
-  return {
-    ...makeFakeTool(name),
-    origin: "skill" as const,
-  };
+  // Ownership is recorded by the registry (via `registerSkillTools`), not by
+  // any field on the Tool itself. This helper is now a thin alias for
+  // makeFakeTool; the wrapper is kept so call sites stay readable.
+  return makeFakeTool(name);
 }
 
 describe("tool registry host tools", () => {
@@ -217,35 +217,26 @@ describe("baseline characterization: core app tool surface", () => {
   });
 });
 
-describe("tool origin metadata", () => {
+describe("tool ownership metadata", () => {
   beforeEach(() => {
     __resetRegistryForTesting();
   });
 
-  test("registers a skill-origin tool and preserves origin via getTool()", () => {
-    const skillTool: Tool = {
-      ...makeFakeTool("test-skill-origin-tool"),
-      origin: "skill",
-    };
+  test("registerTool does not record ownership (bare-install path)", () => {
+    registerTool(makeFakeTool("test-bare-tool"));
 
-    registerTool(skillTool);
-
-    const retrieved = getTool("test-skill-origin-tool");
-    expect(retrieved).toBeDefined();
-    expect(retrieved?.origin).toBe("skill");
+    expect(getTool("test-bare-tool")).toBeDefined();
     // `registerTool` is the bare-install path used by tests + core
     // bootstraps; it does not record ownership. Tools that need an owner
     // must go through `registerSkillTools(skillId, ...)` or its sibling
     // entry points so the registry populates `ownersByName`.
-    expect(getToolOwner("test-skill-origin-tool")).toBeUndefined();
+    expect(getToolOwner("test-bare-tool")).toBeUndefined();
   });
 
-  test("core tools have no origin metadata and no owner", async () => {
+  test("core tools have no owner", async () => {
     await initializeTools();
 
-    const coreTool = getTool("host_file_read");
-    expect(coreTool).toBeDefined();
-    expect(coreTool?.origin).toBeUndefined();
+    expect(getTool("host_file_read")).toBeDefined();
     expect(getToolOwner("host_file_read")).toBeUndefined();
   });
 });
@@ -262,12 +253,16 @@ describe("dynamic skill tool registry", () => {
     ]);
 
     expect(getTool("sk_tool_a")).toBeDefined();
-    expect(getTool("sk_tool_a")?.origin).toBe("skill");
-    expect(getToolOwner("sk_tool_a")).toEqual({ kind: "skill", id: "my-skill" });
+    expect(getToolOwner("sk_tool_a")).toEqual({
+      kind: "skill",
+      id: "my-skill",
+    });
 
     expect(getTool("sk_tool_b")).toBeDefined();
-    expect(getTool("sk_tool_b")?.origin).toBe("skill");
-    expect(getToolOwner("sk_tool_b")).toEqual({ kind: "skill", id: "my-skill" });
+    expect(getToolOwner("sk_tool_b")).toEqual({
+      kind: "skill",
+      id: "my-skill",
+    });
   });
 
   test("skips skill tool that collides with a core tool without throwing", async () => {
@@ -281,8 +276,7 @@ describe("dynamic skill tool registry", () => {
     // The colliding tool should be silently skipped
     expect(accepted).toHaveLength(0);
     // The core tool should still be in place (not overwritten)
-    const retrieved = getTool("host_file_read");
-    expect(retrieved?.origin).toBeUndefined(); // core tools have no origin
+    expect(getTool("host_file_read")).toBeDefined();
     expect(getToolOwner("host_file_read")).toBeUndefined();
   });
 
@@ -333,7 +327,10 @@ describe("dynamic skill tool registry", () => {
 
     expect(getTool("sk_keep")).toBeDefined();
     expect(getTool("sk_remove")).toBeUndefined();
-    expect(getToolOwner("sk_keep")).toEqual({ kind: "skill", id: "keep-skill" });
+    expect(getToolOwner("sk_keep")).toEqual({
+      kind: "skill",
+      id: "keep-skill",
+    });
     expect(getToolOwner("sk_remove")).toBeUndefined();
   });
 
@@ -369,8 +366,8 @@ describe("dynamic skill tool registry", () => {
       kind: "skill",
       id: "atomic-skill",
     });
-    // The core tool should be untouched
-    expect(getTool("host_file_read")?.origin).toBeUndefined();
+    // The core tool should be untouched (no owner recorded)
+    expect(getTool("host_file_read")).toBeDefined();
     expect(getToolOwner("host_file_read")).toBeUndefined();
   });
 });

@@ -1,4 +1,4 @@
-import { getAllTools, getTool } from "../tools/registry.js";
+import { getAllTools, getTool, getToolOwner } from "../tools/registry.js";
 
 /**
  * Deduplicate and sort a list of tool names, validating against the live
@@ -24,7 +24,10 @@ export function sanitizeToolList(tools: string[]): string[] {
  */
 export function getRegisteredToolNames(): string[] {
   return getAllTools()
-    .filter((t) => t.executionMode !== "proxy" && t.origin !== "skill")
+    .filter(
+      (t) =>
+        t.executionMode !== "proxy" && getToolOwner(t.name)?.kind !== "skill",
+    )
     .map((t) => t.name)
     .sort();
 }

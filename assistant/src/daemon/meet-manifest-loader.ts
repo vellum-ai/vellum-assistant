@@ -40,11 +40,7 @@ import type { SkillRoute } from "../runtime/skill-route-registry.js";
 import { registerSkillRoute } from "../runtime/skill-route-registry.js";
 import { getRepoSkillsDir } from "../skills/catalog-install.js";
 import { registerExternalTools } from "../tools/registry.js";
-import type {
-  ExecutionTarget,
-  Tool,
-  ToolContext,
-} from "../tools/types.js";
+import type { ExecutionTarget, Tool, ToolContext } from "../tools/types.js";
 import { RiskLevel } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import { getSkillRuntimePath } from "../util/platform.js";
@@ -139,7 +135,6 @@ function buildProxyTool(
     defaultRiskLevel: risk,
     executionMode: "proxy",
     executionTarget: "host" as ExecutionTarget,
-    origin: "skill",
     execute: async (input, context) => {
       // `dispatchTool` ensures the meet-host child is up + connected
       // before sending the frame, so callers don't need a separate
@@ -364,9 +359,7 @@ export async function loadMeetManifestProxies(
   // up-front so `getToolOwner(name)` returns the meet-join skill id without
   // the tool object having to carry it.
   registerTools({ kind: "skill", id: MEET_SKILL_ID }, () =>
-    manifest.tools.map((entry) =>
-      buildProxyTool(entry, supervisor),
-    ),
+    manifest.tools.map((entry) => buildProxyTool(entry, supervisor)),
   );
 
   for (const entry of manifest.routes) {

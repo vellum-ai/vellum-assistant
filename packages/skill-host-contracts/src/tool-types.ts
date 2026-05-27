@@ -437,8 +437,6 @@ export interface Tool {
   defaultRiskLevel: RiskLevel;
   /** When set to 'proxy', the tool is forwarded to a connected client rather than executed locally. */
   executionMode?: "local" | "proxy";
-  /** Whether this tool is a core built-in, provided by a skill, contributed by a plugin, or from an MCP server. */
-  origin?: "core" | "skill" | "mcp" | "plugin";
   /** Declared execution target from the skill manifest. Used by resolveExecutionTarget
    * to accurately label lifecycle events for skill-provided tools. */
   executionTarget?: ExecutionTarget;

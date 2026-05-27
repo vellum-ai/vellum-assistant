@@ -73,37 +73,23 @@ afterAll(async () => {
 
 describe("createSkillTool", () => {
   test("produces a tool with correct name, description, and category", () => {
-    const tool = createSkillTool(
-      makeEntry(),
-      "/skills/my-skill",
-      "v1:test",
-    );
+    const tool = createSkillTool(makeEntry(), "/skills/my-skill", "v1:test");
 
     expect(tool.name).toBe("test_tool");
     expect(tool.description).toBe("A test tool");
     expect(tool.category).toBe("testing");
   });
 
-  test("sets origin to skill (ownership recorded by registry, not factory)", () => {
-    const tool = createSkillTool(
-      makeEntry(),
-      "/skills/weather",
-      "v1:test",
-    );
-
-    expect(tool.origin).toBe("skill");
-  });
+  // Removed "sets origin to skill" test — the factory no longer stamps an
+  // origin/kind on the Tool. Ownership is recorded by `registerSkillTools`
+  // in the registry; see registry.test.ts.
 
   test.each([
     ["low", RiskLevel.Low],
     ["medium", RiskLevel.Medium],
     ["high", RiskLevel.High],
   ] as const)('maps risk "%s" to RiskLevel.%s', (risk, expected) => {
-    const tool = createSkillTool(
-      makeEntry({ risk }),
-      "/skills/sk",
-      "v1:test",
-    );
+    const tool = createSkillTool(makeEntry({ risk }), "/skills/sk", "v1:test");
 
     expect(tool.defaultRiskLevel).toBe(expected);
   });
@@ -199,33 +185,15 @@ describe("createSkillToolsFromManifest", () => {
     ]);
   });
 
-  test("all created tools share the same origin (ownership is recorded by the registry, not the factory)", () => {
-    const entries: SkillToolEntry[] = [
-      makeEntry({ name: "alpha" }),
-      makeEntry({ name: "beta" }),
-    ];
-
-    const tools = createSkillToolsFromManifest(
-      entries,
-      "/skills/shared",
-      "v1:test",
-    );
-
-    for (const tool of tools) {
-      expect(tool.origin).toBe("skill");
-    }
-  });
+  // Removed "all created tools share the same origin" — same reason as the
+  // single-tool case above: ownership is recorded by `registerSkillTools` in
+  // the registry, not stamped onto each Tool by the factory.
 
   test("returns an empty array when given no entries", () => {
-    const tools = createSkillToolsFromManifest(
-      [],
-      "/skills/empty",
-      "v1:test",
-    );
+    const tools = createSkillToolsFromManifest([], "/skills/empty", "v1:test");
 
     expect(tools).toEqual([]);
   });
-
 });
 
 // ---------------------------------------------------------------------------

@@ -344,7 +344,6 @@ describe("ToolExecutor allowedToolNames gating", () => {
         category: "skill",
         defaultRiskLevel: RiskLevel.Low,
         executionTarget: "sandbox" as const,
-        origin: "skill" as const,
         owner: { kind: "skill", id: "my-skill" },
         input_schema: { type: "object" as const, properties: {} },
         execute: async () => fakeToolResult,
@@ -381,7 +380,6 @@ describe("ToolExecutor policy context plumbing", () => {
         description: "skill tool",
         category: "skill",
         defaultRiskLevel: RiskLevel.Low,
-        origin: "skill" as const,
         owner: { kind: "skill", id: "my-skill-123" },
         executionTarget: "sandbox" as const,
         input_schema: { type: "object" as const, properties: {} },
@@ -433,7 +431,6 @@ describe("ToolExecutor policy context plumbing", () => {
         category: "core",
         defaultRiskLevel: RiskLevel.Low,
         executionTarget: "sandbox" as const,
-        origin: "core" as const,
         input_schema: { type: "object" as const, properties: {} },
         execute: async () => fakeToolResult,
       };
@@ -462,7 +459,6 @@ describe("ToolExecutor policy context plumbing", () => {
         description: "host skill tool",
         category: "skill",
         defaultRiskLevel: RiskLevel.Low,
-        origin: "skill" as const,
         owner: { kind: "skill", id: "host-skill" },
         executionTarget: "host" as const,
         input_schema: { type: "object" as const, properties: {} },
@@ -485,7 +481,6 @@ describe("ToolExecutor policy context plumbing", () => {
       executionTarget: "host",
     });
   });
-
 });
 
 // ---------------------------------------------------------------------------

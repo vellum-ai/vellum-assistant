@@ -77,7 +77,8 @@ describe("host.registries.register_tools", () => {
     expect(result.registered).toEqual(["skill_demo_tool"]);
     const installed = getTool("skill_demo_tool");
     expect(installed).toBeDefined();
-    expect(installed!.origin).toBe("skill");
+    // Ownership lives on the registry — getToolOwner is the single source of
+    // truth. The Tool object itself no longer carries the kind.
     expect(getToolOwner("skill_demo_tool")).toEqual({
       kind: "skill",
       id: "demo-skill",

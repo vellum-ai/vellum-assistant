@@ -358,6 +358,4 @@ export interface Tool extends LoadedTool {
   category: string;
   /** When set to 'proxy', the tool is forwarded to a connected client rather than executed locally. */
   executionMode?: "local" | "proxy";
-  /** Whether this tool is a core built-in, provided by a skill, contributed by a plugin, or from an MCP server. */
-  origin?: "core" | "skill" | "mcp" | "plugin";
 }

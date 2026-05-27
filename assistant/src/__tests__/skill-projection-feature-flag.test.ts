@@ -129,7 +129,6 @@ mock.module("../tools/skills/skill-tool-factory.js", () => ({
       category: entry.category,
       defaultRiskLevel: RiskLevel.Medium,
       executionTarget: "sandbox" as const,
-      origin: "skill" as const,
       input_schema: entry.input_schema as object,
       execute: async () => ({ content: "", isError: false }),
     }));
@@ -229,9 +228,8 @@ mock.module("../util/logger.js", () => ({
 
 const { projectSkillTools, resetSkillToolProjection } =
   await import("../daemon/conversation-skill-tools.js");
-const { setOverridesForTesting } = await import(
-  "./feature-flag-test-helpers.js"
-);
+const { setOverridesForTesting } =
+  await import("./feature-flag-test-helpers.js");
 
 // ---------------------------------------------------------------------------
 // Helpers

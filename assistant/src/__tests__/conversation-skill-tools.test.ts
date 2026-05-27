@@ -106,7 +106,6 @@ mock.module("../tools/skills/skill-tool-factory.js", () => ({
       category: entry.category,
       defaultRiskLevel: RiskLevel.Medium,
       executionTarget: "sandbox" as const,
-      origin: "skill" as const,
       input_schema: entry.input_schema as object,
       execute: async () => ({ content: "", isError: false }),
     }));
@@ -1740,14 +1739,11 @@ describe("bundled skill: app-builder", () => {
     expect(tools).toBeDefined();
     expect(tools!.length).toBe(4);
 
-    // All tools should have skill origin metadata. Ownership is asserted by
-    // the fact that `mockRegisteredTools.get("app-builder")` returned the
-    // tools — i.e. the mock `registerSkillTools(skillId, tools)` was called
-    // with skillId "app-builder", which is what the registry would record
-    // in production.
-    for (const tool of tools!) {
-      expect(tool.origin).toBe("skill");
-    }
+    // Ownership is asserted by the fact that
+    // `mockRegisteredTools.get("app-builder")` returned the tools — i.e. the
+    // mock `registerSkillTools(skillId, tools)` was called with skillId
+    // "app-builder", which is what the registry would record in production.
+    // The Tool object itself no longer carries a kind/origin field.
   });
 });
 

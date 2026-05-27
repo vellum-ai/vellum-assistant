@@ -29,7 +29,6 @@ function mcpTool(name: string): Tool {
   return {
     name,
     description: name,
-    origin: "mcp",
     input_schema: def(name).input_schema,
   } as unknown as Tool;
 }

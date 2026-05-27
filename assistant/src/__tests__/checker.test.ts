@@ -137,7 +137,6 @@ const mockSkillTool: Tool = {
   category: "skill",
   defaultRiskLevel: RiskLevel.Low,
   executionTarget: "sandbox",
-  origin: "skill",
   input_schema: { type: "object" as const, properties: {} },
   execute: async () => ({ content: "ok", isError: false }),
 };
@@ -154,7 +153,6 @@ const mockBundledSkillTool: Tool = {
   category: "skill",
   defaultRiskLevel: RiskLevel.Low,
   executionTarget: "sandbox",
-  origin: "skill",
   input_schema: { type: "object" as const, properties: {} },
   execute: async () => ({ content: "ok", isError: false }),
 };
@@ -390,7 +388,6 @@ describe("Permission Checker", () => {
         category: "skill",
         defaultRiskLevel: RiskLevel.Medium,
         executionTarget: "sandbox",
-        origin: "skill",
         input_schema: { type: "object" as const, properties: {} },
         execute: async () => ({ content: "ok", isError: false }),
       };

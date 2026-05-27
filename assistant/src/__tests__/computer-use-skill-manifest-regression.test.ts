@@ -113,8 +113,9 @@ describe("computer-use skill manifest regression", () => {
     await initializeTools();
 
     // Simulate what projectSkillTools() does when the computer-use skill is
-    // activated: create skill-origin Tool objects matching the manifest names
-    // and register them. This must not throw.
+    // activated: create Tool objects matching the manifest names and register
+    // them through `registerSkillTools(skillId, tools)`, which records
+    // ownership in the registry's `ownersByName` map. This must not throw.
     const skillTools: Tool[] = manifest.tools.map(
       (entry: { name: string; description: string }) => ({
         name: entry.name,
@@ -122,7 +123,6 @@ describe("computer-use skill manifest regression", () => {
         input_schema: { type: "object" as const, properties: {} },
         category: "computer-use",
         defaultRiskLevel: RiskLevel.Low,
-        origin: "skill" as const,
         execute: async () => ({ content: "stub", isError: false }),
       }),
     );

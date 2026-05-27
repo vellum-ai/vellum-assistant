@@ -188,10 +188,10 @@ describe("loadMeetManifestProxies", () => {
     expect(t.category).toBe("meet");
     expect(t.defaultRiskLevel).toBe(RiskLevel.Medium);
     expect(t.executionMode).toBe("proxy");
-    expect(t.origin).toBe("skill");
-    expect(t.input_schema).toEqual(
-      FIXTURE_MANIFEST.tools[0]!.input_schema,
-    );
+    // Ownership now lives on the assistant-side registry's ownersByName map
+    // (recorded by registerSkillTools at the IPC boundary), not on the Tool
+    // object — the daemon-side projection doesn't carry the kind.
+    expect(t.input_schema).toEqual(FIXTURE_MANIFEST.tools[0]!.input_schema);
   });
 
   test("proxy tool execute dispatches through supervisor.dispatchTool and returns the result", async () => {

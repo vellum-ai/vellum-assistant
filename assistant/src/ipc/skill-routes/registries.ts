@@ -195,7 +195,6 @@ function buildProxyTool(manifest: ToolManifest): Tool {
       executionTarget: manifest.executionTarget as ExecutionTarget | undefined,
       executionMode: manifest.executionMode ?? "proxy",
     }),
-    origin: "skill",
     execute: async () => {
       // Only reached when no supervisor is attached (tests/boot race);
       // the supervisor short-circuit above replaces this with the
@@ -225,7 +224,11 @@ async function handleRegisterTools(
   if (sessionSupervisor) {
     if (conn) sessionSupervisor.setActiveConnection(conn);
     log.info(
-      { count: tools.length, names: tools.map((t) => t.name), ownerSkillId: skillId },
+      {
+        count: tools.length,
+        names: tools.map((t) => t.name),
+        ownerSkillId: skillId,
+      },
       "Supervisor active: skipping in-memory tool re-registration; manifest proxies serve dispatches",
     );
     return { registered: tools.map((t) => t.name) };
@@ -247,7 +250,11 @@ async function handleRegisterTools(
   }
 
   log.info(
-    { count: accepted.length, names: accepted.map((t) => t.name), ownerSkillId: skillId },
+    {
+      count: accepted.length,
+      names: accepted.map((t) => t.name),
+      ownerSkillId: skillId,
+    },
     "Registered skill proxy tools via IPC",
   );
   return { registered: accepted.map((t) => t.name) };

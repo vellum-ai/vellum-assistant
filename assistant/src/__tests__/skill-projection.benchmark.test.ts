@@ -110,7 +110,6 @@ mock.module("../tools/skills/skill-tool-factory.js", () => ({
       description: e.description,
       category: "skill",
       defaultRiskLevel: "low",
-      origin: "skill" as const,
       owner: { kind: "skill" as const, id: skillId },
       input_schema: e.input_schema,
       execute: async () => ({ content: "", isError: false }),
