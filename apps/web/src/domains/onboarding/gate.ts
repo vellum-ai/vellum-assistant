@@ -12,7 +12,7 @@
  */
 import { routes } from "@/utils/routes";
 
-import { isLocalMode } from "@/lib/local-mode";
+import { isLocalMode, hasAssistants } from "@/lib/local-mode";
 import { readOnboardingCompleted } from "@/domains/onboarding/prefs";
 
 /**
@@ -20,19 +20,21 @@ import { readOnboardingCompleted } from "@/domains/onboarding/prefs";
  * `null` if the intended destination is fine as-is.
  *
  * Rules (short-circuit, top to bottom):
- *   1. If onboarding is already marked completed, let the user through.
- *   2. If the intended destination isn't the chat surface itself
+ *   1. In local mode with hatched assistants, let the user through.
+ *   2. If onboarding is already marked completed, let the user through.
+ *   3. If the intended destination isn't the chat surface itself
  *      (`/assistant`), let them through — sibling paths
  *      `/assistant/settings/...`, `/assistant/onboarding/...`,
  *      `/admin/...` etc. shouldn't be gated.
- *   3. Otherwise, route them to `routes.onboarding.privacy`.
+ *   4. Otherwise, route them to `routes.onboarding.privacy`.
  */
 export function resolveOnboardingRedirect({
   intendedDestination,
 }: {
   intendedDestination: string;
 }): string | null {
-  if (isLocalMode() || readOnboardingCompleted()) return null;
+  if (isLocalMode() && hasAssistants()) return null;
+  if (readOnboardingCompleted()) return null;
 
   // `intendedDestination` may be a bare path or a raw `returnTo` value that
   // survived the callback as an absolute URL (`https://assistant.host/assistant`,
