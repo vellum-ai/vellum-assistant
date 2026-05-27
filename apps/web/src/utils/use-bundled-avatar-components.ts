@@ -7,6 +7,12 @@ import type { CharacterComponents } from "@/types/avatar";
 let cached: CharacterComponents | null = null;
 let loadPromise: Promise<CharacterComponents> | null = null;
 
+// Subscribers fire exactly once, when `cached` is first populated, so that
+// hook instances that mounted *before* the load completed (and whose effect
+// observed only the still-null state) re-render and pick up the new value
+// instead of staying blank for their lifetime.
+const subscribers = new Set<() => void>();
+
 function loadBundledComponents(): Promise<CharacterComponents> {
   if (cached) return Promise.resolve(cached);
   if (loadPromise) return loadPromise;
@@ -14,6 +20,7 @@ function loadBundledComponents(): Promise<CharacterComponents> {
     .then((m) => {
       cached = m.BUNDLED_COMPONENTS;
       loadPromise = null;
+      for (const cb of subscribers) cb();
       return cached;
     })
     .catch((err) => {
@@ -36,22 +43,36 @@ function loadBundledComponents(): Promise<CharacterComponents> {
  * Splitting the data out keeps it off the chat-critical bundle —
  * `SubagentAvatarChip` consumes it inline in transcript items, and a
  * static import would pull the whole payload into the main chunk.
+ *
+ * If the first import rejects (network blip, stale deployed chunk), the
+ * loader clears its cached promise so a re-mount can retry, and mounted
+ * instances subscribe to the next successful resolution so a retry
+ * triggered by any other consumer fills their UI too.
  */
 export function useBundledAvatarComponents(): CharacterComponents | null {
-  const [components, setComponents] = useState<CharacterComponents | null>(
-    () => cached,
-  );
+  // We don't store `components` in local state — the module-level `cached`
+  // is the source of truth across all hook instances. `forceRender` exists
+  // only to schedule a re-read of `cached` when the subscriber notifies.
+  const [, forceRender] = useState(0);
 
   useEffect(() => {
-    if (components) return;
+    if (cached) return;
     let cancelled = false;
-    void loadBundledComponents().then((c) => {
-      if (!cancelled) setComponents(c);
+    const onLoaded = () => {
+      if (!cancelled) forceRender((n) => n + 1);
+    };
+    subscribers.add(onLoaded);
+    void loadBundledComponents().catch(() => {
+      // Swallowed here: the loader rethrows for any awaiting caller, so
+      // anything wrapping this in a Suspense/ErrorBoundary will still see
+      // the failure. The hook's job is just to stay in the placeholder
+      // state until a future retry succeeds.
     });
     return () => {
       cancelled = true;
+      subscribers.delete(onLoaded);
     };
-  }, [components]);
+  }, []);
 
-  return components;
+  return cached;
 }
