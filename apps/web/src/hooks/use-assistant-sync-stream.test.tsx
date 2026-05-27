@@ -13,8 +13,8 @@ import {
   assistantSoundsConfigQueryKey,
   avatarQueryKey,
   chatContextQueryKey,
-  conversationGroupsQueryKey,
 } from "@/lib/sync/query-tags";
+import { conversationGroupsQueryKey } from "@/domains/conversations/conversation-queries";
 import { SYNC_TAGS, type SyncChangedEvent } from "@/lib/sync/types";
 import {
   __resetEventBusForTesting,
@@ -482,10 +482,12 @@ describe("useAssistantSyncStream", () => {
         return arg?.queryKey?.[0] === chatContextQueryKey("asst-1")[0];
       },
     );
+    const expectedGroupsKey = conversationGroupsQueryKey("asst-1")[0];
     const groupsCalls = (spy.mock.calls as unknown as Array<[unknown]>).filter(
       (call) => {
         const arg = call[0] as { queryKey: readonly unknown[] } | undefined;
-        return arg?.queryKey?.[0] === conversationGroupsQueryKey("asst-1")[0];
+        const key = arg?.queryKey?.[0] as Record<string, unknown> | undefined;
+        return key?._id === (expectedGroupsKey as Record<string, unknown>)._id;
       },
     );
     expect(chatCtxCalls.length).toBe(1);

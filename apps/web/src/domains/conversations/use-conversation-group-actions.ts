@@ -1,12 +1,24 @@
 
 import * as Sentry from "@sentry/react";
 import { useCallback } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+
+import {
+  groupsByGroupIdDeleteMutation,
+  groupsByGroupIdPatchMutation,
+  groupsPostMutation,
+} from "@/generated/daemon/@tanstack/react-query.gen";
+import type { Options } from "@/generated/daemon/sdk.gen";
+import type {
+  GroupsByGroupIdDeleteData,
+  GroupsByGroupIdPatchData,
+  GroupsPostData,
+} from "@/generated/daemon/types.gen";
 
 import {
   appendGroup,
-  chatContextQueryKey,
   conversationGroupsQueryKey,
+  chatContextQueryKey,
   deleteGroupAndResetConversations,
   patchGroup,
   removeGroup,
@@ -14,7 +26,7 @@ import {
 } from "@/domains/conversations/conversation-queries";
 
 import { haptic } from "@/utils/haptics";
-import { type ConversationGroup, createGroup, deleteGroup, updateGroup } from "@/lib/conversations-api";
+import type { ConversationGroup } from "@/lib/conversations-api";
 
 // ---------------------------------------------------------------------------
 // Hook
@@ -42,6 +54,33 @@ export function useConversationGroupActions({
 }: UseConversationGroupActionsParams) {
   const queryClient = useQueryClient();
 
+  const { mutateAsync: createGroupAsync } = useMutation({
+    ...groupsPostMutation(),
+    onError: (err) => {
+      Sentry.captureException(err, {
+        tags: { context: "createGroup" },
+      });
+    },
+  });
+
+  const { mutateAsync: patchGroupAsync } = useMutation({
+    ...groupsByGroupIdPatchMutation(),
+    onError: (err) => {
+      Sentry.captureException(err, {
+        tags: { context: "renameGroup" },
+      });
+    },
+  });
+
+  const { mutateAsync: deleteGroupAsync } = useMutation({
+    ...groupsByGroupIdDeleteMutation(),
+    onError: (err) => {
+      Sentry.captureException(err, {
+        tags: { context: "deleteGroup" },
+      });
+    },
+  });
+
   const handleCreateGroup = useCallback(async () => {
     if (!assistantId) return;
     haptic.light();
@@ -57,15 +96,15 @@ export function useConversationGroupActions({
     appendGroup(queryClient, assistantId, { id: optimisticId, name: trimmed, sortPosition: 0, isSystemGroup: false });
 
     try {
-      const created = await createGroup(assistantId, trimmed);
+      const created = await createGroupAsync({
+        path: { assistant_id: assistantId },
+        body: { name: trimmed },
+      } as Options<GroupsPostData>);
       replaceOptimisticGroup(queryClient, assistantId, optimisticId, created);
-    } catch (err) {
+    } catch {
       removeGroup(queryClient, assistantId, optimisticId);
-      Sentry.captureException(err, {
-        tags: { context: "createGroup" },
-      });
     }
-  }, [assistantId, queryClient]);
+  }, [assistantId, queryClient, createGroupAsync]);
 
   const handleRenameGroup = useCallback(
     async (groupId: string) => {
@@ -82,15 +121,15 @@ export function useConversationGroupActions({
       patchGroup(queryClient, assistantId, groupId, { name: trimmed });
 
       try {
-        await updateGroup(assistantId, groupId, { name: trimmed });
-      } catch (err) {
+        await patchGroupAsync({
+          path: { assistant_id: assistantId, groupId },
+          body: { name: trimmed },
+        } as Options<GroupsByGroupIdPatchData>);
+      } catch {
         patchGroup(queryClient, assistantId, groupId, { name: current });
-        Sentry.captureException(err, {
-          tags: { context: "renameGroup" },
-        });
       }
     },
-    [assistantId, conversationGroups, queryClient],
+    [assistantId, conversationGroups, queryClient, patchGroupAsync],
   );
 
   const handleDeleteGroup = useCallback(
@@ -101,23 +140,19 @@ export function useConversationGroupActions({
       deleteGroupAndResetConversations(queryClient, assistantId, groupId);
 
       try {
-        await deleteGroup(assistantId, groupId);
-      } catch (err) {
-        // Rollback is imprecise — we can't distinguish conversations that
-        // already had no groupId from those we just cleared — so invalidate
-        // both caches and let subscribers refetch for accuracy.
+        await deleteGroupAsync({
+          path: { assistant_id: assistantId, groupId },
+        } as Options<GroupsByGroupIdDeleteData>);
+      } catch {
         void queryClient.invalidateQueries({
           queryKey: chatContextQueryKey(assistantId),
         });
         void queryClient.invalidateQueries({
           queryKey: conversationGroupsQueryKey(assistantId),
         });
-        Sentry.captureException(err, {
-          tags: { context: "deleteGroup" },
-        });
       }
     },
-    [assistantId, queryClient],
+    [assistantId, queryClient, deleteGroupAsync],
   );
 
   return {

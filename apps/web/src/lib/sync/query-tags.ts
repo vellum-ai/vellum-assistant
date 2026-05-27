@@ -7,14 +7,9 @@ export function avatarQueryKey(assistantId: string) {
 }
 
 export const CHAT_CONTEXT_QUERY_KEY = "chat-context" as const;
-export const CONVERSATION_GROUPS_QUERY_KEY = "conversation-groups" as const;
 
 export function chatContextQueryKey(assistantId: string | null) {
   return [CHAT_CONTEXT_QUERY_KEY, assistantId ?? ""] as const;
-}
-
-export function conversationGroupsQueryKey(assistantId: string | null) {
-  return [CONVERSATION_GROUPS_QUERY_KEY, assistantId ?? ""] as const;
 }
 
 export function assistantDaemonConfigQueryKey(
