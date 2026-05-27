@@ -133,7 +133,7 @@ export async function initializeProvidersAndTools(
           serverConfig,
           manager,
         );
-        registerMcpTools(mcpTools);
+        registerMcpTools(serverId, mcpTools);
       }
     } catch (err) {
       log.error(

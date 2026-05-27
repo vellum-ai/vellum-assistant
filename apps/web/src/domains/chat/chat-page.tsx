@@ -63,6 +63,7 @@ import { useDiskPressureMonitor } from "@/assistant/use-disk-pressure-monitor";
 import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure";
 import { useAppNudges } from "@/domains/chat/hooks/use-app-nudges";
 import { useConversationLoader } from "@/domains/conversations/use-conversation-loader";
+import { useMobileOverlayTarget } from "@/domains/chat/hooks/use-mobile-overlay-target";
 import { useContextWindowUsageHydration } from "@/domains/chat/hooks/use-context-window-usage-hydration";
 import { useConversationActions } from "@/domains/conversations/use-conversation-actions";
 import { RenameConversationDialog } from "@/domains/conversations/rename-conversation-dialog";
@@ -156,7 +157,6 @@ export function ChatPage() {
     checkAssistant,
     retryAssistant,
     hatchVersion,
-    setAssistantId,
     setTopBarCenter,
     setTopBarRightSlot,
     setOnSearchClick,
@@ -173,7 +173,7 @@ export function ChatPage() {
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [error, setError] = useState<ChatError | null>(null);
   // Seed with `true` so the chat scroll area renders the skeleton on the very
-  // first frame. The conversation loader bootstrap (`getChatContext` →
+  // first frame. The conversation loader bootstrap (conversation list query →
   // `SET_ACTIVE_KEY` → `use-conversation-history`) is asynchronous, and
   // without this seed the brief window between mount and the history effect
   // dispatching `setIsLoadingHistory(true)` leaves the user staring at a
@@ -200,7 +200,6 @@ export function ChatPage() {
   });
   const [assetsRefreshKey, setAssetsRefreshKey] = useState(0);
   const [assistantIdentity, setAssistantIdentity] = useState<AssistantIdentity | null>(null);
-  const [overlayTarget, setOverlayTarget] = useState<HTMLElement | null>(null);
   const prePinGroupIdsRef = useRef<Map<string, string | undefined>>(new Map());
 
   // -------------------------------------------------------------------------
@@ -452,7 +451,6 @@ export function ChatPage() {
     autoGreetRef,
     conversationListInvalidatedTimerRef,
     pendingInitialMessageRef,
-    setAssistantId,
     setMessages,
     setTranscriptPagination: setTranscriptPagination as Dispatch<SetStateAction<Omit<TranscriptPaginationState, "items">>>,
     setIsLoadingHistory,
@@ -671,7 +669,7 @@ export function ChatPage() {
 
   // Kick off a background reachability probe immediately when a pending
   // onboarding message exists, instead of waiting for a 502 from
-  // getChatContext to trigger the unreachable-bus.
+  // the conversation list query to trigger the unreachable-bus.
   useEffect(() => {
     if (!assistantId) return;
     const message = peekPendingPreChatContext()?.initialMessage;
@@ -1250,11 +1248,7 @@ export function ChatPage() {
   // -------------------------------------------------------------------------
   // Mobile overlay portal — resolve after DOM commit (CONVENTIONS.md §SSR)
   // -------------------------------------------------------------------------
-  useEffect(() => {
-    setOverlayTarget(
-      isMobile ? document.getElementById("viewport-overlays") : null,
-    );
-  }, [isMobile]);
+  const overlayTarget = useMobileOverlayTarget();
 
   // -------------------------------------------------------------------------
   // Ghost-text suggestion: fetch after each completed assistant turn

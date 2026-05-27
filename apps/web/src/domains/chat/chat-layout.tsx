@@ -22,7 +22,7 @@ import type { AssistantContextValue } from "@/components/layout/assistant-contex
 
 import { useConversationStore } from "@/domains/conversations/conversation-store";
 import {
-  chatContextQueryKey,
+  conversationsQueryKey,
   useConversationGroupsQuery,
   useConversationListQuery,
 } from "@/domains/conversations/conversation-queries";
@@ -465,7 +465,7 @@ export function ChatLayout() {
     if (!lifecycle.assistantId) return;
     try {
       await queryClient.invalidateQueries({
-        queryKey: chatContextQueryKey(lifecycle.assistantId),
+        queryKey: conversationsQueryKey(lifecycle.assistantId),
       });
     } catch (err) {
       Sentry.captureException(err, {

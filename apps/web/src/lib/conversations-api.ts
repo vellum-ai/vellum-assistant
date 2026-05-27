@@ -3,8 +3,8 @@
  *
  * All daemon calls use the generated SDK (`@/generated/daemon/sdk.gen`).
  * The `Conversation` interface is a normalized client-side representation
- * (timestamps as ISO strings, attention fields flattened, `id` renamed to
- * `conversationId`). `toConversation` transforms the typed daemon response
+ * (timestamps as epoch-ms numbers, attention fields flattened, `id` renamed
+ * to `conversationId`). `toConversation` transforms the typed daemon response
  * into this shape. `ConversationGroup` is re-exported from the generated SDK.
  */
 
@@ -31,11 +31,11 @@ import type { SlackMessageLink } from "@/utils/slack-message-link";
 export interface Conversation {
   conversationId: string;
   title?: string;
-  createdAt?: string;
-  lastMessageAt?: string;
+  createdAt?: number;
+  lastMessageAt?: number;
   hasUnseenLatestAssistantMessage?: boolean;
-  latestAssistantMessageAt?: string;
-  lastSeenAssistantMessageAt?: string;
+  latestAssistantMessageAt?: number;
+  lastSeenAssistantMessageAt?: number;
   archivedAt?: number;
   groupId?: string;
   source?: string;
@@ -102,21 +102,14 @@ export type RawConversationSummary =
 type RawConversationDetail =
   ConversationsByIdGetResponse["conversation"];
 
-function epochToIso(value: number | unknown): string | undefined {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return new Date(value).toISOString();
-  }
-  return undefined;
-}
-
-function asString(value: string | unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
-}
-
 function asNumber(value: number | unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value)
     ? value
     : undefined;
+}
+
+function asString(value: string | unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
 }
 
 function mapChannelBinding(
@@ -159,7 +152,8 @@ function mapChannelBinding(
 /**
  * Transform a typed daemon conversation summary into the client-side
  * `Conversation` shape. Handles `id` → `conversationId` rename,
- * epoch → ISO timestamp conversion, and attention field flattening.
+ * attention field flattening, and `originChannel` coalescing.
+ * Timestamps pass through as epoch-ms numbers.
  */
 export function toConversation(raw: RawConversationSummary): Conversation {
   const attention = raw.assistantAttention;
@@ -172,12 +166,12 @@ export function toConversation(raw: RawConversationSummary): Conversation {
   return {
     conversationId: raw.id,
     title: raw.title,
-    createdAt: epochToIso(raw.createdAt),
-    lastMessageAt: epochToIso(raw.lastMessageAt ?? raw.updatedAt),
+    createdAt: asNumber(raw.createdAt),
+    lastMessageAt: asNumber(raw.lastMessageAt ?? raw.updatedAt),
     hasUnseenLatestAssistantMessage:
       attention?.hasUnseenLatestAssistantMessage,
-    latestAssistantMessageAt: epochToIso(attention?.latestAssistantMessageAt),
-    lastSeenAssistantMessageAt: epochToIso(
+    latestAssistantMessageAt: asNumber(attention?.latestAssistantMessageAt),
+    lastSeenAssistantMessageAt: asNumber(
       attention?.lastSeenAssistantMessageAt,
     ),
     archivedAt: raw.archivedAt,
@@ -339,11 +333,7 @@ export async function listConversations(
     conversations.push(conversation);
   }
 
-  conversations.sort((a, b) => {
-    const aTime = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
-    const bTime = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
-    return bTime - aTime;
-  });
+  conversations.sort((a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0));
 
   return conversations;
 }

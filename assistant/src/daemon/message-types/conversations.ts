@@ -456,6 +456,20 @@ export interface UsageUpdate {
   contextWindowMaxTokens?: number;
 }
 
+/**
+ * Emitted after each LLM call with per-call token deltas and estimated cost.
+ * Clients accumulate these additively for live-updating usage metrics.
+ * This is a UI-only hint — it does not persist to DB or affect billing.
+ */
+export interface UsageProgress {
+  type: "usage_progress";
+  conversationId: string;
+  inputTokens: number;
+  outputTokens: number;
+  estimatedCost: number;
+  model: string;
+}
+
 export interface UsageResponse {
   type: "usage_response";
   totalInputTokens: number;
@@ -651,6 +665,7 @@ export type _ConversationsServerMessages =
   | HistoryResponse
   | UndoComplete
   | UsageUpdate
+  | UsageProgress
   | UsageResponse
   | ContextCompacted
   | CompactionCircuitOpen

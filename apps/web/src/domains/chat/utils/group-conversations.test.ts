@@ -85,12 +85,12 @@ describe("groupConversations · bucket routing", () => {
         conversationId: "slack-new",
         originChannel: "slack",
         groupId: "system:all",
-        lastMessageAt: "2024-03-01T00:00:00Z",
+        lastMessageAt: 1709251200000,
       }),
       makeConversation({
         conversationId: "slack-old",
         originChannel: "slack",
-        lastMessageAt: "2024-01-01T00:00:00Z",
+        lastMessageAt: 1704067200000,
       }),
       makeConversation({
         conversationId: "slack-scheduled",
@@ -273,15 +273,15 @@ describe("groupConversations · recents ordering", () => {
     const result = groupConversations([
       makeConversation({
         conversationId: "old",
-        lastMessageAt: "2024-01-01T00:00:00Z",
+        lastMessageAt: 1704067200000,
       }),
       makeConversation({
         conversationId: "new",
-        lastMessageAt: "2024-03-01T00:00:00Z",
+        lastMessageAt: 1709251200000,
       }),
       makeConversation({
         conversationId: "mid",
-        lastMessageAt: "2024-02-01T00:00:00Z",
+        lastMessageAt: 1706745600000,
       }),
     ]);
     expect(result.recents.map((c) => c.conversationId)).toEqual([
@@ -295,11 +295,11 @@ describe("groupConversations · recents ordering", () => {
     const result = groupConversations([
       makeConversation({
         conversationId: "first",
-        lastMessageAt: "2024-01-01T00:00:00Z",
+        lastMessageAt: 1704067200000,
       }),
       makeConversation({
         conversationId: "second",
-        lastMessageAt: "2024-01-01T00:00:00Z",
+        lastMessageAt: 1704067200000,
       }),
     ]);
     expect(result.recents.map((c) => c.conversationId)).toEqual([
@@ -313,7 +313,7 @@ describe("groupConversations · recents ordering", () => {
       makeConversation({ conversationId: "missing" }),
       makeConversation({
         conversationId: "dated",
-        lastMessageAt: "2024-01-01T00:00:00Z",
+        lastMessageAt: 1704067200000,
       }),
     ]);
     expect(result.recents.map((c) => c.conversationId)).toEqual([
@@ -326,11 +326,11 @@ describe("groupConversations · recents ordering", () => {
     const conversations = [
       makeConversation({
         conversationId: "a",
-        lastMessageAt: "2024-01-01T00:00:00Z",
+        lastMessageAt: 1704067200000,
       }),
       makeConversation({
         conversationId: "b",
-        lastMessageAt: "2024-02-01T00:00:00Z",
+        lastMessageAt: 1706745600000,
       }),
     ];
     const snapshotKeys = conversations.map((c) => c.conversationId);
@@ -491,19 +491,19 @@ describe("groupConversations · displayOrder for pinned and custom groups", () =
         conversationId: "b",
         isPinned: true,
         displayOrder: 1,
-        lastMessageAt: "2024-01-03T00:00:00.000Z",
+        lastMessageAt: 1704240000000,
       }),
       makeConversation({
         conversationId: "a",
         isPinned: true,
         displayOrder: 0,
-        lastMessageAt: "2024-01-02T00:00:00.000Z",
+        lastMessageAt: 1704153600000,
       }),
       makeConversation({
         conversationId: "c",
         isPinned: true,
         displayOrder: 2,
-        lastMessageAt: "2024-01-01T00:00:00.000Z",
+        lastMessageAt: 1704067200000,
       }),
     ]);
     expect(result.pinned.map((c) => c.conversationId)).toEqual([
@@ -518,12 +518,12 @@ describe("groupConversations · displayOrder for pinned and custom groups", () =
       makeConversation({
         conversationId: "old",
         isPinned: true,
-        lastMessageAt: "2024-01-01T00:00:00.000Z",
+        lastMessageAt: 1704067200000,
       }),
       makeConversation({
         conversationId: "new",
         isPinned: true,
-        lastMessageAt: "2024-01-05T00:00:00.000Z",
+        lastMessageAt: 1704412800000,
       }),
     ]);
     expect(result.pinned.map((c) => c.conversationId)).toEqual([
@@ -537,13 +537,13 @@ describe("groupConversations · displayOrder for pinned and custom groups", () =
       makeConversation({
         conversationId: "no-order-newer",
         isPinned: true,
-        lastMessageAt: "2024-01-10T00:00:00.000Z",
+        lastMessageAt: 1704844800000,
       }),
       makeConversation({
         conversationId: "ordered-0",
         isPinned: true,
         displayOrder: 0,
-        lastMessageAt: "2024-01-01T00:00:00.000Z",
+        lastMessageAt: 1704067200000,
       }),
     ]);
     expect(result.pinned.map((c) => c.conversationId)).toEqual([
@@ -567,19 +567,19 @@ describe("groupConversations · displayOrder for pinned and custom groups", () =
           conversationId: "z",
           groupId: "grp-work",
           displayOrder: 2,
-          lastMessageAt: "2024-01-03T00:00:00.000Z",
+          lastMessageAt: 1704240000000,
         }),
         makeConversation({
           conversationId: "x",
           groupId: "grp-work",
           displayOrder: 0,
-          lastMessageAt: "2024-01-01T00:00:00.000Z",
+          lastMessageAt: 1704067200000,
         }),
         makeConversation({
           conversationId: "y",
           groupId: "grp-work",
           displayOrder: 1,
-          lastMessageAt: "2024-01-02T00:00:00.000Z",
+          lastMessageAt: 1704153600000,
         }),
       ],
       { groups, customGroupsEnabled: true },

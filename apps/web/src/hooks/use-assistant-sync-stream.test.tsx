@@ -12,7 +12,7 @@ import {
   assistantSchedulesQueryKey,
   assistantSoundsConfigQueryKey,
   avatarQueryKey,
-  chatContextQueryKey,
+  conversationsQueryKey,
 } from "@/lib/sync/query-tags";
 import { conversationGroupsQueryKey } from "@/domains/conversations/conversation-queries";
 import { SYNC_TAGS, type SyncChangedEvent } from "@/lib/sync/types";
@@ -22,16 +22,14 @@ import {
 } from "@/stores/event-bus-store";
 
 // ---------------------------------------------------------------------------
-// Module mock — `@/domains/chat/api/conversations.js`.
+// Module mock — `@/lib/conversations-api`.
 //
 // `refreshConversationRow` (in `conversation-queries.ts`) calls
 // `fetchConversationDetail` to GET the post-mutation row. We spread the
-// real module so every other consumer (e.g. `isBackgroundConversation`
-// pulled in transitively by `chat/api/assistant.ts`) keeps its original
-// behavior, and only override `fetchConversationDetail` to a configurable
-// impl. The default `fetchConversationDetailImpl` throws so any test
-// that doesn't set up its own impl fails loudly instead of making a
-// real network call.
+// real module so every other consumer keeps its original behavior, and
+// only override `fetchConversationDetail` to a configurable impl. The
+// default `fetchConversationDetailImpl` throws so any test that doesn't
+// set up its own impl fails loudly instead of making a real network call.
 // ---------------------------------------------------------------------------
 const realConversationsModule = await import(
   "@/lib/conversations-api"
@@ -208,7 +206,7 @@ describe("useAssistantSyncStream", () => {
     const listCalls = (spy.mock.calls as unknown as Array<[unknown]>).filter(
       (call) => {
         const arg = call[0] as { queryKey: readonly unknown[] } | undefined;
-        return arg?.queryKey?.[0] === chatContextQueryKey("asst-1")[0];
+        return arg?.queryKey?.[0] === conversationsQueryKey("asst-1")[0];
       },
     );
     expect(listCalls.length).toBe(1);
@@ -238,28 +236,24 @@ describe("useAssistantSyncStream", () => {
     // conversations). This test pins (a) the GET fires for the right
     // id and (b) the cache patch reflects the response.
     const queryClient = freshQueryClient();
-    queryClient.setQueryData(chatContextQueryKey("asst-1"), {
-      assistantId: "asst-1",
-      conversationId: "conv-1",
-      conversations: [
-        {
-          conversationId: "conv-1",
-          title: "Old title",
-          hasUnseenLatestAssistantMessage: true,
-          lastSeenAssistantMessageAt: undefined,
-        },
-        {
-          conversationId: "conv-2",
-          title: "Untouched",
-          hasUnseenLatestAssistantMessage: true,
-        },
-      ],
-    });
+    queryClient.setQueryData(conversationsQueryKey("asst-1"), [
+      {
+        conversationId: "conv-1",
+        title: "Old title",
+        hasUnseenLatestAssistantMessage: true,
+        lastSeenAssistantMessageAt: undefined,
+      },
+      {
+        conversationId: "conv-2",
+        title: "Untouched",
+        hasUnseenLatestAssistantMessage: true,
+      },
+    ]);
     fetchConversationDetailImpl = async (_assistantId, conversationId) => ({
       conversationId,
       title: "Old title",
       hasUnseenLatestAssistantMessage: false,
-      lastSeenAssistantMessageAt: "2026-05-25T12:00:00.000Z",
+      lastSeenAssistantMessageAt: 1779710400000,
     });
     const invalidateSpy = mock(() => Promise.resolve());
     queryClient.invalidateQueries = invalidateSpy as never;
@@ -270,20 +264,16 @@ describe("useAssistantSyncStream", () => {
     emit(syncEvent(["conversation:conv-1:metadata"]));
 
     await waitFor(() => {
-      const ctx = queryClient.getQueryData(chatContextQueryKey("asst-1")) as {
-        conversations: Array<{
-          conversationId: string;
-          hasUnseenLatestAssistantMessage?: boolean;
-          lastSeenAssistantMessageAt?: string;
-        }>;
-      };
-      const conv1 = ctx.conversations.find(
+      const list = queryClient.getQueryData(conversationsQueryKey("asst-1")) as Array<{
+        conversationId: string;
+        hasUnseenLatestAssistantMessage?: boolean;
+        lastSeenAssistantMessageAt?: number;
+      }>;
+      const conv1 = list.find(
         (c) => c.conversationId === "conv-1",
       );
       expect(conv1?.hasUnseenLatestAssistantMessage).toBe(false);
-      expect(conv1?.lastSeenAssistantMessageAt).toBe(
-        "2026-05-25T12:00:00.000Z",
-      );
+      expect(conv1?.lastSeenAssistantMessageAt).toBe(1779710400000);
     });
 
     // Fetch happened for the right id.
@@ -292,15 +282,13 @@ describe("useAssistantSyncStream", () => {
     ]);
 
     // Untouched row stays untouched.
-    const ctxAfter = queryClient.getQueryData(
-      chatContextQueryKey("asst-1"),
-    ) as {
-      conversations: Array<{
-        conversationId: string;
-        hasUnseenLatestAssistantMessage?: boolean;
-      }>;
-    };
-    const conv2 = ctxAfter.conversations.find(
+    const listAfter = queryClient.getQueryData(
+      conversationsQueryKey("asst-1"),
+    ) as Array<{
+      conversationId: string;
+      hasUnseenLatestAssistantMessage?: boolean;
+    }>;
+    const conv2 = listAfter.find(
       (c) => c.conversationId === "conv-2",
     );
     expect(conv2?.hasUnseenLatestAssistantMessage).toBe(true);
@@ -310,7 +298,7 @@ describe("useAssistantSyncStream", () => {
       invalidateSpy.mock.calls as unknown as Array<[unknown]>
     ).filter((call) => {
       const arg = call[0] as { queryKey: readonly unknown[] } | undefined;
-      return arg?.queryKey?.[0] === chatContextQueryKey("asst-1")[0];
+      return arg?.queryKey?.[0] === conversationsQueryKey("asst-1")[0];
     });
     expect(listCalls.length).toBe(0);
   });
@@ -322,14 +310,10 @@ describe("useAssistantSyncStream", () => {
     // call `removeConversation` so the sidebar drops the stale row
     // instead of leaving it as a tombstone.
     const queryClient = freshQueryClient();
-    queryClient.setQueryData(chatContextQueryKey("asst-1"), {
-      assistantId: "asst-1",
-      conversationId: "conv-1",
-      conversations: [
-        { conversationId: "conv-1", title: "Tombstone" },
-        { conversationId: "conv-2", title: "Survivor" },
-      ],
-    });
+    queryClient.setQueryData(conversationsQueryKey("asst-1"), [
+      { conversationId: "conv-1", title: "Tombstone" },
+      { conversationId: "conv-2", title: "Survivor" },
+    ]);
     fetchConversationDetailImpl = async () => CONVERSATION_NOT_FOUND;
 
     renderHook(() => useAssistantSyncStream("asst-1", true), {
@@ -338,14 +322,12 @@ describe("useAssistantSyncStream", () => {
     emit(syncEvent(["conversation:conv-1:metadata"]));
 
     await waitFor(() => {
-      const ctx = queryClient.getQueryData(chatContextQueryKey("asst-1")) as {
-        conversations: Array<{ conversationId: string }>;
-      };
+      const list = queryClient.getQueryData(conversationsQueryKey("asst-1")) as Array<{ conversationId: string }>;
       expect(
-        ctx.conversations.some((c) => c.conversationId === "conv-1"),
+        list.some((c) => c.conversationId === "conv-1"),
       ).toBe(false);
       expect(
-        ctx.conversations.some((c) => c.conversationId === "conv-2"),
+        list.some((c) => c.conversationId === "conv-2"),
       ).toBe(true);
     });
   });
@@ -368,7 +350,7 @@ describe("useAssistantSyncStream", () => {
     const listCalls = (spy.mock.calls as unknown as Array<[unknown]>).filter(
       (call) => {
         const arg = call[0] as { queryKey: readonly unknown[] } | undefined;
-        return arg?.queryKey?.[0] === chatContextQueryKey("asst-1")[0];
+        return arg?.queryKey?.[0] === conversationsQueryKey("asst-1")[0];
       },
     );
     expect(listCalls.length).toBe(0);
@@ -479,7 +461,7 @@ describe("useAssistantSyncStream", () => {
     const chatCtxCalls = (spy.mock.calls as unknown as Array<[unknown]>).filter(
       (call) => {
         const arg = call[0] as { queryKey: readonly unknown[] } | undefined;
-        return arg?.queryKey?.[0] === chatContextQueryKey("asst-1")[0];
+        return arg?.queryKey?.[0] === conversationsQueryKey("asst-1")[0];
       },
     );
     const expectedGroupsKey = conversationGroupsQueryKey("asst-1")[0];

@@ -140,7 +140,6 @@ function buildProxyTool(
     executionMode: "proxy",
     executionTarget: "host" as ExecutionTarget,
     origin: "skill",
-    ownerSkillId: MEET_SKILL_ID,
     execute: async (input, context) => {
       // `dispatchTool` ensures the meet-host child is up + connected
       // before sending the frame, so callers don't need a separate
@@ -315,7 +314,10 @@ export interface MeetManifestLoaderDeps {
   /** Override for the manifest path resolver. */
   manifestPath?: string;
   /** Override for {@link registerExternalTools}. */
-  registerTools?: (provider: () => Tool[]) => void;
+  registerTools?: (
+    owner: { kind: "skill" | "plugin" | "mcp"; id: string },
+    provider: () => Tool[],
+  ) => void;
   /** Override for {@link registerSkillRoute}. */
   registerRoute?: (route: SkillRoute) => unknown;
   /** Override for {@link registerShutdownHook}. */
@@ -358,8 +360,10 @@ export async function loadMeetManifestProxies(
 
   // Tool provider resolves the full proxy list lazily so the tool manifest
   // reflects the manifest file at `initializeTools()` time — same timing
-  // contract as the in-process skill's provider closure.
-  registerTools(() =>
+  // contract as the in-process skill's provider closure. Owner is recorded
+  // up-front so `getToolOwner(name)` returns the meet-join skill id without
+  // the tool object having to carry it.
+  registerTools({ kind: "skill", id: MEET_SKILL_ID }, () =>
     manifest.tools.map((entry) =>
       buildProxyTool(entry, supervisor),
     ),

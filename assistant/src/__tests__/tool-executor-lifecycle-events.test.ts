@@ -94,7 +94,7 @@ mock.module("../tools/registry.js", () => ({
         category: "skill",
         defaultRiskLevel: "low",
         origin: "skill" as const,
-        ownerSkillId: "test-skill",
+        owner: { kind: "skill", id: "test-skill" },
         executionTarget: "host" as const,
         input_schema: {},
         execute: async () => {
@@ -110,7 +110,7 @@ mock.module("../tools/registry.js", () => ({
         category: "skill",
         defaultRiskLevel: "low",
         origin: "skill" as const,
-        ownerSkillId: "test-skill",
+        owner: { kind: "skill", id: "test-skill" },
         executionTarget: "sandbox" as const,
         input_schema: {},
         execute: async () => {
@@ -128,7 +128,7 @@ mock.module("../tools/registry.js", () => ({
         category: "skill",
         defaultRiskLevel: "low",
         origin: "skill" as const,
-        ownerSkillId: "test-skill",
+        owner: { kind: "skill", id: "test-skill" },
         executionTarget: "sandbox" as const,
         input_schema: {},
         execute: async () => {

@@ -1082,7 +1082,6 @@ export class SkillHostClient implements SkillHost {
             category: t.category,
             executionTarget: t.executionTarget,
             executionMode: t.executionMode ?? "proxy",
-            ownerSkillId: t.ownerSkillId ?? this.options.skillId,
           };
         });
         // Cache the provider so `skill.dispatch_tool` can resolve a tool
@@ -1092,10 +1091,17 @@ export class SkillHostClient implements SkillHost {
           "skill.dispatch_tool",
           this.dispatchTool.bind(this),
         );
+        // Skill ownership travels at the params level (not per-tool) — the
+        // daemon-side registry stamps the owner from `skillId` into its
+        // own `ownersByName` map keyed by tool name. The `Tool` objects on
+        // the wire stay free of owner metadata so callers cannot spoof
+        // ownership by forging a field on the manifest.
+        //
         // Fire-and-forget; registration failures surface in the daemon log.
-        this.call("host.registries.register_tools", { tools: manifests }).catch(
-          swallow,
-        );
+        this.call("host.registries.register_tools", {
+          skillId: this.options.skillId,
+          tools: manifests,
+        }).catch(swallow);
       },
       registerSkillRoute: (route: SkillRoute): SkillRouteHandle => {
         // Cache the route by its regex source — `skill.dispatch_route` uses

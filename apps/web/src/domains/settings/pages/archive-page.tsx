@@ -13,8 +13,8 @@ import {
 import { conversationsByIdUnarchivePost } from "@/generated/daemon/sdk.gen";
 import { reportError } from "@/lib/errors/report";
 
-function formatConversationDate(timestamp: string | undefined): string {
-  if (!timestamp) return "";
+function formatConversationDate(timestamp: number | undefined): string {
+  if (timestamp == null) return "";
   const date = new Date(timestamp);
   if (Number.isNaN(date.getTime())) return "";
   return date.toLocaleString(undefined, {

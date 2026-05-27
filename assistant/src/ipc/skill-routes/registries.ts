@@ -49,15 +49,19 @@ const ToolManifestSchema = z.object({
   category: z.string().min(1),
   executionTarget: z.enum(["sandbox", "host"]).optional(),
   executionMode: z.enum(["local", "proxy"]).optional(),
-  // Required so disconnect can decrement the tool-registry refcount: a
-  // tool registered without an owner has no ref-counted entry to drop and
-  // would leak into the global registry on socket close.
-  ownerSkillId: z.string().min(1),
 });
 
 export type ToolManifest = z.infer<typeof ToolManifestSchema>;
 
+// `skillId` lives at the params level rather than per-tool: a single
+// `register_tools` IPC frame is always one skill's batch, ownership flows
+// through `registerSkillTools(skillId, tools)` into the registry's
+// `ownersByName` map, and the tools themselves stay free of owner
+// metadata so callers cannot spoof ownership by forging a field on the
+// manifest. Only skill-owned tools cross IPC — plugin and MCP tools live
+// in-process on the assistant side.
 const RegisterToolsParams = z.object({
+  skillId: z.string().min(1),
   tools: z.array(ToolManifestSchema).min(1),
 });
 
@@ -192,7 +196,6 @@ function buildProxyTool(manifest: ToolManifest): Tool {
       executionMode: manifest.executionMode ?? "proxy",
     }),
     origin: "skill",
-    ownerSkillId: manifest.ownerSkillId,
     execute: async () => {
       // Only reached when no supervisor is attached (tests/boot race);
       // the supervisor short-circuit above replaces this with the
@@ -210,7 +213,7 @@ async function handleRegisterTools(
   params: Record<string, unknown> | undefined,
   connection?: unknown,
 ): Promise<{ registered: string[] }> {
-  const { tools } = RegisterToolsParams.parse(params);
+  const { skillId, tools } = RegisterToolsParams.parse(params);
   const conn = connection as SkillIpcConnection | undefined;
 
   // Supervisor short-circuit: when a supervisor is registered, the
@@ -222,7 +225,7 @@ async function handleRegisterTools(
   if (sessionSupervisor) {
     if (conn) sessionSupervisor.setActiveConnection(conn);
     log.info(
-      { count: tools.length, names: tools.map((t) => t.name) },
+      { count: tools.length, names: tools.map((t) => t.name), ownerSkillId: skillId },
       "Supervisor active: skipping in-memory tool re-registration; manifest proxies serve dispatches",
     );
     return { registered: tools.map((t) => t.name) };
@@ -232,23 +235,19 @@ async function handleRegisterTools(
   // `registerExternalTools` is only consumed inside `initializeTools()` at
   // daemon boot; IPC children connect after boot, so route through
   // `registerSkillTools` into the live registry the agent-loop reads from.
-  const accepted = registerSkillTools(proxies);
+  // Owner is stamped registry-side from `skillId`; the proxy `Tool` objects
+  // carry no owner field.
+  const accepted = registerSkillTools(skillId, proxies);
 
-  // `registerSkillTools` increments the registry refcount once per unique
-  // ownerSkillId in the batch; mirror that on the connection so disconnect
-  // issues exactly the matching number of decrements.
-  if (conn) {
-    const ownerIds = new Set<string>();
-    for (const tool of accepted) {
-      if (tool.ownerSkillId) ownerIds.add(tool.ownerSkillId);
-    }
-    for (const skillId of ownerIds) {
-      conn.addSkillToolsOwner(skillId);
-    }
+  // `registerSkillTools` increments the registry refcount once per call;
+  // mirror that on the connection so disconnect issues exactly one matching
+  // decrement.
+  if (conn && accepted.length > 0) {
+    conn.addSkillToolsOwner(skillId);
   }
 
   log.info(
-    { count: accepted.length, names: accepted.map((t) => t.name) },
+    { count: accepted.length, names: accepted.map((t) => t.name), ownerSkillId: skillId },
     "Registered skill proxy tools via IPC",
   );
   return { registered: accepted.map((t) => t.name) };

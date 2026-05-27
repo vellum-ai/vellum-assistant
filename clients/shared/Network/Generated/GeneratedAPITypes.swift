@@ -5331,6 +5331,26 @@ public struct UsageStats: Codable, Sendable {
     }
 }
 
+public struct UsageProgress: Codable, Sendable {
+    public let type: String
+    public let conversationId: String?
+    public let inputTokens: Int
+    public let outputTokens: Int
+    public let estimatedCost: Double
+    public let model: String
+
+    public init(type: String, conversationId: String? = nil,
+                inputTokens: Int, outputTokens: Int,
+                estimatedCost: Double, model: String) {
+        self.type = type
+        self.conversationId = conversationId
+        self.inputTokens = inputTokens
+        self.outputTokens = outputTokens
+        self.estimatedCost = estimatedCost
+        self.model = model
+    }
+}
+
 public struct UsageUpdate: Codable, Sendable {
     public let type: String
     public let conversationId: String?

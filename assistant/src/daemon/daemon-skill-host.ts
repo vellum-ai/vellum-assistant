@@ -219,8 +219,15 @@ function buildRegistriesFacet(skillId: string): RegistriesFacet {
     // overlay (`assistant/src/tools/types.ts`); the assistant-side
     // registry accepts the daemon flavor. Skills construct tools via
     // helpers that already produce the daemon shape, so a cast at this
-    // boundary is safe.
-    registerTools: (provider) => registerExternalTools(provider as never),
+    // boundary is safe. The contract's `registerTools(provider)` stays
+    // single-arg — skill code never needs to know its own id — and this
+    // adapter pairs the provider with the owner derived from the
+    // surrounding {@link buildRegistriesFacet} closure.
+    registerTools: (provider) =>
+      registerExternalTools(
+        { kind: "skill", id: skillId },
+        provider as never,
+      ),
     registerSkillRoute: (route: SkillRoute): SkillRouteHandle =>
       registerSkillRoute(route) as unknown as SkillRouteHandle,
     // Namespace hook names by skillId so two skills using the same label

@@ -16,6 +16,7 @@ import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import { LatestTurnRow } from "@/domains/chat/transcript/latest-turn-row";
 import { PullRefreshSpinner } from "@/domains/chat/transcript/pull-refresh-spinner";
 import { TranscriptRow } from "@/domains/chat/transcript/transcript-row";
+import { useTranscriptScrollOnAttach } from "@/domains/chat/transcript/transcript-scroll";
 import {
   PULL_THRESHOLD_PX,
   usePullToRefresh,
@@ -39,6 +40,7 @@ export type RefreshOutcome =
 
 export interface TranscriptProps {
   items: TranscriptItem[];
+  conversationId: string | null;
   assistantDisplayName?: string | null;
   onSecretSubmit: (requestId: string, value: string) => void;
   onConfirmationDecision: (requestId: string, decision: string) => void;
@@ -150,9 +152,15 @@ export interface TranscriptHandle {
 
 export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
   function Transcript(props, ref) {
-    const { items, onPullRefresh, pullRefreshEnabled, ...rest } = props;
+    const { items, conversationId, onPullRefresh, pullRefreshEnabled, ...rest } =
+      props;
     const scrollRef = useRef<HTMLDivElement | null>(null);
     const contentRef = useRef<HTMLDivElement | null>(null);
+    const { scrollContainerCallbackRef, contentCallbackRef } =
+      useTranscriptScrollOnAttach({
+        scrollContainerRef: scrollRef,
+        contentRef,
+      });
     const viewportMinHeight = useViewportMinHeight(scrollRef);
 
     const pullEnabled = !!pullRefreshEnabled && !!onPullRefresh;
@@ -249,7 +257,8 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
 
     return (
       <div
-        ref={scrollRef}
+        key={conversationId}
+        ref={scrollContainerCallbackRef}
         data-testid="transcript-scroll-container"
         className="flex h-full w-full flex-col overflow-y-auto overscroll-none [overflow-anchor:none]"
       >
@@ -258,7 +267,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
          *  height changes (async min-height settle, late image loads,
          *  streaming growth). Wrapping all rows in a single observed
          *  element is cheaper than observing each row individually. */}
-        <div ref={contentRef} className="flex w-full flex-col">
+        <div ref={contentCallbackRef} className="flex w-full flex-col">
           {/* History items in chronological order — oldest at top. */}
           {partition.historyItems.map((item) => (
             <Fragment key={item.key}>

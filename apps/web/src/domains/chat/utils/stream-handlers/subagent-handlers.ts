@@ -38,9 +38,28 @@ export function handleSubagentEvent(
   if (event.conversationId) {
     store.setConversationId(event.subagentId, event.conversationId);
   }
+
+  const inner = event.event;
+  if (inner.type === "usage_progress") {
+    const data = inner as unknown as Record<string, unknown>;
+    const inputTokens =
+      typeof data.inputTokens === "number" ? data.inputTokens : 0;
+    const outputTokens =
+      typeof data.outputTokens === "number" ? data.outputTokens : 0;
+    const estimatedCost =
+      typeof data.estimatedCost === "number" ? data.estimatedCost : 0;
+    store.updateUsage({
+      subagentId: event.subagentId,
+      inputTokens,
+      outputTokens,
+      estimatedCost,
+    });
+    return;
+  }
+
   store.receiveEvent({
     subagentId: event.subagentId,
-    event: event.event,
+    event: inner,
     timestamp: Date.now(),
   });
 }
