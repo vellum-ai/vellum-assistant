@@ -73,6 +73,8 @@ describe("computeToolCallCardData — step kinds", () => {
       durationLabel: "2s",
       title: "Working (bash)",
       info: "echo hello",
+      activity: "",
+      riskLevel: undefined,
       iconName: "code",
       toolCallId: "tc-1",
       status: "completed",
@@ -80,6 +82,45 @@ describe("computeToolCallCardData — step kinds", () => {
     expect(data.state).toBe("complete");
     // `currentStepTitle` / `currentStepInfo` mirror the tool step.
     expect(data.currentStepTitle).toBe("Working (bash)");
+    expect(data.currentStepInfo).toBe("echo hello");
+  });
+
+  test("carries activity + riskLevel on the `tool` step and prefers activity for currentStepInfo", () => {
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        toolName: "bash",
+        status: "completed",
+        startedAt: 1000,
+        completedAt: 2000,
+        riskLevel: "low",
+        input: {
+          command: "echo hello",
+          activity: "Greeting the user from the shell",
+        },
+      }),
+    ];
+    const data = computeToolCallCardData(toolCalls, {}, null);
+    expect(data.steps[0]).toMatchObject({
+      kind: "tool",
+      activity: "Greeting the user from the shell",
+      riskLevel: "low",
+    });
+    // Collapsed-header subtext prefers the rich activity sentence.
+    expect(data.currentStepInfo).toBe("Greeting the user from the shell");
+  });
+
+  test("falls back to terse info for currentStepInfo when no activity is present", () => {
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        toolName: "bash",
+        status: "completed",
+        input: { command: "echo hello" },
+      }),
+    ];
+    const data = computeToolCallCardData(toolCalls, {}, null);
+    expect(data.steps[0]).toMatchObject({ kind: "tool", activity: "" });
     expect(data.currentStepInfo).toBe("echo hello");
   });
 
