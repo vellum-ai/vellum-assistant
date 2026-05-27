@@ -228,6 +228,37 @@ describe("platform-managed config defaults", () => {
     expect(config.services["image-generation"].mode).toBe("your-own");
   });
 
+  test("IS_PLATFORM=true, config file with explicit notion-oauth mode='your-own' → preserved (schema default is 'managed')", () => {
+    process.env.IS_PLATFORM = "true";
+
+    // notion-oauth's schema default is "managed" (per JARVIS-966), but an
+    // explicit user choice of "your-own" must win — the fill-defaults pass
+    // must never override an explicit value, even one that contradicts the
+    // schema default. Mirror of the image-generation "your-own preserved"
+    // test above, but for a service whose schema default is "managed".
+    writeFileSync(
+      CONFIG_PATH,
+      JSON.stringify(
+        {
+          services: {
+            "notion-oauth": { mode: "your-own" },
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+
+    const config = loadConfig();
+
+    const written = readConfig() as { services?: Record<string, unknown> };
+    expect(written.services).toBeDefined();
+    expect((written.services!["notion-oauth"] as { mode?: string })?.mode).toBe(
+      "your-own",
+    );
+    expect(config.services["notion-oauth"].mode).toBe("your-own");
+  });
+
   test("IS_PLATFORM=true, config file exists without a services key → in-memory config has all managed modes", () => {
     // Regression guard for the platform-managed boot order: by the time
     // `loadConfig()` runs, lifecycle steps such as `seedInferenceProfiles`
