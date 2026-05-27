@@ -414,6 +414,7 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
                   leftIcon={<Sparkles className="h-3.5 w-3.5" />}
                   className={isActive ? "bg-[var(--surface-active)] text-[var(--content-emphasised)]" : ""}
                   shortcut={isActive ? <Check className="h-3.5 w-3.5 text-[var(--system-positive-strong)]" /> : undefined}
+                  title={entry.name === "auto" ? "Automatically switches profiles based on the query" : undefined}
                 >
                   {profilePickerLabel(entry)}
                 </Menu.Item>

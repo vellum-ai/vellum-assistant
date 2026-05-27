@@ -166,6 +166,7 @@ function ProfileEditorModalInner({
 }: ProfileEditorModalInnerProps) {
   const [effectiveMode, setEffectiveMode] = useState<"create" | "edit" | "view">(mode);
   const isReadOnly = effectiveMode === "view";
+  const isAutoProfile = profileName === "auto";
 
   // Managed profiles open the editor in view mode (mode === "view") so they
   // can't be reshaped (provider, model, advanced params) — those are
@@ -691,6 +692,19 @@ function ProfileEditorModalInner({
             label="Active"
           />
 
+          {isAutoProfile && (
+            <div className="rounded-lg bg-[var(--surface-info-subtle)] p-3">
+              <p className="text-body-small-default text-[var(--content-secondary)]">
+                Auto mode routes each query to the best profile automatically
+                — fast for simple questions, capable for complex ones. No
+                provider or model configuration needed.
+              </p>
+            </div>
+          )}
+
+          {/* Provider, Connection, Model, and advanced params are hidden for
+              the "auto" meta-profile which has no provider/model of its own. */}
+          {!isAutoProfile && <>
           {/* Provider — required. The old "None (inherits defaults)" option
               was removed because the inherit pathway encouraged accidental
               fallbacks to the global default model, defeating the point of
@@ -830,7 +844,10 @@ function ProfileEditorModalInner({
               </Typography>
             ) : null}
           </div>
+          </>}
 
+          {/* Advanced params — hidden for the auto meta-profile */}
+          {!isAutoProfile && <>
           {/* Max Output Tokens */}
           {visibility.maxTokens && (
             <div className="space-y-1">
@@ -1006,6 +1023,8 @@ function ProfileEditorModalInner({
               )}
             </div>
           )}
+
+          </>}
 
           {/* Save error */}
           {saveError ? (
