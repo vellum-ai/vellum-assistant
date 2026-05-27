@@ -14,17 +14,6 @@ public func wasExpected(approvalMode: String?, riskLevel: String?, riskThreshold
     return risk <= threshold
 }
 
-/// Returns the display-level string to use for the risk badge. When the tool call
-/// was sandbox auto-approved, the badge should show "workspace" instead of the raw
-/// risk level so the UI communicates that the operation ran inside the sandboxed
-/// workspace scope.
-public func effectiveRiskDisplay(approvalReason: String?, riskLevel: String?) -> String {
-    if approvalReason == "sandbox_auto_approve" {
-        return "workspace"
-    }
-    return riskLevel ?? "unknown"
-}
-
 /// Returns the inline provenance suffix to append to the risk badge label, or nil
 /// when no provenance should be shown (expected outcome or missing fields).
 ///

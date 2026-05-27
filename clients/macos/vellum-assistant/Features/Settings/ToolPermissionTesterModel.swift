@@ -26,7 +26,7 @@ struct SimulationResult: Equatable {
     /// The risk level to display in the badge, which may differ from the raw
     /// `riskLevel` (e.g. "workspace" for sandbox auto-approved results).
     var effectiveDisplayLevel: String {
-        effectiveRiskDisplay(approvalReason: approvalReason, riskLevel: riskLevel)
+        effectiveRiskDisplay(approvalReason: approvalReason, riskLevel: riskLevel).displayLevel
     }
 
     static func == (lhs: SimulationResult, rhs: SimulationResult) -> Bool {
