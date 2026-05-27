@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 
 import { Button, Input, Modal } from "@vellum/design-library";
 
@@ -38,6 +38,7 @@ function RenameConversationDialog({
   onSubmit,
   onCancel,
 }: RenameConversationDialogProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
   const [value, setValue] = useState(currentTitle);
 
   // Reset the field each time a new rename request opens so the input
@@ -76,12 +77,16 @@ function RenameConversationDialog({
         // pre-filled title — select-all so typing replaces it in one
         // motion, the same UX as `window.prompt`.
         onOpenAutoFocus={(event) => {
-          const content = event.currentTarget as HTMLElement | null;
-          const input = content?.querySelector<HTMLInputElement>("input");
+          event.preventDefault();
+          const input = inputRef.current;
           if (input) {
-            event.preventDefault();
             input.focus();
-            input.select();
+            // iOS Safari/WKWebView ignores selection APIs called
+            // synchronously during focus — the editing context isn't
+            // ready until the next frame.
+            requestAnimationFrame(() => {
+              input.setSelectionRange(0, input.value.length);
+            });
           }
         }}
         // When stacked inside another modal, Escape should close only
@@ -100,6 +105,7 @@ function RenameConversationDialog({
           </Modal.Header>
           <Modal.Body>
             <Input
+              ref={inputRef}
               label="Name"
               value={value}
               onChange={(event) => setValue(event.target.value)}

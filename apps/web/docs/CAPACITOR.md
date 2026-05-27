@@ -84,6 +84,30 @@ References:
 
 ---
 
+## Programmatic text selection requires frame deferral on iOS
+
+iOS Safari/WKWebView ignores `HTMLInputElement.select()` and `setSelectionRange()` when called synchronously during `focus()` — the editing context (keyboard, selection system) isn't initialized until the next animation frame. This affects any code that programmatically focuses an input and immediately tries to select its content.
+
+**Always defer selection to the next frame after focus:**
+
+```ts
+input.focus();
+requestAnimationFrame(() => {
+  input.setSelectionRange(0, input.value.length);
+});
+```
+
+Prefer `setSelectionRange(start, end)` over `select()` — it's more explicit about the selection range and behaves consistently across browsers. The single-frame delay is imperceptible on all platforms.
+
+This commonly arises with Radix Dialog's `onOpenAutoFocus`, which fires synchronously when the dialog content mounts. Desktop browsers tolerate synchronous focus + select, so the issue only surfaces on iOS.
+
+References:
+- WebKit — [Bug 224425: `select()` does not work in programmatically focused input](https://bugs.webkit.org/show_bug.cgi?id=224425)
+- MDN — [`HTMLInputElement.setSelectionRange()`](https://developer.mozilla.org/en-US/docs/Web/API/HTMLInputElement/setSelectionRange)
+- MDN — [`requestAnimationFrame()`](https://developer.mozilla.org/en-US/docs/Web/API/Window/requestAnimationFrame)
+
+---
+
 ## Deep links (Capacitor `appUrlOpen`)
 
 Native OAuth completion auto-dismisses `SFSafariViewController` by redirecting to a registered custom URL scheme (`vellum-assistant://`, `-dev`, `-staging`) and routing the URL via the `@capacitor/app` plugin's `appUrlOpen` listener. The router is mounted globally for the app routes; pure utilities and the typed `WindowEventMap` augmentation live in [`src/runtime/native-deep-link.ts`](../src/runtime/native-deep-link.ts).
