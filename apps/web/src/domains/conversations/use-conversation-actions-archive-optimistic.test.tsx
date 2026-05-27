@@ -30,8 +30,8 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createElement, type ReactNode } from "react";
 
-import * as conversationsApi from "@/domains/chat/api/conversations";
-import type { Conversation } from "@/domains/chat/api/conversations";
+import * as conversationsApi from "@/lib/conversations-api";
+import type { Conversation } from "@/lib/conversations-api";
 import { chatContextQueryKey } from "@/lib/sync/query-tags";
 
 // ---------------------------------------------------------------------------
@@ -47,7 +47,7 @@ type ApiImpl = (assistantId: string, conversationId: string) => Promise<void>;
 let archiveImpl: ApiImpl = async () => {};
 let unarchiveImpl: ApiImpl = async () => {};
 
-mock.module("@/domains/chat/api/conversations", () => ({
+mock.module("@/lib/conversations-api", () => ({
   ...conversationsApi,
   archiveConversation: (assistantId: string, conversationId: string) =>
     archiveImpl(assistantId, conversationId),

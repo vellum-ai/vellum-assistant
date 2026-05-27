@@ -101,7 +101,7 @@ import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { DiskPressureBanner, type DiskPressureBannerMode } from "@/domains/chat/components/disk-pressure-banner";
 import type { VoiceInputButtonHandle } from "@/domains/chat/components/voice-input-button";
 import type { AssistantIdentity } from "@/assistant/identity";
-import type { Conversation } from "@/domains/chat/api/conversations";
+import type { Conversation } from "@/lib/conversations-api";
 import { submitQuestionResponse } from "@/domains/chat/api/interactions";
 import type { ChatEventStream } from "@/domains/chat/api/stream";
 

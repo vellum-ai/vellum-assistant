@@ -96,7 +96,7 @@ import { ConversationAssetsPill } from "@/domains/chat/components/conversation-a
 import { AddCreditsModal } from "@/components/add-credits-modal";
 import { CommandPalette } from "@/components/command-palette/command-palette";
 import { shouldHandleShortcut } from "@/domains/chat/chat-layout";
-import { abortSubagent, fetchSubagentDetail } from "@/domains/chat/api/conversations";
+import { abortSubagent, fetchSubagentDetail } from "@/lib/conversations-api";
 import { MobileAppOverlay } from "@/domains/chat/components/mobile-app-overlay";
 import { MobileDocumentOverlay } from "@/domains/chat/components/mobile-document-overlay";
 import { MobileSubagentDetailOverlay } from "@/domains/chat/components/mobile-subagent-detail-overlay";

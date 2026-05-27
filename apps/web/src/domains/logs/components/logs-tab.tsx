@@ -13,11 +13,11 @@ import { Dropdown } from "@vellum/design-library";
 import {
   listConversations,
   type Conversation,
-} from "@/domains/chat/api/conversations";
+} from "@/lib/conversations-api";
 import {
   loadLastViewedConversationId,
   saveLastViewedConversationId,
-} from "@/domains/chat/utils/last-viewed-conversation-storage";
+} from "@/utils/last-viewed-conversation-storage";
 import {
   formatLatency,
   formatTimelineTimestamp,

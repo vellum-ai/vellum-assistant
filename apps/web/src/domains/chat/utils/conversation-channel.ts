@@ -1,4 +1,4 @@
-import type { Conversation } from "@/domains/chat/api/conversations";
+import type { Conversation } from "@/lib/conversations-api";
 
 /**
  * Predicate matching macOS `ConversationModel.isChannelConversation`.

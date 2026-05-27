@@ -18,8 +18,8 @@
 import { create } from "zustand";
 
 import { toast } from "@vellum/design-library";
-import { shareApp as shareAppApi } from "@/domains/chat/api/apps";
-import { getVercelConfig, isCredentialError, publishApp } from "@/domains/chat/api/publish";
+import { shareApp as shareAppApi } from "@/lib/apps-api";
+import { getVercelConfig, isCredentialError, publishApp } from "@/lib/publish-api";
 import { createSelectors } from "@/utils/create-selectors";
 
 // ---------------------------------------------------------------------------

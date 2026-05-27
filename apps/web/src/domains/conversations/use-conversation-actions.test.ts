@@ -4,7 +4,7 @@ import {
   findNextConversationId,
   resolveUnpinGroupId,
 } from "@/domains/conversations/use-conversation-actions";
-import type { Conversation } from "@/domains/chat/api/conversations";
+import type { Conversation } from "@/lib/conversations-api";
 
 function makeConversation(overrides: Partial<Conversation> = {}): Conversation {
   return { conversationId: "conv-1", ...overrides };

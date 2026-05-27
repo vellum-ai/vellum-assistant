@@ -8,7 +8,7 @@ import {
   markConversationSeenLocal,
   useConversationListQuery,
 } from "@/domains/conversations/conversation-queries";
-import { markConversationSeen } from "@/domains/chat/api/conversations";
+import { markConversationSeen } from "@/lib/conversations-api";
 import { listConversationIdsWithPendingInteractions } from "@/domains/chat/api/interactions";
 import { USER_FACING_INTERACTION_KINDS } from "@/domains/chat/api/event-types";
 import type { AssistantState } from "@/domains/chat/hooks/use-assistant-lifecycle";

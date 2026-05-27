@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers";
 import { chatContextQueryKey } from "@/domains/conversations/conversation-queries";
-import type { Conversation } from "@/domains/chat/api/conversations";
+import type { Conversation } from "@/lib/conversations-api";
 import type { ChatContext } from "@/domains/chat/api/assistant";
 import {
   handleUsageUpdate,

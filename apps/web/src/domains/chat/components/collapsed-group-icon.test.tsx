@@ -22,7 +22,7 @@ mock.module("@vellum/design-library", () => ({
   },
 }));
 
-import type { Conversation } from "@/domains/chat/api/conversations";
+import type { Conversation } from "@/lib/conversations-api";
 import { Pin } from "lucide-react";
 import {
   CollapsedGroupIcon,

@@ -26,7 +26,7 @@ import { Button, Typography } from "@vellum/design-library";
 
 import type { DocumentComment } from "@/domains/chat/api/document-comments";
 import { createComment, fetchComments } from "@/domains/chat/api/document-comments";
-import { saveDocumentContent } from "@/domains/chat/api/documents";
+import { saveDocumentContent } from "@/lib/documents-api";
 import type { CommentAnchor } from "@/domains/chat/utils/tiptap-position-map";
 import { TiptapDocumentEditor } from "./tiptap-document-editor";
 import {

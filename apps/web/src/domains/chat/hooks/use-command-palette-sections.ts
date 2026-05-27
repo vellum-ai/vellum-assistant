@@ -29,7 +29,7 @@ import { haptic } from "@/utils/haptics";
 import { routes } from "@/utils/routes";
 
 import { formatRelativeTime } from "@/domains/chat/utils/chat-utils";
-import type { Conversation } from "@/domains/chat/api/conversations";
+import type { Conversation } from "@/lib/conversations-api";
 
 // ---------------------------------------------------------------------------
 // Helpers — pure functions, no React state

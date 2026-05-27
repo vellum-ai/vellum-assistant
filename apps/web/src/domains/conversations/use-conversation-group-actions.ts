@@ -14,7 +14,7 @@ import {
 } from "@/domains/conversations/conversation-queries";
 
 import { haptic } from "@/utils/haptics";
-import { type ConversationGroup, createGroup, deleteGroup, updateGroup } from "@/domains/chat/api/conversations";
+import { type ConversationGroup, createGroup, deleteGroup, updateGroup } from "@/lib/conversations-api";
 
 // ---------------------------------------------------------------------------
 // Hook

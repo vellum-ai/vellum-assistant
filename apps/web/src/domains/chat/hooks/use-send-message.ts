@@ -60,7 +60,7 @@ import {
   stopStreamingAndClearConfirmations,
 } from "@/domains/chat/hooks/send-message-utils";
 import { useMessageQueue } from "@/domains/chat/hooks/use-message-queue";
-import { type Conversation, cancelGeneration } from "@/domains/chat/api/conversations";
+import { type Conversation, cancelGeneration } from "@/lib/conversations-api";
 import { getPendingInteractions } from "@/domains/chat/api/interactions";
 import { type RuntimeMessage, fetchConversationMessages, postChatMessage, pollForResponse } from "@/domains/chat/api/messages";
 import type { ChatEventStream } from "@/domains/chat/api/stream";

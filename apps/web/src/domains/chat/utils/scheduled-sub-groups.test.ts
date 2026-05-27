@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 
-import type { Conversation } from "@/domains/chat/api/conversations";
+import type { Conversation } from "@/lib/conversations-api";
 import {
   formatScheduledSubGroupLabel,
   groupScheduledConversationsByJobId,

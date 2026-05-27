@@ -18,8 +18,8 @@ import {
 
 import type { NavigateFunction } from "react-router";
 
-import type { Conversation } from "@/domains/chat/api/conversations";
-import { analyzeConversation, forkConversation } from "@/domains/chat/api/conversations";
+import type { Conversation } from "@/lib/conversations-api";
+import { analyzeConversation, forkConversation } from "@/lib/conversations-api";
 import { routes } from "@/utils/routes";
 import { haptic } from "@/utils/haptics";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";

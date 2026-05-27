@@ -18,7 +18,7 @@ mock.module("@/hooks/use-is-mobile", () => ({
 }));
 
 
-import type { Conversation } from "@/domains/chat/api/conversations";
+import type { Conversation } from "@/lib/conversations-api";
 import {
   ASSISTANT_SIDE_MENU_CONVERSATION_LIMIT,
   AssistantSideMenu,

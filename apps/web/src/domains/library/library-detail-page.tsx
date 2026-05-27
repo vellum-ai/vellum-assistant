@@ -5,8 +5,8 @@ import { useNavigate, useParams } from "react-router";
 import { toast } from "@vellum/design-library";
 
 import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate";
-import { openApp, primeAppHtmlCache, shareApp } from "@/domains/chat/api/apps";
-import { AppViewerContainer } from "@/domains/intelligence/components/apps/app-viewer-container";
+import { openApp, primeAppHtmlCache, shareApp } from "@/lib/apps-api";
+import { AppViewerContainer } from "@/components/apps/app-viewer-container";
 import { routes } from "@/utils/routes";
 
 interface LoadedApp {

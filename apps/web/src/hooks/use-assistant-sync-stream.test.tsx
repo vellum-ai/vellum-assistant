@@ -33,7 +33,7 @@ import {
 // real network call.
 // ---------------------------------------------------------------------------
 const realConversationsModule = await import(
-  "@/domains/chat/api/conversations"
+  "@/lib/conversations-api"
 );
 const { CONVERSATION_NOT_FOUND } = realConversationsModule;
 
@@ -51,7 +51,7 @@ const fetchConversationDetailCalls: Array<{
   conversationId: string;
 }> = [];
 
-mock.module("@/domains/chat/api/conversations", () => ({
+mock.module("@/lib/conversations-api", () => ({
   ...realConversationsModule,
   fetchConversationDetail: (assistantId: string, conversationId: string) => {
     fetchConversationDetailCalls.push({ assistantId, conversationId });

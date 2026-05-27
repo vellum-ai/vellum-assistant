@@ -17,8 +17,8 @@ import {
 import {
   isBackgroundConversation,
   listConversations,
-} from "@/domains/chat/api/conversations";
-import type { Conversation } from "@/domains/chat/api/conversations";
+} from "@/lib/conversations-api";
+import type { Conversation } from "@/lib/conversations-api";
 
 async function fetchAssistantId(): Promise<string | null> {
   // Prefer platform-managed assistants, fall back to local.

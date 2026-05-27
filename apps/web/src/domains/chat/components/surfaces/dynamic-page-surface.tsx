@@ -2,9 +2,9 @@ import { Minimize2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { client } from "@/generated/api/client.gen";
-import { AppCard } from "@/domains/chat/components/app-card";
-import { clearAppHtmlCache, getCachedAppHtml } from "@/domains/chat/api/apps";
-import { usePinnedAppsStore } from "@/domains/chat/pinned-apps-store";
+import { AppCard } from "@/components/app-card";
+import { clearAppHtmlCache, getCachedAppHtml } from "@/lib/apps-api";
+import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import type { Surface } from "@/domains/chat/types/types";
 import { getDynamicPageAppId } from "@/domains/chat/components/surfaces/dynamic-page-app-id";
 

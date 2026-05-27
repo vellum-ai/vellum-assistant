@@ -7,17 +7,17 @@
 
 import * as Sentry from "@sentry/browser";
 
+import { client } from "@/generated/api/client.gen";
 import {
   ApiError,
   assertHasResponse,
-  client,
   extractErrorMessage,
   SDK_BASE_OPTIONS,
-} from "@/domains/chat/api/client";
+} from "@/lib/api-errors";
 import {
   parseSlackMessageLink,
   type SlackMessageLink,
-} from "@/domains/chat/types/types";
+} from "@/utils/slack-message-link";
 
 // ---------------------------------------------------------------------------
 // Conversations
