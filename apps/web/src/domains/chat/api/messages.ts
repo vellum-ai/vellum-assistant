@@ -522,7 +522,11 @@ export async function postChatMessage(
       onboardingDict.cohort = normalizedOnboarding.cohort;
     if (normalizedOnboarding.bootstrapTemplate !== undefined)
       onboardingDict.bootstrapTemplate = normalizedOnboarding.bootstrapTemplate;
-    if (normalizedOnboarding.initialMessage !== undefined)
+    if (
+      normalizedOnboarding.initialMessage !== undefined &&
+      normalizedOnboarding.initialMessage.trim().toLowerCase().replace(/[.!?]+$/, "") !==
+        "wake up, my friend"
+    )
       onboardingDict.initialMessage = normalizedOnboarding.initialMessage;
     if (normalizedOnboarding.skills !== undefined)
       onboardingDict.skills = normalizedOnboarding.skills;
