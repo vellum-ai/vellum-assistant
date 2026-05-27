@@ -56,6 +56,7 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   assistantEventHub: {
     publish: async () => {},
   },
+  broadcastMessage: async () => {},
 }));
 
 mock.module("../runtime/assistant-event.js", () => ({

@@ -7,6 +7,12 @@ export type BackgroundWakeIntentClientResult = {
   reason?: "missing_platform_client" | "missing_platform_assistant_id";
 };
 
+export type BackgroundWakeLeaseClientResult = {
+  status: "renewed" | "completed" | "skipped";
+  httpStatus?: number;
+  reason?: "missing_platform_client" | "missing_platform_assistant_id";
+};
+
 type BackgroundWakeIntentSnapshot = Pick<
   BackgroundWakeIntent,
   "sourceGeneration" | "computedAt"
@@ -63,9 +69,83 @@ export async function clearBackgroundWakeIntent(
   return { status: "cleared", httpStatus: response.status };
 }
 
+export async function renewBackgroundWakeLease(
+  leaseId: string,
+): Promise<BackgroundWakeLeaseClientResult> {
+  const client = await VellumPlatformClient.create();
+  if (!client) return { status: "skipped", reason: "missing_platform_client" };
+  if (!client.platformAssistantId) {
+    return { status: "skipped", reason: "missing_platform_assistant_id" };
+  }
+
+  const response = await client.fetch(
+    leasePath(client.platformAssistantId, leaseId, "renew"),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    },
+  );
+
+  await throwIfNotOk(response, "renew background wake lease");
+  return { status: "renewed", httpStatus: response.status };
+}
+
+export async function completeBackgroundWakeLease(args: {
+  leaseId: string;
+  status: "completed" | "failed" | "expired";
+  error?: string;
+  nextIntent?: BackgroundWakeIntent | null;
+}): Promise<BackgroundWakeLeaseClientResult> {
+  const client = await VellumPlatformClient.create();
+  if (!client) return { status: "skipped", reason: "missing_platform_client" };
+  if (!client.platformAssistantId) {
+    return { status: "skipped", reason: "missing_platform_assistant_id" };
+  }
+
+  const body: Record<string, unknown> = {
+    status: args.status,
+  };
+  if (args.error) body.error = args.error;
+  if ("nextIntent" in args) {
+    body.next_intent = args.nextIntent
+      ? {
+          reason: args.nextIntent.reason,
+          source_generation: args.nextIntent.sourceGeneration,
+          computed_at: toIsoString(args.nextIntent.computedAt),
+          next_wake_at: toIsoString(args.nextIntent.nextWakeAt),
+          actual_next_due_at: toIsoString(args.nextIntent.actualNextDueAt),
+          source_payload: args.nextIntent.sourcePayload,
+        }
+      : null;
+  }
+
+  const response = await client.fetch(
+    leasePath(client.platformAssistantId, args.leaseId, "complete"),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
+
+  await throwIfNotOk(response, "complete background wake lease");
+  return { status: "completed", httpStatus: response.status };
+}
+
 function intentPath(assistantId: string): string {
   const encodedAssistantId = encodeURIComponent(assistantId);
   return `/v1/assistants/${encodedAssistantId}/background-wake-intent/`;
+}
+
+function leasePath(
+  assistantId: string,
+  leaseId: string,
+  action: "renew" | "complete",
+): string {
+  const encodedAssistantId = encodeURIComponent(assistantId);
+  const encodedLeaseId = encodeURIComponent(leaseId);
+  return `/v1/assistants/${encodedAssistantId}/background-wake-leases/${encodedLeaseId}/${action}/`;
 }
 
 function toIsoString(timestampMs: number): string {

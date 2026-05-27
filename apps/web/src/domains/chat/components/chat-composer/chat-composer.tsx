@@ -30,7 +30,7 @@ import { useAudioAmplitude } from "@/domains/voice/use-audio-amplitude";
 import { useVoiceRecordingStore } from "@/domains/voice/voice-recording-store";
 import { StreamingWaveform } from "@/domains/chat/components/chat-composer/streaming-waveform";
 
-import { EMOJI_MIN_FILTER_LENGTH, EMOJI_TRIGGER_RE, searchEmoji, type EmojiEntry } from "@/domains/chat/components/chat-composer/emoji-catalog";
+import { EMOJI_MIN_FILTER_LENGTH, EMOJI_TRIGGER_RE, useEmojiSearch, type EmojiEntry } from "@/domains/chat/components/chat-composer/emoji-catalog";
 import { EmojiPickerPopup } from "@/domains/chat/components/chat-composer/emoji-picker-popup";
 import { SlashCommandPopup } from "@/domains/chat/components/chat-composer/slash-command-popup";
 import {
@@ -290,6 +290,7 @@ export function ChatComposer({
   });
 
   const textBeforeCursor = input.slice(0, cursorRef.current);
+  const searchEmoji = useEmojiSearch();
   const emoji = useTextPopup({
     text: textBeforeCursor,
     trigger: EMOJI_TRIGGER_RE,

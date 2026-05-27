@@ -12,8 +12,12 @@ mock.module("../platform/client.js", () => ({
   },
 }));
 
-const { clearBackgroundWakeIntent, publishBackgroundWakeIntent } =
-  await import("./platform-client.js");
+const {
+  clearBackgroundWakeIntent,
+  completeBackgroundWakeLease,
+  publishBackgroundWakeIntent,
+  renewBackgroundWakeLease,
+} = await import("./platform-client.js");
 
 const NOW = 1_800_000_000_000;
 
@@ -131,6 +135,86 @@ describe("background wake platform client", () => {
     expect(JSON.parse(String(init.body))).toEqual({});
   });
 
+  test("renews background wake lease through Django", async () => {
+    const result = await renewBackgroundWakeLease("lease/with/slash");
+
+    expect(result).toEqual({ status: "renewed", httpStatus: 200 });
+    expect(mockClientFetch).toHaveBeenCalledTimes(1);
+    const [path, init] = mockClientFetch.mock.calls[0] as [string, RequestInit];
+    expect(path).toBe(
+      "/v1/assistants/asst-123/background-wake-leases/lease%2Fwith%2Fslash/renew/",
+    );
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toEqual({});
+  });
+
+  test("completes background wake lease with the next intent", async () => {
+    const result = await completeBackgroundWakeLease({
+      leaseId: "lease-123",
+      status: "completed",
+      nextIntent: intentFixture({ sourceGeneration: "bw1:next-hash" }),
+    });
+
+    expect(result).toEqual({ status: "completed", httpStatus: 200 });
+    expect(mockClientFetch).toHaveBeenCalledTimes(1);
+    const [path, init] = mockClientFetch.mock.calls[0] as [string, RequestInit];
+    expect(path).toBe(
+      "/v1/assistants/asst-123/background-wake-leases/lease-123/complete/",
+    );
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toEqual({
+      status: "completed",
+      next_intent: {
+        reason: "schedule",
+        source_generation: "bw1:next-hash",
+        computed_at: new Date(NOW - 1_000).toISOString(),
+        next_wake_at: new Date(NOW + 60_000).toISOString(),
+        actual_next_due_at: new Date(NOW + 60_000).toISOString(),
+        source_payload: {
+          heartbeat: null,
+          schedules: [
+            {
+              id: "schedule-1",
+              nextRunAt: NOW + 60_000,
+              mode: "wake",
+              createdBy: "defer",
+              status: "active",
+              updatedAt: NOW - 5_000,
+            },
+          ],
+        },
+      },
+    });
+  });
+
+  test("completes failed background wake lease with an error", async () => {
+    await completeBackgroundWakeLease({
+      leaseId: "lease-123",
+      status: "failed",
+      error: "scheduler exploded",
+    });
+
+    const [, init] = mockClientFetch.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toEqual({
+      status: "failed",
+      error: "scheduler exploded",
+    });
+  });
+
+  test("completes background wake lease with an explicit null next intent", async () => {
+    await completeBackgroundWakeLease({
+      leaseId: "lease-123",
+      status: "completed",
+      nextIntent: null,
+    });
+
+    const [, init] = mockClientFetch.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toEqual({
+      status: "completed",
+      next_intent: null,
+    });
+  });
+
   test("skips when platform prerequisites are missing", async () => {
     mockCreateClient = mock(async () => null);
 
@@ -185,6 +269,14 @@ describe("background wake platform client", () => {
     );
     await expect(clearBackgroundWakeIntent(intentFixture())).rejects.toThrow(
       "Failed to clear background wake intent: HTTP 502: bad gateway",
+    );
+    await expect(renewBackgroundWakeLease("lease-123")).rejects.toThrow(
+      "Failed to renew background wake lease: HTTP 502: bad gateway",
+    );
+    await expect(
+      completeBackgroundWakeLease({ leaseId: "lease-123", status: "failed" }),
+    ).rejects.toThrow(
+      "Failed to complete background wake lease: HTTP 502: bad gateway",
     );
   });
 });

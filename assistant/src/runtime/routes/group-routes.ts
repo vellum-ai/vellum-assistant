@@ -22,6 +22,13 @@ import { publishConversationListChanged } from "../sync/resource-sync-events.js"
 import { BadRequestError, ForbiddenError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
+const groupSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  sortPosition: z.number(),
+  isSystemGroup: z.boolean(),
+});
+
 function serializeGroup(group: ReturnType<typeof getGroup>) {
   if (!group) return null;
   return {
@@ -169,6 +176,7 @@ export const ROUTES: RouteDefinition[] = [
     summary: "List groups",
     description: "Return all conversation groups.",
     tags: ["groups"],
+    responseBody: z.object({ groups: z.array(groupSchema) }),
   },
   {
     operationId: "groups_create",
@@ -184,6 +192,7 @@ export const ROUTES: RouteDefinition[] = [
     requestBody: z.object({
       name: z.string().describe("Group name"),
     }),
+    responseBody: groupSchema,
     additionalResponses: {
       "400": {
         description:
@@ -204,6 +213,7 @@ export const ROUTES: RouteDefinition[] = [
       name: z.string().optional(),
       sortPosition: z.number().optional(),
     }),
+    responseBody: groupSchema,
     additionalResponses: {
       "403": {
         description: "System group sort position cannot be changed",
@@ -251,6 +261,7 @@ export const ROUTES: RouteDefinition[] = [
         )
         .describe("Array of { groupId, sortPosition } objects"),
     }),
+    responseBody: z.object({ ok: z.boolean() }),
     additionalResponses: {
       "403": {
         description: "Cannot reorder system groups",

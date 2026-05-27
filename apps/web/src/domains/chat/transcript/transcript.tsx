@@ -23,6 +23,12 @@ import {
 import { useViewportMinHeight } from "@/domains/chat/transcript/use-viewport-min-height";
 import type { ConfirmationDecision } from "@/domains/chat/api/event-types";
 
+/** Distance from the bottom (in px) at or below which the transcript is
+ *  considered pinned to the latest message. Surfaced through
+ *  `TranscriptHandle.getScrollState()` for the debug API. Kept in sync
+ *  with the same threshold inside `useDeprecatedTranscriptScroll`. */
+const PINNED_THRESHOLD_PX = 64;
+
 /** Outcome of a pull-to-refresh, returned by the consumer's
  *  `onPullRefresh` handler so the page can render the right feedback
  *  pill. */
@@ -114,9 +120,10 @@ export interface TranscriptProps {
    *  listeners attach. */
   pullRefreshEnabled?: boolean;
   /** Scroll coordinator state snapshot for debug API inspection. Optional —
-   *  when omitted, getScrollState() returns a default "not pinned" state. */
+   *  when omitted, getScrollState() falls back to defaults. `isPinned`
+   *  is derived from scroll geometry inside `getScrollState()` rather
+   *  than passed in. */
   scrollCoordinatorState?: {
-    isPinnedToLatest: boolean;
     showScrollToLatest: boolean;
     shouldLoadOlder: boolean;
   };
@@ -203,7 +210,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
           );
           return {
             distanceFromBottom,
-            isPinned: rest.scrollCoordinatorState?.isPinnedToLatest ?? true,
+            isPinned: distanceFromBottom <= PINNED_THRESHOLD_PX,
             showScrollToLatest: rest.scrollCoordinatorState?.showScrollToLatest ?? false,
             shouldLoadOlder: rest.scrollCoordinatorState?.shouldLoadOlder ?? false,
           };

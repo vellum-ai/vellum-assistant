@@ -22,6 +22,7 @@ mock.module("../../../runtime/assistant-event-hub.js", () => ({
     publish: publishSpy,
     subscribe: () => () => {},
   },
+  broadcastMessage: async () => {},
 }));
 
 // Stub conversation CRUD so we don't spin up a real sqlite DB.

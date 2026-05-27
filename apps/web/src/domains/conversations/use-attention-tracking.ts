@@ -97,15 +97,16 @@ export function useAttentionTracking({
   const initialAttentionSweepDoneRef = useRef(false);
 
   // -------------------------------------------------------------------------
-  // Mark conversation as seen when opened
+  // Mark conversation as seen when opened or when new assistant messages
+  // arrive while the user is viewing it
   // -------------------------------------------------------------------------
   useEffect(() => {
     if (assistantStateKind !== "active" || !assistantId || !activeConversationId) return;
     if (!activeConversation) return;
+    if (!activeConversation.hasUnseenLatestAssistantMessage) return;
     if (lastSeenOnOpenConversationIdRef.current === activeConversationId) return;
 
     lastSeenOnOpenConversationIdRef.current = activeConversationId;
-    if (!activeConversation.hasUnseenLatestAssistantMessage) return;
 
     let cancelled = false;
 
@@ -113,6 +114,7 @@ export function useAttentionTracking({
       .then(() => {
         if (cancelled) return;
         markConversationSeenLocal(queryClient, assistantId, activeConversationId);
+        lastSeenOnOpenConversationIdRef.current = null;
       })
       .catch((err) => {
         Sentry.captureException(err, {

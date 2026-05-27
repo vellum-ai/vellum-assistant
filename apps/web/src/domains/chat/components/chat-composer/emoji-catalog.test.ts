@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   EMOJI_CATALOG,
   searchEmoji,
-} from "@/domains/chat/components/chat-composer/emoji-catalog";
+} from "@/domains/chat/components/chat-composer/emoji-catalog-data";
 
 describe("EMOJI_CATALOG", () => {
   test("contains a substantial number of entries", () => {

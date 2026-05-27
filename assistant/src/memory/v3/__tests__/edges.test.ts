@@ -466,6 +466,46 @@ describe("expandEdges — bounds", () => {
     }
   });
 
+  test("maxTotalPulls overrides the default union ceiling", async () => {
+    // 20 seeds × 32 disjoint targets = 640 reachable, far past any cap. A low
+    // per-call maxTotalPulls must bound the union to that value, not the 400
+    // default; an omitted or invalid value falls back to the default.
+    const seedCount = 20;
+    const graph: Record<string, string[]> = {};
+    const seeds: string[] = [];
+    for (let s = 0; s < seedCount; s++) {
+      const seed = topicSlug("people", s);
+      const targets: string[] = [];
+      for (let t = 0; t < MAX_PULLS_PER_SEED; t++) {
+        const target = topicSlug("targets", s * MAX_PULLS_PER_SEED + t);
+        targets.push(target);
+        graph[target] = [];
+      }
+      graph[seed] = targets;
+      seeds.push(seed);
+    }
+    await writeGraph(graph);
+
+    const capped = await expandEdges({
+      workspaceDir,
+      seeds,
+      hops: 1,
+      maxTotalPulls: 40,
+    });
+    expect(capped.pulled.size).toBeLessThanOrEqual(40);
+
+    // Omitted → the 400 default; an invalid (negative) value also falls back.
+    const dflt = await expandEdges({ workspaceDir, seeds, hops: 1 });
+    expect(dflt.pulled.size).toBe(MAX_TOTAL_PULLS);
+    const invalid = await expandEdges({
+      workspaceDir,
+      seeds,
+      hops: 1,
+      maxTotalPulls: -5,
+    });
+    expect(invalid.pulled.size).toBe(MAX_TOTAL_PULLS);
+  });
+
   test("duplicate slugs across seeds don't waste the total budget", async () => {
     // Two seeds, both pointing at the same shared target plus one private each.
     // The shared slug is counted once, so the union is 3 — well under the cap,

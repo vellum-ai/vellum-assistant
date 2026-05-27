@@ -1,7 +1,7 @@
-import { Check, icons } from "lucide-react";
+import { Check } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
-import { sfSymbolToLucideName } from "@/domains/chat/components/surfaces/sf-symbol-map";
+import { sfSymbolToLucideIcon } from "@/domains/chat/components/surfaces/sf-symbol-map";
 
 import type { Surface } from "@/domains/chat/types/types";
 
@@ -118,8 +118,7 @@ export function ListSurface({ surface, onAction }: ListSurfaceProps) {
 
                 {/* Icon */}
                 {item.icon && (() => {
-                  const lucideName = sfSymbolToLucideName(item.icon);
-                  const LucideIcon = lucideName ? icons[lucideName as keyof typeof icons] : undefined;
+                  const LucideIcon = sfSymbolToLucideIcon(item.icon);
                   return LucideIcon ? (
                     <LucideIcon className="h-5 w-5 shrink-0 text-[var(--content-quiet)]" aria-hidden />
                   ) : (

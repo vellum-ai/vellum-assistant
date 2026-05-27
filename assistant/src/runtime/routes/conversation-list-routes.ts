@@ -7,6 +7,8 @@
  * GET    /v1/conversations/:id      — conversation detail
  */
 
+import { z } from "zod";
+
 import {
   type Confidence,
   getAttentionStateByConversationIds,
@@ -42,6 +44,112 @@ import {
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("conversation-list-routes");
+
+// ---------------------------------------------------------------------------
+// Response schemas
+// ---------------------------------------------------------------------------
+
+const channelIdSchema = z.enum([
+  "telegram",
+  "phone",
+  "vellum",
+  "whatsapp",
+  "slack",
+  "email",
+  "platform",
+  "a2a",
+]);
+
+const assistantAttentionSchema = z.object({
+  hasUnseenLatestAssistantMessage: z.boolean(),
+  latestAssistantMessageAt: z.number().optional(),
+  lastSeenAssistantMessageAt: z.number().optional(),
+  lastSeenConfidence: z.enum(["explicit", "inferred"]).optional(),
+  lastSeenSignalType: z
+    .enum([
+      "macos_notification_view",
+      "macos_conversation_opened",
+      "ios_conversation_opened",
+      "telegram_inbound_message",
+      "telegram_callback",
+      "slack_inbound_message",
+      "slack_callback",
+    ])
+    .optional(),
+});
+
+const slackThreadSchema = z.object({
+  channelId: z.string(),
+  threadTs: z.string(),
+  link: z
+    .object({
+      desktopUrl: z.string().optional(),
+      webUrl: z.string().optional(),
+    })
+    .optional(),
+});
+
+const slackChannelSchema = z.object({
+  channelId: z.string(),
+  name: z.string().optional(),
+  link: z.object({ webUrl: z.string() }).optional(),
+});
+
+const channelBindingSchema = z.object({
+  sourceChannel: z.string(),
+  externalChatId: z.string(),
+  externalChatName: z.string().optional(),
+  externalThreadId: z.string().optional(),
+  externalUserId: z.string(),
+  displayName: z.string().nullable(),
+  username: z.string().nullable(),
+  slackThread: slackThreadSchema.optional(),
+  slackChannel: slackChannelSchema.optional(),
+});
+
+const forkParentSchema = z.object({
+  conversationId: z.string(),
+  messageId: z.string(),
+  title: z.string(),
+});
+
+const conversationSummarySchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+  lastMessageAt: z.number().nullable(),
+  conversationType: z.enum(["standard", "background", "scheduled"]),
+  source: z.string(),
+  scheduleJobId: z.string().optional(),
+  channelBinding: channelBindingSchema.optional(),
+  conversationOriginChannel: channelIdSchema.nullable().optional(),
+  assistantAttention: assistantAttentionSchema.optional(),
+  isPinned: z.literal(true).optional(),
+  displayOrder: z.number().nullable().optional(),
+  groupId: z.string().nullable(),
+  forkParent: forkParentSchema.optional(),
+  archivedAt: z.number().optional(),
+  inferenceProfile: z.string().optional(),
+});
+
+const groupSummarySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  sortPosition: z.number(),
+  isSystemGroup: z.boolean(),
+});
+
+const listConversationsResponseSchema = z.object({
+  conversations: z.array(conversationSummarySchema),
+  nextOffset: z.number(),
+  hasMore: z.boolean(),
+  groups: z.array(groupSummarySchema).optional(),
+});
+
+const conversationDetailResponseSchema = z.object({
+  conversation: conversationSummarySchema,
+});
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -204,6 +312,7 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Paginated list of conversations with attention state and display metadata.",
     tags: ["conversations"],
+    responseBody: listConversationsResponseSchema,
     handler: handleListConversations,
   },
   {
@@ -214,6 +323,17 @@ export const ROUTES: RouteDefinition[] = [
     summary: "Record a seen signal",
     description: "Mark a conversation as seen, advancing the attention cursor.",
     tags: ["conversations"],
+    requestBody: z.object({
+      conversationId: z.string(),
+      sourceChannel: z.string().optional(),
+      signalType: z.string().optional(),
+      confidence: z.enum(["explicit", "inferred"]).optional(),
+      source: z.string().optional(),
+      evidenceText: z.string().optional(),
+      metadata: z.record(z.string(), z.unknown()).optional(),
+      observedAt: z.number().optional(),
+    }),
+    responseBody: z.object({ ok: z.boolean() }),
     handler: handleRecordSeen,
   },
   {
@@ -224,6 +344,10 @@ export const ROUTES: RouteDefinition[] = [
     summary: "Mark conversation unread",
     description: "Reset the seen cursor so the conversation appears unread.",
     tags: ["conversations"],
+    requestBody: z.object({
+      conversationId: z.string(),
+    }),
+    responseBody: z.object({ ok: z.boolean() }),
     handler: handleMarkUnread,
   },
   {
@@ -234,6 +358,7 @@ export const ROUTES: RouteDefinition[] = [
     summary: "Get conversation detail",
     description: "Retrieve a single conversation with full metadata.",
     tags: ["conversations"],
+    responseBody: conversationDetailResponseSchema,
     handler: handleGetConversation,
   },
 ];

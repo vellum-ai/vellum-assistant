@@ -25,8 +25,10 @@ import { parseChannelId, parseInterfaceId } from "../channels/types.js";
 import { CHANNEL_IDS, isChannelId } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import { findDisplayTurnEndIndex } from "../conversations/message-consolidation.js";
+import { conversationMetadataSyncTag } from "../daemon/message-types/sync.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { clearAllConversationIds } from "../home/feed-writer.js";
+import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { UserError } from "../util/errors.js";
 import { safeParseRecord } from "../util/json.js";
 import { getLogger } from "../util/logger.js";
@@ -1105,11 +1107,16 @@ export async function addMessage(
 
   if (role === "assistant") {
     try {
-      projectAssistantMessage({
+      const attentionStateChanged = projectAssistantMessage({
         conversationId,
         messageId: message.id,
         messageAt: message.createdAt,
       });
+      if (attentionStateChanged) {
+        void publishSyncInvalidation([
+          conversationMetadataSyncTag(conversationId),
+        ]);
+      }
     } catch (err) {
       log.warn(
         { err, conversationId, messageId: message.id },

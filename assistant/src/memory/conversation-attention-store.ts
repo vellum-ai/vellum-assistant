@@ -109,7 +109,7 @@ export function projectAssistantMessage(params: {
   conversationId: string;
   messageId: string;
   messageAt: number;
-}): void {
+}): boolean {
   const { conversationId, messageId, messageAt } = params;
   const db = getDb();
   const now = Date.now();
@@ -140,7 +140,7 @@ export function projectAssistantMessage(params: {
         updatedAt: now,
       })
       .run();
-    return;
+    return true;
   }
 
   // Monotonic: only advance if the new message is strictly later
@@ -148,8 +148,20 @@ export function projectAssistantMessage(params: {
     existing.latestAssistantMessageAt != null &&
     messageAt <= existing.latestAssistantMessageAt
   ) {
-    return;
+    return false;
   }
+
+  // Determine whether the conversation was previously in a "seen" state.
+  // Two cases count as seen:
+  //   1. latestAssistantMessageAt is null — no prior assistant message existed,
+  //      so there was nothing unseen. The first assistant message transitions
+  //      the conversation to unseen.
+  //   2. lastSeenAssistantMessageAt >= latestAssistantMessageAt — the user saw
+  //      the most recent assistant message.
+  const wasSeen =
+    existing.latestAssistantMessageAt == null ||
+    (existing.lastSeenAssistantMessageAt != null &&
+      existing.lastSeenAssistantMessageAt >= existing.latestAssistantMessageAt);
 
   db.update(conversationAssistantAttentionState)
     .set({
@@ -161,6 +173,8 @@ export function projectAssistantMessage(params: {
       eq(conversationAssistantAttentionState.conversationId, conversationId),
     )
     .run();
+
+  return wasSeen;
 }
 
 /**

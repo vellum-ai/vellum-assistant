@@ -88,6 +88,7 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
     getActorPrincipalIdForClient: (clientId: string) =>
       actorPrincipalByClient.get(clientId),
   },
+  broadcastMessage: async () => {},
 }));
 
 // ── Real imports (after mocks) ──────────────────────────────────────────────
