@@ -7,7 +7,7 @@ import {
   X,
 } from "lucide-react";
 
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { AvatarRenderer } from "@/components/avatar-renderer";
 import { Button, Typography } from "@vellum/design-library";
@@ -48,30 +48,29 @@ const ANIMATION_DURATION_MS = 300;
 function useAnimatedNumber(target: number): number {
   const [displayed, setDisplayed] = useState(target);
   const rafRef = useRef<number>(0);
-  const startRef = useRef({ value: target, time: 0 });
+  const displayedRef = useRef(target);
 
-  const animate = useCallback((from: number, to: number) => {
+  useEffect(() => {
+    const from = displayedRef.current;
+    if (from === target) return;
+
     cancelAnimationFrame(rafRef.current);
     const start = performance.now();
-    startRef.current = { value: from, time: start };
 
     const step = (now: number) => {
       const elapsed = now - start;
       const progress = Math.min(elapsed / ANIMATION_DURATION_MS, 1);
-      const eased = 1 - (1 - progress) ** 3; // ease-out cubic
-      setDisplayed(from + (to - from) * eased);
+      const eased = 1 - (1 - progress) ** 3;
+      const value = from + (target - from) * eased;
+      displayedRef.current = value;
+      setDisplayed(value);
       if (progress < 1) {
         rafRef.current = requestAnimationFrame(step);
       }
     };
     rafRef.current = requestAnimationFrame(step);
-  }, []);
-
-  useEffect(() => {
-    animate(displayed, target);
     return () => cancelAnimationFrame(rafRef.current);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- animate from current displayed value
-  }, [target, animate]);
+  }, [target]);
 
   return displayed;
 }
