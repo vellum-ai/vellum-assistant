@@ -249,6 +249,33 @@ describe("persistence pipeline", () => {
               },
             };
           }
+          case "reserve": {
+            const id = `mock-${nextId++}`;
+            mockStore.set(id, {
+              id,
+              conversationId: args.conversationId,
+              role: args.role,
+              content: "[]",
+              metadata: { ...(args.metadata ?? {}) },
+            });
+            return {
+              op: "reserve",
+              message: {
+                id,
+                conversationId: args.conversationId,
+                role: args.role,
+                content: "[]",
+                createdAt: 123,
+              },
+            };
+          }
+          case "updateContent": {
+            const existing = mockStore.get(args.messageId);
+            if (existing) {
+              existing.content = args.content;
+            }
+            return { op: "updateContent" };
+          }
           case "update": {
             const existing = mockStore.get(args.messageId);
             if (existing) {

@@ -15,12 +15,17 @@
  *
  * The terminal dispatches on the discriminated {@link PersistArgs.op} field:
  *
- * - `add`    → {@link addMessage}, optionally followed by
- *              {@link syncMessageToDisk} when `args.syncToDisk` is true.
- * - `update` → {@link updateMessageMetadata} (returns `void`, wrapped as
- *              `{ op: "update" }`).
- * - `delete` → {@link deleteMessageById} (returns the segment/summary IDs
- *              the caller must clean up out-of-band).
+ * - `add`           → {@link addMessage}, optionally followed by
+ *                     {@link syncMessageToDisk} when `args.syncToDisk` is true.
+ * - `reserve`       → {@link reserveMessage} — pre-allocates an empty row
+ *                     for assistant anchor stamping.
+ * - `updateContent` → {@link updateMessageContent} — overwrites an existing
+ *                     row's content (returns `void`, wrapped as
+ *                     `{ op: "updateContent" }`).
+ * - `update`        → {@link updateMessageMetadata} (returns `void`, wrapped
+ *                     as `{ op: "update" }`).
+ * - `delete`        → {@link deleteMessageById} (returns the segment/summary
+ *                     IDs the caller must clean up out-of-band).
  *
  * Manifest declares `provides.persistence: "v1"` so other plugins can
  * negotiate against the pipeline surface and `requires.pluginRuntime: "v1"`
@@ -36,6 +41,8 @@
 import {
   addMessage,
   deleteMessageById,
+  reserveMessage,
+  updateMessageContent,
   updateMessageMetadata,
 } from "../../memory/conversation-crud.js";
 import { syncMessageToDisk } from "../../memory/conversation-disk-view.js";
@@ -73,6 +80,18 @@ export async function defaultPersistenceTerminal(
         syncMessageToDisk(args.conversationId, message.id, args.createdAtMs);
       }
       return { op: "add", message };
+    }
+    case "reserve": {
+      const message = await reserveMessage(
+        args.conversationId,
+        args.role,
+        args.metadata,
+      );
+      return { op: "reserve", message };
+    }
+    case "updateContent": {
+      updateMessageContent(args.messageId, args.content);
+      return { op: "updateContent" };
     }
     case "update": {
       updateMessageMetadata(args.messageId, args.updates);

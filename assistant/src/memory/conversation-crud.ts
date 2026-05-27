@@ -1995,7 +1995,7 @@ export async function reserveMessage(
   conversationId: string,
   role: string,
   metadata?: Record<string, unknown>,
-): Promise<MessageRow> {
+) {
   const db = getDb();
   const messageId = uuid();
 
