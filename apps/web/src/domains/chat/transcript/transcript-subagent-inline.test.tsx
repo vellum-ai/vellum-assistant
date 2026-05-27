@@ -425,6 +425,7 @@ describe("Transcript — toolUseId anchor (PR 3)", () => {
     const { getAllByTestId, container } = render(
       <Transcript
         items={items}
+        conversationId={null}
         onSecretSubmit={noop}
         onConfirmationDecision={noop}
         onSurfaceAction={noop}
@@ -550,6 +551,7 @@ describe("Transcript — live → reconcile card lifecycle (PR 6)", () => {
     return (
       <Transcript
         items={items}
+        conversationId={null}
         onSecretSubmit={noop}
         onConfirmationDecision={noop}
         onSurfaceAction={noop}
