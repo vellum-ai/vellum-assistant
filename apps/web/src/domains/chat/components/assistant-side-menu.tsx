@@ -24,7 +24,6 @@ import { CollapsedGroupIcon, getGroupIndicatorState } from "@/domains/chat/compo
 import { ThreadPinToggle } from "@/domains/chat/components/thread-pin-toggle";
 import { GroupActionsMenu } from "@/domains/chat/components/group-actions-menu";
 import { BackgroundSubGroups, ScheduledSubGroups } from "@/domains/chat/components/sub-group-accordion";
-import { countBadge } from "@/domains/chat/components/sidebar-count-badge";
 import {
   formatBackgroundSubGroupLabel,
   groupBackgroundConversationsBySource,
@@ -90,15 +89,15 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
  *   Header
  *     • Your Assistant → Intelligence view
  *     • ───────────────
+ *   Body · Pinned section (when non-empty)
+ *     • pinned thread
  *   Body · Conversations section
- *     • Pinned (count)         — category summary
- *     • Scheduled (count)      — category summary
- *     • Background (count)     — category summary (includes Reflections sub-group)
- *     • Slack (count) ▾        — expanded inline when Slack conversations exist
- *     • Recents (count) ▾      — expanded inline
- *         ◦ thread … (pin icon if pinned, hover reveals …)
- *         ◦ …
- *         ◦ Show more (if > limit)
+ *     • thread …       — recent conversations inline
+ *     • …
+ *     • Show more/less — page through recent conversations
+ *     • Scheduled      — collapsible category
+ *     • Background     — collapsible category (includes Reflections sub-group)
+ *     • Slack ▾        — collapsible category when Slack conversations exist
  *   Footer
  *     • ───────────────
  *     • caller-provided action (PreferencesMenu)
@@ -287,9 +286,12 @@ export function AssistantSideMenu({
   const renderFlatList = (
     items: Conversation[],
     showMore: boolean,
-    onShowMore: () => void,
+    onShowMore?: () => void,
+    showLess = false,
+    onShowLess?: () => void,
+    className?: string,
   ): ReactNode => (
-    <SideMenu.SubList>
+    <SideMenu.SubList className={className}>
       {items.map((c) =>
         renderThreadRow(
           c,
@@ -303,13 +305,22 @@ export function AssistantSideMenu({
           />,
         ),
       )}
-      {showMore ? (
+      {showMore && onShowMore ? (
         <SideMenu.Item
           label="Show more"
           size="compact"
           indent
           emphasized
           onSelect={onShowMore}
+        />
+      ) : null}
+      {showLess && onShowLess ? (
+        <SideMenu.Item
+          label="Show less"
+          size="compact"
+          indent
+          emphasized
+          onSelect={onShowLess}
         />
       ) : null}
     </SideMenu.SubList>
@@ -404,14 +415,15 @@ export function AssistantSideMenu({
         {collapsed && variant === "rail" ? (
           <div className="flex flex-col items-center gap-1">
             {headerActions}
-            <CollapsedGroupIcon
-              icon={Pin}
-              label="Pinned"
-              disabled={sidebar.pinned.length === 0}
-              indicatorState={getGroupIndicatorState(sidebar.pinned, processingConversationIds, attentionConversationIds)}
-            >
-              {(close) => renderCollapsedGroupContent("Pinned", sidebar.pinned, close)}
-            </CollapsedGroupIcon>
+            {sidebar.pinned.length > 0 ? (
+              <CollapsedGroupIcon
+                icon={Pin}
+                label="Pinned"
+                indicatorState={getGroupIndicatorState(sidebar.pinned, processingConversationIds, attentionConversationIds)}
+              >
+                {(close) => renderCollapsedGroupContent("Pinned", sidebar.pinned, close)}
+              </CollapsedGroupIcon>
+            ) : null}
             <CollapsedGroupIcon
               icon={Clock}
               label="Recents"
@@ -456,118 +468,124 @@ export function AssistantSideMenu({
             </CollapsedGroupIcon>
           </div>
         ) : (
-          <SideMenu.Section
-            title="Conversations"
-            actions={variant === "overlay" ? undefined : headerActions}
-          >
-            <CollapsibleNavSection.Root
-              type="multiple"
-              value={sidebar.effectiveOpenCategories}
-              onValueChange={sidebar.onOpenCategoriesChange}
+          <>
+            {sidebar.pinned.length > 0 ? (
+              <SideMenu.Section title="Pinned">
+                {renderFlatList(
+                  sidebar.pinned,
+                  false,
+                  undefined,
+                  false,
+                  undefined,
+                  "-ml-[10px] w-[calc(100%+10px)]",
+                )}
+              </SideMenu.Section>
+            ) : null}
+
+            <SideMenu.Section
+              title="Conversations"
+              actions={variant === "overlay" ? undefined : headerActions}
             >
-              <CollapsibleNavSection.Section
-                value="pinned"
-                icon={Pin}
-                label="Pinned"
-                trailing={countBadge(sidebar.pinned.length)}
-              >
-                {renderFlatList(sidebar.pinned, false, () => {})}
-              </CollapsibleNavSection.Section>
+              {renderFlatList(
+                sidebar.recents.items,
+                sidebar.recents.showMore,
+                sidebar.recents.onShowMore,
+                sidebar.recents.showLess,
+                sidebar.recents.onShowLess,
+                "-ml-[10px] w-[calc(100%+10px)]",
+              )}
 
-              <CollapsibleNavSection.Section
-                value="recents"
-                icon={Clock}
-                label="Recents"
-                trailing={countBadge(sidebar.recents.totalCount)}
+              <CollapsibleNavSection.Root
+                type="multiple"
+                value={sidebar.effectiveOpenCategories}
+                onValueChange={sidebar.onOpenCategoriesChange}
               >
-                {renderFlatList(sidebar.recents.items, sidebar.recents.showMore, sidebar.recents.onShowMore)}
-              </CollapsibleNavSection.Section>
-
-              <CollapsibleNavSection.Section
-                value="scheduled"
-                icon={Calendar}
-                label="Scheduled"
-                trailing={countBadge(sidebar.scheduled.length)}
-              >
-                <ScheduledSubGroups
-                  subGroups={sidebar.scheduledSubGroups}
-                  {...subGroupProps}
-                />
-              </CollapsibleNavSection.Section>
-
-              <CollapsibleNavSection.Section
-                value="background"
-                icon={Layers}
-                label="Background"
-                trailing={countBadge(sidebar.background.length)}
-              >
-                <BackgroundSubGroups
-                  subGroups={sidebar.backgroundSubGroups}
-                  {...subGroupProps}
-                />
-              </CollapsibleNavSection.Section>
-
-              {sidebar.slack.totalCount > 0 ? (
                 <CollapsibleNavSection.Section
-                  value="slack"
-                  icon={Hash}
-                  label="Slack"
-                  trailing={countBadge(sidebar.slack.totalCount)}
+                  value="scheduled"
+                  icon={Calendar}
+                  label="Scheduled"
                 >
-                  {renderFlatList(sidebar.slack.items, sidebar.slack.showMore, sidebar.slack.onShowMore)}
+                  <ScheduledSubGroups
+                    subGroups={sidebar.scheduledSubGroups}
+                    {...subGroupProps}
+                  />
                 </CollapsibleNavSection.Section>
-              ) : null}
-            </CollapsibleNavSection.Root>
 
-            {sidebar.conversationGroupsEnabled && sidebar.customGroups.length > 0 ? (
-              <>
-                <SideMenu.Separator />
-                <SideMenu.Section title="Your Groups">
-                  <CollapsibleNavSection.Root
-                    type="multiple"
-                    value={sidebar.effectiveOpenCustomGroups}
-                    onValueChange={sidebar.onOpenCustomGroupsChange}
+                <CollapsibleNavSection.Section
+                  value="background"
+                  icon={Layers}
+                  label="Background"
+                >
+                  <BackgroundSubGroups
+                    subGroups={sidebar.backgroundSubGroups}
+                    {...subGroupProps}
+                  />
+                </CollapsibleNavSection.Section>
+
+                {sidebar.slack.totalCount > 0 ? (
+                  <CollapsibleNavSection.Section
+                    value="slack"
+                    icon={Hash}
+                    label="Slack"
                   >
-                    {sidebar.customGroups.map((group) => (
-                      <CollapsibleNavSection.Section
-                        key={group.id}
-                        value={group.id}
-                        label={group.name}
-                        trailing={
-                          <span className="flex items-center gap-1">
-                            {countBadge(group.conversations.length)}
-                            {onRenameGroup || onDeleteGroup ? (
+                    {renderFlatList(
+                      sidebar.slack.items,
+                      sidebar.slack.showMore,
+                      sidebar.slack.onShowMore,
+                      sidebar.slack.showLess,
+                      sidebar.slack.onShowLess,
+                    )}
+                  </CollapsibleNavSection.Section>
+                ) : null}
+              </CollapsibleNavSection.Root>
+
+              {sidebar.conversationGroupsEnabled && sidebar.customGroups.length > 0 ? (
+                <>
+                  <SideMenu.Separator />
+                  <SideMenu.Section title="Your Groups">
+                    <CollapsibleNavSection.Root
+                      type="multiple"
+                      value={sidebar.effectiveOpenCustomGroups}
+                      onValueChange={sidebar.onOpenCustomGroupsChange}
+                    >
+                      {sidebar.customGroups.map((group) => (
+                        <CollapsibleNavSection.Section
+                          key={group.id}
+                          value={group.id}
+                          label={group.name}
+                          trailing={
+                            onRenameGroup || onDeleteGroup ? (
                               <GroupActionsMenu
                                 groupId={group.id}
                                 onRename={onRenameGroup}
                                 onDelete={onDeleteGroup}
                               />
-                            ) : null}
-                          </span>
-                        }
-                      >
-                        <SideMenu.SubList>
-                          {group.conversations.map((c) =>
-                            renderThreadRow(
-                              c,
-                              <PanelItem
-                                leadingSlot={renderThreadPinToggle(c)}
-                                label={c.title ?? "Untitled"}
-                                marqueeOnHover
-                                active={c.conversationId === activeConversationId}
-                                onSelect={() => selectAndClose(c.conversationId)}
-                                trailingAction={renderThreadActions(c)}
-                              />,
-                            ),
-                          )}
-                        </SideMenu.SubList>
-                      </CollapsibleNavSection.Section>
-                    ))}
-                  </CollapsibleNavSection.Root>
-                </SideMenu.Section>
-              </>
-            ) : null}
-          </SideMenu.Section>
+                            ) : null
+                          }
+                        >
+                          <SideMenu.SubList>
+                            {group.conversations.map((c) =>
+                              renderThreadRow(
+                                c,
+                                <PanelItem
+                                  leadingSlot={renderThreadPinToggle(c)}
+                                  label={c.title ?? "Untitled"}
+                                  marqueeOnHover
+                                  active={c.conversationId === activeConversationId}
+                                  onSelect={() => selectAndClose(c.conversationId)}
+                                  trailingAction={renderThreadActions(c)}
+                                />,
+                              ),
+                            )}
+                          </SideMenu.SubList>
+                        </CollapsibleNavSection.Section>
+                      ))}
+                    </CollapsibleNavSection.Root>
+                  </SideMenu.Section>
+                </>
+              ) : null}
+            </SideMenu.Section>
+          </>
         )}
       </SideMenu.Body>
 
@@ -673,7 +691,6 @@ function CollapsedBackgroundGroup({
                   <PanelItem
                     icon={isExpanded ? ChevronDown : ChevronRight}
                     label={formatBackgroundSubGroupLabel(group.key)}
-                    badge={group.conversations.length}
                     onSelect={() => toggleGroup(group.key)}
                   />
                   {isExpanded

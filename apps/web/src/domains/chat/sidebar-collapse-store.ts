@@ -6,13 +6,13 @@
  *
  * **Storage model:**
  *
- * - Built-in categories (pinned, scheduled, background, slack, recents)
+ * - Built-in collapsible categories (scheduled, background, slack)
  *   and custom groups are stored as two separate `string[]` values,
  *   keyed per assistant. This mirrors the Radix Accordion `value` prop
  *   for `type="multiple"`.
  * - Reads happen synchronously from localStorage on `setAssistantId`;
  *   writes happen on every toggle via `persist` helpers.
- * - Defaults to `["recents"]` for categories and `[]` for custom groups
+ * - Defaults to no open built-in categories and no open custom groups
  *   when no stored state exists.
  *
  * @see {@link https://zustand.docs.pmnd.rs/}
@@ -53,7 +53,7 @@ export type SidebarCollapseStore = SidebarCollapseState &
 
 const INITIAL_STATE: SidebarCollapseState = {
   assistantId: null,
-  openCategories: ["recents"],
+  openCategories: [],
   openCustomGroups: [],
 };
 

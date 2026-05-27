@@ -38,7 +38,9 @@ export interface PaginatedSection {
   items: Conversation[];
   totalCount: number;
   showMore: boolean;
+  showLess: boolean;
   onShowMore: () => void;
+  onShowLess: () => void;
 }
 
 export interface SidebarState {
@@ -120,52 +122,70 @@ export function useSidebarState({
 
   // --- Pagination ("show more") ---
 
-  const [showAllRecents, setShowAllRecents] = useState(false);
-  const [showAllSlack, setShowAllSlack] = useState(false);
+  const [visibleRecentsCount, setVisibleRecentsCount] = useState(
+    SIDEBAR_CONVERSATION_LIMIT,
+  );
+  const [visibleSlackCount, setVisibleSlackCount] = useState(
+    SIDEBAR_CONVERSATION_LIMIT,
+  );
 
   const recentsSection = useMemo((): PaginatedSection => {
-    const hasAttentionBeyondLimit =
-      !showAllRecents &&
-      grouped.recents.length > SIDEBAR_CONVERSATION_LIMIT &&
-      attentionConversationIds != null &&
-      grouped.recents
-        .slice(SIDEBAR_CONVERSATION_LIMIT)
-        .some((c) => attentionConversationIds.has(c.conversationId));
-    const effectiveShowAll = showAllRecents || !!hasAttentionBeyondLimit;
+    const attentionIndex = attentionConversationIds
+      ? grouped.recents.findIndex((c) =>
+          attentionConversationIds.has(c.conversationId),
+        )
+      : -1;
+    const effectiveVisibleCount =
+      attentionIndex >= visibleRecentsCount
+        ? attentionIndex + 1
+        : visibleRecentsCount;
     return {
       all: grouped.recents,
-      items: effectiveShowAll
-        ? grouped.recents
-        : grouped.recents.slice(0, SIDEBAR_CONVERSATION_LIMIT),
+      items: grouped.recents.slice(0, effectiveVisibleCount),
       totalCount: grouped.recents.length,
-      showMore:
-        !effectiveShowAll &&
+      showMore: effectiveVisibleCount < grouped.recents.length,
+      showLess:
+        visibleRecentsCount > SIDEBAR_CONVERSATION_LIMIT &&
         grouped.recents.length > SIDEBAR_CONVERSATION_LIMIT,
-      onShowMore: () => setShowAllRecents(true),
+      onShowMore: () =>
+        setVisibleRecentsCount((prev) =>
+          Math.min(
+            grouped.recents.length,
+            Math.max(prev, effectiveVisibleCount) + SIDEBAR_CONVERSATION_LIMIT,
+          ),
+        ),
+      onShowLess: () => setVisibleRecentsCount(SIDEBAR_CONVERSATION_LIMIT),
     };
-  }, [grouped.recents, showAllRecents, attentionConversationIds]);
+  }, [grouped.recents, visibleRecentsCount, attentionConversationIds]);
 
   const slackSection = useMemo((): PaginatedSection => {
-    const hasAttentionBeyondLimit =
-      !showAllSlack &&
-      grouped.slack.length > SIDEBAR_CONVERSATION_LIMIT &&
-      attentionConversationIds != null &&
-      grouped.slack
-        .slice(SIDEBAR_CONVERSATION_LIMIT)
-        .some((c) => attentionConversationIds.has(c.conversationId));
-    const effectiveShowAll = showAllSlack || !!hasAttentionBeyondLimit;
+    const attentionIndex = attentionConversationIds
+      ? grouped.slack.findIndex((c) =>
+          attentionConversationIds.has(c.conversationId),
+        )
+      : -1;
+    const effectiveVisibleCount =
+      attentionIndex >= visibleSlackCount
+        ? attentionIndex + 1
+        : visibleSlackCount;
     return {
       all: grouped.slack,
-      items: effectiveShowAll
-        ? grouped.slack
-        : grouped.slack.slice(0, SIDEBAR_CONVERSATION_LIMIT),
+      items: grouped.slack.slice(0, effectiveVisibleCount),
       totalCount: grouped.slack.length,
-      showMore:
-        !effectiveShowAll &&
+      showMore: effectiveVisibleCount < grouped.slack.length,
+      showLess:
+        visibleSlackCount > SIDEBAR_CONVERSATION_LIMIT &&
         grouped.slack.length > SIDEBAR_CONVERSATION_LIMIT,
-      onShowMore: () => setShowAllSlack(true),
+      onShowMore: () =>
+        setVisibleSlackCount((prev) =>
+          Math.min(
+            grouped.slack.length,
+            Math.max(prev, effectiveVisibleCount) + SIDEBAR_CONVERSATION_LIMIT,
+          ),
+        ),
+      onShowLess: () => setVisibleSlackCount(SIDEBAR_CONVERSATION_LIMIT),
     };
-  }, [grouped.slack, showAllSlack, attentionConversationIds]);
+  }, [grouped.slack, visibleSlackCount, attentionConversationIds]);
 
   // --- Attention-forced expansion ---
 
@@ -183,27 +203,21 @@ export function useSidebarState({
     if (!attentionConversationIds || attentionConversationIds.size === 0)
       return openCategories;
     const extra: string[] = [];
-    if (grouped.pinned.length > 0 && hasAttentionIn(grouped.pinned))
-      extra.push("pinned");
     if (grouped.scheduled.length > 0 && hasAttentionIn(grouped.scheduled))
       extra.push("scheduled");
     if (grouped.background.length > 0 && hasAttentionIn(grouped.background))
       extra.push("background");
     if (grouped.slack.length > 0 && hasAttentionIn(grouped.slack))
       extra.push("slack");
-    if (grouped.recents.length > 0 && hasAttentionIn(grouped.recents))
-      extra.push("recents");
     if (extra.length === 0) return openCategories;
     if (extra.every((c) => openCategories.includes(c))) return openCategories;
     return [...new Set([...openCategories, ...extra])];
   }, [
     openCategories,
     attentionConversationIds,
-    grouped.pinned,
     grouped.scheduled,
     grouped.background,
     grouped.slack,
-    grouped.recents,
     hasAttentionIn,
   ]);
 

@@ -15,19 +15,19 @@ import { cn } from "@vellum/design-library/utils/cn";
  *   - Leading icon that swaps to a disclosure chevron on hover
  *     (matching macOS SidebarSectionHeader). The original icon is
  *     always visible when not hovered, regardless of expanded state.
- *   - Optional `trailing` slot for an ellipsis menu, count badge, or
- *     other per-row affordance. Pointer events are isolated so clicking
- *     trailing content doesn't toggle the section.
+ *   - Optional `trailing` slot for an ellipsis menu or other per-row
+ *     affordance. Pointer events are isolated so clicking trailing
+ *     content doesn't toggle the section.
  *   - No hover background — the chevron swap is the affordance.
  *
  * Usage:
  *
- *   <CollapsibleNavSection.Root type="multiple" defaultValue={["recents"]}>
+ *   <CollapsibleNavSection.Root type="multiple" defaultValue={["scheduled"]}>
  *     <CollapsibleNavSection.Section
- *       value="recents"
+ *       value="scheduled"
  *       icon={Clock}
- *       label="Recents"
- *       trailing={<Badge>12</Badge>}
+ *       label="Scheduled"
+ *       trailing={<MenuButton />}
  *     >
  *       {childRows}
  *     </CollapsibleNavSection.Section>

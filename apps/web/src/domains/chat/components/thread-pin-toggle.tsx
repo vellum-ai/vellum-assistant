@@ -59,7 +59,7 @@ function IdleAndHoverGlyphs({
  *   Needs attention   → Exclamation circle (warning color, no pulse).
  *   Processing + idle → Pulsing dot (animate-pulse, primary-base).
  *   Unread + idle     → Static dot (system-mid-strong).
- *   Pinned + idle     → Hidden (no glyph; PinOff appears on hover).
+ *   Pinned + idle     → Pin glyph (PinOff appears on hover).
  *   Unpinned + idle   → Pin glyph at 0 opacity (hidden; label aligns).
  *   Any + hover       → Pin/PinOff toggle (overrides dot).
  *
@@ -116,7 +116,18 @@ export function ThreadPinToggle({ conversation, onPinToggle, isProcessing, needs
       />
     );
   } else if (isPinned) {
-    glyphs = <PinOff size={14} aria-hidden className={HOVER_REVEAL} />;
+    glyphs = (
+      <IdleAndHoverGlyphs
+        isPinned
+        idle={
+          <Pin
+            size={14}
+            aria-hidden
+            className={IDLE_FADE}
+          />
+        }
+      />
+    );
   } else {
     glyphs = (
       <Pin

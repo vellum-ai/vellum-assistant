@@ -71,13 +71,24 @@ afterEach(() => {
 });
 
 describe("loadOpenCategories", () => {
-  test("returns default [recents] when no value is stored", () => {
-    expect(loadOpenCategories(ASSISTANT_ID)).toEqual(["recents"]);
+  test("returns default [] when no value is stored", () => {
+    expect(loadOpenCategories(ASSISTANT_ID)).toEqual([]);
   });
 
   test("returns the stored categories when present", () => {
-    memoryStorage.setItem(STORAGE_KEY, JSON.stringify(["pinned", "recents"]));
-    expect(loadOpenCategories(ASSISTANT_ID)).toEqual(["pinned", "recents"]);
+    memoryStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify(["scheduled", "background"]),
+    );
+    expect(loadOpenCategories(ASSISTANT_ID)).toEqual(["scheduled", "background"]);
+  });
+
+  test("filters stale flattened category values", () => {
+    memoryStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify(["pinned", "recents", "background"]),
+    );
+    expect(loadOpenCategories(ASSISTANT_ID)).toEqual(["background"]);
   });
 
   test("returns empty array when stored value is an empty array", () => {
@@ -85,32 +96,32 @@ describe("loadOpenCategories", () => {
     expect(loadOpenCategories(ASSISTANT_ID)).toEqual([]);
   });
 
-  test("returns default [recents] when stored value is not a string array", () => {
+  test("returns default [] when stored value is not a string array", () => {
     memoryStorage.setItem(STORAGE_KEY, JSON.stringify({ foo: "bar" }));
-    expect(loadOpenCategories(ASSISTANT_ID)).toEqual(["recents"]);
+    expect(loadOpenCategories(ASSISTANT_ID)).toEqual([]);
   });
 
-  test("returns default [recents] when stored value is invalid JSON", () => {
+  test("returns default [] when stored value is invalid JSON", () => {
     memoryStorage.setItem(STORAGE_KEY, "not-json{{{");
-    expect(loadOpenCategories(ASSISTANT_ID)).toEqual(["recents"]);
+    expect(loadOpenCategories(ASSISTANT_ID)).toEqual([]);
   });
 
   test("scopes lookups by assistant id", () => {
-    memoryStorage.setItem(STORAGE_KEY, JSON.stringify(["pinned"]));
-    expect(loadOpenCategories("other_assistant")).toEqual(["recents"]);
+    memoryStorage.setItem(STORAGE_KEY, JSON.stringify(["scheduled"]));
+    expect(loadOpenCategories("other_assistant")).toEqual([]);
   });
 });
 
 describe("saveOpenCategories", () => {
   test("writes the categories under the assistant-scoped storage key", () => {
-    saveOpenCategories(ASSISTANT_ID, ["pinned", "recents"]);
+    saveOpenCategories(ASSISTANT_ID, ["scheduled", "background"]);
     expect(memoryStorage.getItem(STORAGE_KEY)).toBe(
-      JSON.stringify(["pinned", "recents"]),
+      JSON.stringify(["scheduled", "background"]),
     );
   });
 
   test("overwrites any previously stored value", () => {
-    saveOpenCategories(ASSISTANT_ID, ["pinned", "recents"]);
+    saveOpenCategories(ASSISTANT_ID, ["scheduled", "background"]);
     saveOpenCategories(ASSISTANT_ID, ["background"]);
     expect(loadOpenCategories(ASSISTANT_ID)).toEqual(["background"]);
   });
@@ -121,9 +132,9 @@ describe("saveOpenCategories", () => {
   });
 
   test("keeps values for different assistants isolated", () => {
-    saveOpenCategories(ASSISTANT_ID, ["pinned"]);
+    saveOpenCategories(ASSISTANT_ID, ["background"]);
     saveOpenCategories("other_assistant", ["scheduled"]);
-    expect(loadOpenCategories(ASSISTANT_ID)).toEqual(["pinned"]);
+    expect(loadOpenCategories(ASSISTANT_ID)).toEqual(["background"]);
     expect(loadOpenCategories("other_assistant")).toEqual(["scheduled"]);
   });
 });

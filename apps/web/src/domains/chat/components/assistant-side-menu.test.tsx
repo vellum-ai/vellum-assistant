@@ -7,7 +7,6 @@
  * rules unique to `AssistantSideMenu`.
  */
 
-import { readFileSync } from "node:fs";
 import { describe, expect, mock, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -35,6 +34,7 @@ function makeConversation(overrides: Partial<Conversation>): Conversation {
 function renderMenu(props: {
   conversations: Conversation[];
   activeConversationId?: string;
+  collapsed?: boolean;
   variant?: "rail" | "overlay";
   includeFooterAction?: boolean;
 }): string {
@@ -42,7 +42,7 @@ function renderMenu(props: {
   return renderToStaticMarkup(
     createElement(AssistantSideMenu, {
       assistantId: "asst-1",
-      collapsed: false,
+      collapsed: props.collapsed ?? false,
       variant: props.variant ?? "rail",
       conversations: props.conversations,
       activeConversationId: props.activeConversationId,
@@ -55,9 +55,14 @@ function renderMenu(props: {
 }
 
 describe("AssistantSideMenu · Conversations category rows", () => {
-  test("renders a Conversations section header with all four category rows", () => {
+  test("renders Pinned above Conversations with bucket rows after recents", () => {
     const conversations = [
       makeConversation({ conversationId: "p1", isPinned: true }),
+      makeConversation({
+        conversationId: "p2",
+        title: "Pinned thread",
+        isPinned: true,
+      }),
       makeConversation({
         conversationId: "s1",
         conversationType: "scheduled",
@@ -79,10 +84,16 @@ describe("AssistantSideMenu · Conversations category rows", () => {
 
     expect(html).toContain(">Conversations<");
     expect(html).toContain(">Pinned<");
+    expect(html).toContain(">Pinned thread<");
     expect(html).toContain(">Scheduled<");
     expect(html).toContain(">Background<");
-    expect(html).toContain(">Recents<");
+    expect(html).toContain(">Recent thread<");
+    expect(html).not.toContain(">Recents<");
     expect(html).not.toContain(">Slack<");
+
+    expect(html.indexOf(">Pinned<")).toBeLessThan(
+      html.indexOf(">Conversations<"),
+    );
   });
 
   test("renders Slack as a conditional peer section after Background", () => {
@@ -98,38 +109,73 @@ describe("AssistantSideMenu · Conversations category rows", () => {
 
     const html = renderMenu({ conversations });
     expect(html).toContain(">Slack<");
+    expect(html).not.toContain(">Pinned<");
 
-    const pinnedIndex = html.indexOf(">Pinned<");
-    const recentsIndex = html.indexOf(">Recents<");
+    const recentThreadIndex = html.indexOf(">Regular thread<");
     const scheduledIndex = html.indexOf(">Scheduled<");
     const backgroundIndex = html.indexOf(">Background<");
     const slackIndex = html.indexOf(">Slack<");
-    expect(pinnedIndex).toBeGreaterThanOrEqual(0);
-    expect(recentsIndex).toBeGreaterThan(pinnedIndex);
-    expect(scheduledIndex).toBeGreaterThan(recentsIndex);
+    expect(recentThreadIndex).toBeGreaterThanOrEqual(0);
+    expect(scheduledIndex).toBeGreaterThan(recentThreadIndex);
     expect(backgroundIndex).toBeGreaterThan(scheduledIndex);
     expect(slackIndex).toBeGreaterThan(backgroundIndex);
   });
 
-  test("renders a count badge only for non-empty category buckets", () => {
+  test("renders Pinned as a top-level section when non-empty", () => {
+    const conversations = [
+      makeConversation({ conversationId: "regular", title: "Regular thread" }),
+      makeConversation({
+        conversationId: "pinned",
+        title: "Pinned thread",
+        isPinned: true,
+      }),
+    ];
+
+    const expandedHtml = renderMenu({ conversations });
+
+    expect(expandedHtml).toContain(">Pinned<");
+    expect(expandedHtml).toContain(">Pinned thread<");
+    expect(expandedHtml.indexOf(">Pinned<")).toBeLessThan(
+      expandedHtml.indexOf(">Conversations<"),
+    );
+  });
+
+  test("hides Pinned when there are no pinned conversations", () => {
+    const conversations = [
+      makeConversation({ conversationId: "regular", title: "Regular thread" }),
+    ];
+
+    const expandedHtml = renderMenu({ conversations });
+    const collapsedHtml = renderMenu({ conversations, collapsed: true });
+
+    expect(expandedHtml).not.toContain(">Pinned<");
+    expect(collapsedHtml).not.toContain('aria-label="Pinned"');
+  });
+
+  test("omits chat count badges from category buckets and subgroups", () => {
     const conversations = [
       makeConversation({
-        conversationId: "b1",
+        conversationId: "background-alpha",
+        title: "Background Alpha",
         conversationType: "background",
         source: "heartbeat",
       }),
       makeConversation({
-        conversationId: "b2",
+        conversationId: "background-beta",
+        title: "Background Beta",
         conversationType: "background",
         source: "heartbeat",
       }),
-      makeConversation({ conversationId: "r1" }),
+      makeConversation({
+        conversationId: "recent-alpha",
+        title: "Recent Alpha",
+      }),
     ];
 
     const html = renderMenu({ conversations });
 
-    expect(html).toContain(">2<");
-    expect(html).toContain(">1<");
+    expect(html).not.toContain(">2<");
+    expect(html).not.toContain(">1<");
   });
 });
 
@@ -164,21 +210,10 @@ describe("AssistantSideMenu · Show more affordance", () => {
     expect(html).toContain("Show more");
   });
 
-  test("wires the same 'Show more' affordance for Slack conversations", () => {
-    const src = readFileSync(
-      new URL("../use-sidebar-state.ts", import.meta.url).pathname,
-      "utf8",
+  test("shares the sidebar conversation page size constant", () => {
+    expect(SIDEBAR_CONVERSATION_LIMIT).toBe(
+      ASSISTANT_SIDE_MENU_CONVERSATION_LIMIT,
     );
-
-    expect(src).toContain(
-      "slack.slice(0, SIDEBAR_CONVERSATION_LIMIT)",
-    );
-    expect(src).toContain(
-      "slack.length > SIDEBAR_CONVERSATION_LIMIT",
-    );
-    expect(src).toContain("showAllSlack");
-    expect(src).toContain("setShowAllSlack");
-    expect(SIDEBAR_CONVERSATION_LIMIT).toBe(ASSISTANT_SIDE_MENU_CONVERSATION_LIMIT);
   });
 });
 
@@ -250,4 +285,3 @@ describe("AssistantSideMenu · overlay close affordance", () => {
     expect(railHtml).not.toContain('aria-label="Close navigation"');
   });
 });
-
