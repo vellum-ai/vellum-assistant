@@ -8,38 +8,72 @@ metadata:
     display-name: "Notion"
 ---
 
-You have access to the Notion API via stored credentials for `notion`. Both Internal integration secrets and OAuth access tokens are supported.
+You have access to the Notion API via the managed OAuth connection or an internal integration secret stored in the credential vault. Both paths inject the Authorization header automatically. Never reveal credential values or echo token values into the shell.
 
 ## Authentication
 
-**Step 1 - Check for credentials:**
+**Step 1 - Determine connection type:**
 
 ```
 credential_store action=list
 ```
 
-Look for an entry with `service: "notion"`. The credential may be stored under one of two fields depending on how the user set up the integration:
+Look at the results to decide which path to use:
 
-- `field: "internal_secret"` - Internal integration (new default setup)
-- `field: "access_token"` - OAuth/Public integration (legacy setup)
-
-If neither exists, tell the user: "Notion is not connected yet. Load the **vellum-oauth-integrations** skill to set it up first."
+- **Managed OAuth (preferred, post-May-27 default):** No `service: "notion"` entry is needed in the vault. The OAuth connection is managed by the platform. Use **Path A** below.
+- **Internal integration secret:** An entry with `service: "notion"` and `field: "internal_secret"` is present. Use **Path B** below, noting the credential ID.
+- **Neither configured:** Tell the user: "Notion is not connected yet. Load the **vellum-oauth-integrations** skill to set it up first."
 
 **Step 2 - Make authenticated API calls:**
 
-Use `bash` with `assistant credentials reveal` to inject the token into the Authorization header. Substitute the correct `--field` value based on what you found in Step 1:
+Choose the path that matches what you found in Step 1.
+
+---
+
+### Path A. Managed OAuth (preferred)
+
+Use `assistant oauth request --provider notion`. The Authorization header is injected automatically; do not supply it manually.
+
+```
+assistant oauth request --provider notion \
+  -X POST \
+  -H "Notion-Version: 2022-06-28" \
+  -H "Content-Type: application/json" \
+  -d '{}' \
+  https://api.notion.com/v1/search
+```
+
+General shape: `assistant oauth request --provider notion -X <METHOD> -H "Notion-Version: 2022-06-28" [-H "Content-Type: application/json"] [-d '<json-body>'] <url>`
+
+- URL can be absolute (`https://api.notion.com/v1/pages/...`) or relative (`/v1/pages/...`).
+- `-d` accepts inline JSON, `@filename`, or `@-` for stdin.
+- Token refresh is handled automatically.
+
+---
+
+### Path B. Proxied bash with credential auto-injection
+
+For internal integration secrets registered with `allowedTools: ["bash"]` and an `injection_templates` entry for `api.notion.com`. The proxy adds `Authorization: Bearer <token>` automatically. Do not include an Authorization header in the curl command.
 
 ```
 bash:
+  network_mode: proxied
+  credential_ids: ["<credential_id_from_step_1>"]
   command: |
     curl -s -X POST https://api.notion.com/v1/search \
-      -H "Authorization: Bearer $(assistant credentials reveal --service notion --field internal_secret)" \
       -H "Notion-Version: 2022-06-28" \
       -H "Content-Type: application/json" \
       -d '{}'
 ```
 
-For OAuth credentials, use `--field access_token` instead.
+The credential MUST have:
+
+- `allowedTools` including `"bash"` (otherwise the proxy blocks the call).
+- `injection_templates` with host pattern `api.notion.com` and header injection type for `Authorization`.
+
+If not configured, you will get a `credential tool policy denied` error. See Error Handling.
+
+---
 
 All Notion API calls go to `https://api.notion.com/v1/`. Always include the `Notion-Version: 2022-06-28` header.
 
@@ -254,6 +288,7 @@ When a response includes `"has_more": true`, pass `"start_cursor": response.next
 - **404 Not Found**: The page or database ID doesn't exist or the integration can't see it. Verify the ID and check sharing settings.
 - **400 Bad Request**: Check the request body structure. The Notion API error response includes a `message` field with details.
 - **429 Too Many Requests**: Wait a few seconds and retry.
+- **`credential tool policy denied`**: The credential was registered without `bash` in `allowedTools`, or without an `injection_templates` entry for `api.notion.com`. The proxy cannot inject the Authorization header. Fix: re-run the Notion setup via the **vellum-oauth-integrations** skill, or switch to Path A (managed OAuth) which bypasses this requirement entirely.
 
 ## Tips
 
