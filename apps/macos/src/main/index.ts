@@ -4,7 +4,10 @@ import fs from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 
-import { readSetting, writeSetting } from "./settings.js";
+import { installLoginItem } from "./login-item";
+import { installApplicationMenu } from "./menu";
+import { installPowerMonitor } from "./power";
+import { readSetting, writeSetting } from "./settings";
 
 const DEV_SERVER_URL = "http://localhost:5173";
 const DEV_SERVER_ORIGIN = new URL(DEV_SERVER_URL).origin;
@@ -271,6 +274,9 @@ app
     }
     installPermissionHandler();
     installSettingsIpc();
+    installApplicationMenu();
+    installPowerMonitor();
+    installLoginItem();
     spawnDaemon();
     createWindow();
 
