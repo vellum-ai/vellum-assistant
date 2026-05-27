@@ -783,8 +783,9 @@ function ManageProfilesModalInner({
                         ) : null}
                       </div>
 
-                      {/* Actions */}
-                      <div className="flex shrink-0 items-center gap-2">
+                      {/* Actions — top-aligned so they sit next to the
+                          profile title regardless of description length. */}
+                      <div className="flex shrink-0 items-center gap-2 self-start mt-1">
                         {/* Inline status toggle — works for managed profiles
                             too. `status` is a UI-level preference the user
                             always owns; auth/managed-edit rules don't apply.
