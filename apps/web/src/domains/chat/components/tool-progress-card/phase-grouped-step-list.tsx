@@ -266,7 +266,13 @@ function PhaseHeaderRow({
         ) : (
           <ThreeDotIndicator
             data-testid="phase-header-status-icon"
-            className="h-[14px] w-[14px]"
+            // `shrink-0` with no fixed width: the dots keep their natural 8px
+            // footprint (matching the card header) and own their full width in
+            // the flex row, so the row's `gap-1` always separates them from the
+            // label. A fixed `w-[14px]` here let the wider dots overflow onto
+            // the label — flex overflow ignores the gap — which is the overlap
+            // this replaces.
+            className="shrink-0"
           />
         )}
         <Typography
