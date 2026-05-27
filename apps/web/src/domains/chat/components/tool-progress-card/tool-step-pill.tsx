@@ -60,13 +60,15 @@ export function ToolStepPill({
   active = false,
   ariaLabel,
 }: ToolStepPillProps) {
-  // Active overrides tone wholesale (border + bg + text) so we never emit
-  // conflicting arbitrary-value classes — Tailwind resolves equal-specificity
-  // collisions by stylesheet order, not class-attribute order.
+  // Active = a filled `--surface-active` background with the resting border /
+  // text kept neutral (the colored border read poorly against the card). Active
+  // overrides tone's background wholesale so we never emit conflicting
+  // arbitrary-value classes — Tailwind resolves equal-specificity collisions by
+  // stylesheet order, not class-attribute order.
   const colorClasses = active
     ? tone === "error"
-      ? "border-[var(--system-negative-strong)] bg-[var(--surface-lift)] text-[var(--system-negative-strong)]"
-      : "border-[var(--primary-base)] bg-[var(--surface-lift)] text-[var(--primary-active)]"
+      ? "border-[var(--border-base)] bg-[var(--surface-active)] text-[var(--system-negative-strong)]"
+      : "border-[var(--border-base)] bg-[var(--surface-active)] text-[var(--content-default)]"
     : tone === "error"
       ? "border-[var(--system-negative-weak)] bg-[var(--system-negative-weak)] text-[var(--system-negative-strong)]"
       : "border-[var(--border-base)] bg-transparent text-[var(--content-default)]";
@@ -75,9 +77,7 @@ export function ToolStepPill({
   const iconColor =
     tone === "error"
       ? "text-[var(--system-negative-strong)]"
-      : active
-        ? "text-[var(--primary-active)]"
-        : "text-[var(--content-tertiary)]";
+      : "text-[var(--content-tertiary)]";
 
   const content = (
     <>

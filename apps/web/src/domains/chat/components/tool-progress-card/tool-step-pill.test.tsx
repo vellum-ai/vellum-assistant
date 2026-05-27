@@ -71,7 +71,7 @@ describe("ToolStepPill", () => {
     );
     expect(html).toContain('data-active=""');
     expect(html).toContain('aria-pressed="true"');
-    expect(html).toContain("border-[var(--primary-base)]");
+    expect(html).toContain("bg-[var(--surface-active)]");
   });
 
   test("fires onClick when the button is clicked", () => {

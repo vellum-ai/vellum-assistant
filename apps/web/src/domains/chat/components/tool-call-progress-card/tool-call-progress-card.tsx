@@ -276,6 +276,11 @@ function UnifiedToolCallProgressCard({
                   onClick={() => {
                     const tc = toolCallById.get(step.toolCallId);
                     if (!tc) return;
+                    // Pin the card open: opening the drawer flips `mainView`,
+                    // which remounts the transcript and resets local expand
+                    // state. Persisting the user's intent in `expandedCardIds`
+                    // keeps the parent accordion open across that remount.
+                    expanded.onChange(true);
                     openToolDetail({
                       toolCallId: tc.id,
                       toolName: tc.toolName,
