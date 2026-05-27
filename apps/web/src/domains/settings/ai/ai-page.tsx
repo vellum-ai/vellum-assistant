@@ -2000,7 +2000,10 @@ export function AiPage() {
               placeholder="Select a default profile…"
               options={defaultProfilePickerEntries.map((p) => ({
                 value: p.name,
-                label: profilePickerLabel(p),
+                label:
+                  p.name === "auto"
+                    ? "Automatically switch between profiles"
+                    : profilePickerLabel(p),
               }))}
             />
             {activeProfile === "auto" && (
