@@ -60,6 +60,7 @@ mock.module("../prompts/persona-resolver.js", () => ({
 import {
   computeIdentityContentHash,
   getCachedIntro,
+  parseSoulGreetings,
   readWorkspaceIdentityIntro,
   setCachedIntro,
 } from "../runtime/routes/identity-intro-cache.js";
@@ -260,5 +261,72 @@ describe("identity intro cache", () => {
     checkpointStore.set("identity:intro:content_hash", "abc");
     // Missing timestamp — should return null
     expect(getCachedIntro()).toBeNull();
+  });
+});
+
+describe("parseSoulGreetings", () => {
+  test("parses greeting lines from ## Greetings section", () => {
+    workspaceFiles["SOUL.md"] = [
+      "# Soul",
+      "",
+      "## Greetings",
+      "- Hey there!",
+      "- What's cooking?",
+      "- Ready to roll.",
+    ].join("\n");
+
+    expect(parseSoulGreetings()).toEqual([
+      "Hey there!",
+      "What's cooking?",
+      "Ready to roll.",
+    ]);
+  });
+
+  test("strips surrounding quotes from greetings", () => {
+    workspaceFiles["SOUL.md"] = [
+      "## Greetings",
+      '- "Hello, friend!"',
+      "- 'Yo!'",
+    ].join("\n");
+
+    expect(parseSoulGreetings()).toEqual(["Hello, friend!", "Yo!"]);
+  });
+
+  test("stops collecting at the next heading", () => {
+    workspaceFiles["SOUL.md"] = [
+      "## Greetings",
+      "- First",
+      "- Second",
+      "## Other Section",
+      "- Not a greeting",
+    ].join("\n");
+
+    expect(parseSoulGreetings()).toEqual(["First", "Second"]);
+  });
+
+  test("returns empty array when no SOUL.md exists", () => {
+    expect(parseSoulGreetings()).toEqual([]);
+  });
+
+  test("returns empty array when no Greetings section exists", () => {
+    workspaceFiles["SOUL.md"] = [
+      "# Soul",
+      "",
+      "## Personality",
+      "Be cheerful.",
+    ].join("\n");
+
+    expect(parseSoulGreetings()).toEqual([]);
+  });
+
+  test("skips empty bullet items", () => {
+    workspaceFiles["SOUL.md"] = [
+      "## Greetings",
+      "- Hello!",
+      "- ",
+      "- Bye!",
+    ].join("\n");
+
+    expect(parseSoulGreetings()).toEqual(["Hello!", "Bye!"]);
   });
 });

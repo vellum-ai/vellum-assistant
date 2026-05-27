@@ -38,7 +38,7 @@ const IDENTITY_FILES = ["IDENTITY.md", "SOUL.md"] as const;
 // ---------------------------------------------------------------------------
 
 /** Read a workspace prompt file, returning empty string if missing. */
-function readWorkspaceFile(name: string): string {
+export function readWorkspaceFile(name: string): string {
   try {
     const path = getWorkspacePromptPath(name);
     if (!existsSync(path)) return "";
@@ -76,6 +76,45 @@ export function readWorkspaceIdentityIntro(): string | null {
     parseIdentityIntroSection(readWorkspaceFile("IDENTITY.md")) ??
     parseIdentityIntroSection(readWorkspaceFile("SOUL.md"))
   );
+}
+
+/**
+ * Parse greeting lines from the `## Greetings` section of SOUL.md.
+ *
+ * Mirrors the macOS client's `IdentityData.parseGreetings(from:)` logic:
+ * looks for a markdown heading containing "greetings", then collects
+ * bullet-list items until the next heading. Strips surrounding quotes.
+ */
+export function parseSoulGreetings(): string[] {
+  const content = readWorkspaceFile("SOUL.md");
+  if (!content) return [];
+
+  const greetings: string[] = [];
+  let inSection = false;
+
+  for (const line of content.split("\n")) {
+    const trimmed = line.trim();
+    if (/^#+\s/.test(trimmed)) {
+      inSection = trimmed.toLowerCase().includes("greetings");
+      continue;
+    }
+    if (inSection && trimmed.startsWith("- ")) {
+      let greeting = trimmed.slice(2).trim();
+      // Strip surrounding quotes
+      if (
+        greeting.length >= 2 &&
+        ((greeting.startsWith('"') && greeting.endsWith('"')) ||
+          (greeting.startsWith("'") && greeting.endsWith("'")))
+      ) {
+        greeting = greeting.slice(1, -1);
+      }
+      if (greeting) {
+        greetings.push(greeting);
+      }
+    }
+  }
+
+  return greetings;
 }
 
 /** Compute a SHA-256 hex hash of the concatenated identity file contents. */
