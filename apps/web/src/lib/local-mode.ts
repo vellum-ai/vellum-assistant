@@ -84,17 +84,19 @@ export function getLockfile(): Lockfile {
 // Assistant queries
 // ---------------------------------------------------------------------------
 
+export function isLocalAssistant(a: LockfileAssistant): boolean {
+  return a.cloud !== "vellum" && a.resources?.gatewayPort != null;
+}
+
 export function getLocalAssistants(): LockfileAssistant[] {
-  return getLockfile().assistants.filter(
-    (a) => a.cloud !== "vellum" && a.resources?.gatewayPort != null,
-  );
+  return getLockfile().assistants.filter(isLocalAssistant);
 }
 
 export function getPlatformAssistants(): LockfileAssistant[] {
   return getLockfile().assistants.filter((a) => a.cloud === "vellum");
 }
 
-export function getActiveAssistant(): LockfileAssistant | undefined {
+function getActiveAssistant(): LockfileAssistant | undefined {
   const lf = getLockfile();
   const active = lf.assistants.find(
     (a) => a.assistantId === lf.activeAssistant,
@@ -142,4 +144,15 @@ export async function writeLockfile(patch: Partial<Lockfile>): Promise<void> {
 
 export function gatewayProxyUrl(port: number): string {
   return `/__gateway/${port}`;
+}
+
+/**
+ * Return the local gateway proxy URL for the selected assistant, or
+ * `undefined` when not in local mode / no local assistant is selected.
+ */
+export function getLocalGatewayUrl(): string | undefined {
+  if (!isLocalMode()) return undefined;
+  const assistant = getSelectedAssistant();
+  if (!assistant?.resources?.gatewayPort) return undefined;
+  return gatewayProxyUrl(assistant.resources.gatewayPort);
 }
