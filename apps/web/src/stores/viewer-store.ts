@@ -24,6 +24,7 @@ import { create } from "zustand";
 
 import { appsByIdOpenPost, documentsByIdGet } from "@/generated/daemon/sdk.gen";
 import { primeAppHtmlCache } from "@/utils/app-html-cache";
+import { useConversationStore } from "@/domains/conversations/conversation-store";
 import { createSelectors } from "@/utils/create-selectors";
 
 // ---------------------------------------------------------------------------
@@ -211,6 +212,11 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
       activeAppId: null,
       openedAppState: null,
     });
+    // The viewer state and the conversation store's `editingConversationId`
+    // are coupled: leaving the app-editing view should drop the editing
+    // pointer too. Owning this here keeps the cross-store coordination in
+    // one place instead of pushing it onto every caller of `useActiveAppPinSync`.
+    useConversationStore.getState().setEditingConversationId(null);
   },
 
   enterAppEditing: () => {

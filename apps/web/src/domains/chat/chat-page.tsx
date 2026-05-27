@@ -257,20 +257,10 @@ export function ChatPage() {
   // -------------------------------------------------------------------------
   // Pin-sync side-effect
   // -------------------------------------------------------------------------
-  const handleActiveAppUnpinned = useCallback(
-    (appId: string) => {
-      const { activeAppId, mainView } = useViewerStore.getState();
-      useViewerStore.getState().handleAppUnpinned(appId);
-      if (
-        activeAppId === appId &&
-        (mainView === "app" || mainView === "app-editing")
-      ) {
-        useConversationStore.getState().setEditingConversationId(null);
-      }
-    },
-    [],
-  );
-  useActiveAppPinSync(handleActiveAppUnpinned);
+  // Cross-store coordination (clearing the app + editing-conversation when
+  // the active app gets unpinned) lives inside `viewer-store.handleAppUnpinned`,
+  // so every consumer gets the same behavior without re-implementing it.
+  useActiveAppPinSync(useViewerStore.getState().handleAppUnpinned);
 
   // -------------------------------------------------------------------------
   // Shared refs — owned here, read/written by hooks
