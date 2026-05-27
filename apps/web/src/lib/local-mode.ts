@@ -124,19 +124,6 @@ export function clearSelectedAssistant(): void {
 }
 
 // ---------------------------------------------------------------------------
-// Write operations
-// ---------------------------------------------------------------------------
-
-export async function writeLockfile(patch: Partial<Lockfile>): Promise<void> {
-  await fetch("/__local/lockfile", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(patch),
-  });
-  await loadLockfile();
-}
-
-// ---------------------------------------------------------------------------
 // URL helpers
 // ---------------------------------------------------------------------------
 
