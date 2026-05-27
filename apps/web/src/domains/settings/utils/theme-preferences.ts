@@ -7,7 +7,7 @@ interface NormalizeThemeOptions {
   disabledVelvetFallback?: Exclude<ThemePreference, "velvet">;
 }
 
-export function normalizeThemePreference(
+function normalizeThemePreference(
   value: string | null | undefined,
   {
     velvetEnabled,

@@ -75,7 +75,7 @@ export function setLocalNumber(key: string, value: number): void {
 // (vellum:pref-changed) events for a specific key.
 // ---------------------------------------------------------------------------
 
-export interface PrefChangedDetail {
+interface PrefChangedDetail {
   key: string;
   value: string | null;
 }
