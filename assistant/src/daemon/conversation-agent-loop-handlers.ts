@@ -49,6 +49,10 @@ import type { ContentBlock, ImageContent } from "../providers/types.js";
 import { isContextOverflowError } from "../providers/types.js";
 import { redactSecrets } from "../security/secret-scanner.js";
 import { extractDomain } from "../tools/network/domain-normalize.js";
+import {
+  buildPricingUsage,
+  resolveStructuredPricing,
+} from "../usage/pricing.js";
 import { ProviderError } from "../util/errors.js";
 import { faviconUrlForDomain } from "../util/favicon.js";
 import { getLogger } from "../util/logger.js";
@@ -1236,6 +1240,36 @@ function handleUsage(
     },
   );
   state.llmCallStartedEmitted = false;
+
+  // Emit a lightweight per-call usage progress event so clients can show
+  // live-updating token/cost metrics. This is a UI hint only — no DB writes.
+  const pricingUsage = buildPricingUsage({
+    providerName,
+    model: event.model,
+    inputTokens: event.inputTokens,
+    outputTokens: event.outputTokens,
+    cacheCreationInputTokens: event.cacheCreationInputTokens,
+    cacheReadInputTokens: event.cacheReadInputTokens,
+    rawResponse: event.rawResponse,
+  });
+  const pricing = resolveStructuredPricing(
+    providerName,
+    event.model,
+    pricingUsage,
+  );
+  const estimatedCost =
+    pricing.pricingStatus === "priced" && pricing.estimatedCostUsd != null
+      ? pricing.estimatedCostUsd
+      : 0;
+
+  deps.onEvent({
+    type: "usage_progress",
+    conversationId: deps.ctx.conversationId,
+    inputTokens: event.inputTokens,
+    outputTokens: event.outputTokens,
+    estimatedCost,
+    model: event.model,
+  });
 }
 
 /**
