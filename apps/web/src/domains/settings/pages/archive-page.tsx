@@ -1,12 +1,14 @@
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Archive, Loader2 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
-
-import { useQuery } from "@tanstack/react-query";
+import { useCallback, useMemo, useState } from "react";
 
 import { Button } from "@vellum/design-library/components/button";
 import { Card } from "@vellum/design-library/components/card";
 import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen";
-import { listConversations } from "@/lib/conversations";
+import {
+  conversationsQueryKey,
+  useConversationListQuery,
+} from "@/lib/conversations";
 import type { Conversation } from "@/types/conversation-types";
 import { conversationsByIdUnarchivePost } from "@/generated/daemon/sdk.gen";
 import { reportError } from "@/lib/errors/report";
@@ -96,50 +98,28 @@ function ArchivedConversationRow({
 }
 
 export function ArchivePage() {
+  const queryClient = useQueryClient();
   const { data: assistantList, isLoading: isAssistantLoading } = useQuery(
     assistantsListOptions(),
   );
-  const assistantId = assistantList?.results?.[0]?.id;
+  const assistantId = assistantList?.results?.[0]?.id ?? null;
 
-  const [conversations, setConversations] = useState<Conversation[] | null>(
-    null,
-  );
-  const [isLoadingConversations, setIsLoadingConversations] = useState(false);
+  const {
+    conversations,
+    isLoading: isLoadingConversations,
+  } = useConversationListQuery(assistantId);
+
   const [pendingUnarchiveId, setPendingUnarchiveId] = useState<string | null>(
     null,
   );
 
-  const loadConversations = useCallback(async (id: string) => {
-    setIsLoadingConversations(true);
-    try {
-      const all = await listConversations(id);
-      setConversations(all);
-    } catch (error) {
-      reportError(error, {
-        context: "archive_settings_list_conversations",
-        userMessage: "Failed to load archived conversations.",
-      });
-      setConversations([]);
-    } finally {
-      setIsLoadingConversations(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!assistantId) return;
-    void loadConversations(assistantId);
-  }, [assistantId, loadConversations]);
-
-  const archived = useMemo(() => {
-    if (!conversations) return [];
-    return conversations
-      .filter((c) => c.archivedAt != null)
-      .sort(
-        (a, b) =>
-          new Date(b.archivedAt ?? 0).getTime() -
-          new Date(a.archivedAt ?? 0).getTime(),
-      );
-  }, [conversations]);
+  const archived = useMemo(
+    () =>
+      conversations
+        .filter((c) => c.archivedAt != null)
+        .sort((a, b) => (b.archivedAt ?? 0) - (a.archivedAt ?? 0)),
+    [conversations],
+  );
 
   const handleUnarchive = useCallback(
     async (conversationId: string) => {
@@ -150,13 +130,8 @@ export function ArchivePage() {
           path: { assistant_id: assistantId, id: conversationId },
           throwOnError: true,
         });
-        setConversations((prev) => {
-          if (!prev) return prev;
-          return prev.map((c) =>
-            c.conversationId === conversationId
-              ? { ...c, archivedAt: undefined }
-              : c,
-          );
+        void queryClient.invalidateQueries({
+          queryKey: conversationsQueryKey(assistantId),
         });
       } catch (error) {
         reportError(error, {
@@ -167,13 +142,10 @@ export function ArchivePage() {
         setPendingUnarchiveId(null);
       }
     },
-    [assistantId],
+    [assistantId, queryClient],
   );
 
-  const isLoading =
-    isAssistantLoading ||
-    isLoadingConversations ||
-    (assistantId != null && conversations === null);
+  const isLoading = isAssistantLoading || isLoadingConversations;
 
   if (isLoading) {
     return (
