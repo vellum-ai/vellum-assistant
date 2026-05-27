@@ -18,6 +18,8 @@ interface ImportMetaEnv {
   readonly VITE_STRIPE_PUBLISHABLE_KEY?: string;
   /** App version stamp for diagnostic reporting. */
   readonly VITE_APP_VERSION?: string;
+  /** Enable local-mode: read assistant lockfile from the CLI daemon. */
+  readonly VITE_LOCAL_MODE?: string;
 }
 
 interface ImportMeta {
