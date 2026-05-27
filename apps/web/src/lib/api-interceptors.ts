@@ -159,7 +159,7 @@ export async function requestInterceptor(request: Request): Promise<Request> {
     }
     newRequest.headers.delete("X-CSRFToken");
     newRequest.headers.delete("Vellum-Organization-Id");
-    return newRequest;
+    return new Request(newRequest, { credentials: "omit" });
   }
 
   // Self-hosted assistant + runtime-proxied path → talk to the user's

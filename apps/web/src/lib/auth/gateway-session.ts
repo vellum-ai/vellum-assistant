@@ -4,6 +4,7 @@ const LS_TOKEN_KEY = "gw:token";
 const LS_EXPIRES_KEY = "gw:expiresAt";
 
 let cachedToken: string | null = null;
+let cachedExpiresAt: number = 0;
 
 export function isGatewayAuthMode(): boolean {
   return useClientFeatureFlagStore.getState().gatewayWebAuth === true;
@@ -14,7 +15,10 @@ function isTokenExpired(expiresAt: number): boolean {
 }
 
 export function getGatewayToken(): string | null {
-  if (cachedToken) return cachedToken;
+  if (cachedToken && !isTokenExpired(cachedExpiresAt)) {
+    return cachedToken;
+  }
+  cachedToken = null;
   try {
     const token = localStorage.getItem(LS_TOKEN_KEY);
     const expiresAtRaw = localStorage.getItem(LS_EXPIRES_KEY);
@@ -22,6 +26,7 @@ export function getGatewayToken(): string | null {
       const expiresAt = Number(expiresAtRaw);
       if (!isTokenExpired(expiresAt)) {
         cachedToken = token;
+        cachedExpiresAt = expiresAt;
         return cachedToken;
       }
     }
@@ -47,6 +52,7 @@ async function acquireGatewayToken(): Promise<string> {
     // localStorage unavailable
   }
   cachedToken = token;
+  cachedExpiresAt = expiresAt;
   return token;
 }
 
@@ -58,6 +64,7 @@ export async function ensureGatewayToken(): Promise<string> {
 
 export function clearGatewayToken(): void {
   cachedToken = null;
+  cachedExpiresAt = 0;
   try {
     localStorage.removeItem(LS_TOKEN_KEY);
     localStorage.removeItem(LS_EXPIRES_KEY);
