@@ -122,6 +122,7 @@ import { fetchSubagentDetail } from "@/lib/conversations-api";
 import { MobileAppOverlay } from "@/domains/chat/components/mobile-app-overlay";
 import { MobileDocumentOverlay } from "@/domains/chat/components/mobile-document-overlay";
 import { MobileSubagentDetailOverlay } from "@/domains/chat/components/mobile-subagent-detail-overlay";
+import { MobileToolDetailOverlay } from "@/domains/chat/components/mobile-tool-detail-overlay";
 import {
   type ChatConnectingReason,
   resolveChatConnectingReason,
@@ -239,6 +240,7 @@ export function ChatPage() {
     viewBeforeDocument: s.viewBeforeDocument,
     activeSubagentId: s.activeSubagentId,
     viewBeforeSubagentDetail: s.viewBeforeSubagentDetail,
+    activeToolDetail: s.activeToolDetail,
   })));
   const subagentState = useSubagentStore(useShallow((s) => ({ byId: s.byId, orderedIds: s.orderedIds })));
   const isSharing = useDeployStore.use.isSharing();
@@ -1756,6 +1758,16 @@ export function ChatPage() {
                 }
               }}
               onRequestDetail={handleRequestSubagentDetail}
+            />
+            <MobileToolDetailOverlay
+              detail={
+                viewerState.mainView === "tool-detail"
+                  ? viewerState.activeToolDetail
+                  : null
+              }
+              onClose={() => {
+                useViewerStore.getState().closeToolDetail();
+              }}
             />
           </>,
           overlayTarget,

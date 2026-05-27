@@ -65,6 +65,13 @@ const SubagentDetailPanel = lazy(() =>
     default: m.SubagentDetailPanel,
   })),
 );
+// ToolDetailPanel is only rendered when the user opens a tool-call's detail
+// drawer; defer loading to keep its subtree out of the chat-critical bundle.
+const ToolDetailPanel = lazy(() =>
+  import("@/domains/chat/components/tool-detail-panel").then((m) => ({
+    default: m.ToolDetailPanel,
+  })),
+);
 import { OnboardingChoiceCard } from "@/domains/chat/components/onboarding-choice-card";
 import { useOnboardingChoice } from "@/domains/chat/hooks/use-onboarding-choice";
 import { useIsNativePlatform } from "@/runtime/native-auth";
@@ -95,7 +102,7 @@ import {
 } from "@/domains/messaging/turn-selectors";
 import { isSurfaceInteractive } from "@/domains/chat/types/types";
 
-import type { MainView, OpenedAppState, OpenedDocumentState } from "@/stores/viewer-store";
+import { useViewerStore, type MainView, type OpenedAppState, type OpenedDocumentState } from "@/stores/viewer-store";
 import { useActiveProfileModel } from "@/domains/chat/hooks/use-active-profile-model";
 import { isPointerCoarse } from "@/utils/pointer";
 import { routes } from "@/utils/routes";
@@ -548,6 +555,13 @@ export function ChatRouteContent({
 
   const isSharing = useDeployStore.use.isSharing();
   const isDeploying = useDeployStore.use.isDeploying();
+
+  // -------------------------------------------------------------------------
+  // Tool-call detail drawer (from Zustand viewer store)
+  // -------------------------------------------------------------------------
+
+  const activeToolDetail = useViewerStore.use.activeToolDetail();
+  const closeToolDetail = useViewerStore.use.closeToolDetail();
 
   // -------------------------------------------------------------------------
   // Feature flags
@@ -1531,6 +1545,29 @@ export function ChatRouteContent({
         </>
       );
     }
+  }
+
+  if (mainView === "tool-detail" && activeToolDetail && !isMobile) {
+    return (
+      <>
+        <ResizablePanel
+          storageKey="toolDetailPanelWidth"
+          defaultLeftWidth={400}
+          minLeftWidth={300}
+          minRightWidth={400}
+          left={chatContent}
+          right={
+            <LazyBoundary>
+              <ToolDetailPanel
+                detail={activeToolDetail}
+                onClose={closeToolDetail}
+              />
+            </LazyBoundary>
+          }
+        />
+        {sendErrorModalNode}
+      </>
+    );
   }
 
   return (

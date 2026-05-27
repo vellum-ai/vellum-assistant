@@ -137,6 +137,7 @@ export function mapToolEventToStep(
     iconName: label.iconName,
     title: label.title,
     info: label.info || content,
+    activity: label.activity,
     status: "running",
   };
 }

@@ -32,6 +32,7 @@ function bash(
     kind: "tool",
     title: "Working (bash)",
     info: command,
+    activity: "",
     iconName: "code",
     durationLabel: duration,
     toolCallId,
