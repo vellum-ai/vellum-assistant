@@ -41,7 +41,7 @@ export function handleSubagentEvent(
 
   const inner = event.event;
   if (inner.type === "usage_progress") {
-    const data = inner as Record<string, unknown>;
+    const data = inner as unknown as Record<string, unknown>;
     const inputTokens =
       typeof data.inputTokens === "number" ? data.inputTokens : 0;
     const outputTokens =
