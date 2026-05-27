@@ -11,4 +11,9 @@ export default defineConfig([
     output: "src/generated/auth",
     plugins: ["@hey-api/client-fetch"],
   },
+  {
+    input: "./openapi-schemas/daemon.json",
+    output: "src/generated/daemon",
+    plugins: ["@hey-api/client-fetch", "@tanstack/react-query"],
+  },
 ]);

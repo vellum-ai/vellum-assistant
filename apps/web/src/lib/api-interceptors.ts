@@ -26,6 +26,7 @@
  * Reference: https://heyapi.dev/openapi-ts/clients/fetch#interceptors
  */
 import { client as authClient } from "@/generated/auth/client.gen";
+import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { client as platformClient } from "@/generated/api/client.gen";
 import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf";
 import {
@@ -172,6 +173,6 @@ export async function requestInterceptor(request: Request): Promise<Request> {
   return newRequest;
 }
 
-for (const apiClient of [authClient, platformClient]) {
+for (const apiClient of [authClient, daemonClient, platformClient]) {
   apiClient.interceptors.request.use(requestInterceptor);
 }
