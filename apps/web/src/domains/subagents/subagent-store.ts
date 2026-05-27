@@ -14,6 +14,7 @@ import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors";
 import type { SubagentStatus, SubagentInnerEvent } from "@/types/interaction-ui-types";
+import { isActiveStatus } from "@/domains/subagents/status-helpers";
 
 // ---------------------------------------------------------------------------
 // State
@@ -58,6 +59,10 @@ export interface SubagentEntry {
 export interface SubagentState {
   byId: Record<string, SubagentEntry>;
   orderedIds: string[];
+  /** Subagent IDs whose terminal status event carried final usage data.
+   *  Further `updateUsage` calls for these IDs are no-ops to prevent
+   *  double-counting. */
+  terminalUsageIds: Set<string>;
   /**
    * Indexed view of `byId` keyed by parent assistant message id. Each entry
    * is registered under up to two keys — `parentMessageStableId` (set during
@@ -124,6 +129,13 @@ export interface SubagentActions {
 
   setConversationId: (subagentId: string, conversationId: string) => void;
 
+  updateUsage: (params: {
+    subagentId: string;
+    inputTokens: number;
+    outputTokens: number;
+    estimatedCost: number;
+  }) => void;
+
   reset: () => void;
 }
 
@@ -136,6 +148,7 @@ export type SubagentStore = SubagentState & SubagentActions;
 const INITIAL_STATE: SubagentState = {
   byId: {},
   orderedIds: [],
+  terminalUsageIds: new Set<string>(),
   byParent: new Map<string, SubagentEntry[]>(),
 };
 
@@ -283,6 +296,18 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
         },
       },
     });
+
+    // Mark as terminal so subsequent updateUsage calls are ignored,
+    // preventing double-counting when the daemon ships final totals
+    // alongside the terminal status event.
+    if (
+      !isActiveStatus(params.status) &&
+      (params.inputTokens != null ||
+        params.outputTokens != null ||
+        params.totalCost != null)
+    ) {
+      get().terminalUsageIds.add(params.subagentId);
+    }
   },
 
   receiveEvent: (params) => {
@@ -386,10 +411,30 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
     });
   },
 
+  updateUsage: (params) => {
+    const { byId, terminalUsageIds } = get();
+    if (terminalUsageIds.has(params.subagentId)) return;
+    const existing = byId[params.subagentId];
+    if (!existing) return;
+
+    set({
+      byId: {
+        ...byId,
+        [params.subagentId]: {
+          ...existing,
+          inputTokens: existing.inputTokens + params.inputTokens,
+          outputTokens: existing.outputTokens + params.outputTokens,
+          totalCost: existing.totalCost + params.estimatedCost,
+        },
+      },
+    });
+  },
+
   reset: () =>
     set({
       byId: {},
       orderedIds: [],
+      terminalUsageIds: new Set<string>(),
       byParent: new Map<string, SubagentEntry[]>(),
     }),
 }));
