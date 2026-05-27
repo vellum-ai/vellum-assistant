@@ -330,6 +330,8 @@ export interface ToolDefinition {
   input_schema?: object;
   /** Where the tool runs — sandbox (assistant container) or host (guardian device via proxy). Resolved by `resolveExecutionTarget` if omitted. */
   executionTarget?: ExecutionTarget;
+  /** When set to 'proxy', the tool is forwarded to a connected client rather than executed locally. Genuinely optional — omit (or set to 'local') for in-process tools. */
+  executionMode?: "local" | "proxy";
   /** Implementation invoked when the model calls the tool. */
   execute?: (
     input: Record<string, unknown>,
@@ -337,8 +339,18 @@ export interface ToolDefinition {
   ) => Promise<ToolExecutionResult>;
 }
 
-/** Tool after the loader has derived its name and filled defaults. */
-export type LoadedTool = Required<ToolDefinition> & { name: string };
+/**
+ * Tool after the loader has derived its name and filled defaults.
+ *
+ * `executionMode` is deliberately kept optional on the loaded shape — it
+ * carries dispatch intent ("forward to client" vs "execute locally") and
+ * staying `undefined` is the canonical "local" state. All other declared
+ * fields are required post-finalize.
+ */
+export type LoadedTool = Required<Omit<ToolDefinition, "executionMode">> & {
+  name: string;
+  executionMode?: "local" | "proxy";
+};
 
 /** The kind of extension that owns a tool. Core tools have no owner. */
 export type OwnerKind = "skill" | "mcp" | "plugin";
@@ -356,6 +368,4 @@ export interface OwnerInfo {
 
 export interface Tool extends LoadedTool {
   category: string;
-  /** When set to 'proxy', the tool is forwarded to a connected client rather than executed locally. */
-  executionMode?: "local" | "proxy";
 }
