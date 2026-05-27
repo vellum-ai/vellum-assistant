@@ -37,6 +37,14 @@ export type IconName =
 export interface StepLabel {
   title: string;
   info: string;
+  /**
+   * Rich, human-readable activity sentence the daemon attaches to the tool
+   * input (`input.activity`, legacy `input.reason`), mirroring macOS
+   * `reasonDescription`. Empty string when absent. Drives pill/drawer text;
+   * `title` remains the stable phase-grouping key — do NOT fold activity into
+   * `title`.
+   */
+  activity: string;
   iconName: IconName;
 }
 
@@ -99,11 +107,17 @@ export function deriveStepLabelFromName(
     input && typeof input === "object" ? (input as Record<string, unknown>) : {};
   const name = toolName.toLowerCase();
 
+  // Rich activity sentence the daemon attaches to the input. Computed once and
+  // spread onto every branch so phase-grouping (`title`/`info`/`iconName`)
+  // stays untouched. `readString` trims and returns "" when neither key is set.
+  const activity = readString(inputBag, "activity", "reason");
+
   const mcp = parseMcpToolName(toolName);
   if (mcp) {
     return {
       title: `Using ${mcp.serverName}`,
       info: mcp.toolMethod,
+      activity,
       iconName: "plug",
     };
   }
@@ -116,6 +130,7 @@ export function deriveStepLabelFromName(
       return {
         title: "Working (bash)",
         info: truncate(cleaned, INFO_MAX_LENGTH),
+        activity,
         iconName: "code",
       };
     }
@@ -127,11 +142,11 @@ export function deriveStepLabelFromName(
         readString(inputBag, "path", "file_path", "filePath"),
       );
       if (sub === "view") {
-        return { title: "Reading", info: file, iconName: "file" };
+        return { title: "Reading", info: file, activity, iconName: "file" };
       }
       // create / insert / str_replace (and any other write sub-command) all
       // map to "Editing" so any mutation surfaces as an edit.
-      return { title: "Editing", info: file, iconName: "pen" };
+      return { title: "Editing", info: file, activity, iconName: "pen" };
     }
 
     case "computer": {
@@ -139,6 +154,7 @@ export function deriveStepLabelFromName(
       return {
         title: "Using computer",
         info: action,
+        activity,
         iconName: "monitor",
       };
     }
@@ -153,12 +169,16 @@ export function deriveStepLabelFromName(
       const innerTool = readString(inputBag, "tool");
       if (innerTool) {
         const innerInput = inputBag.input;
-        return deriveStepLabelFromName(innerTool, innerInput);
+        const inner = deriveStepLabelFromName(innerTool, innerInput);
+        // The daemon attaches `activity` to the OUTER `skill_execute` input;
+        // let it win over any activity on the inner tool's input.
+        return { ...inner, activity: activity || inner.activity };
       }
       const skillName = readString(inputBag, "skill", "name", "skillName");
       return {
         title: "Using a skill",
         info: skillName,
+        activity,
         iconName: "sparkle",
       };
     }
@@ -170,6 +190,7 @@ export function deriveStepLabelFromName(
       return {
         title: "Using a skill",
         info: skillName,
+        activity,
         iconName: "sparkle",
       };
     }
@@ -179,6 +200,7 @@ export function deriveStepLabelFromName(
       return {
         title: "Spawning subagent",
         info: label,
+        activity,
         iconName: "user-plus",
       };
     }
@@ -187,6 +209,7 @@ export function deriveStepLabelFromName(
       return {
         title: toolName ? `Running ${titleCaseToolName(toolName)}` : "Running tool",
         info: "",
+        activity,
         iconName: "bolt",
       };
   }
