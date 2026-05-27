@@ -374,6 +374,66 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
   });
 });
 
+describe("Transcript — toolUseId anchor (PR 3)", () => {
+  test("renders inline card via byToolUseId match with no result and a mismatched message id", () => {
+    // Live + orphaned window: the spawn tool call has no result yet, and the
+    // store entry is keyed under a stable id that does NOT match the rendered
+    // message's id — so neither the result branch nor the positional byParent
+    // fallback can resolve it. Only the deterministic toolUseId anchor
+    // (tc.id === parentToolUseId) can.
+    useSubagentStore.getState().spawnSubagent({
+      subagentId: "sa-anchored",
+      label: "agent-0",
+      objective: "do a thing",
+      status: "running",
+      timestamp: 1000,
+      // Orphaned: parent anchored to a different (e.g. pre-reconcile) id, so
+      // byParent has no bucket for the rendered message's id.
+      parentMessageStableId: "some-other-stable-id",
+      parentToolUseId: "tool-use-abc",
+    });
+
+    const msg: DisplayMessage = {
+      id: "a1",
+      role: "assistant",
+      content: "spawning",
+      contentOrder: [{ type: "toolCall", id: "tool-use-abc" }],
+      toolCalls: [
+        {
+          id: "tool-use-abc",
+          toolName: "subagent_spawn",
+          input: { label: "agent-0", objective: "do a thing" },
+          status: "running",
+          // No `result` — the daemon hasn't acked the spawn yet.
+        },
+      ],
+    };
+
+    const items: TranscriptItem[] = [
+      userMessage("u1", "spawn one"),
+      { kind: "message", key: "a1", message: msg },
+    ];
+
+    const { getAllByTestId, container } = render(
+      <Transcript
+        items={items}
+        onSecretSubmit={noop}
+        onConfirmationDecision={noop}
+        onSurfaceAction={noop}
+        onRetryError={noop}
+      />,
+    );
+
+    const cards = getAllByTestId("subagent-inline-card");
+    expect(cards.length).toBe(1);
+    expect(cards[0].getAttribute("data-subagent-id")).toBe("sa-anchored");
+    // The spawn-only group must not surface a generic progress card.
+    expect(
+      container.querySelector('[data-testid="tool-call-progress-card"]'),
+    ).toBeNull();
+  });
+});
+
 describe("Transcript — cross-group claimed-set (fix-r1-c)", () => {
   test("two non-consecutive running spawns in one message map 1:1 to distinct subagentIds without duplicates", () => {
     // Two store entries linked to the same parent message, neither with a
