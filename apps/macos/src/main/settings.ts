@@ -41,7 +41,13 @@ let instance: Store<AppSettings> | null = null;
 
 const store = (): Store<AppSettings> => {
   if (!instance) {
-    instance = new Store<AppSettings>({ schema });
+    instance = new Store<AppSettings>({
+      schema,
+      // Close the root so a renderer typo (e.g. `set("them", "dark")`) is
+      // rejected at validation time instead of silently persisted as an
+      // unknown top-level key. Per-key shapes are still validated by `schema`.
+      rootSchema: { additionalProperties: false },
+    });
   }
   return instance;
 };
