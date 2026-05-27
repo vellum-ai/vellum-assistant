@@ -33,12 +33,12 @@ The legacy `--tests <ids>` flag is accepted as a deprecated alias for
 
 ## Commands
 
-| Command                                                       | Description                                                                 |
-| ------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Command                                                          | Description                                                               |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------- |
 | `evals run --profiles <ids> [--benchmark <id>] [--filter <ids>]` | Cartesian profile × benchmark-unit runner. `--label <text>` tags the run. |
-| `evals benchmarks list`                                       | List available benchmarks with their unit noun and unit count.             |
-| `evals export --session <id> --out <path>`                    | Export a report session as JSONL for diffing and notebooks.                 |
-| `evals server`                                                | Local report-card server for `.runs` at `localhost:3005`.                   |
+| `evals benchmarks list`                                          | List available benchmarks with their unit noun and unit count.            |
+| `evals export --session <id> --out <path>`                       | Export a report session as JSONL for diffing and notebooks.               |
+| `evals server`                                                   | Local report-card server for `.runs` at `localhost:3005`.                 |
 
 The report server is organized as a hierarchy:
 

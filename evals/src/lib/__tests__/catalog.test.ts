@@ -106,10 +106,7 @@ describe("eval catalog discovery", () => {
     await writeFile(join(dir, "session-a", "SPEC.md"), "# a", "utf8");
     await writeFile(join(dir, "session-b", "SPEC.md"), "# b", "utf8");
 
-    expect(await listBenchmarkUnitIds(dir)).toEqual([
-      "session-a",
-      "session-b",
-    ]);
+    expect(await listBenchmarkUnitIds(dir)).toEqual(["session-a", "session-b"]);
     await expect(loadTestDef("session-a", dir)).resolves.toMatchObject({
       id: "session-a",
     });

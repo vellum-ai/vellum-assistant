@@ -44,7 +44,9 @@ describe("loadBenchmark", () => {
     const dir = await mkdtemp(join(tmpdir(), "evals-benchmarks-"));
     process.env.EVALS_BENCHMARKS_DIR = dir;
 
-    await expect(loadBenchmark("bad_id")).rejects.toThrow("Invalid benchmark id");
+    await expect(loadBenchmark("bad_id")).rejects.toThrow(
+      "Invalid benchmark id",
+    );
   });
 
   test("reports missing manifest with a helpful path", async () => {
@@ -76,14 +78,8 @@ describe("loadBenchmark", () => {
     const dir = await mkdtemp(join(tmpdir(), "evals-benchmarks-"));
     process.env.EVALS_BENCHMARKS_DIR = dir;
     await mkdir(join(dir, "broken"), { recursive: true });
-    await writeFile(
-      join(dir, "broken", "manifest.json"),
-      "{not json",
-      "utf8",
-    );
+    await writeFile(join(dir, "broken", "manifest.json"), "{not json", "utf8");
 
-    await expect(loadBenchmark("broken")).rejects.toThrow(
-      /is not valid JSON/,
-    );
+    await expect(loadBenchmark("broken")).rejects.toThrow(/is not valid JSON/);
   });
 });

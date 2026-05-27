@@ -123,7 +123,9 @@ export function registerListCommands(program: Command): void {
 
   tests
     .command("list")
-    .description("List available eval tests for the personal-intelligence benchmark")
+    .description(
+      "List available eval tests for the personal-intelligence benchmark",
+    )
     .option("--json", "Print JSON")
     .action(async (opts: ListOptions) => {
       const items = await Promise.all(

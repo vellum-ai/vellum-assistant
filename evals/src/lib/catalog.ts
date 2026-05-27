@@ -95,7 +95,9 @@ export async function listBenchmarkIds(): Promise<string[]> {
  * Callers should resolve the directory via `loadBenchmark(id).unitsDir`
  * rather than hand-constructing the path.
  */
-export async function listBenchmarkUnitIds(unitsDir: string): Promise<string[]> {
+export async function listBenchmarkUnitIds(
+  unitsDir: string,
+): Promise<string[]> {
   const ids = await listDirectoryIds(unitsDir);
   ids.forEach((id) => assertSafeId("unit", id));
   return ids;
