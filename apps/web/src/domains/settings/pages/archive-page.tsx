@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, Loader2 } from "lucide-react";
+import { AlertTriangle, Archive, Loader2, RotateCcw } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
 import { Button } from "@vellum/design-library/components/button";
@@ -107,6 +107,8 @@ export function ArchivePage() {
   const {
     conversations,
     isLoading: isLoadingConversations,
+    isError,
+    refetch,
   } = useConversationListQuery(assistantId);
 
   const [pendingUnarchiveId, setPendingUnarchiveId] = useState<string | null>(
@@ -153,6 +155,34 @@ export function ArchivePage() {
         <div className="flex min-h-[400px] items-center justify-center">
           <Loader2 className="h-6 w-6 animate-spin text-[var(--content-disabled)]" />
         </div>
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="max-w-[940px]">
+        <Card>
+          <div className="flex min-h-[400px] flex-col items-center justify-center px-6 py-16 text-center">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--system-error-lighter)]">
+              <AlertTriangle className="h-6 w-6 text-[var(--system-error-default)]" />
+            </div>
+            <h2 className="mt-4 text-title-small text-[var(--content-default)]">
+              Failed to load archived conversations
+            </h2>
+            <p className="mt-1 text-body-medium-lighter text-[var(--content-tertiary)]">
+              Something went wrong. Please try again.
+            </p>
+            <Button
+              variant="outlined"
+              onClick={refetch}
+              className="mt-4"
+            >
+              <RotateCcw className="h-4 w-4" />
+              Retry
+            </Button>
+          </div>
+        </Card>
       </div>
     );
   }
