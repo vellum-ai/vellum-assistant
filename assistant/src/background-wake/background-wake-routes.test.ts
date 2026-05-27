@@ -579,6 +579,117 @@ describe("background wake runtime routes", () => {
     });
   });
 
+  test("drain-due completes expired without starting when the lease deadline already elapsed", async () => {
+    const dueAt = Date.now() - 1;
+    computedIntent = intentFixture({
+      nextWakeAt: dueAt,
+      actualNextDueAt: dueAt,
+      reason: "mixed",
+    });
+    const heartbeatRunManaged = mock(async () => ({
+      due: true,
+      completed: 1,
+      skipped: 0,
+    }));
+    const schedulerRunDue = mock(async () =>
+      schedulerResultFixture({ claimed: 1, completed: 1 }),
+    );
+    registerBackgroundWakeRuntime({
+      heartbeat: {
+        nextRunAt: dueAt,
+        runManagedWakeIfDue: heartbeatRunManaged,
+      },
+      scheduler: {
+        runOnce: mock(async () => 1),
+        runDueWorkOnce: schedulerRunDue,
+      },
+    });
+    const handler = findHandler("drainDueBackgroundWake");
+
+    const response = await handler({
+      body: drainBodyFixture({
+        reason: "mixed",
+        deadlineAt: Date.now() - 1,
+      }),
+    });
+    await flushBackgroundWakeDrainsForTest();
+
+    expect(heartbeatRunManaged).not.toHaveBeenCalled();
+    expect(schedulerRunDue).not.toHaveBeenCalled();
+    expect(response).toMatchObject({
+      accepted: true,
+      reason: "mixed",
+    });
+    expect(lastCompletionPayload()).toMatchObject({
+      leaseId: "lease-123",
+      status: "expired",
+      error: "background wake lease deadline elapsed before starting work",
+    });
+  });
+
+  test("drain-due keeps a lease active until slow work settles after the original deadline", async () => {
+    const schedulerResolvers: Array<() => void> = [];
+    const schedulerRunDue = mock(async () => {
+      await new Promise<void>((resolve) => schedulerResolvers.push(resolve));
+      return schedulerResultFixture({ claimed: 1, completed: 1 });
+    });
+    registerBackgroundWakeRuntime({
+      heartbeat: {
+        nextRunAt: Date.now() + 60_000,
+        runManagedWakeIfDue: mock(async () => ({
+          due: false,
+          completed: 0,
+          skipped: 0,
+        })),
+      },
+      scheduler: {
+        runOnce: mock(async () => 1),
+        runDueWorkOnce: schedulerRunDue,
+      },
+    });
+    const handler = findHandler("drainDueBackgroundWake");
+    const deadlineAt = Date.now() + 10;
+
+    const firstResponse = await handler({
+      body: drainBodyFixture({
+        leaseId: "lease-long-running",
+        deadlineAt,
+      }),
+    });
+
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      expect(mockCompleteBackgroundWakeLease).not.toHaveBeenCalled();
+
+      const duplicateResponse = await handler({
+        body: drainBodyFixture({
+          leaseId: "lease-long-running",
+          deadlineAt,
+        }),
+      });
+
+      expect(firstResponse).toMatchObject({
+        accepted: true,
+        leaseId: "lease-long-running",
+      });
+      expect(duplicateResponse).toMatchObject({
+        accepted: true,
+        leaseId: "lease-long-running",
+      });
+      expect(schedulerRunDue).toHaveBeenCalledTimes(1);
+    } finally {
+      for (const resolve of schedulerResolvers) resolve();
+    }
+
+    await flushBackgroundWakeDrainsForTest();
+    expect(schedulerRunDue).toHaveBeenCalledTimes(1);
+    expect(mockCompleteBackgroundWakeLease).toHaveBeenCalledTimes(1);
+    expect(lastCompletionPayload()).toMatchObject({
+      leaseId: "lease-long-running",
+      status: "completed",
+    });
+  });
+
   test("drain-due runs scheduler work even when pending work remains", async () => {
     const schedulerRunDue = mock(async () =>
       schedulerResultFixture({ claimed: 1, completed: 1, stillPending: 1 }),
