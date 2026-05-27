@@ -85,9 +85,9 @@ public final class PlatformOAuthService {
         // Always send an explicit `redirect_after_connect`. The platform's own
         // default resolves against `HEADLESS_BASE_URL`, which on production is
         // the marketing site and does not render OAuth result params.
-        // `/account/oauth/desktop-complete` is the dedicated success surface
-        // served by the web app for desktop/native OAuth completions.
-        let redirectValue = redirectAfterConnect ?? "/account/oauth/desktop-complete"
+        // `/account/oauth/complete` is the dedicated success surface served by
+        // the web app for OAuth completions.
+        let redirectValue = redirectAfterConnect ?? "/account/oauth/complete"
         let body: [String: Any] = [
             "requested_scopes": [] as [String],
             "redirect_after_connect": redirectValue

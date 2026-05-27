@@ -207,7 +207,7 @@ export function completeOAuthPopup(
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
-export function DesktopOAuthCompletePage() {
+export function OAuthCompletePage() {
   const [searchParams] = useSearchParams();
   const requestId = searchParams.get("requestId");
   const oauthStatus = searchParams.get("oauth_status");

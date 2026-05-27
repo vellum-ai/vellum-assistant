@@ -1,4 +1,4 @@
-import { createBrowserRouter } from "react-router";
+import { createBrowserRouter, Navigate, useSearchParams } from "react-router";
 
 import { authMiddleware } from "@/lib/auth/auth-middleware";
 import { RootLayout } from "@/root-layout";
@@ -9,6 +9,23 @@ import { NotFound } from "@/components/not-found";
 import { RouteErrorBoundary } from "@/components/route-error-boundary";
 import { RootHydrateFallback } from "@/components/root-hydrate-fallback";
 import { ActiveAssistantGate } from "@/components/layout/active-assistant-gate";
+import { routes } from "@/utils/routes";
+
+/**
+ * Redirects legacy `/account/oauth/desktop-complete` to the canonical
+ * `/account/oauth/complete`, preserving all query parameters. Older macOS
+ * and iOS Capacitor builds have the old path baked in.
+ */
+function OAuthDesktopCompleteRedirect() {
+  const [searchParams] = useSearchParams();
+  const qs = searchParams.toString();
+  return (
+    <Navigate
+      to={`${routes.account.oauth.complete}${qs ? `?${qs}` : ""}`}
+      replace
+    />
+  );
+}
 
 // Route tree — no basename, routes are absolute browser paths.
 // To view the full hierarchy at a glance:
@@ -46,7 +63,8 @@ export const router = createBrowserRouter(
             { path: "provider/callback", lazy: { Component: () => import("@/domains/account/pages/provider-callback-page").then((m) => m.ProviderCallbackPage) } },
             { path: "provider/signup", lazy: { Component: () => import("@/domains/account/pages/provider-signup-page").then((m) => m.ProviderSignupPage) } },
             { path: "oauth/popup-complete", lazy: { Component: () => import("@/domains/account/pages/oauth-popup-complete-page").then((m) => m.OAuthPopupCompletePage) } },
-            { path: "oauth/desktop-complete", lazy: { Component: () => import("@/domains/account/pages/desktop-oauth-complete-page").then((m) => m.DesktopOAuthCompletePage) } },
+            { path: "oauth/complete", lazy: { Component: () => import("@/domains/account/pages/oauth-complete-page").then((m) => m.OAuthCompletePage) } },
+            { path: "oauth/desktop-complete", Component: OAuthDesktopCompleteRedirect },
             { path: "password/reset", lazy: { Component: () => import("@/domains/account/pages/password-reset-page").then((m) => m.PasswordResetPage) } },
             { path: "password/reset/key/:key", lazy: { Component: () => import("@/domains/account/pages/password-reset-page").then((m) => m.PasswordResetPage) } },
           ],
