@@ -65,6 +65,48 @@ export function exec(
   });
 }
 
+/**
+ * Run `command` with `args` and pipe `input` to its stdin. Mirrors `exec` —
+ * same no-args-in-error-message contract from `buildExecErrorMessage` — but
+ * lets callers stream content (e.g. a small JSON blob) into a child process
+ * without having to put the content on the command line where `ps` could
+ * read it and where Docker bind-mounts would be involved.
+ */
+export function execWithStdin(
+  command: string,
+  args: string[],
+  input: string,
+  options: { cwd?: string } = {},
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: options.cwd,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    let stdout = "";
+    child.stdout.on("data", (data: Buffer) => {
+      stdout += data.toString();
+    });
+
+    let stderr = "";
+    child.stderr.on("data", (data: Buffer) => {
+      stderr += data.toString();
+    });
+
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(buildExecErrorMessage(command, code, stderr, stdout)));
+      }
+    });
+    child.on("error", reject);
+
+    child.stdin.end(input);
+  });
+}
+
 export function execOutput(
   command: string,
   args: string[],
