@@ -1,113 +1,68 @@
-import { useEffect, useRef, useState } from "react";
+/**
+ * React hook that fetches a personalized empty-state greeting from the daemon.
+ *
+ * Calls `GET /v1/assistants/{assistant_id}/identity/intro` which returns a
+ * deterministic greeting derived from the assistant's IDENTITY.md name (e.g.
+ * "Hi, I'm Pax!"). Falls back to {@link DEFAULT_EMPTY_STATE_GREETING} when the
+ * assistant ID is missing, the daemon is unreachable, or the response is empty.
+ *
+ * The query has a long `staleTime` (5 minutes) since the intro text only
+ * changes when the user renames the assistant — a rare operation.
+ */
 
-import { client } from "@/domains/chat/api/client";
+import { useQuery } from "@tanstack/react-query";
+
+import {
+  client,
+  assertHasResponse,
+  SDK_BASE_OPTIONS,
+} from "@/domains/chat/api/client";
 import { DEFAULT_EMPTY_STATE_GREETING } from "@/domains/chat/utils/empty-state-constants";
-import { useOrganizationStore } from "@/stores/organization-store";
 
-const GREETING_PROMPT =
-  "Generate a short, casual greeting in your voice from you to your user. " +
-  "This will be displayed when the user opens a new conversation (under 8 words). " +
-  "Match your personality. Output ONLY the greeting text — no quotes, no formatting.";
+const STALE_TIME_MS = 5 * 60 * 1000;
 
-const MAX_GREETING_LENGTH = 80;
-
-const FALLBACK_GREETINGS = [
-  "What are we working on?",
-  "I'm here whenever you need me.",
-  "What's on your mind?",
-  "Ready when you are.",
-];
-
-function pickFallback(): string {
-  return FALLBACK_GREETINGS[
-    Math.floor(Math.random() * FALLBACK_GREETINGS.length)
-  ]!;
+interface IdentityIntroResponse {
+  text: string;
 }
 
-async function streamGreeting(
+async function fetchIdentityIntro(
   assistantId: string,
-  signal: AbortSignal,
-  onDelta: (text: string) => void,
-): Promise<string> {
-  const { response } = await client.request({
-    method: "POST",
-    url: "/v1/assistants/{assistantId}/btw",
-    path: { assistantId },
-    body: {
-      conversationKey: "greeting",
-      content: GREETING_PROMPT,
-    },
-    parseAs: "stream",
-    signal,
-  });
+): Promise<string | null> {
+  try {
+    const { data, error, response } = await client.get<
+      IdentityIntroResponse,
+      unknown
+    >({
+      ...SDK_BASE_OPTIONS,
+      url: "/v1/assistants/{assistant_id}/identity/intro",
+      path: { assistant_id: assistantId },
+      throwOnError: false,
+    });
+    assertHasResponse(response, error, "Failed to fetch identity intro");
 
-  if (!response || !response.ok || !response.body) {
-    throw new Error(`BTW request failed: ${response?.status}`);
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let accumulated = "";
-  let buffer = "";
-
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop()!;
-
-    for (const line of lines) {
-      if (line.startsWith("data: ")) {
-        try {
-          const payload = JSON.parse(line.slice(6)) as Record<string, unknown>;
-          if (typeof payload.text === "string") {
-            accumulated += payload.text;
-            onDelta(payload.text);
-          }
-        } catch {
-          // skip malformed JSON
-        }
-      }
+    if (!response.ok || !data || typeof data !== "object") {
+      return null;
     }
-  }
 
-  return accumulated;
+    const text =
+      typeof data.text === "string" ? data.text.trim() : null;
+    return text || null;
+  } catch {
+    return null;
+  }
 }
 
 export function useEmptyStateGreeting(
   assistantId: string | null | undefined,
 ): string {
-  const [greeting, setGreeting] = useState("");
-  const startedRef = useRef(false);
-  const orgId = useOrganizationStore.use.currentOrganizationId();
+  const enabled = Boolean(assistantId);
 
-  useEffect(() => {
-    if (!assistantId || !orgId || startedRef.current) return;
-    startedRef.current = true;
+  const query = useQuery<string | null>({
+    queryKey: ["identity-intro", assistantId],
+    queryFn: () => fetchIdentityIntro(assistantId!),
+    enabled,
+    staleTime: STALE_TIME_MS,
+  });
 
-    const controller = new AbortController();
-
-    streamGreeting(assistantId, controller.signal, (delta) => {
-      setGreeting((prev) => prev + delta);
-    })
-      .then((final) => {
-        const trimmed = final.trim();
-        if (!trimmed || trimmed.length > MAX_GREETING_LENGTH) {
-          setGreeting(pickFallback());
-        } else {
-          setGreeting(trimmed);
-        }
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) {
-          setGreeting(pickFallback());
-        }
-      });
-
-    return () => controller.abort();
-  }, [assistantId, orgId]);
-
-  return greeting || DEFAULT_EMPTY_STATE_GREETING;
+  return query.data ?? DEFAULT_EMPTY_STATE_GREETING;
 }
