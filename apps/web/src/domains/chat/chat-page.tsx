@@ -88,7 +88,8 @@ import { VersionSelectionScreen } from "@/domains/chat/components/version-select
 import { ConnectingToAssistant } from "@/domains/chat/components/connecting-to-assistant";
 import { fetchSuggestion } from "@/domains/chat/api/suggestion-api";
 import { createWebSyncRouter } from "@/lib/sync/web-sync-router";
-import { fetchAssistantIdentity } from "@/assistant/identity";
+import { assistantIdentityQueryKey } from "@/hooks/use-assistant-identity-init";
+import { useQueryClient } from "@tanstack/react-query";
 import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
 import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat-utils";
 import { isSurfaceInteractive } from "@/domains/chat/types/types";
@@ -128,7 +129,6 @@ import {
 import { getEditChatConversationId, setEditChatConversationId } from "@/domains/chat/utils/edit-chat-session";
 import { routes } from "@/utils/routes";
 import { haptic } from "@/utils/haptics";
-import type { AssistantIdentity } from "@/assistant/identity";
 import type { ChatEventStream } from "@/domains/chat/api/stream";
 import {
   ChatRouteContent,
@@ -199,7 +199,6 @@ export function ChatPage() {
     isPinnedToLatest: true,
   });
   const [assetsRefreshKey, setAssetsRefreshKey] = useState(0);
-  const [assistantIdentity, setAssistantIdentity] = useState<AssistantIdentity | null>(null);
   const prePinGroupIdsRef = useRef<Map<string, string | undefined>>(new Map());
 
   // -------------------------------------------------------------------------
@@ -246,6 +245,15 @@ export function ChatPage() {
   const isDeploying = useDeployStore.use.isDeploying();
   const isTokenDialogOpen = useDeployStore.use.isTokenDialogOpen();
   const complexDeployApp = useDeployStore.use.complexDeployApp();
+
+  // Assistant identity is fetched and stored by `useAssistantIdentityInit`
+  // at the `ChatLayout` level (TanStack Query → Zustand) so the sidebar
+  // header populates on every `/assistant/*` route. ChatPage reads the
+  // store via atomic selectors per `docs/STATE_MANAGEMENT.md` rather
+  // than maintaining its own local copy.
+  const assistantName = useAssistantIdentityStore.use.name();
+  const assistantVersion = useAssistantIdentityStore.use.version();
+  const queryClient = useQueryClient();
 
   // -------------------------------------------------------------------------
   // Pin-sync side-effect
@@ -526,18 +534,24 @@ export function ChatPage() {
   });
 
   // -------------------------------------------------------------------------
-  // Assistant identity
+  // Assistant identity (refresh trigger)
   // -------------------------------------------------------------------------
+  // The actual fetch lives in `useAssistantIdentityInit` at the
+  // `ChatLayout` level (TanStack Query → Zustand store). Chat-page only
+  // owns the *invalidation* triggers that the layout's query doesn't
+  // know about: SSE `identity_changed`, post-`/edit-identity` flush,
+  // and reachability resumes. Each downstream consumer (sync router,
+  // stream event handler, send-message hook) calls this and the layout
+  // re-fetches.
   const refreshAssistantIdentity = useCallback(
-    async (preserveOnFailure = false) => {
+    async () => {
       const targetId = assistantIdRef.current;
       if (!targetId) return;
-      const identity = await fetchAssistantIdentity(targetId);
-      if (assistantIdRef.current !== targetId) return;
-      if (identity === null && preserveOnFailure) return;
-      setAssistantIdentity(identity);
+      await queryClient.invalidateQueries({
+        queryKey: assistantIdentityQueryKey(targetId),
+      });
     },
-    [],
+    [queryClient],
   );
 
   useEffect(() => {
@@ -964,24 +978,10 @@ export function ChatPage() {
     sendMessage,
   });
 
-  // -------------------------------------------------------------------------
-  // Sync assistant identity to the global store (read by ChatLayout)
-  // -------------------------------------------------------------------------
-  useEffect(() => {
-    // Identity is hoisted to the layout via `useAssistantIdentityInit`
-    // (LUM-1747) so the sidebar keeps the correct name on sibling
-    // routes (Library, Identity, Contacts). ChatPage still writes
-    // when it has fresher local state (e.g. after an SSE
-    // `identity_changed` refresh), and only when non-null — clearing
-    // on assistant context change (tenant switch, logout) is owned
-    // by `useAssistantIdentityInit`, not by route transitions.
-    if (assistantIdentity) {
-      useAssistantIdentityStore.getState().setIdentity(
-        assistantIdentity.name ?? null,
-        assistantIdentity.version ?? null,
-      );
-    }
-  }, [assistantIdentity]);
+  // (Previously: a useEffect mirrored a local `useState<AssistantIdentity>`
+  // into `useAssistantIdentityStore`. That mirror is gone — chat-page now
+  // reads the store via atomic selectors above and `useAssistantIdentityInit`
+  // at the layout level owns the fetch + write. LUM-1959.)
 
   // -------------------------------------------------------------------------
   // Conversation actions (archive, pin, rename, etc.)
@@ -1020,7 +1020,7 @@ export function ChatPage() {
     assistantId,
     activeConversationId,
     activeConversation: activeConversation ?? null,
-    assistantIdentityName: assistantIdentity?.name ?? undefined,
+    assistantIdentityName: assistantName ?? undefined,
     messagesRef,
     refreshConversations,
     switchConversation,
@@ -1039,7 +1039,7 @@ export function ChatPage() {
   const { commandPalette, mergedSections, handleItemSelect } =
     useCommandPaletteSections({
       assistantId,
-      assistantName: assistantIdentity?.name ?? undefined,
+      assistantName: assistantName ?? undefined,
       conversations,
       activeConversationId: activeConversationId ?? undefined,
       startNewConversation: () => startNewConversation(),
@@ -1434,7 +1434,8 @@ export function ChatPage() {
   const chatRouteProps: ChatRouteContentProps = {
     assistantId,
     assistantState,
-    assistantIdentity,
+    assistantName,
+    assistantVersion,
     chatPullToRefreshEnabled,
     deployToVercel,
     doctor,
@@ -1682,8 +1683,8 @@ export function ChatPage() {
       <ConfirmDialog
         open={complexDeployApp !== null}
         title="This app needs a full deploy"
-        message={`"${complexDeployApp?.name ?? ""}" uses backend services that won't work on a static Vercel page. ${assistantIdentity?.name ?? "Your assistant"} can deploy it properly with serverless functions.`}
-        confirmLabel={`Let ${assistantIdentity?.name ?? "assistant"} handle it`}
+        message={`"${complexDeployApp?.name ?? ""}" uses backend services that won't work on a static Vercel page. ${assistantName ?? "Your assistant"} can deploy it properly with serverless functions.`}
+        confirmLabel={`Let ${assistantName ?? "assistant"} handle it`}
         onConfirm={() => {
           const appName = useDeployStore.getState().complexDeployApp?.name ?? "this app";
           useDeployStore.getState().setComplexDeployApp(null);
