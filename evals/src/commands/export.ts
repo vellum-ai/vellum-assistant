@@ -12,7 +12,12 @@ import {
 } from "../lib/report-data";
 
 type ExportRecord =
-  | { type: "metadata"; schemaVersion: 1; exportedAt: string; sessionId: string }
+  | {
+      type: "metadata";
+      schemaVersion: 1;
+      exportedAt: string;
+      sessionId: string;
+    }
   | { type: "session"; session: Awaited<ReturnType<typeof readReportSession>> }
   | {
       type: "test";
