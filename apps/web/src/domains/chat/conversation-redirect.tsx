@@ -19,10 +19,13 @@ export function ConversationRedirect() {
     const param = searchParams.has("conversationId")
       ? "conversationId"
       : "conversationKey";
-    Sentry.captureMessage(
-      `[ConversationRedirect] Legacy search param redirect: ?${param}=${target}`,
-      "warning",
-    );
+    Sentry.withScope((scope) => {
+      scope.setTag("legacy_param", param);
+      Sentry.captureMessage(
+        "[ConversationRedirect] Legacy search param redirect",
+        "warning",
+      );
+    });
 
     const remaining = new URLSearchParams(searchParams);
     remaining.delete("conversationId");
