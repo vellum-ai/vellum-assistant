@@ -115,6 +115,27 @@ References:
 
 ---
 
+## Full-screen overlays must respect safe-area insets
+
+Any element that takes over the full viewport (modals, detail panels, drawers) via `position: fixed; inset: 0` **must** apply safe-area padding so content does not render behind the iPhone status bar, Dynamic Island, or home indicator. The `ChatLayoutHeader` handles this for the persistent top bar, but overlays that cover the header lose its protection.
+
+Use the CSS custom properties set by `capacitor-plugin-safe-area`:
+
+```css
+padding-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+padding-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+```
+
+The double fallback (`var()` → `env()` → `0px`) covers Capacitor iOS (plugin sets `--safe-area-inset-*`), standard browsers (`env()` from `viewport-fit=cover`), and desktop/non-notch devices (`0px`).
+
+If the overlay includes its own nav bar, the nav bar itself should sit below the safe-area padding — don't push the inset down into child elements where it's easy to lose.
+
+References:
+- MDN — [`env()` safe area insets](https://developer.mozilla.org/en-US/docs/Web/CSS/env#safe_area_insets)
+- Apple HIG — [Layout: Safe area](https://developer.apple.com/design/human-interface-guidelines/layout#Safe-area)
+
+---
+
 ## See also
 
 - [`CONVENTIONS.md`](./CONVENTIONS.md) — architecture, code organization, component patterns.
