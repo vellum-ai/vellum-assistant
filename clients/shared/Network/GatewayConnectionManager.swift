@@ -426,6 +426,11 @@ public final class GatewayConnectionManager {
     /// check cycle. The two signals (`isConnected`, `isAuthFailed`) are
     /// independent; a tripped auth signal never forces `isConnected = false`
     /// on its own and vice-versa.
+    ///
+    /// For local (non-managed) assistants, automatically triggers
+    /// `attemptRePair()` on the false→true transition to recover from
+    /// terminal credential failures (e.g. revoked token families, locked
+    /// guardian-init) without manual user intervention.
     private func updateAuthFailedSignal() {
         let tripped = authFailureTracker.isAuthFailed
         guard tripped != _isAuthFailed else { return }
@@ -434,6 +439,13 @@ public final class GatewayConnectionManager {
             let status = authFailureTracker.lastStatusCode ?? -1
             let path = authFailureTracker.lastPath ?? "?"
             log.warning("AuthFailureTracker tripped: status=\(status, privacy: .public) path=\(path, privacy: .public) window=\(self.authFailureTracker.windowSeconds, privacy: .public) failures=\(self.authFailureTracker.minFailures, privacy: .public)")
+
+            if isLocal, rePairHandler != nil {
+                log.info("Auto-triggering attemptRePair for local assistant after sustained auth failure")
+                Task { [weak self] in
+                    await self?.attemptRePair()
+                }
+            }
         } else {
             log.info("AuthFailureTracker cleared")
         }
