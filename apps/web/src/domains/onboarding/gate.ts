@@ -12,6 +12,7 @@
  */
 import { routes } from "@/utils/routes";
 
+import { isLocalMode } from "@/lib/local-mode";
 import { readOnboardingCompleted } from "@/domains/onboarding/prefs";
 
 /**
@@ -31,7 +32,7 @@ export function resolveOnboardingRedirect({
 }: {
   intendedDestination: string;
 }): string | null {
-  if (readOnboardingCompleted()) return null;
+  if (isLocalMode() || readOnboardingCompleted()) return null;
 
   // `intendedDestination` may be a bare path or a raw `returnTo` value that
   // survived the callback as an absolute URL (`https://assistant.host/assistant`,

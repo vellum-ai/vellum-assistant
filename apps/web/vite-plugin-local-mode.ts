@@ -86,7 +86,7 @@ function lockfileMiddleware(
   lockfilePaths: string[],
 ): Connect.NextHandleFunction {
   return (req, res, next) => {
-    if (req.url !== "/__local/lockfile") return next();
+    if (req.url !== "/assistant/__local/lockfile" && req.url !== "/__local/lockfile") return next();
 
     if (req.method === "GET") {
       handleGetLockfile(lockfilePaths, res);
@@ -132,7 +132,7 @@ function handleGetLockfile(
   }
 }
 
-const GATEWAY_PATTERN = /^\/__gateway\/(\d+)(\/.*)?$/;
+const GATEWAY_PATTERN = /^(?:\/assistant)?\/__gateway\/(\d+)(\/.*)?$/;
 
 /**
  * Connect middleware that proxies requests to local gateway ports.

@@ -55,7 +55,7 @@ export function isLocalMode(): boolean {
 
 export async function loadLockfile(): Promise<Lockfile> {
   try {
-    const res = await fetch("/__local/lockfile");
+    const res = await fetch("/assistant/__local/lockfile");
     if (!res.ok) throw new Error(`lockfile fetch failed: ${res.status}`);
     const data: Lockfile = await res.json();
     lockfile = data;
@@ -134,7 +134,7 @@ export function clearSelectedAssistant(): void {
 // ---------------------------------------------------------------------------
 
 export function gatewayProxyUrl(port: number): string {
-  return `/__gateway/${port}`;
+  return `/assistant/__gateway/${port}`;
 }
 
 /**

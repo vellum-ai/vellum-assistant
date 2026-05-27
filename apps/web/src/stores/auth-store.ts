@@ -23,14 +23,17 @@ import {
   isGatewayAuthEnabled,
   isGatewayAuthMode,
   ensureGatewayToken,
+  getGatewayToken,
   clearGatewayToken,
   getLocalTokenUrl,
 } from "@/lib/auth/gateway-session";
 import {
   isLocalMode,
   getPlatformAssistants,
+  getLocalGatewayUrl,
   clearSelectedAssistant,
 } from "@/lib/local-mode";
+import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 import { deleteBiometricToken } from "@/runtime/native-biometric";
 import { syncOnboardingUser, clearOnboardingFlags } from "@/lib/onboarding-cleanup";
 import { clearOrganization } from "@/stores/organization-store";
@@ -126,6 +129,13 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
     if (isGatewayAuthEnabled()) {
       try {
         await ensureGatewayToken(getLocalTokenUrl());
+        const localGateway = getLocalGatewayUrl();
+        if (localGateway) {
+          setSelfHostedConnection({
+            url: `${window.location.origin}${localGateway}`,
+            token: getGatewayToken(),
+          });
+        }
         set({ isLoggedIn: true, isLoading: false, user: GATEWAY_LOCAL_USER });
       } catch {
         set({ isLoggedIn: false, isLoading: false, user: null });

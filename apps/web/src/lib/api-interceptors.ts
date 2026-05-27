@@ -33,6 +33,7 @@ import {
   getSelfHostedActorToken,
   getSelfHostedIngressUrl,
 } from "@/lib/self-hosted/connection";
+import { isLocalMode } from "@/lib/local-mode";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
 import { getActiveOrganizationIdForRequests } from "@/stores/organization-store";
 
@@ -80,10 +81,14 @@ export async function rewriteForSelfHostedIngress(
   if (!ingressUrl) return null;
 
   const url = new URL(request.url);
+
   const match = ASSISTANT_PATH_RE.exec(url.pathname);
   if (!match) return null;
   const firstSegment = match[1];
-  if (!firstSegment || !RUNTIME_PROXIED_FIRST_SEGMENTS.has(firstSegment)) {
+  if (
+    !firstSegment ||
+    (!isLocalMode() && !RUNTIME_PROXIED_FIRST_SEGMENTS.has(firstSegment))
+  ) {
     return null;
   }
 
@@ -114,22 +119,22 @@ export async function rewriteForSelfHostedIngress(
     headers.delete("Authorization");
   }
 
-  // `duplex: "half"` is required by the WHATWG fetch spec for any
-  // Request constructed with a streaming body, and harmless otherwise.
-  // The DOM lib's RequestInit typing hasn't caught up.
+  // Read the body as an ArrayBuffer so the rewritten Request carries a
+  // finite-length body instead of a ReadableStream.  Chrome refuses to
+  // send a streaming (duplex: "half") body over plain HTTP (it tries
+  // to negotiate HTTP/2 via ALPN, which fails without TLS).
+  const body = request.body ? await request.arrayBuffer() : null;
+
   const init: RequestInit = {
     method: request.method,
     headers,
-    body: request.body,
+    body,
     // Bearer auth replaces cookie auth — don't leak the platform's
     // session cookie to the user's gateway.
     credentials: "omit",
     redirect: request.redirect,
     signal: request.signal,
   };
-  if (request.body) {
-    (init as RequestInit & { duplex: "half" }).duplex = "half";
-  }
   return new Request(rewrittenUrl.toString(), init);
 }
 

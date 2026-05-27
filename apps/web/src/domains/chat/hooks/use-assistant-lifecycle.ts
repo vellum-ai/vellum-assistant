@@ -190,6 +190,7 @@ export function useAssistantLifecycle({
   }, []);
 
   const checkAssistant = useCallback(async () => {
+    if (isGatewayAuthMode()) return;
     const generation = initializingGenerationRef.current;
     try {
       const result = await getAssistant();
@@ -399,11 +400,6 @@ export function useAssistantLifecycle({
     if (!isLoggedIn || isLoading) {
       return;
     }
-    if (hasPlatformSession) {
-      setSelfHostedConnection(null);
-      checkAssistant();
-      return;
-    }
     if (isGatewayAuthMode()) {
       let ingressUrl = window.location.origin;
       let assistantId = "self";
@@ -421,6 +417,11 @@ export function useAssistantLifecycle({
       });
       setAssistantId(assistantId);
       setAssistantState({ kind: "active", isLocal: true });
+      return;
+    }
+    if (hasPlatformSession) {
+      setSelfHostedConnection(null);
+      checkAssistant();
       return;
     }
     checkAssistant();
