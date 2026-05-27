@@ -43,6 +43,7 @@ import {
   clearPrivacyConsent,
   hasRecentPrivacyConsent,
 } from "@/domains/onboarding/signals.js";
+import { isLocalMode } from "@/lib/local-mode";
 import { useIsNativePlatform } from "@/runtime/native-auth.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 import { useRootOutletContext } from "@/root-layout";
@@ -79,6 +80,7 @@ export function PreChatFlow() {
     "loading",
   );
 
+  const localMode = isLocalMode();
   const isMacOSWeb = useIsMacOSWeb();
   const isIOSWeb = useIsIOSWeb();
   const showAppStep =
@@ -127,7 +129,7 @@ export function PreChatFlow() {
 
   const { data: activeAssistant } = useQuery({
     ...assistantsActiveRetrieveOptions(),
-    enabled: !isAuthLoading && isLoggedIn,
+    enabled: !isAuthLoading && isLoggedIn && !localMode,
   });
 
   const navigateToChatAfterLifecycleRefresh = useCallback(async () => {
@@ -166,7 +168,8 @@ export function PreChatFlow() {
       setRecipeLoadState("loading");
       return;
     }
-    if (isNative) {
+    // In local mode, the gateway doesn't serve the recipe endpoint.
+    if (isNative || localMode) {
       setRecipe(null);
       setRecipeLoadState("ready");
       return;
@@ -185,7 +188,7 @@ export function PreChatFlow() {
         if (!cancelled) setRecipeLoadState("ready");
       });
     return () => { cancelled = true; };
-  }, [isAuthLoading, isLoggedIn, isNative, userId]);
+  }, [isAuthLoading, isLoggedIn, isNative, localMode, userId]);
 
   useEffect(() => {
     if (isAuthLoading) return;
@@ -410,7 +413,14 @@ export function PreChatFlow() {
 
   const hasGoogleTool = [...selectedTools].some((id) => GOOGLE_TOOL_IDS.has(id));
 
+  // In local mode, platform-only screens (PriorAssistants, GoogleOAuth, GetApp) are
+  // skipped. The recipe fetch is also disabled since the gateway doesn't serve it.
+  // In Electron, the recipe could be fetched from the daemon directly if needed.
   const advancePastToolSelection = () => {
+    if (localMode) {
+      void finish();
+      return;
+    }
     setScreen(3);
   };
 
