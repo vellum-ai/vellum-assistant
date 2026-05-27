@@ -1,6 +1,6 @@
 
 import * as Sentry from "@sentry/react";
-import { type MutableRefObject, useCallback } from "react";
+import { type MutableRefObject, useCallback, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { patchConversation } from "@/domains/conversations/conversation-queries";
@@ -324,17 +324,41 @@ export function useConversationActions({
     [handleMoveToGroup],
   );
 
+  // Rename flows through an in-app dialog rather than `window.prompt` so
+  // the chrome matches the rest of the app and keyboard / focus behavior
+  // stays consistent across browsers. The hook owns the request state;
+  // consumers render `<RenameConversationDialog>` against the returned
+  // `renameRequest` / `submitRenameConversation` / `cancelRenameConversation`.
+  const [renameRequest, setRenameRequest] = useState<{
+    conversation: Conversation;
+    currentTitle: string;
+  } | null>(null);
+
   const handleRenameConversation = useCallback(
-    async (conversation: Conversation) => {
+    (conversation: Conversation) => {
       if (!assistantId) return;
-      const current = conversation.title ?? "";
-      const next =
-        typeof window === "undefined"
-          ? null
-          : window.prompt("Rename conversation", current);
-      if (next == null) return;
-      const trimmed = next.trim();
-      if (!trimmed || trimmed === current) return;
+      setRenameRequest({
+        conversation,
+        currentTitle: conversation.title ?? "",
+      });
+    },
+    [assistantId],
+  );
+
+  const cancelRenameConversation = useCallback(() => {
+    setRenameRequest(null);
+  }, []);
+
+  const submitRenameConversation = useCallback(
+    async (newTitle: string) => {
+      if (!renameRequest || !assistantId) return;
+      const { conversation, currentTitle } = renameRequest;
+      // Close the dialog up-front so the UI feels responsive while the
+      // optimistic patch + network call run.
+      setRenameRequest(null);
+
+      const trimmed = newTitle.trim();
+      if (!trimmed || trimmed === currentTitle) return;
 
       patchConversation(queryClient, assistantId, conversation.conversationId, { title: trimmed });
 
@@ -345,13 +369,13 @@ export function useConversationActions({
           trimmed,
         );
       } catch (err) {
-        patchConversation(queryClient, assistantId, conversation.conversationId, { title: current });
+        patchConversation(queryClient, assistantId, conversation.conversationId, { title: currentTitle });
         Sentry.captureException(err, {
           tags: { context: "renameConversation" },
         });
       }
     },
-    [assistantId, queryClient],
+    [assistantId, queryClient, renameRequest],
   );
 
   return {
@@ -363,5 +387,8 @@ export function useConversationActions({
     handleMoveToGroup,
     handleRemoveFromGroup,
     handleRenameConversation,
+    renameRequest,
+    submitRenameConversation,
+    cancelRenameConversation,
   };
 }

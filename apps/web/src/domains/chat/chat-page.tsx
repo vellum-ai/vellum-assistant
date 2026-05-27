@@ -64,6 +64,7 @@ import { useAppNudges } from "@/domains/chat/hooks/use-app-nudges";
 import { useConversationLoader } from "@/domains/conversations/use-conversation-loader";
 import { useContextWindowUsageHydration } from "@/domains/chat/hooks/use-context-window-usage-hydration";
 import { useConversationActions } from "@/domains/conversations/use-conversation-actions";
+import { RenameConversationDialog } from "@/domains/conversations/rename-conversation-dialog";
 import { useConversationSecondaryActions } from "@/domains/chat/hooks/use-conversation-secondary-actions";
 import { canUseLlmInspector } from "@/domains/chat/inspector/access";
 import { useCommandPaletteSections } from "@/domains/chat/hooks/use-command-palette-sections";
@@ -990,6 +991,9 @@ export function ChatPage() {
     handleMoveToGroup,
     handleRemoveFromGroup,
     handleRenameConversation,
+    renameRequest,
+    submitRenameConversation,
+    cancelRenameConversation,
   } = useConversationActions({
     assistantId,
     activeConversationId,
@@ -1639,6 +1643,12 @@ export function ChatPage() {
           />
         </LazyBoundary>
       ) : null}
+      <RenameConversationDialog
+        open={renameRequest !== null}
+        currentTitle={renameRequest?.currentTitle ?? ""}
+        onSubmit={submitRenameConversation}
+        onCancel={cancelRenameConversation}
+      />
       <ConfirmDialog
         open={complexDeployApp !== null}
         title="This app needs a full deploy"
