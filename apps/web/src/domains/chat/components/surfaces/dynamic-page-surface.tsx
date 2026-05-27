@@ -1,10 +1,11 @@
 import { Minimize2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { client } from "@/generated/api/client.gen";
 import { AppCard } from "@/components/app-card";
 import { clearAppHtmlCache, getCachedAppHtml } from "@/utils/app-html-cache";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
+import { useSandboxFetchProxy } from "@/hooks/use-sandbox-fetch-proxy";
+import { injectBridge } from "@/utils/sandbox-bridge";
 import type { Surface } from "@/domains/chat/types/types";
 import { getDynamicPageAppId } from "@/domains/chat/components/surfaces/dynamic-page-app-id";
 
@@ -37,121 +38,6 @@ interface DynamicPageSurfaceProps {
   assistantId?: string | null;
   onOpenApp?: (appId: string) => void;
   isToolCallComplete?: boolean;
-}
-
-// ---------------------------------------------------------------------------
-// Fetch proxy path validation (matches desktop ATL-83 restriction)
-// ---------------------------------------------------------------------------
-
-const FETCH_PROXY_ALLOWED_PATH_RE = /^\/v1\/x\//;
-
-// ---------------------------------------------------------------------------
-// JS bridge script
-// ---------------------------------------------------------------------------
-
-function buildBridgeScript(surfaceId: string, enableFetch: boolean): string {
-  const fetchBridge = enableFetch
-    ? `
-  window.vellum._pendingFetches = {};
-  window.vellum._fetchNextId = 1;
-  window.vellum._resolveFetch = function(callId, status, statusText, body, headers) {
-    var p = window.vellum._pendingFetches[callId];
-    if (!p) return;
-    delete window.vellum._pendingFetches[callId];
-    p.resolve({
-      ok: status >= 200 && status < 300,
-      status: status,
-      statusText: statusText,
-      headers: headers || {},
-      _body: body,
-      json: function() { return Promise.resolve(JSON.parse(body)); },
-      text: function() { return Promise.resolve(body); }
-    });
-  };
-  window.vellum._rejectFetch = function(callId, errorMessage) {
-    var p = window.vellum._pendingFetches[callId];
-    if (!p) return;
-    delete window.vellum._pendingFetches[callId];
-    p.reject(new Error(errorMessage));
-  };
-  window.addEventListener('message', function(event) {
-    var d = event.data;
-    if (!d) return;
-    if (d.type === 'vellum_fetch_response' && d.callId) {
-      if (d.error) {
-        window.vellum._rejectFetch(d.callId, d.error);
-      } else {
-        window.vellum._resolveFetch(d.callId, d.status, d.statusText, d.body, d.headers);
-      }
-    }
-  });
-  window.vellum.fetch = function(path, options) {
-    options = options || {};
-    return new Promise(function(resolve, reject) {
-      var callId = 'f' + (window.vellum._fetchNextId++);
-      window.vellum._pendingFetches[callId] = { resolve: resolve, reject: reject };
-      window.parent.postMessage({
-        type: 'vellum_fetch_request',
-        surfaceId: ${JSON.stringify(surfaceId)},
-        callId: callId,
-        path: path,
-        method: (options.method || 'GET').toUpperCase(),
-        headers: options.headers || {},
-        body: options.body || null
-      }, '*');
-    });
-  };`
-    : "";
-
-  return `<script>
-(function() {
-  var store = {};
-  var storageShim = {
-    getItem: function(k) { return store.hasOwnProperty(k) ? store[k] : null; },
-    setItem: function(k, v) { store[k] = String(v); },
-    removeItem: function(k) { delete store[k]; },
-    clear: function() { store = {}; },
-    get length() { return Object.keys(store).length; },
-    key: function(i) { return Object.keys(store)[i] || null; }
-  };
-  try {
-    Object.defineProperty(window, 'localStorage', { value: storageShim, writable: true, configurable: true });
-  } catch(e) {
-    window.localStorage = storageShim;
-  }
-  try {
-    Object.defineProperty(window, 'sessionStorage', { value: storageShim, writable: true, configurable: true });
-  } catch(e) {
-    window.sessionStorage = storageShim;
-  }
-
-  window.vellum = {
-    sendAction: function(actionId, data) {
-      window.parent.postMessage({
-        type: 'vellum_surface_action',
-        surfaceId: ${JSON.stringify(surfaceId)},
-        actionId: actionId,
-        data: data || {}
-      }, '*');
-    }
-  };${fetchBridge}
-})();
-</script>`;
-}
-
-// ---------------------------------------------------------------------------
-// Inject bridge into HTML
-// ---------------------------------------------------------------------------
-
-function injectBridge(html: string, surfaceId: string, enableFetch: boolean): string {
-  const bridge = buildBridgeScript(surfaceId, enableFetch);
-  if (html.includes("</body>")) {
-    return html.replace("</body>", bridge + "</body>");
-  }
-  if (html.includes("</head>")) {
-    return html.replace("</head>", "</head>" + bridge);
-  }
-  return bridge + html;
 }
 
 // ---------------------------------------------------------------------------
@@ -213,7 +99,7 @@ export function DynamicPageSurface({
   }, [data.html, surface.surfaceId]);
 
   const srcdoc = useMemo(
-    () => injectBridge(data.html || "", surface.surfaceId, enableFetch),
+    () => injectBridge(data.html || "", surface.surfaceId, { fetch: enableFetch }),
     [data.html, surface.surfaceId, enableFetch],
   );
 
@@ -223,109 +109,19 @@ export function DynamicPageSurface({
     }
   }, [assistantId, appId, isToolCallComplete]);
 
-  useEffect(() => {
-    const handler = async (event: MessageEvent) => {
-      const msg = event.data;
-      if (!msg || msg.surfaceId !== surface.surfaceId) return;
-      if (event.source !== iframeRef.current?.contentWindow) return;
+  const handleSurfaceAction = useCallback(
+    (actionId: string, data?: Record<string, unknown>) => {
+      onAction(surface.surfaceId, actionId, data);
+    },
+    [surface.surfaceId, onAction],
+  );
 
-      if (msg.type === "vellum_surface_action") {
-        onAction(surface.surfaceId, msg.actionId, msg.data);
-        return;
-      }
-
-      if (msg.type === "vellum_fetch_request" && enableFetch && assistantId) {
-        const { callId, path, method, headers, body } = msg as {
-          callId: string;
-          path: string;
-          method: string;
-          headers: Record<string, string>;
-          body: string | null;
-        };
-
-        const iframe = iframeRef.current;
-        const sendResponse = (response: Record<string, unknown>) => {
-          iframe?.contentWindow?.postMessage(response, "*");
-        };
-
-        if (!FETCH_PROXY_ALLOWED_PATH_RE.test(path)) {
-          sendResponse({
-            type: "vellum_fetch_response",
-            callId,
-            error: "Request blocked: only /v1/x/ custom routes are allowed",
-          });
-          return;
-        }
-
-        try {
-          const canonical = new URL(path, "https://placeholder").pathname;
-          if (!FETCH_PROXY_ALLOWED_PATH_RE.test(canonical)) {
-            sendResponse({
-              type: "vellum_fetch_response",
-              callId,
-              error: "Request blocked: path traversal detected",
-            });
-            return;
-          }
-        } catch {
-          sendResponse({
-            type: "vellum_fetch_response",
-            callId,
-            error: "Request blocked: invalid path",
-          });
-          return;
-        }
-
-        const proxyUrl = `/v1/assistants/${assistantId}/${path.replace(/^\/v1\//, "")}`;
-        try {
-          const fetchOptions = {
-            url: proxyUrl,
-            throwOnError: false as const,
-            headers: headers && Object.keys(headers).length > 0 ? headers : undefined,
-            body: body ? JSON.parse(body) : undefined,
-          };
-
-          const clientMethod =
-            method === "POST"
-              ? client.post
-              : method === "PUT"
-                ? client.put
-                : method === "PATCH"
-                  ? client.patch
-                  : method === "DELETE"
-                    ? client.delete
-                    : client.get;
-          const response = await clientMethod(fetchOptions);
-
-          const httpResponse = response.response;
-          const responseBody = response.data ?? response.error;
-          const bodyStr =
-            responseBody == null
-              ? ""
-              : typeof responseBody === "string"
-                ? responseBody
-                : JSON.stringify(responseBody);
-
-          sendResponse({
-            type: "vellum_fetch_response",
-            callId,
-            status: httpResponse?.status ?? 0,
-            statusText: httpResponse?.statusText ?? "",
-            body: bodyStr,
-          });
-        } catch (err) {
-          sendResponse({
-            type: "vellum_fetch_response",
-            callId,
-            error: err instanceof Error ? err.message : "Fetch proxy error",
-          });
-        }
-        return;
-      }
-    };
-    window.addEventListener("message", handler);
-    return () => window.removeEventListener("message", handler);
-  }, [surface.surfaceId, onAction, enableFetch, assistantId]);
+  useSandboxFetchProxy(iframeRef, {
+    frameId: surface.surfaceId,
+    assistantId: assistantId ?? "",
+    enabled: enableFetch,
+    onAction: handleSurfaceAction,
+  });
 
   const handleCollapse = useCallback(() => setExpanded(false), []);
   const handleOpenPreview = useCallback(() => {
@@ -344,8 +140,6 @@ export function DynamicPageSurface({
       ? handleOpenPreview
       : undefined;
 
-  // Memoize the live-preview loader so AppPreviewThumbnail's effect doesn't
-  // tear down + re-attach its IntersectionObserver on every parent render.
   const loadHtmlForPreview = useMemo(
     () =>
       isToolCallComplete
@@ -358,7 +152,6 @@ export function DynamicPageSurface({
     [assistantId, appId, inlineHtml, isToolCallComplete],
   );
 
-  // Always show AppCard for dynamic_page surfaces with preview data
   if (data.preview && !expanded) {
     const cardName = data.preview.title || surface.title || "App";
     const isPinned = appId ? pinnedAppIds.has(appId) : false;

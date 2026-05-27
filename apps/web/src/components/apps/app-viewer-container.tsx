@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useMemo, useRef } from "react";
 
 import { AppNavBar } from "@/components/app-nav-bar";
-import { FETCH_PROXY_ALLOWED_PATH_RE, injectBridge } from "@/utils/app-bridge";
-import { client } from "@/generated/api/client.gen";
+import { useSandboxFetchProxy } from "@/hooks/use-sandbox-fetch-proxy";
+import { injectBridge } from "@/utils/sandbox-bridge";
 
 export interface AppViewerContainerProps {
   appId: string;
@@ -37,7 +37,10 @@ export function AppViewerContainer({
 }: AppViewerContainerProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
-  const srcdoc = useMemo(() => injectBridge(html, appId, route), [html, appId, route]);
+  const srcdoc = useMemo(
+    () => injectBridge(html, appId, { fetch: true, route }),
+    [html, appId, route],
+  );
 
   const iframeKey = useMemo(() => {
     let hash = 0;
@@ -47,106 +50,10 @@ export function AppViewerContainer({
     return `app-${appId}-${hash}`;
   }, [html, appId]);
 
-  useEffect(() => {
-    const handler = async (event: MessageEvent) => {
-      const msg = event.data;
-      if (!msg || msg.appId !== appId) return;
-      if (event.source !== iframeRef.current?.contentWindow) return;
-
-      if (msg.type === "vellum_surface_action") return;
-
-      if (msg.type !== "vellum_fetch_request") return;
-
-      const { callId, path, method, headers, body } = msg as {
-        callId: string;
-        path: string;
-        method: string;
-        headers: Record<string, string>;
-        body: string | null;
-      };
-
-      const iframe = iframeRef.current;
-      const sendResponse = (response: Record<string, unknown>) => {
-        iframe?.contentWindow?.postMessage(response, "*");
-      };
-
-      if (!FETCH_PROXY_ALLOWED_PATH_RE.test(path)) {
-        sendResponse({
-          type: "vellum_fetch_response",
-          callId,
-          error: "Request blocked: only /v1/x/ custom routes are allowed",
-        });
-        return;
-      }
-
-      try {
-        const canonical = new URL(path, "https://placeholder").pathname;
-        if (!FETCH_PROXY_ALLOWED_PATH_RE.test(canonical)) {
-          sendResponse({
-            type: "vellum_fetch_response",
-            callId,
-            error: "Request blocked: path traversal detected",
-          });
-          return;
-        }
-      } catch {
-        sendResponse({
-          type: "vellum_fetch_response",
-          callId,
-          error: "Request blocked: invalid path",
-        });
-        return;
-      }
-
-      const proxyUrl = `/v1/assistants/${assistantId}/${path.replace(/^\/v1\//, "")}`;
-      try {
-        const fetchOptions = {
-          url: proxyUrl,
-          throwOnError: false as const,
-          headers: headers && Object.keys(headers).length > 0 ? headers : undefined,
-          body: body ? JSON.parse(body) : undefined,
-        };
-
-        const clientMethod =
-          method === "POST"
-            ? client.post
-            : method === "PUT"
-              ? client.put
-              : method === "PATCH"
-                ? client.patch
-                : method === "DELETE"
-                  ? client.delete
-                  : client.get;
-        const response = await clientMethod(fetchOptions);
-
-        const httpResponse = response.response;
-        const responseBody = response.data ?? response.error;
-        const bodyStr =
-          responseBody == null
-            ? ""
-            : typeof responseBody === "string"
-              ? responseBody
-              : JSON.stringify(responseBody);
-
-        sendResponse({
-          type: "vellum_fetch_response",
-          callId,
-          status: httpResponse?.status ?? 0,
-          statusText: httpResponse?.statusText ?? "",
-          body: bodyStr,
-        });
-      } catch (err) {
-        sendResponse({
-          type: "vellum_fetch_response",
-          callId,
-          error: err instanceof Error ? err.message : "Fetch proxy error",
-        });
-      }
-    };
-
-    window.addEventListener("message", handler);
-    return () => window.removeEventListener("message", handler);
-  }, [appId, assistantId]);
+  useSandboxFetchProxy(iframeRef, {
+    frameId: appId,
+    assistantId,
+  });
 
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-xl bg-[var(--surface-base)]">
