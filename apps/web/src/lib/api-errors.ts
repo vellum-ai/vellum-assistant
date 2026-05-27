@@ -103,3 +103,14 @@ export class ApiError extends Error {
     this.status = status;
   }
 }
+
+/**
+ * Default options spread into every HeyAPI SDK call. In SSR / test
+ * environments where `window` is absent, supplies a dummy `baseUrl`
+ * so the client constructor doesn't throw; in the browser the client's
+ * globally-configured base URL is used.
+ */
+export const SDK_BASE_OPTIONS =
+  typeof window === "undefined"
+    ? ({ baseUrl: "http://localhost" } as const)
+    : ({} as const);

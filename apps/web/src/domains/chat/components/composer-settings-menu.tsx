@@ -20,13 +20,13 @@ import {
   getGlobalThresholds,
   setConversationOverride,
   setGlobalThresholds,
-} from "@/domains/chat/api/threshold-api";
+} from "@/lib/threshold-api";
 import {
   THRESHOLD_PRESETS,
   overrideAction,
   presetFromThreshold,
   type ThresholdPreset,
-} from "@/domains/chat/utils/threshold-presets";
+} from "@/utils/threshold-presets";
 
 interface Props {
   assistantId: string;

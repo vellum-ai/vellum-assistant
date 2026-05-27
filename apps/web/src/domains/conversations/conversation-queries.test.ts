@@ -19,7 +19,7 @@ import {
 import type {
   Conversation,
   ConversationGroup,
-} from "@/domains/chat/api/conversations";
+} from "@/lib/conversations-api";
 import type { ChatContext } from "@/domains/chat/api/assistant";
 
 const ASSISTANT_ID = "ast-1";

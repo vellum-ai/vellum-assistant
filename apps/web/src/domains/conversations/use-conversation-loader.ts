@@ -21,7 +21,7 @@ import {
 import {
   loadLastViewedConversationId,
   saveLastViewedConversationId,
-} from "@/domains/chat/utils/last-viewed-conversation-storage";
+} from "@/utils/last-viewed-conversation-storage";
 import type { TranscriptPaginationState } from "@/domains/chat/transcript/types";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
 
@@ -36,7 +36,7 @@ import { useConversationHistory } from "@/domains/chat/hooks/use-conversation-hi
 import { useQueryClient } from "@tanstack/react-query";
 
 import { ApiError } from "@/domains/chat/api/client";
-import { type Conversation } from "@/domains/chat/api/conversations";
+import { type Conversation } from "@/lib/conversations-api";
 import {
   chatContextQueryKey,
   conversationGroupsQueryKey,

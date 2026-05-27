@@ -9,7 +9,7 @@ import { isSlackConversation } from "@/domains/chat/utils/group-conversations";
 import { haptic } from "@/utils/haptics";
 
 import { shouldReturnToBackground } from "@/domains/chat/utils/chat-utils";
-import { type Conversation, archiveConversation, isBackgroundConversation, markConversationSeen, markConversationUnread, renameConversation, reorderConversations, unarchiveConversation } from "@/domains/chat/api/conversations";
+import { type Conversation, archiveConversation, isBackgroundConversation, markConversationSeen, markConversationUnread, renameConversation, reorderConversations, unarchiveConversation } from "@/lib/conversations-api";
 
 // ---------------------------------------------------------------------------
 // Helpers — pure functions, no React state

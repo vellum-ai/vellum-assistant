@@ -40,7 +40,7 @@ import {
   type ConversationGroup,
   fetchConversationDetail,
   fetchGroups,
-} from "@/domains/chat/api/conversations";
+} from "@/lib/conversations-api";
 
 // ---------------------------------------------------------------------------
 // Query keys

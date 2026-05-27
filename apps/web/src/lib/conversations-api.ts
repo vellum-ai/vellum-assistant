@@ -41,7 +41,7 @@ import { ApiError, assertHasResponse, extractErrorMessage } from "@/lib/api-erro
 import {
   parseSlackMessageLink,
   type SlackMessageLink,
-} from "@/domains/chat/types/types";
+} from "@/utils/slack-message-link";
 
 // ---------------------------------------------------------------------------
 // Conversations

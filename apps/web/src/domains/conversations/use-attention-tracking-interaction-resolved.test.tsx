@@ -25,7 +25,7 @@ mock.module("@/domains/conversations/conversation-queries", () => ({
   markConversationSeenLocal: () => {},
 }));
 
-mock.module("@/domains/chat/api/conversations", () => ({
+mock.module("@/lib/conversations-api", () => ({
   markConversationSeen: async () => {},
 }));
 

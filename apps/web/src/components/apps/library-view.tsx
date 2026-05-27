@@ -12,8 +12,8 @@ import {
 } from "lucide-react";
 import { type ChangeEvent, type MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { AppSummary } from "@/domains/chat/api/apps";
-import type { DocumentSummary } from "@/domains/chat/api/documents";
+import type { AppSummary } from "@/lib/apps-api";
+import type { DocumentSummary } from "@/lib/documents-api";
 import { ApiError } from "@/lib/api-errors";
 import {
   deleteApp,
@@ -23,12 +23,12 @@ import {
   openApp,
   primeAppHtmlCache,
   shareApp,
-} from "@/domains/chat/api/apps";
-import { listDocuments } from "@/domains/chat/api/documents";
-import { getVercelConfig, isCredentialError, publishApp } from "@/domains/chat/api/publish";
-import { usePinnedAppsStore } from "@/domains/chat/pinned-apps-store";
+} from "@/lib/apps-api";
+import { listDocuments } from "@/lib/documents-api";
+import { getVercelConfig, isCredentialError, publishApp } from "@/lib/publish-api";
+import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
-import { AppPreviewThumbnail } from "@/domains/chat/components/app-card";
+import { AppPreviewThumbnail } from "@/components/app-card";
 import {
   BottomSheet,
   Button,
@@ -38,7 +38,7 @@ import {
   PanelItem,
   toast,
 } from "@vellum/design-library";
-import { AppViewerContainer } from "@/domains/intelligence/components/apps/app-viewer-container";
+import { AppViewerContainer } from "@/components/apps/app-viewer-container";
 import { VercelTokenDialog } from "@/components/vercel-token-dialog";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { cn } from "@/utils/misc";

@@ -44,7 +44,7 @@ mock.module("@/domains/conversations/conversation-queries", () => ({
   markConversationSeenLocal: () => {},
 }));
 
-mock.module("@/domains/chat/api/conversations", () => ({
+mock.module("@/lib/conversations-api", () => ({
   markConversationSeen: (assistantId: string, conversationId: string) => {
     markConversationSeenCalls.push({ assistantId, conversationId });
     return markConversationSeenImpl();

@@ -5,6 +5,7 @@
  */
 
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import type { SlackMessageLink } from "@/utils/slack-message-link";
 
 /** Display metadata for a file attachment (user-uploaded or assistant-generated),
  *  used to render the chip inside a message bubble. For live sessions, populated
@@ -20,30 +21,8 @@ export interface DisplayAttachment {
   previewUrl: string | null;
 }
 
-export interface SlackMessageLink {
-  appUrl?: string;
-  webUrl?: string;
-}
-
-export function parseSlackMessageLink(
-  raw: unknown,
-): SlackMessageLink | undefined {
-  if (!raw || typeof raw !== "object") return undefined;
-
-  const record = raw as Record<string, unknown>;
-  const link = {
-    appUrl: typeof record.appUrl === "string" ? record.appUrl : undefined,
-    webUrl: typeof record.webUrl === "string" ? record.webUrl : undefined,
-  };
-
-  return link.appUrl || link.webUrl ? link : undefined;
-}
-
-export function getSlackLinkUrl(
-  link: SlackMessageLink | null | undefined,
-): string | undefined {
-  return link?.webUrl ?? link?.appUrl;
-}
+export type { SlackMessageLink } from "@/utils/slack-message-link";
+export { parseSlackMessageLink, getSlackLinkUrl } from "@/utils/slack-message-link";
 
 export interface SlackMessageSender {
   id?: string;

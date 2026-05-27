@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 
-import type { Conversation, ConversationGroup } from "@/domains/chat/api/conversations";
+import type { Conversation, ConversationGroup } from "@/lib/conversations-api";
 import {
   buildMoveToGroupTargets,
   getEffectiveGroupId,

@@ -13,7 +13,7 @@
 import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors";
-import type { SubagentStatus, SubagentInnerEvent } from "@/domains/chat/api/event-types";
+import type { SubagentStatus, SubagentInnerEvent } from "@/types/interaction-ui-types";
 
 // ---------------------------------------------------------------------------
 // State

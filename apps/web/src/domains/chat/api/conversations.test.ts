@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import { client as daemonClient } from "@/generated/daemon/client.gen";
-import { listConversations, parseConversation } from "@/domains/chat/api/conversations";
+import { listConversations, parseConversation } from "@/lib/conversations-api";
 
 describe("parseConversation — originChannel plumbing", () => {
   test("returns null for non-object input", () => {

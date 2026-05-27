@@ -6,7 +6,7 @@ import { resolveSlackChannelName } from "@/domains/chat/api/slack-channel-name";
 import type {
   Conversation,
   ConversationChannelBinding,
-} from "@/domains/chat/api/conversations";
+} from "@/lib/conversations-api";
 import {
   getSlackLinkUrl,
   type DisplayMessage,

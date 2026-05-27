@@ -1,6 +1,6 @@
 import { groupConversationsByKey } from "@/domains/chat/utils/sub-group-utils";
 import type { SubGroup } from "@/domains/chat/utils/sub-group-utils";
-import type { Conversation } from "@/domains/chat/api/conversations";
+import type { Conversation } from "@/lib/conversations-api";
 
 export type BackgroundSubGroup = SubGroup;
 

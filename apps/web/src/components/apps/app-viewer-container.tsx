@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef } from "react";
 
 import { AppNavBar } from "@/components/app-nav-bar";
-import { FETCH_PROXY_ALLOWED_PATH_RE, injectBridge } from "@/domains/chat/utils/app-bridge";
-import { client } from "@/domains/intelligence/client";
+import { FETCH_PROXY_ALLOWED_PATH_RE, injectBridge } from "@/utils/app-bridge";
+import { client } from "@/generated/api/client.gen";
 
 export interface AppViewerContainerProps {
   appId: string;
