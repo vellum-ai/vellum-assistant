@@ -53,6 +53,13 @@ export interface SubagentEntry {
   parentMessageStableId?: string;
   /** Daemon UUID of the parent assistant message. Stable across reloads. */
   parentMessageId?: string;
+  /**
+   * Tool-use block ID of the spawning tool call in the parent conversation.
+   * Lets the transcript anchor the inline card to its exact spawn tool call
+   * regardless of optimistic→reconciled message id swaps. Indexed in
+   * `byToolUseId`. Optional — older daemons omit it.
+   */
+  parentToolUseId?: string;
 }
 
 export interface SubagentState {
@@ -73,6 +80,17 @@ export interface SubagentState {
    * the bucket untouched so message-body subscribers don't re-render.
    */
   byParent: Map<string, SubagentEntry[]>;
+  /**
+   * Index of spawning tool-use block id → subagentId. Populated when a
+   * `subagent_spawned` event carries `parentToolUseId`, letting the
+   * transcript anchor the inline card to its exact spawn tool call even
+   * after the optimistic streaming message id is reconciled away.
+   *
+   * The map reference is only replaced when a new `parentToolUseId` is
+   * indexed; unrelated mutations keep it stable so subscribers don't
+   * re-render.
+   */
+  byToolUseId: Map<string, string>;
 }
 
 /** Stable empty array returned for parent ids with no spawned subagents.
@@ -95,6 +113,7 @@ export interface SubagentActions {
     error?: string;
     parentMessageStableId?: string;
     parentMessageId?: string;
+    parentToolUseId?: string;
   }) => void;
 
   changeStatus: (params: {
@@ -137,6 +156,7 @@ const INITIAL_STATE: SubagentState = {
   byId: {},
   orderedIds: [],
   byParent: new Map<string, SubagentEntry[]>(),
+  byToolUseId: new Map<string, string>(),
 };
 
 /** Parent-id keys an entry contributes to in the `byParent` index. */
@@ -255,13 +275,22 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       conversationId: params.conversationId,
       parentMessageStableId: params.parentMessageStableId,
       parentMessageId: params.parentMessageId,
+      parentToolUseId: params.parentToolUseId,
     };
 
     const nextById = { ...byId, [params.subagentId]: entry };
+    // Only clone the tool-use index when this spawn carries a
+    // `parentToolUseId`; otherwise keep the existing reference stable so
+    // index subscribers don't re-render.
+    const prevByToolUseId = get().byToolUseId;
+    const nextByToolUseId = params.parentToolUseId
+      ? new Map(prevByToolUseId).set(params.parentToolUseId, params.subagentId)
+      : prevByToolUseId;
     set({
       byId: nextById,
       orderedIds: [...orderedIds, params.subagentId],
       byParent: addEntryToByParent(get().byParent, entry),
+      byToolUseId: nextByToolUseId,
     });
   },
 
@@ -391,6 +420,7 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       byId: {},
       orderedIds: [],
       byParent: new Map<string, SubagentEntry[]>(),
+      byToolUseId: new Map<string, string>(),
     }),
 }));
 
