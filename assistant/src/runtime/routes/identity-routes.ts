@@ -405,13 +405,13 @@ function getIdentityIntro() {
   // 1. User-defined greetings from SOUL.md `## Greetings`
   const workspaceGreetings = readWorkspaceGreetings();
   if (workspaceGreetings) {
-    return { greetings: workspaceGreetings };
+    return { greetings: workspaceGreetings, text: workspaceGreetings[0] };
   }
 
   // 2. Cached LLM-generated greetings
   const cached = getCachedIntro();
   if (cached) {
-    return { greetings: cached.greetings };
+    return { greetings: cached.greetings, text: cached.greetings[0] };
   }
 
   // 3. Fallback: name-based greeting + static defaults
@@ -420,11 +420,12 @@ function getIdentityIntro() {
     const content = readFileSync(identityPath, "utf-8");
     const fields = parseIdentityFields(content);
     if (fields.name) {
-      return { greetings: [`Hi, I'm ${fields.name}!`, ...FALLBACK_GREETINGS] };
+      const greetings = [`Hi, I'm ${fields.name}!`, ...FALLBACK_GREETINGS];
+      return { greetings, text: greetings[0] };
     }
   }
 
-  return { greetings: FALLBACK_GREETINGS };
+  return { greetings: FALLBACK_GREETINGS, text: FALLBACK_GREETINGS[0] };
 }
 
 // ---------------------------------------------------------------------------
@@ -537,6 +538,7 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["identity"],
     responseBody: z.object({
       greetings: z.array(z.string()),
+      text: z.string(),
     }),
   },
 ];

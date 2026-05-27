@@ -10757,10 +10757,8 @@ paths:
   /v1/identity/intro:
     get:
       operationId: identity_intro_get
-      summary: Get identity intro text
-      description:
-        Returns a deterministic greeting derived from the assistant name in IDENTITY.md, falling back to
-        LLM-generated cache.
+      summary: Get identity greetings
+      description: Returns an array of greetings sourced from SOUL.md, LLM cache, or static fallbacks.
       tags:
         - identity
       responses:
@@ -10771,9 +10769,14 @@ paths:
               schema:
                 type: object
                 properties:
+                  greetings:
+                    type: array
+                    items:
+                      type: string
                   text:
                     type: string
                 required:
+                  - greetings
                   - text
                 additionalProperties: false
   /v1/image-generation/generate:
