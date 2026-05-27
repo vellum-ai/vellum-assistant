@@ -172,11 +172,11 @@ Audit logs record every materialization event with: grant ID, credential ID, too
 
 CES and the assistant share contract definitions and credential-storage abstractions through three private packages in `packages/`:
 
-| Package                          | Purpose                                                                                                                                                                                                                    | Consumers                            |
-| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
-| `@vellumai/service-contracts`    | RPC protocol types, method names, protocol version constant, grant shapes, credential handle types, and rendering helpers. Consumed via explicit domain subpaths (e.g. `@vellumai/service-contracts/credential-rpc`). | `assistant/`, `credential-executor/` |
-| `@vellumai/credential-storage`   | Credential store read API (static secrets and OAuth runtime), unified credential handle abstraction                                                                                                                         | `assistant/`, `credential-executor/` |
-| `@vellumai/egress-proxy`         | Session-scoped egress proxy lifecycle (create, start, stop, env-var injection)                                                                                                                                             | `assistant/`, `credential-executor/` |
+| Package                        | Purpose                                                                                                                                                                                                               | Consumers                            |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| `@vellumai/service-contracts`  | RPC protocol types, method names, protocol version constant, grant shapes, credential handle types, and rendering helpers. Consumed via explicit domain subpaths (e.g. `@vellumai/service-contracts/credential-rpc`). | `assistant/`, `credential-executor/` |
+| `@vellumai/credential-storage` | Credential store read API (static secrets and OAuth runtime), unified credential handle abstraction                                                                                                                   | `assistant/`, `credential-executor/` |
+| `@vellumai/egress-proxy`       | Session-scoped egress proxy lifecycle (create, start, stop, env-var injection)                                                                                                                                        | `assistant/`, `credential-executor/` |
 
 These packages are the **only** allowed shared-code path between the assistant and CES. Direct source imports between `assistant/` and `credential-executor/` remain banned. The packages are built locally via `workspace:*` references and copied into the CES Docker image at build time (`COPY packages/ ...` in `credential-executor/Dockerfile`).
 
@@ -229,7 +229,7 @@ These invariants are enforced by guard tests and code review:
 4. **Grants and audit logs are CES-internal**: The assistant cannot read CES grant tables or audit logs directly. CES exposes grant status and audit summaries via RPC responses.
 5. **No generic authenticated HTTP clients in secure commands**: `curl`, `wget`, `httpie`, interpreters, and shell trampolines are structurally denied as secure command entrypoints. This is checked at manifest validation and re-checked at execution time.
 6. **Managed CES container runs as non-root**: The CES Docker image runs as `uid 1001` (user `ces`). The CES data volume is owned by this user.
-7. **Single-connection bootstrap socket**: In managed mode, CES accepts exactly one connection on the bootstrap socket, then unlinks it. No second process can connect.
+7. **Single active bootstrap connection**: In managed mode, CES accepts one connection on the bootstrap socket and unlinks the socket path while that connection is live, so no second process can connect concurrently. CES is a long-lived sidecar: when the active session ends (the assistant disconnects or its container restarts), CES re-binds the socket and awaits the assistant's reconnection rather than shutting down. At most one connection is ever active; the sidecar only exits on SIGTERM/SIGINT.
 
 ## Rollout
 

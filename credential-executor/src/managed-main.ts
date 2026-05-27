@@ -6,11 +6,15 @@
  *
  * 1. Ensures the CES-private data directories exist.
  * 2. Binds a bootstrap Unix socket on the shared bootstrap volume.
- * 3. Accepts exactly **one** assistant runtime connection.
+ * 3. Accepts a single assistant runtime connection.
  * 4. Unlinks the socket path immediately after the connection is accepted,
- *    preventing any second process from connecting.
+ *    preventing any second process from connecting while the session is live.
  * 5. Serves RPC on the accepted stream only.
- * 6. Simultaneously serves health probes (`/healthz`, `/readyz`) on a
+ * 6. When that session ends (the assistant disconnects or its container is
+ *    restarted), re-binds the socket and awaits a reconnection. CES is a
+ *    long-lived sidecar — it outlives any single assistant session and only
+ *    shuts down on SIGTERM/SIGINT. At most one connection is ever active.
+ * 7. Simultaneously serves health probes (`/healthz`, `/readyz`) on a
  *    dedicated HTTP port for Kubernetes liveness/readiness checks.
  *
  * The managed entrypoint never opens a generic TCP or HTTP command API.
@@ -52,6 +56,7 @@ import {
   registerCommandExecutionHandler,
   registerManageSecureCommandToolHandler,
   type RpcHandlerRegistry,
+  type ServeEndReason,
   type SessionIdRef,
 } from "./server.js";
 import {
@@ -476,13 +481,18 @@ function startHealthServer(
 }
 
 // ---------------------------------------------------------------------------
-// Bootstrap socket server (accepts exactly one connection)
+// Bootstrap socket server (accepts one connection at a time)
 // ---------------------------------------------------------------------------
 
 /**
- * Listen on a Unix socket, accept exactly one connection, unlink the
- * socket path, and return readable/writable streams for the accepted
- * connection.
+ * Listen on a Unix socket, accept one connection, unlink the socket path,
+ * and return readable/writable streams for the accepted connection.
+ *
+ * The socket is unlinked while a connection is active so no second process
+ * can connect concurrently (only one assistant ever talks to CES at a time).
+ * When that session ends, the caller re-invokes this function to re-bind the
+ * socket and accept the assistant's reconnection — CES outlives any single
+ * assistant session (see `main()`).
  */
 function acceptOneConnection(
   socketPath: string,
@@ -515,16 +525,17 @@ function acceptOneConnection(
       return;
     }
 
-    signal.addEventListener(
-      "abort",
-      () => {
-        cleanup();
-        reject(new Error("Aborted while waiting for connection"));
-      },
-      { once: true },
-    );
+    // Remove this listener once the promise settles. Because CES re-binds
+    // the socket after each session ends, a long-lived AbortSignal would
+    // otherwise accumulate one dangling listener per reconnection.
+    const onAbort = () => {
+      cleanup();
+      reject(new Error("Aborted while waiting for connection"));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
 
     netServer.on("error", (err) => {
+      signal.removeEventListener("abort", onAbort);
       cleanup();
       reject(err);
     });
@@ -534,8 +545,10 @@ function acceptOneConnection(
     });
 
     netServer.on("connection", (socket: Socket) => {
-      // Accept exactly one connection, then close the listener and
-      // unlink the socket path so no other process can connect.
+      // Accept the connection, then close the listener and unlink the
+      // socket path so no other process can connect while this session
+      // is active.
+      signal.removeEventListener("abort", onAbort);
       log.info("Assistant connected via bootstrap socket");
       netServer.close();
       try {
@@ -543,7 +556,7 @@ function acceptOneConnection(
       } catch {
         // Already unlinked
       }
-      log.info("Bootstrap socket unlinked (single-connection enforced)");
+      log.info("Bootstrap socket unlinked (single active connection enforced)");
 
       const readable = new Readable({
         read() {
@@ -648,76 +661,122 @@ async function main(): Promise<void> {
   startHealthServer(healthPort, controller.signal, credentialDeps);
   log.info(`Health server listening on port ${healthPort}`);
 
-  // Wait for exactly one assistant connection on the bootstrap socket
-  const socketPath = getBootstrapSocketPath();
-  log.info(`Waiting for assistant connection on ${socketPath}...`);
-
-  let connection: Awaited<ReturnType<typeof acceptOneConnection>>;
-  try {
-    connection = await acceptOneConnection(socketPath, controller.signal);
-  } catch (err) {
-    if (controller.signal.aborted) {
-      log.info("Shutdown before assistant connected.");
-      return;
-    }
-    throw err;
-  }
-
-  rpcConnected = true;
-
-  // Build the handler registry with all available RPC implementations.
-  // Use mutable refs so the handshake-provided session ID and API key
-  // are available to handlers at call time (after the handshake completes).
-  const sessionIdRef: SessionIdRef = { current: `ces-managed-${Date.now()}` };
-  const apiKeyRef: ApiKeyRef = { current: "" };
-  const assistantIdRef: AssistantIdRef = { current: "" };
-  const handlers = buildHandlers(
-    sessionIdRef,
-    apiKeyRef,
-    assistantIdRef,
-    secureKeyBackend,
-  );
-
+  // Serve loop. CES is a long-lived sidecar that must outlive any single
+  // assistant session: the assistant container can crash and be restarted
+  // independently of the CES container (Kubernetes restarts containers, not
+  // the whole pod), so when the RPC stream ends we re-bind the bootstrap
+  // socket and wait for the assistant to reconnect rather than tearing the
+  // sidecar down. The loop only exits on a shutdown signal (SIGTERM/SIGINT),
+  // which aborts the controller.
   const rpcLog = getLogger("rpc");
-  const server = new CesRpcServer({
-    input: connection.readable,
-    output: connection.writable,
-    handlers,
-    logger: {
-      log: (msg: string, ...args: unknown[]) => rpcLog.info({ args }, msg),
-      warn: (msg: string, ...args: unknown[]) => rpcLog.warn({ args }, msg),
-      error: (msg: string, ...args: unknown[]) => rpcLog.error({ args }, msg),
-    },
-    signal: controller.signal,
-    onHandshakeComplete: (hsSessionId, hsApiKey, hsAssistantId) => {
-      sessionIdRef.current = hsSessionId;
-      if (hsApiKey) {
-        apiKeyRef.current = hsApiKey;
-        log.info("Received assistant API key via handshake");
-      }
-      if (hsAssistantId) {
-        assistantIdRef.current = hsAssistantId;
-        log.info("Received assistant ID via handshake");
-      }
-    },
-    onApiKeyUpdate: (newKey, newAssistantId) => {
-      apiKeyRef.current = newKey;
-      log.info("Assistant API key updated via RPC");
-      if (newAssistantId) {
-        assistantIdRef.current = newAssistantId;
-        log.info("Assistant ID updated via RPC");
-      }
-    },
-  });
+  const socketPath = getBootstrapSocketPath();
 
-  const endReason = await server.serve();
+  while (!controller.signal.aborted) {
+    log.info(`Waiting for assistant connection on ${socketPath}...`);
 
-  rpcConnected = false;
-  log.warn(
-    { reason: endReason, uptime: process.uptime(), pid: process.pid },
-    "RPC session ended — shutting down",
-  );
-  controller.abort("rpc_session_ended");
+    let connection: Awaited<ReturnType<typeof acceptOneConnection>>;
+    try {
+      connection = await acceptOneConnection(socketPath, controller.signal);
+    } catch (err) {
+      if (controller.signal.aborted) {
+        log.info("Shutdown before assistant connected.");
+        return;
+      }
+      throw err;
+    }
+
+    rpcConnected = true;
+
+    // Build a fresh handler registry per session. Persistent grant and
+    // audit stores are file-backed (re-reading from disk is idempotent),
+    // while in-memory temporary grants and the secure-command registry are
+    // intentionally reset — a reconnecting assistant starts a new session
+    // and must not inherit the previous session's transient state.
+    //
+    // Use mutable refs so the handshake-provided session ID and API key
+    // are available to handlers at call time (after the handshake completes).
+    const sessionIdRef: SessionIdRef = { current: `ces-managed-${Date.now()}` };
+    const apiKeyRef: ApiKeyRef = { current: "" };
+    const assistantIdRef: AssistantIdRef = { current: "" };
+    const handlers = buildHandlers(
+      sessionIdRef,
+      apiKeyRef,
+      assistantIdRef,
+      secureKeyBackend,
+    );
+
+    const server = new CesRpcServer({
+      input: connection.readable,
+      output: connection.writable,
+      handlers,
+      logger: {
+        log: (msg: string, ...args: unknown[]) => rpcLog.info({ args }, msg),
+        warn: (msg: string, ...args: unknown[]) => rpcLog.warn({ args }, msg),
+        error: (msg: string, ...args: unknown[]) => rpcLog.error({ args }, msg),
+      },
+      signal: controller.signal,
+      onHandshakeComplete: (hsSessionId, hsApiKey, hsAssistantId) => {
+        sessionIdRef.current = hsSessionId;
+        if (hsApiKey) {
+          apiKeyRef.current = hsApiKey;
+          log.info("Received assistant API key via handshake");
+        }
+        if (hsAssistantId) {
+          assistantIdRef.current = hsAssistantId;
+          log.info("Received assistant ID via handshake");
+        }
+      },
+      onApiKeyUpdate: (newKey, newAssistantId) => {
+        apiKeyRef.current = newKey;
+        log.info("Assistant API key updated via RPC");
+        if (newAssistantId) {
+          assistantIdRef.current = newAssistantId;
+          log.info("Assistant ID updated via RPC");
+        }
+      },
+    });
+
+    // `serve()` resolves on a clean stream end or signal abort, and rejects
+    // when the transport stream errors — which is precisely what a hard
+    // disconnect (connection reset when the assistant container crashes)
+    // looks like. Both cases must keep the sidecar up; only a shutdown
+    // signal should tear it down. So treat a serve() rejection the same as
+    // a session end and fall through to await reconnection.
+    let endReason: ServeEndReason | "transport_error";
+    try {
+      endReason = await server.serve();
+    } catch (err) {
+      server.close();
+      endReason = "transport_error";
+      log.warn(
+        { err, uptime: process.uptime(), pid: process.pid },
+        "RPC transport errored — treating as session end",
+      );
+    }
+
+    rpcConnected = false;
+
+    // A signal-driven end means the process is shutting down; exit the loop.
+    // Any other end reason (the assistant disconnected, its stream closed,
+    // or the transport errored) means we keep the sidecar up and await a
+    // reconnection.
+    if (
+      controller.signal.aborted ||
+      endReason === "signal_aborted" ||
+      endReason === "signal_aborted_before_start"
+    ) {
+      log.info(
+        { reason: endReason, uptime: process.uptime(), pid: process.pid },
+        "RPC session ended due to shutdown — exiting serve loop",
+      );
+      break;
+    }
+
+    log.warn(
+      { reason: endReason, uptime: process.uptime(), pid: process.pid },
+      "RPC session ended (assistant disconnected) — awaiting reconnection",
+    );
+  }
 }
 
 main().catch((err) => {
