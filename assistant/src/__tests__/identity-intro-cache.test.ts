@@ -60,6 +60,8 @@ mock.module("../prompts/persona-resolver.js", () => ({
 import {
   computeIdentityContentHash,
   getCachedIntro,
+  parseGreetingsSection,
+  readWorkspaceGreetings,
   readWorkspaceIdentityIntro,
   setCachedIntro,
 } from "../runtime/routes/identity-intro-cache.js";
@@ -113,21 +115,21 @@ describe("identity intro cache", () => {
     expect(getCachedIntro()).toBeNull();
   });
 
-  test("round-trip: set then get returns cached text", () => {
+  test("round-trip: set then get returns cached greetings array", () => {
     workspaceFiles["IDENTITY.md"] = "- **Name:** Atlas";
     workspaceFiles["SOUL.md"] = "Be playful.";
     guardianPersonaContent = "The user likes coffee.";
 
-    setCachedIntro("Hey, I'm Atlas.");
+    setCachedIntro(["Hey, I'm Atlas.", "What's up?"]);
     const cached = getCachedIntro();
     expect(cached).not.toBeNull();
-    expect(cached!.text).toBe("Hey, I'm Atlas.");
+    expect(cached!.greetings).toEqual(["Hey, I'm Atlas.", "What's up?"]);
   });
 
   test("returns null when cache is expired (TTL exceeded)", () => {
     workspaceFiles["IDENTITY.md"] = "- **Name:** Atlas";
 
-    setCachedIntro("Hello!");
+    setCachedIntro(["Hello!"]);
 
     // Manually set the timestamp to 5 hours ago
     const fiveHoursAgo = String(Date.now() - 5 * 60 * 60 * 1000);
@@ -136,10 +138,10 @@ describe("identity intro cache", () => {
     expect(getCachedIntro()).toBeNull();
   });
 
-  test("returns cached text when within TTL (3 hours ago)", () => {
+  test("returns cached greetings when within TTL (3 hours ago)", () => {
     workspaceFiles["IDENTITY.md"] = "- **Name:** Atlas";
 
-    setCachedIntro("Hello!");
+    setCachedIntro(["Hello!"]);
 
     // Set timestamp to 3 hours ago (within 4-hour TTL)
     const threeHoursAgo = String(Date.now() - 3 * 60 * 60 * 1000);
@@ -147,12 +149,12 @@ describe("identity intro cache", () => {
 
     const cached = getCachedIntro();
     expect(cached).not.toBeNull();
-    expect(cached!.text).toBe("Hello!");
+    expect(cached!.greetings).toEqual(["Hello!"]);
   });
 
   test("busts cache when IDENTITY.md changes", () => {
     workspaceFiles["IDENTITY.md"] = "- **Name:** Atlas";
-    setCachedIntro("I'm Atlas!");
+    setCachedIntro(["I'm Atlas!"]);
 
     // Change IDENTITY.md
     workspaceFiles["IDENTITY.md"] = "- **Name:** Nova";
@@ -162,7 +164,7 @@ describe("identity intro cache", () => {
 
   test("busts cache when SOUL.md changes", () => {
     workspaceFiles["SOUL.md"] = "Be playful.";
-    setCachedIntro("Hey there!");
+    setCachedIntro(["Hey there!"]);
 
     // Change SOUL.md
     workspaceFiles["SOUL.md"] = "Be serious and formal.";
@@ -172,7 +174,7 @@ describe("identity intro cache", () => {
 
   test("busts cache when guardian persona content changes", () => {
     guardianPersonaContent = "Likes coffee.";
-    setCachedIntro("Good morning!");
+    setCachedIntro(["Good morning!"]);
 
     // Change guardian persona (e.g. user edited users/<slug>.md)
     guardianPersonaContent = "Likes tea.";
@@ -185,11 +187,10 @@ describe("identity intro cache", () => {
     workspaceFiles["SOUL.md"] = "Be chill.";
     guardianPersonaContent = "Likes sunsets.";
 
-    setCachedIntro("Atlas here.");
+    setCachedIntro(["Atlas here.", "Hey friend."]);
 
-    // Read twice with the same guardian persona — both should return the cached value
-    expect(getCachedIntro()?.text).toBe("Atlas here.");
-    expect(getCachedIntro()?.text).toBe("Atlas here.");
+    expect(getCachedIntro()?.greetings).toEqual(["Atlas here.", "Hey friend."]);
+    expect(getCachedIntro()?.greetings).toEqual(["Atlas here.", "Hey friend."]);
   });
 
   test("computeIdentityContentHash is deterministic", () => {
@@ -235,30 +236,140 @@ describe("identity intro cache", () => {
 
   test("handles missing workspace files gracefully", () => {
     // No files exist — should still work (empty content hashed)
-    setCachedIntro("Hello!");
+    setCachedIntro(["Hello!"]);
     const cached = getCachedIntro();
     expect(cached).not.toBeNull();
-    expect(cached!.text).toBe("Hello!");
+    expect(cached!.greetings).toEqual(["Hello!"]);
   });
 
-  test("returns null when text checkpoint is missing", () => {
+  test("handles legacy single-string cache value", () => {
+    // Simulate a cache entry written by an older daemon version
+    const hash = computeIdentityContentHash();
+    checkpointStore.set("identity:intro:greetings", "Legacy greeting");
+    checkpointStore.set("identity:intro:content_hash", hash);
+    checkpointStore.set("identity:intro:cached_at", String(Date.now()));
+
+    const cached = getCachedIntro();
+    expect(cached).not.toBeNull();
+    expect(cached!.greetings).toEqual(["Legacy greeting"]);
+  });
+
+  test("returns null when greetings checkpoint is missing", () => {
     checkpointStore.set("identity:intro:content_hash", "abc");
     checkpointStore.set("identity:intro:cached_at", String(Date.now()));
-    // Missing text — should return null
     expect(getCachedIntro()).toBeNull();
   });
 
   test("returns null when hash checkpoint is missing", () => {
-    checkpointStore.set("identity:intro:text", "Hello");
+    checkpointStore.set("identity:intro:greetings", '["Hello"]');
     checkpointStore.set("identity:intro:cached_at", String(Date.now()));
-    // Missing hash — should return null
     expect(getCachedIntro()).toBeNull();
   });
 
   test("returns null when timestamp checkpoint is missing", () => {
-    checkpointStore.set("identity:intro:text", "Hello");
+    checkpointStore.set("identity:intro:greetings", '["Hello"]');
     checkpointStore.set("identity:intro:content_hash", "abc");
-    // Missing timestamp — should return null
     expect(getCachedIntro()).toBeNull();
+  });
+});
+
+describe("parseGreetingsSection", () => {
+  test("parses bullet list from ## Greetings section", () => {
+    const content = [
+      "# Soul",
+      "",
+      "## Greetings",
+      "- Hey there, friend!",
+      "- What's on your mind?",
+      "- Ready to roll!",
+      "",
+      "## Other Section",
+      "Some other content.",
+    ].join("\n");
+
+    expect(parseGreetingsSection(content)).toEqual([
+      "Hey there, friend!",
+      "What's on your mind?",
+      "Ready to roll!",
+    ]);
+  });
+
+  test("handles asterisk bullets", () => {
+    const content = [
+      "## Greetings",
+      "* Hello!",
+      "* Hi there.",
+    ].join("\n");
+
+    expect(parseGreetingsSection(content)).toEqual(["Hello!", "Hi there."]);
+  });
+
+  test("returns null when section is missing", () => {
+    const content = [
+      "# Soul",
+      "## Personality",
+      "Be friendly.",
+    ].join("\n");
+
+    expect(parseGreetingsSection(content)).toBeNull();
+  });
+
+  test("returns null when section is empty", () => {
+    const content = [
+      "## Greetings",
+      "",
+      "## Next Section",
+    ].join("\n");
+
+    expect(parseGreetingsSection(content)).toBeNull();
+  });
+
+  test("ignores non-bullet lines in section", () => {
+    const content = [
+      "## Greetings",
+      "Some intro text that's not a bullet",
+      "- Actual greeting",
+      "Another non-bullet line",
+      "- Second greeting",
+    ].join("\n");
+
+    expect(parseGreetingsSection(content)).toEqual([
+      "Actual greeting",
+      "Second greeting",
+    ]);
+  });
+
+  test("stops at next heading", () => {
+    const content = [
+      "## Greetings",
+      "- First",
+      "- Second",
+      "### Sub-heading",
+      "- Should not appear",
+    ].join("\n");
+
+    expect(parseGreetingsSection(content)).toEqual(["First", "Second"]);
+  });
+});
+
+describe("readWorkspaceGreetings", () => {
+  test("reads greetings from SOUL.md", () => {
+    workspaceFiles["SOUL.md"] = [
+      "# Soul",
+      "## Greetings",
+      "- Hey!",
+      "- What's up?",
+    ].join("\n");
+
+    expect(readWorkspaceGreetings()).toEqual(["Hey!", "What's up?"]);
+  });
+
+  test("returns null when SOUL.md has no greetings section", () => {
+    workspaceFiles["SOUL.md"] = "# Soul\nBe friendly.";
+    expect(readWorkspaceGreetings()).toBeNull();
+  });
+
+  test("returns null when SOUL.md does not exist", () => {
+    expect(readWorkspaceGreetings()).toBeNull();
   });
 });

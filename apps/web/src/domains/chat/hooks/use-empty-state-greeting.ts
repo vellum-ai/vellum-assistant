@@ -1,14 +1,4 @@
-/**
- * React hook that fetches a personalized empty-state greeting from the daemon.
- *
- * Calls `GET /v1/assistants/{assistant_id}/identity/intro` which returns a
- * deterministic greeting derived from the assistant's IDENTITY.md name (e.g.
- * "Hi, I'm Pax!"). Falls back to {@link DEFAULT_EMPTY_STATE_GREETING} when the
- * assistant ID is missing, the daemon is unreachable, or the response is empty.
- *
- * The query has a long `staleTime` (5 minutes) since the intro text only
- * changes when the user renames the assistant — a rare operation.
- */
+import { useRef } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 
@@ -22,12 +12,14 @@ import { DEFAULT_EMPTY_STATE_GREETING } from "@/domains/chat/utils/empty-state-c
 const STALE_TIME_MS = 5 * 60 * 1000;
 
 interface IdentityIntroResponse {
-  text: string;
+  greetings?: string[];
+  /** @deprecated — kept for backwards compat with older daemons */
+  text?: string;
 }
 
 async function fetchIdentityIntro(
   assistantId: string,
-): Promise<string | null> {
+): Promise<string[] | null> {
   try {
     const { data, error, response } = await client.get<
       IdentityIntroResponse,
@@ -44,9 +36,15 @@ async function fetchIdentityIntro(
       return null;
     }
 
-    const text =
-      typeof data.text === "string" ? data.text.trim() : null;
-    return text || null;
+    if (Array.isArray(data.greetings) && data.greetings.length > 0) {
+      return data.greetings;
+    }
+
+    if (typeof data.text === "string" && data.text.trim()) {
+      return [data.text.trim()];
+    }
+
+    return null;
   } catch {
     return null;
   }
@@ -56,13 +54,23 @@ export function useEmptyStateGreeting(
   assistantId: string | null | undefined,
 ): string {
   const enabled = Boolean(assistantId);
+  const indexRef = useRef(-1);
 
-  const query = useQuery<string | null>({
+  const query = useQuery<string[] | null>({
     queryKey: ["identity-intro", assistantId],
     queryFn: () => fetchIdentityIntro(assistantId!),
     enabled,
     staleTime: STALE_TIME_MS,
   });
 
-  return query.data ?? DEFAULT_EMPTY_STATE_GREETING;
+  const greetings = query.data;
+  if (!greetings || greetings.length === 0) {
+    return DEFAULT_EMPTY_STATE_GREETING;
+  }
+
+  if (indexRef.current < 0) {
+    indexRef.current = Math.floor(Math.random() * greetings.length);
+  }
+
+  return greetings[indexRef.current % greetings.length]!;
 }
