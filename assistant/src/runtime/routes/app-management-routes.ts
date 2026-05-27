@@ -852,7 +852,7 @@ export const ROUTES: RouteDefinition[] = [
           installedAt: z.string(),
           version: z.string().optional(),
           contentId: z.string().optional(),
-          forked: z.boolean().optional(),
+          updateAvailable: z.boolean().optional(),
         }),
       ),
     }),
