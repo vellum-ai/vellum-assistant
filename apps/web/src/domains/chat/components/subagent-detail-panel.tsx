@@ -118,11 +118,18 @@ function MetricCard({
   );
 }
 
-function AnimatedMetricCard({ icon, label, target, format }: {
-  icon: ReactNode; label: string; target: number; format: (n: number) => string;
+function AnimatedMetricCard({ icon, label, target, format, loading = false }: {
+  icon: ReactNode; label: string; target: number; format: (n: number) => string; loading?: boolean;
 }) {
   const animated = useAnimatedNumber(target);
-  return <MetricCard icon={icon} label={label} value={format(animated)} />;
+  return (
+    <MetricCard
+      icon={icon}
+      label={label}
+      value={format(animated)}
+      loading={loading}
+    />
+  );
 }
 
 // ---------------------------------------------------------------------------
