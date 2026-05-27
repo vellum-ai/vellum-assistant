@@ -63,6 +63,7 @@ import { useDiskPressureMonitor } from "@/assistant/use-disk-pressure-monitor";
 import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure";
 import { useAppNudges } from "@/domains/chat/hooks/use-app-nudges";
 import { useConversationLoader } from "@/domains/conversations/use-conversation-loader";
+import { useMobileOverlayTarget } from "@/domains/chat/hooks/use-mobile-overlay-target";
 import { useContextWindowUsageHydration } from "@/domains/chat/hooks/use-context-window-usage-hydration";
 import { useConversationActions } from "@/domains/conversations/use-conversation-actions";
 import { RenameConversationDialog } from "@/domains/conversations/rename-conversation-dialog";
@@ -199,7 +200,6 @@ export function ChatPage() {
   });
   const [assetsRefreshKey, setAssetsRefreshKey] = useState(0);
   const [assistantIdentity, setAssistantIdentity] = useState<AssistantIdentity | null>(null);
-  const [overlayTarget, setOverlayTarget] = useState<HTMLElement | null>(null);
   const prePinGroupIdsRef = useRef<Map<string, string | undefined>>(new Map());
 
   // -------------------------------------------------------------------------
@@ -1248,11 +1248,7 @@ export function ChatPage() {
   // -------------------------------------------------------------------------
   // Mobile overlay portal — resolve after DOM commit (CONVENTIONS.md §SSR)
   // -------------------------------------------------------------------------
-  useEffect(() => {
-    setOverlayTarget(
-      isMobile ? document.getElementById("viewport-overlays") : null,
-    );
-  }, [isMobile]);
+  const overlayTarget = useMobileOverlayTarget();
 
   // -------------------------------------------------------------------------
   // Ghost-text suggestion: fetch after each completed assistant turn
