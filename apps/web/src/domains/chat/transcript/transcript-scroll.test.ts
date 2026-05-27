@@ -10,7 +10,10 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { attachSnapToLatest } from "@/domains/chat/transcript/transcript-scroll";
+import {
+  attachLoadOlderOnTop,
+  attachSnapToLatest,
+} from "@/domains/chat/transcript/transcript-scroll";
 
 type Listener = (...args: unknown[]) => void;
 
@@ -209,6 +212,111 @@ describe("attachSnapToLatest", () => {
     expect(container.scrollTop).toBe(800);
     expect(container.listenerCount("wheel")).toBe(0);
 
+    // Should not throw.
+    stop();
+  });
+});
+
+// ---- attachLoadOlderOnTop --------------------------------------------------
+
+describe("attachLoadOlderOnTop", () => {
+  test("fires onLoadOlder on the initial ResizeObserver tick when scrolled to top", () => {
+    installFakeResizeObserver();
+    const container = createFakeElement(5000);
+    const content = createFakeElement(0);
+    container.scrollTop = 0;
+    let calls = 0;
+
+    attachLoadOlderOnTop({
+      container: container as unknown as HTMLElement,
+      content: content as unknown as HTMLElement,
+      onLoadOlder: () => {
+        calls += 1;
+      },
+    });
+    FakeResizeObserver.instances[0].fire();
+
+    expect(calls).toBe(1);
+    uninstallFakeResizeObserver();
+  });
+
+  test("does NOT fire when scrolled past the 200px threshold", () => {
+    installFakeResizeObserver();
+    const container = createFakeElement(5000);
+    const content = createFakeElement(0);
+    container.scrollTop = 1000;
+    let calls = 0;
+
+    attachLoadOlderOnTop({
+      container: container as unknown as HTMLElement,
+      content: content as unknown as HTMLElement,
+      onLoadOlder: () => {
+        calls += 1;
+      },
+    });
+    FakeResizeObserver.instances[0].fire();
+
+    expect(calls).toBe(0);
+    uninstallFakeResizeObserver();
+  });
+
+  test("fires on every ResizeObserver tick while near the top (streaming, chain-load)", () => {
+    installFakeResizeObserver();
+    const container = createFakeElement(5000);
+    const content = createFakeElement(0);
+    container.scrollTop = 100;
+    let calls = 0;
+
+    attachLoadOlderOnTop({
+      container: container as unknown as HTMLElement,
+      content: content as unknown as HTMLElement,
+      onLoadOlder: () => {
+        calls += 1;
+      },
+    });
+
+    // Each RO tick (streaming chunk arriving, image load, etc.)
+    // triggers another check. The hook gates re-entry by tearing
+    // this down when isLoadingOlder flips true, so the attachable
+    // itself doesn't need to throttle.
+    FakeResizeObserver.instances[0].fire();
+    FakeResizeObserver.instances[0].fire();
+    FakeResizeObserver.instances[0].fire();
+    expect(calls).toBe(3);
+
+    uninstallFakeResizeObserver();
+  });
+
+  test("teardown disconnects the observer", () => {
+    installFakeResizeObserver();
+    const container = createFakeElement(5000);
+    const content = createFakeElement(0);
+
+    const stop = attachLoadOlderOnTop({
+      container: container as unknown as HTMLElement,
+      content: content as unknown as HTMLElement,
+      onLoadOlder: () => {},
+    });
+    stop();
+
+    expect(FakeResizeObserver.instances[0].disconnected).toBe(true);
+    uninstallFakeResizeObserver();
+  });
+
+  test("returns an inert teardown when ResizeObserver is unavailable", () => {
+    // No installFakeResizeObserver — global is undefined.
+    const container = createFakeElement(5000);
+    const content = createFakeElement(0);
+    let calls = 0;
+
+    const stop = attachLoadOlderOnTop({
+      container: container as unknown as HTMLElement,
+      content: content as unknown as HTMLElement,
+      onLoadOlder: () => {
+        calls += 1;
+      },
+    });
+    expect(calls).toBe(0);
     // Should not throw.
     stop();
   });

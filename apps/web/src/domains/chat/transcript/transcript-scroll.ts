@@ -8,9 +8,21 @@
 // each utility's body so component files import them without
 // branching on the flag themselves.
 
-import { useCallback, useRef, type MutableRefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  type MutableRefObject,
+} from "react";
 
-import { TRANSCRIPT_SCROLL_CONTROLLER_ENABLED } from "@/domains/chat/transcript/transcript-scroll-flag";
+import {
+  TRANSCRIPT_SCROLL_CONTROLLER_ENABLED,
+  getTranscriptScrollControllerEnabled,
+} from "@/domains/chat/transcript/transcript-scroll-flag";
+
+/** Pixel threshold for "near the top" — matches the value the
+ *  deprecated hook used so user-facing behavior is preserved. */
+const NEAR_TOP_LOAD_OLDER_PX = 200;
 
 /**
  * Wire the transcript scroll container + content callback refs.
@@ -40,6 +52,17 @@ import { TRANSCRIPT_SCROLL_CONTROLLER_ENABLED } from "@/domains/chat/transcript/
 export function useTranscriptScrollOnAttach(args: {
   scrollContainerRef: MutableRefObject<HTMLDivElement | null>;
   contentRef: MutableRefObject<HTMLDivElement | null>;
+  /** Whether more older history is available. Used by the load-older
+   *  effect to decide whether to attach a `ResizeObserver`. */
+  hasMore?: boolean;
+  /** Whether an older-page fetch is currently in flight. When true,
+   *  the effect tears down its `ResizeObserver`; when false again,
+   *  the effect re-runs and a fresh observer's initial tick covers
+   *  the chain-load case. */
+  isLoadingOlder?: boolean;
+  /** Callback fired when the `ResizeObserver` detects the scroll
+   *  position is near the top. */
+  onLoadOlder?: () => void;
 }): {
   scrollContainerCallbackRef: (el: HTMLDivElement | null) => void;
   contentCallbackRef: (el: HTMLDivElement | null) => void;
@@ -80,6 +103,38 @@ export function useTranscriptScrollOnAttach(args: {
     },
     [args.scrollContainerRef, args.contentRef, teardown],
   );
+
+  // Load-older wiring. A `useEffect` (not a state-mirror ref) is the
+  // right shape here: when `hasMore`, `isLoadingOlder`, or
+  // `onLoadOlder` change, the effect tears down and re-attaches with
+  // fresh closures — no `latestRef` pattern, no stale-snapshot bug
+  // shape from the deprecated hook.
+  //
+  // While `isLoadingOlder` is true the observer is intentionally
+  // detached: once it flips back to false the effect re-runs, a fresh
+  // observer's initial tick measures the post-prepend layout, and
+  // chain-loads continue automatically when the viewport is still
+  // underfilled.
+  const { hasMore, isLoadingOlder, onLoadOlder } = args;
+  useEffect(() => {
+    // Read the flag at effect-run time (not module-load). The effect
+    // is an early-return guard, not a hook dispatch site, so there's
+    // no rules-of-hooks concern with a dynamic check here. Side
+    // benefit: integration tests can flip the flag via `localStorage`
+    // without fighting module-import ordering.
+    if (!getTranscriptScrollControllerEnabled()) return;
+    if (!hasMore || isLoadingOlder || !onLoadOlder) return;
+    const container = args.scrollContainerRef.current;
+    const content = args.contentRef.current;
+    if (!container || !content) return;
+    return attachLoadOlderOnTop({ container, content, onLoadOlder });
+  }, [
+    args.scrollContainerRef,
+    args.contentRef,
+    hasMore,
+    isLoadingOlder,
+    onLoadOlder,
+  ]);
 
   return { scrollContainerCallbackRef, contentCallbackRef };
 }
@@ -133,4 +188,52 @@ export function attachSnapToLatest(args: {
   container.addEventListener("keydown", stop);
 
   return stop;
+}
+
+/**
+ * Trigger `onLoadOlder()` whenever a `ResizeObserver` tick on the
+ * content reports the scroll container is within
+ * `NEAR_TOP_LOAD_OLDER_PX` of the top.
+ *
+ * Pure imperative function — no React, no saved state, no anchor.
+ * The hook owns when to attach (only when `hasMore && !isLoadingOlder`)
+ * and tears down on prop change, so this function only needs to act
+ * on every observed tick.
+ *
+ * Covers, by construction:
+ *   • **Initial chain-load** — `observe()` fires once with current
+ *     measurements; if the freshly attached transcript is already
+ *     near the top (typically because it's underfilled), older
+ *     history is requested.
+ *   • **Repeat chain-load** — when an older page lands, the parent
+ *     flips `isLoadingOlder` false, the hook re-runs the effect, a
+ *     fresh observer's initial tick measures the new layout, and the
+ *     loop continues until the viewport is full or `hasMore` flips.
+ *   • **Streaming-triggered detection** — any content height change
+ *     while the user is near the top fires the observer.
+ *
+ * Does NOT cover, intentionally:
+ *   • User scrolling up to the top with no other content change.
+ *     Scroll events do not fire a `ResizeObserver`. Adding a scroll
+ *     listener belongs to a separate PR (Trigger A in the migration
+ *     spec).
+ */
+export function attachLoadOlderOnTop(args: {
+  container: HTMLElement;
+  content: HTMLElement;
+  onLoadOlder: () => void;
+}): () => void {
+  const { container, content, onLoadOlder } = args;
+
+  if (typeof ResizeObserver === "undefined") {
+    return () => {};
+  }
+
+  const observer = new ResizeObserver(() => {
+    if (container.scrollTop > NEAR_TOP_LOAD_OLDER_PX) return;
+    onLoadOlder();
+  });
+  observer.observe(content);
+
+  return () => observer.disconnect();
 }

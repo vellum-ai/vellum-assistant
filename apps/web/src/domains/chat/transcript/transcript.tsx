@@ -41,6 +41,12 @@ export type RefreshOutcome =
 export interface TranscriptProps {
   items: TranscriptItem[];
   conversationId: string | null;
+  /** Pagination state driving the imperative load-older + chain-load
+   *  utilities. When the controller flag is OFF the deprecated hook
+   *  still owns this; when ON, these props feed the attachables. */
+  hasMore?: boolean;
+  isLoadingOlder?: boolean;
+  onLoadOlder?: () => void;
   assistantDisplayName?: string | null;
   onSecretSubmit: (requestId: string, value: string) => void;
   onConfirmationDecision: (requestId: string, decision: string) => void;
@@ -152,14 +158,25 @@ export interface TranscriptHandle {
 
 export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
   function Transcript(props, ref) {
-    const { items, conversationId, onPullRefresh, pullRefreshEnabled, ...rest } =
-      props;
+    const {
+      items,
+      conversationId,
+      hasMore,
+      isLoadingOlder,
+      onLoadOlder,
+      onPullRefresh,
+      pullRefreshEnabled,
+      ...rest
+    } = props;
     const scrollRef = useRef<HTMLDivElement | null>(null);
     const contentRef = useRef<HTMLDivElement | null>(null);
     const { scrollContainerCallbackRef, contentCallbackRef } =
       useTranscriptScrollOnAttach({
         scrollContainerRef: scrollRef,
         contentRef,
+        hasMore,
+        isLoadingOlder,
+        onLoadOlder,
       });
     const viewportMinHeight = useViewportMinHeight(scrollRef);
 
