@@ -74,5 +74,12 @@ const options: BrowserOptions = {
   ],
 };
 
-syncSentryClient(options);
-installSentryControlListeners(options);
+/**
+ * Bootstrap Sentry consent gating. Must be called after
+ * `migrateDeviceSettings()` so the `device:share_diagnostics` key
+ * is available when `readConsent()` reads localStorage.
+ */
+export function initSentry(): void {
+  syncSentryClient(options);
+  installSentryControlListeners(options);
+}

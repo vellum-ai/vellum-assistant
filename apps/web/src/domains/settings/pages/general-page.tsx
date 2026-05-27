@@ -25,15 +25,15 @@ import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-fl
 import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
 import {
   applyThemePreference,
-  normalizeThemePreference,
   readStoredThemePreference,
   type ThemePreference,
   writeStoredThemePreference,
 } from "@/domains/settings/utils/theme-preferences.js";
 import {
-  getLocalSetting,
-  setLocalSetting,
-} from "@/lib/local-settings.js";
+  getDeviceSetting,
+  setDeviceSetting,
+  watchDeviceSetting,
+} from "@/lib/device-settings.js";
 
 function ThemeCard() {
   const velvet = useClientFeatureFlagStore.use.velvet();
@@ -46,21 +46,9 @@ function ThemeCard() {
   }, [velvet]);
 
   useEffect(() => {
-    const handleExternalThemeChange = (event: CustomEvent<string>) => {
-      setTheme(
-        normalizeThemePreference(event.detail, { velvetEnabled: velvet }),
-      );
-    };
-    window.addEventListener(
-      "vellumThemeChange",
-      handleExternalThemeChange as EventListener,
-    );
-    return () => {
-      window.removeEventListener(
-        "vellumThemeChange",
-        handleExternalThemeChange as EventListener,
-      );
-    };
+    return watchDeviceSetting("theme", () => {
+      setTheme(readStoredThemePreference({ velvetEnabled: velvet }));
+    });
   }, [velvet]);
 
   useEffect(() => {
@@ -116,12 +104,12 @@ function ThemeCard() {
 
 function TimezoneCard() {
   const [timezone, setTimezone] = useState<string>(() =>
-    getLocalSetting("vellum_timezone", ""),
+    getDeviceSetting("timezone", ""),
   );
 
   const handleChange = (value: string) => {
     setTimezone(value);
-    setLocalSetting("vellum_timezone", value);
+    setDeviceSetting("timezone", value);
   };
 
   return (
