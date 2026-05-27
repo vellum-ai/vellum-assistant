@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "predev": "bun run openapi-ts",
+    "predev": "bun run postinstall && bun run openapi-ts",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
