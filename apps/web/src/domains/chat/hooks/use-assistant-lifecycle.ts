@@ -50,6 +50,7 @@ interface UseAssistantLifecycleOptions {
   isLoading: boolean;
   isRetired: boolean;
   isNonProduction: boolean;
+  hasPlatformSession: boolean;
   /** Framework-agnostic redirect — called instead of router.replace(). */
   onRedirect: (url: string) => void;
 }
@@ -85,6 +86,7 @@ export function useAssistantLifecycle({
   isLoading,
   isRetired,
   isNonProduction,
+  hasPlatformSession,
   onRedirect,
 }: UseAssistantLifecycleOptions): UseAssistantLifecycleReturn {
   const [assistantState, setAssistantState] = useState<AssistantState>({
@@ -396,13 +398,17 @@ export function useAssistantLifecycle({
     if (!isLoggedIn || isLoading) {
       return;
     }
+    if (hasPlatformSession) {
+      checkAssistant();
+      return;
+    }
     if (isGatewayAuthMode()) {
       setAssistantId("self");
       setAssistantState({ kind: "active", isLocal: true });
       return;
     }
     checkAssistant();
-  }, [isLoggedIn, isLoading, checkAssistant]);
+  }, [isLoggedIn, isLoading, hasPlatformSession, checkAssistant]);
 
   // Poll while initializing or cleaning up
   useEffect(() => {

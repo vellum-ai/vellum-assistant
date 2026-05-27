@@ -76,6 +76,7 @@ export function RootLayout() {
     isLoading: authLoading,
     isRetired: false,
     isNonProduction,
+    hasPlatformSession,
     onRedirect: navigate,
   });
 
