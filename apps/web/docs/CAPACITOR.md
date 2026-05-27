@@ -174,6 +174,20 @@ References:
 
 ---
 
+## iOS-only viewport constraints belong in native injection
+
+`apps/web/index.html` serves both the Capacitor WKWebView shell and regular mobile browsers. **Do not add iOS-specific viewport properties** (e.g. `maximum-scale=1.0`, `user-scalable=no`) directly in the HTML — this disables pinch-zoom for all mobile-browser users, which is an accessibility regression.
+
+Instead, inject iOS-only viewport constraints via a `WKUserScript` in [`MyViewController.swift`](../../../apps/ios/App/App/MyViewController.swift). The native injection runs only inside the Capacitor shell and doesn't affect other platforms.
+
+When modifying the viewport meta tag, check whether the change affects zoom behaviour in the WKWebView shell — the [default `maximum-scale` is 5.0](https://developer.apple.com/library/archive/documentation/AppleApplications/Reference/SafariHTMLRef/Articles/MetaTags.html), and Capacitor's built-in zoom prevention does not cover programmatic zoom changes (e.g. during device rotation).
+
+References:
+- Apple — [Configuring the Viewport](https://developer.apple.com/library/archive/documentation/AppleApplications/Reference/SafariWebContent/UsingtheViewport/UsingtheViewport.html)
+- Apple — [Supported Meta Tags (`viewport`)](https://developer.apple.com/library/archive/documentation/AppleApplications/Reference/SafariHTMLRef/Articles/MetaTags.html)
+
+---
+
 ## See also
 
 - [`CONVENTIONS.md`](./CONVENTIONS.md) — architecture, code organization, component patterns.
