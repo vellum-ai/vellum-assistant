@@ -3,6 +3,7 @@
  * / `?conversationKey=` search params to canonical path-based URLs.
  * Otherwise renders `ChatPage` (new/default conversation).
  */
+import * as Sentry from "@sentry/react";
 import { Navigate, useSearchParams } from "react-router";
 
 import { ChatPage } from "@/domains/chat/chat-page";
@@ -18,8 +19,9 @@ export function ConversationRedirect() {
     const param = searchParams.has("conversationId")
       ? "conversationId"
       : "conversationKey";
-    console.warn(
+    Sentry.captureMessage(
       `[ConversationRedirect] Legacy search param redirect: ?${param}=${target}`,
+      "warning",
     );
 
     const remaining = new URLSearchParams(searchParams);
