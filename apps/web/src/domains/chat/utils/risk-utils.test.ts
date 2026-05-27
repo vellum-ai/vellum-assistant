@@ -107,6 +107,10 @@ describe("getEffectiveRiskDisplay", () => {
       displayLevel: "workspace",
       inherentRisk: "high",
     });
+    expect(getEffectiveRiskDisplay("sandbox_auto_approve", "medium")).toEqual({
+      displayLevel: "workspace",
+      inherentRisk: "medium",
+    });
     expect(getEffectiveRiskDisplay("sandbox_auto_approve", "low")).toEqual({
       displayLevel: "workspace",
       inherentRisk: "low",
@@ -114,6 +118,9 @@ describe("getEffectiveRiskDisplay", () => {
   });
 
   test("non-sandbox reasons pass through the risk level", () => {
+    expect(getEffectiveRiskDisplay("trust_rule_allowed", "high")).toEqual({
+      displayLevel: "high",
+    });
     expect(getEffectiveRiskDisplay("trust_rule_allowed", "medium")).toEqual({
       displayLevel: "medium",
     });
@@ -123,6 +130,9 @@ describe("getEffectiveRiskDisplay", () => {
   });
 
   test("undefined approvalReason passes through the risk level", () => {
+    expect(getEffectiveRiskDisplay(undefined, "low")).toEqual({
+      displayLevel: "low",
+    });
     expect(getEffectiveRiskDisplay(undefined, "medium")).toEqual({
       displayLevel: "medium",
     });
