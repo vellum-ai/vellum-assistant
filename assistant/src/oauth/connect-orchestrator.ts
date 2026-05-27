@@ -65,8 +65,9 @@ export interface OAuthConnectOptions {
   /** Send a message to the client (e.g. open_url). */
   sendToClient?: (msg: { type: string; [key: string]: unknown }) => void;
   /**
-   * Conversation this connect flow belongs to. Required when `sendToClient`
-   * is used so the emitted `open_url` event carries its routing key.
+   * Conversation this connect flow belongs to. When set and `sendToClient`
+   * is used, the emitted `open_url` event carries it on the inner message
+   * so downstream consumers can route per-conversation.
    */
   conversationId?: string;
 
@@ -332,12 +333,6 @@ export async function orchestrateOAuthConnect(
             log.info(
               "orchestrateOAuthConnect: using sendToClient with open_url event",
             );
-            if (!options.conversationId) {
-              log.warn(
-                { service: options.service },
-                "orchestrateOAuthConnect: sendToClient provided without conversationId — open_url event will be dropped by the web parser",
-              );
-            }
             options.sendToClient({
               type: "open_url",
               url,

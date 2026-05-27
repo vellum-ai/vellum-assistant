@@ -477,17 +477,6 @@ describe("parseAssistantEvent", () => {
     });
   });
 
-  test("returns unknown open_url event when conversationId is missing", () => {
-    const data = { type: "open_url", url: "https://example.com/oauth" };
-    const event = parseAssistantEvent(data);
-    expect(event).toEqual({
-      type: "unknown",
-      rawType: "open_url",
-      data,
-      conversationId: undefined,
-    });
-  });
-
   test("parses navigate_settings", () => {
     const event = parseAssistantEvent({
       type: "navigate_settings",
@@ -1267,15 +1256,16 @@ describe("envelope format parsing", () => {
     expect("conversationId" in event).toBe(false);
   });
 
-  test("schema-parsed conversation-scoped events require inner conversationId — envelope is NOT grafted", () => {
-    // open_url is a conversation-scoped event covered by the canonical
-    // schema, which declares `conversationId` as a required field on the
-    // inner message. The parser does NOT graft the envelope-level routing
-    // key onto schema-parsed events — that drift is exactly what
-    // `@vellumai/assistant-api` exists to prevent. Emit sites own setting
-    // conversationId on the inner; if they fail to, schema validation
-    // fails and the event falls through to the `unknown` path (which
-    // preserves the envelope conversationId so SSE routing still works).
+  test("schema-parsed events: envelope conversationId is NOT grafted onto the typed event", () => {
+    // open_url declares `conversationId` as an OPTIONAL field on the
+    // inner message. When the emit site omits it (CLI signal-file
+    // broadcasts, global flows), the schema still validates and the
+    // typed event simply has no conversationId — the parser never
+    // grafts the envelope-level routing key onto schema-parsed events.
+    // Drift between envelope and typed event is exactly what
+    // `@vellumai/assistant-api` exists to prevent. Downstream routing
+    // that needs conversation scope reads the envelope at the SSE
+    // pipe, not from the typed event.
     const event = parseAssistantEvent({
       conversationId: "conv-from-envelope",
       message: {
@@ -1284,16 +1274,17 @@ describe("envelope format parsing", () => {
         title: "Connect Google",
       },
     });
-    expect(event.type).toBe("unknown");
-    if (event.type !== "unknown") throw new Error("expected unknown");
-    expect(event.rawType).toBe("open_url");
-    expect(event.conversationId).toBe("conv-from-envelope");
+    if (event.type !== "open_url") throw new Error("expected open_url");
+    expect(event.url).toBe("https://example.com/oauth");
+    expect(event.title).toBe("Connect Google");
+    expect(event.conversationId).toBeUndefined();
   });
 
-  test("schema-parsed conversation-scoped events pass through when inner declares conversationId", () => {
-    // Happy path: the emit site sets conversationId on the inner
-    // message, the strict schema validates, and the event is returned
-    // verbatim. The envelope-level conversationId plays no role.
+  test("schema-parsed events: inner-declared conversationId is preserved verbatim", () => {
+    // Happy path for conversation-scoped emit sites: the emit site
+    // sets conversationId on the inner message, the schema validates,
+    // and the typed event carries it through. The envelope value plays
+    // no role.
     const event = parseAssistantEvent({
       conversationId: "envelope-conv",
       message: {

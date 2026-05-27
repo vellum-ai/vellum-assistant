@@ -14,10 +14,9 @@ const log = getLogger("browser");
  * clients (e.g. the Swift macOS app) via the assistant event hub.
  *
  * CLI-initiated emit — no conversation context available, so the inner
- * message has no `conversationId`. The web parser's strict
- * `OpenUrlEventSchema` requires it, so this payload is dropped as an
- * unknown event on the web side. The macOS app uses an independent
- * (Swift) parser and still receives this broadcast.
+ * message has no `conversationId`. That's fine: `OpenUrlEventSchema`
+ * declares `conversationId` as optional, so this payload parses
+ * cleanly on the web side as well as in the Swift macOS app.
  */
 export async function openInHostBrowser(url: string): Promise<void> {
   try {
