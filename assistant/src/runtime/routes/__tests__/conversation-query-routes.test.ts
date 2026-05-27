@@ -477,6 +477,145 @@ describe("GET /v1/messages/:id/llm-context — agentLoopExitReason", () => {
   });
 });
 
+describe("GET /v1/messages/:id/llm-context — syntheticEvent", () => {
+  beforeEach(() => {
+    clearTables();
+  });
+
+  test("projects callSite and syntheticEvent for an agentLoopYield row", async () => {
+    const messageId = "msg-yield";
+    seedConversationAndMessage({
+      conversationId: "conv-1",
+      messageId,
+      source: "user",
+      conversationType: "standard",
+    });
+    // Mirror what `recordAgentLoopYieldLog` writes: synthetic payload in
+    // requestPayload, `call_site = "agentLoopYield"`, exit reason stamped
+    // at insert time.
+    getDb()
+      .insert(llmRequestLogs)
+      .values({
+        id: "log-yield",
+        conversationId: "conv-1",
+        messageId,
+        provider: null,
+        requestPayload: JSON.stringify({
+          syntheticEventKind: "agentLoopYield",
+          exitReason: "budget_yield_unrecovered",
+          userMessageText: "I tried to compact but couldn't fit the next step.",
+        }),
+        responsePayload: "",
+        createdAt: 1_700_000_000_000,
+        agentLoopExitReason: "budget_yield_unrecovered",
+        callSite: "agentLoopYield",
+      })
+      .run();
+
+    const body = (await dispatchLlmContext(messageId)) as {
+      logs: Array<{
+        id: string;
+        callSite: string | null;
+        syntheticEvent: {
+          kind: string;
+          exitReason: string;
+          userMessageText: string;
+        } | null;
+        agentLoopExitReason: string | null;
+      }>;
+    };
+
+    expect(body.logs).toHaveLength(1);
+    const row = body.logs[0]!;
+    expect(row.callSite).toBe("agentLoopYield");
+    expect(row.agentLoopExitReason).toBe("budget_yield_unrecovered");
+    expect(row.syntheticEvent).toEqual({
+      kind: "agentLoopYield",
+      exitReason: "budget_yield_unrecovered",
+      userMessageText: "I tried to compact but couldn't fit the next step.",
+    });
+  });
+
+  test("leaves syntheticEvent null on regular mainAgent rows", async () => {
+    const messageId = "msg-regular";
+    seedConversationAndMessage({
+      conversationId: "conv-1",
+      messageId,
+      source: "user",
+      conversationType: "standard",
+    });
+    getDb()
+      .insert(llmRequestLogs)
+      .values({
+        id: "log-regular",
+        conversationId: "conv-1",
+        messageId,
+        provider: "openai",
+        requestPayload: JSON.stringify({ model: "gpt-4.1", messages: [] }),
+        responsePayload: JSON.stringify({
+          choices: [{ message: { content: "hi" } }],
+        }),
+        createdAt: 1_700_000_000_000,
+        callSite: "mainAgent",
+      })
+      .run();
+
+    const body = (await dispatchLlmContext(messageId)) as {
+      logs: Array<{
+        id: string;
+        callSite: string | null;
+        syntheticEvent: unknown;
+      }>;
+    };
+
+    expect(body.logs[0]!.callSite).toBe("mainAgent");
+    expect(body.logs[0]!.syntheticEvent).toBeNull();
+  });
+
+  test("degrades to an empty-text synthetic event when the payload is malformed", async () => {
+    // Defensive path: a synthetic row with a non-JSON request payload
+    // (e.g. hand-edited or corrupted by a migration) should still render
+    // in the rail, falling back to the stamped exit reason.
+    const messageId = "msg-yield-malformed";
+    seedConversationAndMessage({
+      conversationId: "conv-1",
+      messageId,
+      source: "user",
+      conversationType: "standard",
+    });
+    getDb()
+      .insert(llmRequestLogs)
+      .values({
+        id: "log-malformed",
+        conversationId: "conv-1",
+        messageId,
+        provider: null,
+        requestPayload: "not-json",
+        responsePayload: "",
+        createdAt: 1_700_000_000_000,
+        agentLoopExitReason: "budget_yield_unrecovered",
+        callSite: "agentLoopYield",
+      })
+      .run();
+
+    const body = (await dispatchLlmContext(messageId)) as {
+      logs: Array<{
+        syntheticEvent: {
+          kind: string;
+          exitReason: string;
+          userMessageText: string;
+        } | null;
+      }>;
+    };
+
+    expect(body.logs[0]!.syntheticEvent).toEqual({
+      kind: "agentLoopYield",
+      exitReason: "budget_yield_unrecovered",
+      userMessageText: "",
+    });
+  });
+});
+
 describe("PUT /v1/config/llm/profiles/:name", () => {
   beforeEach(() => {
     savedRawConfig = null;

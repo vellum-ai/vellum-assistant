@@ -58,6 +58,22 @@ export interface LLMContextSection {
  * lazily through `/v1/llm-request-logs/{logId}/payload` (added in a
  * follow-up PR).
  */
+/**
+ * Synthetic agent-loop event surfaced as a call rail entry that has no
+ * underlying LLM call. The daemon parses the wire shape out of a row's
+ * `request_payload` when `callSite === "agentLoopYield"` and exposes it
+ * here so the inspector can render a distinct entry (warning styling,
+ * no provider/model subtitle) and a dedicated Overview card.
+ *
+ * Today the only `kind` is `"agentLoopYield"`, recorded when the agent
+ * loop emits its `budget_yield_unrecovered` user-visible notice.
+ */
+export interface SyntheticCallEvent {
+  kind: "agentLoopYield";
+  exitReason: string;
+  userMessageText: string;
+}
+
 export interface LLMRequestLogEntry {
   id: string;
   createdAt: number;
@@ -68,6 +84,19 @@ export interface LLMRequestLogEntry {
   requestSections?: LLMContextSection[] | null;
   responseSections?: LLMContextSection[] | null;
   agentLoopExitReason?: string | null;
+  /**
+   * Logical call site that produced this row — `mainAgent`,
+   * `compactionAgent`, `agentLoopYield`, etc. `null` on pre-migration-264
+   * rows or callers that hadn't been wired through yet.
+   */
+  callSite?: string | null;
+  /**
+   * Populated only for rows that represent an agent-loop event with no
+   * underlying LLM call (e.g. `budget_yield_unrecovered`). When set,
+   * the row should render as a distinct rail entry instead of an LLM
+   * call summary.
+   */
+  syntheticEvent?: SyntheticCallEvent | null;
 }
 
 /**

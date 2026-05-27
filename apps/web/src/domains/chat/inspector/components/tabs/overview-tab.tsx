@@ -1,3 +1,4 @@
+import { TriangleAlert } from "lucide-react";
 import { type ReactNode } from "react";
 
 import { Card } from "@vellum/design-library";
@@ -14,6 +15,7 @@ import {
 import type {
   LLMCallSummary,
   LLMRequestLogEntry,
+  SyntheticCallEvent,
 } from "@/domains/chat/types/inspector-types";
 
 interface OverviewTabProps {
@@ -41,6 +43,23 @@ export function OverviewTab({
   const conversationTotals = renderConversationTotalsCard(
     conversationTotalEstimatedCostUsd,
   );
+
+  // Synthetic agent-loop event (e.g. budget_yield_unrecovered): no LLM
+  // call, so the normalized metadata + usage cards are meaningless.
+  // Render a dedicated yield-notice card with the exact text the user
+  // saw in chat plus the exit reason — that's what Vargas asked for
+  // when he wanted Call 52 to land on "see why this turn failed".
+  if (entry.syntheticEvent) {
+    return (
+      <div className="flex flex-col gap-4 p-4">
+        {conversationTotals}
+        <SyntheticEventCard
+          event={entry.syntheticEvent}
+          createdAt={entry.createdAt}
+        />
+      </div>
+    );
+  }
 
   if (showFallback) {
     return (
@@ -74,6 +93,74 @@ export function OverviewTab({
         rows={buildUsageRows(summary)}
       />
     </div>
+  );
+}
+
+function syntheticEventTitle(event: SyntheticCallEvent): string {
+  switch (event.kind) {
+    case "agentLoopYield":
+      return "Agent loop yielded";
+    default: {
+      const _exhaustive: never = event.kind;
+      return _exhaustive;
+    }
+  }
+}
+
+function SyntheticEventCard({
+  event,
+  createdAt,
+}: {
+  event: SyntheticCallEvent;
+  createdAt: number;
+}): ReactNode {
+  return (
+    <Card padding="md">
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center gap-2">
+          <TriangleAlert
+            className="h-4 w-4"
+            style={{ color: "var(--system-negative-strong)" }}
+            aria-hidden
+          />
+          <span
+            className="text-body-medium-default"
+            style={{ color: "var(--content-default)" }}
+          >
+            {syntheticEventTitle(event)}
+          </span>
+        </div>
+        <span
+          className="text-label-default"
+          style={{ color: "var(--content-tertiary)" }}
+        >
+          No LLM call was made for this entry — the agent loop emitted a
+          system notice and ended the turn.
+        </span>
+        <div className="flex flex-col gap-2">
+          <MetadataRowItem
+            row={{
+              label: "Exit reason",
+              value: displayText(event.exitReason || null),
+            }}
+          />
+          <MetadataRowItem
+            row={{
+              label: "Created",
+              value: formattedCreatedAt(createdAt),
+            }}
+          />
+        </div>
+        {event.userMessageText ? (
+          <p
+            className="select-text whitespace-pre-wrap break-words text-body-medium-lighter"
+            style={{ color: "var(--content-secondary)" }}
+          >
+            {event.userMessageText}
+          </p>
+        ) : null}
+      </div>
+    </Card>
   );
 }
 
