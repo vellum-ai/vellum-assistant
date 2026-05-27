@@ -101,7 +101,7 @@ function recordBlocklist(senderEmails: string[]): void {
 async function batchArchive(
   messageIds: string[],
   account?: string,
-  opts?: { runId?: string; phase?: string; reason?: string; dryRun?: boolean },
+  opts?: { runId?: string; phase?: string; reason?: string; from?: string; dryRun?: boolean },
 ): Promise<{ runId: string; committed: number; failed: number; staged: number }> {
   const runId = opts?.runId ?? generateRunId();
   let committed = 0;
@@ -119,6 +119,7 @@ async function batchArchive(
       chunk_index: chunkIndex,
       message_ids: chunk,
       reason: opts?.reason,
+      from: opts?.from,
     });
     staged++;
 

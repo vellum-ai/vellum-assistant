@@ -128,6 +128,38 @@ async function requestConfirmation(opts: {
 // ---------------------------------------------------------------------------
 
 /**
+ * Extract sender emails from an op-log entry's available metadata.
+ *
+ * Cleanup archive logs don't always populate `from` directly. When `from` is
+ * empty, falls back to parsing sender data from the `reason` field (which
+ * contains formats like `cache:sender1@example.com,sender2@example.com` or
+ * `query:from:sender@example.com`).
+ */
+function extractSendersFromEntry(entry: OpEntry): string[] {
+  // Prefer the explicit `from` field if present
+  if (entry.from) return [entry.from.toLowerCase()];
+
+  const reason = entry.reason ?? "";
+
+  // Parse "cache:email1,email2,..." format
+  if (reason.startsWith("cache:")) {
+    return reason
+      .slice("cache:".length)
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter((s) => s.includes("@"));
+  }
+
+  // Parse "query:from:sender" format
+  const fromMatch = reason.match(/from:([^\s,)]+)/i);
+  if (fromMatch) {
+    return [fromMatch[1].toLowerCase()];
+  }
+
+  return [];
+}
+
+/**
  * Derive filter candidates from a cleanup run's op-log entries.
  *
  * Only extracts patterns that the SKILL.md explicitly marks as safe for
@@ -146,7 +178,8 @@ function deriveFilterCandidates(entries: OpEntry[]): FilterCandidate[] {
     if (entry.status !== "staged" || entry.op !== "archive") continue;
 
     const phase = entry.phase ?? "";
-    const from = entry.from?.toLowerCase() ?? "";
+    const senders = extractSendersFromEntry(entry);
+    const from = senders[0] ?? "";
 
     // Track no-reply senders (Pass 4)
     if (
@@ -155,7 +188,9 @@ function deriveFilterCandidates(entries: OpEntry[]): FilterCandidate[] {
       /\bno[-_]?reply\b/i.test(from) ||
       /\bdonotreply\b/i.test(from)
     ) {
-      noReplySenders.add(from);
+      for (const sender of senders.length > 0 ? senders : [from]) {
+        if (sender) noReplySenders.add(sender);
+      }
     }
 
     // Track calendar noise (Pass 5)
@@ -168,22 +203,26 @@ function deriveFilterCandidates(entries: OpEntry[]): FilterCandidate[] {
 
     // Track sketchy TLDs (Pass 7)
     if (phase.includes("sketchy") || phase.includes("tld")) {
-      const domain = extractDomain(from);
-      if (domain && isSketchyTld(domain)) {
-        sketchyTldDomains.set(
-          domain,
-          (sketchyTldDomains.get(domain) ?? 0) + 1,
-        );
+      for (const sender of senders) {
+        const domain = extractDomain(sender);
+        if (domain && isSketchyTld(domain)) {
+          sketchyTldDomains.set(
+            domain,
+            (sketchyTldDomains.get(domain) ?? 0) + 1,
+          );
+        }
       }
     }
 
     // Track newsletters (Pass 4)
     if (phase.includes("newsletter") || phase.includes("digest")) {
-      if (from) {
-        newsletterSenders.set(
-          from,
-          (newsletterSenders.get(from) ?? 0) + 1,
-        );
+      for (const sender of senders) {
+        if (sender) {
+          newsletterSenders.set(
+            sender,
+            (newsletterSenders.get(sender) ?? 0) + 1,
+          );
+        }
       }
     }
   }
@@ -347,12 +386,48 @@ async function getOrCreateLabel(
 // Find latest completed cleanup run
 // ---------------------------------------------------------------------------
 
+/** Phases that indicate a cleanup run (archive operations). */
+const CLEANUP_PHASES = new Set([
+  "noise_archive",
+  "cold_outreach",
+  "no_reply",
+  "noreply",
+  "calendar",
+  "sketchy",
+  "tld",
+  "newsletter",
+  "digest",
+  "bulk",
+  "promo",
+]);
+
+/** Check if a run's phases indicate it is a cleanup (archive) run, not a filter-creation run. */
+function isCleanupRun(summary: { phases: Record<string, unknown> }): boolean {
+  const phaseNames = Object.keys(summary.phases);
+  // A filter-creation run only has "auto_filter" phase; cleanup runs have archive phases
+  return phaseNames.some(
+    (p) =>
+      CLEANUP_PHASES.has(p) ||
+      p.includes("archive") ||
+      p.includes("outreach") ||
+      p.includes("newsletter") ||
+      p.includes("calendar") ||
+      p.includes("sketchy") ||
+      p.includes("noreply") ||
+      p.includes("no_reply"),
+  );
+}
+
 function findLatestCleanupRun(): string | null {
   const runs = listRuns();
   for (const runId of runs) {
     const summary = summarizeRun(runId);
     if (!summary) continue;
-    if (summary.status === "completed" && summary.total_committed > 0) {
+    if (
+      summary.status === "completed" &&
+      summary.total_committed > 0 &&
+      isCleanupRun(summary)
+    ) {
       return runId;
     }
   }
@@ -384,8 +459,25 @@ async function handleGenerate(
     printError(`No op-log entries found for run ${sourceRunId}.`);
   }
 
+  // Load safelist to exclude safe-listed senders from filter candidates
+  const prefs = loadPreferences();
+  const safeSet = new Set(prefs.safelist.map((s) => s.toLowerCase()));
+
   // Derive safe filter candidates
-  const candidates = deriveFilterCandidates(entries);
+  let candidates = deriveFilterCandidates(entries);
+
+  // Filter out candidates whose criteria target a safe-listed sender
+  if (safeSet.size > 0) {
+    candidates = candidates.filter((c) => {
+      if (c.criteria.from) {
+        // For specific sender filters, check if the sender is safe-listed
+        const fromLower = c.criteria.from.toLowerCase();
+        return !safeSet.has(fromLower);
+      }
+      return true;
+    });
+  }
+
   if (candidates.length === 0) {
     ok({
       message: "No safe filter candidates found in cleanup run.",
