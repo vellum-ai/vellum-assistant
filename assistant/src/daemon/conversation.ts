@@ -326,7 +326,12 @@ export class Conversation {
     surfaceType: SurfaceType;
     title?: string;
     data: SurfaceData;
-    actions?: Array<{ id: string; label: string; style?: string }>;
+    actions?: Array<{
+      id: string;
+      label: string;
+      style?: string;
+      data?: Record<string, unknown>;
+    }>;
     display?: string;
     persistent?: boolean;
   }> = [];

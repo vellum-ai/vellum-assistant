@@ -136,6 +136,7 @@ function translateAgentEventToServerMessage(
     case "usage":
     case "error":
     case "provider_error":
+    case "max_tokens_reached":
     case "agent_loop_exit":
       return null;
   }

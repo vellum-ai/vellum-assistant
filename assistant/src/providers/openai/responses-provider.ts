@@ -74,6 +74,9 @@ interface ResponsesStreamEvent {
   response?: {
     model?: string;
     status?: string;
+    incomplete_details?: {
+      reason?: "max_output_tokens" | "content_filter";
+    } | null;
     /** Full output items array — preserved as part of rawResponse for the
      *  LLM context normalizer, which uses its presence to detect Responses
      *  API payloads in stored diagnostics. */
@@ -341,7 +344,8 @@ export class OpenAIResponsesProvider implements Provider {
               break;
             }
 
-            case "response.completed": {
+            case "response.completed":
+            case "response.incomplete": {
               const response = event.response;
               if (response) {
                 rawFinalResponse = response;
@@ -356,15 +360,22 @@ export class OpenAIResponsesProvider implements Provider {
                   cachedInputTokens =
                     response.usage.input_tokens_details?.cached_tokens ?? 0;
                 }
-                finishReason = response.status ?? "completed";
+                finishReason =
+                  response.incomplete_details?.reason ??
+                  response.status ??
+                  (event.type === "response.incomplete"
+                    ? "incomplete"
+                    : "completed");
               }
               // Emit server_tool_complete for any web search calls that were started.
-              for (const toolUseId of webSearchCallIds) {
-                onEvent?.({
-                  type: "server_tool_complete",
-                  toolUseId,
-                  isError: false,
-                });
+              if (event.type === "response.completed") {
+                for (const toolUseId of webSearchCallIds) {
+                  onEvent?.({
+                    type: "server_tool_complete",
+                    toolUseId,
+                    isError: false,
+                  });
+                }
               }
               break;
             }
