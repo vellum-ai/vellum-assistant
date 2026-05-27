@@ -9,7 +9,7 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { act } from "react";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 
 import { SubagentInlineProgressCard } from "@/domains/chat/components/subagent-inline-progress-card/subagent-inline-progress-card";
 import { useSubagentStore } from "@/domains/subagents/subagent-store";
@@ -192,7 +192,7 @@ describe("SubagentInlineProgressCard — header action", () => {
 });
 
 describe("SubagentInlineProgressCard — deterministic avatar traits", () => {
-  test("different subagent IDs render different avatar DOM", () => {
+  test("different subagent IDs render different avatar DOM", async () => {
     spawn("sa-trait-a");
     spawn("sa-trait-b-something-different");
 
@@ -200,6 +200,23 @@ describe("SubagentInlineProgressCard — deterministic avatar traits", () => {
     const b = render(
       <SubagentInlineProgressCard subagentId="sa-trait-b-something-different" />,
     );
+
+    // `SubagentAvatarChip` lazy-loads the ~48 kB BUNDLED_COMPONENTS payload
+    // and renders a transparent placeholder until the chunk resolves; wait
+    // for the real SVG before comparing markup.
+    await waitFor(() => {
+      const svg = a.container.querySelector(
+        '[aria-label="Subagent sa-trait-a"] svg',
+      );
+      expect(svg).not.toBeNull();
+    });
+    await waitFor(() => {
+      const svg = b.container.querySelector(
+        '[aria-label="Subagent sa-trait-b-something-different"] svg',
+      );
+      expect(svg).not.toBeNull();
+    });
+
     // The two avatar SVG markup should differ (deterministic-per-id traits).
     const aAvatar = a.container.querySelector(
       '[aria-label="Subagent sa-trait-a"]',
