@@ -20,7 +20,7 @@ If this returns a non-null value, managed mode is supported. Unless the user has
 ### Step 2: Check the current mode
 
 ```bash
-assistant oauth mode <provider-key>
+assistant oauth mode <provider-key> --json | jq -r '.mode'
 ```
 
 - **Returns `managed`**: proceed to "Initiating the Connection".
