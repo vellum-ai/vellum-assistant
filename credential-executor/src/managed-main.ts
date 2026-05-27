@@ -723,12 +723,17 @@ async function main(): Promise<void> {
       signal: controller.signal,
       onHandshakeComplete: (hsSessionId, hsApiKey, hsAssistantId) => {
         sessionIdRef.current = hsSessionId;
+        // Reset the credential refs to this handshake's values on every
+        // session. The handler registry persists across reconnects, so a
+        // new session that omits the API key / assistant ID must fail closed
+        // (falling back to the env key, or no key) rather than silently
+        // reusing the previous session's credentials.
+        apiKeyRef.current = hsApiKey ?? "";
+        assistantIdRef.current = hsAssistantId ?? "";
         if (hsApiKey) {
-          apiKeyRef.current = hsApiKey;
           log.info("Received assistant API key via handshake");
         }
         if (hsAssistantId) {
-          assistantIdRef.current = hsAssistantId;
           log.info("Received assistant ID via handshake");
         }
       },
