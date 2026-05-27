@@ -145,33 +145,51 @@ describe("appendTextDelta", () => {
 // ---------------------------------------------------------------------------
 
 describe("finalizeMessageComplete", () => {
-  it("opens a new finalized assistant bubble when tail is a user message", () => {
+  // `message_complete` carries no body content on the wire — text streams via
+  // `assistant_text_delta` chunks; `message_complete` only finalizes/binds.
+  // The "new bubble" branch fires only when attachments accompany the event.
+
+  it("opens a new finalized assistant bubble with attachments when tail is a user message", () => {
     const result = finalizeMessageComplete([userMsg], {
       type: "message_complete",
       conversationId: "c-1",
       messageId: "row-A",
-      content: "done",
+      attachments: [
+        {
+          filename: "report.pdf",
+          mimeType: "application/pdf",
+          data: "JVBERi0=",
+        },
+      ],
     });
 
     expect(result).toHaveLength(2);
     expect(result[1]!.role).toBe("assistant");
     expect(result[1]!.id).toBe("row-A");
-    expect(result[1]!.content).toBe("done");
+    expect(result[1]!.content).toBe("");
+    expect(result[1]!.attachments).toHaveLength(1);
     expect(result[1]!.isStreaming).toBeUndefined();
   });
 
-  it("opens a new bubble when prev is empty", () => {
+  it("opens a new bubble with attachments when prev is empty", () => {
     const result = finalizeMessageComplete([], {
       type: "message_complete",
       conversationId: "c-1",
       messageId: "row-A",
-      content: "first",
+      attachments: [
+        {
+          filename: "report.pdf",
+          mimeType: "application/pdf",
+          data: "JVBERi0=",
+        },
+      ],
     });
     expect(result).toHaveLength(1);
     expect(result[0]!.id).toBe("row-A");
+    expect(result[0]!.attachments).toHaveLength(1);
   });
 
-  it("returns prev unchanged when tail is user and event has no content/attachments", () => {
+  it("returns prev unchanged when tail is user and event has no attachments", () => {
     const prev = [userMsg];
     const result = finalizeMessageComplete(prev, {
       type: "message_complete",
@@ -182,17 +200,18 @@ describe("finalizeMessageComplete", () => {
   });
 
   it("finalizes a streaming assistant tail and keeps tail.id (anchor preservation)", () => {
-    const msg = makeAssistantMsg({ id: "bubble-anchor", content: "hello" });
+    const msg = makeAssistantMsg({ id: "bubble-anchor", content: "hello world" });
     const result = finalizeMessageComplete([userMsg, msg], {
       type: "message_complete",
       conversationId: "c-1",
       messageId: "inner-row-id",
-      content: "hello world",
     });
 
     expect(result).toHaveLength(2);
     expect(result[1]!.id).toBe("bubble-anchor");
     expect(result[1]!.isStreaming).toBe(false);
+    // Bubble content stays whatever the text-delta accumulator left it as —
+    // message_complete no longer carries body content on the wire.
     expect(result[1]!.content).toBe("hello world");
   });
 
@@ -224,12 +243,13 @@ describe("finalizeMessageComplete", () => {
       type: "message_complete",
       conversationId: "c-1",
       messageId: "row-B",
-      content: "second call done",
     });
 
     expect(result).toHaveLength(2);
     expect(result[1]!.id).toBe("bubble-anchor");
-    expect(result[1]!.content).toBe("second call done");
+    // Tail content preserved across multi-call merge — message_complete no
+    // longer brings its own content.
+    expect(result[1]!.content).toBe("first call done");
   });
 
   it("adopts the server messageId for an optimistic streaming tail (first message_complete)", () => {
@@ -247,7 +267,6 @@ describe("finalizeMessageComplete", () => {
       type: "message_complete",
       conversationId: "c-1",
       messageId: "server-row-id",
-      content: "Spawning a researcher on this now.",
     });
 
     expect(result).toHaveLength(2);
@@ -264,27 +283,11 @@ describe("finalizeMessageComplete", () => {
     const result = finalizeMessageComplete([userMsg, optimistic], {
       type: "message_complete",
       conversationId: "c-1",
-      content: "done",
     });
 
     expect(result[1]!.id).toBe("client-uuid");
     expect(result[1]!.isOptimistic).toBe(true);
     expect(result[1]!.isStreaming).toBe(false);
-  });
-
-  it("ignores legacy displayMessageId on the wire", () => {
-    // Inbound from an older daemon: a `displayMessageId` field on
-    // message_complete must be silently ignored — the new contract is
-    // messageId-only on the wire, anchor preservation is client-side.
-    const tail = makeAssistantMsg({ id: "bubble-anchor" });
-    const legacyEvent = {
-      type: "message_complete" as const,
-      conversationId: "c-1",
-      messageId: "row-B",
-      displayMessageId: "row-A",
-    } as Parameters<typeof finalizeMessageComplete>[1];
-    const result = finalizeMessageComplete([tail], legacyEvent);
-    expect(result[0]!.id).toBe("bubble-anchor");
   });
 });
 

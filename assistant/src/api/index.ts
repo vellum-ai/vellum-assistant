@@ -1,15 +1,39 @@
 import { z } from "zod";
 
+import { AssistantTextDeltaEventSchema } from "./events/assistant-text-delta.js";
 import { AssistantTurnStartEventSchema } from "./events/assistant-turn-start.js";
+import { GenerationCancelledEventSchema } from "./events/generation-cancelled.js";
+import { GenerationHandoffEventSchema } from "./events/generation-handoff.js";
+import { MessageCompleteEventSchema } from "./events/message-complete.js";
 import { OpenUrlEventSchema } from "./events/open-url.js";
 import { RelationshipStateUpdatedEventSchema } from "./events/relationship-state-updated.js";
 import { ToolUseStartEventSchema } from "./events/tool-use-start.js";
 
 export { CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE } from "./constants/call-sites.js";
 export {
+  type AssistantOutboundAttachment,
+  AssistantOutboundAttachmentSchema,
+} from "./events/assistant-outbound-attachment.js";
+export {
+  type AssistantTextDeltaEvent,
+  AssistantTextDeltaEventSchema,
+} from "./events/assistant-text-delta.js";
+export {
   type AssistantTurnStartEvent,
   AssistantTurnStartEventSchema,
 } from "./events/assistant-turn-start.js";
+export {
+  type GenerationCancelledEvent,
+  GenerationCancelledEventSchema,
+} from "./events/generation-cancelled.js";
+export {
+  type GenerationHandoffEvent,
+  GenerationHandoffEventSchema,
+} from "./events/generation-handoff.js";
+export {
+  type MessageCompleteEvent,
+  MessageCompleteEventSchema,
+} from "./events/message-complete.js";
 export { type OpenUrlEvent, OpenUrlEventSchema } from "./events/open-url.js";
 export {
   type RelationshipStateUpdatedEvent,
@@ -39,7 +63,11 @@ export type {
  * migration recipe.
  */
 export const AssistantEventSchema = z.discriminatedUnion("type", [
+  AssistantTextDeltaEventSchema,
   AssistantTurnStartEventSchema,
+  GenerationCancelledEventSchema,
+  GenerationHandoffEventSchema,
+  MessageCompleteEventSchema,
   OpenUrlEventSchema,
   RelationshipStateUpdatedEventSchema,
   ToolUseStartEventSchema,

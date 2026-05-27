@@ -18,7 +18,6 @@ import type {
   AssistantActivityReason,
   AssistantActivityStateEvent,
   AssistantEvent,
-  AssistantOutboundAttachment,
   ConversationListInvalidatedReason,
   DirectoryScopeOption,
   InteractionKind,
@@ -29,6 +28,7 @@ import type {
   SubagentStatus,
   UISurfaceShowEvent,
 } from "@/domains/chat/api/event-types";
+import type { AssistantOutboundAttachment } from "@vellumai/assistant-api";
 import { AssistantEventSchema } from "@vellumai/assistant-api";
 import type { DisplayAttachment } from "@/domains/chat/types/types";
 import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
@@ -160,53 +160,6 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
   const rawType = typeof data.type === "string" ? data.type : "";
 
   switch (rawType) {
-    case "assistant_text_delta":
-      return {
-        type: "assistant_text_delta",
-        text: typeof data.text === "string" ? data.text : "",
-        messageId:
-          typeof data.messageId === "string" ? data.messageId : undefined,
-        conversationId:
-          typeof data.conversationId === "string"
-            ? data.conversationId
-            : undefined,
-      };
-
-    case "message_complete":
-      return {
-        type: "message_complete",
-        messageId:
-          typeof data.messageId === "string" ? data.messageId : undefined,
-        content:
-          typeof data.content === "string" ? data.content : undefined,
-        attachments: parseOutboundAttachments(data.attachments),
-        conversationId:
-          typeof data.conversationId === "string"
-            ? data.conversationId
-            : undefined,
-      };
-
-    case "generation_handoff":
-      return {
-        type: "generation_handoff",
-        messageId:
-          typeof data.messageId === "string" ? data.messageId : undefined,
-        attachments: parseOutboundAttachments(data.attachments),
-        conversationId:
-          typeof data.conversationId === "string"
-            ? data.conversationId
-            : undefined,
-      };
-
-    case "generation_cancelled":
-      return {
-        type: "generation_cancelled",
-        conversationId:
-          typeof data.conversationId === "string"
-            ? data.conversationId
-            : undefined,
-      };
-
     case "sync_changed": {
       const tags = data.tags;
       if (
@@ -964,44 +917,6 @@ function parseDiskPressureStatus(raw: unknown): DiskPressureStatus | null {
     blockedCapabilities,
     error: typeof data.error === "string" ? data.error : null,
   };
-}
-
-/**
- * Parse an optional `attachments` payload from an SSE event into a typed array.
- * Returns `undefined` when no valid attachments are present.
- */
-function parseOutboundAttachments(
-  raw: unknown,
-): AssistantOutboundAttachment[] | undefined {
-  if (!Array.isArray(raw) || raw.length === 0) return undefined;
-  const result: AssistantOutboundAttachment[] = [];
-  for (const item of raw) {
-    if (
-      item &&
-      typeof item === "object" &&
-      typeof (item as Record<string, unknown>).filename === "string" &&
-      typeof (item as Record<string, unknown>).mimeType === "string"
-    ) {
-      const a = item as Record<string, unknown>;
-      result.push({
-        id: typeof a.id === "string" ? a.id : undefined,
-        filename: a.filename as string,
-        mimeType: a.mimeType as string,
-        data: typeof a.data === "string" ? a.data : "",
-        sourceType:
-          a.sourceType === "sandbox_file" ||
-          a.sourceType === "host_file" ||
-          a.sourceType === "tool_block"
-            ? a.sourceType
-            : undefined,
-        sizeBytes: typeof a.sizeBytes === "number" ? a.sizeBytes : undefined,
-        thumbnailData:
-          typeof a.thumbnailData === "string" ? a.thumbnailData : undefined,
-        fileBacked: typeof a.fileBacked === "boolean" ? a.fileBacked : undefined,
-      });
-    }
-  }
-  return result.length > 0 ? result : undefined;
 }
 
 /**
