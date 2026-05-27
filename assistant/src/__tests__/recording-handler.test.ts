@@ -68,6 +68,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   },
   createConversation: () => ({ id: "conv-mock" }),
   getConversation: () => ({ id: "conv-mock" }),
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 // Attachments store mock

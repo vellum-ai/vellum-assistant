@@ -62,6 +62,7 @@ mock.module("../../../memory/conversation-crud.js", () => ({
   getMessages: () => [],
   getMessagesPaginated: () => ({ messages: [], hasMore: false }),
   getMessageById: () => null,
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 // Dynamic imports so module mocks are wired before evaluation.

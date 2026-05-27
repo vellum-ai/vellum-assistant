@@ -57,6 +57,7 @@ mock.module("../../runtime/actor-trust-resolver.js", () => ({
 // retrospective and auto-analysis paths fall through to the enqueue.
 mock.module("../conversation-crud.js", () => ({
   getConversationSource: () => null,
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 mock.module("../auto-analysis-guard.js", () => ({
   isAutoAnalysisConversation: () => false,

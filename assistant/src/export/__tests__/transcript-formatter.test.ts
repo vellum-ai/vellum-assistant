@@ -76,6 +76,7 @@ mock.module("../../memory/conversation-crud.js", () => ({
   getMessages: (id: string) =>
     id === "child-conv-1" ? childMessages : parentMessages,
   messageMetadataSchema,
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 mock.module("../../util/truncate.js", () => ({

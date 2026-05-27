@@ -151,6 +151,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   addMessage: () => ({ id: `msg-${Date.now()}` }),
   updateConversationUsage: () => {},
   updateConversationTitle: () => {},
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 mock.module("../memory/conversation-queries.js", () => ({

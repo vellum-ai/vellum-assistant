@@ -22,6 +22,7 @@ import type { Message } from "../providers/types.js";
 
 mock.module("../memory/conversation-crud.js", () => ({
   getConversationOverrideProfile: () => undefined,
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 mock.module("../config/loader.js", () => ({

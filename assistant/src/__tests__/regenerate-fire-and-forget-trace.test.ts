@@ -32,6 +32,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   updateMessageContent: () => {},
   relinkAttachments: () => 0,
   deleteLastExchange: () => 0,
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 mock.module("../memory/conversation-queries.js", () => ({

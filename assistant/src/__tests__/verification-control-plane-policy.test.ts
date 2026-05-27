@@ -73,6 +73,7 @@ mock.module("../permissions/checker.js", () => ({
 
 mock.module("../memory/conversation-crud.js", () => ({
   createConversation: (title: string) => ({ id: "conversation-1", title }),
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 // Mock every export so downstream test files that dynamically import modules

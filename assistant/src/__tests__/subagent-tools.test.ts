@@ -30,6 +30,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   getConversationOriginChannel: () => null,
   getMessages: (conversationId: string) => mockGetMessages(conversationId),
   createConversation: () => ({ id: "mock-conv" }),
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 import { getSubagentManager } from "../subagent/index.js";

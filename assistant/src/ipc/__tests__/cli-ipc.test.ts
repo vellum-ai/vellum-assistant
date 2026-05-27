@@ -37,6 +37,7 @@ mock.module("../../runtime/agent-wake.js", () => ({
 
 mock.module("../../memory/conversation-crud.js", () => ({
   getConversation: (id: string) => ({ id, createdAt: Date.now() }),
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 // ---------------------------------------------------------------------------

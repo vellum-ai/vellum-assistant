@@ -43,6 +43,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   provenanceFromTrustContext: () => ({}),
   setConversationOriginChannelIfUnset: () => {},
   setConversationOriginInterfaceIfUnset: () => {},
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 mock.module("../memory/conversation-disk-view.js", () => ({
