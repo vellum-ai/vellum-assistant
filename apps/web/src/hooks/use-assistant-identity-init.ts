@@ -48,22 +48,29 @@ export function useAssistantIdentityInit({
   assistantId,
   assistantStateKind,
 }: UseAssistantIdentityInitParams) {
-  const isActive = assistantStateKind === "active" && Boolean(assistantId);
+  // Identity is fetchable whenever the daemon proxy can answer for the
+  // assistant — that's true for "active" *and* "self_hosted" (which
+  // also renders chat per `shouldRenderChat` in ChatPage). The other
+  // lifecycle states (initializing, cleaning_up, retired, error, etc.)
+  // can't satisfy the identity endpoint.
+  const canFetchIdentity =
+    (assistantStateKind === "active" || assistantStateKind === "self_hosted") &&
+    Boolean(assistantId);
 
   const identityQuery = useQuery({
     queryKey: assistantIdentityQueryKey(assistantId),
     queryFn: () => fetchAssistantIdentity(assistantId as string),
-    enabled: isActive,
+    enabled: canFetchIdentity,
     staleTime: 30_000,
   });
 
   // Clear the store whenever the assistant context changes (tenant
-  // switch, logout, lifecycle leaves "active") so the previous
+  // switch, logout, lifecycle leaves a fetchable state) so the previous
   // assistant's name doesn't linger if the new assistant's identity
   // fetch returns null (runtime initializing/unreachable).
   const lastWrittenForRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!isActive) {
+    if (!canFetchIdentity) {
       if (lastWrittenForRef.current !== null) {
         useAssistantIdentityStore.getState().clearIdentity();
         lastWrittenForRef.current = null;
@@ -74,7 +81,7 @@ export function useAssistantIdentityInit({
       useAssistantIdentityStore.getState().clearIdentity();
       lastWrittenForRef.current = null;
     }
-  }, [isActive, assistantId]);
+  }, [canFetchIdentity, assistantId]);
 
   // Seed the store with the user-chosen name from onboarding before the
   // async identity fetch resolves. Declared after the clear effect so
@@ -82,7 +89,7 @@ export function useAssistantIdentityInit({
   // clear runs first and this seed survives.
   const seededRef = useRef(false);
   useEffect(() => {
-    if (seededRef.current || !isActive) return;
+    if (seededRef.current || !canFetchIdentity) return;
     seededRef.current = true;
     const optimisticName = consumePendingAssistantName();
     if (!optimisticName) return;
@@ -91,7 +98,7 @@ export function useAssistantIdentityInit({
       useAssistantIdentityStore.getState().setIdentity(optimisticName, null);
       lastWrittenForRef.current = assistantId;
     }
-  }, [isActive, assistantId]);
+  }, [canFetchIdentity, assistantId]);
 
   useEffect(() => {
     const data = identityQuery.data;
