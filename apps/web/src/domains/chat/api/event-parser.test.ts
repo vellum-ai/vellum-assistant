@@ -868,6 +868,121 @@ describe("parseAssistantEvent", () => {
         expect(event.allowlistOptions).toBeUndefined();
       }
     });
+
+    test("propagates messageId (B2 anchor protocol)", () => {
+      const event = parseAssistantEvent({
+        type: "tool_result",
+        toolName: "bash",
+        result: "ok",
+        toolUseId: "toolu_01",
+        messageId: "asst-msg-42",
+      });
+      expect(event.type).toBe("tool_result");
+      if (event.type === "tool_result") {
+        expect(event.messageId).toBe("asst-msg-42");
+      }
+    });
+
+    test("messageId is undefined when absent (legacy daemon stream)", () => {
+      const event = parseAssistantEvent({
+        type: "tool_result",
+        toolName: "bash",
+        result: "ok",
+      });
+      expect(event.type).toBe("tool_result");
+      if (event.type === "tool_result") {
+        expect(event.messageId).toBeUndefined();
+      }
+    });
+
+    test("ignores non-string messageId", () => {
+      const event = parseAssistantEvent({
+        type: "tool_result",
+        toolName: "bash",
+        result: "ok",
+        messageId: 42,
+      });
+      expect(event.type).toBe("tool_result");
+      if (event.type === "tool_result") {
+        expect(event.messageId).toBeUndefined();
+      }
+    });
+  });
+
+  describe("tool_use_start", () => {
+    test("propagates messageId (B2 anchor protocol)", () => {
+      const event = parseAssistantEvent({
+        type: "tool_use_start",
+        toolName: "bash",
+        input: { command: "ls" },
+        toolUseId: "toolu_01",
+        messageId: "asst-msg-42",
+      });
+      expect(event.type).toBe("tool_use_start");
+      if (event.type === "tool_use_start") {
+        expect(event.messageId).toBe("asst-msg-42");
+        expect(event.toolUseId).toBe("toolu_01");
+      }
+    });
+
+    test("messageId is undefined when absent (legacy daemon stream)", () => {
+      const event = parseAssistantEvent({
+        type: "tool_use_start",
+        toolName: "bash",
+        input: {},
+      });
+      expect(event.type).toBe("tool_use_start");
+      if (event.type === "tool_use_start") {
+        expect(event.messageId).toBeUndefined();
+      }
+    });
+  });
+
+  describe("assistant_turn_start", () => {
+    test("parses with required messageId", () => {
+      const event = parseAssistantEvent({
+        type: "assistant_turn_start",
+        messageId: "asst-msg-42",
+        conversationId: "conv-1",
+      });
+      expect(event).toEqual({
+        type: "assistant_turn_start",
+        messageId: "asst-msg-42",
+        conversationId: "conv-1",
+      });
+    });
+
+    test("conversationId is optional", () => {
+      const event = parseAssistantEvent({
+        type: "assistant_turn_start",
+        messageId: "asst-msg-42",
+      });
+      expect(event.type).toBe("assistant_turn_start");
+      if (event.type === "assistant_turn_start") {
+        expect(event.messageId).toBe("asst-msg-42");
+        expect(event.conversationId).toBeUndefined();
+      }
+    });
+
+    test("drops to unknown when messageId is missing — the anchor id is the entire payload", () => {
+      // `assistant_turn_start` exists solely to communicate the
+      // pre-allocated row id. Without it, the event carries no information
+      // worth surfacing to the reducer. Falling back to `unknown` keeps the
+      // chat reducer's "saw an event we didn't know how to handle" branch
+      // visible in dev mode rather than silently producing a no-op event.
+      const event = parseAssistantEvent({
+        type: "assistant_turn_start",
+      });
+      expect(event.type).toBe("unknown");
+    });
+
+    test("drops to unknown when messageId is non-string", () => {
+      const event = parseAssistantEvent({
+        type: "assistant_turn_start",
+        messageId: 42,
+      });
+      expect(event.type).toBe("unknown");
+    });
   });
 
   test("preserves surfaceType verbatim without coercion", () => {

@@ -90,6 +90,24 @@ export interface ChatMessage {
 // Runtime event types
 // ---------------------------------------------------------------------------
 
+/**
+ * Marks the start of an assistant turn — emitted once by the daemon
+ * *before* any `assistant_text_delta`, `tool_use_start`, or
+ * `assistant_thinking_delta` event for that turn. The `messageId` is the
+ * pre-allocated database row id (see B1's `reserveMessage` primitive)
+ * that subsequent streaming events stamp on their `messageId` field.
+ * Clients use this id to anchor a UI bubble at turn-start instead of
+ * waiting for `message_complete`.
+ *
+ * Types-only addition in B2 — no emit sites yet on the daemon. The
+ * agent loop adopts pre-allocation in B3.
+ */
+export interface AssistantTurnStartEvent {
+  type: "assistant_turn_start";
+  messageId: string;
+  conversationId?: string;
+}
+
 export interface AssistantTextDeltaEvent {
   type: "assistant_text_delta";
   text: string;
@@ -322,6 +340,11 @@ export interface ToolUseStartEvent {
   input: Record<string, unknown>;
   toolUseId?: string;
   conversationId?: string;
+  /** Database ID of the assistant message that owns this tool_use block.
+   *  Stamped by the agent loop from the pre-allocated turn anchor. Absent
+   *  on streams produced by older daemons that pre-date the anchor
+   *  protocol. */
+  messageId?: string;
 }
 
 export interface ToolResultEvent {
@@ -331,6 +354,9 @@ export interface ToolResultEvent {
   isError?: boolean;
   toolUseId?: string;
   conversationId?: string;
+  /** Database ID of the assistant message that owns the parent tool_use
+   *  block. Same semantics as `AssistantTextDeltaEvent.messageId`. */
+  messageId?: string;
   riskLevel?: string;
   riskReason?: string;
   matchedTrustRuleId?: string;
@@ -756,6 +782,7 @@ export interface InteractionResolvedEvent {
 }
 
 export type AssistantEvent =
+  | AssistantTurnStartEvent
   | AssistantTextDeltaEvent
   | MessageCompleteEvent
   | GenerationHandoffEvent

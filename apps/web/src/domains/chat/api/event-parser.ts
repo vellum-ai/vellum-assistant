@@ -159,6 +159,26 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
   const rawType = typeof data.type === "string" ? data.type : "";
 
   switch (rawType) {
+    case "assistant_turn_start": {
+      // Turn-start carries a *required* messageId (the pre-allocated anchor
+      // id). Drop the event if the field is missing or non-string — the
+      // event is meaningless without it. Daemon does not emit this in B2;
+      // adding the case so a future-stamped stream doesn't fall through to
+      // `unknown` (which the chat reducer would surface as an error toast
+      // in dev mode).
+      const messageId =
+        typeof data.messageId === "string" ? data.messageId : "";
+      if (messageId === "") return unknownEvent(rawType, data);
+      return {
+        type: "assistant_turn_start",
+        messageId,
+        conversationId:
+          typeof data.conversationId === "string"
+            ? data.conversationId
+            : undefined,
+      };
+    }
+
     case "assistant_text_delta":
       return {
         type: "assistant_text_delta",
@@ -499,6 +519,8 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
           ? (data.input as Record<string, unknown>)
           : {},
         toolUseId: typeof data.toolUseId === "string" ? data.toolUseId : undefined,
+        messageId:
+          typeof data.messageId === "string" ? data.messageId : undefined,
         conversationId:
           typeof data.conversationId === "string"
             ? data.conversationId
@@ -512,6 +534,8 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
         result: typeof data.result === "string" ? data.result : "",
         isError: typeof data.isError === "boolean" ? data.isError : undefined,
         toolUseId: typeof data.toolUseId === "string" ? data.toolUseId : undefined,
+        messageId:
+          typeof data.messageId === "string" ? data.messageId : undefined,
         conversationId: typeof data.conversationId === "string" ? data.conversationId : undefined,
         riskLevel: typeof data.riskLevel === "string" ? data.riskLevel : undefined,
         riskReason: typeof data.riskReason === "string" ? data.riskReason : undefined,
