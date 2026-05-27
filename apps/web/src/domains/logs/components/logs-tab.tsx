@@ -10,10 +10,8 @@ import { createElement, useCallback, useMemo, useState } from "react";
 
 import { Dropdown } from "@vellum/design-library";
 
-import {
-  listConversations,
-  type Conversation,
-} from "@/lib/conversations-api";
+import { useConversationListQuery } from "@/lib/conversations";
+import type { Conversation } from "@/types/conversation-types";
 import {
   loadLastViewedConversationId,
   saveLastViewedConversationId,
@@ -48,15 +46,16 @@ export function LogsTab({ assistantId }: LogsTabProps) {
     string | null
   >(null);
 
-  const conversationsQuery = useQuery({
-    queryKey: ["conversations", assistantId],
-    queryFn: () => listConversations(assistantId),
-  });
+  const {
+    conversations: allConversations,
+    isLoading: isLoadingConversations,
+    isError: isConversationsError,
+    error: conversationsError,
+  } = useConversationListQuery(assistantId);
 
   const conversations = useMemo<Conversation[]>(
-    () =>
-      (conversationsQuery.data ?? []).filter((c) => c.archivedAt == null),
-    [conversationsQuery.data],
+    () => allConversations.filter((c) => c.archivedAt == null),
+    [allConversations],
   );
 
   const activeConversationId = useMemo(() => {
@@ -107,7 +106,6 @@ export function LogsTab({ assistantId }: LogsTabProps) {
   const metrics = useMemo(() => calculateMetrics(events), [events]);
   const groups = useMemo(() => groupEventsByRequest(events), [events]);
 
-  const isLoadingConversations = conversationsQuery.isLoading;
   const hasConversations = conversations.length > 0;
 
   return (
@@ -119,11 +117,11 @@ export function LogsTab({ assistantId }: LogsTabProps) {
             style={{ color: "var(--content-secondary)" }}
           />
         </div>
-      ) : conversationsQuery.isError ? (
+      ) : isConversationsError ? (
         <ErrorMessage
           message={
-            conversationsQuery.error instanceof Error
-              ? conversationsQuery.error.message
+            conversationsError instanceof Error
+              ? conversationsError.message
               : "Failed to load conversations."
           }
         />

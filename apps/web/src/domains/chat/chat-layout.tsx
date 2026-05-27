@@ -36,7 +36,7 @@ import { useViewerStore } from "@/stores/viewer-store";
 import { useSubagentStore } from "@/domains/subagents/subagent-store";
 import { useAuthStore } from "@/stores/auth-store";
 import { canUseLlmInspector } from "@/domains/chat/inspector/access";
-import type { Conversation } from "@/lib/conversations-api";
+import type { Conversation } from "@/types/conversation-types";
 
 import { OfflineBanner } from "@/components/offline-banner";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";

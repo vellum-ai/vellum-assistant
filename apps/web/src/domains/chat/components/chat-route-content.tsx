@@ -115,7 +115,7 @@ import type { QuestionResponseEntry, AllowlistOption, ScopeOption, DirectoryScop
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { DiskPressureBanner, type DiskPressureBannerMode } from "@/domains/chat/components/disk-pressure-banner";
 import type { VoiceInputButtonHandle } from "@/domains/chat/components/voice-input-button";
-import type { Conversation } from "@/lib/conversations-api";
+import type { Conversation } from "@/types/conversation-types";
 import { submitQuestionResponse } from "@/domains/chat/api/interactions";
 import type { ChatEventStream } from "@/domains/chat/api/stream";
 

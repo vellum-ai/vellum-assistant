@@ -1,15 +1,15 @@
-import { Archive, Loader2 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
-
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { AlertTriangle, Archive, Loader2, RotateCcw } from "lucide-react";
+import { useCallback, useMemo, useState } from "react";
 
 import { Button } from "@vellum/design-library/components/button";
 import { Card } from "@vellum/design-library/components/card";
 import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen";
 import {
-  type Conversation,
-  listConversations,
-} from "@/lib/conversations-api";
+  conversationsQueryKey,
+  useConversationListQuery,
+} from "@/lib/conversations";
+import type { Conversation } from "@/types/conversation-types";
 import { conversationsByIdUnarchivePost } from "@/generated/daemon/sdk.gen";
 import { reportError } from "@/lib/errors/report";
 
@@ -98,50 +98,30 @@ function ArchivedConversationRow({
 }
 
 export function ArchivePage() {
+  const queryClient = useQueryClient();
   const { data: assistantList, isLoading: isAssistantLoading } = useQuery(
     assistantsListOptions(),
   );
-  const assistantId = assistantList?.results?.[0]?.id;
+  const assistantId = assistantList?.results?.[0]?.id ?? null;
 
-  const [conversations, setConversations] = useState<Conversation[] | null>(
-    null,
-  );
-  const [isLoadingConversations, setIsLoadingConversations] = useState(false);
+  const {
+    conversations,
+    isLoading: isLoadingConversations,
+    isError,
+    refetch,
+  } = useConversationListQuery(assistantId);
+
   const [pendingUnarchiveId, setPendingUnarchiveId] = useState<string | null>(
     null,
   );
 
-  const loadConversations = useCallback(async (id: string) => {
-    setIsLoadingConversations(true);
-    try {
-      const all = await listConversations(id);
-      setConversations(all);
-    } catch (error) {
-      reportError(error, {
-        context: "archive_settings_list_conversations",
-        userMessage: "Failed to load archived conversations.",
-      });
-      setConversations([]);
-    } finally {
-      setIsLoadingConversations(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!assistantId) return;
-    void loadConversations(assistantId);
-  }, [assistantId, loadConversations]);
-
-  const archived = useMemo(() => {
-    if (!conversations) return [];
-    return conversations
-      .filter((c) => c.archivedAt != null)
-      .sort(
-        (a, b) =>
-          new Date(b.archivedAt ?? 0).getTime() -
-          new Date(a.archivedAt ?? 0).getTime(),
-      );
-  }, [conversations]);
+  const archived = useMemo(
+    () =>
+      conversations
+        .filter((c) => c.archivedAt != null)
+        .sort((a, b) => (b.archivedAt ?? 0) - (a.archivedAt ?? 0)),
+    [conversations],
+  );
 
   const handleUnarchive = useCallback(
     async (conversationId: string) => {
@@ -152,13 +132,8 @@ export function ArchivePage() {
           path: { assistant_id: assistantId, id: conversationId },
           throwOnError: true,
         });
-        setConversations((prev) => {
-          if (!prev) return prev;
-          return prev.map((c) =>
-            c.conversationId === conversationId
-              ? { ...c, archivedAt: undefined }
-              : c,
-          );
+        void queryClient.invalidateQueries({
+          queryKey: conversationsQueryKey(assistantId),
         });
       } catch (error) {
         reportError(error, {
@@ -169,13 +144,10 @@ export function ArchivePage() {
         setPendingUnarchiveId(null);
       }
     },
-    [assistantId],
+    [assistantId, queryClient],
   );
 
-  const isLoading =
-    isAssistantLoading ||
-    isLoadingConversations ||
-    (assistantId != null && conversations === null);
+  const isLoading = isAssistantLoading || isLoadingConversations;
 
   if (isLoading) {
     return (
@@ -183,6 +155,34 @@ export function ArchivePage() {
         <div className="flex min-h-[400px] items-center justify-center">
           <Loader2 className="h-6 w-6 animate-spin text-[var(--content-disabled)]" />
         </div>
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="max-w-[940px]">
+        <Card>
+          <div className="flex min-h-[400px] flex-col items-center justify-center px-6 py-16 text-center">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--system-error-lighter)]">
+              <AlertTriangle className="h-6 w-6 text-[var(--system-error-default)]" />
+            </div>
+            <h2 className="mt-4 text-title-small text-[var(--content-default)]">
+              Failed to load archived conversations
+            </h2>
+            <p className="mt-1 text-body-medium-lighter text-[var(--content-tertiary)]">
+              Something went wrong. Please try again.
+            </p>
+            <Button
+              variant="outlined"
+              onClick={refetch}
+              className="mt-4"
+            >
+              <RotateCcw className="h-4 w-4" />
+              Retry
+            </Button>
+          </div>
+        </Card>
       </div>
     );
   }

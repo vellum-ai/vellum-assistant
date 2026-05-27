@@ -15,7 +15,7 @@
 
 import { useCallback, useEffect, useMemo, useState, startTransition } from "react";
 
-import type { Conversation, ConversationGroup } from "@/lib/conversations-api";
+import type { Conversation, ConversationGroup } from "@/types/conversation-types";
 import { groupConversations, type CustomGroup } from "@/domains/chat/utils/group-conversations";
 import { groupBackgroundConversationsBySource } from "@/domains/chat/utils/background-sub-groups";
 import { groupScheduledConversationsByJobId } from "@/domains/chat/utils/scheduled-sub-groups";

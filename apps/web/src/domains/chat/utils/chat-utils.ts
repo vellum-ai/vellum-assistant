@@ -1,6 +1,6 @@
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { AssistantIdentity } from "@/assistant/identity";
-import type { Conversation } from "@/lib/conversations-api";
+import type { Conversation } from "@/types/conversation-types";
 import type { AllowlistOption, AssistantEvent, DirectoryScopeOption, PendingToolConfirmation, ScopeOption } from "@/domains/chat/api/event-types";
 
 export const ERROR_MESSAGES: Record<string, string> = {

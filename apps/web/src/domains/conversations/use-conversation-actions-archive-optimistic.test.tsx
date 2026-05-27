@@ -31,7 +31,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createElement, type ReactNode } from "react";
 
 import * as sdkGen from "@/generated/daemon/sdk.gen";
-import type { Conversation } from "@/lib/conversations-api";
+import type { Conversation } from "@/types/conversation-types";
 import { conversationsQueryKey } from "@/lib/sync/query-tags";
 
 // ---------------------------------------------------------------------------

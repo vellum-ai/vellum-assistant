@@ -19,7 +19,7 @@ import {
 import type {
   Conversation,
   ConversationGroup,
-} from "@/lib/conversations-api";
+} from "@/types/conversation-types";
 import type { GroupsGetResponse } from "@/generated/daemon/types.gen";
 
 const ASSISTANT_ID = "ast-1";

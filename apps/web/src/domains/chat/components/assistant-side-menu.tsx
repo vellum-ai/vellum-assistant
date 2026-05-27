@@ -40,7 +40,8 @@ import { CollapsibleNavSection } from "@/components/collapsible-nav-section";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import { buildMoveToGroupTargets, isConversationPinned } from "@/domains/chat/utils/group-conversations";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
-import { canMarkRead, canMarkUnread, type Conversation } from "@/lib/conversations-api";
+import type { Conversation } from "@/types/conversation-types";
+import { canMarkRead, canMarkUnread } from "@/utils/conversation-predicates";
 
 /** @deprecated Use {@link SIDEBAR_CONVERSATION_LIMIT} from `use-sidebar-state.ts` */
 export const ASSISTANT_SIDE_MENU_CONVERSATION_LIMIT = SIDEBAR_CONVERSATION_LIMIT;

@@ -1,4 +1,4 @@
-import type { Conversation, ConversationGroup } from "@/lib/conversations-api";
+import type { Conversation, ConversationGroup } from "@/types/conversation-types";
 /**
  * Pure helper for splitting the sidebar's conversation list into system
  * category buckets (`pinned`, `slack`, `scheduled`, `background`, `recents`) and

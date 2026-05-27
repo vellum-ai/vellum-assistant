@@ -1,4 +1,4 @@
-import type { Conversation } from "@/lib/conversations-api";
+import type { Conversation } from "@/types/conversation-types";
 
 interface ResolveBootstrappedConversationIdArgs {
   queryParamKey: string | null;
