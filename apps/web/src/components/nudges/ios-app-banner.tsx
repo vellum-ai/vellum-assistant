@@ -1,7 +1,7 @@
 
 import { Smartphone } from "lucide-react";
 
-import { NudgeChatBanner } from "@/domains/nudges/components/nudge-chat-banner.js";
+import { NudgeChatBanner } from "@/components/nudges/nudge-chat-banner.js";
 
 interface IOSAppBannerProps {
   onDownload: () => void;

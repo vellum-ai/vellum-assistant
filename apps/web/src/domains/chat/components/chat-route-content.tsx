@@ -42,10 +42,10 @@ import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attach
 import type { ChatAttachment } from "@/domains/chat/components/chat-attachments/use-chat-attachments.js";
 import type { ChatEmptyStateProps } from "@/domains/chat/components/chat-empty-state.js";
 import { CreditsExhaustedBanner } from "@/domains/chat/components/credits-exhausted-banner.js";
-import { DiscordNudgeBanner } from "@/domains/nudges/components/discord-nudge-banner.js";
-import { GitHubNudgeBanner } from "@/domains/nudges/components/github-nudge-banner.js";
-import { IOSAppBanner } from "@/domains/nudges/components/ios-app-banner.js";
-import { MacOSAppBanner } from "@/domains/nudges/components/macos-app-banner.js";
+import { DiscordNudgeBanner } from "@/components/nudges/discord-nudge-banner.js";
+import { GitHubNudgeBanner } from "@/components/nudges/github-nudge-banner.js";
+import { IOSAppBanner } from "@/components/nudges/ios-app-banner.js";
+import { MacOSAppBanner } from "@/components/nudges/macos-app-banner.js";
 import { Loader2 } from "lucide-react";
 import { Button, Notice, ResizablePanel } from "@vellum/design-library";
 import { ProviderBillingBanner } from "@/domains/chat/components/provider-billing-banner.js";

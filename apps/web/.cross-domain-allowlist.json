@@ -26,7 +26,6 @@
   "src/domains/chat/components/chat-route-content.tsx": [
     "interactions",
     "messaging",
-    "nudges",
     "subagents"
   ],
   "src/domains/chat/components/mobile-subagent-detail-overlay.tsx": [
@@ -46,9 +45,6 @@
   ],
   "src/domains/chat/components/voice-input-button.tsx": [
     "voice"
-  ],
-  "src/domains/chat/hooks/use-app-nudges.ts": [
-    "nudges"
   ],
   "src/domains/chat/hooks/use-assistant-lifecycle.ts": [
     "onboarding"
@@ -190,20 +186,8 @@
   "src/domains/logs/components/usage-tab.tsx": [
     "chat"
   ],
-  "src/domains/onboarding/pages/pre-chat-flow.tsx": [
-    "nudges"
-  ],
-  "src/domains/onboarding/screens/get-ios-app-screen.tsx": [
-    "nudges"
-  ],
-  "src/domains/onboarding/screens/get-macos-app-screen.tsx": [
-    "nudges"
-  ],
   "src/domains/settings/ai/ai-page.tsx": [
     "voice"
-  ],
-  "src/domains/settings/components/ios-app-card.tsx": [
-    "nudges"
   ],
   "src/domains/settings/components/panels/assistant-terminal-panel.tsx": [
     "terminal"
@@ -225,9 +209,6 @@
   ],
   "src/domains/settings/pages/archive-page.tsx": [
     "chat"
-  ],
-  "src/domains/settings/pages/community-page.tsx": [
-    "nudges"
   ],
   "src/domains/settings/pages/voice-page.tsx": [
     "voice"

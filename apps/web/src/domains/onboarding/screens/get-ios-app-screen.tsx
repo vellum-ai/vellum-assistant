@@ -5,7 +5,7 @@ import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-lay
 import {
   writeIOSAppDownloaded,
   openIOSAppStore,
-} from "@/domains/nudges/ios-app-prefs.js";
+} from "@/hooks/use-ios-app-nudge.js";
 
 interface GetIOSAppScreenProps {
   onComplete: () => void;
