@@ -786,7 +786,17 @@ export const ROUTES: RouteDefinition[] = [
       },
     ],
     responseBody: z.object({
-      apps: z.array(z.unknown()).describe("Array of app summary objects"),
+      apps: z.array(
+        z.object({
+          id: z.string(),
+          name: z.string(),
+          description: z.string().optional(),
+          icon: z.string().optional(),
+          createdAt: z.number(),
+          version: z.string(),
+          contentId: z.string(),
+        }),
+      ),
     }),
   },
   {
@@ -828,7 +838,23 @@ export const ROUTES: RouteDefinition[] = [
     description: "Return all apps available via cloud share links.",
     tags: ["apps"],
     responseBody: z.object({
-      apps: z.array(z.unknown()).describe("Array of shared app objects"),
+      apps: z.array(
+        z.object({
+          uuid: z.string(),
+          name: z.string(),
+          description: z.string().optional(),
+          icon: z.string().optional(),
+          preview: z.string().optional(),
+          entry: z.string(),
+          trustTier: z.string(),
+          signerDisplayName: z.string().optional(),
+          bundleSizeBytes: z.number(),
+          installedAt: z.string(),
+          version: z.string().optional(),
+          contentId: z.string().optional(),
+          forked: z.boolean().optional(),
+        }),
+      ),
     }),
   },
   {
@@ -875,7 +901,28 @@ export const ROUTES: RouteDefinition[] = [
     description: "Return the built-in app gallery catalog.",
     tags: ["apps"],
     responseBody: z.object({
-      gallery: z.array(z.unknown()).describe("Gallery app entries"),
+      gallery: z.object({
+        version: z.number(),
+        updatedAt: z.string(),
+        categories: z.array(
+          z.object({
+            id: z.string(),
+            name: z.string(),
+            icon: z.string(),
+          }),
+        ),
+        apps: z.array(
+          z.object({
+            id: z.string(),
+            name: z.string(),
+            description: z.string(),
+            icon: z.string(),
+            category: z.string(),
+            version: z.string(),
+            featured: z.boolean().optional(),
+          }),
+        ),
+      }),
     }),
   },
   {
@@ -1054,7 +1101,13 @@ export const ROUTES: RouteDefinition[] = [
     queryParams: [{ name: "limit", type: "number" }],
     responseBody: z.object({
       appId: z.string(),
-      versions: z.array(z.unknown()),
+      versions: z.array(
+        z.object({
+          commitHash: z.string(),
+          message: z.string(),
+          timestamp: z.number(),
+        }),
+      ),
     }),
   },
   {
