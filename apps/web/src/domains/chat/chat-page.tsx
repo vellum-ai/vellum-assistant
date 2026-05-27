@@ -31,7 +31,7 @@ import {
   useConversationListQuery,
 } from "@/domains/conversations/conversation-queries";
 import { useViewerStore } from "@/stores/viewer-store";
-import { useDeployStore } from "@/domains/chat/deploy-store";
+import { useDeployStore } from "@/stores/deploy-store";
 import { useSubagentStore, type SubagentTimelineEvent } from "@/domains/subagents/subagent-store";
 import type { SubagentStatus } from "@/domains/chat/api/event-types";
 import { useInteractionStore } from "@/domains/interactions/interaction-store";

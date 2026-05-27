@@ -1,6 +1,6 @@
 import { beforeEach, describe, it, expect } from "bun:test";
 
-import { useDeployStore } from "@/domains/chat/deploy-store";
+import { useDeployStore } from "@/stores/deploy-store";
 
 // ---------------------------------------------------------------------------
 // Helpers

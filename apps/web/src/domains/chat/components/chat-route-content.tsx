@@ -77,7 +77,7 @@ import { useEmptyStateGreeting } from "@/domains/chat/hooks/use-empty-state-gree
 import { getChatBillingBannerDecision, shouldShowGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
 
 import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
-import { useDeployStore } from "@/domains/chat/deploy-store";
+import { useDeployStore } from "@/stores/deploy-store";
 import { useInteractionStore } from "@/domains/interactions/interaction-store";
 import type { SubagentState } from "@/domains/subagents/subagent-store";
 import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/utils/reconcile";
