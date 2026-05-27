@@ -93,6 +93,9 @@ function readConfig(): Record<string, unknown> {
   return JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 }
 
+// When IS_PLATFORM=true, every managed-capable service defaults to "managed".
+// Without IS_PLATFORM, services split by Zod schema default: google/notion-oauth
+// resolve to "managed" (per JARVIS-966), the rest resolve to "your-own".
 const MANAGED_SERVICES = [
   "image-generation",
   "web-search",
@@ -117,14 +120,13 @@ const SCHEMA_MANAGED_DEFAULT_SERVICES = [
   "notion-oauth",
 ] as const;
 
-const SCHEMA_YOUR_OWN_DEFAULT_SERVICES = MANAGED_SERVICES.filter(
-  (
-    svc,
-  ): svc is Exclude<
-    (typeof MANAGED_SERVICES)[number],
-    (typeof SCHEMA_MANAGED_DEFAULT_SERVICES)[number]
-  > => !(SCHEMA_MANAGED_DEFAULT_SERVICES as readonly string[]).includes(svc),
-);
+const SCHEMA_YOUR_OWN_DEFAULT_SERVICES = [
+  "image-generation",
+  "web-search",
+  "outlook-oauth",
+  "linear-oauth",
+  "github-oauth",
+] as const;
 
 // ---------------------------------------------------------------------------
 // Tests
