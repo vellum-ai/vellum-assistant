@@ -5,7 +5,10 @@ import * as Sentry from "@sentry/react";
 import { AccountHeading } from "@/components/account/account-form";
 import { AccountShell } from "@/components/account/account-shell";
 import { getSession } from "@/lib/auth/allauth-client";
-import { resolvePostLoginDestination } from "@/domains/account/login-flow";
+import {
+  readAuthCallbackIntent,
+  resolvePostAuthDestination,
+} from "@/domains/account/login-flow";
 import { classifyCallbackFlows } from "@/domains/account/social-auth";
 import { useAuthStore } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
@@ -32,6 +35,7 @@ export function ProviderCallbackPage() {
   const didRun = useRef(false);
 
   const returnTo = searchParams.get("returnTo");
+  const authIntent = readAuthCallbackIntent(searchParams);
 
   useEffect(() => {
     if (didRun.current) return;
@@ -51,7 +55,7 @@ export function ProviderCallbackPage() {
             await refreshSession();
             const fallback = routes.assistant;
             const { destination, requiresFullPageNavigation } =
-              resolvePostLoginDestination(returnTo, fallback);
+              resolvePostAuthDestination({ returnTo, fallback, authIntent });
             if (requiresFullPageNavigation) {
               window.location.href = destination;
             } else {
@@ -78,7 +82,7 @@ export function ProviderCallbackPage() {
         setFallbackError("Something went wrong. Please try signing in again.");
       }
     })();
-  }, [error, refreshSession, returnTo, navigate, searchParams]);
+  }, [authIntent, error, refreshSession, returnTo, navigate, searchParams]);
 
   if (error === "signup_closed") {
     return (

@@ -12,7 +12,10 @@ import {
   isConflict,
   submitProviderSignup,
 } from "@/lib/auth/allauth-client";
-import { resolvePostLoginDestination } from "@/domains/account/login-flow";
+import {
+  resolvePostAuthDestination,
+  resolvePostLoginDestination,
+} from "@/domains/account/login-flow";
 import { useAuthStore } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 
@@ -82,7 +85,11 @@ export function ProviderSignupPage() {
       }
 
       await refreshSession();
-      const post = resolvePostLoginDestination(returnTo, routes.account.root);
+      const post = resolvePostAuthDestination({
+        returnTo,
+        fallback: routes.account.root,
+        authIntent: "signup",
+      });
       if (post.requiresFullPageNavigation) {
         window.location.href = post.destination;
       } else {

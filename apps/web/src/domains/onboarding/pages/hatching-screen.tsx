@@ -18,6 +18,7 @@ import { composeSvg } from "@/utils/avatar-svg-compositor";
 import type { CharacterTraits } from "@/types/avatar";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { extractErrorMessage } from "@/lib/api-errors";
+import { useRootOutletContext } from "@/root-layout";
 import {
   readAiDataConsent,
   readOnboardingCompleted,
@@ -98,6 +99,9 @@ export function HatchingScreen() {
   const userId = useAuthStore.use.user()?.id ?? null;
   const isLoggedIn = useAuthStore.use.isLoggedIn();
   const isAuthLoading = useAuthStore.use.isLoading();
+  const {
+    lifecycle: { checkAssistant },
+  } = useRootOutletContext();
   const [, setOnboardingCompleted] = useOnboardingCompleted();
   const [hatchTraits] = useState<CharacterTraits>(() =>
     randomCharacterTraits(BUNDLED_COMPONENTS),
@@ -251,19 +255,25 @@ export function HatchingScreen() {
           phaseRef.current = "ready";
           navigateTimer = setTimeout(() => {
             if (cancelled) return;
-            if (isNativePlatform()) {
-              try {
-                setOnboardingCompleted(true);
-              } catch (err) {
-                Sentry.captureException(err, {
-                  tags: { context: "hatching_mark_onboarding_completed_native" },
+            void (async () => {
+              await checkAssistant();
+              if (cancelled) return;
+              if (isNativePlatform()) {
+                try {
+                  setOnboardingCompleted(true);
+                } catch (err) {
+                  Sentry.captureException(err, {
+                    tags: { context: "hatching_mark_onboarding_completed_native" },
+                  });
+                }
+                clearPrivacyConsent();
+                void navigate(`${routes.assistant}?onboarding=1`, {
+                  replace: true,
                 });
+                return;
               }
-              clearPrivacyConsent();
-              void navigate(`${routes.assistant}?onboarding=1`, { replace: true });
-              return;
-            }
-            void navigate(routes.onboarding.prechat, { replace: true });
+              void navigate(routes.onboarding.prechat, { replace: true });
+            })();
           }, COMPLETION_NAVIGATE_DELAY_MS);
           return;
         }
@@ -297,6 +307,7 @@ export function HatchingScreen() {
     isAuthLoading,
     isLoggedIn,
     isReplay,
+    checkAssistant,
     navigate,
     setOnboardingCompleted,
     transitionPhase,

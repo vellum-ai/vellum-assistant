@@ -1,6 +1,6 @@
 import * as Sentry from "@sentry/browser";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { useIsIOSWeb, useIsMacOSWeb } from "@/utils/platform-detection";
@@ -43,6 +43,7 @@ import {
 import { resolveUserCohort } from "@/domains/onboarding/utm-cohort";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useAuthStore } from "@/stores/auth-store";
+import { useRootOutletContext } from "@/root-layout";
 import { routes } from "@/utils/routes";
 
 /**
@@ -67,6 +68,9 @@ export function PreChatFlow() {
   const firstName = user?.firstName ?? "";
   const lastName = user?.lastName ?? "";
   const isNative = useIsNativePlatform();
+  const {
+    lifecycle: { checkAssistant },
+  } = useRootOutletContext();
   const [, setOnboardingCompleted] = useOnboardingCompleted();
   const [cohort, setCohort] = useState<string | null>(null);
 
@@ -121,6 +125,11 @@ export function PreChatFlow() {
     enabled: !isAuthLoading && isLoggedIn,
   });
 
+  const navigateToChatAfterLifecycleRefresh = useCallback(async () => {
+    await checkAssistant();
+    void navigate(`${routes.assistant}?onboarding=1`, { replace: true });
+  }, [checkAssistant, navigate]);
+
   type ConsentSnapshot = {
     userId: string | null;
     decision: "pending" | "ok" | "missing";
@@ -162,7 +171,7 @@ export function PreChatFlow() {
       return;
     }
     if (readOnboardingCompleted()) {
-      void navigate(`${routes.assistant}?onboarding=1`, { replace: true });
+      void navigateToChatAfterLifecycleRefresh();
       return;
     }
     if (consentDecision === "missing" && !isNative) {
@@ -176,6 +185,7 @@ export function PreChatFlow() {
     isLoggedIn,
     isNative,
     navigate,
+    navigateToChatAfterLifecycleRefresh,
     setOnboardingCompleted,
     userId,
   ]);
@@ -198,10 +208,18 @@ export function PreChatFlow() {
       });
     }
     clearPrivacyConsent();
-    void navigate(`${routes.assistant}?onboarding=1`, { replace: true });
-  }, [cohort, isNative, isAuthLoading, isLoggedIn, consentDecision, navigate, setOnboardingCompleted]);
+    void navigateToChatAfterLifecycleRefresh();
+  }, [
+    cohort,
+    isNative,
+    isAuthLoading,
+    isLoggedIn,
+    consentDecision,
+    navigateToChatAfterLifecycleRefresh,
+    setOnboardingCompleted,
+  ]);
 
-  function finish(connectedScopes?: string[]): void {
+  async function finish(connectedScopes?: string[]): Promise<void> {
     const context: PreChatOnboardingContext = {
       tools: stripOtherPrefix([...selectedTools]),
       tasks: [...selectedTasks].sort(),
@@ -235,7 +253,7 @@ export function PreChatFlow() {
       });
     }
     clearPrivacyConsent();
-    void navigate(`${routes.assistant}?onboarding=1`, { replace: true });
+    await navigateToChatAfterLifecycleRefresh();
   }
 
   const consentReady = isNative || consentDecision === "ok";
@@ -375,7 +393,7 @@ export function PreChatFlow() {
     } else if (showAppStep) {
       setScreen(5);
     } else {
-      finish();
+      void finish();
     }
   };
 
@@ -421,18 +439,38 @@ export function PreChatFlow() {
           if (showAppStep) {
             setScreen(5);
           } else {
-            finish(scopes);
+            void finish(scopes);
           }
         }}
-        onSkip={showAppStep ? () => setScreen(5) : () => finish()}
+        onSkip={
+          showAppStep
+            ? () => setScreen(5)
+            : () => {
+                void finish();
+              }
+        }
         onBack={() => setScreen(3)}
       />
     );
   }
 
   if (screen === 5) {
-    if (isIOSWeb) return <GetIOSAppScreen onComplete={() => finish()} />;
-    return <GetMacOSAppScreen onComplete={() => finish()} />;
+    if (isIOSWeb) {
+      return (
+        <GetIOSAppScreen
+          onComplete={() => {
+            void finish();
+          }}
+        />
+      );
+    }
+    return (
+      <GetMacOSAppScreen
+        onComplete={() => {
+          void finish();
+        }}
+      />
+    );
   }
 
   return null;
