@@ -4634,6 +4634,210 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversations:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        title:
+                          type: string
+                        createdAt:
+                          type: number
+                        updatedAt:
+                          type: number
+                        lastMessageAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        conversationType:
+                          type: string
+                          enum:
+                            - standard
+                            - background
+                            - scheduled
+                        source:
+                          type: string
+                        scheduleJobId:
+                          type: string
+                        channelBinding:
+                          type: object
+                          properties:
+                            sourceChannel:
+                              type: string
+                            externalChatId:
+                              type: string
+                            externalChatName:
+                              type: string
+                            externalThreadId:
+                              type: string
+                            externalUserId:
+                              type: string
+                            displayName:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            username:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            slackThread:
+                              type: object
+                              properties:
+                                channelId:
+                                  type: string
+                                threadTs:
+                                  type: string
+                                link:
+                                  type: object
+                                  properties:
+                                    desktopUrl:
+                                      type: string
+                                    webUrl:
+                                      type: string
+                                  additionalProperties: false
+                              required:
+                                - channelId
+                                - threadTs
+                              additionalProperties: false
+                            slackChannel:
+                              type: object
+                              properties:
+                                channelId:
+                                  type: string
+                                name:
+                                  type: string
+                                link:
+                                  type: object
+                                  properties:
+                                    webUrl:
+                                      type: string
+                                  required:
+                                    - webUrl
+                                  additionalProperties: false
+                              required:
+                                - channelId
+                              additionalProperties: false
+                          required:
+                            - sourceChannel
+                            - externalChatId
+                            - externalUserId
+                            - displayName
+                            - username
+                          additionalProperties: false
+                        conversationOriginChannel:
+                          anyOf:
+                            - type: string
+                              enum:
+                                - telegram
+                                - phone
+                                - vellum
+                                - whatsapp
+                                - slack
+                                - email
+                                - platform
+                                - a2a
+                            - type: "null"
+                        assistantAttention:
+                          type: object
+                          properties:
+                            hasUnseenLatestAssistantMessage:
+                              type: boolean
+                            latestAssistantMessageAt:
+                              type: number
+                            lastSeenAssistantMessageAt:
+                              type: number
+                            lastSeenConfidence:
+                              type: string
+                              enum:
+                                - explicit
+                                - inferred
+                            lastSeenSignalType:
+                              type: string
+                              enum:
+                                - macos_notification_view
+                                - macos_conversation_opened
+                                - ios_conversation_opened
+                                - telegram_inbound_message
+                                - telegram_callback
+                                - slack_inbound_message
+                                - slack_callback
+                          required:
+                            - hasUnseenLatestAssistantMessage
+                          additionalProperties: false
+                        isPinned:
+                          type: boolean
+                          const: true
+                        displayOrder:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        groupId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        forkParent:
+                          type: object
+                          properties:
+                            conversationId:
+                              type: string
+                            messageId:
+                              type: string
+                            title:
+                              type: string
+                          required:
+                            - conversationId
+                            - messageId
+                            - title
+                          additionalProperties: false
+                        archivedAt:
+                          type: number
+                        inferenceProfile:
+                          type: string
+                      required:
+                        - id
+                        - title
+                        - createdAt
+                        - updatedAt
+                        - lastMessageAt
+                        - conversationType
+                        - source
+                        - groupId
+                      additionalProperties: false
+                  nextOffset:
+                    type: number
+                  hasMore:
+                    type: boolean
+                  groups:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                        sortPosition:
+                          type: number
+                        isSystemGroup:
+                          type: boolean
+                      required:
+                        - id
+                        - name
+                        - sortPosition
+                        - isSystemGroup
+                      additionalProperties: false
+                required:
+                  - conversations
+                  - nextOffset
+                  - hasMore
+                additionalProperties: false
     post:
       operationId: conversations_post
       summary: Create a conversation
@@ -4752,6 +4956,183 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversation:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      title:
+                        type: string
+                      createdAt:
+                        type: number
+                      updatedAt:
+                        type: number
+                      lastMessageAt:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      conversationType:
+                        type: string
+                        enum:
+                          - standard
+                          - background
+                          - scheduled
+                      source:
+                        type: string
+                      scheduleJobId:
+                        type: string
+                      channelBinding:
+                        type: object
+                        properties:
+                          sourceChannel:
+                            type: string
+                          externalChatId:
+                            type: string
+                          externalChatName:
+                            type: string
+                          externalThreadId:
+                            type: string
+                          externalUserId:
+                            type: string
+                          displayName:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          username:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          slackThread:
+                            type: object
+                            properties:
+                              channelId:
+                                type: string
+                              threadTs:
+                                type: string
+                              link:
+                                type: object
+                                properties:
+                                  desktopUrl:
+                                    type: string
+                                  webUrl:
+                                    type: string
+                                additionalProperties: false
+                            required:
+                              - channelId
+                              - threadTs
+                            additionalProperties: false
+                          slackChannel:
+                            type: object
+                            properties:
+                              channelId:
+                                type: string
+                              name:
+                                type: string
+                              link:
+                                type: object
+                                properties:
+                                  webUrl:
+                                    type: string
+                                required:
+                                  - webUrl
+                                additionalProperties: false
+                            required:
+                              - channelId
+                            additionalProperties: false
+                        required:
+                          - sourceChannel
+                          - externalChatId
+                          - externalUserId
+                          - displayName
+                          - username
+                        additionalProperties: false
+                      conversationOriginChannel:
+                        anyOf:
+                          - type: string
+                            enum:
+                              - telegram
+                              - phone
+                              - vellum
+                              - whatsapp
+                              - slack
+                              - email
+                              - platform
+                              - a2a
+                          - type: "null"
+                      assistantAttention:
+                        type: object
+                        properties:
+                          hasUnseenLatestAssistantMessage:
+                            type: boolean
+                          latestAssistantMessageAt:
+                            type: number
+                          lastSeenAssistantMessageAt:
+                            type: number
+                          lastSeenConfidence:
+                            type: string
+                            enum:
+                              - explicit
+                              - inferred
+                          lastSeenSignalType:
+                            type: string
+                            enum:
+                              - macos_notification_view
+                              - macos_conversation_opened
+                              - ios_conversation_opened
+                              - telegram_inbound_message
+                              - telegram_callback
+                              - slack_inbound_message
+                              - slack_callback
+                        required:
+                          - hasUnseenLatestAssistantMessage
+                        additionalProperties: false
+                      isPinned:
+                        type: boolean
+                        const: true
+                      displayOrder:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      groupId:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      forkParent:
+                        type: object
+                        properties:
+                          conversationId:
+                            type: string
+                          messageId:
+                            type: string
+                          title:
+                            type: string
+                        required:
+                          - conversationId
+                          - messageId
+                          - title
+                        additionalProperties: false
+                      archivedAt:
+                        type: number
+                      inferenceProfile:
+                        type: string
+                    required:
+                      - id
+                      - title
+                      - createdAt
+                      - updatedAt
+                      - lastMessageAt
+                      - conversationType
+                      - source
+                      - groupId
+                    additionalProperties: false
+                required:
+                  - conversation
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -5996,6 +6377,48 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required:
+                  - ok
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversationId:
+                  type: string
+                sourceChannel:
+                  type: string
+                signalType:
+                  type: string
+                confidence:
+                  type: string
+                  enum:
+                    - explicit
+                    - inferred
+                source:
+                  type: string
+                evidenceText:
+                  type: string
+                metadata:
+                  type: object
+                  propertyNames:
+                    type: string
+                  additionalProperties: {}
+                observedAt:
+                  type: number
+              required:
+                - conversationId
+              additionalProperties: false
   /v1/conversations/switch:
     post:
       operationId: conversations_switch_post
@@ -6049,6 +6472,28 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required:
+                  - ok
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversationId:
+                  type: string
+              required:
+                - conversationId
+              additionalProperties: false
   /v1/conversations/wake:
     post:
       operationId: conversations_wake_post
@@ -7988,6 +8433,33 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  groups:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                        sortPosition:
+                          type: number
+                        isSystemGroup:
+                          type: boolean
+                      required:
+                        - id
+                        - name
+                        - sortPosition
+                        - isSystemGroup
+                      additionalProperties: false
+                required:
+                  - groups
+                additionalProperties: false
     post:
       operationId: groups_post
       summary: Create group
@@ -7997,6 +8469,25 @@ paths:
       responses:
         "201":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                  sortPosition:
+                    type: number
+                  isSystemGroup:
+                    type: boolean
+                required:
+                  - id
+                  - name
+                  - sortPosition
+                  - isSystemGroup
+                additionalProperties: false
         "400":
           description: Missing or invalid name, or sort_position ceiling reached
       requestBody:
@@ -8041,6 +8532,25 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                  sortPosition:
+                    type: number
+                  isSystemGroup:
+                    type: boolean
+                required:
+                  - id
+                  - name
+                  - sortPosition
+                  - isSystemGroup
+                additionalProperties: false
         "403":
           description: System group sort position cannot be changed
         "404":
@@ -8073,6 +8583,16 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required:
+                  - ok
+                additionalProperties: false
         "403":
           description: Cannot reorder system groups
       requestBody:
