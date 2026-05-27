@@ -70,6 +70,20 @@ Reference: [MDN: `(pointer)` media feature](https://developer.mozilla.org/en-US/
 
 ---
 
+## Click events require interactive elements on iOS
+
+iOS Safari/WKWebView does not fire `click` events from elements it does not consider "clickable" — plain `<div>`, `<span>`, or other non-interactive elements will receive `pointerdown`/`touchstart` but the synthesized `click` event will not fire or bubble to `document`. An element is "clickable" if it has any of: an `onclick`/`onClick` handler, `cursor: pointer`, `tabindex`, or is a natively interactive element (`<a>`, `<button>`, `<input>`, etc.).
+
+This matters for any library that defers touch-initiated logic to a `click` event listener on the document (e.g. Radix UI's `DismissableLayer` uses this pattern for dismiss-on-tap-outside). If the tap target is a non-interactive overlay `<div>`, the deferred `click` never fires on iOS and the interaction silently fails.
+
+**When adding overlay or backdrop elements that need to respond to taps, always attach an explicit `onClick` handler or use a `<button>`.** Do not rely on document-level `click` listeners reaching non-interactive elements on iOS.
+
+References:
+- Apple — [Handling Events in Safari on iOS](https://developer.apple.com/library/archive/documentation/AppleApplications/Reference/SafariWebContent/HandlingEvents/HandlingEvents.html)
+- Radix — [`DismissableLayer` source (`usePointerDownOutside`)](https://github.com/radix-ui/primitives/blob/main/packages/react/dismissable-layer/src/dismissable-layer.tsx)
+
+---
+
 ## Deep links (Capacitor `appUrlOpen`)
 
 Native OAuth completion auto-dismisses `SFSafariViewController` by redirecting to a registered custom URL scheme (`vellum-assistant://`, `-dev`, `-staging`) and routing the URL via the `@capacitor/app` plugin's `appUrlOpen` listener. The router is mounted globally for the app routes; pure utilities and the typed `WindowEventMap` augmentation live in [`src/runtime/native-deep-link.ts`](../src/runtime/native-deep-link.ts).
