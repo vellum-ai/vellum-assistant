@@ -5,11 +5,19 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { patchConversation } from "@/domains/conversations/conversation-queries";
 import { isSlackConversation } from "@/domains/chat/utils/group-conversations";
+import {
+  conversationsByIdArchivePost,
+  conversationsByIdNamePatch,
+  conversationsByIdUnarchivePost,
+  conversationsReorderPost,
+  conversationsSeenPost,
+  conversationsUnreadPost,
+} from "@/generated/daemon/sdk.gen";
 
 import { haptic } from "@/utils/haptics";
 
 import { shouldReturnToBackground } from "@/domains/chat/utils/chat-utils";
-import { type Conversation, archiveConversation, isBackgroundConversation, markConversationSeen, markConversationUnread, renameConversation, reorderConversations, unarchiveConversation } from "@/lib/conversations-api";
+import { type Conversation, isBackgroundConversation } from "@/lib/conversations-api";
 
 // ---------------------------------------------------------------------------
 // Helpers — pure functions, no React state
@@ -126,7 +134,10 @@ export function useConversationActions({
       }
 
       try {
-        await archiveConversation(assistantId, conversation.conversationId);
+        await conversationsByIdArchivePost({
+          path: { assistant_id: assistantId, id: conversation.conversationId },
+          throwOnError: true,
+        });
         // Refresh so the optimistic `Date.now()` guess is replaced with the
         // server-authoritative timestamp and any other side effects sync in.
         await refreshConversations();
@@ -169,10 +180,10 @@ export function useConversationActions({
       });
 
       try {
-        await unarchiveConversation(
-          assistantId,
-          conversation.conversationId,
-        );
+        await conversationsByIdUnarchivePost({
+          path: { assistant_id: assistantId, id: conversation.conversationId },
+          throwOnError: true,
+        });
       } catch (err) {
         // Roll back so the row re-archives in the UI.
         patchConversation(queryClient, assistantId, conversation.conversationId, {
@@ -196,7 +207,11 @@ export function useConversationActions({
         return;
       }
       try {
-        await markConversationUnread(assistantId, conversation.conversationId);
+        await conversationsUnreadPost({
+          path: { assistant_id: assistantId },
+          body: { conversationId: conversation.conversationId },
+          throwOnError: true,
+        });
         patchConversation(queryClient, assistantId, conversation.conversationId, { hasUnseenLatestAssistantMessage: true });
       } catch (err) {
         Sentry.captureException(err, {
@@ -212,7 +227,11 @@ export function useConversationActions({
       if (!assistantId) return;
       if (!conversation.hasUnseenLatestAssistantMessage) return;
       try {
-        await markConversationSeen(assistantId, conversation.conversationId);
+        await conversationsSeenPost({
+          path: { assistant_id: assistantId },
+          body: { conversationId: conversation.conversationId },
+          throwOnError: true,
+        });
         patchConversation(queryClient, assistantId, conversation.conversationId, { hasUnseenLatestAssistantMessage: false });
       } catch (err) {
         Sentry.captureException(err, {
@@ -252,13 +271,17 @@ export function useConversationActions({
       patchConversation(queryClient, assistantId, conversation.conversationId, { isPinned: newIsPinned, groupId: newGroupId });
 
       try {
-        await reorderConversations(assistantId, [
-          {
-            conversationId: conversation.conversationId,
-            isPinned: newIsPinned,
-            groupId: newGroupId,
+        await conversationsReorderPost({
+          path: { assistant_id: assistantId },
+          body: {
+            updates: [{
+              conversationId: conversation.conversationId,
+              isPinned: newIsPinned,
+              groupId: newGroupId,
+            }],
           },
-        ]);
+          throwOnError: true,
+        });
         if (!newIsPinned) {
           prePinGroupIdsRef.current.delete(conversation.conversationId);
         }
@@ -294,13 +317,17 @@ export function useConversationActions({
       patchConversation(queryClient, assistantId, conversation.conversationId, { isPinned: newIsPinned, groupId });
 
       try {
-        await reorderConversations(assistantId, [
-          {
-            conversationId: conversation.conversationId,
-            isPinned: newIsPinned,
-            groupId,
+        await conversationsReorderPost({
+          path: { assistant_id: assistantId },
+          body: {
+            updates: [{
+              conversationId: conversation.conversationId,
+              isPinned: newIsPinned,
+              groupId,
+            }],
           },
-        ]);
+          throwOnError: true,
+        });
         if (!newIsPinned) {
           prePinGroupIdsRef.current.delete(conversation.conversationId);
         }
@@ -363,11 +390,11 @@ export function useConversationActions({
       patchConversation(queryClient, assistantId, conversation.conversationId, { title: trimmed });
 
       try {
-        await renameConversation(
-          assistantId,
-          conversation.conversationId,
-          trimmed,
-        );
+        await conversationsByIdNamePatch({
+          path: { assistant_id: assistantId, id: conversation.conversationId },
+          body: { name: trimmed },
+          throwOnError: true,
+        });
       } catch (err) {
         patchConversation(queryClient, assistantId, conversation.conversationId, { title: currentTitle });
         Sentry.captureException(err, {

@@ -8,7 +8,7 @@ import {
   markConversationSeenLocal,
   useConversationListQuery,
 } from "@/domains/conversations/conversation-queries";
-import { markConversationSeen } from "@/lib/conversations-api";
+import { conversationsSeenPost } from "@/generated/daemon/sdk.gen";
 import { listConversationIdsWithPendingInteractions } from "@/domains/chat/api/interactions";
 import { USER_FACING_INTERACTION_KINDS } from "@/domains/chat/api/event-types";
 import type { AssistantState } from "@/domains/chat/hooks/use-assistant-lifecycle";
@@ -110,7 +110,11 @@ export function useAttentionTracking({
 
     let cancelled = false;
 
-    markConversationSeen(assistantId, activeConversationId)
+    conversationsSeenPost({
+      path: { assistant_id: assistantId },
+      body: { conversationId: activeConversationId },
+      throwOnError: true,
+    })
       .then(() => {
         if (cancelled) return;
         markConversationSeenLocal(queryClient, assistantId, activeConversationId);
