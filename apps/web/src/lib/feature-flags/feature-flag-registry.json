@@ -314,14 +314,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "pro-plan-adjust",
-      "scope": "client",
-      "key": "pro-plan-adjust",
-      "label": "Pro Plan Adjust",
-      "description": "Show the rich Plan card (current plan, features, Manage/Upgrade CTA) at the top of the macOS Settings \u2192 Billing tab.",
-      "defaultEnabled": false
-    },
-    {
       "id": "external-plugins",
       "scope": "assistant",
       "key": "external-plugins",
