@@ -79,6 +79,7 @@ describe("Transcript", () => {
     const html = renderToStaticMarkup(
       <Transcript
         items={[]}
+        conversationId={null}
         onSecretSubmit={noop}
         onConfirmationDecision={noop}
         onSurfaceAction={noop}
@@ -94,6 +95,7 @@ describe("Transcript", () => {
     const html = renderToStaticMarkup(
       <Transcript
         items={[]}
+        conversationId={null}
         onSecretSubmit={noop}
         onConfirmationDecision={noop}
         onSurfaceAction={noop}
@@ -117,6 +119,7 @@ describe("Transcript", () => {
     const html = renderToStaticMarkup(
       <Transcript
         items={items}
+        conversationId={null}
         onSecretSubmit={noop}
         onConfirmationDecision={noop}
         onSurfaceAction={noop}
@@ -146,6 +149,7 @@ describe("Transcript", () => {
     const html = renderToStaticMarkup(
       <Transcript
         items={items}
+        conversationId={null}
         onSecretSubmit={noop}
         onConfirmationDecision={noop}
         onSurfaceAction={noop}
@@ -169,6 +173,7 @@ describe("Transcript", () => {
     const html = renderToStaticMarkup(
       <Transcript
         items={items}
+        conversationId={null}
         onSecretSubmit={noop}
         onConfirmationDecision={noop}
         onSurfaceAction={noop}

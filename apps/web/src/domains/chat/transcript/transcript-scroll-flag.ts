@@ -1,5 +1,11 @@
 // Runtime flag that turns OFF the deprecated transcript scroll hook.
 //
+// This file is intentionally isolated from the rest of the scroll
+// utilities so it can be deleted in one move when the migration is
+// complete — no other file in `transcript/` depends on it except
+// `use-deprecated-transcript-scroll.ts` and `transcript-scroll.ts`,
+// both of which will be deleted/refactored at that point.
+//
 // In the current shape of this work-in-progress:
 //
 //   • Flag OFF (default) — the orchestrator runs the deprecated hook
@@ -7,16 +13,9 @@
 //     production scroll-coordination logic. Production users land
 //     here. We keep this in the tree so we don't regress shipping
 //     behavior while we redesign the replacement.
-//   • Flag ON  — the orchestrator runs neither the deprecated hook
-//     nor a replacement. The transcript scrolls natively with no
-//     JavaScript coordination at all. No auto-pin, no anchor
-//     correction, no chain-load, no "Go to Newest" pill. This is the
-//     baseline against which the eventual controller will be built.
-//
-// The eventual `TranscriptScrollController` (not yet introduced) will
-// land behind this same flag — flipping it on will route to the new
-// path. The name `toggleTranscriptScrollController` reflects the
-// destination, not the current intermediate state.
+//   • Flag ON  — the deprecated hook returns its no-op result. The
+//     replacement utilities in `transcript-scroll.ts` take over
+//     piecewise as features migrate.
 //
 // Why module-load read + reload-on-toggle:
 //

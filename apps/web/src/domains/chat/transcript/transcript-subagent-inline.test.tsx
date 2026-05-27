@@ -176,6 +176,7 @@ describe("Transcript — inline subagent rendering (PR 8)", () => {
     const { getAllByTestId } = render(
       <Transcript
         items={items}
+        conversationId={null}
         onSecretSubmit={noop}
         onConfirmationDecision={noop}
         onSurfaceAction={noop}
@@ -200,6 +201,7 @@ describe("Transcript — inline subagent rendering (PR 8)", () => {
     const { queryAllByTestId } = render(
       <Transcript
         items={items}
+        conversationId={null}
         onSecretSubmit={noop}
         onConfirmationDecision={noop}
         onSurfaceAction={noop}
@@ -219,6 +221,7 @@ describe("Transcript — inline subagent rendering (PR 8)", () => {
     const { container, getByTestId } = render(
       <Transcript
         items={items}
+        conversationId={null}
         onSecretSubmit={noop}
         onConfirmationDecision={noop}
         onSurfaceAction={noop}
@@ -257,6 +260,7 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
     const { getAllByTestId } = render(
       <Transcript
         items={items}
+        conversationId={null}
         onSecretSubmit={noop}
         onConfirmationDecision={noop}
         onSurfaceAction={noop}
@@ -292,6 +296,7 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
     const { getAllByTestId } = render(
       <Transcript
         items={items}
+        conversationId={null}
         onSecretSubmit={noop}
         onConfirmationDecision={noop}
         onSurfaceAction={noop}
@@ -342,6 +347,7 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
     const { getAllByTestId } = render(
       <Transcript
         items={items}
+        conversationId={null}
         onSecretSubmit={noop}
         onConfirmationDecision={noop}
         onSurfaceAction={noop}
@@ -363,6 +369,7 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
     const { queryAllByTestId } = render(
       <Transcript
         items={items}
+        conversationId={null}
         onSecretSubmit={noop}
         onConfirmationDecision={noop}
         onSurfaceAction={noop}
@@ -434,6 +441,7 @@ describe("Transcript — cross-group claimed-set (fix-r1-c)", () => {
     const { getAllByTestId } = render(
       <Transcript
         items={items}
+        conversationId={null}
         onSecretSubmit={noop}
         onConfirmationDecision={noop}
         onSurfaceAction={noop}
@@ -460,6 +468,7 @@ describe("Transcript — legacy SubagentProgressCard mount is gone (PR 8)", () =
     const { container } = render(
       <Transcript
         items={items}
+        conversationId={null}
         onSecretSubmit={noop}
         onConfirmationDecision={noop}
         onSurfaceAction={noop}
