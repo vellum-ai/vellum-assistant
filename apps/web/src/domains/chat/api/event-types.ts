@@ -437,6 +437,13 @@ export interface SubagentSpawnedEvent {
   label: string;
   objective: string;
   isFork?: boolean;
+  /**
+   * Tool-use block ID of the spawning tool call in the parent conversation.
+   * Lets the client anchor the inline subagent card to its exact spawn tool
+   * call (survives optimistic→reconciled message id swaps). Optional — older
+   * daemons omit it.
+   */
+  parentToolUseId?: string;
   conversationId?: string;
 }
 

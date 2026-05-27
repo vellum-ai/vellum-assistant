@@ -31,6 +31,9 @@
   "src/domains/chat/components/mobile-subagent-detail-overlay.tsx": [
     "subagents"
   ],
+  "src/domains/chat/components/subagent-detail-panel.test.tsx": [
+    "subagents"
+  ],
   "src/domains/chat/components/subagent-detail-panel.tsx": [
     "subagents"
   ],
@@ -118,6 +121,12 @@
   ],
   "src/domains/chat/utils/stream-handlers/interaction-handlers.ts": [
     "interactions"
+  ],
+  "src/domains/chat/utils/stream-handlers/message-handlers.test.ts": [
+    "subagents"
+  ],
+  "src/domains/chat/utils/stream-handlers/message-handlers.ts": [
+    "subagents"
   ],
   "src/domains/chat/utils/stream-handlers/metadata-handlers.test.ts": [
     "conversations"

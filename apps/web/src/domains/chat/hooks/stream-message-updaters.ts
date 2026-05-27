@@ -164,11 +164,17 @@ export function finalizeOnIdle(prev: DisplayMessage[]): DisplayMessage[] {
  *     stamped with `event.messageId`. This covers the start-of-turn case
  *     where no streaming bubble was opened (e.g. tool-only or aux turns).
  *   - tail is assistant → finalize it: flip `isStreaming: false`, complete
- *     any running tool calls, merge in `event.content` / `event.attachments`,
- *     **keep `tail.id`**. Subsequent `message_complete` events from later
- *     LLM calls in the same agent turn fold into the same bubble — the
+ *     any running tool calls, merge in `event.content` / `event.attachments`.
+ *     The first `message_complete` for an *optimistic* row also adopts
+ *     `event.messageId` as the row id (clearing `isOptimistic`) so the
+ *     post-turn history reconcile matches by id instead of falling back to
+ *     brittle content matching — the latter breaks for multi-LLM-call turns
+ *     (e.g. subagent spawns) where the daemon's collapsed server content
+ *     diverges from the finalized bubble's text, producing a duplicate row.
+ *     Subsequent `message_complete` events from later LLM calls in the same
+ *     agent turn fold into the same bubble and **keep the adopted id** — the
  *     mirror of the daemon's server-side merge which collapses to the first
- *     row's id.
+ *     row's id (later events carry constituent ids the daemon discards).
  */
 export function finalizeMessageComplete(
   prev: DisplayMessage[],
@@ -193,15 +199,19 @@ export function finalizeMessageComplete(
   }
 
   const finalized = finalizeRunningToolCalls(last.toolCalls);
+  // Adopt the server `messageId` the first time it lands for this display row
+  // (the bubble is still optimistic), swapping off the optimistic client UUID
+  // so the row reconciles by id. Gated on `isOptimistic` so later
+  // `message_complete` events in the same multi-LLM-call turn — which carry
+  // constituent row ids the daemon collapses away — don't re-stamp the row off
+  // its canonical first-row id.
+  const adoptServerId = last.isOptimistic === true && !!event.messageId;
   return [
     ...prev.slice(0, -1),
     {
       ...last,
+      ...(adoptServerId ? { id: event.messageId!, isOptimistic: false } : {}),
       isStreaming: false,
-      // Keep `last.id` — the anchor was locked by the first text_delta /
-      // tool_use of the turn. The daemon may advance its internal row id
-      // across multiple LLM calls, but each call's `event.messageId` is
-      // just a constituent of this display row.
       content: event.content || last.content,
       ...(attachments ? { attachments } : {}),
       ...(finalized ? { toolCalls: finalized } : {}),

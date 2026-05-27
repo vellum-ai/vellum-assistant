@@ -18,6 +18,7 @@ import type { SubagentEntry } from "@/domains/subagents/subagent-store";
 import { isActiveStatus } from "@/domains/subagents/status-helpers";
 
 import { SubagentTimeline } from "@/domains/chat/components/subagent-timeline";
+import { SkeletonBar } from "@/domains/chat/components/chat-skeleton";
 
 /** Format a number compactly (e.g. 257400 -> "257.4K"). */
 function formatNumber(n: number): string {
@@ -79,10 +80,12 @@ function MetricCard({
   icon,
   value,
   label,
+  loading = false,
 }: {
   icon: ReactNode;
   value: string;
   label: string;
+  loading?: boolean;
 }) {
   return (
     <div className="flex items-center gap-3 rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] px-3 py-3">
@@ -90,12 +93,20 @@ function MetricCard({
         {icon}
       </div>
       <div className="min-w-0">
-        <Typography
-          variant="title-small"
-          className="block text-[var(--content-default)]"
-        >
-          {value}
-        </Typography>
+        {loading ? (
+          // Match the title-small line-box height so the card does not reflow
+          // when the real value lands.
+          <span className="flex h-5 items-center" aria-hidden="true">
+            <SkeletonBar className="h-3 w-10" />
+          </span>
+        ) : (
+          <Typography
+            variant="title-small"
+            className="block text-[var(--content-default)]"
+          >
+            {value}
+          </Typography>
+        )}
         <Typography
           variant="body-small-default"
           className="block text-[var(--content-secondary)]"
@@ -107,11 +118,18 @@ function MetricCard({
   );
 }
 
-function AnimatedMetricCard({ icon, label, target, format }: {
-  icon: ReactNode; label: string; target: number; format: (n: number) => string;
+function AnimatedMetricCard({ icon, label, target, format, loading = false }: {
+  icon: ReactNode; label: string; target: number; format: (n: number) => string; loading?: boolean;
 }) {
   const animated = useAnimatedNumber(target);
-  return <MetricCard icon={icon} label={label} value={format(animated)} />;
+  return (
+    <MetricCard
+      icon={icon}
+      label={label}
+      value={format(animated)}
+      loading={loading}
+    />
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -136,6 +154,15 @@ export function SubagentDetailPanel({
   onRequestDetail,
 }: SubagentDetailPanelProps) {
   const isRunning = isActiveStatus(entry.status);
+  // The daemon ships zeroed usage until a subagent completes, so all-zero
+  // while still active is our "metrics not yet available" signal. Once any
+  // usage arrives or the status is terminal, render real numbers — including
+  // a legitimate 0 for a trivial run.
+  const metricsPending =
+    isRunning &&
+    entry.inputTokens === 0 &&
+    entry.outputTokens === 0 &&
+    entry.totalCost === 0;
   const requestedRef = useRef<string | null>(null);
   const components = useBundledAvatarComponents();
 
@@ -206,18 +233,21 @@ export function SubagentDetailPanel({
             target={entry.inputTokens}
             format={(n) => formatNumber(Math.round(n))}
             label="Input"
+            loading={metricsPending}
           />
           <AnimatedMetricCard
             icon={<ArrowUpFromLine className="h-4 w-4 shrink-0" style={{ color: "var(--content-secondary)" }} />}
             target={entry.outputTokens}
             format={(n) => formatNumber(Math.round(n))}
             label="Output"
+            loading={metricsPending}
           />
           <AnimatedMetricCard
             icon={<DollarSign className="h-4 w-4 shrink-0" style={{ color: "var(--content-secondary)" }} />}
             target={entry.totalCost}
             format={formatCost}
             label="Cost"
+            loading={metricsPending}
           />
         </div>
 

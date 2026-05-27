@@ -9,6 +9,7 @@
  */
 
 import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { act } from "react";
 import { cleanup, render } from "@testing-library/react";
 
 mock.module("@/domains/chat/components/chat-markdown-message", () => ({
@@ -381,6 +382,67 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
   });
 });
 
+describe("Transcript — toolUseId anchor (PR 3)", () => {
+  test("renders inline card via byToolUseId match with no result and a mismatched message id", () => {
+    // Live + orphaned window: the spawn tool call has no result yet, and the
+    // store entry is keyed under a stable id that does NOT match the rendered
+    // message's id — so neither the result branch nor the positional byParent
+    // fallback can resolve it. Only the deterministic toolUseId anchor
+    // (tc.id === parentToolUseId) can.
+    useSubagentStore.getState().spawnSubagent({
+      subagentId: "sa-anchored",
+      label: "agent-0",
+      objective: "do a thing",
+      status: "running",
+      timestamp: 1000,
+      // Orphaned: parent anchored to a different (e.g. pre-reconcile) id, so
+      // byParent has no bucket for the rendered message's id.
+      parentMessageStableId: "some-other-stable-id",
+      parentToolUseId: "tool-use-abc",
+    });
+
+    const msg: DisplayMessage = {
+      id: "a1",
+      role: "assistant",
+      content: "spawning",
+      contentOrder: [{ type: "toolCall", id: "tool-use-abc" }],
+      toolCalls: [
+        {
+          id: "tool-use-abc",
+          toolName: "subagent_spawn",
+          input: { label: "agent-0", objective: "do a thing" },
+          status: "running",
+          // No `result` — the daemon hasn't acked the spawn yet.
+        },
+      ],
+    };
+
+    const items: TranscriptItem[] = [
+      userMessage("u1", "spawn one"),
+      { kind: "message", key: "a1", message: msg },
+    ];
+
+    const { getAllByTestId, container } = render(
+      <Transcript
+        items={items}
+        conversationId={null}
+        onSecretSubmit={noop}
+        onConfirmationDecision={noop}
+        onSurfaceAction={noop}
+        onRetryError={noop}
+      />,
+    );
+
+    const cards = getAllByTestId("subagent-inline-card");
+    expect(cards.length).toBe(1);
+    expect(cards[0].getAttribute("data-subagent-id")).toBe("sa-anchored");
+    // The spawn-only group must not surface a generic progress card.
+    expect(
+      container.querySelector('[data-testid="tool-call-progress-card"]'),
+    ).toBeNull();
+  });
+});
+
 describe("Transcript — cross-group claimed-set (fix-r1-c)", () => {
   test("two non-consecutive running spawns in one message map 1:1 to distinct subagentIds without duplicates", () => {
     // Two store entries linked to the same parent message, neither with a
@@ -455,6 +517,156 @@ describe("Transcript — cross-group claimed-set (fix-r1-c)", () => {
       "sa-first",
       "sa-second",
     ]);
+  });
+});
+
+describe("Transcript — live → reconcile card lifecycle (PR 6)", () => {
+  /**
+   * Build a spawn-only assistant message: a single `skill_execute`
+   * tool call with `input.tool === "subagent_spawn"` and NO result —
+   * exactly what streams during the running window before the daemon
+   * acks the spawn. The tool-call id is the spawning `toolUseId`, which
+   * `reconcile.ts` preserves across the optimistic→server id swap.
+   */
+  function spawnOnlyMessage(id: string, toolUseId: string): TranscriptItem {
+    const msg: DisplayMessage = {
+      id,
+      role: "assistant",
+      content: "spawning",
+      contentOrder: [{ type: "toolCall", id: toolUseId }],
+      toolCalls: [
+        {
+          id: toolUseId,
+          toolName: "skill_execute",
+          input: { tool: "subagent_spawn", label: "agent-0", objective: "do a thing" },
+          status: "running",
+          // No `result` — daemon hasn't acked the spawn yet.
+        },
+      ],
+    };
+    return { kind: "message", key: id, message: msg };
+  }
+
+  function transcript(items: TranscriptItem[]) {
+    return (
+      <Transcript
+        items={items}
+        conversationId={null}
+        onSecretSubmit={noop}
+        onConfirmationDecision={noop}
+        onSurfaceAction={noop}
+        onRetryError={noop}
+      />
+    );
+  }
+
+  test("card survives optimistic→server id transition via the toolUseId anchor", () => {
+    // Live: spawn under the optimistic bubble id "optimistic-1", anchored by
+    // the spawning toolUseId "tu-1".
+    useSubagentStore.getState().spawnSubagent({
+      subagentId: "sa-lifecycle",
+      label: "agent-0",
+      objective: "do a thing",
+      status: "running",
+      timestamp: 1000,
+      parentMessageStableId: "optimistic-1",
+      parentToolUseId: "tu-1",
+    });
+
+    const { getAllByTestId, queryByTestId, rerender } = render(
+      transcript([
+        userMessage("u1", "spawn one"),
+        spawnOnlyMessage("optimistic-1", "tu-1"),
+      ]),
+    );
+
+    // Exactly one inline card, and no generic progress card for the
+    // spawn-only group (zero renderable steps once the spawn is filtered out).
+    let cards = getAllByTestId("subagent-inline-card");
+    expect(cards.length).toBe(1);
+    expect(cards[0].getAttribute("data-subagent-id")).toBe("sa-lifecycle");
+    expect(queryByTestId("tool-call-progress-card")).toBeNull();
+
+    // Server reconcile: the parent message id swaps to "server-1" while the
+    // local tool-call id "tu-1" is preserved (keepLocalToolState). The
+    // byParent bucket no longer matches, but the toolUseId anchor still does.
+    act(() => {
+      useSubagentStore
+        .getState()
+        .reanchorToMessage({ stableId: "optimistic-1", messageId: "server-1" });
+    });
+
+    rerender(
+      transcript([
+        userMessage("u1", "spawn one"),
+        spawnOnlyMessage("server-1", "tu-1"),
+      ]),
+    );
+
+    cards = getAllByTestId("subagent-inline-card");
+    expect(cards.length).toBe(1);
+    expect(cards[0].getAttribute("data-subagent-id")).toBe("sa-lifecycle");
+    expect(queryByTestId("tool-call-progress-card")).toBeNull();
+  });
+
+  test("card survives reconcile via the byParent re-anchor when parentToolUseId is absent (older daemon)", () => {
+    // Older daemon: no `parentToolUseId`, so the toolUseId anchor can't fire.
+    // The card resolves positionally via the byParent bucket, and the
+    // message-id re-anchor is what keeps that bucket reachable after the
+    // optimistic→server id swap.
+    useSubagentStore.getState().spawnSubagent({
+      subagentId: "sa-byparent",
+      label: "agent-0",
+      objective: "do a thing",
+      status: "running",
+      timestamp: 1000,
+      parentMessageStableId: "optimistic-1",
+    });
+
+    const { getAllByTestId, rerender } = render(
+      transcript([
+        userMessage("u1", "spawn one"),
+        spawnOnlyMessage("optimistic-1", "tu-1"),
+      ]),
+    );
+
+    let cards = getAllByTestId("subagent-inline-card");
+    expect(cards.length).toBe(1);
+    expect(cards[0].getAttribute("data-subagent-id")).toBe("sa-byparent");
+
+    act(() => {
+      useSubagentStore
+        .getState()
+        .reanchorToMessage({ stableId: "optimistic-1", messageId: "server-1" });
+    });
+
+    rerender(
+      transcript([
+        userMessage("u1", "spawn one"),
+        spawnOnlyMessage("server-1", "tu-1"),
+      ]),
+    );
+
+    cards = getAllByTestId("subagent-inline-card");
+    expect(cards.length).toBe(1);
+    expect(cards[0].getAttribute("data-subagent-id")).toBe("sa-byparent");
+  });
+
+  test("pure spawn race renders no card — no toolUseId entry, no result, no byParent match", () => {
+    // The assistant message references a running spawn before ANY anchor can
+    // resolve it: the store has no entry at all (no byToolUseId, no byParent),
+    // and the tool call has no result. `resolveSpawnedSubagentIds` returns
+    // nothing, so no empty-shell card flickers — matching the
+    // `useSubagentCardData` null contract at the resolution layer.
+    const { queryAllByTestId, queryByTestId } = render(
+      transcript([
+        userMessage("u1", "spawn one"),
+        spawnOnlyMessage("optimistic-1", "tu-1"),
+      ]),
+    );
+
+    expect(queryAllByTestId("subagent-inline-card").length).toBe(0);
+    expect(queryByTestId("tool-call-progress-card")).toBeNull();
   });
 });
 

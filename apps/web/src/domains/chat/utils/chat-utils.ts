@@ -20,6 +20,17 @@ const GLOBAL_STREAM_EVENT_TYPE_NAMES = [
   "disk_pressure_status_changed",
   "home_feed_updated",
   "relationship_state_updated",
+  // Subagent lifecycle events route by `subagentId` into the global subagent
+  // store, not by the parent stream's `conversationId`. They carry
+  // `parentConversationId` (spawn) or nothing (`subagent_status_changed`) at the
+  // top level, so the conversation-id gate would otherwise drop them as
+  // "missing conversationId" — which silently breaks the live inline subagent
+  // card (it only reappeared after a history reload). Treat them as global so
+  // they always reach `handleSubagentSpawned` / `handleSubagentStatusChanged` /
+  // `handleSubagentEvent`.
+  "subagent_spawned",
+  "subagent_status_changed",
+  "subagent_event",
 ] as const;
 
 const GLOBAL_STREAM_EVENT_TYPES: ReadonlySet<string> = new Set(

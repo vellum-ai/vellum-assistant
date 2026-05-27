@@ -745,6 +745,10 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
         label,
         objective: typeof data.objective === "string" ? data.objective : "",
         isFork: typeof data.isFork === "boolean" ? data.isFork : undefined,
+        parentToolUseId:
+          typeof data.parentToolUseId === "string"
+            ? data.parentToolUseId
+            : undefined,
         conversationId:
           typeof data.conversationId === "string"
             ? data.conversationId

@@ -22,6 +22,8 @@
 import { Square } from "lucide-react";
 import { useCallback, type MouseEvent } from "react";
 
+import { Button } from "@vellum/design-library";
+
 import { SubagentAvatarChip } from "@/components/avatar/subagent-avatar-chip";
 import { PhaseGroupedStepList } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
 import { ToolProgressCardShell } from "@/domains/chat/components/tool-progress-card/tool-progress-card-shell";
@@ -73,17 +75,19 @@ export function SubagentInlineProgressCard({
 
   // Stop button only — the open affordance is gone; the whole header row
   // now fires `onSubagentClick` via the shell's `onHeaderClick` override.
+  // The shell slots this into a right-aligned flex rail (8px gap to the
+  // step-count pill); we use the design-library icon button so the stop
+  // affordance matches the platform button chrome.
   const actionSlot =
     onStopSubagent && isRunning ? (
-      <button
-        type="button"
+      <Button
+        variant="dangerGhost"
+        size="compact"
+        iconOnly={<Square fill="currentColor" />}
         aria-label="Stop subagent"
         data-testid="subagent-inline-card-stop"
         onClick={handleStop}
-        className="flex h-5 w-5 cursor-pointer items-center justify-center rounded-[var(--radius-sm)] text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--system-negative-strong)]"
-      >
-        <Square className="h-3 w-3" fill="currentColor" />
-      </button>
+      />
     ) : undefined;
 
   return (

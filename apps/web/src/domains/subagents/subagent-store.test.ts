@@ -916,3 +916,244 @@ describe("byParent index", () => {
     ).toEqual(["sa-b", "sa-c"]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// byToolUseId index — lets the transcript anchor the inline card to its exact
+// spawn tool call (toolUseId → subagentId), surviving optimistic message-id
+// reconciliation.
+// ---------------------------------------------------------------------------
+
+describe("byToolUseId index", () => {
+  it("indexes the subagent by parentToolUseId and sets the entry field", () => {
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "agent",
+      objective: "",
+      timestamp: NOW,
+      parentToolUseId: "tool-use-1",
+    });
+
+    expect(getState().byToolUseId.get("tool-use-1")).toBe("sa-1");
+    expect(getState().byId["sa-1"]!.parentToolUseId).toBe("tool-use-1");
+  });
+
+  it("leaves byToolUseId reference-equal when parentToolUseId is omitted", () => {
+    const before = getState().byToolUseId;
+
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "agent",
+      objective: "",
+      timestamp: NOW,
+    });
+
+    expect(getState().byToolUseId).toBe(before);
+    expect(getState().byToolUseId.size).toBe(0);
+    expect(getState().byId["sa-1"]!.parentToolUseId).toBeUndefined();
+  });
+
+  it("does not touch the index when a duplicate spawn is replayed", () => {
+    getState().spawnSubagent({
+      subagentId: "sa-dup",
+      label: "agent",
+      objective: "",
+      timestamp: NOW,
+      parentToolUseId: "tool-use-dup",
+    });
+    const afterFirst = getState().byToolUseId;
+
+    // Replay with a different toolUseId — guard short-circuits, index unchanged.
+    getState().spawnSubagent({
+      subagentId: "sa-dup",
+      label: "agent",
+      objective: "",
+      timestamp: NOW + 5000,
+      parentToolUseId: "tool-use-other",
+    });
+
+    expect(getState().byToolUseId).toBe(afterFirst);
+    expect(getState().byToolUseId.get("tool-use-dup")).toBe("sa-dup");
+    expect(getState().byToolUseId.has("tool-use-other")).toBe(false);
+  });
+
+  it("keeps the index reference stable across changeStatus and receiveEvent", () => {
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "agent",
+      objective: "",
+      timestamp: NOW,
+      parentToolUseId: "tool-use-1",
+    });
+    const before = getState().byToolUseId;
+
+    getState().changeStatus({ subagentId: "sa-1", status: "running" });
+    getState().receiveEvent({
+      subagentId: "sa-1",
+      event: { type: "assistant_text_delta", content: "Hello" },
+      timestamp: NOW + 100,
+    });
+
+    expect(getState().byToolUseId).toBe(before);
+  });
+
+  it("clears byToolUseId on reset()", () => {
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "agent",
+      objective: "",
+      timestamp: NOW,
+      parentToolUseId: "tool-use-1",
+    });
+    expect(getState().byToolUseId.size).toBe(1);
+
+    getState().reset();
+    expect(getState().byToolUseId.size).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// reanchorToMessage — migrate entries from the optimistic streaming bubble id
+// to the durable server messageId so the subagent card survives reconcile.
+// ---------------------------------------------------------------------------
+
+describe("reanchorToMessage", () => {
+  it("makes matching entries reachable under both stableId and messageId", () => {
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "agent",
+      objective: "",
+      timestamp: NOW,
+      parentMessageStableId: "stable-1",
+    });
+
+    getState().reanchorToMessage({ stableId: "stable-1", messageId: "msg-1" });
+
+    const { byParent, byId } = getState();
+    expect(byParent.get("msg-1")?.map((e) => e.subagentId)).toEqual(["sa-1"]);
+    expect(byParent.get("stable-1")?.map((e) => e.subagentId)).toEqual(["sa-1"]);
+    expect(byId["sa-1"]!.parentMessageId).toBe("msg-1");
+    expect(byId["sa-1"]!.parentMessageStableId).toBe("stable-1");
+  });
+
+  it("sorts the messageId bucket by spawnedAt for multiple entries under one stableId", () => {
+    getState().spawnSubagent({
+      subagentId: "sa-late",
+      label: "agent",
+      objective: "",
+      timestamp: NOW + 100,
+      parentMessageStableId: "stable-1",
+    });
+    getState().spawnSubagent({
+      subagentId: "sa-early",
+      label: "agent",
+      objective: "",
+      timestamp: NOW + 10,
+      parentMessageStableId: "stable-1",
+    });
+
+    getState().reanchorToMessage({ stableId: "stable-1", messageId: "msg-1" });
+
+    expect(
+      getState().byParent.get("msg-1")?.map((e) => e.subagentId),
+    ).toEqual(["sa-early", "sa-late"]);
+  });
+
+  it("merges into an existing messageId bucket without duplicating", () => {
+    // One entry already indexed under msg-1, another under the stable id only.
+    getState().spawnSubagent({
+      subagentId: "sa-existing",
+      label: "agent",
+      objective: "",
+      timestamp: NOW,
+      parentMessageId: "msg-1",
+    });
+    getState().spawnSubagent({
+      subagentId: "sa-stable",
+      label: "agent",
+      objective: "",
+      timestamp: NOW + 50,
+      parentMessageStableId: "stable-1",
+    });
+
+    getState().reanchorToMessage({ stableId: "stable-1", messageId: "msg-1" });
+
+    expect(
+      getState().byParent.get("msg-1")?.map((e) => e.subagentId),
+    ).toEqual(["sa-existing", "sa-stable"]);
+  });
+
+  it("is a no-op when stableId equals messageId", () => {
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "agent",
+      objective: "",
+      timestamp: NOW,
+      parentMessageStableId: "msg-1",
+    });
+    const beforeById = getState().byId;
+    const beforeByParent = getState().byParent;
+
+    getState().reanchorToMessage({ stableId: "msg-1", messageId: "msg-1" });
+
+    expect(getState().byId).toBe(beforeById);
+    expect(getState().byParent).toBe(beforeByParent);
+  });
+
+  it("is a no-op when no entry matches the stableId", () => {
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "agent",
+      objective: "",
+      timestamp: NOW,
+      parentMessageStableId: "other-stable",
+    });
+    const beforeById = getState().byId;
+    const beforeByParent = getState().byParent;
+
+    getState().reanchorToMessage({ stableId: "stable-1", messageId: "msg-1" });
+
+    expect(getState().byId).toBe(beforeById);
+    expect(getState().byParent).toBe(beforeByParent);
+  });
+
+  it("is a no-op when matching entries already carry that parentMessageId", () => {
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "agent",
+      objective: "",
+      timestamp: NOW,
+      parentMessageStableId: "stable-1",
+      parentMessageId: "msg-1",
+    });
+    const beforeById = getState().byId;
+    const beforeByParent = getState().byParent;
+
+    getState().reanchorToMessage({ stableId: "stable-1", messageId: "msg-1" });
+
+    expect(getState().byId).toBe(beforeById);
+    expect(getState().byParent).toBe(beforeByParent);
+  });
+
+  it("preserves unrelated bucket references", () => {
+    getState().spawnSubagent({
+      subagentId: "sa-other",
+      label: "agent",
+      objective: "",
+      timestamp: NOW,
+      parentMessageStableId: "stable-other",
+    });
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "agent",
+      objective: "",
+      timestamp: NOW + 1,
+      parentMessageStableId: "stable-1",
+    });
+    const otherBucketBefore = getState().byParent.get("stable-other");
+
+    getState().reanchorToMessage({ stableId: "stable-1", messageId: "msg-1" });
+
+    // The unrelated bucket reference is untouched.
+    expect(getState().byParent.get("stable-other")).toBe(otherBucketBefore);
+  });
+});
