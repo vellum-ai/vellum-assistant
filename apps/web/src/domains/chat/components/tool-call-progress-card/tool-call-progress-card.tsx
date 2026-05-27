@@ -220,6 +220,10 @@ function UnifiedToolCallProgressCard({
   isStreaming,
 }: ToolCallProgressCardProps & { cardData: ToolCallCardData }) {
   const openToolDetail = useViewerStore.use.openToolDetail();
+  // Drives the pill's active state — the pill whose detail drawer is currently
+  // open renders selected. `null` when the drawer is closed or showing another
+  // view, so no pill reads as active.
+  const openToolDetailId = useViewerStore.use.activeToolDetail()?.toolCallId ?? null;
   const cardId = toolCalls[0]?.id ?? null;
   const expanded = useCardExpanded(
     cardId,
@@ -263,6 +267,7 @@ function UnifiedToolCallProgressCard({
                   iconName={step.iconName}
                   label={step.activity || step.info || step.title}
                   riskLevel={step.riskLevel}
+                  active={openToolDetailId === step.toolCallId}
                   tone={
                     step.status === "error" || step.status === "denied"
                       ? "error"

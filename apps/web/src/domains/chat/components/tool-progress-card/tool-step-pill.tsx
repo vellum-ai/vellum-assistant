@@ -27,17 +27,29 @@ export interface ToolStepPillProps {
   riskLevel?: string;
   onClick?: () => void;
   tone?: "default" | "error";
+  /**
+   * Selected state — rendered when this pill's tool-detail drawer is open.
+   * Mirrors the design-library outlined+active button (primary border, lifted
+   * surface, primary-active text) so the open pill reads as the active source.
+   */
+  active?: boolean;
   /** Accessible label for the button. Defaults to `View details: ${label}`. */
   ariaLabel?: string;
 }
 
-/** Shared layout classes applied to both the button and span variants. */
+/**
+ * Shared layout classes applied to both the button and span variants.
+ *
+ * `leading-normal` is load-bearing: the label uses `truncate` (which sets
+ * `overflow: hidden`), and the `body-small-default` line-height is tight
+ * enough that descenders ("g", "p", "y") get clipped without extra leading.
+ */
 const BASE_CLASSES =
-  "inline-flex min-w-0 max-w-full items-center gap-1 self-start rounded-full border px-[10px] py-[6px] text-left";
+  "inline-flex min-w-0 max-w-full items-center gap-1 self-start rounded-full border px-[10px] py-[6px] text-left leading-normal";
 
-/** Interactive affordances added only when the pill renders as a button. */
-const INTERACTIVE_CLASSES =
-  "transition-colors hover:bg-[var(--surface-base)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--border-focus)] cursor-pointer";
+/** Cursor / transition / focus-ring affordances when the pill is a button. */
+const INTERACTIVE_BASE =
+  "transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--border-focus)]";
 
 export function ToolStepPill({
   iconName,
@@ -45,10 +57,17 @@ export function ToolStepPill({
   riskLevel,
   onClick,
   tone = "default",
+  active = false,
   ariaLabel,
 }: ToolStepPillProps) {
-  const toneClasses =
-    tone === "error"
+  // Active overrides tone wholesale (border + bg + text) so we never emit
+  // conflicting arbitrary-value classes — Tailwind resolves equal-specificity
+  // collisions by stylesheet order, not class-attribute order.
+  const colorClasses = active
+    ? tone === "error"
+      ? "border-[var(--system-negative-strong)] bg-[var(--surface-lift)] text-[var(--system-negative-strong)]"
+      : "border-[var(--primary-base)] bg-[var(--surface-lift)] text-[var(--primary-active)]"
+    : tone === "error"
       ? "border-[var(--system-negative-weak)] bg-[var(--system-negative-weak)] text-[var(--system-negative-strong)]"
       : "border-[var(--border-base)] bg-transparent text-[var(--content-default)]";
 
@@ -56,7 +75,9 @@ export function ToolStepPill({
   const iconColor =
     tone === "error"
       ? "text-[var(--system-negative-strong)]"
-      : "text-[var(--content-tertiary)]";
+      : active
+        ? "text-[var(--primary-active)]"
+        : "text-[var(--content-tertiary)]";
 
   const content = (
     <>
@@ -66,7 +87,7 @@ export function ToolStepPill({
       />
       <Typography
         variant="body-small-default"
-        className="min-w-0 truncate text-inherit"
+        className="min-w-0 truncate text-inherit leading-normal"
       >
         {label}
       </Typography>
@@ -75,13 +96,21 @@ export function ToolStepPill({
   );
 
   if (onClick) {
+    // Active pills hover toward the stronger `surface-active`; idle pills lift
+    // to `surface-base`. Kept as distinct whole classes so the active hover
+    // doesn't fight the idle hover.
+    const hoverClass = active
+      ? "hover:bg-[var(--surface-active)]"
+      : "hover:bg-[var(--surface-base)]";
     return (
       <button
         type="button"
         data-testid="tool-step-pill"
+        data-active={active ? "" : undefined}
+        aria-pressed={active}
         aria-label={ariaLabel ?? `View details: ${label}`}
         onClick={onClick}
-        className={`${BASE_CLASSES} ${INTERACTIVE_CLASSES} ${toneClasses}`}
+        className={`${BASE_CLASSES} ${INTERACTIVE_BASE} ${hoverClass} ${colorClasses}`}
       >
         {content}
       </button>
@@ -91,7 +120,7 @@ export function ToolStepPill({
   return (
     <span
       data-testid="tool-step-pill"
-      className={`${BASE_CLASSES} ${toneClasses}`}
+      className={`${BASE_CLASSES} ${colorClasses}`}
     >
       {content}
     </span>

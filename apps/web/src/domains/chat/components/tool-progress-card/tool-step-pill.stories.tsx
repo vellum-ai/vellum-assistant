@@ -31,6 +31,7 @@ const meta: Meta<typeof ToolStepPill> = {
       control: "inline-radio",
       options: ["default", "error"],
     },
+    active: { control: "boolean" },
   },
 };
 
@@ -90,6 +91,16 @@ export const ErrorTone: Story = {
   },
 };
 
+export const Active: Story = {
+  args: {
+    iconName: "sparkle",
+    label: "review-cycle",
+    riskLevel: "low",
+    active: true,
+    onClick: () => {},
+  },
+};
+
 export const AllVariants: Story = {
   parameters: {
     controls: { disable: true },
@@ -109,6 +120,13 @@ export const AllVariants: Story = {
         iconName="bolt"
         label="Command failed with exit code 1"
         tone="error"
+      />
+      <ToolStepPill
+        iconName="sparkle"
+        label="review-cycle (active)"
+        riskLevel="low"
+        active
+        onClick={() => {}}
       />
     </div>
   ),

@@ -60,6 +60,20 @@ describe("ToolStepPill", () => {
     expect(html).toContain("<span");
   });
 
+  test("marks the pill active when `active` is set", () => {
+    const html = renderToStaticMarkup(
+      <ToolStepPill
+        iconName="sparkle"
+        label="review-cycle"
+        active
+        onClick={() => {}}
+      />,
+    );
+    expect(html).toContain('data-active=""');
+    expect(html).toContain('aria-pressed="true"');
+    expect(html).toContain("border-[var(--primary-base)]");
+  });
+
   test("fires onClick when the button is clicked", () => {
     let clicks = 0;
     const { getByTestId } = render(
