@@ -63,7 +63,7 @@ import {
 } from "@/assistant/generated/web-search-provider-catalog.gen";
 import { routes } from "@/utils/routes";
 import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
-import { synthesizeTTS } from "@/domains/voice/tts-synthesize";
+import { synthesizeTTS } from "@/lib/tts-synthesize";
 import { getLocalSetting, removeLocalSetting, setLocalSetting } from "@/lib/local-settings";
 import { CallSiteOverridesModal, type CallSiteOverrideDraft } from "@/domains/settings/ai/call-site-overrides-modal";
 import { ManageProfilesModal } from "@/domains/settings/ai/manage-profiles-modal";

@@ -7,7 +7,7 @@ import {
   eventDeactivatesPTT,
   parseActivator,
   type PTTActivator,
-} from "@/domains/voice/ptt-activator";
+} from "@/utils/ptt-activator";
 
 /**
  * Imperative handle (subset of `VoiceInputButtonHandle`) that the hook drives.

@@ -22,7 +22,7 @@ import {
 import { probeGatewayAuthState } from "@/lib/auth/gateway-session";
 import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
 import { deleteBiometricToken } from "@/runtime/native-biometric";
-import { syncOnboardingUser, clearOnboardingFlags } from "@/domains/onboarding/prefs";
+import { syncOnboardingUser, clearOnboardingFlags } from "@/lib/onboarding-cleanup";
 import { clearOrganization } from "@/stores/organization-store";
 import { clearUserScopedStorage } from "@/lib/auth/session-cleanup";
 import { useEventBusStore } from "@/stores/event-bus-store";

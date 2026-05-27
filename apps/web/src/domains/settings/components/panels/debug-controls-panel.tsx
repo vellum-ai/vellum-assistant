@@ -10,7 +10,7 @@ import { RecoveryModeControls } from "@/domains/settings/components/recovery-mod
 import { type Assistant, getAssistant } from "@/assistant/api";
 import { useAuthStore } from "@/stores/auth-store";
 import { reportError } from "@/lib/errors/report";
-import { clearOnboardingFlags } from "@/domains/onboarding/prefs";
+import { clearOnboardingFlags } from "@/lib/onboarding-cleanup";
 import { routes } from "@/utils/routes";
 
 function isInternalUser(email: string | null, isAdmin: boolean): boolean {
