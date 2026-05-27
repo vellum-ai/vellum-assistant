@@ -135,7 +135,7 @@ const mockSkillTool: Tool = {
   defaultRiskLevel: RiskLevel.Low,
   executionTarget: "sandbox",
   origin: "skill",
-  ownerSkillId: "test-skill",
+  owner: { kind: "skill", id: "test-skill" },
   input_schema: { type: "object" as const, properties: {} },
   execute: async () => ({ content: "ok", isError: false }),
 };
@@ -152,7 +152,7 @@ const mockBundledSkillTool: Tool = {
   defaultRiskLevel: RiskLevel.Low,
   executionTarget: "sandbox",
   origin: "skill",
-  ownerSkillId: "app-builder",
+  owner: { kind: "skill", id: "app-builder" },
   input_schema: { type: "object" as const, properties: {} },
   execute: async () => ({ content: "ok", isError: false }),
 };
@@ -389,7 +389,7 @@ describe("Permission Checker", () => {
         defaultRiskLevel: RiskLevel.Medium,
         executionTarget: "sandbox",
         origin: "skill",
-        ownerSkillId: "test-skill",
+        owner: { kind: "skill", id: "test-skill" },
         input_schema: { type: "object" as const, properties: {} },
         execute: async () => ({ content: "ok", isError: false }),
       };

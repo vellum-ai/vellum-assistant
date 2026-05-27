@@ -10,7 +10,7 @@ import { hostFileWriteTool } from "./host-filesystem/write.js";
 import { hostShellTool } from "./host-terminal/host-shell.js";
 import { toProviderSafeToolName } from "./provider-tool-name.js";
 import { registerSystemTools } from "./system/register.js";
-import type { LoadedTool, Tool } from "./types.js";
+import type { LoadedTool, OwnerInfo, Tool } from "./types.js";
 import { allUiSurfaceTools } from "./ui-surface/definitions.js";
 import { registerUiSurfaceTools } from "./ui-surface/registry.js";
 
@@ -76,6 +76,27 @@ const skillRefCount = new Map<string, number>();
 // separate and covers the case of two extensions choosing the same tool name.
 const pluginRefCount = new Map<string, number>();
 
+/**
+ * Format an owner for log messages and error strings. Returns a stable
+ * human-readable description (e.g. `skill "deploy"`, `plugin "weather"`,
+ * `MCP server "github"`). When an owner is missing (core tool) or has an
+ * unrecognized kind, returns a fallback string so log/error sites never
+ * produce `undefined` interpolations.
+ */
+function describeOwner(owner: OwnerInfo | undefined): string {
+  if (!owner) return "core tool";
+  switch (owner.kind) {
+    case "skill":
+      return `skill "${owner.id}"`;
+    case "plugin":
+      return `plugin "${owner.id}"`;
+    case "mcp":
+      return `MCP server "${owner.id}"`;
+    default:
+      return `${(owner as OwnerInfo).kind}-origin tool`;
+  }
+}
+
 function withProviderSafeToolName(tool: Tool): Tool {
   const safeName = toProviderSafeToolName(tool.name);
   if (safeName === tool.name) {
@@ -111,39 +132,32 @@ export function getAllTools(): Tool[] {
  * Skips any tool whose name collides with a core tool (logs a warning instead
  * of throwing so the remaining tools in the batch still get registered).
  * Throws if a tool name collides with a skill tool owned by a different skill.
- * Allows replacement when the incoming tool has the same ownerSkillId as the existing one,
- * which supports hot-reloading a skill without tearing down first.
+ * Allows replacement when the incoming tool has the same skill owner id as
+ * the existing one, which supports hot-reloading a skill without tearing
+ * down first.
  */
 export function registerSkillTools(newTools: Tool[]): Tool[] {
   // Filter out tools that collide with core tools, and validate the rest.
   const accepted: Tool[] = [];
   for (const tool of newTools) {
+    const skillId = tool.owner?.kind === "skill" ? tool.owner.id : undefined;
     const existing = tools.get(tool.name);
     if (existing) {
       const existingIsCore = existing.origin === "core" || !existing.origin;
       if (existingIsCore) {
         log.warn(
-          { toolName: tool.name, skillId: tool.ownerSkillId },
-          `Skill "${tool.ownerSkillId}" tried to register tool "${tool.name}" which conflicts with a core tool. Skipping.`,
+          { toolName: tool.name, skillId },
+          `Skill "${skillId}" tried to register tool "${tool.name}" which conflicts with a core tool. Skipping.`,
         );
         continue;
       }
       // Existing is from a different origin (plugin/mcp) or a different
       // skill — skill tools can only replace themselves (hot-reload).
-      if (
-        existing.origin !== "skill" ||
-        existing.ownerSkillId !== tool.ownerSkillId
-      ) {
-        const owner =
-          existing.origin === "skill"
-            ? `skill "${existing.ownerSkillId}"`
-            : existing.origin === "plugin"
-              ? `plugin "${existing.ownerPluginId}"`
-              : existing.origin === "mcp"
-                ? `MCP server "${existing.ownerMcpServerId}"`
-                : `${existing.origin ?? "unknown"}-origin tool`;
+      const existingSkillId =
+        existing.owner?.kind === "skill" ? existing.owner.id : undefined;
+      if (existing.origin !== "skill" || existingSkillId !== skillId) {
         throw new Error(
-          `Skill tool "${tool.name}" is already registered by ${owner}`,
+          `Skill tool "${tool.name}" is already registered by ${describeOwner(existing.owner)}`,
         );
       }
     }
@@ -154,9 +168,10 @@ export function registerSkillTools(newTools: Tool[]): Tool[] {
   const skillIds = new Set<string>();
   for (const tool of accepted) {
     tools.set(tool.name, tool);
-    if (tool.ownerSkillId) skillIds.add(tool.ownerSkillId);
+    const skillId = tool.owner?.kind === "skill" ? tool.owner.id : undefined;
+    if (skillId) skillIds.add(skillId);
     log.info(
-      { name: tool.name, ownerSkillId: tool.ownerSkillId },
+      { name: tool.name, ownerSkillId: skillId },
       "Skill tool registered",
     );
   }
@@ -170,20 +185,19 @@ export function registerSkillTools(newTools: Tool[]): Tool[] {
 
 /**
  * Register tools contributed by a plugin. Stamps `origin: "plugin"` and
- * `ownerPluginId: pluginName` on every incoming tool so plugin ownership is
- * tracked in a namespace disjoint from skill tools — if a plugin's
- * `manifest.name` happens to match a skill id, the two do not share refcount
- * state or conflict-detection paths.
+ * `owner: { kind: "plugin", id: pluginName }` on every incoming tool so
+ * plugin ownership is tracked in a namespace disjoint from skill tools —
+ * if a plugin's `manifest.name` happens to match a skill id, the two do
+ * not share refcount state or conflict-detection paths.
  *
  * Conflict handling mirrors {@link registerSkillTools}: collisions with core
  * tools log a warning and skip; collisions with tools owned by a different
  * plugin, skill, or MCP server throw; re-registering the same plugin's own
  * tool (hot reload) is allowed.
  *
- * The stamp is authoritative: any pre-existing `origin` / `ownerPluginId` /
- * `ownerSkillId` / `ownerMcpServerId` fields on the incoming tools are
- * overwritten so the bootstrap cannot be spoofed into claiming tools on
- * behalf of an unrelated extension.
+ * The stamp is authoritative: any pre-existing `origin` / `owner` fields on
+ * the incoming tools are overwritten so the bootstrap cannot be spoofed
+ * into claiming tools on behalf of an unrelated extension.
  */
 export function registerPluginTools(
   pluginName: string,
@@ -194,9 +208,7 @@ export function registerPluginTools(
       ...pluginTool,
       category: "plugin",
       origin: "plugin" as const,
-      ownerPluginId: pluginName,
-      ownerSkillId: undefined,
-      ownerMcpServerId: undefined,
+      owner: { kind: "plugin", id: pluginName },
     };
     return withProviderSafeToolName(tool);
   });
@@ -213,17 +225,17 @@ export function registerPluginTools(
         );
         continue;
       }
-      if (existing.origin === "plugin") {
-        if (existing.ownerPluginId !== pluginName) {
+      if (existing.owner?.kind === "plugin") {
+        if (existing.owner.id !== pluginName) {
           throw new Error(
-            `Plugin tool "${tool.name}" is already registered by plugin "${existing.ownerPluginId}"`,
+            `Plugin tool "${tool.name}" is already registered by plugin "${existing.owner.id}"`,
           );
         }
         // Same plugin re-registering its own tool (hot reload) — allow.
       } else {
         // Conflict with a skill or MCP-owned tool.
         throw new Error(
-          `Plugin "${pluginName}" tried to register tool "${tool.name}" which conflicts with a ${existing.origin}-origin tool`,
+          `Plugin "${pluginName}" tried to register tool "${tool.name}" which conflicts with ${describeOwner(existing.owner)}`,
         );
       }
     }
@@ -233,7 +245,7 @@ export function registerPluginTools(
   for (const tool of accepted) {
     tools.set(tool.name, tool);
     log.info(
-      { name: tool.name, ownerPluginId: tool.ownerPluginId },
+      { name: tool.name, ownerPluginId: pluginName },
       "Plugin tool registered",
     );
   }
@@ -263,7 +275,7 @@ export function unregisterPluginTools(pluginName: string): void {
 
   pluginRefCount.delete(pluginName);
   for (const [name, tool] of tools) {
-    if (tool.origin === "plugin" && tool.ownerPluginId === pluginName) {
+    if (tool.owner?.kind === "plugin" && tool.owner.id === pluginName) {
       tools.delete(name);
       log.info({ name, pluginName }, "Plugin tool unregistered");
     }
@@ -295,7 +307,7 @@ export function unregisterSkillTools(skillId: string): void {
   // Last reference - actually remove the tools
   skillRefCount.delete(skillId);
   for (const [name, tool] of tools) {
-    if (tool.origin === "skill" && tool.ownerSkillId === skillId) {
+    if (tool.owner?.kind === "skill" && tool.owner.id === skillId) {
       tools.delete(name);
       log.info({ name, skillId }, "Skill tool unregistered");
     }
@@ -310,44 +322,31 @@ export function unregisterSkillTools(skillId: string): void {
 export function registerMcpTools(newTools: Tool[]): Tool[] {
   const accepted: Tool[] = [];
   for (const tool of newTools) {
+    const serverId = tool.owner?.kind === "mcp" ? tool.owner.id : undefined;
     const existing = tools.get(tool.name);
     if (existing) {
       const existingIsCore = existing.origin === "core" || !existing.origin;
       if (existingIsCore) {
         log.warn(
-          { toolName: tool.name, serverId: tool.ownerMcpServerId },
-          `MCP server "${tool.ownerMcpServerId}" tried to register tool "${tool.name}" which conflicts with a core tool. Skipping.`,
+          { toolName: tool.name, serverId },
+          `MCP server "${serverId}" tried to register tool "${tool.name}" which conflicts with a core tool. Skipping.`,
         );
         continue;
       }
-      if (existing.origin === "skill") {
+      if (existing.owner?.kind === "skill" || existing.owner?.kind === "plugin") {
         log.warn(
           {
             toolName: tool.name,
-            serverId: tool.ownerMcpServerId,
-            skillId: existing.ownerSkillId,
+            serverId,
+            existingOwner: existing.owner,
           },
-          `MCP server "${tool.ownerMcpServerId}" tried to register tool "${tool.name}" which conflicts with skill tool from "${existing.ownerSkillId}". Skipping.`,
+          `MCP server "${serverId}" tried to register tool "${tool.name}" which conflicts with ${describeOwner(existing.owner)}. Skipping.`,
         );
         continue;
       }
-      if (existing.origin === "plugin") {
-        log.warn(
-          {
-            toolName: tool.name,
-            serverId: tool.ownerMcpServerId,
-            pluginName: existing.ownerPluginId,
-          },
-          `MCP server "${tool.ownerMcpServerId}" tried to register tool "${tool.name}" which conflicts with plugin tool from "${existing.ownerPluginId}". Skipping.`,
-        );
-        continue;
-      }
-      if (
-        existing.origin === "mcp" &&
-        existing.ownerMcpServerId !== tool.ownerMcpServerId
-      ) {
+      if (existing.owner?.kind === "mcp" && existing.owner.id !== serverId) {
         throw new Error(
-          `MCP tool "${tool.name}" is already registered by MCP server "${existing.ownerMcpServerId}"`,
+          `MCP tool "${tool.name}" is already registered by MCP server "${existing.owner.id}"`,
         );
       }
     }
@@ -356,8 +355,9 @@ export function registerMcpTools(newTools: Tool[]): Tool[] {
 
   for (const tool of accepted) {
     tools.set(tool.name, tool);
+    const serverId = tool.owner?.kind === "mcp" ? tool.owner.id : undefined;
     log.info(
-      { name: tool.name, ownerMcpServerId: tool.ownerMcpServerId },
+      { name: tool.name, ownerMcpServerId: serverId },
       "MCP tool registered",
     );
   }
@@ -370,7 +370,7 @@ export function registerMcpTools(newTools: Tool[]): Tool[] {
  */
 export function unregisterAllMcpTools(): void {
   for (const [name, tool] of tools) {
-    if (tool.origin === "mcp") {
+    if (tool.owner?.kind === "mcp") {
       tools.delete(name);
       log.info({ name }, "MCP tool unregistered (reload)");
     }

@@ -123,7 +123,7 @@ describe("computer-use skill manifest regression", () => {
         category: "computer-use",
         defaultRiskLevel: RiskLevel.Low,
         origin: "skill" as const,
-        ownerSkillId: "computer-use",
+        owner: { kind: "skill", id: "computer-use" },
         execute: async () => ({ content: "stub", isError: false }),
       }),
     );

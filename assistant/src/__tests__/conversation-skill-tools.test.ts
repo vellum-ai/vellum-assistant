@@ -106,7 +106,7 @@ mock.module("../tools/skills/skill-tool-factory.js", () => ({
       defaultRiskLevel: RiskLevel.Medium,
       executionTarget: "sandbox" as const,
       origin: "skill" as const,
-      ownerSkillId: skillId,
+      owner: { kind: "skill" as const, id: skillId },
       input_schema: entry.input_schema as object,
       execute: async () => ({ content: "", isError: false }),
     }));
@@ -117,7 +117,7 @@ mock.module("../tools/registry.js", () => ({
   registerSkillTools: (tools: Tool[]) => {
     const skillIds = new Set<string>();
     for (const tool of tools) {
-      const skillId = tool.ownerSkillId!;
+      const skillId = tool.owner!.id;
       skillIds.add(skillId);
       const existing = mockRegisteredTools.get(skillId) ?? [];
       existing.push(tool);
@@ -1731,7 +1731,7 @@ describe("bundled skill: app-builder", () => {
     // All tools should have skill origin metadata
     for (const tool of tools!) {
       expect(tool.origin).toBe("skill");
-      expect(tool.ownerSkillId).toBe("app-builder");
+      expect(tool.owner).toEqual({ kind: "skill", id: "app-builder" });
     }
   });
 });
@@ -2227,7 +2227,7 @@ describe("hash change re-prompt regressions (PR 35)", () => {
     expect(sessionState.get("oncall")).toBe("v2:oncall-edited");
   });
 
-  test("registered tools carry updated ownerSkillId after hash change re-registration", () => {
+  test("registered tools carry updated owner after hash change re-registration", () => {
     mockCatalog = [makeSkill("deploy")];
     mockManifests = { deploy: makeManifest(["deploy_run"]) };
     mockVersionHashes = { deploy: "v1:pre-edit" };
@@ -2241,7 +2241,7 @@ describe("hash change re-prompt regressions (PR 35)", () => {
     const toolsV1 = mockRegisteredTools.get("deploy");
     expect(toolsV1).toBeDefined();
     expect(toolsV1!.length).toBe(1);
-    expect(toolsV1![0].ownerSkillId).toBe("deploy");
+    expect(toolsV1![0].owner).toEqual({ kind: "skill", id: "deploy" });
 
     // Edit
     mockVersionHashes = { deploy: "v2:post-edit" };
@@ -2251,7 +2251,7 @@ describe("hash change re-prompt regressions (PR 35)", () => {
     const toolsV2 = mockRegisteredTools.get("deploy");
     expect(toolsV2).toBeDefined();
     expect(toolsV2!.length).toBeGreaterThanOrEqual(1);
-    expect(toolsV2![0].ownerSkillId).toBe("deploy");
+    expect(toolsV2![0].owner).toEqual({ kind: "skill", id: "deploy" });
   });
 });
 

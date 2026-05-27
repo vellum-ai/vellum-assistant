@@ -28,6 +28,16 @@
 
 export type ExecutionTarget = "sandbox" | "host";
 
+/** The kind of extension that owns a tool. Core tools have no owner. */
+export type OwnerKind = "skill" | "mcp" | "plugin";
+
+/** Identifies which extension owns a tool (skill / plugin / MCP server). */
+export interface OwnerInfo {
+  kind: OwnerKind;
+  /** ID of the owning extension (skill id / plugin name / MCP server id). */
+  id: string;
+}
+
 export enum RiskLevel {
   Low = "low",
   Medium = "medium",
@@ -423,12 +433,8 @@ export interface Tool {
   executionMode?: "local" | "proxy";
   /** Whether this tool is a core built-in, provided by a skill, contributed by a plugin, or from an MCP server. */
   origin?: "core" | "skill" | "mcp" | "plugin";
-  /** If origin is 'skill', the ID of the owning skill. */
-  ownerSkillId?: string;
-  /** If origin is 'mcp', the ID of the owning MCP server. */
-  ownerMcpServerId?: string;
-  /** If origin is 'plugin', the name of the owning plugin. */
-  ownerPluginId?: string;
+  /** Identifies the owning extension when origin is 'skill' / 'plugin' / 'mcp'. Absent for core tools. */
+  owner?: OwnerInfo;
   /** Declared execution target from the skill manifest. Used by resolveExecutionTarget
    * to accurately label lifecycle events for skill-provided tools. */
   executionTarget?: ExecutionTarget;

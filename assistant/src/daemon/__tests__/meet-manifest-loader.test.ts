@@ -180,7 +180,7 @@ describe("loadMeetManifestProxies", () => {
     expect(t.defaultRiskLevel).toBe(RiskLevel.Medium);
     expect(t.executionMode).toBe("proxy");
     expect(t.origin).toBe("skill");
-    expect(t.ownerSkillId).toBe("meet-join");
+    expect(t.owner).toEqual({ kind: "skill", id: "meet-join" });
     expect(t.input_schema).toEqual(
       FIXTURE_MANIFEST.tools[0]!.input_schema,
     );

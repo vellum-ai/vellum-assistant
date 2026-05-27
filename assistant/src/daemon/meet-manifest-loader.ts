@@ -140,7 +140,7 @@ function buildProxyTool(
     executionMode: "proxy",
     executionTarget: "host" as ExecutionTarget,
     origin: "skill",
-    ownerSkillId: MEET_SKILL_ID,
+    owner: { kind: "skill", id: MEET_SKILL_ID },
     execute: async (input, context) => {
       // `dispatchTool` ensures the meet-host child is up + connected
       // before sending the frame, so callers don't need a separate

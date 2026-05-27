@@ -85,7 +85,7 @@ describe("createSkillTool", () => {
     expect(tool.category).toBe("testing");
   });
 
-  test("sets origin to skill and ownerSkillId", () => {
+  test("sets origin to skill and owner", () => {
     const tool = createSkillTool(
       makeEntry(),
       "weather-skill",
@@ -94,7 +94,7 @@ describe("createSkillTool", () => {
     );
 
     expect(tool.origin).toBe("skill");
-    expect(tool.ownerSkillId).toBe("weather-skill");
+    expect(tool.owner).toEqual({ kind: "skill", id: "weather-skill" });
   });
 
   test.each([
@@ -222,7 +222,7 @@ describe("createSkillToolsFromManifest", () => {
 
     for (const tool of tools) {
       expect(tool.origin).toBe("skill");
-      expect(tool.ownerSkillId).toBe("shared-skill");
+      expect(tool.owner).toEqual({ kind: "skill", id: "shared-skill" });
     }
   });
 

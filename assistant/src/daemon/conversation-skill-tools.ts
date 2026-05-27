@@ -354,8 +354,8 @@ export function projectSkillTools(
           const reg = getTool(t.name);
           return (
             reg !== undefined &&
-            reg.origin === "skill" &&
-            reg.ownerSkillId === skillId
+            reg.owner?.kind === "skill" &&
+            reg.owner.id === skillId
           );
         });
       }

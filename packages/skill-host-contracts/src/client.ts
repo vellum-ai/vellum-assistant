@@ -1082,7 +1082,7 @@ export class SkillHostClient implements SkillHost {
             category: t.category,
             executionTarget: t.executionTarget,
             executionMode: t.executionMode ?? "proxy",
-            ownerSkillId: t.ownerSkillId ?? this.options.skillId,
+            owner: t.owner ?? { kind: "skill" as const, id: this.options.skillId },
           };
         });
         // Cache the provider so `skill.dispatch_tool` can resolve a tool

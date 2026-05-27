@@ -159,8 +159,9 @@ function resolveSkillIdAndHash(
  * without needing to re-register tools).
  */
 function isToolOwnerSkillBundled(tool: Tool | undefined): boolean {
-  if (!tool?.ownerSkillId) return false;
-  const skill = loadSkillCatalog().find((s) => s.id === tool.ownerSkillId);
+  if (tool?.owner?.kind !== "skill") return false;
+  const skillId = tool.owner.id;
+  const skill = loadSkillCatalog().find((s) => s.id === skillId);
   return skill?.bundled ?? false;
 }
 

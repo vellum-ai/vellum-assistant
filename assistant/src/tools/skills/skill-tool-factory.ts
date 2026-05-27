@@ -57,7 +57,7 @@ export function createSkillTool(
     category: entry.category,
     defaultRiskLevel: riskMap[entry.risk],
     origin: "skill",
-    ownerSkillId: skillId,
+    owner: { kind: "skill", id: skillId },
     executionTarget: entry.execution_target as ExecutionTarget,
 
     input_schema: entry.input_schema as object,

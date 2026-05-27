@@ -64,7 +64,7 @@ describe("host.registries.register_tools", () => {
           defaultRiskLevel: "low",
           category: "skill",
           executionTarget: "sandbox",
-          ownerSkillId: "demo-skill",
+          owner: { kind: "skill", id: "demo-skill" },
         },
       ],
     })) as { registered: string[] };
@@ -73,7 +73,7 @@ describe("host.registries.register_tools", () => {
     const installed = getTool("skill_demo_tool");
     expect(installed).toBeDefined();
     expect(installed!.origin).toBe("skill");
-    expect(installed!.ownerSkillId).toBe("demo-skill");
+    expect(installed!.owner).toEqual({ kind: "skill", id: "demo-skill" });
     expect(installed!.executionMode).toBe("proxy");
   });
 
@@ -86,7 +86,7 @@ describe("host.registries.register_tools", () => {
           input_schema: { type: "object" },
           defaultRiskLevel: "medium",
           category: "skill",
-          ownerSkillId: "stub-skill",
+          owner: { kind: "skill", id: "stub-skill" },
         },
       ],
     });
@@ -309,7 +309,7 @@ describe("lazy-external short-circuit", () => {
             input_schema: {},
             defaultRiskLevel: "low",
             category: "skill",
-            ownerSkillId: "demo-skill",
+            owner: { kind: "skill", id: "demo-skill" },
           },
         ],
       },

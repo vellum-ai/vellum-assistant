@@ -40,11 +40,11 @@ function makeFakeTool(name: string): Tool {
   };
 }
 
-function makeSkillTool(name: string, ownerSkillId: string): Tool {
+function makeSkillTool(name: string, skillId: string): Tool {
   return {
     ...makeFakeTool(name),
     origin: "skill" as const,
-    ownerSkillId,
+    owner: { kind: "skill", id: skillId },
   };
 }
 
@@ -226,7 +226,7 @@ describe("tool origin metadata", () => {
     const skillTool: Tool = {
       ...makeFakeTool("test-skill-origin-tool"),
       origin: "skill",
-      ownerSkillId: "test-skill",
+      owner: { kind: "skill", id: "test-skill" },
     };
 
     registerTool(skillTool);
@@ -234,7 +234,7 @@ describe("tool origin metadata", () => {
     const retrieved = getTool("test-skill-origin-tool");
     expect(retrieved).toBeDefined();
     expect(retrieved?.origin).toBe("skill");
-    expect(retrieved?.ownerSkillId).toBe("test-skill");
+    expect(retrieved?.owner).toEqual({ kind: "skill", id: "test-skill" });
   });
 
   test("core tools default to no origin metadata (undefined)", async () => {
@@ -243,7 +243,7 @@ describe("tool origin metadata", () => {
     const coreTool = getTool("host_file_read");
     expect(coreTool).toBeDefined();
     expect(coreTool?.origin).toBeUndefined();
-    expect(coreTool?.ownerSkillId).toBeUndefined();
+    expect(coreTool?.owner).toBeUndefined();
   });
 });
 
@@ -261,7 +261,7 @@ describe("dynamic skill tool registry", () => {
 
     expect(getTool("sk_tool_a")).toBeDefined();
     expect(getTool("sk_tool_a")?.origin).toBe("skill");
-    expect(getTool("sk_tool_a")?.ownerSkillId).toBe("my-skill");
+    expect(getTool("sk_tool_a")?.owner).toEqual({ kind: "skill", id: "my-skill" });
 
     expect(getTool("sk_tool_b")).toBeDefined();
     expect(getTool("sk_tool_b")?.origin).toBe("skill");
@@ -375,7 +375,7 @@ describe("skill tool reference counting", () => {
     registerSkillTools([makeSkillTool("rc_a", "rc-skill")]);
     expect(getSkillRefCount("rc-skill")).toBe(1);
 
-    // Second session registers the same skill (same ownerSkillId allows replacement)
+    // Second session registers the same skill (same owner id allows replacement)
     registerSkillTools([makeSkillTool("rc_a", "rc-skill")]);
     expect(getSkillRefCount("rc-skill")).toBe(2);
   });

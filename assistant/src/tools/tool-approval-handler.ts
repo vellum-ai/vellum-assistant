@@ -368,8 +368,10 @@ export class ToolApprovalHandler {
 
     // Gate tools not active for the current turn
     if (context.allowedToolNames && !context.allowedToolNames.has(name)) {
-      const loadHint = tool.ownerSkillId
-        ? `Load the "${tool.ownerSkillId}" skill that provides this tool first.`
+      const ownerSkillId =
+        tool.owner?.kind === "skill" ? tool.owner.id : undefined;
+      const loadHint = ownerSkillId
+        ? `Load the "${ownerSkillId}" skill that provides this tool first.`
         : `Load the skill that provides this tool first.`;
       const msg = `Tool "${name}" is not currently active. ${loadHint}`;
       const durationMs = Date.now() - startTime;

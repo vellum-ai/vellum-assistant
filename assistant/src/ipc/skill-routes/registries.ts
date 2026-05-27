@@ -51,8 +51,13 @@ const ToolManifestSchema = z.object({
   executionMode: z.enum(["local", "proxy"]).optional(),
   // Required so disconnect can decrement the tool-registry refcount: a
   // tool registered without an owner has no ref-counted entry to drop and
-  // would leak into the global registry on socket close.
-  ownerSkillId: z.string().min(1),
+  // would leak into the global registry on socket close. Only skill-owned
+  // tools flow over IPC — plugin and MCP tools live in-process on the
+  // assistant side, so the schema is strict to kind: "skill".
+  owner: z.object({
+    kind: z.literal("skill"),
+    id: z.string().min(1),
+  }),
 });
 
 export type ToolManifest = z.infer<typeof ToolManifestSchema>;
@@ -192,7 +197,7 @@ function buildProxyTool(manifest: ToolManifest): Tool {
       executionMode: manifest.executionMode ?? "proxy",
     }),
     origin: "skill",
-    ownerSkillId: manifest.ownerSkillId,
+    owner: manifest.owner,
     execute: async () => {
       // Only reached when no supervisor is attached (tests/boot race);
       // the supervisor short-circuit above replaces this with the
@@ -235,12 +240,12 @@ async function handleRegisterTools(
   const accepted = registerSkillTools(proxies);
 
   // `registerSkillTools` increments the registry refcount once per unique
-  // ownerSkillId in the batch; mirror that on the connection so disconnect
+  // skill owner id in the batch; mirror that on the connection so disconnect
   // issues exactly the matching number of decrements.
   if (conn) {
     const ownerIds = new Set<string>();
     for (const tool of accepted) {
-      if (tool.ownerSkillId) ownerIds.add(tool.ownerSkillId);
+      if (tool.owner?.kind === "skill") ownerIds.add(tool.owner.id);
     }
     for (const skillId of ownerIds) {
       conn.addSkillToolsOwner(skillId);

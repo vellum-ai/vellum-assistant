@@ -129,7 +129,7 @@ mock.module("../tools/skills/skill-tool-factory.js", () => ({
       defaultRiskLevel: RiskLevel.Medium,
       executionTarget: "sandbox" as const,
       origin: "skill" as const,
-      ownerSkillId: skillId,
+      owner: { kind: "skill" as const, id: skillId },
       input_schema: entry.input_schema as object,
       execute: async () => ({ content: "", isError: false }),
     }));
@@ -140,7 +140,7 @@ mock.module("../tools/registry.js", () => ({
   registerSkillTools: (tools: Tool[]) => {
     const skillIds = new Set<string>();
     for (const tool of tools) {
-      const skillId = tool.ownerSkillId!;
+      const skillId = tool.owner!.id;
       skillIds.add(skillId);
       const existing = mockRegisteredTools.get(skillId) ?? [];
       existing.push(tool);
