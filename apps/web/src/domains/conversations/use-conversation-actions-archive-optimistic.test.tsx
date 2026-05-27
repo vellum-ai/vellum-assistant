@@ -30,12 +30,15 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createElement, type ReactNode } from "react";
 
+import * as sdkGen from "@/generated/daemon/sdk.gen";
 import type { Conversation } from "@/lib/conversations-api";
 import { chatContextQueryKey } from "@/lib/sync/query-tags";
 
 // ---------------------------------------------------------------------------
 // Module mocks. Archive/unarchive impls are pulled from module-level holders
-// so each test can inject a deferred or failing implementation.
+// so each test can inject a deferred or failing implementation. The mock
+// spreads the real module so unrelated consumers in the import graph keep
+// working — we only override the functions whose timing the hook controls.
 // ---------------------------------------------------------------------------
 
 type ArchiveImpl = (opts: { path: { assistant_id: string; id: string }; throwOnError: boolean }) => Promise<{ data: undefined; response: { ok: boolean } }>;
@@ -44,21 +47,11 @@ let archiveImpl: ArchiveImpl = async () => ({ data: undefined, response: { ok: t
 let unarchiveImpl: ArchiveImpl = async () => ({ data: undefined, response: { ok: true } });
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
+  ...sdkGen,
   conversationsByIdArchivePost: (opts: { path: { assistant_id: string; id: string }; throwOnError: boolean }) =>
     archiveImpl(opts),
   conversationsByIdUnarchivePost: (opts: { path: { assistant_id: string; id: string }; throwOnError: boolean }) =>
     unarchiveImpl(opts),
-  conversationsSeenPost: async () => ({ data: undefined, response: { ok: true } }),
-  conversationsUnreadPost: async () => ({ data: undefined, response: { ok: true } }),
-  conversationsByIdNamePatch: async () => ({ data: undefined, response: { ok: true } }),
-  conversationsReorderPost: async () => ({ data: undefined, response: { ok: true } }),
-  conversationsByIdGet: async () => ({ data: undefined, response: { ok: true } }),
-  groupsByGroupIdDelete: async () => ({ data: undefined, response: { ok: true } }),
-  groupsByGroupIdPatch: async () => ({ data: undefined, response: { ok: true } }),
-  groupsGet: async () => ({ data: { groups: [] }, response: { ok: true } }),
-  groupsPost: async () => ({ data: undefined, response: { ok: true } }),
-  groupsReorderPost: async () => ({ data: undefined, response: { ok: true } }),
-  subagentsByIdGet: async () => ({ data: undefined, response: { ok: true } }),
 }));
 
 // Stub haptics — Capacitor's web shim works fine in a node test environment,

@@ -20,6 +20,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { createElement } from "react";
 
+import * as sdkGen from "@/generated/daemon/sdk.gen";
 import { useConversationStore } from "@/domains/conversations/conversation-store";
 import {
   __resetEventBusForTesting,
@@ -36,6 +37,7 @@ mock.module("@/domains/conversations/conversation-queries", () => ({
 }));
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
+  ...sdkGen,
   conversationsSeenPost: async () => ({ data: undefined, error: undefined, response: { ok: true } }),
 }));
 
