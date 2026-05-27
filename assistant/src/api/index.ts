@@ -19,11 +19,34 @@ export {
   type ToolUseStartEvent,
   ToolUseStartEventSchema,
 } from "./events/tool-use-start.js";
-export type {
-  LLMCallSummary,
-  LLMContextSection,
-  LLMRequestLogEntry,
+export {
+  type LlmContextResponse,
+  LlmContextResponseSchema,
+} from "./responses/llm-context-response.js";
+export {
+  type LLMCallSummary,
+  LLMCallSummarySchema,
+  type LLMContextSection,
+  LLMContextSectionSchema,
+  type LLMRequestLogEntry,
+  LLMRequestLogEntrySchema,
 } from "./responses/llm-request-log-entry.js";
+export {
+  type MemoryCandidate,
+  MemoryCandidateSchema,
+  type MemoryDegradation,
+  MemoryDegradationSchema,
+  type MemoryRecallLog,
+  MemoryRecallLogSchema,
+} from "./responses/memory-recall-log.js";
+export {
+  type MemoryV2ActivationLog,
+  MemoryV2ActivationLogSchema,
+  type MemoryV2ConceptRow,
+  MemoryV2ConceptRowSchema,
+  type MemoryV2ConfigSnapshot,
+  MemoryV2ConfigSnapshotSchema,
+} from "./responses/memory-v2-activation-log.js";
 
 /**
  * Canonical SSE event schema for the assistant runtime.

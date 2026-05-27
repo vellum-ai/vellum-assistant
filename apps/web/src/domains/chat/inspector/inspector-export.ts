@@ -5,7 +5,7 @@ import type {
   LLMContextSection,
   LLMRequestLogEntry,
 } from "@vellumai/assistant-api";
-import type { LlmContextResponse } from "@/domains/chat/types/inspector-types";
+import type { LlmContextResponse } from "@vellumai/assistant-api";
 
 export interface InspectorExportFile {
   path: string;

@@ -10,12 +10,12 @@ import {
   type RuntimeMessage,
 } from "@/domains/chat/api/messages";
 
-import type { LLMRequestLogEntry } from "@vellumai/assistant-api";
 import type {
   LlmContextResponse,
+  LLMRequestLogEntry,
   MemoryRecallLog,
   MemoryV2ActivationLog,
-} from "@/domains/chat/types/inspector-types";
+} from "@vellumai/assistant-api";
 
 /**
  * Query helpers for the inspector. Two fetch modes:
@@ -144,7 +144,16 @@ export async function fetchConversationLlmContext(
   conversationId: string,
   signal: AbortSignal | undefined,
 ): Promise<LlmContextResponse> {
-  const { data, error, response } = await client.get<LlmContextResponse>({
+  // The `{ 200: T }` shape is the documented HeyAPI pattern for
+  // declaring a response type by status code. Passing a flat object as
+  // the generic happens to work for *interfaces* (which don't satisfy
+  // HeyAPI's `Record<string, unknown>` branch), but `z.infer`-derived
+  // type aliases trip that branch and `data` collapses to the union of
+  // property value types. Status-keyed form avoids the quirk and is
+  // strictly more correct.
+  const { data, error, response } = await client.get<{
+    200: LlmContextResponse;
+  }>({
     url: "/v1/assistants/{assistant_id}/conversations/llm-context/",
     path: { assistant_id: assistantId },
     query: { conversationId },
@@ -192,7 +201,9 @@ export async function fetchMessageLlmContextOrThrow(
   messageId: string,
   signal: AbortSignal | undefined,
 ): Promise<LlmContextResponse> {
-  const { data, error, response } = await client.get<LlmContextResponse>({
+  const { data, error, response } = await client.get<{
+    200: LlmContextResponse;
+  }>({
     url: "/v1/assistants/{assistant_id}/messages/{message_id}/llm-context/",
     path: { assistant_id: assistantId, message_id: messageId },
     signal,
@@ -307,7 +318,9 @@ async function fetchMessageLlmContextTolerant(
   messageId: string,
   signal: AbortSignal | undefined,
 ): Promise<LlmContextResponse | null> {
-  const { data, response } = await client.get<LlmContextResponse>({
+  const { data, response } = await client.get<{
+    200: LlmContextResponse;
+  }>({
     url: "/v1/assistants/{assistant_id}/messages/{message_id}/llm-context/",
     path: { assistant_id: assistantId, message_id: messageId },
     signal,

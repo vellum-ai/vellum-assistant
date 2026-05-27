@@ -21,7 +21,7 @@ import {
   type LlmLogPayload,
 } from "@/domains/chat/inspector/inspector-payload-api";
 import type { LLMRequestLogEntry } from "@vellumai/assistant-api";
-import type { LlmContextResponse } from "@/domains/chat/types/inspector-types";
+import type { LlmContextResponse } from "@vellumai/assistant-api";
 import { useAuthStore } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 
