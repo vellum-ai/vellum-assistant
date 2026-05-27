@@ -547,13 +547,7 @@ export async function check(
       risk === RiskLevel.Low
         ? isWorkspaceScopedInvocation(toolName, input, workingDir)
         : false,
-    toolOrigin: (() => {
-      if (!tool) return undefined;
-      const ownerKind = getToolOwner(toolName)?.kind;
-      return ownerKind === "skill" || ownerKind === "plugin"
-        ? "skill"
-        : "builtin";
-    })(),
+    toolOrigin: getToolOwner(toolName)?.kind,
     isSkillBundled: isToolOwnerSkillBundled(tool),
     hasManifestOverride: !!manifestOverride,
     autoApproveUpTo: threshold,

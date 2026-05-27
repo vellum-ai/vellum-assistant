@@ -334,6 +334,19 @@ describe("no rule — third-party skill tool", () => {
     expect(result.reason).toContain("Skill tool");
   });
 
+  test("plugin origin → treated as extension-owned (prompt at strict threshold)", () => {
+    // Plugins join skills in the "extension-owned" bucket — both prompt by
+    // default. `isSkillBundled` is irrelevant for plugins (always false).
+    const result = evaluate({
+      riskLevel: RiskLevel.Low,
+      toolName: "custom_plugin_tool",
+      toolOrigin: "plugin",
+      autoApproveUpTo: "none",
+    });
+    expect(result.decision).toBe("prompt");
+    expect(result.reason).toContain("Skill tool");
+  });
+
   test("no tool origin but hasManifestOverride, strict threshold → prompt (unregistered skill tool)", () => {
     const result = evaluate({
       riskLevel: RiskLevel.Low,
@@ -699,16 +712,17 @@ describe("edge cases", () => {
     expect(result.reason).toContain("Skill tool");
   });
 
-  test("hasManifestOverride with toolOrigin set to builtin — falls through (not a skill)", () => {
+  test("hasManifestOverride with toolOrigin=mcp — falls through (not extension-owned)", () => {
     const result = evaluate({
       riskLevel: RiskLevel.Low,
       toolName: "manifest_tool",
-      toolOrigin: "builtin",
+      toolOrigin: "mcp",
       hasManifestOverride: true,
     });
-    // toolOrigin is "builtin", so the third-party skill check doesn't trigger.
-    // The hasManifestOverride check requires !toolOrigin, but toolOrigin is set.
-    // Falls through to risk-based: Low → allow (within default "low" threshold).
+    // toolOrigin is "mcp", which is not extension-class (skill/plugin), so
+    // the third-party skill check doesn't trigger. The hasManifestOverride
+    // sub-check requires !toolOrigin, but toolOrigin is set. Falls through
+    // to risk-based: Low → allow (within default "low" threshold).
     expect(result.decision).toBe("allow");
     expect(result.reason).toContain("low risk");
   });
