@@ -28,7 +28,6 @@ import {
 } from "@/lib/auth/gateway-session";
 import {
   isLocalMode,
-  getSelectedAssistant,
   getPlatformAssistants,
   clearSelectedAssistant,
 } from "@/lib/local-mode";
@@ -125,10 +124,6 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
 
   initSession: async () => {
     if (isGatewayAuthEnabled()) {
-      if (isLocalMode() && !getSelectedAssistant()) {
-        set({ isLoggedIn: false, isLoading: false, user: null });
-        return;
-      }
       try {
         await ensureGatewayToken(getLocalTokenUrl());
         set({ isLoggedIn: true, isLoading: false, user: GATEWAY_LOCAL_USER });
