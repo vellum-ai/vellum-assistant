@@ -6,7 +6,7 @@ import { ChatLayout } from "@/domains/chat/chat-layout";
 import { ChatPage } from "@/domains/chat/chat-page";
 import { ConversationRedirect } from "@/domains/chat/conversation-redirect";
 import { NotFound } from "@/components/not-found";
-import { RootErrorBoundary } from "@/components/root-error-boundary";
+import { RouteErrorBoundary } from "@/components/route-error-boundary";
 import { RootHydrateFallback } from "@/components/root-hydrate-fallback";
 import { ActiveAssistantGate } from "@/components/layout/active-assistant-gate";
 
@@ -31,32 +31,56 @@ export const router = createBrowserRouter(
     // Lazy-loaded: only needed for unauthenticated flows.
     {
       path: "/account",
-      ErrorBoundary: RootErrorBoundary,
+      ErrorBoundary: RouteErrorBoundary,
       HydrateFallback: RootHydrateFallback,
       children: [
-        { index: true, lazy: { Component: () => import("@/domains/account/pages/account-page").then((m) => m.AccountPage) } },
-        { path: "login", lazy: { Component: () => import("@/domains/account/pages/login-page").then((m) => m.LoginPage) } },
-        { path: "signup", lazy: { Component: () => import("@/domains/account/pages/signup-page").then((m) => m.SignupPage) } },
-        { path: "provider/callback", lazy: { Component: () => import("@/domains/account/pages/provider-callback-page").then((m) => m.ProviderCallbackPage) } },
-        { path: "provider/signup", lazy: { Component: () => import("@/domains/account/pages/provider-signup-page").then((m) => m.ProviderSignupPage) } },
-        { path: "oauth/popup-complete", lazy: { Component: () => import("@/domains/account/pages/oauth-popup-complete-page").then((m) => m.OAuthPopupCompletePage) } },
-        { path: "oauth/desktop-complete", lazy: { Component: () => import("@/domains/account/pages/desktop-oauth-complete-page").then((m) => m.DesktopOAuthCompletePage) } },
-        { path: "password/reset", lazy: { Component: () => import("@/domains/account/pages/password-reset-page").then((m) => m.PasswordResetPage) } },
-        { path: "password/reset/key/:key", lazy: { Component: () => import("@/domains/account/pages/password-reset-page").then((m) => m.PasswordResetPage) } },
+        // Pathless wrapper so lazy-chunk failures render the chunk-fail
+        // variant of `RouteErrorBoundary` (inline copy + Reload button)
+        // rather than the full-page variant inherited from the top.
+        {
+          ErrorBoundary: RouteErrorBoundary,
+          children: [
+            { index: true, lazy: { Component: () => import("@/domains/account/pages/account-page").then((m) => m.AccountPage) } },
+            { path: "login", lazy: { Component: () => import("@/domains/account/pages/login-page").then((m) => m.LoginPage) } },
+            { path: "signup", lazy: { Component: () => import("@/domains/account/pages/signup-page").then((m) => m.SignupPage) } },
+            { path: "provider/callback", lazy: { Component: () => import("@/domains/account/pages/provider-callback-page").then((m) => m.ProviderCallbackPage) } },
+            { path: "provider/signup", lazy: { Component: () => import("@/domains/account/pages/provider-signup-page").then((m) => m.ProviderSignupPage) } },
+            { path: "oauth/popup-complete", lazy: { Component: () => import("@/domains/account/pages/oauth-popup-complete-page").then((m) => m.OAuthPopupCompletePage) } },
+            { path: "oauth/desktop-complete", lazy: { Component: () => import("@/domains/account/pages/desktop-oauth-complete-page").then((m) => m.DesktopOAuthCompletePage) } },
+            { path: "password/reset", lazy: { Component: () => import("@/domains/account/pages/password-reset-page").then((m) => m.PasswordResetPage) } },
+            { path: "password/reset/key/:key", lazy: { Component: () => import("@/domains/account/pages/password-reset-page").then((m) => m.PasswordResetPage) } },
+          ],
+        },
       ],
     },
 
     // Logout — standalone page, no app chrome
-    { path: "/logout", ErrorBoundary: RootErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/domains/account/pages/logout-page").then((m) => m.LogoutPage) } },
+    { path: "/logout", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/domains/account/pages/logout-page").then((m) => m.LogoutPage) } },
 
     // Assistant routes — auth-protected app with layout
     {
       path: "/assistant",
       middleware: [authMiddleware],
-      ErrorBoundary: RootErrorBoundary,
+      ErrorBoundary: RouteErrorBoundary,
       HydrateFallback: RootHydrateFallback,
       Component: RootLayout,
       children: [
+        // Pathless wrapper attaching `RouteErrorBoundary` at the layer
+        // *inside* RootLayout. Any error from a child route (chunk-fetch
+        // failure or genuine render bug) is caught here — React Router
+        // doesn't support selective bubbling. The boundary picks a UI
+        // variant based on the error shape:
+        //   - chunk fail  → inline "section couldn't load" within
+        //                   RootLayout's chrome (sidebar stays visible)
+        //   - other error → full-page "Something went wrong" treatment
+        //                   (full-viewport `min-h-svh` so it reads as a
+        //                   takeover even when mounted inside chrome)
+        // The outer boundary on `/assistant` only fires for errors that
+        // happen *during* the resolution of `/assistant` itself (loader,
+        // middleware, RootLayout render) — not for child-route errors.
+        {
+          ErrorBoundary: RouteErrorBoundary,
+          children: [
         // Onboarding routes — full-screen (no ChatLayout sidebar).
         // Lazy-loaded: one-time flow, not revisited.
         {
@@ -121,6 +145,17 @@ export const router = createBrowserRouter(
         {
           Component: ChatLayout,
           children: [
+            // Inner pathless wrapper: catches every error from chat-side
+            // routes (home, library, identity, inspector, etc.) one layer
+            // deeper than the `/assistant` boundary so the chunk-fail UI
+            // variant renders *inside* ChatLayout's chrome (sidebar stays
+            // visible). Non-chunk render errors are caught here too —
+            // `RouteErrorBoundary` shows the full-page variant in that
+            // case (`min-h-svh`), which visually takes over the route
+            // content area.
+            {
+              ErrorBoundary: RouteErrorBoundary,
+              children: [
             // ChatPage / DocumentViewerPage own their own lifecycle UI
             // (loading screens, hatching, version-selection, errors) and
             // must render in every assistant state — they are NOT placed
@@ -162,16 +197,20 @@ export const router = createBrowserRouter(
                 },
               ],
             },
+              ], // end inner chunk-fail boundary (chat-side)
+            },
           ],
         },
 
         // Catch-all within /assistant/*
         { path: "*", Component: NotFound },
+          ], // end outer chunk-fail boundary (/assistant)
+        },
       ],
     },
 
     // Top-level catch-all
-    { path: "*", ErrorBoundary: RootErrorBoundary, Component: NotFound },
+    { path: "*", ErrorBoundary: RouteErrorBoundary, Component: NotFound },
   ],
   {
     future: { v8_middleware: true },

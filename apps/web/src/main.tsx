@@ -8,6 +8,7 @@ import { initSentry } from "@/lib/sentry/sentry-init";
 import { useAuthStore, setupAuthListeners } from "@/stores/auth-store";
 import { setupOrganizationStore } from "@/stores/organization-store";
 import { AppProviders } from "@/components/providers";
+import { isChunkLoadError } from "@/lib/chunk-errors";
 import { router } from "./routes";
 
 import "@/lib/api-interceptors";
@@ -33,8 +34,15 @@ async function boot() {
         <RouterProvider
           router={router}
           onError={(error) => {
+            // Single Sentry capture point for every router error.
+            // `RouteErrorBoundary` (used at every layer of the tree) owns
+            // only the UI variant and intentionally does NOT capture again
+            // to avoid duplicate events.
             Sentry.captureException(error, {
-              tags: { context: "RouterProvider" },
+              tags: {
+                context: "RouterProvider",
+                boundary: isChunkLoadError(error) ? "lazy-route" : "route-render",
+              },
             });
           }}
         />
