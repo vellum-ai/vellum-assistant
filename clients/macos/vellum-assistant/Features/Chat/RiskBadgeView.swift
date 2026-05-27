@@ -13,15 +13,19 @@ struct RiskBadgeView: View {
     let riskLevel: String
     var hasExistingRule: Bool = false
     var provenanceText: String? = nil
+    /// Optional override for the tooltip text. When nil, the default
+    /// "Risk level: …" help text is used.
+    var helpText: String? = nil
     var onTap: (() -> Void)? = nil
 
     var body: some View {
         if let onTap {
+            let tooltip = helpText ?? "Risk level: \(displayLabel). \(hasExistingRule ? "Click to edit the matching rule." : "Click to create a rule.")"
             Button(action: onTap) {
                 badgeContent
             }
             .buttonStyle(.plain)
-            .help("Risk level: \(displayLabel). \(hasExistingRule ? "Click to edit the matching rule." : "Click to create a rule.")")
+            .help(tooltip)
         } else {
             badgeContent
         }
