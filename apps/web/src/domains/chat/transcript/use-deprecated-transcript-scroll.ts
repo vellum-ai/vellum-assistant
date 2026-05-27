@@ -34,7 +34,7 @@ import {
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 
 import type { TranscriptHandle } from "@/domains/chat/transcript/transcript";
-import { TRANSCRIPT_SCROLL_CONTROLLER_ENABLED } from "@/domains/chat/transcript/transcript-scroll";
+import { TRANSCRIPT_SCROLL_CONTROLLER_ENABLED } from "@/domains/chat/transcript/transcript-scroll-flag";
 
 export type { TranscriptHandle };
 
