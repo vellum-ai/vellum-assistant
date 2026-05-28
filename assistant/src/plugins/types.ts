@@ -470,7 +470,16 @@ export type PersistAddArgs = {
   readonly role: MessageRole;
   readonly content: string;
   readonly metadata?: Record<string, unknown>;
-  readonly addOptions?: { readonly skipIndexing?: boolean };
+  readonly addOptions?: {
+    readonly skipIndexing?: boolean;
+    /**
+     * Optional pre-allocated message id. The streaming agent loop pre-assigns
+     * a UUIDv7 at message-open time so every event in the turn can stamp it;
+     * when the row finally persists it must reuse the same id. Plugin
+     * middleware should pass this through unchanged.
+     */
+    readonly messageId?: string;
+  };
   /**
    * When `true`, the default plugin additionally invokes
    * {@link syncMessageToDisk} with the returned message's id. Requires

@@ -314,16 +314,30 @@ describe("tool preview lifecycle", () => {
         input: { path: "/test" },
       });
 
-      // Verify ordering
-      const eventTypes = collector.events.map((e) => e.type);
+      // Verify ordering of the legacy tool events. The streaming
+      // architecture (PR 1 of the streaming-message-architecture plan)
+      // interleaves additive `message_open` / `block_open` events here,
+      // so filter to the legacy tool events the test originally covered.
+      const STREAMING_LIFECYCLE_TYPES = new Set([
+        "message_open",
+        "block_open",
+        "block_close",
+        "message_close",
+      ]);
+      const eventTypes = collector.events
+        .map((e) => e.type)
+        .filter((t) => !STREAMING_LIFECYCLE_TYPES.has(t));
       expect(eventTypes).toEqual([
         "tool_use_preview_start",
         "tool_input_delta",
         "tool_use_start",
       ]);
 
-      // Verify all events carry the same toolUseId
+      // Verify all tool-scoped events carry the same toolUseId. The new
+      // streaming lifecycle events are not tool-scoped (they identify
+      // messages and blocks instead) so they are excluded from the check.
       for (const event of collector.events) {
+        if (STREAMING_LIFECYCLE_TYPES.has(event.type)) continue;
         expect((event as any).toolUseId).toBe(toolUseId);
       }
     });
@@ -397,7 +411,18 @@ describe("tool preview lifecycle", () => {
         isError: false,
       });
 
-      const eventTypes = collector.events.map((e) => e.type);
+      // Filter out the additive streaming lifecycle events emitted by the
+      // streaming-message-architecture plan (PR 1) so the legacy ordering
+      // assertion still holds.
+      const STREAMING_LIFECYCLE_TYPES = new Set([
+        "message_open",
+        "block_open",
+        "block_close",
+        "message_close",
+      ]);
+      const eventTypes = collector.events
+        .map((e) => e.type)
+        .filter((t) => !STREAMING_LIFECYCLE_TYPES.has(t));
       expect(eventTypes).toEqual([
         "tool_use_preview_start",
         "tool_input_delta",
@@ -405,8 +430,11 @@ describe("tool preview lifecycle", () => {
         "tool_result",
       ]);
 
-      // Verify toolUseId consistency across all events
+      // Verify toolUseId consistency across tool-scoped events. The new
+      // streaming lifecycle events identify messages / blocks instead and
+      // are excluded.
       for (const event of collector.events) {
+        if (STREAMING_LIFECYCLE_TYPES.has(event.type)) continue;
         expect((event as any).toolUseId).toBe(toolUseId);
       }
 

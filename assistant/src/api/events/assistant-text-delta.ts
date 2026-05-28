@@ -23,6 +23,14 @@ export const AssistantTextDeltaEventSchema = z
     type: z.literal("assistant_text_delta"),
     text: z.string(),
     messageId: z.string().optional(),
+    /** 0-based content-block index within the parent `messageId`. Optional
+     *  for backwards compatibility with synthetic deltas that don't bind
+     *  to a block. */
+    blockIndex: z.number().optional(),
+    /** Monotonically increasing per-conversation sequence number for
+     *  idempotent client replay. Optional during the streaming-architecture
+     *  rollout — daemons that pre-date PR 1 of the plan omit it. */
+    seq: z.number().optional(),
     conversationId: z.string().optional(),
   })
   .strict();

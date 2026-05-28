@@ -7,7 +7,7 @@
  */
 
 import type pino from "pino";
-import { v4 as uuid } from "uuid";
+import { v4 as uuid, v7 as uuidv7 } from "uuid";
 
 import type { AgentEvent } from "../agent/loop.js";
 import type {
@@ -71,6 +71,7 @@ import {
 } from "./conversation-error.js";
 import { isProviderOrderingError } from "./conversation-slash.js";
 import { resolveTurnTimezoneContext } from "./date-context.js";
+import { nextSeq } from "./streaming-events.js";
 import type {
   CardSurfaceData,
   ServerMessage,
@@ -218,6 +219,27 @@ export interface EventHandlerState {
   readonly serverToolStartedAt: Map<string, number>;
   /** Original input from server_tool_start, keyed by tool_use_id, so the complete handler can read the query. */
   readonly serverToolInputs: Map<string, Record<string, unknown>>;
+  // ── Streaming architecture (PR 1) — pre-assigned message_id, block_index, seq
+  /**
+   * UUIDv7 pre-assigned on the first content emission of the turn (text
+   * delta or tool_use). The same id is reused as the row primary key when
+   * `handleMessageComplete` persists the assistant message, so every
+   * streaming event for the turn — and the final persisted row — share
+   * one stable identifier.
+   */
+  currentMessageId: string | undefined;
+  /**
+   * 0-based content-block counter for the turn. Bumped each time a new
+   * block opens (text → tool_use, tool_use → text, tool_use → tool_use).
+   * `undefined` until the first block opens.
+   */
+  currentBlockIndex: number | undefined;
+  /** Kind of the currently-open block, or `null` between blocks. */
+  currentBlockType: "text" | "tool_use" | null;
+  /** Maps `toolUseId → blockIndex` so `tool_input_delta` and `tool_result`
+   *  events can be stamped with the same block coordinate as the matching
+   *  `tool_use_start` / `block_open`. */
+  readonly toolUseIdToBlockIndex: Map<string, number>;
 }
 
 /** Immutable context shared across event handlers within a single agent loop run. */
@@ -277,6 +299,10 @@ export function createEventHandlerState(): EventHandlerState {
     turnStartedAt: Date.now(),
     serverToolStartedAt: new Map(),
     serverToolInputs: new Map(),
+    currentMessageId: undefined,
+    currentBlockIndex: undefined,
+    currentBlockType: null,
+    toolUseIdToBlockIndex: new Map(),
   };
 }
 
@@ -403,6 +429,119 @@ function resolveAssistantReplyTimestampTimezone(
   }).effectiveTimezone;
 }
 
+// ── Streaming architecture helpers (PR 1) ────────────────────────────
+//
+// These keep the new addressable-event protocol additive alongside the
+// legacy `assistant_text_delta` + `message_complete` shape. The agent
+// loop pre-assigns a UUIDv7 the first time the turn produces content,
+// then re-uses it when the row finally persists in
+// `handleMessageComplete`. Every streaming event for the turn carries
+// `(messageId, blockIndex, seq)` so reconnecting clients can dedupe
+// and order events deterministically.
+
+/**
+ * Ensure the turn's assistant message id is allocated and `message_open`
+ * has been emitted. Called from the first text-delta and tool-use entry
+ * points. Idempotent — subsequent calls in the same turn are no-ops.
+ */
+function ensureMessageOpen(
+  state: EventHandlerState,
+  deps: EventHandlerDeps,
+): string {
+  if (state.currentMessageId) return state.currentMessageId;
+  const messageId = uuidv7();
+  state.currentMessageId = messageId;
+  deps.onEvent({
+    type: "message_open",
+    conversationId: deps.ctx.conversationId,
+    messageId,
+    role: "assistant",
+    seq: nextSeq(deps.ctx.conversationId),
+  });
+  return messageId;
+}
+
+/**
+ * Close the currently-open block, if any. Emits a `block_close` event
+ * stamped with the open block's index. The caller is expected to
+ * advance to a new block (via {@link openBlock}) when applicable.
+ */
+function closeCurrentBlock(
+  state: EventHandlerState,
+  deps: EventHandlerDeps,
+): void {
+  if (state.currentBlockType === null || state.currentBlockIndex === undefined)
+    return;
+  const messageId = state.currentMessageId;
+  if (!messageId) return;
+  deps.onEvent({
+    type: "block_close",
+    conversationId: deps.ctx.conversationId,
+    messageId,
+    blockIndex: state.currentBlockIndex,
+    seq: nextSeq(deps.ctx.conversationId),
+  });
+  state.currentBlockType = null;
+}
+
+/**
+ * Open a new content block (`text` or `tool_use`). Allocates the next
+ * `blockIndex`, updates the state, and emits `block_open`. Every caller
+ * runs {@link ensureMessageOpen} first so `state.currentMessageId` is
+ * always set.
+ */
+function openBlock(
+  state: EventHandlerState,
+  deps: EventHandlerDeps,
+  blockType: "text" | "tool_use",
+  toolInfo?: { toolName: string; toolUseId: string },
+): number {
+  const messageId = state.currentMessageId!;
+  const nextIndex =
+    state.currentBlockIndex === undefined ? 0 : state.currentBlockIndex + 1;
+  state.currentBlockIndex = nextIndex;
+  state.currentBlockType = blockType;
+  if (blockType === "tool_use" && toolInfo) {
+    state.toolUseIdToBlockIndex.set(toolInfo.toolUseId, nextIndex);
+  }
+  deps.onEvent({
+    type: "block_open",
+    conversationId: deps.ctx.conversationId,
+    messageId,
+    blockIndex: nextIndex,
+    blockType,
+    ...(toolInfo
+      ? { toolName: toolInfo.toolName, toolUseId: toolInfo.toolUseId }
+      : {}),
+    seq: nextSeq(deps.ctx.conversationId),
+  });
+  return nextIndex;
+}
+
+/**
+ * Ensure the currently-open block matches the requested kind, opening a
+ * new block (and closing the prior one) when the kind changes or when
+ * no block is open yet. Returns the resolved `blockIndex`.
+ *
+ * `tool_use` blocks are always opened anew so each tool invocation gets
+ * its own block index, even when consecutive tool calls fire without an
+ * intervening text block.
+ */
+function ensureBlockForKind(
+  state: EventHandlerState,
+  deps: EventHandlerDeps,
+  kind: "text" | "tool_use",
+  toolInfo?: { toolName: string; toolUseId: string },
+): number {
+  if (kind === "text" && state.currentBlockType === "text") {
+    return state.currentBlockIndex!;
+  }
+  if (state.currentBlockType !== null) {
+    closeCurrentBlock(state, deps);
+  }
+  return openBlock(state, deps, kind, toolInfo);
+}
+
 // ── Individual Handlers ──────────────────────────────────────────────
 
 function handleTextDelta(
@@ -427,10 +566,15 @@ function handleTextDelta(
         "Thinking",
       );
     }
+    const messageId = ensureMessageOpen(state, deps);
+    const blockIndex = ensureBlockForKind(state, deps, "text");
     deps.onEvent({
       type: "assistant_text_delta",
       text: drained.emitText,
       conversationId: deps.ctx.conversationId,
+      messageId,
+      blockIndex,
+      seq: nextSeq(deps.ctx.conversationId),
     });
     if (deps.shouldGenerateTitle) state.firstAssistantText += drained.emitText;
   }
@@ -492,12 +636,20 @@ export function handleToolUse(
     deps.reqId,
     statusText,
   );
+  const messageId = ensureMessageOpen(state, deps);
+  const blockIndex = ensureBlockForKind(state, deps, "tool_use", {
+    toolName: event.name,
+    toolUseId: event.id,
+  });
   deps.onEvent({
     type: "tool_use_start",
     toolName: event.name,
     input: event.input,
     conversationId: deps.ctx.conversationId,
     toolUseId: event.id,
+    messageId,
+    blockIndex,
+    seq: nextSeq(deps.ctx.conversationId),
   });
 }
 
@@ -598,7 +750,7 @@ function handleToolOutputChunk(
 }
 
 export function handleInputJsonDelta(
-  _state: EventHandlerState,
+  state: EventHandlerState,
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "input_json_delta" }>,
 ): void {
@@ -606,12 +758,16 @@ export function handleInputJsonDelta(
   // stream for app_create code previews. Non-app tools would send large
   // cumulative JSON on every delta with no benefit.
   if (!APP_TOOL_NAMES.has(event.toolName)) return;
+  const blockIndex = state.toolUseIdToBlockIndex.get(event.toolUseId);
   deps.onEvent({
     type: "tool_input_delta",
     toolName: event.toolName,
     content: event.accumulatedJson,
     conversationId: deps.ctx.conversationId,
     toolUseId: event.toolUseId,
+    ...(state.currentMessageId ? { messageId: state.currentMessageId } : {}),
+    ...(blockIndex !== undefined ? { blockIndex } : {}),
+    seq: nextSeq(deps.ctx.conversationId),
   });
 }
 
@@ -730,6 +886,7 @@ export function handleToolResult(
   }
 
   // Send to client last so state is consistent even if onEvent throws.
+  const toolBlockIndex = state.toolUseIdToBlockIndex.get(event.toolUseId);
   deps.onEvent({
     type: "tool_result",
     toolName: "",
@@ -752,7 +909,22 @@ export function handleToolResult(
     approvalReason: event.approvalReason,
     riskThreshold: event.riskThreshold,
     activityMetadata: event.activityMetadata,
+    ...(state.currentMessageId ? { messageId: state.currentMessageId } : {}),
+    ...(toolBlockIndex !== undefined ? { blockIndex: toolBlockIndex } : {}),
+    seq: nextSeq(deps.ctx.conversationId),
   });
+
+  // Close the tool_use block now that its result has been delivered. We
+  // can only safely emit `block_close` when the current block is still
+  // the matching tool_use — if the model has already started emitting
+  // text (which would have opened a new block in `handleTextDelta`) the
+  // earlier block close fired there.
+  if (
+    state.currentBlockType === "tool_use" &&
+    state.currentBlockIndex === toolBlockIndex
+  ) {
+    closeCurrentBlock(state, deps);
+  }
 }
 
 /**
@@ -990,10 +1162,15 @@ export async function handleMessageComplete(
 
   // Flush any remaining directive display buffer
   if (state.pendingDirectiveDisplayBuffer.length > 0) {
+    const flushMessageId = ensureMessageOpen(state, deps);
+    const flushBlockIndex = ensureBlockForKind(state, deps, "text");
     deps.onEvent({
       type: "assistant_text_delta",
       text: state.pendingDirectiveDisplayBuffer,
       conversationId: deps.ctx.conversationId,
+      messageId: flushMessageId,
+      blockIndex: flushBlockIndex,
+      seq: nextSeq(deps.ctx.conversationId),
     });
     if (deps.shouldGenerateTitle)
       state.firstAssistantText += state.pendingDirectiveDisplayBuffer;
@@ -1161,6 +1338,14 @@ export async function handleMessageComplete(
   // pipeline. No `syncToDisk` here — the orchestrator separately invokes
   // `syncMessageToDisk` on `state.lastAssistantMessageId` after the loop
   // completes (see `conversation-agent-loop.ts::syncLastAssistantMessageToDisk`).
+  //
+  // When the agent loop opened a streaming message earlier this turn
+  // (`state.currentMessageId` was assigned in `ensureMessageOpen`), reuse
+  // that pre-allocated id as the row primary key so every event the daemon
+  // already streamed — text deltas, tool_use/tool_result, the new
+  // message_open / block_open / block_close events — references the same
+  // id that downstream consumers (message_complete, history reload,
+  // memory backfills) see.
   const assistantPersistResult = (await runPipeline<PersistArgs, PersistResult>(
     "persistence",
     getMiddlewaresFor("persistence"),
@@ -1171,12 +1356,46 @@ export async function handleMessageComplete(
       role: "assistant",
       content: JSON.stringify(contentForPersistence),
       metadata: assistantChannelMetadata,
+      ...(state.currentMessageId
+        ? { addOptions: { messageId: state.currentMessageId } }
+        : {}),
     },
     buildHandlerTurnContext(deps),
     DEFAULT_TIMEOUTS.persistence,
   )) as PersistAddResult;
   const assistantMsg = assistantPersistResult.message;
   state.lastAssistantMessageId = assistantMsg.id;
+
+  // Streaming architecture: close any block still open, then emit the
+  // turn's `message_close`. Synthesizes a `message_open` first when the
+  // turn produced no content events (canned messages, aux notifier
+  // injections, slash commands), so clients that only consume the new
+  // protocol still see a complete `message_open` → `message_close` pair
+  // for every persisted assistant row.
+  if (!state.currentMessageId) {
+    state.currentMessageId = assistantMsg.id;
+    deps.onEvent({
+      type: "message_open",
+      conversationId: deps.ctx.conversationId,
+      messageId: assistantMsg.id,
+      role: "assistant",
+      seq: nextSeq(deps.ctx.conversationId),
+    });
+  }
+  if (state.currentBlockType !== null) {
+    closeCurrentBlock(state, deps);
+  }
+  deps.onEvent({
+    type: "message_close",
+    conversationId: deps.ctx.conversationId,
+    messageId: state.currentMessageId,
+    seq: nextSeq(deps.ctx.conversationId),
+  });
+  // Reset per-message streaming state so the next turn starts fresh.
+  state.currentMessageId = undefined;
+  state.currentBlockIndex = undefined;
+  state.currentBlockType = null;
+  state.toolUseIdToBlockIndex.clear();
 
   // Backfill message_id on all LLM request logs from this turn.
   // The agent loop is single-threaded per conversation, so all rows with
@@ -1436,12 +1655,20 @@ export async function dispatchAgentEvent(
         );
         state.serverToolStartedAt.set(event.toolUseId, Date.now());
         state.serverToolInputs.set(event.toolUseId, event.input);
+        const messageId = ensureMessageOpen(state, deps);
+        const blockIndex = ensureBlockForKind(state, deps, "tool_use", {
+          toolName: event.name,
+          toolUseId: event.toolUseId,
+        });
         deps.onEvent({
           type: "tool_use_start",
           toolName: event.name,
           input: event.input,
           conversationId: deps.ctx.conversationId,
           toolUseId: event.toolUseId,
+          messageId,
+          blockIndex,
+          seq: nextSeq(deps.ctx.conversationId),
         });
         break;
       }
@@ -1514,6 +1741,9 @@ export async function dispatchAgentEvent(
           .map((r) => `${r.title}\n${r.url}`)
           .join("\n\n");
 
+        const serverToolBlockIndex = state.toolUseIdToBlockIndex.get(
+          event.toolUseId,
+        );
         deps.onEvent({
           type: "tool_result",
           toolName: "web_search",
@@ -1522,7 +1752,20 @@ export async function dispatchAgentEvent(
           conversationId: deps.ctx.conversationId,
           toolUseId: event.toolUseId,
           ...(metadata ? { activityMetadata: { webSearch: metadata } } : {}),
+          ...(state.currentMessageId
+            ? { messageId: state.currentMessageId }
+            : {}),
+          ...(serverToolBlockIndex !== undefined
+            ? { blockIndex: serverToolBlockIndex }
+            : {}),
+          seq: nextSeq(deps.ctx.conversationId),
         });
+        if (
+          state.currentBlockType === "tool_use" &&
+          state.currentBlockIndex === serverToolBlockIndex
+        ) {
+          closeCurrentBlock(state, deps);
+        }
         break;
       }
       case "error":

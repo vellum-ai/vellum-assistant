@@ -25,6 +25,11 @@ export const ToolUseStartEventSchema = z
     input: z.record(z.string(), z.unknown()),
     toolUseId: z.string().optional(),
     messageId: z.string().optional(),
+    /** 0-based content-block index within the parent `messageId`. */
+    blockIndex: z.number().optional(),
+    /** Monotonically increasing per-conversation sequence number for
+     *  idempotent client replay. */
+    seq: z.number().optional(),
     conversationId: z.string().optional(),
   })
   .strict();
