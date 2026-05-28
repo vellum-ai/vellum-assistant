@@ -421,10 +421,11 @@ export function useAssistantLifecycle({
       setAssistantState({ kind: "active", isLocal: true });
       return;
     }
-    // In local mode without a gateway token, skip checkAssistant() — the
-    // platform API may not be available, and even if it is (user logged in),
-    // auto_hatch would redirect away from the onboarding flow the user is in.
-    if (isLocalMode() && !isGatewayAuthMode()) {
+    // In local mode without a gateway token AND no platform session,
+    // the platform API isn't available — redirect to onboarding.
+    // If the user logged in and chose Vellum Cloud, hasPlatformSession
+    // is true and we fall through to checkAssistant() below.
+    if (isLocalMode() && !isGatewayAuthMode() && !hasPlatformSession) {
       const redirect = resolveOnboardingRedirect({ intendedDestination: window.location.pathname });
       if (redirect) {
         onRedirectRef.current(redirect);
