@@ -1,5 +1,5 @@
 import { Mail, MailOpen, MessageSquare, RotateCcw, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 
 import { cn } from "@vellum/design-library";
 import { CATEGORY_STYLES } from "./home-feed-filter-bar";
@@ -14,7 +14,7 @@ function HoverIconButton({
   title: string;
   onClick: () => void;
   className?: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <span

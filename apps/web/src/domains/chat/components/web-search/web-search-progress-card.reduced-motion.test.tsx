@@ -7,6 +7,7 @@
  * pattern used by `website-carousel.test.tsx`.
  */
 
+import { type ReactNode } from "react";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import { cleanup, render } from "@testing-library/react";
@@ -33,7 +34,7 @@ describe("WebSearchProgressCard — reduced motion", () => {
         // as unknown attributes (would log a React warning).
         ...rest
       }: {
-        children?: React.ReactNode;
+        children?: ReactNode;
         animate?: Record<string, unknown>;
         initial?: Record<string, unknown>;
         exit?: Record<string, unknown>;
@@ -56,7 +57,7 @@ describe("WebSearchProgressCard — reduced motion", () => {
         transition: _t,
         ...rest
       }: {
-        children?: React.ReactNode;
+        children?: ReactNode;
         animate?: unknown;
         initial?: unknown;
         exit?: unknown;
@@ -65,7 +66,7 @@ describe("WebSearchProgressCard — reduced motion", () => {
       }) => <div {...rest}>{children}</div>;
       return {
         motion: { div: motionDiv, span: motionSpan },
-        AnimatePresence: ({ children }: { children?: React.ReactNode }) => (
+        AnimatePresence: ({ children }: { children?: ReactNode }) => (
           <>{children}</>
         ),
         useReducedMotion: () => true,

@@ -7,13 +7,13 @@
  * - Text selection tracking with character offset conversion
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { Extension } from "@tiptap/core";
 import { BubbleMenu } from "@tiptap/react/menus";
 import { EditorContent, useEditor } from "@tiptap/react";
 import Link from "@tiptap/extension-link";
 import StarterKit from "@tiptap/starter-kit";
-import { Markdown } from "tiptap-markdown";
+import { Markdown, type MarkdownStorage } from "tiptap-markdown";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import {
@@ -51,6 +51,16 @@ interface TiptapDocumentEditorProps {
   onCommentSubmit?: (comment: string) => void;
   commentSubmitting?: boolean;
   className?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Extract the current markdown from a tiptap editor with the Markdown extension. */
+function getEditorMarkdown(editor: import("@tiptap/core").Editor): string {
+  const storage = editor.storage as unknown as { markdown: MarkdownStorage };
+  return storage.markdown.getMarkdown();
 }
 
 // ---------------------------------------------------------------------------
@@ -236,7 +246,7 @@ function BubbleToolbar({ editor, onCommentSubmit, commentSubmitting }: BubbleToo
 
   const buttons: {
     name: MarkName;
-    icon: React.ReactNode;
+    icon: ReactNode;
     action: () => void;
     separator?: boolean;
   }[] = [
@@ -400,9 +410,7 @@ export function TiptapDocumentEditor({
     content,
     editable,
     onUpdate({ editor: ed }) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const md = (ed.storage as any).markdown.getMarkdown() as string;
-      onContentChangeRef.current?.(md);
+      onContentChangeRef.current?.(getEditorMarkdown(ed));
     },
     onSelectionUpdate({ editor: ed }) {
       const { from, to } = ed.state.selection;
@@ -438,8 +446,7 @@ export function TiptapDocumentEditor({
     if (content === prevContentRef.current) return;
     prevContentRef.current = content;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const currentMd = (editor.storage as any).markdown.getMarkdown() as string;
+    const currentMd = getEditorMarkdown(editor);
     if (currentMd === content) return; // avoid cursor-reset loops
 
     editor.commands.setContent(content);

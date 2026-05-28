@@ -13,7 +13,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { act } from "react";
+import { type ReactNode, act } from "react";
 
 import { cleanup, render } from "@testing-library/react";
 
@@ -181,7 +181,7 @@ describe("WebsiteCarousel — reduced motion", () => {
         transition,
         ...rest
       }: {
-        children?: React.ReactNode;
+        children?: ReactNode;
         animate?: Record<string, unknown>;
         initial?: Record<string, unknown>;
         exit?: Record<string, unknown>;
@@ -200,12 +200,12 @@ describe("WebsiteCarousel — reduced motion", () => {
         children,
         ...rest
       }: {
-        children?: React.ReactNode;
+        children?: ReactNode;
         [key: string]: unknown;
       }) => <span {...rest}>{children}</span>;
       return {
         motion: { div: motionDiv, span: motionSpan },
-        AnimatePresence: ({ children }: { children?: React.ReactNode }) => (
+        AnimatePresence: ({ children }: { children?: ReactNode }) => (
           <>{children}</>
         ),
         useReducedMotion: () => true,

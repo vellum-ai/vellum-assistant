@@ -89,19 +89,14 @@ describe("handleAppLoadFailed", () => {
 });
 
 describe("closeApp", () => {
-  it("clears app state and resets minimized", () => {
-    useViewerStore.setState({ activeAppId: "app-1", openedAppState: SAMPLE_APP, isAppMinimized: true });
+  it("resets to chat view, clears app state, and resets minimized", () => {
+    useViewerStore.setState({ mainView: "app", activeAppId: "app-1", openedAppState: SAMPLE_APP, isAppMinimized: true });
     getState().closeApp();
     const state = getState();
+    expect(state.mainView).toBe("chat");
     expect(state.activeAppId).toBeNull();
     expect(state.openedAppState).toBeNull();
     expect(state.isAppMinimized).toBe(false);
-  });
-
-  it("does not change mainView (caller decides)", () => {
-    useViewerStore.setState({ mainView: "app" });
-    getState().closeApp();
-    expect(getState().mainView).toBe("app");
   });
 });
 

@@ -12,7 +12,7 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { act, useState } from "react";
+import { type ComponentProps, act, useState } from "react";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
 import {
@@ -26,7 +26,7 @@ afterEach(() => {
 
 function renderShell(
   overrides: Partial<
-    React.ComponentProps<typeof ToolProgressCardShell>
+    ComponentProps<typeof ToolProgressCardShell>
   > = {},
 ) {
   return render(

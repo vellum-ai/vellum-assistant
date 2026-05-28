@@ -24,7 +24,6 @@ import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
 import { getSlackLinkUrl, type Surface } from "@/domains/chat/types/types";
 import { isPointerCoarse } from "@/utils/pointer";
-import { useShallow } from "zustand/shallow";
 import {
   EMPTY_SUBAGENT_ENTRIES,
   useSubagentStore,
@@ -48,8 +47,7 @@ export interface OpenRuleEditorContext {
  * grouping rules for tool calls / text / inline surfaces are duplicated
  * verbatim so the virtualized transcript produces byte-identical markup to
  * the legacy rendering path. Do NOT change the grouping rules in this file
- * without updating the legacy path in lockstep — PR 7 wires this component
- * in and will delete the legacy loop.
+ * without updating the legacy path in lockstep.
  */
 export interface TranscriptMessageBodyProps {
   message: DisplayMessage;
@@ -488,16 +486,16 @@ export function TranscriptMessageBody({
   // `resolveSpawnedSubagentIds` render an inline card even when the spawn
   // tool call has no `result` yet.
   const linkedSubagentEntries = useSubagentStore(
-    useShallow((s) => lookupSubagentEntriesForMessage(s.byParent, message)),
+    (s) => lookupSubagentEntriesForMessage(s.byParent, message),
   );
 
   // Subscribe to the tool-use-id index alongside the per-message bucket above.
-  // Spawns are infrequent, so subscribing to the whole map is acceptable; PR 2
-  // keeps the map reference stable across non-spawn mutations, so this does not
-  // re-render message bodies on unrelated subagent activity. This anchors each
-  // `subagent_spawn` tool call to its subagent by `tc.id`, independent of the
-  // (optimistic→server) message id.
-  const byToolUseId = useSubagentStore(useShallow((s) => s.byToolUseId));
+  // Spawns are infrequent, so subscribing to the whole map is acceptable; the
+  // store keeps the map reference stable across non-spawn mutations, so this
+  // does not re-render message bodies on unrelated subagent activity. This
+  // anchors each `subagent_spawn` tool call to its subagent by `tc.id`,
+  // independent of the (optimistic→server) message id.
+  const byToolUseId = useSubagentStore.use.byToolUseId();
 
   // Message-scoped: two non-consecutive `subagent_spawn` tool-call groups
   // must not both positional-match the same linked entry. Accumulates across

@@ -24,7 +24,6 @@ import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useVisibleViewport } from "@/hooks/use-visible-viewport";
 import { useAuthStore } from "@/stores/auth-store";
 import { useAssistantContext } from "@/components/layout/assistant-context";
-import { useShallow } from "zustand/shallow";
 import { useConversationStore } from "@/domains/conversations/conversation-store";
 import {
   COMPOSER_FOCUS_EVENT,
@@ -235,20 +234,13 @@ export function ChatPage() {
   const activeConversationId = useConversationStore.use.activeConversationId();
   const editingConversationId = useConversationStore.use.editingConversationId();
   const processingConversationIds = useConversationStore.use.processingConversationIds();
-  const viewerState = useViewerStore(useShallow((s) => ({
-    mainView: s.mainView,
-    activeAppId: s.activeAppId,
-    openedAppState: s.openedAppState,
-    openedDocumentState: s.openedDocumentState,
-    isAppMinimized: s.isAppMinimized,
-    intelligenceTab: s.intelligenceTab,
-    assetsRefreshKey: s.assetsRefreshKey,
-    viewBeforeDocument: s.viewBeforeDocument,
-    activeSubagentId: s.activeSubagentId,
-    viewBeforeSubagentDetail: s.viewBeforeSubagentDetail,
-    activeToolDetail: s.activeToolDetail,
-  })));
-  const subagentState = useSubagentStore(useShallow((s) => ({ byId: s.byId, orderedIds: s.orderedIds })));
+  const mainView = useViewerStore.use.mainView();
+  const openedAppState = useViewerStore.use.openedAppState();
+  const openedDocumentState = useViewerStore.use.openedDocumentState();
+  const isAppMinimized = useViewerStore.use.isAppMinimized();
+  const activeSubagentId = useViewerStore.use.activeSubagentId();
+  const activeToolDetail = useViewerStore.use.activeToolDetail();
+  const subagentById = useSubagentStore.use.byId();
   const isSharing = useDeployStore.use.isSharing();
   const isDeploying = useDeployStore.use.isDeploying();
   const isTokenDialogOpen = useDeployStore.use.isTokenDialogOpen();
@@ -265,10 +257,10 @@ export function ChatPage() {
   // -------------------------------------------------------------------------
   // Pin-sync side-effect
   // -------------------------------------------------------------------------
-  // Cross-store coordination (clearing the app + editing-conversation when
-  // the active app gets unpinned) lives inside `viewer-store.handleAppUnpinned`,
-  // so every consumer gets the same behavior without re-implementing it.
-  useActiveAppPinSync(useViewerStore.getState().handleAppUnpinned);
+  useActiveAppPinSync(useCallback((appId: string) => {
+    useViewerStore.getState().handleAppUnpinned(appId);
+    useConversationStore.getState().setEditingConversationId(null);
+  }, []));
 
   // -------------------------------------------------------------------------
   // Shared refs — owned here, read/written by hooks
@@ -898,7 +890,7 @@ export function ChatPage() {
   }, [activeConversationId]);
   useEffect(() => {
     if (!assistantId) return;
-    const entries = Object.values(subagentState.byId);
+    const entries = Object.values(subagentById);
     for (const entry of entries) {
       if (entry.conversationId && entry.events.length === 0) {
         const fetchedAt = fetchedSubagentsRef.current.get(entry.subagentId);
@@ -907,7 +899,7 @@ export function ChatPage() {
         handleRequestSubagentDetail(entry.subagentId);
       }
     }
-  }, [assistantId, subagentState.byId, handleRequestSubagentDetail]);
+  }, [assistantId, subagentById, handleRequestSubagentDetail]);
 
   // -------------------------------------------------------------------------
   // Interaction actions
@@ -1482,9 +1474,9 @@ export function ChatPage() {
     activeConversationId,
     activeConversation,
     processingConversationIds,
-    mainView: viewerState.mainView,
-    openedAppState: viewerState.openedAppState,
-    openedDocumentState: viewerState.openedDocumentState,
+    mainView,
+    openedAppState,
+    openedDocumentState,
     editingConversationId,
     restoredDraftConversationId,
     setRestoredDraftConversationId,
@@ -1581,7 +1573,6 @@ export function ChatPage() {
     handleCloseApp: () => {
       useViewerStore.getState().closeApp();
       useConversationStore.getState().setEditingConversationId(null);
-      useViewerStore.getState().setMainView("chat");
     },
     handleCloseEditPanel: () => {
       useConversationStore.getState().setEditingConversationId(null);
@@ -1611,8 +1602,8 @@ export function ChatPage() {
     } : undefined,
     handleForkConversation,
     handleInspectMessage: showLlmInspector ? handleInspectMessage : undefined,
-    subagentState,
-    activeSubagentId: viewerState.activeSubagentId,
+    subagentState: { byId: subagentById },
+    activeSubagentId,
     onSubagentClick: (id: string) => { useViewerStore.getState().openSubagentDetail(id); },
     onCloseSubagentDetail: () => { useViewerStore.getState().closeSubagentDetail(); },
     onStopSubagent: async (subagentId: string) => {
@@ -1708,9 +1699,9 @@ export function ChatPage() {
           <>
             <MobileAppOverlay
               openedAppState={
-                viewerState.mainView === "app" ? viewerState.openedAppState : null
+                mainView === "app" ? openedAppState : null
               }
-              isAppMinimized={viewerState.isAppMinimized}
+              isAppMinimized={isAppMinimized}
               assistantId={assistantId}
               onToggleMinimized={() => {
                 useViewerStore.getState().toggleAppMinimized();
@@ -1718,7 +1709,6 @@ export function ChatPage() {
               onClose={() => {
                 useViewerStore.getState().closeApp();
                 useConversationStore.getState().setEditingConversationId(null);
-                useViewerStore.getState().setMainView("chat");
               }}
               onShare={() => {
                 const app = useViewerStore.getState().openedAppState;
@@ -1737,8 +1727,8 @@ export function ChatPage() {
             />
             <MobileDocumentOverlay
               openedDocumentState={
-                viewerState.mainView === "document"
-                  ? viewerState.openedDocumentState
+                mainView === "document"
+                  ? openedDocumentState
                   : null
               }
               assistantId={assistantId}
@@ -1756,9 +1746,9 @@ export function ChatPage() {
             />
             <MobileSubagentDetailOverlay
               entry={
-                viewerState.mainView === "subagent-detail" &&
-                viewerState.activeSubagentId
-                  ? subagentState.byId[viewerState.activeSubagentId] ?? null
+                mainView === "subagent-detail" &&
+                activeSubagentId
+                  ? subagentById[activeSubagentId] ?? null
                   : null
               }
               onClose={() => {
@@ -1780,8 +1770,8 @@ export function ChatPage() {
             />
             <MobileToolDetailOverlay
               detail={
-                viewerState.mainView === "tool-detail"
-                  ? viewerState.activeToolDetail
+                mainView === "tool-detail"
+                  ? activeToolDetail
                   : null
               }
               onClose={() => {

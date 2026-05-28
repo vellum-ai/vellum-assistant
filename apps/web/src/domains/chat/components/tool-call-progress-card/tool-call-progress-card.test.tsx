@@ -16,6 +16,7 @@
  *    subagents).
  */
 
+import { type ComponentProps } from "react";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import { cleanup, fireEvent, render } from "@testing-library/react";
@@ -61,7 +62,7 @@ function makeToolCall(
 function renderCard(
   toolCalls: ChatMessageToolCall[],
   overrides: Partial<
-    React.ComponentProps<typeof ToolCallProgressCard>
+    ComponentProps<typeof ToolCallProgressCard>
   > = {},
 ) {
   return render(
