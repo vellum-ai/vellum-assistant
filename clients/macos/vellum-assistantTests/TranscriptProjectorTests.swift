@@ -446,16 +446,23 @@ final class TranscriptProjectorTests: XCTestCase {
         XCTAssertFalse(model.canInlineProcessing)
     }
 
-    // MARK: - Duplicate Message Deduplication
+    // MARK: - Message Identity Trust
+    //
+    // Per streaming-message-architecture PR 6, the projector no longer
+    // dedupes by id — the `MessageStreamReducer` is the sole writer for
+    // assistant content and its idempotent apply means upstream input is
+    // already unique by id. The renderer trusts that contract.
 
-    func testDuplicateMessageIdsAreDeduped() {
-        let sharedId = UUID()
-        let msg1 = makeMessage(id: sharedId, role: .assistant, text: "First")
-        let msg2 = makeMessage(id: sharedId, role: .assistant, text: "Duplicate")
+    func testProjectorPreservesInputOrderAndIdentity() {
+        let msg1 = makeMessage(role: .assistant, text: "First")
+        let msg2 = makeMessage(role: .user, text: "Second")
+        let msg3 = makeMessage(role: .assistant, text: "Third")
 
-        let model = project(messages: [msg1, msg2])
-        XCTAssertEqual(model.rows.count, 1, "Duplicate IDs should be deduped")
-        XCTAssertEqual(model.rows[0].message.text, "First", "First occurrence wins")
+        let model = project(messages: [msg1, msg2, msg3])
+        XCTAssertEqual(model.rows.count, 3, "All input rows pass through 1:1")
+        XCTAssertEqual(model.rows[0].message.text, "First")
+        XCTAssertEqual(model.rows[1].message.text, "Second")
+        XCTAssertEqual(model.rows[2].message.text, "Third")
     }
 
     // MARK: - Active Pending Request ID Pass-Through

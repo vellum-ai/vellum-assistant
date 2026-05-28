@@ -1,24 +1,28 @@
 import Foundation
 
 /// Bridge from the new `MessageStore` (the streaming-message-architecture
-/// reducer's source of truth) to the legacy `ChatMessage` shape that the
-/// existing chat renderer consumes.
+/// reducer's source of truth) to the `ChatMessage` shape that the existing
+/// chat renderer consumes.
 ///
-/// As of PR 4 of the streaming-message-architecture plan, the chat view list
-/// renders from `ChatViewModel.renderedMessages`, which merges the legacy
-/// `messages` array (user bubbles, history, confirmations, system messages)
-/// with assistant content materialized from `MessageStore` snapshots through
-/// this bridge.
+/// The chat view list renders from `ChatViewModel.renderedMessages`, which
+/// merges the legacy `messages` array (user bubbles, history rows, system
+/// messages, confirmations) with assistant content materialized from
+/// `MessageStore` snapshots through this bridge. For any assistant message
+/// the daemon emits over the new addressable-event protocol, the
+/// `MessageStore` snapshot wins over the legacy row — the legacy bubble
+/// created by `appendTextToCurrentMessage` is silently dropped from the
+/// merged transcript.
 ///
-/// The legacy streaming helpers on `ChatViewModel` still mutate the legacy
-/// `messages` array as a side effect, but those mutations no longer drive
-/// rendering for messages that have a corresponding `MessageStore` snapshot.
-/// This is what makes the streaming-then-reload duplication symptom
-/// structurally impossible: the renderer reads a single source of truth keyed
-/// by the daemon's stable `messageId` regardless of how many times the legacy
-/// path lazy-creates bubbles.
+/// `MessageStreamReducer` is the sole writer for `MessageStore`, and its
+/// `apply()` is idempotent per `(messageId, blockIndex, seq)`. This is what
+/// makes the streaming-then-reload duplication symptom structurally
+/// impossible: re-applying the same event (e.g. on `Last-Event-Id` reconnect
+/// replay from PR 2) is a no-op, and the renderer always reads a single
+/// source of truth keyed by the daemon's stable `messageId`.
 ///
-/// PR 6 of the plan will remove the legacy `messages` array entirely.
+/// Non-assistant rows and history rows that pre-date the new event protocol
+/// still flow through the legacy `messages` array, which is why the merge
+/// in `ChatViewModel.renderedMessages` is still needed.
 @MainActor
 extension MessageStore {
 

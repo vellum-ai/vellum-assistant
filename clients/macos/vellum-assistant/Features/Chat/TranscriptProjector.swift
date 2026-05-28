@@ -50,11 +50,14 @@ enum TranscriptProjector {
         highlightedMessageId: UUID?,
         autoRoutedProfileLabel: String? = nil
     ) -> TranscriptRenderModel {
-        // Deduplicate visible messages (streaming can produce duplicate IDs).
-        let visibleMessages: [ChatMessage] = {
-            var seen = Set<UUID>()
-            return paginatedVisibleMessages.filter { seen.insert($0.id).inserted }
-        }()
+        // Per streaming-message-architecture PR 6: the MessageStreamReducer is
+        // the sole writer for assistant content and applies events idempotently
+        // by `(messageId, blockIndex, seq)`. `renderedMessages` and
+        // `renderedPaginatedVisibleMessages` on `ChatViewModel` already merge
+        // legacy rows with `MessageStore` snapshots using stable, deterministic
+        // ids, so the projector's input is already unique by id and the
+        // previous defensive dedupe pass is no longer needed.
+        let visibleMessages = paginatedVisibleMessages
 
         // --- Structural metadata ---
 
