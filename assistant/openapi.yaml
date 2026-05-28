@@ -14072,6 +14072,92 @@ paths:
               required:
                 - deliveryId
               additionalProperties: false
+  /v1/notifications/edit:
+    post:
+      operationId: notifications_edit_post
+      summary: Edit an already-sent notification
+      description:
+        Patch the home-feed entry for a notification and, where supported (Slack today), update the delivered
+        message in place.
+      tags:
+        - notifications
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  feedItem:
+                    type: object
+                    propertyNames:
+                      type: string
+                    additionalProperties: {}
+                  channels:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        channel:
+                          type: string
+                        deliveryId:
+                          type: string
+                        outcome:
+                          type: string
+                          enum:
+                            - updated
+                            - unsupported
+                            - skipped
+                            - failed
+                        reason:
+                          type: string
+                      required:
+                        - channel
+                        - deliveryId
+                        - outcome
+                      additionalProperties: false
+                required:
+                  - ok
+                  - feedItem
+                  - channels
+                additionalProperties: false
+        "404":
+          description: No notification found for the supplied id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  type: string
+                  minLength: 1
+                  description: Feed item id (notif:<uuid>) or bare uuid
+                title:
+                  type: string
+                body:
+                  type: string
+                urgency:
+                  type: string
+                  enum:
+                    - low
+                    - medium
+                    - high
+                    - critical
+                status:
+                  type: string
+                  enum:
+                    - new
+                    - seen
+                    - acted_on
+                    - dismissed
+              required:
+                - id
+              additionalProperties: false
   /v1/notifications/emit:
     post:
       operationId: notifications_emit_post
