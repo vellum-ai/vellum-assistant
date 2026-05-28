@@ -62,17 +62,9 @@ export function HomePage({
 
   const [selectedItem, setSelectedItem] = useState<FeedItem | null>(null);
 
-  const handleSelectItem = useCallback(
-    (item: FeedItem) => {
-      if (item.status === "new") {
-        setSelectedItem({ ...item, status: "seen" });
-        feedQuery.updateStatus.mutate({ itemId: item.id, status: "seen" });
-      } else {
-        setSelectedItem(item);
-      }
-    },
-    [feedQuery.updateStatus],
-  );
+  const handleSelectItem = useCallback((item: FeedItem) => {
+    setSelectedItem(item);
+  }, []);
 
   const handleCloseDetail = useCallback(() => {
     setSelectedItem(null);

@@ -21,7 +21,7 @@ import type {
   CheckpointDecision,
   CheckpointInfo,
 } from "../agent/loop.js";
-import { AgentLoop } from "../agent/loop.js";
+import { AgentLoop, isMaxTokensStopReason } from "../agent/loop.js";
 import type {
   Message,
   Provider,
@@ -60,6 +60,18 @@ function textResponse(text: string): ProviderResponse {
     model: "mock-model",
     usage: { inputTokens: 10, outputTokens: 5 },
     stopReason: "end_turn",
+  };
+}
+
+function maxTokensResponse(
+  text: string,
+  stopReason: string = "max_tokens",
+): ProviderResponse {
+  return {
+    content: [{ type: "text", text }],
+    model: "mock-model",
+    usage: { inputTokens: 10, outputTokens: 5 },
+    stopReason,
   };
 }
 
@@ -107,6 +119,15 @@ function countExitEvents(events: AgentEvent[]): number {
 // ---------------------------------------------------------------------------
 
 describe("AgentLoop exit-reason instrumentation", () => {
+  test("recognizes provider output-token stop reasons", () => {
+    expect(isMaxTokensStopReason("max_tokens")).toBe(true);
+    expect(isMaxTokensStopReason("MAX_TOKENS")).toBe(true);
+    expect(isMaxTokensStopReason("length")).toBe(true);
+    expect(isMaxTokensStopReason("max_output_tokens")).toBe(true);
+    expect(isMaxTokensStopReason("end_turn")).toBe(false);
+    expect(isMaxTokensStopReason(undefined)).toBe(false);
+  });
+
   test("emits exit event exactly once with 'no_tool_calls' on plain text response", async () => {
     const { provider } = createMockProvider([textResponse("Hi there!")]);
     const loop = new AgentLoop(provider, "system prompt");
@@ -134,6 +155,58 @@ describe("AgentLoop exit-reason instrumentation", () => {
     expect(events[events.length - 1].type).toBe("agent_loop_exit");
   });
 
+  test("emits continuation surface event and exits on max_tokens", async () => {
+    const { provider } = createMockProvider([
+      maxTokensResponse("Partial answer"),
+    ]);
+    const loop = new AgentLoop(provider, "system prompt");
+
+    const events: AgentEvent[] = [];
+    await loop.run([userMessage], (e) => {
+      events.push(e);
+    });
+
+    expect(events.map((e) => e.type)).toEqual([
+      "usage",
+      "max_tokens_reached",
+      "message_complete",
+      "agent_loop_exit",
+    ]);
+    expect(countExitEvents(events)).toBe(1);
+    expect(lastExitEvent(events)?.reason).toBe("max_tokens_reached");
+  });
+
+  test("does not persist unexecuted tool_use blocks when max_tokens stops output", async () => {
+    const { provider } = createMockProvider([
+      {
+        content: [
+          { type: "text", text: "I need to check that." },
+          {
+            type: "tool_use",
+            id: "tool-1",
+            name: "read_file",
+            input: { path: "/tmp/example.txt" },
+          },
+        ],
+        model: "mock-model",
+        usage: { inputTokens: 10, outputTokens: 5 },
+        stopReason: "max_tokens",
+      },
+    ]);
+    const loop = new AgentLoop(provider, "system prompt", {}, dummyTools);
+
+    const events: AgentEvent[] = [];
+    const result = await loop.run([userMessage], (e) => {
+      events.push(e);
+    });
+
+    expect(events.some((e) => e.type === "tool_use")).toBe(false);
+    expect(lastExitEvent(events)?.reason).toBe("max_tokens_reached");
+    expect(result[result.length - 1]!.content).toEqual([
+      { type: "text", text: "I need to check that." },
+    ]);
+  });
+
   test("emits 'aborted_pre_call' when signal is already aborted at run start", async () => {
     const { provider } = createMockProvider([textResponse("never sent")]);
     const loop = new AgentLoop(provider, "system prompt");
@@ -142,7 +215,13 @@ describe("AgentLoop exit-reason instrumentation", () => {
     controller.abort();
 
     const events: AgentEvent[] = [];
-    await loop.run([userMessage], (e) => { events.push(e); }, controller.signal);
+    await loop.run(
+      [userMessage],
+      (e) => {
+        events.push(e);
+      },
+      controller.signal,
+    );
 
     expect(countExitEvents(events)).toBe(1);
     expect(lastExitEvent(events)?.reason).toBe("aborted_pre_call");
@@ -166,7 +245,9 @@ describe("AgentLoop exit-reason instrumentation", () => {
     );
 
     const events: AgentEvent[] = [];
-    await loop.run([userMessage], (e) => { events.push(e); });
+    await loop.run([userMessage], (e) => {
+      events.push(e);
+    });
 
     expect(countExitEvents(events)).toBe(1);
     expect(lastExitEvent(events)?.reason).toBe("yield_to_user");
@@ -186,13 +267,14 @@ describe("AgentLoop exit-reason instrumentation", () => {
       toolExecutor,
     );
 
-    const onCheckpoint = (_info: CheckpointInfo): CheckpointDecision =>
-      "yield";
+    const onCheckpoint = (_info: CheckpointInfo): CheckpointDecision => "yield";
 
     const events: AgentEvent[] = [];
     await loop.run(
       [userMessage],
-      (e) => { events.push(e); },
+      (e) => {
+        events.push(e);
+      },
       undefined,
       undefined,
       onCheckpoint,
@@ -211,7 +293,9 @@ describe("AgentLoop exit-reason instrumentation", () => {
     const loop = new AgentLoop(provider, "system prompt");
 
     const events: AgentEvent[] = [];
-    await loop.run([userMessage], (e) => { events.push(e); });
+    await loop.run([userMessage], (e) => {
+      events.push(e);
+    });
 
     expect(countExitEvents(events)).toBe(1);
     expect(lastExitEvent(events)?.reason).toBe("error");
@@ -238,7 +322,9 @@ describe("AgentLoop exit-reason instrumentation", () => {
     );
 
     const events: AgentEvent[] = [];
-    await loop.run([userMessage], (e) => { events.push(e); });
+    await loop.run([userMessage], (e) => {
+      events.push(e);
+    });
 
     expect(countExitEvents(events)).toBe(1);
   });
@@ -263,7 +349,13 @@ describe("AgentLoop exit-reason instrumentation", () => {
     );
 
     const events: AgentEvent[] = [];
-    await loop.run([userMessage], (e) => { events.push(e); }, controller.signal);
+    await loop.run(
+      [userMessage],
+      (e) => {
+        events.push(e);
+      },
+      controller.signal,
+    );
 
     expect(countExitEvents(events)).toBe(1);
     expect(lastExitEvent(events)?.reason).toBe("aborted_during_tools");

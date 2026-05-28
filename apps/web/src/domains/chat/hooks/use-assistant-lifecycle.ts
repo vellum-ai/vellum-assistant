@@ -429,11 +429,8 @@ export function useAssistantLifecycle({
       const redirect = resolveOnboardingRedirect({ intendedDestination: window.location.pathname });
       if (redirect) {
         onRedirectRef.current(redirect);
-        return;
       }
-      // No redirect needed (e.g., already on onboarding page, or has
-      // assistants) — fall through to checkAssistant() which will
-      // discover the assistant or surface an error state.
+      return;
     }
     if (hasPlatformSession) {
       setSelfHostedConnection(null);

@@ -100,7 +100,7 @@ Use `notify` for simple reminders ("remind me to take medicine at 9am"), `execut
 
 ## Conversation Reuse
 
-By default, each schedule run creates a new conversation. For recurring schedules that benefit from accumulating context across runs (e.g. polling-style jobs, daily digests that reference prior results), set `reuse_conversation: true`. When enabled, subsequent runs reuse the conversation from the last successful run instead of creating a new one.
+Recurring schedules reuse the same conversation across runs by default — subsequent runs continue the conversation from the last successful run, preserving context and channel thread continuity. Set `reuse_conversation: false` explicitly if each run should start with a fresh conversation (e.g. independent reports that shouldn't accumulate prior context). One-shot schedules always create a fresh conversation.
 
 - Only applies to **recurring** schedules; ignored for one-shot schedules.
 - If the prior conversation has been deleted, a new one is created automatically.

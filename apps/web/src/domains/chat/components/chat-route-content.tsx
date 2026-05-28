@@ -1382,7 +1382,7 @@ export function ChatRouteContent({
     return (
       <ResizablePanel
         storageKey="appEditPanelWidth"
-        defaultLeftWidth={400}
+        defaultRightWidth={400}
         minLeftWidth={300}
         minRightWidth={400}
         left={
@@ -1493,7 +1493,7 @@ export function ChatRouteContent({
       <>
         <ResizablePanel
           storageKey="documentPanelWidth"
-          defaultLeftWidth={400}
+          defaultRightWidth={400}
           minLeftWidth={300}
           minRightWidth={400}
           left={chatContent}
@@ -1526,7 +1526,7 @@ export function ChatRouteContent({
         <>
           <ResizablePanel
             storageKey="subagentDetailPanelWidth"
-            defaultLeftWidth={400}
+            defaultRightWidth={400}
             minLeftWidth={300}
             minRightWidth={400}
             left={chatContent}
@@ -1552,7 +1552,7 @@ export function ChatRouteContent({
       <>
         <ResizablePanel
           storageKey="toolDetailPanelWidth"
-          defaultLeftWidth={400}
+          defaultRightWidth={400}
           minLeftWidth={300}
           minRightWidth={400}
           left={chatContent}

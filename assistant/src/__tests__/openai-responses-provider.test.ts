@@ -165,6 +165,26 @@ function completedEvent(
   };
 }
 
+function incompleteEvent(
+  reason: "max_output_tokens" | "content_filter",
+  inputTokens: number,
+  outputTokens: number,
+): FakeStreamEvent {
+  return {
+    type: "response.incomplete",
+    response: {
+      model: "gpt-5.2",
+      status: "incomplete",
+      incomplete_details: { reason },
+      output: [],
+      usage: {
+        input_tokens: inputTokens,
+        output_tokens: outputTokens,
+      },
+    },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -241,6 +261,21 @@ describe("OpenAIResponsesProvider", () => {
     expect(result.model).toBe("gpt-5.2");
     expect(result.usage).toEqual({ inputTokens: 10, outputTokens: 5 });
     expect(result.stopReason).toBe("stop");
+  });
+
+  test("maps response.incomplete max output details to stopReason", async () => {
+    fakeStreamEvents = [
+      textDeltaEvent("Partial"),
+      incompleteEvent("max_output_tokens", 12, 8),
+    ];
+
+    const result = await provider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "Hi" }] },
+    ]);
+
+    expect(result.content).toEqual([{ type: "text", text: "Partial" }]);
+    expect(result.usage).toEqual({ inputTokens: 12, outputTokens: 8 });
+    expect(result.stopReason).toBe("max_output_tokens");
   });
 
   // -----------------------------------------------------------------------

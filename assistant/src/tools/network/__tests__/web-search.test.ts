@@ -2,9 +2,16 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // Mutable mock state - set per test
 let mockWebSearchProvider: string | undefined = "perplexity";
+let mockWebSearchMode: string | undefined = "your-own";
 let mockBraveSecureKey: string | undefined;
 let mockPerplexitySecureKey: string | undefined;
 let mockTavilySecureKey: string | undefined;
+let mockManagedSearchProxyResult: any;
+let mockManagedSearchProxyCalls: Array<{
+  provider: string;
+  request: Record<string, unknown>;
+  signal?: AbortSignal;
+}> = [];
 
 // Capture the registered tool
 let capturedTool: any = null;
@@ -18,7 +25,10 @@ mock.module("../../registry.js", () => ({
 mock.module("../../../config/loader.js", () => ({
   getConfig: () => ({
     services: {
-      "web-search": { provider: mockWebSearchProvider },
+      "web-search": {
+        mode: mockWebSearchMode,
+        provider: mockWebSearchProvider,
+      },
     },
   }),
 }));
@@ -43,6 +53,17 @@ mock.module("../../../permissions/types.js", () => ({
   RiskLevel: { Low: "low", Medium: "medium", High: "high" },
 }));
 
+mock.module("../managed-search-proxy.js", () => ({
+  callManagedSearchProxy: async (
+    provider: string,
+    request: Record<string, unknown>,
+    signal?: AbortSignal,
+  ) => {
+    mockManagedSearchProxyCalls.push({ provider, request, signal });
+    return mockManagedSearchProxyResult;
+  },
+}));
+
 // Force the module to load (triggers registerTool)
 await import("../web-search.js");
 
@@ -52,17 +73,25 @@ describe("web_search tool", () => {
   beforeEach(() => {
     originalFetch = globalThis.fetch;
     mockWebSearchProvider = "perplexity";
+    mockWebSearchMode = "your-own";
     mockBraveSecureKey = undefined;
     mockPerplexitySecureKey = undefined;
     mockTavilySecureKey = undefined;
+    mockManagedSearchProxyCalls = [];
+    mockManagedSearchProxyResult = {
+      ok: true,
+      status: 200,
+      headers: { "content-type": "application/json" },
+      body: { web: { results: [] } },
+    };
   });
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
   });
 
-  function execute(input: Record<string, unknown>) {
-    return capturedTool.execute(input, {} as any);
+  function execute(input: Record<string, unknown>, context: any = {}) {
+    return capturedTool.execute(input, context);
   }
 
   // ---- Input validation ---------------------------------------------------
@@ -348,6 +377,185 @@ describe("web_search tool", () => {
     expect(result.isError).toBe(false);
     expect(result.content).toContain("Success");
     expect(callCount).toBe(4);
+  });
+
+  // ---- Managed Brave provider -------------------------------------------
+
+  test("managed mode uses Brave proxy without BYOK provider keys", async () => {
+    mockWebSearchMode = "managed";
+    mockWebSearchProvider = "inference-provider-native";
+    mockManagedSearchProxyResult = {
+      ok: true,
+      status: 200,
+      headers: { "content-type": "application/json" },
+      body: {
+        web: {
+          results: [
+            {
+              title: "Managed Result",
+              url: "https://example.com/managed",
+              description: "Managed Brave result",
+            },
+          ],
+        },
+      },
+    };
+
+    const result = await execute({
+      query: "managed query",
+      count: 5,
+      offset: 2,
+      freshness: "pw",
+    });
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Managed Result");
+    expect(mockManagedSearchProxyCalls).toHaveLength(1);
+    expect(mockManagedSearchProxyCalls[0]).toMatchObject({
+      provider: "brave",
+      request: {
+        method: "GET",
+        path: "/res/v1/web/search",
+        query: {
+          q: "managed query",
+          count: "5",
+          offset: "2",
+          freshness: "pw",
+        },
+        headers: {
+          Accept: "application/json",
+        },
+        body: null,
+      },
+    });
+  });
+
+  test("managed Brave formats results like direct Brave", async () => {
+    const braveBody = {
+      web: {
+        results: [
+          {
+            title: "Same Result",
+            url: "https://example.com/same",
+            description: "Same description",
+            age: "1 day ago",
+            extra_snippets: ["Same snippet"],
+          },
+        ],
+      },
+    };
+
+    mockWebSearchMode = "your-own";
+    mockWebSearchProvider = "brave";
+    mockBraveSecureKey = "brave-key";
+    globalThis.fetch = (async () => {
+      return new Response(JSON.stringify(braveBody), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as any;
+
+    const directResult = await execute({ query: "same query" });
+
+    mockWebSearchMode = "managed";
+    mockBraveSecureKey = undefined;
+    mockManagedSearchProxyResult = {
+      ok: true,
+      status: 200,
+      headers: { "content-type": "application/json" },
+      body: braveBody,
+    };
+
+    const managedResult = await execute({ query: "same query" });
+
+    expect(managedResult.isError).toBe(false);
+    expect(managedResult.content).toBe(directResult.content);
+    expect(managedResult.activityMetadata.webSearch.results).toEqual(
+      directResult.activityMetadata.webSearch.results,
+    );
+  });
+
+  test("managed mode passes abort signal to the platform proxy", async () => {
+    mockWebSearchMode = "managed";
+    const controller = new AbortController();
+
+    await execute({ query: "abortable query" }, { signal: controller.signal });
+
+    expect(mockManagedSearchProxyCalls).toHaveLength(1);
+    expect(mockManagedSearchProxyCalls[0].signal).toBe(controller.signal);
+  });
+
+  test("managed mode maps insufficient balance to a managed usage error", async () => {
+    mockWebSearchMode = "managed";
+    mockManagedSearchProxyResult = {
+      ok: false,
+      kind: "platform-error",
+      status: 402,
+      headers: { "content-type": "application/json" },
+      body: { detail: "Insufficient balance" },
+      message: "Managed search proxy returned status 402: Insufficient balance",
+    };
+
+    const result = await execute({ query: "billing query" });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Managed web search");
+    expect(result.content).toContain("account balance");
+    expect(result.content).toContain("Your Own mode");
+  });
+
+  test("managed mode maps proxied provider errors to a tool error", async () => {
+    mockWebSearchMode = "managed";
+    mockManagedSearchProxyResult = {
+      ok: true,
+      status: 400,
+      headers: { "content-type": "application/json" },
+      body: { error: "Bad upstream request" },
+    };
+
+    const result = await execute({ query: "provider error query" });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      "Managed Brave Search provider returned status 400",
+    );
+  });
+
+  test("managed mode returns a clear error when platform context is unavailable", async () => {
+    mockWebSearchMode = "managed";
+    mockManagedSearchProxyResult = {
+      ok: false,
+      kind: "unavailable",
+      message: "Managed search proxy is unavailable in this environment.",
+    };
+
+    const result = await execute({ query: "local managed query" });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Managed search proxy is unavailable");
+    expect(result.content).toContain("Log in to Vellum");
+  });
+
+  test("your-own mode keeps direct Brave BYOK behavior unchanged", async () => {
+    mockWebSearchMode = "your-own";
+    mockWebSearchProvider = "brave";
+    mockBraveSecureKey = "brave-direct-key";
+    let capturedHeaders: Headers | undefined;
+    globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+      capturedHeaders = new Headers(init?.headers);
+      return new Response(JSON.stringify({ web: { results: [] } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as any;
+
+    const result = await execute({ query: "direct query" });
+
+    expect(result.isError).toBe(false);
+    expect(mockManagedSearchProxyCalls).toHaveLength(0);
+    expect(capturedHeaders!.get("X-Subscription-Token")).toBe(
+      "brave-direct-key",
+    );
   });
 
   // ---- Tavily provider ----------------------------------------------------

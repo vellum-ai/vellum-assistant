@@ -218,6 +218,44 @@ export function searchDocumentsByTitle(
 }
 
 /**
+ * Return the most recent empty document in the given conversation with the
+ * supplied title, created within the last `withinMs` milliseconds.
+ *
+ * Used to dedupe a duplicate create-then-create flow after a failed update —
+ * when the model can't recover a malformed update and retries by creating a
+ * second same-title document, we reuse the first (still-empty) draft instead
+ * of producing a duplicate row. Returns `null` when no candidate exists.
+ */
+export function findRecentEmptyDocumentByTitle(
+  conversationId: string,
+  title: string,
+  withinMs: number,
+): { surfaceId: string } | null {
+  try {
+    const threshold = Date.now() - withinMs;
+    const row = rawGet<{ surface_id: string }>(
+      /*sql*/ `SELECT surface_id FROM documents
+       WHERE conversation_id = ?
+         AND title = ?
+         AND content = ''
+         AND created_at >= ?
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      conversationId,
+      title,
+      threshold,
+    );
+    return row ? { surfaceId: row.surface_id } : null;
+  } catch (error) {
+    log.error(
+      { err: error, conversationId, title },
+      "Find-recent-empty-document error",
+    );
+    return null;
+  }
+}
+
+/**
  * Delete a document and its conversation associations.
  * Returns `true` if the document existed and was deleted, `false` otherwise.
  */

@@ -252,8 +252,7 @@ export function classifyConversationError(
   if (error instanceof ProviderNotConfiguredError) {
     return {
       ...providerNotConfiguredClassification({
-        connectionName:
-          error.connectionName ?? attribution.connectionName,
+        connectionName: error.connectionName ?? attribution.connectionName,
         profileName: error.profileName ?? attribution.profileName,
       }),
       debugDetails,
@@ -268,9 +267,7 @@ export function classifyConversationError(
       retryable: true,
       debugDetails,
       errorCategory: "provider_not_configured",
-      ...(error.connectionName
-        ? { connectionName: error.connectionName }
-        : {}),
+      ...(error.connectionName ? { connectionName: error.connectionName } : {}),
       ...(attribution.profileName
         ? { profileName: attribution.profileName }
         : {}),
@@ -809,6 +806,21 @@ export function budgetYieldUnrecoveredClassification(): ClassifiedConversationEr
 }
 
 /**
+ * Classify a model response that stopped because the output-token limit was
+ * reached. The turn may have produced useful partial text, so the recovery is
+ * a follow-up user turn rather than a retry of the same request.
+ */
+export function maxTokensReachedClassification(): ClassifiedConversationError {
+  return {
+    code: "MAX_TOKENS_REACHED",
+    userMessage:
+      "I hit the response limit before I could finish. Continue and I'll pick up from where I stopped.",
+    retryable: true,
+    errorCategory: "max_tokens_reached",
+  };
+}
+
+/**
  * Build a `conversation_error` server message from a classified error.
  */
 export function buildConversationErrorMessage(
@@ -829,8 +841,6 @@ export function buildConversationErrorMessage(
     ...(classified.connectionName
       ? { connectionName: classified.connectionName }
       : {}),
-    ...(classified.profileName
-      ? { profileName: classified.profileName }
-      : {}),
+    ...(classified.profileName ? { profileName: classified.profileName } : {}),
   };
 }
