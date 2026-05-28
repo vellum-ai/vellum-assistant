@@ -5,6 +5,12 @@ import {
   removeLocalSetting,
   setLocalSetting,
 } from "@/lib/local-settings";
+import {
+  ensureGatewayToken,
+  getGatewayToken,
+  getLocalTokenUrl,
+} from "@/lib/auth/gateway-session";
+import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -85,8 +91,61 @@ export function getLockfile(): Lockfile {
 }
 
 // ---------------------------------------------------------------------------
+// Hatch
+// ---------------------------------------------------------------------------
+
+export interface LocalHatchResult {
+  ok: boolean;
+  assistantId?: string;
+  error?: string;
+}
+
+/**
+ * Trigger a local assistant hatch via the dev server middleware.
+ *
+ * Transport: fetch to Vite dev middleware endpoint.
+ * In Electron, replace with: window.electronAPI.hatchAssistant(species) (LUM-1997)
+ */
+export async function hatchLocalAssistant(
+  species: string = "vellum",
+): Promise<LocalHatchResult> {
+  const res = await fetch("/assistant/__local/hatch", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ species }),
+  });
+  return res.json() as Promise<LocalHatchResult>;
+}
+
+/**
+ * Write an assistant entry to the lockfile on disk and refresh the cache.
+ *
+ * Transport: fetch to Vite dev middleware endpoint.
+ * In Electron, replace with: window.electronAPI.saveLockfileAssistant(entry) (LUM-1998)
+ */
+export async function saveLockfileAssistant(
+  assistant: { assistantId: string; cloud: string; runtimeUrl: string; hatchedAt: string },
+): Promise<void> {
+  const res = await fetch("/assistant/__local/lockfile", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ assistant, activeAssistant: assistant.assistantId }),
+  });
+  if (res.ok) {
+    const { lockfile: updated } = (await res.json()) as { lockfile: Lockfile };
+    lockfile = updated;
+    setLocalSetting(LOCKFILE_STORAGE_KEY, JSON.stringify(updated));
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Assistant queries
 // ---------------------------------------------------------------------------
+
+/** In Electron, replace with: window.electronAPI.hasAssistants() (LUM-1998) */
+export function hasAssistants(): boolean {
+  return getLockfile().assistants.length > 0;
+}
 
 export function isLocalAssistant(a: LockfileAssistant): boolean {
   return a.cloud !== "vellum" && a.resources?.gatewayPort != null;
@@ -146,4 +205,27 @@ export function getLocalGatewayUrl(): string | undefined {
   const assistant = getSelectedAssistant();
   if (!assistant || !isLocalAssistant(assistant)) return undefined;
   return gatewayProxyUrl(assistant.resources!.gatewayPort);
+}
+
+// ---------------------------------------------------------------------------
+// Gateway connection setup
+// ---------------------------------------------------------------------------
+
+/**
+ * Acquire a gateway token and prime the self-hosted connection for the
+ * selected local assistant.
+ *
+ * Transport: fetch to Vite dev middleware gateway proxy.
+ * In Electron, replace with direct IPC token acquisition. (LUM-1999)
+ */
+export async function primeLocalGatewayConnection(): Promise<void> {
+  const tokenUrl = getLocalTokenUrl();
+  if (!tokenUrl) return;
+  await ensureGatewayToken(tokenUrl);
+  const localGateway = getLocalGatewayUrl();
+  if (!localGateway) return;
+  setSelfHostedConnection({
+    url: `${window.location.origin}${localGateway}`,
+    token: getGatewayToken(),
+  });
 }

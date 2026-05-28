@@ -23,17 +23,15 @@ import {
   isGatewayAuthEnabled,
   isGatewayAuthMode,
   ensureGatewayToken,
-  getGatewayToken,
   clearGatewayToken,
   getLocalTokenUrl,
 } from "@/lib/auth/gateway-session";
 import {
   isLocalMode,
   getPlatformAssistants,
-  getLocalGatewayUrl,
   clearSelectedAssistant,
+  primeLocalGatewayConnection,
 } from "@/lib/local-mode";
-import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 import { deleteBiometricToken } from "@/runtime/native-biometric";
 import { syncOnboardingUser, clearOnboardingFlags } from "@/lib/onboarding-cleanup";
 import { clearOrganization } from "@/stores/organization-store";
@@ -128,14 +126,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
   initSession: async () => {
     if (isGatewayAuthEnabled()) {
       try {
-        await ensureGatewayToken(getLocalTokenUrl());
-        const localGateway = getLocalGatewayUrl();
-        if (localGateway) {
-          setSelfHostedConnection({
-            url: `${window.location.origin}${localGateway}`,
-            token: getGatewayToken(),
-          });
-        }
+        await primeLocalGatewayConnection();
         set({ isLoggedIn: true, isLoading: false, user: GATEWAY_LOCAL_USER });
       } catch {
         set({ isLoggedIn: false, isLoading: false, user: null });
@@ -149,6 +140,19 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
           })
           .catch(() => {});
       }
+      return;
+    }
+
+    if (isLocalMode() && !isGatewayAuthEnabled()) {
+      set({ isLoggedIn: true, isLoading: false, user: GATEWAY_LOCAL_USER });
+      getSession()
+        .then((result) => {
+          if (result.ok && result.data.user) {
+            const user = toAuthUser(result.data.user);
+            set({ hasPlatformSession: true, user });
+          }
+        })
+        .catch(() => {});
       return;
     }
 

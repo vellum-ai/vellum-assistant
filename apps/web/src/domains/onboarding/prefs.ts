@@ -108,6 +108,11 @@ export function readOnboardingCompleted(): boolean {
   return useOnboardingStore.getState().completed;
 }
 
+/** SSR-safe, non-hook clear of the completion flag. */
+export function clearOnboardingCompleted(): void {
+  useOnboardingStore.getState().setOnboardingCompleted(false);
+}
+
 /**
  * SSR-safe, non-hook read of the TOS-accepted flag. Used by
  * `/onboarding/hatching` to refuse to provision an assistant if the user
