@@ -91,6 +91,14 @@ describe("LiveVoiceStore", () => {
     );
   });
 
+  test("clearAssistantTranscript wipes the accumulated transcript", () => {
+    useLiveVoiceStore.getState().appendAssistantTranscript("hello");
+    useLiveVoiceStore.getState().appendAssistantTranscript(" world");
+    useLiveVoiceStore.getState().clearAssistantTranscript();
+
+    expect(useLiveVoiceStore.getState().assistantTranscript).toBe("");
+  });
+
   test("setInputAmplitude updates the amplitude", () => {
     useLiveVoiceStore.getState().setInputAmplitude(0.42);
     expect(useLiveVoiceStore.getState().inputAmplitude).toBe(0.42);
