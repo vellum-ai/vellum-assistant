@@ -489,13 +489,25 @@ public enum GatewayHTTPClient {
     ///     in `AsyncBytes`).
     /// - Returns: A tuple of `(URLSession.AsyncBytes, URLResponse)` for streaming consumption.
     /// - Throws: `ClientError` if the request cannot be constructed, or network errors from `URLSession`.
-    public static func stream(path: String, timeout: TimeInterval = 30, session: URLSession = .shared) async throws -> (URLSession.AsyncBytes, URLResponse) {
+    public static func stream(
+        path: String,
+        timeout: TimeInterval = 30,
+        session: URLSession = .shared,
+        lastEventId: String? = nil
+    ) async throws -> (URLSession.AsyncBytes, URLResponse) {
         let connection = try resolveConnection()
         var request = try buildRequest(path: path, params: nil, method: "GET", timeout: timeout, connection: connection)
         request.setValue(sseAcceptHeader, forHTTPHeaderField: "Accept")
         request.setValue(DeviceIdStore.getOrCreate(), forHTTPHeaderField: "X-Vellum-Client-Id")
         request.setValue(clientInterfaceId, forHTTPHeaderField: "X-Vellum-Interface-Id")
         request.setValue(ProcessInfo.processInfo.hostName, forHTTPHeaderField: "X-Vellum-Machine-Name")
+        // Standard SSE reconnect field — the daemon's `/v1/events` route
+        // honors it when the stream is conversation-scoped, replaying
+        // persisted events with `seq > Last-Event-Id` from the durable log
+        // before delivering live events. Ignored on global subscriptions.
+        if let lastEventId, !lastEventId.isEmpty {
+            request.setValue(lastEventId, forHTTPHeaderField: "Last-Event-Id")
+        }
         logOutgoing(request, quiet: false)
         let (bytes, response) = try await session.bytes(for: request)
         if let http = response as? HTTPURLResponse {

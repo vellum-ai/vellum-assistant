@@ -320,7 +320,12 @@ struct ChatView: View {
         VStack(spacing: 0) {
             MessageListView(
                 // -- TranscriptProjector inputs --
-                messages: viewModel.messages,
+                // Renders from the streaming-architecture `MessageStore` (via
+                // `renderedMessages`) instead of the legacy `messages` array.
+                // The legacy array is still populated by older streaming
+                // helpers, but those mutations no longer drive rendering —
+                // see `ChatViewModel.renderedMessages` for the merge rules.
+                messages: viewModel.renderedMessages,
                 messagesRevision: viewModel.messagesRevision,
                 isSending: viewModel.isSending,
                 isThinking: viewModel.isThinking,
@@ -365,7 +370,7 @@ struct ChatView: View {
                 // -- Projector-resolved state --
                 activePendingRequestId: viewModel.activePendingRequestId,
                 // -- Pagination --
-                paginatedVisibleMessages: viewModel.paginatedVisibleMessages,
+                paginatedVisibleMessages: viewModel.renderedPaginatedVisibleMessages,
                 displayedMessageCount: viewModel.displayedMessageCount,
                 hasMoreMessages: viewModel.hasMoreMessages,
                 isLoadingMoreMessages: viewModel.isLoadingMoreMessages,

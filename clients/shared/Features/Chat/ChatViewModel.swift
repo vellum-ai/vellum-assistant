@@ -216,6 +216,73 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     public var messagesRevision: UInt64 {
         messageManager.messagesRevision
     }
+
+    /// Renderable transcript merged from the new `MessageStore` (streaming
+    /// architecture's source of truth) and the legacy `messages` array.
+    ///
+    /// Resolution rules:
+    /// - **Assistant messages**: rendered from `MessageStore` snapshots when
+    ///   any are available. The reducer (`MessageStreamReducer`) is the sole
+    ///   writer for assistant content under the new architecture, and its
+    ///   idempotent apply is what makes the streaming-then-reload duplication
+    ///   symptom structurally impossible.
+    /// - **Legacy assistant rows are deduped by `daemonMessageId`**: a legacy
+    ///   row whose `daemonMessageId` already exists in `MessageStore` is
+    ///   dropped (the snapshot wins), and any remaining legacy assistant rows
+    ///   without a matching snapshot are kept (covers history-loaded messages
+    ///   that pre-date the new event protocol).
+    /// - **Non-assistant rows** (user bubbles, confirmations, system errors,
+    ///   guardian decisions) flow through from the legacy array unchanged —
+    ///   they are not yet part of the new event protocol.
+    ///
+    /// Ordering follows the legacy `messages` array for rows present there;
+    /// any MessageStore snapshot without a legacy anchor is appended at the
+    /// end in `messageOrder`.
+    public var renderedMessages: [ChatMessage] {
+        let snapshots = messageStore.messages
+        guard !snapshots.isEmpty else { return messages }
+
+        var consumedDaemonIds = Set<String>()
+        var result: [ChatMessage] = []
+        result.reserveCapacity(messages.count + snapshots.count)
+
+        for legacy in messages {
+            switch legacy.role {
+            case .assistant:
+                if let daemonId = legacy.daemonMessageId,
+                   let snapshot = snapshots[daemonId] {
+                    // Legacy row anchors a snapshot — render the snapshot
+                    // and mark the daemon id consumed so the trailing
+                    // append loop doesn't duplicate it.
+                    result.append(MessageStore.chatMessage(from: snapshot))
+                    consumedDaemonIds.insert(daemonId)
+                } else if legacy.daemonMessageId != nil {
+                    // Persisted assistant row from history with no live
+                    // snapshot — render the legacy row as-is.
+                    result.append(legacy)
+                } else {
+                    // Streaming-bubble lazy-created by the legacy code path.
+                    // Dropped: the corresponding MessageStore snapshot (if
+                    // any) is the authoritative source and is appended
+                    // below. This is what closes the duplication failure
+                    // mode — the legacy "anonymous delta -> new bubble"
+                    // branch no longer reaches the renderer.
+                    continue
+                }
+            case .user:
+                result.append(legacy)
+            }
+        }
+
+        // Append any streamed assistant messages that don't have a legacy
+        // anchor. Stable order from `messageOrder` keeps SwiftUI identity
+        // diffing predictable across re-renders.
+        for snapshot in messageStore.orderedMessages {
+            guard !consumedDaemonIds.contains(snapshot.id) else { continue }
+            result.append(MessageStore.chatMessage(from: snapshot))
+        }
+        return result
+    }
     public var inputText: String {
         get { messageManager.inputText }
         set { messageManager.inputText = newValue }
@@ -1058,6 +1125,28 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         paginationState.paginatedVisibleMessages
     }
 
+    /// Renderable paginated suffix derived from `renderedMessages` (the
+    /// MessageStore-backed transcript) rather than the legacy
+    /// `paginationState.paginatedVisibleMessages` cache. Pagination math is
+    /// applied to the merged transcript so streaming bubbles always appear in
+    /// the latest window — without this, the legacy lazy-bubble suppression
+    /// in `renderedMessages` could leave the on-screen suffix empty during
+    /// short, single-message turns.
+    public var renderedPaginatedVisibleMessages: [ChatMessage] {
+        let allRendered = ChatVisibleMessageFilter.visibleMessages(from: renderedMessages)
+        if paginationState.isShowAllMode {
+            let cap = ChatPaginationState.maxPaginatedWindowSize
+            if allRendered.count <= cap { return allRendered }
+            let defaultStart = allRendered.count - cap
+            let start = max(0, min(paginationState.windowOldestIndex ?? defaultStart, defaultStart))
+            return Array(allRendered[start..<(start + cap)])
+        }
+        if displayedMessageCount < allRendered.count {
+            return Array(allRendered.suffix(displayedMessageCount))
+        }
+        return allRendered
+    }
+
     /// Whether `paginatedVisibleMessages` is empty. Prefer over
     /// `paginatedVisibleMessages.isEmpty` to avoid observing the full array.
     public var isPaginatedEmpty: Bool {
@@ -1328,10 +1417,23 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         // Initialize the action handler for server message dispatch.
         self.actionHandler = ChatActionHandler(viewModel: self)
 
-        // Start consuming streaming events into the new MessageStore. Output
-        // is not rendered by any view in this PR — see `messageStore` doc
-        // comment for the rollout plan.
+        // Start consuming streaming events into the new MessageStore. As of
+        // PR 4, the chat list renders from `renderedMessages` (which merges
+        // the legacy `messages` array with snapshots from this store via
+        // `MessageStore.chatMessages`).
         self.messageStreamReducer.start()
+
+        // Supply the persisted `Last-Event-Id` watermark on SSE (re)connect
+        // so the daemon's durable event log can skip events the client has
+        // already applied. The daemon only honors the header on
+        // conversation-scoped subscriptions; the current global stream
+        // ignores it, but the plumbing is correct for PR 5's per-conversation
+        // subscription model.
+        eventStreamClient.lastEventIdProvider = { [weak self] in
+            guard let self, let conversationId = self.conversationId else { return nil }
+            guard let seq = LastAppliedSeqStore.shared.seq(forConversation: conversationId) else { return nil }
+            return String(seq)
+        }
 
         // Surface attachment validation errors in the error manager so the UI
         // can show them without the attachment manager needing a direct reference.
