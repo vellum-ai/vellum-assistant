@@ -306,6 +306,13 @@ interface InsertMessageCoreParams {
   content: string;
   metadata?: Record<string, unknown>;
   clientMessageId?: string;
+  /**
+   * Optional pre-allocated message id. Callers that need a stable id before
+   * the row is persisted (the streaming agent loop assigns a UUIDv7 at
+   * message-open time so every event for the turn can stamp it) pass it
+   * here; the insert uses the supplied id instead of minting a fresh one.
+   */
+  messageId?: string;
 }
 
 /**
@@ -332,9 +339,16 @@ interface InsertMessageCoreParams {
 async function insertMessageCore(
   params: InsertMessageCoreParams,
 ): Promise<InsertedMessage> {
-  const { conversationId, role, content, metadata, clientMessageId } = params;
+  const {
+    conversationId,
+    role,
+    content,
+    metadata,
+    clientMessageId,
+    messageId: preAssignedMessageId,
+  } = params;
   const db = getDb();
-  const messageId = uuid();
+  const messageId = preAssignedMessageId ?? uuid();
 
   if (metadata) {
     const result = messageMetadataSchema.safeParse(metadata);
@@ -1191,7 +1205,7 @@ export async function addMessage(
   role: MessageRole,
   content: string,
   metadata?: Record<string, unknown>,
-  opts?: { skipIndexing?: boolean },
+  opts?: { skipIndexing?: boolean; messageId?: string },
   clientMessageId?: string,
 ) {
   const inserted = await insertMessageCore({
@@ -1200,6 +1214,7 @@ export async function addMessage(
     content,
     metadata,
     clientMessageId,
+    ...(opts?.messageId ? { messageId: opts.messageId } : {}),
   });
 
   if (inserted.deduplicated) {

@@ -2,7 +2,11 @@
 
 import type { AssistantTextDeltaEvent } from "../../api/events/assistant-text-delta.js";
 import type { AssistantTurnStartEvent } from "../../api/events/assistant-turn-start.js";
+import type { BlockCloseEvent } from "../../api/events/block-close.js";
+import type { BlockOpenEvent } from "../../api/events/block-open.js";
+import type { MessageCloseEvent } from "../../api/events/message-close.js";
 import type { MessageCompleteEvent } from "../../api/events/message-complete.js";
+import type { MessageOpenEvent } from "../../api/events/message-open.js";
 import type { ToolUseStartEvent } from "../../api/events/tool-use-start.js";
 import type { ChannelId, InterfaceId } from "../../channels/types.js";
 import type { CommandIntent, UserMessageAttachment } from "./shared.js";
@@ -120,6 +124,10 @@ export interface ToolInputDelta {
   /** Database ID of the assistant message that owns this tool_use block.
    *  Same semantics as `AssistantTextDeltaEvent.messageId`. */
   messageId?: string;
+  /** 0-based content-block index within the parent `messageId`. */
+  blockIndex?: number;
+  /** Monotonically increasing per-conversation sequence number. */
+  seq?: number;
 }
 
 export interface ToolResult {
@@ -183,6 +191,10 @@ export interface ToolResult {
   /** Structured activity metadata for rich client rendering. Optional; old
    *  clients that key off `result` continue to work unchanged. */
   activityMetadata?: ToolActivityMetadata;
+  /** 0-based content-block index within the parent `messageId`. */
+  blockIndex?: number;
+  /** Monotonically increasing per-conversation sequence number. */
+  seq?: number;
 }
 
 export interface ConfirmationRequest {
@@ -532,6 +544,10 @@ export type _MessagesServerMessages =
   | ConfirmationRequest
   | SecretRequest
   | QuestionRequest
+  | MessageOpenEvent
+  | BlockOpenEvent
+  | BlockCloseEvent
+  | MessageCloseEvent
   | MessageCompleteEvent
   | ErrorMessage
   | MessageQueued

@@ -28,6 +28,7 @@ import { getSandboxWorkingDir } from "../util/platform.js";
 import { Conversation } from "./conversation.js";
 import type { ConversationEvictor } from "./conversation-evictor.js";
 import type { ConversationCreateOptions } from "./handlers/shared.js";
+import { resetSeq } from "./streaming-events.js";
 import { buildTransportHints } from "./transport-hints.js";
 
 // ── Private store ──────────────────────────────────────────────────
@@ -336,6 +337,7 @@ export function destroyActiveConversation(conversationId: string): void {
   conversation.dispose();
   deleteConversation(conversationId);
   deleteConversationOptions(conversationId);
+  resetSeq(conversationId);
 }
 
 /**
@@ -348,6 +350,7 @@ export function clearAllActiveConversations(): number {
   for (const id of conversationIds()) {
     removeFromEvictor(id);
     subagentManager.abortAllForParent(id);
+    resetSeq(id);
   }
   for (const conversation of allConversations()) {
     conversation.dispose();

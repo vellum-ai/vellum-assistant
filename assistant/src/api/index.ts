@@ -2,13 +2,17 @@ import { z } from "zod";
 
 import { AssistantTextDeltaEventSchema } from "./events/assistant-text-delta.js";
 import { AssistantTurnStartEventSchema } from "./events/assistant-turn-start.js";
+import { BlockCloseEventSchema } from "./events/block-close.js";
+import { BlockOpenEventSchema } from "./events/block-open.js";
 import { DocumentCommentCreatedEventSchema } from "./events/document-comment-created.js";
 import { DocumentCommentDeletedEventSchema } from "./events/document-comment-deleted.js";
 import { DocumentCommentReopenedEventSchema } from "./events/document-comment-reopened.js";
 import { DocumentCommentResolvedEventSchema } from "./events/document-comment-resolved.js";
 import { GenerationCancelledEventSchema } from "./events/generation-cancelled.js";
 import { GenerationHandoffEventSchema } from "./events/generation-handoff.js";
+import { MessageCloseEventSchema } from "./events/message-close.js";
 import { MessageCompleteEventSchema } from "./events/message-complete.js";
+import { MessageOpenEventSchema } from "./events/message-open.js";
 import { OpenUrlEventSchema } from "./events/open-url.js";
 import { RelationshipStateUpdatedEventSchema } from "./events/relationship-state-updated.js";
 import { ToolUseStartEventSchema } from "./events/tool-use-start.js";
@@ -26,6 +30,14 @@ export {
   type AssistantTurnStartEvent,
   AssistantTurnStartEventSchema,
 } from "./events/assistant-turn-start.js";
+export {
+  type BlockCloseEvent,
+  BlockCloseEventSchema,
+} from "./events/block-close.js";
+export {
+  type BlockOpenEvent,
+  BlockOpenEventSchema,
+} from "./events/block-open.js";
 export {
   type DocumentCommentCreatedEvent,
   DocumentCommentCreatedEventSchema,
@@ -51,9 +63,17 @@ export {
   GenerationHandoffEventSchema,
 } from "./events/generation-handoff.js";
 export {
+  type MessageCloseEvent,
+  MessageCloseEventSchema,
+} from "./events/message-close.js";
+export {
   type MessageCompleteEvent,
   MessageCompleteEventSchema,
 } from "./events/message-complete.js";
+export {
+  type MessageOpenEvent,
+  MessageOpenEventSchema,
+} from "./events/message-open.js";
 export { type OpenUrlEvent, OpenUrlEventSchema } from "./events/open-url.js";
 export {
   type RelationshipStateUpdatedEvent,
@@ -108,13 +128,17 @@ export {
 export const AssistantEventSchema = z.discriminatedUnion("type", [
   AssistantTextDeltaEventSchema,
   AssistantTurnStartEventSchema,
+  BlockCloseEventSchema,
+  BlockOpenEventSchema,
   DocumentCommentCreatedEventSchema,
   DocumentCommentDeletedEventSchema,
   DocumentCommentReopenedEventSchema,
   DocumentCommentResolvedEventSchema,
   GenerationCancelledEventSchema,
   GenerationHandoffEventSchema,
+  MessageCloseEventSchema,
   MessageCompleteEventSchema,
+  MessageOpenEventSchema,
   OpenUrlEventSchema,
   RelationshipStateUpdatedEventSchema,
   ToolUseStartEventSchema,
