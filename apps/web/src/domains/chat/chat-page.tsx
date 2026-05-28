@@ -59,7 +59,7 @@ import { createDraftConversationId } from "@/domains/chat/utils/conversation-sel
 import type { WebSyncRouter } from "@/lib/sync/web-sync-router";
 import type { SyncChangedEvent } from "@/lib/sync/types";
 
-import { Button, ConfirmDialog } from "@vellum/design-library";
+import { Button } from "@vellum/design-library";
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { useSyncChatStore } from "@/domains/chat/chat-store";
 import { useChatAttachments } from "@/domains/chat/components/chat-attachments/use-chat-attachments";
@@ -110,12 +110,12 @@ const AddCreditsModal = lazy(() =>
     default: m.AddCreditsModal,
   })),
 );
-// Vercel token dialog is only shown when the deploy flow needs a token, and
-// CommandPalette only renders when the user opens it (Cmd+K / Ctrl+K). Defer
+// Deploy dialogs (VercelTokenDialog + complex-deploy confirm) are only shown
+// during the deploy flow. CommandPalette only renders on Cmd+K / Ctrl+K. Defer
 // loading to keep their form/list deps out of the chat-critical bundle.
-const VercelTokenDialog = lazy(() =>
-  import("@/components/vercel-token-dialog").then((m) => ({
-    default: m.VercelTokenDialog,
+const DeployDialogs = lazy(() =>
+  import("@/components/deploy-dialogs").then((m) => ({
+    default: m.DeployDialogs,
   })),
 );
 const CommandPalette = lazy(() =>
@@ -1709,17 +1709,12 @@ export function ChatPage() {
           />
         </LazyBoundary>
       ) : null}
-      {assistantId && isTokenDialogOpen ? (
+      {assistantId && (isTokenDialogOpen || complexDeployApp) ? (
         <LazyBoundary>
-          <VercelTokenDialog
-            open={isTokenDialogOpen}
-            onOpenChange={(open) => {
-              if (!open) useDeployStore.getState().hideTokenDialog();
-            }}
+          <DeployDialogs
             assistantId={assistantId}
-            onTokenSaved={() => {
-              void useDeployStore.getState().deployAfterTokenSaved(assistantId);
-            }}
+            assistantName={assistantName ?? undefined}
+            onStartConversation={(msg) => startNewConversation({ initialMessage: msg })}
           />
         </LazyBoundary>
       ) : null}
@@ -1728,20 +1723,6 @@ export function ChatPage() {
         currentTitle={renameRequest?.currentTitle ?? ""}
         onSubmit={submitRenameConversation}
         onCancel={cancelRenameConversation}
-      />
-      <ConfirmDialog
-        open={complexDeployApp !== null}
-        title="This app needs a full deploy"
-        message={`"${complexDeployApp?.name ?? ""}" uses backend services that won't work on a static Vercel page. ${assistantName ?? "Your assistant"} can deploy it properly with serverless functions.`}
-        confirmLabel={`Let ${assistantName ?? "assistant"} handle it`}
-        onConfirm={() => {
-          const appName = useDeployStore.getState().complexDeployApp?.name ?? "this app";
-          useDeployStore.getState().setComplexDeployApp(null);
-          startNewConversation({
-            initialMessage: `Deploy my app "${appName}" to Vercel. It uses backend services that need serverless functions — please use the deploy-fullstack-vercel skill to handle it properly.`,
-          });
-        }}
-        onCancel={() => useDeployStore.getState().setComplexDeployApp(null)}
       />
       {overlayTarget &&
         createPortal(
