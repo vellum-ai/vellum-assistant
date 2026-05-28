@@ -164,7 +164,7 @@ export function HomeRecapRow({
         </HoverIconButton>
       ) : (
         <span className="shrink-0 text-body-small-default text-[var(--content-tertiary)]">
-          {formatRelativeDate(item.createdAt)}
+          {formatRelativeDate(item.timestamp)}
         </span>
       )}
     </button>
