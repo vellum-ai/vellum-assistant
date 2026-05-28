@@ -1,26 +1,22 @@
 /**
  * Tests for `useGhostTextSuggestion`.
  *
- * The hook's load-bearing logic is two pure derivations:
- *   1. Which `messages[n]` becomes `lastCompleteAssistantMsgId` (= drives
- *      query enable + key)
- *   2. The render-time gate that suppresses the value when `input` is
- *      non-empty
+ * The hook's job is narrow: derive a query enable/disable predicate and
+ * a stable query key from `(assistantId, conversationId,
+ * lastCompleteAssistantMsgId)`, then surface the cached suggestion
+ * string. There is no input gating in the hook — that's
+ * `ChatComposer.computeGhostSuffix`'s job (so the "typing the beginning
+ * of the suggestion shows only the suffix" behavior stays correct).
  *
- * Both are exercised here by mocking `useQuery` and capturing the options
- * object the hook passes in (same convention as `use-conversation-starters.test.tsx`).
+ * We mock `useQuery` and capture the options the hook passes in (same
+ * convention as `use-conversation-starters.test.tsx`).
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import * as realRQ from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import type { SuggestionResult } from "@/domains/chat/api/suggestion-api";
-
-// ---------------------------------------------------------------------------
-// Captured query options + currently-served stub data
-// ---------------------------------------------------------------------------
 
 interface CapturedQueryOptions {
   queryKey: readonly unknown[];
@@ -48,22 +44,16 @@ mock.module("@/domains/chat/api/suggestion-api", () => ({
   }),
 }));
 
-// Import after mocks so the hook resolves them.
 const { useGhostTextSuggestion } = await import(
   "@/domains/chat/hooks/use-ghost-text-suggestion"
 );
-
-// ---------------------------------------------------------------------------
-// Test driver
-// ---------------------------------------------------------------------------
 
 let lastReturn: string | null = null;
 
 function Probe(props: {
   assistantId: string | null;
   conversationId: string | null;
-  messages: DisplayMessage[];
-  input: string;
+  lastCompleteAssistantMsgId: string | null;
 }) {
   lastReturn = useGhostTextSuggestion(props);
   return null;
@@ -72,26 +62,13 @@ function Probe(props: {
 function drive(props: {
   assistantId: string | null;
   conversationId: string | null;
-  messages: DisplayMessage[];
-  input: string;
+  lastCompleteAssistantMsgId: string | null;
 }): { capturedOptions: CapturedQueryOptions | null; value: string | null } {
   lastCapturedOptions = null;
   lastReturn = null;
   renderToStaticMarkup(<Probe {...props} />);
   return { capturedOptions: lastCapturedOptions, value: lastReturn };
 }
-
-function assistantMsg(id: string, isStreaming = false): DisplayMessage {
-  return { id, role: "assistant", content: "hi", isStreaming } as DisplayMessage;
-}
-
-function userMsg(id: string): DisplayMessage {
-  return { id, role: "user", content: "hello" } as DisplayMessage;
-}
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 beforeEach(() => {
   useQueryStub = { data: undefined };
@@ -102,8 +79,7 @@ describe("useGhostTextSuggestion — query enable / disable", () => {
     const { capturedOptions } = drive({
       assistantId: null,
       conversationId: "c1",
-      messages: [assistantMsg("a1")],
-      input: "",
+      lastCompleteAssistantMsgId: "a1",
     });
     expect(capturedOptions?.enabled).toBe(false);
   });
@@ -112,48 +88,25 @@ describe("useGhostTextSuggestion — query enable / disable", () => {
     const { capturedOptions } = drive({
       assistantId: "asst",
       conversationId: null,
-      messages: [assistantMsg("a1")],
-      input: "",
+      lastCompleteAssistantMsgId: "a1",
     });
     expect(capturedOptions?.enabled).toBe(false);
   });
 
-  test("disabled when there are no messages", () => {
+  test("disabled when lastCompleteAssistantMsgId is null (e.g. just-sent user message, or in-flight stream)", () => {
     const { capturedOptions } = drive({
       assistantId: "asst",
       conversationId: "c1",
-      messages: [],
-      input: "",
+      lastCompleteAssistantMsgId: null,
     });
     expect(capturedOptions?.enabled).toBe(false);
   });
 
-  test("disabled when last message is a user message (i.e. just sent)", () => {
+  test("enabled with all three scalars in the query key", () => {
     const { capturedOptions } = drive({
       assistantId: "asst",
       conversationId: "c1",
-      messages: [assistantMsg("a1"), userMsg("u1")],
-      input: "",
-    });
-    expect(capturedOptions?.enabled).toBe(false);
-  });
-
-  test("disabled while the last assistant message is still streaming", () => {
-    const { capturedOptions } = drive({
-      assistantId: "asst",
-      conversationId: "c1",
-      messages: [assistantMsg("a1", /*isStreaming*/ true)],
-      input: "",
-    });
-    expect(capturedOptions?.enabled).toBe(false);
-  });
-
-  test("enabled with the latest assistant message id in the query key", () => {
-    const { capturedOptions } = drive({
-      assistantId: "asst",
-      conversationId: "c1",
-      messages: [assistantMsg("a1"), assistantMsg("a2")],
-      input: "",
+      lastCompleteAssistantMsgId: "a2",
     });
     expect(capturedOptions?.enabled).toBe(true);
     expect(capturedOptions?.queryKey).toEqual([
@@ -164,42 +117,43 @@ describe("useGhostTextSuggestion — query enable / disable", () => {
       "a2",
     ]);
   });
+
+  test("query key changes when lastCompleteAssistantMsgId changes (drives cache lookup)", () => {
+    const first = drive({
+      assistantId: "asst",
+      conversationId: "c1",
+      lastCompleteAssistantMsgId: "a1",
+    });
+    const second = drive({
+      assistantId: "asst",
+      conversationId: "c1",
+      lastCompleteAssistantMsgId: "a2",
+    });
+    expect(first.capturedOptions?.queryKey).not.toEqual(
+      second.capturedOptions?.queryKey,
+    );
+  });
 });
 
 describe("useGhostTextSuggestion — return value", () => {
-  test("returns null when input is non-empty even if a suggestion is cached", () => {
-    useQueryStub = {
-      data: { suggestion: "Try this!", messageId: "a1", source: "llm" },
-    };
-    const { value } = drive({
-      assistantId: "asst",
-      conversationId: "c1",
-      messages: [assistantMsg("a1")],
-      input: "user typed",
-    });
-    expect(value).toBeNull();
-  });
-
   test("returns null when no data is cached", () => {
     useQueryStub = { data: undefined };
     const { value } = drive({
       assistantId: "asst",
       conversationId: "c1",
-      messages: [assistantMsg("a1")],
-      input: "",
+      lastCompleteAssistantMsgId: "a1",
     });
     expect(value).toBeNull();
   });
 
-  test("returns the cached suggestion string when input is empty", () => {
+  test("returns the cached suggestion string", () => {
     useQueryStub = {
       data: { suggestion: "Try this!", messageId: "a1", source: "llm" },
     };
     const { value } = drive({
       assistantId: "asst",
       conversationId: "c1",
-      messages: [assistantMsg("a1")],
-      input: "",
+      lastCompleteAssistantMsgId: "a1",
     });
     expect(value).toBe("Try this!");
   });
@@ -211,9 +165,25 @@ describe("useGhostTextSuggestion — return value", () => {
     const { value } = drive({
       assistantId: "asst",
       conversationId: "c1",
-      messages: [assistantMsg("a1")],
-      input: "",
+      lastCompleteAssistantMsgId: "a1",
     });
     expect(value).toBeNull();
+  });
+
+  test("does NOT suppress the suggestion based on composer input (consumer's job)", () => {
+    // This is the regression-prevention test: the hook is pure w.r.t.
+    // composer input. `ChatComposer.computeGhostSuffix` is where the
+    // input-vs-suggestion comparison happens, so the hook returning the
+    // full cached value preserves the "type the prefix, see the tail"
+    // suffix-completion behavior.
+    useQueryStub = {
+      data: { suggestion: "Hello world", messageId: "a1", source: "llm" },
+    };
+    const { value } = drive({
+      assistantId: "asst",
+      conversationId: "c1",
+      lastCompleteAssistantMsgId: "a1",
+    });
+    expect(value).toBe("Hello world");
   });
 });

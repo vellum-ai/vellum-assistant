@@ -1,20 +1,21 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { fetchSuggestion } from "@/domains/chat/api/suggestion-api";
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 
 interface UseGhostTextSuggestionParams {
   assistantId: string | null;
   conversationId: string | null;
-  messages: DisplayMessage[];
   /**
-   * Current composer input. The hook itself doesn't read or guard against
-   * input changes — the gate is render-time: when the user has typed
-   * anything, callers ignore the returned value (`ChatComposer` already
-   * does this via `computeGhostSuffix` and we just return `null` here as a
-   * convenience).
+   * The id of the latest *completed* assistant message in the active
+   * conversation, or `null` if the latest row is a user message / an
+   * in-flight assistant stream / nothing.
+   *
+   * The caller is responsible for this derivation (typically a `useMemo`
+   * over the `messages` array). Keeping the hook parameter a scalar makes
+   * its dependency surface explicit and means the hook doesn't need to
+   * subscribe to message-array identity changes.
    */
-  input: string;
+  lastCompleteAssistantMsgId: string | null;
 }
 
 /**
@@ -23,41 +24,32 @@ interface UseGhostTextSuggestionParams {
  *
  * Architecture (LUM-2009): the suggestion is a server-derived value keyed
  * by `(assistantId, conversationId, lastCompleteAssistantMsgId)` and
- * belongs in TanStack Query, not in component-local `useState`. The query
- * key gives us:
+ * belongs in TanStack Query, not in component-local `useState`. The
+ * query key gives us:
  *
- *   - **Dedup** — same key → no new fetch (the prior `lastSuggestionMsgIdRef`
- *     is gone).
+ *   - **Dedup** — same key → no new fetch.
  *   - **Implicit clear on send / on conversation switch** — when the
  *     latest message becomes a user message (after send) or
  *     `conversationId` changes, the key derives a new value or `null`
- *     and the previous cache entry is no longer matched. No
- *     `setSuggestion(null)` plumbing needed.
+ *     and the previous cache entry is no longer matched.
  *   - **Implicit suppression while streaming** — `lastCompleteAssistantMsgId`
- *     gates on `!isStreaming`, so the query is disabled until the
- *     assistant's reply is complete.
+ *     is `null` until the assistant's reply finishes.
  *
- * The "user has typed since the fetch started" guard is *not* in this
- * hook. It's a render-time concern; the consumer either ignores the
- * value when `input` is non-empty (see `computeGhostSuffix` in
- * `ChatComposer`) or relies on us returning `null` early here.
+ * The hook stays *pure* w.r.t. composer input: it always returns the
+ * cached suggestion (or `null` when nothing is cached). The render-time
+ * gate that compares the suggestion against the user's typed prefix and
+ * decides whether to show ghost text — and whether to show the full
+ * suggestion or just the unrendered suffix — lives in
+ * `ChatComposer.computeGhostSuffix`. Keeping that gate in one place
+ * preserves the "start typing the beginning of the suggestion → see only
+ * the tail as ghost" behavior that a naive `input ? null : suggestion`
+ * gate would break.
  */
 export function useGhostTextSuggestion({
   assistantId,
   conversationId,
-  messages,
-  input,
+  lastCompleteAssistantMsgId,
 }: UseGhostTextSuggestionParams): string | null {
-  // The fetch is keyed on the *latest completed assistant message*; if the
-  // last row is a user message (just sent) or an in-flight assistant
-  // stream, there is nothing to suggest *from*. Anything else (no
-  // messages, missing assistant id, etc.) also disables the query.
-  const lastMsg = messages[messages.length - 1];
-  const lastCompleteAssistantMsgId =
-    lastMsg && lastMsg.role === "assistant" && !lastMsg.isStreaming
-      ? lastMsg.id ?? null
-      : null;
-
   const enabled =
     Boolean(assistantId) &&
     Boolean(conversationId) &&
@@ -90,6 +82,5 @@ export function useGhostTextSuggestion({
     retry: false,
   });
 
-  if (input) return null;
   return query.data?.suggestion ?? null;
 }

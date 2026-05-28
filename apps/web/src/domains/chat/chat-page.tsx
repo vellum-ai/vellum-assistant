@@ -1299,11 +1299,21 @@ export function ChatPage() {
   // -------------------------------------------------------------------------
   // Ghost-text suggestion (server state via TanStack Query — LUM-2009)
   // -------------------------------------------------------------------------
+  // Derive the scalar the query keys on; the hook stays pure w.r.t.
+  // composer input — `ChatComposer.computeGhostSuffix` is the single
+  // source of truth for "what part of the suggestion is visible right
+  // now given the user's typed prefix".
+  const lastCompleteAssistantMsgId = useMemo<string | null>(() => {
+    const last = messages[messages.length - 1];
+    return last && last.role === "assistant" && !last.isStreaming
+      ? last.id ?? null
+      : null;
+  }, [messages]);
+
   const suggestion = useGhostTextSuggestion({
     assistantId,
     conversationId: activeConversationId,
-    messages,
-    input,
+    lastCompleteAssistantMsgId,
   });
 
   // -------------------------------------------------------------------------
