@@ -153,6 +153,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   setConversationHistoryStrippedAt: mock(() => {}),
   wipeConversation: mock(() => ({ memoryIds: [] })),
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
+  extractImageSourcePaths: () => undefined,
 }));
 
 mock.module("../memory/conversation-title-service.js", () => ({

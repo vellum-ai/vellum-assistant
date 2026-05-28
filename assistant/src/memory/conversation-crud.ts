@@ -184,6 +184,24 @@ export function provenanceFromTrustContext(
   };
 }
 
+/** Extract image file paths from resolved attachments for message metadata. */
+export function extractImageSourcePaths(
+  attachments: ReadonlyArray<{
+    filename: string;
+    mimeType: string;
+    filePath?: string;
+  }>,
+): Record<string, string> | undefined {
+  const paths: Record<string, string> = {};
+  for (let i = 0; i < attachments.length; i++) {
+    const a = attachments[i];
+    if (a.filePath && a.mimeType.toLowerCase().startsWith("image/")) {
+      paths[`${i}:${a.filename}`] = a.filePath;
+    }
+  }
+  return Object.keys(paths).length > 0 ? paths : undefined;
+}
+
 export interface ConversationRow {
   id: string;
   title: string | null;

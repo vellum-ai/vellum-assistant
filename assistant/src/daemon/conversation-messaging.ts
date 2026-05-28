@@ -26,6 +26,7 @@ import {
 } from "../memory/attachments-store.js";
 import {
   addMessage,
+  extractImageSourcePaths,
   getConversation,
   provenanceFromTrustContext,
   setConversationOriginChannelIfUnset,
@@ -440,13 +441,7 @@ export async function persistQueuedMessageBody(
     const turnIfCtx =
       extractTurnInterfaceContext(metadata) ?? ctx.getTurnInterfaceContext();
     const provenance = provenanceFromTrustContext(ctx.trustContext);
-    const imageSourcePaths: Record<string, string> = {};
-    for (let i = 0; i < attachments.length; i++) {
-      const a = attachments[i];
-      if (a.filePath && a.mimeType.toLowerCase().startsWith("image/")) {
-        imageSourcePaths[`${i}:${a.filename}`] = a.filePath;
-      }
-    }
+    const imageSourcePaths = extractImageSourcePaths(attachments);
 
     // Strip the transient `slackInbound` carrier key from the persisted
     // metadata — it's an in-memory plumbing field, not a stored column value.
@@ -477,7 +472,7 @@ export async function persistQueuedMessageBody(
             assistantMessageInterface: turnIfCtx.assistantMessageInterface,
           }
         : {}),
-      ...(Object.keys(imageSourcePaths).length > 0 ? { imageSourcePaths } : {}),
+      ...(imageSourcePaths ? { imageSourcePaths } : {}),
       ...(slackMeta ? { slackMeta } : {}),
     };
 
