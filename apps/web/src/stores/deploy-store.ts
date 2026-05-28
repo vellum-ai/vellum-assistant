@@ -44,11 +44,7 @@ export interface DeployState {
 }
 
 export interface DeployActions {
-  startSharing: () => void;
-  finishSharing: () => void;
   shareApp: (assistantId: string, appId: string, appName: string) => Promise<void>;
-  startDeploying: () => void;
-  finishDeploying: (clearPendingAppId?: boolean) => void;
   deployApp: (assistantId: string, appId: string, appName: string, appHtml: string) => Promise<void>;
   deployAfterTokenSaved: (assistantId: string) => Promise<void>;
   showTokenDialog: (pendingAppId: string) => void;
@@ -96,14 +92,6 @@ const INITIAL_STATE: DeployState = {
 const useDeployStoreBase = create<DeployStore>()((set, get) => ({
   ...INITIAL_STATE,
 
-  startSharing: () => {
-    set({ isSharing: true });
-  },
-
-  finishSharing: () => {
-    set({ isSharing: false });
-  },
-
   shareApp: async (assistantId, appId, appName) => {
     if (get().isSharing) return;
     set({ isSharing: true });
@@ -117,17 +105,6 @@ const useDeployStoreBase = create<DeployStore>()((set, get) => ({
     } finally {
       set({ isSharing: false });
     }
-  },
-
-  startDeploying: () => {
-    set({ isDeploying: true });
-  },
-
-  finishDeploying: (clearPendingAppId) => {
-    set({
-      isDeploying: false,
-      ...(clearPendingAppId ? { pendingDeployAppId: null } : {}),
-    });
   },
 
   deployApp: async (assistantId, appId, appName, appHtml) => {

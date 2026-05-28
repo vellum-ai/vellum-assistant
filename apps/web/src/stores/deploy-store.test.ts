@@ -15,54 +15,6 @@ beforeEach(() => {
 });
 
 // ---------------------------------------------------------------------------
-// Sharing
-// ---------------------------------------------------------------------------
-
-describe("startSharing", () => {
-  it("sets isSharing to true", () => {
-    getState().startSharing();
-    expect(getState().isSharing).toBe(true);
-  });
-});
-
-describe("finishSharing", () => {
-  it("sets isSharing to false", () => {
-    useDeployStore.setState({ isSharing: true });
-    getState().finishSharing();
-    expect(getState().isSharing).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Deploying
-// ---------------------------------------------------------------------------
-
-describe("startDeploying", () => {
-  it("sets isDeploying to true", () => {
-    getState().startDeploying();
-    expect(getState().isDeploying).toBe(true);
-  });
-});
-
-describe("finishDeploying", () => {
-  it("sets isDeploying to false and keeps pendingDeployAppId by default", () => {
-    useDeployStore.setState({ isDeploying: true, pendingDeployAppId: "app-1" });
-    getState().finishDeploying();
-    const state = getState();
-    expect(state.isDeploying).toBe(false);
-    expect(state.pendingDeployAppId).toBe("app-1");
-  });
-
-  it("clears pendingDeployAppId when clearPendingAppId is true", () => {
-    useDeployStore.setState({ isDeploying: true, pendingDeployAppId: "app-1" });
-    getState().finishDeploying(true);
-    const state = getState();
-    expect(state.isDeploying).toBe(false);
-    expect(state.pendingDeployAppId).toBeNull();
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Token dialog
 // ---------------------------------------------------------------------------
 

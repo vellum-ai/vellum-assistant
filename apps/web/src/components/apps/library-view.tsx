@@ -18,7 +18,6 @@ import {
 import type { AppSummary } from "@/types/app-types";
 import { clearAppHtmlCache, getCachedAppHtml, primeAppHtmlCache } from "@/utils/app-html-cache";
 import { importBundle } from "@/utils/import-bundle";
-import { shareApp } from "@/utils/share-app";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import { useDeployStore } from "@/stores/deploy-store";
 import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
@@ -29,7 +28,7 @@ import {
   toast,
 } from "@vellum/design-library";
 import { AppViewerContainer } from "@/components/apps/app-viewer-container";
-import { VercelTokenDialog } from "@/components/vercel-token-dialog";
+import { DeployDialogs } from "@/components/deploy-dialogs";
 import { LibraryAppCard } from "@/components/apps/library-app-card";
 import { LibraryDocumentCard } from "@/components/apps/library-document-card";
 
@@ -59,8 +58,7 @@ export function LibraryView({
 
   // Deploy store — shared with chat-page for consistent deploy UX
   const isDeploying = useDeployStore.use.isDeploying();
-  const isTokenDialogOpen = useDeployStore.use.isTokenDialogOpen();
-  const complexDeployApp = useDeployStore.use.complexDeployApp();
+  const isSharing = useDeployStore.use.isSharing();
 
   const { data: apps = [], isLoading: appsLoading, error: appsError } = useQuery({
     ...appsGetOptions({ path: { assistant_id: assistantId } }),
@@ -86,7 +84,6 @@ export function LibraryView({
   const [appPendingDelete, setAppPendingDelete] = useState<AppSummary | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
-  const [isSharing, setIsSharing] = useState(false);
   const [lastImportedAppId, setLastImportedAppId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -144,20 +141,10 @@ export function LibraryView({
     setOpenedApp(null);
   }, []);
 
-  const handleShareOpenedApp = useCallback(async () => {
-    if (!openedApp || isSharing) return;
-    setIsSharing(true);
-    try {
-      await shareApp(assistantId, openedApp.appId, openedApp.name);
-      toast.success("App exported", { description: `${openedApp.name}.vellum` });
-    } catch (err) {
-      toast.error("Failed to share app", {
-        description: err instanceof Error ? err.message : undefined,
-      });
-    } finally {
-      setIsSharing(false);
-    }
-  }, [assistantId, openedApp, isSharing]);
+  const handleShareOpenedApp = useCallback(() => {
+    if (!openedApp) return;
+    void useDeployStore.getState().shareApp(assistantId, openedApp.appId, openedApp.name);
+  }, [assistantId, openedApp]);
 
   const handleDeploy = useCallback(async (appId: string) => {
     if (isDeploying) return;
@@ -245,29 +232,10 @@ export function LibraryView({
           onDeploy={deployToVercel ? () => handleDeploy(openedApp.appId) : undefined}
           isDeploying={isDeploying}
         />
-        <VercelTokenDialog
-          open={isTokenDialogOpen}
-          onOpenChange={(open) => {
-            if (!open) useDeployStore.getState().hideTokenDialog();
-          }}
+        <DeployDialogs
           assistantId={assistantId}
-          onTokenSaved={() => {
-            void useDeployStore.getState().deployAfterTokenSaved(assistantId);
-          }}
-        />
-        <ConfirmDialog
-          open={complexDeployApp !== null}
-          title="This app needs a full deploy"
-          message={`"${complexDeployApp?.name ?? ""}" uses backend services that won't work on a static Vercel page. ${assistantName ?? "Your assistant"} can deploy it properly with serverless functions.`}
-          confirmLabel={`Let ${assistantName ?? "your assistant"} handle it`}
-          onConfirm={() => {
-            const appName = useDeployStore.getState().complexDeployApp?.name ?? "this app";
-            useDeployStore.getState().setComplexDeployApp(null);
-            onNewConversation?.(
-              `Deploy my app "${appName}" to Vercel. It uses backend services that need serverless functions — please use the deploy-fullstack-vercel skill to handle it properly.`,
-            );
-          }}
-          onCancel={() => useDeployStore.getState().setComplexDeployApp(null)}
+          assistantName={assistantName}
+          onStartConversation={onNewConversation}
         />
       </>
     );
@@ -469,30 +437,10 @@ export function LibraryView({
         )}
       </div>
 
-      <VercelTokenDialog
-        open={isTokenDialogOpen}
-        onOpenChange={(open) => {
-          if (!open) useDeployStore.getState().hideTokenDialog();
-        }}
+      <DeployDialogs
         assistantId={assistantId}
-        onTokenSaved={() => {
-          void useDeployStore.getState().deployAfterTokenSaved(assistantId);
-        }}
-      />
-
-      <ConfirmDialog
-        open={complexDeployApp !== null}
-        title="This app needs a full deploy"
-        message={`"${complexDeployApp?.name ?? ""}" uses backend services that won't work on a static Vercel page. ${assistantName ?? "Your assistant"} can deploy it properly with serverless functions.`}
-        confirmLabel={`Let ${assistantName ?? "your assistant"} handle it`}
-        onConfirm={() => {
-          const appName = useDeployStore.getState().complexDeployApp?.name ?? "this app";
-          useDeployStore.getState().setComplexDeployApp(null);
-          onNewConversation?.(
-            `Deploy my app "${appName}" to Vercel. It uses backend services that need serverless functions — please use the deploy-fullstack-vercel skill to handle it properly.`,
-          );
-        }}
-        onCancel={() => useDeployStore.getState().setComplexDeployApp(null)}
+        assistantName={assistantName}
+        onStartConversation={onNewConversation}
       />
 
       <ConfirmDialog
