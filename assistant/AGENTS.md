@@ -39,6 +39,7 @@ Routes in `src/runtime/routes/` are being migrated to a **shared `ROUTES` array*
 The CLI and daemon communicate over a Unix domain socket using **length-prefixed binary framing**: each frame is a 4-byte big-endian length followed by a payload. Messages use a JSON envelope `{ id, method, params?, headers? }` for requests and `{ id, result?, error?, headers? }` for responses.
 
 Three response shapes are supported:
+
 - **JSON-only**: a single JSON frame (no `content-length` or `transfer-encoding` header).
 - **Binary**: a JSON envelope with `headers: { "content-length": "<n>" }` followed by one binary frame of exactly `n` bytes.
 - **Chunked streaming**: a JSON envelope with `headers: { "transfer-encoding": "chunked" }` followed by one or more binary frames, terminated by a zero-length frame.
@@ -54,6 +55,22 @@ The CLI and daemon are always shipped and upgraded together — there is no vers
 Some routes are IPC-only (defined in `src/ipc/routes/`, not in the shared array). These are tool/CLI-specific methods (e.g. `wake_conversation`, `upsert_contact`) that have no HTTP counterpart. They follow the existing pattern: define in `src/ipc/routes/`, register in `src/ipc/routes/index.ts`.
 
 The module-level dependency-injection pattern (`registerFooDeps()`) used by some IPC routes is a known antipattern. New IPC-only routes should avoid it.
+
+## SQLite WAL checkpointing
+
+**Never run `PRAGMA wal_checkpoint(TRUNCATE)` from a subprocess** (i.e. from `runAsyncSqlite` or any other path that opens a fresh SQLite connection while the daemon's in-process connection is live).
+
+TRUNCATE has a side effect documented in the SQLite source but not in most surface-level docs: after writing all committed WAL pages to the main database file, if the resulting WAL file is empty, SQLite **unlinks the `.wal` (and `.shm`) file from the directory**. This is fine when the connection running the checkpoint is the only connection — the next opener creates a fresh WAL. It is **not** fine when a peer connection (the daemon) still holds open file descriptors to the original WAL inode: the unlink orphans those fds into a "ghost WAL" only the daemon can reach, every subsequent connection creates a new `.wal`/`.shm` pair on disk, and you get split-brain — daemon and outside readers see different data, no errors logged on either side. The symptom in `/proc/<daemon-pid>/fd/` is the unmistakable `(deleted)` suffix on the daemon's WAL/SHM entries while the main DB fd looks normal.
+
+Use these instead:
+
+- **`PRAGMA wal_checkpoint(FULL)`** when you need flush-completion (export readers, migration snapshots — anywhere downstream reads the main `.db` file). FULL blocks until all committed WAL pages are written to the main DB but does _not_ truncate the WAL file size, so the unlink side effect does not fire.
+- **`PRAGMA wal_checkpoint(PASSIVE)`** for background/amortized housekeeping where partial progress is acceptable. PASSIVE makes no attempt to acquire locks that would conflict with active readers, so it never reaches the empty-WAL state in a contested environment.
+- **Autocheckpoint** (`PRAGMA wal_autocheckpoint = <pages>`, default 1000) handles the routine "keep the WAL bounded" case without any explicit PRAGMA call.
+
+TRUNCATE _is_ safe on the daemon's own long-lived in-process connection (e.g. at startup or during shutdown when no peer connections exist). Today `src/memory/db-init.ts` and `src/daemon/shutdown-handlers.ts` legitimately use it. **Do not copy that pattern into any code path that runs via `runAsyncSqlite` or otherwise spawns a separate process.**
+
+A repro script lives at `/workspace/scratch/wal-split-brain-repro.ts` (deterministic; uses `bun:sqlite` as the daemon analog and a `sqlite3` CLI subprocess as the outsider).
 
 ## Code comments
 
