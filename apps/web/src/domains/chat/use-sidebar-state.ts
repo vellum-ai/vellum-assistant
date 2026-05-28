@@ -166,7 +166,7 @@ export function useSidebarState({
     );
     autoFilledCountRef.current = Math.max(autoFilledCountRef.current, target);
     setVisibleRecentsCount(target);
-  }, [grouped.recents.length]); // eslint-disable-line react-hooks/exhaustive-deps -- reads visibleRecentsCount from current render, not stale closure
+  }, [grouped.recents.length]);
 
   const recentsSection = useMemo((): PaginatedSection => {
     const attentionIndex = attentionConversationIds
