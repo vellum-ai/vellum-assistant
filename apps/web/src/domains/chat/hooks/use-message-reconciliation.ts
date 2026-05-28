@@ -10,9 +10,10 @@ import {
   summarizeRuntimeMessages,
 } from "@/domains/chat/utils/diagnostics";
 import { type DisplayMessage, reconcileMessages } from "@/domains/chat/utils/reconcile";
-import { isSending, useTurnStore } from "@/domains/messaging/turn-store";
+import { isSending, useTurnStore } from "@/stores/turn-store";
 import { fetchConversationMessages, type RuntimeMessage } from "@/domains/chat/api/messages";
 import { useConversationStore } from "@/stores/conversation-store";
+import { endTurn } from "@/stores/turn-coordinator";
 
 const RECONCILE_DELAY_MS = 5000;
 const RECONCILE_MAX_MS = 60_000;
@@ -224,21 +225,19 @@ export function useMessageReconciliation({
         isSending(useTurnStore.getState()) &&
         useTurnStore.getState().activeTurnId === snapshotTurnId;
       if (wasStuck) {
-        useTurnStore.getState().onPollReconciled(snapshotTurnId);
-        // The rescue must also clear the conversation-level processing
-        // key — `processingConversationIds` is set at send time and is
-        // normally cleared by the SSE terminal-event handlers
-        // (`handleAssistantActivityState(idle)`, `handleMessageComplete`,
-        // `handleGenerationCancelled`, error handlers). When SSE drops
-        // the terminal event, those handlers never run, and the
-        // graduation effect in `useAttentionTracking` explicitly skips
-        // the active conversation. Without this call the rescue would
-        // leave `activeConversationIsProcessing` stuck at `true` — which
-        // keeps `canStopGeneration` true and the sidebar processing dot
-        // visible even though the turn has clearly completed.
-        useConversationStore
-          .getState()
-          .removeProcessingConversationId(snapshotConversationId);
+        // The rescue must clear BOTH the turn-store (so the local
+        // lifecycle becomes idle) AND the conversation-level processing
+        // key (so `canStopGeneration` and the sidebar processing dot
+        // can settle). `endTurn` does both atomically — without that
+        // pairing the rescue would leave `activeConversationIsProcessing`
+        // stuck because the graduation effect in `useAttentionTracking`
+        // explicitly skips the active conversation, making this the
+        // only path that clears it when SSE drops the terminal event.
+        endTurn({
+          conversationId: snapshotConversationId,
+          reason: "rescued",
+          rescuedTurnId: snapshotTurnId,
+        });
         // `POLL_RECONCILED` is the silent-stall rescue: the server
         // reports assistant progress that the client never observed
         // via SSE, meaning a terminal event (`message_complete`

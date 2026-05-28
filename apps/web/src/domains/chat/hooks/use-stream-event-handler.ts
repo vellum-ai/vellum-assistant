@@ -12,7 +12,8 @@ import { useConversationStore } from "@/stores/conversation-store";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import { tailIsStreamingAssistant } from "@/domains/chat/hooks/stream-message-updaters";
-import { useTurnStore } from "@/domains/messaging/turn-store";
+import { useTurnStore } from "@/stores/turn-store";
+import { endTurn } from "@/stores/turn-coordinator";
 import { useViewerStore } from "@/stores/viewer-store";
 import type { DiskPressureStatusEventPayload } from "@/assistant/use-disk-pressure-monitor";
 import {
@@ -222,11 +223,6 @@ export function useStreamEventHandler(
   const invalidateAvatarRef = useRef(invalidateAvatar);
   invalidateAvatarRef.current = invalidateAvatar;
 
-  /** Remove a conversation key from the processing set and snapshots map. */
-  const clearProcessingKey = useCallback((convKey: string) => {
-    // `removeProcessingConversationId` clears the matching snapshot in the same set call.
-    useConversationStore.getState().removeProcessingConversationId(convKey);
-  }, []);
 
   // --- Main event handler ---
 
@@ -305,7 +301,7 @@ export function useStreamEventHandler(
         messagesRef,
         turnActions: useTurnStore.getState(),
         getTurnState: () => useTurnStore.getState(),
-        clearProcessingKey,
+        endTurn,
         setError,
         streamRef,
         cancelReconciliation,
@@ -498,7 +494,6 @@ export function useStreamEventHandler(
     [
       push,
       isNative,
-      clearProcessingKey,
       cancelReconciliation,
       startReconciliationLoop,
       scheduleConversationListRefetch,

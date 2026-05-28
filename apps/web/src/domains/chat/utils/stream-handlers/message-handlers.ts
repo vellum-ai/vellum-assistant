@@ -15,6 +15,7 @@ import type {
 } from "@vellumai/assistant-api";
 import { useSubagentStore } from "@/domains/subagents/subagent-store";
 
+
 export function handleAssistantTextDelta(
   event: AssistantTextDeltaEvent,
   ctx: StreamHandlerContext,
@@ -78,10 +79,7 @@ export function handleAssistantActivityState(
 
   ctx.setMessages(finalizeOnIdle);
   const turnPhaseBefore = ctx.getTurnState().phase;
-  ctx.turnActions.completeTurn();
-  if (convId) {
-    ctx.clearProcessingKey(convId);
-  }
+  ctx.endTurn({ conversationId: convId, reason: "complete" });
   recordChatDiagnostic("sse_activity_state_idle_handled", {
     convId,
     reason: event.reason,
@@ -109,8 +107,6 @@ export function handleMessageComplete(
       .reanchorToMessage({ stableId, messageId: event.messageId });
   }
 
-  const turnPhaseBefore = ctx.getTurnState().phase;
-  ctx.turnActions.completeTurn();
   // Prefer the event's own `conversationId` over `streamContextRef`.
   // The event carries the canonical id; the ref is a mirror that may be
   // cleared by a stream teardown that races the terminal event. All
@@ -120,9 +116,8 @@ export function handleMessageComplete(
   // reconnects.
   const convId =
     event.conversationId ?? ctx.streamContextRef.current?.conversationId;
-  if (convId) {
-    ctx.clearProcessingKey(convId);
-  }
+  const turnPhaseBefore = ctx.getTurnState().phase;
+  ctx.endTurn({ conversationId: convId, reason: "complete" });
   recordChatDiagnostic("sse_message_complete_handled", {
     convId,
     turnPhaseBefore,
@@ -145,13 +140,10 @@ export function handleGenerationCancelled(
   event: GenerationCancelledEvent,
   ctx: StreamHandlerContext,
 ): void {
-  ctx.turnActions.cancelGeneration();
   // See `handleMessageComplete` for the rationale on the event-first
   // fallback chain.
   const convId =
     event.conversationId ?? ctx.streamContextRef.current?.conversationId;
-  if (convId) {
-    ctx.clearProcessingKey(convId);
-  }
+  ctx.endTurn({ conversationId: convId, reason: "cancelled" });
   ctx.setMessages((prev) => stopStreaming(prev));
 }

@@ -18,7 +18,8 @@ import { addTrustRule } from "@/domains/trust-rules/api";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import { useInteractionStore } from "@/domains/interactions/interaction-store";
 import { useConversationStore } from "@/stores/conversation-store";
-import { useTurnStore } from "@/domains/messaging/turn-store";
+import { useTurnStore } from "@/stores/turn-store";
+import { endTurn } from "@/stores/turn-coordinator";
 
 import { clearConfirmationByRequestId } from "@/domains/chat/hooks/send-message-utils";
 import { deriveCommandText } from "@/domains/chat/utils/chat-utils";
@@ -183,7 +184,7 @@ export function useInteractionActions({
     if (convKey) {
       useConversationStore.getState().removeAttentionConversationId(convKey);
     }
-    useTurnStore.getState().onStreamError();
+    endTurn({ conversationId: convKey, reason: "error" });
   }, []);
 
   // -------------------------------------------------------------------------
@@ -236,7 +237,10 @@ export function useInteractionActions({
 
   const handleContactPromptCancel = useCallback(() => {
     useInteractionStore.getState().dismissContactRequest();
-    useTurnStore.getState().onStreamError();
+    endTurn({
+      conversationId: useConversationStore.getState().activeConversationId,
+      reason: "error",
+    });
   }, []);
 
   // -------------------------------------------------------------------------

@@ -178,12 +178,17 @@ References:
 - [web.dev — Sign-out best practices](https://web.dev/articles/sign-out-best-practices)
 - [React — Preserving and Resetting State](https://react.dev/learn/preserving-and-resetting-state)
 
-## Turn state lives in `domains/messaging/turn-store.ts`
+## Turn state lives in `stores/turn-store.ts`
 
 Turn lifecycle (sending, thinking, streaming, idle, errored), queue
 depth, active tool-call count, and current turn identity are managed
-by the turn store. Use `useTurnStore(selector)` in React components
-and `useTurnStore.getState()` in non-React code (stream handlers,
+by the turn store at `src/stores/turn-store.ts`. It sits at the top
+level because the same store is read by chat handlers, send-message
+flow, error handlers, and reconciliation — per the
+"two-or-more domains → top-level" rule above.
+
+Use `useTurnStore(selector)` in React components and
+`useTurnStore.getState()` in non-React code (stream handlers,
 reconciliation). Do not prop-drill turn state or dispatch functions.
 
 Action naming follows the
@@ -191,6 +196,27 @@ Action naming follows the
 `on*` for SSE-event reactions (`onTextDelta`, `onStreamError`,
 `onPollReconciled`), imperative for user/system-initiated actions
 (`requestSend`, `cancelGeneration`, `resetTurn`).
+
+### Terminal-turn cleanup goes through `endTurn`
+
+A turn's "complete" state is split between two stores: `turn-store.phase`
+(the active turn's lifecycle, one per tab) and
+`conversation-store.processingConversationIds` (the sidebar's view of
+which conversations are processing — includes background conversations
+from Slack, Telegram, etc.). Both must transition on every terminal
+event.
+
+Production callers do **not** call `turnStore.completeTurn()` /
+`cancelGeneration()` / `onStreamError()` / `onSessionError()` /
+`onPollReconciled()` directly. They call `endTurn` from
+[`stores/turn-coordinator.ts`](../src/stores/turn-coordinator.ts) — a
+single atomic two-store transition that takes the `conversationId` and
+a terminal `reason`. This prevents the "forget to clear the processing
+key" class of bug from re-appearing in every new terminal-event path.
+
+The turn-store still exports the underlying actions because they're
+the implementation `endTurn` delegates to (and tests sometimes spy on
+them directly), but new production callers should use `endTurn`.
 
 ## Selector patterns
 

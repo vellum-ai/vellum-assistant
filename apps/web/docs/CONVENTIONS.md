@@ -168,6 +168,8 @@ src/
     viewer-store.ts
     sse-connected-store.ts
     conversation-store.ts
+    turn-store.ts
+    turn-coordinator.ts            #   atomic turn-store + conversation-store transitions
   domains/                         # feature modules
     messages/                      # message lifecycle
       message-store.ts

@@ -32,7 +32,8 @@ import { resolveEditChatDraftConversationId } from "@/domains/chat/utils/edit-ch
 import { type DiskPressureChatBlockReason, getDiskPressureChatBlockMessage } from "@/assistant/disk-pressure";
 import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics";
 import { saveDismissedSurfaceIds } from "@/domains/chat/utils/dismissed-surfaces-storage";
-import { isSending, useTurnStore } from "@/domains/messaging/turn-store";
+import { isSending, useTurnStore } from "@/stores/turn-store";
+import { endTurn } from "@/stores/turn-coordinator";
 import { useInteractionStore } from "@/domains/interactions/interaction-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import {
@@ -321,7 +322,7 @@ export function useSendMessage({
           postResult.error.detail,
           "Something went wrong. Please try again.",
         );
-        useTurnStore.getState().onStreamError();
+        endTurn({ conversationId: requestConversationId, reason: "error" });
         return {
           status: "failed",
           error: {
@@ -484,7 +485,14 @@ export function useSendMessage({
         })
         .finally(() => {
           if (!isCurrentSendScope(effectiveConversationId)) return;
-          useTurnStore.getState().onPollReconciled(turnId);
+          // Defense-in-depth: settle the turn if SSE didn't already.
+          // `onPollReconciled` no-ops when the turn is already idle, so
+          // this is safe to call alongside the SSE terminal handlers.
+          endTurn({
+            conversationId: effectiveConversationId,
+            reason: "rescued",
+            rescuedTurnId: turnId,
+          });
         });
 
       return {
@@ -731,6 +739,11 @@ export function useSendMessage({
           tags: { context: "send_chat_message" },
         });
         setError({ message: "Something went wrong. Please try again." });
+        // Multi-key processing-key cleanup: when a send is retargeted
+        // (e.g. draft → new conversation), both the original active key
+        // and the resolved key may have processing markers. `endTurn`
+        // covers the single-conversation pairing; this catch-all clears
+        // every key the send touched and fires `onStreamError` once.
         useTurnStore.getState().onStreamError();
         const keysToClean = [activeConversationId, resolvedId].filter(Boolean) as string[];
         if (keysToClean.length > 0) {
@@ -759,12 +772,11 @@ export function useSendMessage({
   const handleStopGenerating = useCallback(async () => {
     if (!assistantId || !activeConversationId) return;
     streamEpochRef.current++;
-    useTurnStore.getState().cancelGeneration();
+    endTurn({ conversationId: activeConversationId, reason: "cancelled" });
     setMessages(stopStreamingAndClearConfirmations);
     useInteractionStore.getState().resetAll();
     useSubagentStore.getState().reset();
     confirmationToolCallMapRef.current.clear();
-    useConversationStore.getState().removeProcessingConversationId(activeConversationId);
     try {
       await conversationsByIdCancelPost({
         path: { assistant_id: assistantId, id: activeConversationId },

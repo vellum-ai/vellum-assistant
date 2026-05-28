@@ -6,7 +6,8 @@ import type {
 import type { QueryClient } from "@tanstack/react-query";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
-import type { TurnActions, TurnState } from "@/domains/messaging/turn-store";
+import type { TurnActions, TurnState } from "@/stores/turn-store";
+import type { EndTurnArgs } from "@/stores/turn-coordinator";
 import type { DiskPressureStatusEventPayload } from "@/assistant/use-disk-pressure-monitor";
 import type { ChatError, PendingQuestionState } from "@/domains/chat/types";
 import type { ChatEventStream } from "@/domains/chat/api/stream";
@@ -44,8 +45,16 @@ export interface StreamHandlerContext {
   turnActions: TurnActions;
   getTurnState: () => TurnState;
 
-  // --- Processing ---
-  clearProcessingKey: (convKey: string) => void;
+  // --- Terminal-turn cleanup ---
+  /**
+   * Atomic two-store transition: terminal turn-store action +
+   * `processingConversationIds` cleanup. Every terminal-event handler
+   * (`handleAssistantActivityState(idle)`, `handleMessageComplete`,
+   * `handleGenerationCancelled`, error handlers) goes through this
+   * instead of calling the two stores independently — that prevented
+   * the canonical "forget to clear the processing key" bug.
+   */
+  endTurn: (args: EndTurnArgs) => void;
 
   // --- Error & stream lifecycle ---
   setError: Dispatch<SetStateAction<ChatError | null>>;

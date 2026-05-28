@@ -99,7 +99,7 @@ import {
   isSendDisabled,
   shouldShowThinkingIndicator,
   type UIContext,
-} from "@/domains/messaging/turn-selectors";
+} from "@/stores/turn-selectors";
 import { isSurfaceInteractive } from "@/domains/chat/types/types";
 
 import { useViewerStore, type MainView, type OpenedAppState, type OpenedDocumentState } from "@/stores/viewer-store";
@@ -110,7 +110,7 @@ import { haptic } from "@/utils/haptics";
 import { isChannelConversation as _isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure";
 import type { DiskPressureStatusEventPayload } from "@/assistant/use-disk-pressure-monitor";
-import { type TurnState, useTurnStore } from "@/domains/messaging/turn-store";
+import { type TurnState, useTurnStore } from "@/stores/turn-store";
 import type { QuestionResponseEntry, AllowlistOption, ScopeOption, DirectoryScopeOption, ConfirmationDecision } from "@/domains/chat/api/event-types";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { DiskPressureBanner, type DiskPressureBannerMode } from "@/domains/chat/components/disk-pressure-banner";

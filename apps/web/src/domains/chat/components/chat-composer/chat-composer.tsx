@@ -23,7 +23,7 @@ import {
   VoiceInputButton,
   type VoiceInputButtonHandle,
 } from "@/domains/chat/components/voice-input-button";
-import { type TurnPhase, useTurnStore } from "@/domains/messaging/turn-store";
+import { type TurnPhase, useTurnStore } from "@/stores/turn-store";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { isPointerCoarse } from "@/utils/pointer";
 import { useAudioAmplitude } from "@/domains/voice/use-audio-amplitude";
