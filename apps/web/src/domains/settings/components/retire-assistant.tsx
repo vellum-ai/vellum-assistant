@@ -5,7 +5,6 @@ import { Button } from "@vellum/design-library/components/button";
 import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog";
 import { toast } from "@vellum/design-library/components/toast";
 import { retireAssistantById } from "@/assistant/api";
-import { getOnboardingEntrypoint } from "@/domains/onboarding/gate";
 import { clearOnboardingFlags } from "@/lib/onboarding-cleanup";
 import {
   isLocalMode,
@@ -18,7 +17,8 @@ import { routes } from "@/utils/routes";
 
 function getPostRetireRoute(): string {
   if (isNativePlatform()) return routes.onboarding.prechat;
-  return getOnboardingEntrypoint();
+  if (isLocalMode()) return routes.onboarding.welcome;
+  return routes.onboarding.privacy;
 }
 
 interface RetireAssistantProps {

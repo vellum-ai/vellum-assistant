@@ -6,6 +6,7 @@ import {
   setLocalSetting,
 } from "@/lib/local-settings";
 import {
+  clearGatewayToken,
   ensureGatewayToken,
   getGatewayToken,
   getLocalTokenUrl,
