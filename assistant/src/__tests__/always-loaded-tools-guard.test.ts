@@ -14,12 +14,12 @@
 import { afterAll, describe, expect, test } from "bun:test";
 
 import {
-  buildToolDefinitions,
   isToolActiveForContext,
   type SkillProjectionContext,
 } from "../daemon/conversation-tool-setup.js";
 import {
   __resetRegistryForTesting,
+  getAllToolDefinitions,
   initializeTools,
 } from "../tools/registry.js";
 
@@ -30,7 +30,7 @@ afterAll(() => {
 describe("always-loaded tool count", () => {
   test("should be exactly 11 with recall occupying the existing slot", async () => {
     await initializeTools();
-    const allDefs = buildToolDefinitions();
+    const allDefs = getAllToolDefinitions();
 
     // Minimal context: no client, no capabilities
     const minimalContext: SkillProjectionContext = {

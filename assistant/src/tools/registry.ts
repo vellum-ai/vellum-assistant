@@ -2,7 +2,6 @@ import type { ToolDefinition } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 import { coreAppProxyTools } from "./apps/definitions.js";
 import { registerAppTools } from "./apps/registry.js";
-import { allComputerUseTools } from "./computer-use/definitions.js";
 import { hostFileEditTool } from "./host-filesystem/edit.js";
 import { hostFileReadTool } from "./host-filesystem/read.js";
 import { hostFileTransferTool } from "./host-filesystem/transfer.js";
@@ -447,16 +446,13 @@ export function getSkillRefCount(skillId: string): number {
 }
 
 export function getAllToolDefinitions(): ToolDefinition[] {
-  // Exclude proxy tools (e.g. computer_use_* tools) - they are projected
-  // into sessions by the skill system, not via the global tool list.
   // Exclude skill-origin tools - they are managed by the session-level
   // skill projection system (projectSkillTools) and must not leak into
   // the base tool list, which is shared across sessions via the global
   // registry.  Including them here causes "Tool names must be unique"
   // errors when the projection appends the same tools a second time.
   return getAllTools().filter(
-    (t) =>
-      t.executionMode !== "proxy" && ownersByName.get(t.name)?.kind !== "skill",
+    (t) => ownersByName.get(t.name)?.kind !== "skill",
   );
 }
 
@@ -532,7 +528,6 @@ export async function initializeTools(): Promise<void> {
       ...extEntries.map(({ tool }) => tool.name),
       ...hostTools.map((t: Tool) => t.name),
       ...cesTools.map((t: Tool) => t.name),
-      ...allComputerUseTools.map((t: Tool) => t.name),
       ...allUiSurfaceTools.map((t: Tool) => t.name),
       ...coreAppProxyTools.map((t: Tool) => t.name),
     ]);
