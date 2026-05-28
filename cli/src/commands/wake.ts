@@ -153,6 +153,13 @@ export async function wake(): Promise<void> {
     saveAssistantEntry(entry);
   }
 
+  let bootstrapSecret = entry.guardianBootstrapSecret;
+  if (!bootstrapSecret) {
+    bootstrapSecret = generateLocalSigningKey();
+    entry.guardianBootstrapSecret = bootstrapSecret;
+    saveAssistantEntry(entry);
+  }
+
   if (!daemonRunning) {
     await startLocalDaemon(watch, resources, { foreground, signingKey });
   }
@@ -174,13 +181,13 @@ export async function wake(): Promise<void> {
             `Gateway running (pid ${pid}) — restarting in watch mode...`,
           );
           await stopProcessByPidFile(gatewayPidFile, "gateway");
-          await startGateway(watch, resources, { signingKey });
+          await startGateway(watch, resources, { signingKey, bootstrapSecret });
         }
       } else {
         console.log(`Gateway already running (pid ${pid}).`);
       }
     } else {
-      await startGateway(watch, resources, { signingKey });
+      await startGateway(watch, resources, { signingKey, bootstrapSecret });
     }
   }
 

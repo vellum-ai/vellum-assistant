@@ -199,6 +199,7 @@ export async function hatchLocal(
 
   emitProgress(3, 6, "Starting assistant...");
   const signingKey = generateLocalSigningKey();
+  const bootstrapSecret = generateLocalSigningKey();
   await startLocalDaemon(watch, resources, {
     defaultWorkspaceConfigPath,
     signingKey,
@@ -207,7 +208,7 @@ export async function hatchLocal(
   emitProgress(4, 6, "Starting gateway...");
   let runtimeUrl = `http://127.0.0.1:${resources.gatewayPort}`;
   try {
-    runtimeUrl = await startGateway(watch, resources, { signingKey });
+    runtimeUrl = await startGateway(watch, resources, { signingKey, bootstrapSecret });
   } catch (error) {
     // Gateway failed — stop the daemon we just started so we don't leave
     // orphaned processes with no lock file entry.
@@ -228,7 +229,7 @@ export async function hatchLocal(
   let guardianAccessToken: string | undefined;
   for (let attempt = 1; attempt <= maxLeaseAttempts; attempt++) {
     try {
-      const tokenData = await leaseGuardianToken(loopbackUrl, instanceName);
+      const tokenData = await leaseGuardianToken(loopbackUrl, instanceName, bootstrapSecret);
       guardianAccessToken = tokenData.accessToken;
       break;
     } catch (err) {
@@ -257,6 +258,7 @@ export async function hatchLocal(
     species,
     hatchedAt: new Date().toISOString(),
     resources: { ...resources, signingKey },
+    guardianBootstrapSecret: bootstrapSecret,
   };
 
   emitProgress(6, 6, "Saving configuration...");

@@ -110,14 +110,16 @@ export async function recover(): Promise<void> {
   unlinkSync(archivePath);
   unlinkSync(metadataPath);
 
-  // 7. Persist signing key so it survives daemon/gateway restarts (same as wake)
+  // 7. Persist signing key and bootstrap secret so they survive daemon/gateway restarts
   const signingKey = generateLocalSigningKey();
+  const bootstrapSecret = generateLocalSigningKey();
   entry.resources = { ...entry.resources, signingKey };
+  entry.guardianBootstrapSecret = bootstrapSecret;
   saveAssistantEntry(entry);
 
   // 8. Start daemon + gateway
   await startLocalDaemon(false, entry.resources, { signingKey });
-  await startGateway(false, entry.resources, { signingKey });
+  await startGateway(false, entry.resources, { signingKey, bootstrapSecret });
 
   console.log(`✅ Recovered assistant '${name}'.`);
 }
