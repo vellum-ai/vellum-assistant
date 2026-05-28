@@ -25,19 +25,27 @@ const DEV_SERVER_URL = process.env.VELLUM_DEV_URL ?? "http://localhost:5173";
 const DEV_SERVER_ORIGIN = new URL(DEV_SERVER_URL).origin;
 
 // Dev-only: override the workspace `name` (`@vellumai/macos`) so the
-// menu bar / Dock / Cmd-Tab show "Vellum Electron", and so
-// `app.getPath("userData")` resolves to
-// `~/Library/Application Support/Vellum Electron/` — cleanly separate
+// menu bar's first submenu reads "Vellum Electron", and — more
+// importantly — so `app.getPath("userData")` resolves to
+// `~/Library/Application Support/Vellum Electron/`, cleanly separate
 // from the Swift `Vellum.app` / `Vellum Local.app` / `Vellum Dev.app`
 // installs the developer may also be running.
 //
-// `app.setName()` overrides `Info.plist`'s `CFBundleName` in BOTH dev
-// and packaged builds, so we gate on `!app.isPackaged` to let
-// electron-builder's `productName` win for shipped artifacts (per the
-// per-channel naming matrix in LUM-1987). Must be called before
-// `app.getPath("userData")` is first read; the electron-store instance
-// in `./settings` is constructed lazily on first IPC call, so this
-// timing holds as long as `app.setName` runs before `app.whenReady`.
+// Caveat: `app.setName()` does NOT change the Dock / Cmd-Tab label.
+// Those come from the running binary's `CFBundleName` — in dev the
+// binary is `node_modules/electron/dist/Electron.app`, so the Dock
+// says "Electron". That's cosmetic and acceptable for dev runs; the
+// userData split is what actually prevents collision with Swift
+// installs. Packaged builds get a real `productName` via
+// electron-builder (LUM-1987), which writes CFBundleName, at which
+// point Dock / Cmd-Tab pick up the real name too.
+//
+// Gated on `!app.isPackaged` so a packaged build keeps its
+// electron-builder-derived `CFBundleName` instead of being overridden
+// at runtime. Must run before `app.getPath("userData")` is first read;
+// the electron-store instance in `./settings` is constructed lazily on
+// first IPC call, so this timing holds as long as `app.setName` runs
+// before `app.whenReady`.
 if (!app.isPackaged) {
   app.setName("Vellum Electron");
 }
