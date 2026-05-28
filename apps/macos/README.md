@@ -17,22 +17,32 @@ Code signing, notarization, and auto-update wiring live in follow-up tickets.
 ## Prerequisites
 
 - Bun (see `.tool-versions` at the repo root)
-- The web dev server must be running before `bun run dev` here:
-
-  ```sh
-  cd ../web && bun install && bun run dev
-  ```
-
-  That serves the renderer on `http://localhost:5173`, which Electron loads
-  in development.
+- One-time: `bun install` in both `apps/web/` and `apps/macos/`
 
 ## How it runs
 
-- **Dev** — Electron loads `http://localhost:5173` directly. Hot reload comes
-  from Vite in `apps/web/`.
-- **Prod** — A custom `app://vellum.ai/` protocol serves the static
-  `apps/web/dist/` bundle. Same-origin policy treats `app://` as a secure
-  standard scheme.
+`bun run dev` in this directory is the single command — it spawns the
+`apps/web` Vite dev server, waits for it to come up on
+`http://localhost:5173`, then runs `electron-vite dev` against it. Killing
+the script tears both processes down. Logs from each are prefixed with
+`[web]` / `[electron]`. See `scripts/dev.ts` for the orchestration.
+
+The app shows up as **Vellum Electron** in the menu bar and Dock
+(`app.setName` in `src/main/index.ts`), and writes preferences /
+electron-store data under `~/Library/Application Support/Vellum Electron/`.
+That keeps it cleanly separate from the Swift `Vellum.app`,
+`Vellum Local.app`, and `Vellum Dev.app` installs — running this
+locally won't clobber whichever Swift channel you have around.
+
+You don't have to ship a DMG to try it. Packaging (DMG, signing,
+notarization, auto-update) lands in follow-up tickets once we actually
+need a distributable artifact.
+
+- **Dev** — Electron loads `http://localhost:5173` directly. Hot reload
+  comes from Vite in `apps/web/`.
+- **Prod (future)** — A custom `app://vellum.ai/` protocol serves the
+  static `apps/web/dist/` bundle. Same-origin policy treats `app://` as
+  a secure standard scheme.
 - **Assistant process** — The main process spawns the bundled assistant
   binary at `process.resourcesPath/bun` (invoked with the `daemon` subcommand
   the binary itself exposes). If it exits, it restarts with exponential
@@ -63,10 +73,10 @@ Code signing, notarization, and auto-update wiring live in follow-up tickets.
 
 ```sh
 bun install
-bun run dev        # electron-vite dev — opens the BrowserWindow
-bun run build      # electron-vite build — bundles main + preload to out/
-bun run dist       # electron-builder — produces a DMG (signing/notarization TBD)
-bun run typecheck  # tsc --noEmit
+bun run dev                # spawns web dev server + electron-vite dev
+bun run dev:electron-only  # electron-vite only (web server already running)
+bun run build              # electron-vite build — bundles main + preload to out/
+bun run typecheck          # tsc --noEmit
 ```
 
 ## Layout
@@ -74,8 +84,11 @@ bun run typecheck  # tsc --noEmit
 ```
 apps/macos/
 ├── electron.vite.config.ts   # main + preload Vite entries (no renderer)
+├── scripts/
+│   └── dev.ts                # orchestrates web dev server + electron-vite dev
 ├── src/
 │   ├── main/index.ts         # window creation, app://, assistant supervisor
+│   ├── main/commands.ts      # typed command bus + accelerator resolver
 │   ├── main/settings.ts      # electron-store schema + IPC-backed accessors
 │   ├── main/menu.ts          # macOS application menu
 │   └── preload/index.ts      # contextBridge: window.vellum.*

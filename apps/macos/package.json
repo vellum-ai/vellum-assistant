@@ -5,9 +5,9 @@
   "description": "Electron wrapper for the Vellum Assistant macOS app.",
   "main": "out/main/index.js",
   "scripts": {
-    "dev": "electron-vite dev",
+    "dev": "bun run scripts/dev.ts",
+    "dev:electron-only": "electron-vite dev",
     "build": "electron-vite build",
-    "dist": "electron-vite build && electron-builder",
     "typecheck": "bunx tsc --noEmit"
   },
   "devDependencies": {

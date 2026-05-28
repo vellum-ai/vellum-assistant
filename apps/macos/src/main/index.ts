@@ -7,6 +7,21 @@ import path from "node:path";
 import { installApplicationMenu } from "./menu";
 import { readSetting, writeSetting } from "./settings";
 
+// Set the app name explicitly so dev runs (`bun run dev`) show "Vellum
+// Electron" in the menu bar / Dock instead of the workspace name
+// (`@vellumai/macos`). Also redirects `app.getPath("userData")` to
+// `~/Library/Application Support/Vellum Electron/`, which keeps preferences,
+// electron-store, and Chromium state cleanly separate from the Swift
+// `Vellum.app` / `Vellum Local.app` / `Vellum Dev.app` installs — running
+// Electron locally won't clobber whichever Swift channel the user has
+// running. Must be called before `app.getPath("userData")` is first read
+// (which the electron-store import path eventually does).
+//
+// In a future packaged build, electron-builder's `productName` becomes the
+// source of truth via `Info.plist`'s `CFBundleName` and this call is a
+// no-op against that — the dev path is the only place it matters.
+app.setName("Vellum Electron");
+
 const DEV_SERVER_URL = "http://localhost:5173";
 const DEV_SERVER_ORIGIN = new URL(DEV_SERVER_URL).origin;
 const APP_PROTOCOL = "app";
