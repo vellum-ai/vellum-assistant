@@ -41,6 +41,10 @@ const POLL_INTERVAL_MS = 3000;
 const COMPLETION_NAVIGATE_DELAY_MS = 800;
 const MAX_HATCH_WAIT_MS = 300_000;
 
+// Module-level promise so HMR remounts and StrictMode double-mounts
+// can await the same in-flight hatch instead of spawning duplicates.
+let localHatchPromise: Promise<import("@/lib/local-mode").LocalHatchResult> | null = null;
+
 type HatchPhase = "initializing" | "provisioning" | "connecting" | "ready";
 
 const PHASE_TARGET: Record<HatchPhase, number> = {
@@ -139,6 +143,7 @@ export function HatchingScreen() {
     setAnimationEpoch((n) => n + 1);
   }, []);
 
+
   useEffect(() => {
     const cameFromPrivacyScreen = hasRecentPrivacyConsent(userId);
     const decision = decideHatchGate({
@@ -222,7 +227,11 @@ export function HatchingScreen() {
       // In Electron: window.electronAPI.hatchAssistant() -> direct IPC to main process.
       if (isLocalMode()) {
         try {
-          const result = await hatchLocalAssistant();
+          if (!localHatchPromise) {
+            localHatchPromise = hatchLocalAssistant();
+          }
+          const result = await localHatchPromise;
+          localHatchPromise = null;
           if (cancelled) return;
           if (!result.ok) {
             setError(result.error ?? "Failed to hatch local assistant.");
@@ -235,6 +244,7 @@ export function HatchingScreen() {
           await primeLocalGatewayConnection();
           handleHatchReady();
         } catch {
+          localHatchPromise = null;
           if (cancelled) return;
           setError("Failed to hatch local assistant. Check CLI logs for details.");
         }

@@ -45,6 +45,7 @@ export const routes = {
   },
 
   onboarding: {
+    hosting: r("/assistant/onboarding/hosting"),
     privacy: r("/assistant/onboarding/privacy"),
     prechat: r("/assistant/onboarding/prechat"),
     hatching: r("/assistant/onboarding/hatching"),
