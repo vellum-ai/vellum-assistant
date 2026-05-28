@@ -25,6 +25,12 @@ export function isFeatureFlagEnabled(key: string): boolean {
   return defaults[key]?.defaultEnabled ?? false;
 }
 
+function isPlatformMode(): boolean {
+  const v = process.env.IS_PLATFORM?.trim().toLowerCase();
+  return v === "true" || v === "1";
+}
+
 export function arePlatformFeaturesEnabled(): boolean {
+  if (isPlatformMode()) return true;
   return isFeatureFlagEnabled("platform-features-in-local-mode");
 }
