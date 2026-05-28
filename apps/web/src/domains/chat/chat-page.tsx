@@ -24,7 +24,7 @@ import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useVisibleViewport } from "@/hooks/use-visible-viewport";
 import { useAuthStore } from "@/stores/auth-store";
 import { useAssistantContext } from "@/components/layout/assistant-context";
-import { useConversationStore } from "@/domains/conversations/conversation-store";
+import { useConversationStore } from "@/stores/conversation-store";
 import {
   COMPOSER_FOCUS_EVENT,
   consumePendingComposerFocus,

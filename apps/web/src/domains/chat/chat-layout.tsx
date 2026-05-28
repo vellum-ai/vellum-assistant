@@ -21,7 +21,7 @@ import { useHomeUnreadBadge } from "@/hooks/use-home-unread-badge";
 import type { AssistantContextValue } from "@/components/layout/assistant-context";
 
 import { useVellumCommands } from "@/runtime/vellum-commands";
-import { useConversationStore } from "@/domains/conversations/conversation-store";
+import { useConversationStore } from "@/stores/conversation-store";
 import { requestComposerFocus } from "./composer-focus";
 import {
   conversationsQueryKey,

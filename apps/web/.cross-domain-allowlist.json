@@ -53,21 +53,17 @@
     "onboarding"
   ],
   "src/domains/chat/hooks/use-conversation-history.ts": [
-    "conversations",
     "interactions",
     "subagents"
   ],
   "src/domains/chat/hooks/use-conversation-switch.ts": [
-    "conversations",
     "interactions",
     "messaging"
   ],
   "src/domains/chat/hooks/use-event-stream.ts": [
-    "conversations",
     "messaging"
   ],
   "src/domains/chat/hooks/use-interaction-actions.ts": [
-    "conversations",
     "interactions",
     "messaging",
     "trust-rules"
@@ -76,18 +72,10 @@
     "messaging"
   ],
   "src/domains/chat/hooks/use-message-reconciliation.test.tsx": [
-    "conversations",
     "messaging"
   ],
   "src/domains/chat/hooks/use-message-reconciliation.ts": [
-    "conversations",
     "messaging"
-  ],
-  "src/domains/chat/hooks/use-refresh-latest-messages.test.ts": [
-    "conversations"
-  ],
-  "src/domains/chat/hooks/use-refresh-latest-messages.ts": [
-    "conversations"
   ],
   "src/domains/chat/hooks/use-send-message.ts": [
     "conversations",
@@ -97,7 +85,6 @@
     "subagents"
   ],
   "src/domains/chat/hooks/use-stream-event-handler.ts": [
-    "conversations",
     "messaging"
   ],
   "src/domains/chat/hooks/use-subagent-card-data.test.ts": [
@@ -119,11 +106,9 @@
     "subagents"
   ],
   "src/domains/chat/utils/debug-api.test.ts": [
-    "conversations",
     "messaging"
   ],
   "src/domains/chat/utils/debug-api.ts": [
-    "conversations",
     "messaging"
   ],
   "src/domains/chat/utils/stream-handlers/interaction-handlers.test.ts": [
@@ -146,9 +131,6 @@
   ],
   "src/domains/chat/utils/stream-handlers/navigation-handlers.ts": [
     "settings"
-  ],
-  "src/domains/chat/utils/stream-handlers/queue-handlers.ts": [
-    "conversations"
   ],
   "src/domains/chat/utils/stream-handlers/subagent-handlers.ts": [
     "subagents"

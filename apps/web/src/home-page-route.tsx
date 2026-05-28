@@ -5,7 +5,7 @@ import { useActiveAssistantContext } from "@/components/layout/active-assistant-
 import { requestComposerFocus } from "@/domains/chat/composer-focus";
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { useConversationListQuery } from "@/domains/conversations/conversation-queries";
-import { useConversationStore } from "@/domains/conversations/conversation-store";
+import { useConversationStore } from "@/stores/conversation-store";
 import { HomePage } from "@/domains/home/home-page";
 import { useViewerStore } from "@/stores/viewer-store";
 import { routes } from "@/utils/routes";

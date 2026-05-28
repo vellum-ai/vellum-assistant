@@ -6,7 +6,7 @@ import {
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 import type { MessageDequeuedEvent, MessageQueuedDeletedEvent, MessageQueuedEvent, MessageRequestCompleteEvent } from "@/domains/chat/api/event-types";
 import { deleteQueuedMessage } from "@/domains/chat/api/messages";
-import { useConversationStore } from "@/domains/conversations/conversation-store";
+import { useConversationStore } from "@/stores/conversation-store";
 
 export function handleMessageQueued(
   event: MessageQueuedEvent,

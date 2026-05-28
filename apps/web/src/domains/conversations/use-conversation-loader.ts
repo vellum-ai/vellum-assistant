@@ -26,7 +26,7 @@ import type { TranscriptPaginationState } from "@/domains/chat/transcript/types"
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
 
 
-import { useConversationStore } from "@/domains/conversations/conversation-store";
+import { useConversationStore } from "@/stores/conversation-store";
 import { haptic } from "@/utils/haptics";
 import { routes } from "@/utils/routes";
 import type { NavigateFunction } from "react-router";

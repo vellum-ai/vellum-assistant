@@ -60,7 +60,7 @@ import {
   type UIContext,
   shouldShowThinkingIndicator,
 } from "@/domains/messaging/turn-selectors";
-import { useConversationStore } from "@/domains/conversations/conversation-store";
+import { useConversationStore } from "@/stores/conversation-store";
 
 // ---------------------------------------------------------------------------
 // Public types

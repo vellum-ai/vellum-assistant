@@ -2,7 +2,7 @@ import * as Sentry from "@sentry/react";
 import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { useConversationStore } from "@/domains/conversations/conversation-store";
+import { useConversationStore } from "@/stores/conversation-store";
 import {
   getConversations,
   markConversationSeenLocal,

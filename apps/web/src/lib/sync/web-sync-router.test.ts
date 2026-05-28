@@ -26,7 +26,7 @@ import {
   type SyncChangedEvent,
 } from "@/lib/sync/types";
 import { getClientId } from "@/lib/telemetry/client-identity";
-import { useConversationStore } from "@/domains/conversations/conversation-store";
+import { useConversationStore } from "@/stores/conversation-store";
 
 const OTHER_CLIENT_ID = "22222222-2222-2222-2222-222222222222";
 
