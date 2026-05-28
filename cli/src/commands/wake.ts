@@ -103,8 +103,24 @@ export async function wake(): Promise<void> {
         10_000,
       );
       if (becameHealthy) {
-        daemonRunning = true;
-        console.log(`Assistant running (pid ${daemonStatus.pid}).`);
+        if (watch) {
+          // Process recovered — but caller wants watch mode, so fall through
+          // to the watch-mode restart path below.
+          if (!isAssistantWatchModeAvailable()) {
+            daemonRunning = true;
+            console.log(
+              `Assistant running (pid ${daemonStatus.pid}) — watch mode not available (no source files). Keeping existing process.`,
+            );
+          } else {
+            console.log(
+              `Assistant running (pid ${daemonStatus.pid}) — restarting in watch mode...`,
+            );
+            await stopProcessByPidFile(pidFile, "assistant");
+          }
+        } else {
+          daemonRunning = true;
+          console.log(`Assistant running (pid ${daemonStatus.pid}).`);
+        }
       } else if (!isVellumProcess(daemonStatus.pid!)) {
         console.log(
           `Stale PID file (pid ${daemonStatus.pid} is not a Vellum process) — cleaning up...`,
