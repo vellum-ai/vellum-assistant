@@ -31,3 +31,69 @@ export function consumePendingComposerFocus(): boolean {
   pending = false;
   return wasPending;
 }
+
+type ComposerTypingKeyEvent = Pick<
+  KeyboardEvent,
+  | "altKey"
+  | "ctrlKey"
+  | "defaultPrevented"
+  | "isComposing"
+  | "key"
+  | "keyCode"
+  | "metaKey"
+>;
+
+const TEXT_ENTRY_SELECTOR = [
+  "input",
+  "textarea",
+  "select",
+  '[contenteditable=""]',
+  '[contenteditable="true"]',
+  '[role="textbox"]',
+].join(",");
+
+function isTextEntryElement(element: Element | null): boolean {
+  return Boolean(element?.closest(TEXT_ENTRY_SELECTOR));
+}
+
+function isKeyboardActivationElement(element: Element | null): boolean {
+  return Boolean(element?.closest("a[href], button, summary"));
+}
+
+export function shouldFocusComposerForTyping(
+  event: ComposerTypingKeyEvent,
+  activeElement: Element | null,
+): boolean {
+  if (event.defaultPrevented) return false;
+  if (event.metaKey || event.ctrlKey || event.altKey) return false;
+  if (event.isComposing || event.keyCode === 229) return false;
+  if (event.key.length !== 1) return false;
+  if (isTextEntryElement(activeElement)) return false;
+  if (event.key === " " && isKeyboardActivationElement(activeElement)) {
+    return false;
+  }
+  return true;
+}
+
+export function insertTextAtSelection({
+  value,
+  text,
+  selectionStart,
+  selectionEnd,
+}: {
+  value: string;
+  text: string;
+  selectionStart: number | null | undefined;
+  selectionEnd: number | null | undefined;
+}): { value: string; cursor: number } {
+  const start = Math.max(
+    0,
+    Math.min(selectionStart ?? value.length, value.length),
+  );
+  const end = Math.max(
+    start,
+    Math.min(selectionEnd ?? start, value.length),
+  );
+  const nextValue = value.slice(0, start) + text + value.slice(end);
+  return { value: nextValue, cursor: start + text.length };
+}

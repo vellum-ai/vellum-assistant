@@ -29,6 +29,9 @@ import { useConversationStore } from "@/domains/conversations/conversation-store
 import {
   COMPOSER_FOCUS_EVENT,
   consumePendingComposerFocus,
+  insertTextAtSelection,
+  requestComposerFocus,
+  shouldFocusComposerForTyping,
 } from "./composer-focus";
 import {
   useConversationGroupsQuery,
@@ -292,11 +295,16 @@ export function ChatPage() {
   // chat-layout navigated us here) — see `./composer-focus.ts`.
   useEffect(() => {
     const focusInput = () => inputRef.current?.focus();
-    window.addEventListener(COMPOSER_FOCUS_EVENT, focusInput);
+    const handleFocusRequest = () => {
+      consumePendingComposerFocus();
+      focusInput();
+    };
+    window.addEventListener(COMPOSER_FOCUS_EVENT, handleFocusRequest);
     if (consumePendingComposerFocus()) {
       queueMicrotask(focusInput);
     }
-    return () => window.removeEventListener(COMPOSER_FOCUS_EVENT, focusInput);
+    return () =>
+      window.removeEventListener(COMPOSER_FOCUS_EVENT, handleFocusRequest);
   }, []);
 
   const activeConversationIdRef = useRef<string | null>(activeConversationId);
@@ -383,6 +391,36 @@ export function ChatPage() {
     draftConversationIdResolutionRef,
     onDraftRestored: setRestoredDraftConversationId,
   });
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const inputEl = inputRef.current;
+      if (!inputEl || inputEl.disabled || inputEl.readOnly) return;
+      if (document.activeElement === inputEl) return;
+      if (document.querySelector('[aria-modal="true"]')) return;
+      if (!shouldFocusComposerForTyping(event, document.activeElement)) return;
+
+      event.preventDefault();
+      inputEl.focus();
+      setInput((current) => {
+        const next = insertTextAtSelection({
+          value: current,
+          text: event.key,
+          selectionStart: inputEl.selectionStart,
+          selectionEnd: inputEl.selectionEnd,
+        });
+        requestAnimationFrame(() => {
+          inputEl.setSelectionRange(next.cursor, next.cursor);
+        });
+        return next.value;
+      });
+    };
+
+    window.addEventListener("keydown", onKeyDown, { capture: true });
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, { capture: true });
+    };
+  }, [setInput]);
 
   // -------------------------------------------------------------------------
   // Attachments
@@ -500,6 +538,7 @@ export function ChatPage() {
     (opts: { silent?: boolean; initialMessage?: string } = {}) => {
       useSubagentStore.getState().reset();
       rawStartNewConversation(opts);
+      requestComposerFocus();
     },
     [rawStartNewConversation],
   );
