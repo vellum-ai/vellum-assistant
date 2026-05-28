@@ -194,7 +194,7 @@ export function SetupStep({
           Back
         </Button>
         <div className="pointer-events-none absolute inset-x-0 flex justify-center">
-          <StepDots current={0} />
+          <StepDots current={1} />
         </div>
         <div className="flex gap-2">
           <Button

@@ -93,9 +93,21 @@ export function BillingOnboardingModal({
   });
 
   const domainSetupAvailable = onboardingQuery.data?.domain_setup_available;
-  const advanceFromSetup = useCallback(() => {
+  // Domain/email/guardian registration must run while the assistant's machine
+  // is still online: registering the email triggers a guardian-channel write to
+  // the machine's gateway. The SetupStep's "Apply & Restart" takes the machine
+  // offline, so the domain step runs *before* setup — otherwise that write hangs
+  // against a restarting machine.
+  const advanceFromWelcome = useCallback(() => {
     if (domainSetupAvailable === false) {
-      setStep("complete");
+      setStep("setup");
+    } else {
+      setStep("domain");
+    }
+  }, [domainSetupAvailable]);
+  const backFromSetup = useCallback(() => {
+    if (domainSetupAvailable === false) {
+      setStep("welcome");
     } else {
       setStep("domain");
     }
@@ -132,7 +144,16 @@ export function BillingOnboardingModal({
     }
 
     if (step === "welcome") {
-      return <WelcomeState onContinue={() => setStep("setup")} />;
+      return <WelcomeState onContinue={advanceFromWelcome} />;
+    }
+
+    if (step === "domain") {
+      return (
+        <DomainStep
+          onBack={() => setStep("welcome")}
+          onExit={() => setStep("setup")}
+        />
+      );
     }
 
     if (step === "setup") {
@@ -145,24 +166,14 @@ export function BillingOnboardingModal({
         <SetupStep
           storageGib={onboardingQuery.data?.selected_storage_gib ?? null}
           maxTier={maxTier}
-          onBack={() => setStep("welcome")}
-          onAdvance={advanceFromSetup}
-        />
-      );
-    }
-
-    if (step === "domain") {
-      return (
-        <DomainStep
-          onBack={() => setStep("setup")}
-          onExit={() => setStep("complete")}
+          onBack={backFromSetup}
+          onAdvance={() => setStep("complete")}
         />
       );
     }
 
     if (step === "complete") {
-      const backFromComplete = domainSetupAvailable === false ? "setup" : "domain";
-      return <CompleteState onBack={() => setStep(backFromComplete)} />;
+      return <CompleteState onBack={() => setStep("setup")} />;
     }
 
     return null;
