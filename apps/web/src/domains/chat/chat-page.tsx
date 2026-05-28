@@ -258,8 +258,10 @@ export function ChatPage() {
   // Pin-sync side-effect
   // -------------------------------------------------------------------------
   useActiveAppPinSync(useCallback((appId: string) => {
-    useViewerStore.getState().handleAppUnpinned(appId);
-    useConversationStore.getState().setEditingConversationId(null);
+    const didClose = useViewerStore.getState().handleAppUnpinned(appId);
+    if (didClose) {
+      useConversationStore.getState().setEditingConversationId(null);
+    }
   }, []));
 
   // -------------------------------------------------------------------------

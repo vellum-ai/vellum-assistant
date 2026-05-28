@@ -122,7 +122,7 @@ export interface ViewerActions {
   handleAppLoadFailed: () => void;
   closeApp: () => void;
   toggleAppMinimized: () => void;
-  handleAppUnpinned: (appId: string) => void;
+  handleAppUnpinned: (appId: string) => boolean;
   enterAppEditing: () => void;
   exitAppEditing: () => void;
 
@@ -255,9 +255,10 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
       state.activeAppId !== appId ||
       (state.mainView !== "app" && state.mainView !== "app-editing")
     ) {
-      return;
+      return false;
     }
     get().closeApp();
+    return true;
   },
 
   enterAppEditing: () => {
