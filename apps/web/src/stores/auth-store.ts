@@ -145,6 +145,14 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
 
     if (isLocalMode() && !isGatewayAuthEnabled()) {
       set({ isLoggedIn: true, isLoading: false, user: GATEWAY_LOCAL_USER });
+      getSession()
+        .then((result) => {
+          if (result.ok && result.data.user) {
+            const user = toAuthUser(result.data.user);
+            set({ hasPlatformSession: true, user });
+          }
+        })
+        .catch(() => {});
       return;
     }
 
