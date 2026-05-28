@@ -173,11 +173,17 @@ export async function wake(): Promise<void> {
     const { alive, pid } = isProcessAlive(gatewayPidFile);
     const needsRestart = bootstrapSecretBackfilled && alive;
     if (needsRestart) {
-      console.log(
-        `Gateway running (pid ${pid}) — restarting to apply bootstrap secret...`,
-      );
-      await stopProcessByPidFile(gatewayPidFile, "gateway");
-      await startGateway(watch, resources, { signingKey, bootstrapSecret });
+      if (watch && !isGatewayWatchModeAvailable()) {
+        console.log(
+          `Gateway running (pid ${pid}) — bootstrap secret backfilled but watch mode not available. Keeping existing process.`,
+        );
+      } else {
+        console.log(
+          `Gateway running (pid ${pid}) — restarting to apply bootstrap secret...`,
+        );
+        await stopProcessByPidFile(gatewayPidFile, "gateway");
+        await startGateway(watch, resources, { signingKey, bootstrapSecret });
+      }
     } else if (alive) {
       if (watch) {
         if (!isGatewayWatchModeAvailable()) {

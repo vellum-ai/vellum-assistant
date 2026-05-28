@@ -265,10 +265,9 @@ extension AppDelegate {
                 log.warning("forceReBootstrap: could not resolve lockfile entry for active assistant — treating as remote hatch")
             }
             if !isRemoteHatch {
-                // Clear the guardian-init lock so /v1/guardian/init can succeed
-                // again. Without this, the HTTP fallback in performInitialBootstrap
-                // is permanently 403'd on bare-metal after the first hatch.
-                let cleared = await GuardianClient().resetBootstrap()
+                let cleared = await GuardianClient().resetBootstrap(
+                    bootstrapSecret: assistant?.guardianBootstrapSecret
+                )
                 if !cleared {
                     log.warning("forceReBootstrap: reset-bootstrap failed — HTTP fallback may still be locked out")
                 }
