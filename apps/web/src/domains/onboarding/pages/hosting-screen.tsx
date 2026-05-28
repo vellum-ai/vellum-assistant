@@ -4,6 +4,7 @@ import { useNavigate } from "react-router";
 
 import { Button } from "@vellum/design-library/components/button";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
+import { useAuthStore } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 
 type HostingMode = "vellum-cloud" | "local" | "docker";
@@ -20,8 +21,8 @@ interface HostingOption {
 const ICON_CLASS = "h-5 w-5 shrink-0 text-[var(--content-secondary)]";
 
 function useHostingOptions(): HostingOption[] {
-  // TODO: gate Docker behind a feature flag (local-docker-enabled) once
-  // the web feature flag store supports it. For now, always show it.
+  const hasPlatformSession = useAuthStore.use.hasPlatformSession();
+
   return [
     {
       mode: "vellum-cloud",
@@ -29,8 +30,9 @@ function useHostingOptions(): HostingOption[] {
       subtitle:
         "Always on, 24/7, even when your computer is off. Runs on Vellum's secure infrastructure.",
       icon: <Cloud className={ICON_CLASS} />,
-      disabled: true,
-      badge: "Requires Account",
+      ...(hasPlatformSession
+        ? {}
+        : { disabled: true, badge: "Requires Account" }),
     },
     {
       mode: "local",

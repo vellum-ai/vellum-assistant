@@ -84,6 +84,10 @@ export const router = createBrowserRouter(
         // Onboarding routes — full-screen (no ChatLayout sidebar).
         // Lazy-loaded: one-time flow, not revisited.
         {
+          path: "onboarding/welcome",
+          lazy: { Component: () => import("@/domains/onboarding/pages/welcome-screen").then((m) => m.WelcomeScreen) },
+        },
+        {
           path: "onboarding/hosting",
           lazy: { Component: () => import("@/domains/onboarding/pages/hosting-screen").then((m) => m.HostingScreen) },
         },

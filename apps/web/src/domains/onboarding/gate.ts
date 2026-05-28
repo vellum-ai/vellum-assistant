@@ -31,7 +31,7 @@ import {
  *      (`/assistant`), let them through — sibling paths
  *      `/assistant/settings/...`, `/assistant/onboarding/...`,
  *      `/admin/...` etc. shouldn't be gated.
- *   5. Otherwise, route them to hosting selection (local mode) or privacy (platform).
+ *   5. Otherwise, route them to welcome (local mode) or privacy (platform).
  */
 export function resolveOnboardingRedirect({
   intendedDestination,
@@ -50,7 +50,7 @@ export function resolveOnboardingRedirect({
   // don't miss absolute URLs whose path is the assistant surface.
   const path = extractPathname(intendedDestination);
   if (path !== routes.assistant) return null;
-  return isLocalMode() ? routes.onboarding.hosting : routes.onboarding.privacy;
+  return isLocalMode() ? routes.onboarding.welcome : routes.onboarding.privacy;
 }
 
 function extractPathname(destination: string): string {
