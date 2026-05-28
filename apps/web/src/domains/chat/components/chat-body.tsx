@@ -272,7 +272,7 @@ export function ChatBody({
           ) : (
             <ChatComposer {...composerProps} />
           )}
-          {!isKeyboardOpen && startersSlot}
+          {startersSlot}
         </div>
       </div>
       {isAttachmentDragOver && (

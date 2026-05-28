@@ -218,7 +218,7 @@ describe("ChatBody — startersSlot rendering", () => {
     expect(html).not.toContain("STARTER_CHIPS");
   });
 
-  test("hides starters when keyboard is open", () => {
+  test("renders starters when keyboard is open", () => {
     const html = renderToStaticMarkup(
       <ChatBody
         {...withEmptyState({
@@ -229,7 +229,7 @@ describe("ChatBody — startersSlot rendering", () => {
         })}
       />,
     );
-    expect(html).not.toContain("STARTER_CHIPS");
+    expect(html).toContain("STARTER_CHIPS");
   });
 });
 
