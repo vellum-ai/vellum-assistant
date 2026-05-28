@@ -3,10 +3,11 @@ import {
   loadAllAssistants,
   getDaemonPidPath,
   removeAssistantEntry,
+  resolveCloud,
   saveAssistantEntry,
   setActiveAssistant,
+  type AssistantEntry,
 } from "../lib/assistant-config.js";
-import type { AssistantEntry } from "../lib/assistant-config.js";
 import {
   loadGuardianToken,
   leaseGuardianToken,
@@ -212,12 +213,6 @@ export function parseArgs(argv: string[]): {
   }
 
   return { from, to, targetEnv, targetName, keepSource, dryRun, help };
-}
-
-function resolveCloud(entry: AssistantEntry): string {
-  return (
-    entry.cloud || (entry.project ? "gcp" : entry.sshUser ? "custom" : "local")
-  );
 }
 
 // ---------------------------------------------------------------------------

@@ -8,8 +8,6 @@ export function buildDaemonUrl(port: number): string {
 /**
  * Perform an HTTP health check against the daemon's `/healthz` endpoint.
  * Returns true if the daemon responds with HTTP 200, false otherwise.
- *
- * This replaces the socket-based `isSocketResponsive()` check.
  */
 export async function httpHealthCheck(
   port: number,
@@ -28,7 +26,7 @@ export async function httpHealthCheck(
 
 /**
  * Poll the daemon's `/healthz` endpoint until it responds with 200 or the
- * timeout is reached. This replaces `waitForSocketFile()`.
+ * timeout is reached.
  *
  * Returns true if the daemon became healthy within the timeout, false otherwise.
  */

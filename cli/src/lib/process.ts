@@ -23,13 +23,15 @@ export function isVellumProcess(pid: number): boolean {
   }
 }
 
+/** Discriminated union: when `alive` is true, `pid` is guaranteed non-null. */
+export type ProcessAliveResult =
+  | { alive: true; pid: number }
+  | { alive: false; pid: null };
+
 /**
  * Check if a PID file's process is alive.
  */
-export function isProcessAlive(pidFile: string): {
-  alive: boolean;
-  pid: number | null;
-} {
+export function isProcessAlive(pidFile: string): ProcessAliveResult {
   if (!existsSync(pidFile)) {
     return { alive: false, pid: null };
   }
@@ -129,17 +131,8 @@ export async function resolveProcessState(
       `Stale PID file (pid ${result.pid} is not a Vellum process) — cleaning up...`,
     );
   }
-  cleanupPidFile(pidFile);
+  removeFiles(pidFile);
   return { status: "needs_start", pid: result.pid };
-}
-
-/** Remove a PID file if it exists. */
-function cleanupPidFile(pidFile: string): void {
-  if (existsSync(pidFile)) {
-    try {
-      unlinkSync(pidFile);
-    } catch {}
-  }
 }
 
 /**
@@ -181,6 +174,18 @@ export async function stopProcess(
   return true;
 }
 
+/** Remove one or more files, ignoring missing-file errors. */
+function removeFiles(...files: (string | string[] | undefined)[]): void {
+  for (const entry of files) {
+    if (!entry) continue;
+    for (const f of Array.isArray(entry) ? entry : [entry]) {
+      try {
+        unlinkSync(f);
+      } catch {}
+    }
+  }
+}
+
 /**
  * Stop a process tracked by a PID file, then clean up the file.
  * Returns true if the process was stopped, false if it wasn't alive.
@@ -188,24 +193,13 @@ export async function stopProcess(
 export async function stopProcessByPidFile(
   pidFile: string,
   label: string,
-  cleanupFiles?: string[],
+  extraCleanupFiles?: string[],
   timeoutMs?: number,
 ): Promise<boolean> {
   const { alive, pid } = isProcessAlive(pidFile);
 
   if (!alive || pid === null) {
-    if (existsSync(pidFile)) {
-      try {
-        unlinkSync(pidFile);
-      } catch {}
-    }
-    if (cleanupFiles) {
-      for (const f of cleanupFiles) {
-        try {
-          unlinkSync(f);
-        } catch {}
-      }
-    }
+    removeFiles(pidFile, extraCleanupFiles);
     return false;
   }
 
@@ -216,32 +210,12 @@ export async function stopProcessByPidFile(
     console.log(
       `PID ${pid} is not a vellum process — cleaning up stale ${label} PID file.`,
     );
-    try {
-      unlinkSync(pidFile);
-    } catch {}
-    if (cleanupFiles) {
-      for (const f of cleanupFiles) {
-        try {
-          unlinkSync(f);
-        } catch {}
-      }
-    }
+    removeFiles(pidFile, extraCleanupFiles);
     return false;
   }
 
   const stopped = await stopProcess(pid, label, timeoutMs);
-
-  try {
-    unlinkSync(pidFile);
-  } catch {}
-  if (cleanupFiles) {
-    for (const f of cleanupFiles) {
-      try {
-        unlinkSync(f);
-      } catch {}
-    }
-  }
-
+  removeFiles(pidFile, extraCleanupFiles);
   return stopped;
 }
 

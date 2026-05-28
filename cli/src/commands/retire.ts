@@ -2,14 +2,16 @@ import { existsSync, unlinkSync } from "fs";
 import { join } from "path";
 
 import {
+  extractHostFromUrl,
   formatAssistantLookupError,
   formatAssistantReference,
   getAssistantDisplayName,
   loadAllAssistants,
   lookupAssistantByIdentifier,
   removeAssistantEntry,
+  resolveCloud,
+  type AssistantEntry,
 } from "../lib/assistant-config.js";
-import type { AssistantEntry } from "../lib/assistant-config.js";
 import { parseAssistantTargetArg } from "../lib/assistant-target-args.js";
 import { getConfigDir } from "../lib/environments/paths.js";
 import { getCurrentEnvironment } from "../lib/environments/resolve.js";
@@ -30,28 +32,6 @@ import {
   resetLogFile,
   writeToLogFile,
 } from "../lib/xdg-log.js";
-
-function resolveCloud(entry: AssistantEntry): string {
-  if (entry.cloud) {
-    return entry.cloud;
-  }
-  if (entry.project) {
-    return "gcp";
-  }
-  if (entry.sshUser) {
-    return "custom";
-  }
-  return "local";
-}
-
-function extractHostFromUrl(url: string): string {
-  try {
-    const parsed = new URL(url);
-    return parsed.hostname;
-  } catch {
-    return url.replace(/^https?:\/\//, "").split(":")[0];
-  }
-}
 
 export { retireLocal };
 

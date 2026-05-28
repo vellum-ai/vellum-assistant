@@ -58,7 +58,7 @@ export function readPidFile(pidFile: string): string | null {
   return pid || null;
 }
 
-export function isProcessAlive(pid: string): boolean {
+export function isPidAlive(pid: string): boolean {
   try {
     process.kill(parseInt(pid, 10), 0);
     return true;

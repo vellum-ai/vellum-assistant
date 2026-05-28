@@ -17,7 +17,11 @@ import {
 } from "./assistant-config.js";
 import { GATEWAY_PORT } from "./constants.js";
 import { httpHealthCheck, waitForDaemonReady } from "./http-client.js";
-import { resolveProcessState, stopProcessByPidFile } from "./process.js";
+import {
+  resolveProcessState,
+  stopProcess,
+  stopProcessByPidFile,
+} from "./process.js";
 import { openLogFile, pipeToLogFile } from "./xdg-log.js";
 
 const _require = createRequire(import.meta.url);
@@ -319,6 +323,57 @@ type DaemonStartOptions = {
   signingKey?: string;
 };
 
+/**
+ * Apply per-instance resource overrides and shared daemon options to an
+ * environment object. Called from all daemon spawn paths (source, watch,
+ * bundled binary) to eliminate drift between the three.
+ */
+function applyDaemonEnvOverrides(
+  env: Record<string, string | undefined>,
+  resources: LocalInstanceResources | undefined,
+  options?: DaemonStartOptions,
+): void {
+  if (resources) {
+    env.VELLUM_WORKSPACE_DIR = join(
+      resources.instanceDir,
+      ".vellum",
+      "workspace",
+    );
+    env.GATEWAY_SECURITY_DIR = join(
+      resources.instanceDir,
+      ".vellum",
+      "protected",
+    );
+    env.CREDENTIAL_SECURITY_DIR = join(
+      resources.instanceDir,
+      ".vellum",
+      "protected",
+    );
+    env.RUNTIME_HTTP_PORT = String(resources.daemonPort);
+    env.GATEWAY_PORT = String(resources.gatewayPort);
+    env.QDRANT_HTTP_PORT = String(resources.qdrantPort);
+    delete env.QDRANT_URL;
+  }
+  if (options?.signingKey) {
+    env.ACTOR_TOKEN_SIGNING_KEY = options.signingKey;
+  }
+  if (options?.defaultWorkspaceConfigPath) {
+    env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH =
+      options.defaultWorkspaceConfigPath;
+  }
+  applyIpcSocketDirOverride(env);
+}
+
+function logDaemonReadiness(ready: boolean): void {
+  if (ready) {
+    console.log("   Assistant ready\n");
+  } else {
+    console.log(
+      "   ⚠️  Assistant did not become ready within 60s — continuing anyway\n",
+    );
+  }
+}
+
 async function startDaemonFromSource(
   assistantIndex: string,
   resources: LocalInstanceResources,
@@ -353,37 +408,8 @@ async function startDaemonFromSource(
     VELLUM_CLOUD: "local",
     VELLUM_DEV: "1",
     VELLUM_ENVIRONMENT: process.env.VELLUM_ENVIRONMENT || "local",
-    ...(options?.signingKey
-      ? { ACTOR_TOKEN_SIGNING_KEY: options.signingKey }
-      : {}),
   };
-  if (resources) {
-    env.VELLUM_WORKSPACE_DIR = join(
-      resources.instanceDir,
-      ".vellum",
-      "workspace",
-    );
-    env.GATEWAY_SECURITY_DIR = join(
-      resources.instanceDir,
-      ".vellum",
-      "protected",
-    );
-    env.CREDENTIAL_SECURITY_DIR = join(
-      resources.instanceDir,
-      ".vellum",
-      "protected",
-    );
-    env.RUNTIME_HTTP_PORT = String(resources.daemonPort);
-    env.GATEWAY_PORT = String(resources.gatewayPort);
-    env.QDRANT_HTTP_PORT = String(resources.qdrantPort);
-    delete env.QDRANT_URL;
-  }
-  if (options?.defaultWorkspaceConfigPath) {
-    env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH =
-      options.defaultWorkspaceConfigPath;
-  }
-
-  applyIpcSocketDirOverride(env);
+  applyDaemonEnvOverrides(env, resources, options);
 
   // Write a sentinel PID file before spawning so concurrent hatch() calls
   // detect the in-progress spawn and wait instead of racing.
@@ -452,37 +478,8 @@ async function startDaemonWatchFromSource(
     RUNTIME_HTTP_PORT: process.env.RUNTIME_HTTP_PORT || "7821",
     VELLUM_DEV: "1",
     VELLUM_ENVIRONMENT: process.env.VELLUM_ENVIRONMENT || "local",
-    ...(options?.signingKey
-      ? { ACTOR_TOKEN_SIGNING_KEY: options.signingKey }
-      : {}),
   };
-  if (resources) {
-    env.VELLUM_WORKSPACE_DIR = join(
-      resources.instanceDir,
-      ".vellum",
-      "workspace",
-    );
-    env.GATEWAY_SECURITY_DIR = join(
-      resources.instanceDir,
-      ".vellum",
-      "protected",
-    );
-    env.CREDENTIAL_SECURITY_DIR = join(
-      resources.instanceDir,
-      ".vellum",
-      "protected",
-    );
-    env.RUNTIME_HTTP_PORT = String(resources.daemonPort);
-    env.GATEWAY_PORT = String(resources.gatewayPort);
-    env.QDRANT_HTTP_PORT = String(resources.qdrantPort);
-    delete env.QDRANT_URL;
-  }
-  if (options?.defaultWorkspaceConfigPath) {
-    env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH =
-      options.defaultWorkspaceConfigPath;
-  }
-
-  applyIpcSocketDirOverride(env);
+  applyDaemonEnvOverrides(env, resources, options);
 
   // Write a sentinel PID file before spawning so concurrent hatch() calls
   // detect the in-progress spawn and wait instead of racing.
@@ -956,39 +953,7 @@ export async function startLocalDaemon(
           daemonEnv[key] = process.env[key]!;
         }
       }
-      if (options?.defaultWorkspaceConfigPath) {
-        daemonEnv.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH =
-          options.defaultWorkspaceConfigPath;
-      }
-      // When running a named instance, override env so the daemon resolves
-      // all paths under the instance directory and listens on its own port.
-      if (resources) {
-        daemonEnv.VELLUM_WORKSPACE_DIR = join(
-          resources.instanceDir,
-          ".vellum",
-          "workspace",
-        );
-        daemonEnv.GATEWAY_SECURITY_DIR = join(
-          resources.instanceDir,
-          ".vellum",
-          "protected",
-        );
-        daemonEnv.CREDENTIAL_SECURITY_DIR = join(
-          resources.instanceDir,
-          ".vellum",
-          "protected",
-        );
-        daemonEnv.RUNTIME_HTTP_PORT = String(resources.daemonPort);
-        daemonEnv.GATEWAY_PORT = String(resources.gatewayPort);
-        daemonEnv.QDRANT_HTTP_PORT = String(resources.qdrantPort);
-        delete daemonEnv.QDRANT_URL;
-      }
-
-      if (options?.signingKey) {
-        daemonEnv.ACTOR_TOKEN_SIGNING_KEY = options.signingKey;
-      }
-
-      applyIpcSocketDirOverride(daemonEnv);
+      applyDaemonEnvOverrides(daemonEnv, resources, options);
 
       // Write a sentinel PID file before spawning so concurrent hatch() calls
       // see the file and fall through to the isDaemonResponsive() port check
@@ -1055,13 +1020,7 @@ export async function startLocalDaemon(
       }
     }
 
-    if (daemonReady) {
-      console.log("   Assistant ready\n");
-    } else {
-      console.log(
-        "   ⚠️  Assistant did not become ready within 60s — continuing anyway\n",
-      );
-    }
+    logDaemonReadiness(daemonReady);
   } else {
     console.log("🔨 Starting local assistant...");
 
@@ -1074,27 +1033,10 @@ export async function startLocalDaemon(
     }
     if (watch) {
       await startDaemonWatchFromSource(assistantIndex, resources, options);
-
-      const daemonReady = await waitForDaemonReady(resources.daemonPort, 60000);
-      if (daemonReady) {
-        console.log("   Assistant ready\n");
-      } else {
-        console.log(
-          "   ⚠️  Assistant did not become ready within 60s — continuing anyway\n",
-        );
-      }
     } else {
       await startDaemonFromSource(assistantIndex, resources, options);
-
-      const daemonReady = await waitForDaemonReady(resources.daemonPort, 60000);
-      if (daemonReady) {
-        console.log("   Assistant ready\n");
-      } else {
-        console.log(
-          "   ⚠️  Assistant did not become ready within 60s — continuing anyway\n",
-        );
-      }
     }
+    logDaemonReadiness(await waitForDaemonReady(resources.daemonPort, 60000));
   }
 }
 
@@ -1216,27 +1158,7 @@ export async function startGateway(
   // Wait for the gateway to be responsive before returning. Without this,
   // callers may try to connect before the HTTP server is listening and get
   // connection-refused errors.
-  const start = Date.now();
-  const timeoutMs = 30000;
-  let ready = false;
-  while (Date.now() - start < timeoutMs) {
-    try {
-      const res = await fetch(
-        `http://localhost:${effectiveGatewayPort}/healthz`,
-        {
-          signal: AbortSignal.timeout(2000),
-        },
-      );
-      if (res.ok) {
-        ready = true;
-        break;
-      }
-    } catch {
-      // Gateway not ready yet
-    }
-    await new Promise((r) => setTimeout(r, 250));
-  }
-
+  const ready = await waitForDaemonReady(effectiveGatewayPort, 30000);
   if (!ready) {
     console.warn(
       "⚠ Gateway started but health check did not respond within 30s",
@@ -1275,9 +1197,7 @@ export async function stopLocalProcesses(
     try {
       const pid = parseInt(readFileSync(ngrokPidFile, "utf-8").trim(), 10);
       if (!isNaN(pid)) {
-        try {
-          process.kill(pid, "SIGTERM");
-        } catch {}
+        await stopProcess(pid, "ngrok");
       }
       unlinkSync(ngrokPidFile);
     } catch {}
