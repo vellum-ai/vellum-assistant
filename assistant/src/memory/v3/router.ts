@@ -29,12 +29,9 @@ import {
   extractToolUse,
   getConfiguredProvider,
 } from "../../providers/provider-send-message.js";
-import type {
-  ContentBlock,
-  Message,
-  ToolDefinition,
-} from "../../providers/types.js";
+import type { Message, ToolDefinition } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
+import { cachedTextBlock } from "./provider-blocks.js";
 import type { LeafPath, LeafTree, TurnContext } from "./types.js";
 
 const log = getLogger("memory-v3-router");
@@ -187,18 +184,4 @@ export async function routeL1(
     selected.push(paths[id - 1]);
   }
   return selected;
-}
-
-/**
- * Text content block carrying an ephemeral `cache_control` breakpoint. Our
- * internal `TextContent` type omits the field (only the Anthropic provider
- * transforms it onto the wire), so we reach through a `Record` cast for the
- * same reason `v2/router.ts` does — it keeps the core types provider-agnostic.
- */
-function cachedTextBlock(text: string): ContentBlock {
-  const block: ContentBlock = { type: "text", text };
-  (block as unknown as Record<string, unknown>).cache_control = {
-    type: "ephemeral",
-  };
-  return block;
 }

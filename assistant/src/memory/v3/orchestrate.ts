@@ -24,7 +24,7 @@ import type { NeedleIndex } from "./needle.js";
 import { routeL1 } from "./router.js";
 import type { SelectedPage } from "./selector.js";
 import { selectAcrossLeaves } from "./selector.js";
-import { leavesOf, membersOf } from "./tree.js";
+import { coreSlugs, leavesOf } from "./tree.js";
 import type { LeafPath, LeafTree, Slug, TurnContext } from "./types.js";
 import { WorkingSet } from "./working-set.js";
 
@@ -101,10 +101,7 @@ export async function orchestrate(
   }
 
   // Step 5: evict. Core slugs are owned by core, not the working set.
-  const coreSlugs = new Set<Slug>(
-    [...deps.core].flatMap((leaf) => membersOf(deps.tree, leaf)),
-  );
-  deps.workingSet.evict(turn.turnNumber, coreSlugs);
+  deps.workingSet.evict(turn.turnNumber, coreSlugs(deps.tree, deps.core));
 
   // Step 6: final injection = this turn's selections ∪ carried-forward set.
   const workingSetUnion = deps.workingSet.union();

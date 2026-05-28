@@ -145,3 +145,8 @@ export function membersOf(tree: LeafTree, leaf: LeafPath): Slug[] {
 export function leavesOf(tree: LeafTree, slug: Slug): LeafPath[] {
   return tree.byPage.get(slug) ?? [];
 }
+
+/** The unique slugs owned by every leaf in `core` (expand leaf-paths → slugs). */
+export function coreSlugs(tree: LeafTree, core: Set<LeafPath>): Set<Slug> {
+  return new Set([...core].flatMap((leaf) => membersOf(tree, leaf)));
+}
