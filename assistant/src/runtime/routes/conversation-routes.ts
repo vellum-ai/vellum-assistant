@@ -1579,25 +1579,22 @@ export async function handleSendMessage(
   if (conversation.isProcessing()) {
     // Queue the message so it's processed when the current turn completes
     const requestId = crypto.randomUUID();
-    const enqueueResult = conversation.enqueueMessage(
-      contentAfterScan,
+    const enqueueResult = conversation.enqueueMessage({
+      content: contentAfterScan,
       attachments,
-      broadcastMessage,
+      onEvent: broadcastMessage,
       requestId,
-      undefined, // activeSurfaceId
-      undefined, // currentPage
-      {
+      metadata: {
         userMessageChannel: sourceChannel,
         assistantMessageChannel: sourceChannel,
         userMessageInterface: sourceInterface,
         assistantMessageInterface: sourceInterface,
         ...(body.automated === true ? { automated: true } : {}),
       },
-      { isInteractive },
-      undefined, // displayContent
+      isInteractive,
       transport,
       clientMessageId,
-    );
+    });
     if (enqueueResult.rejected) {
       return new RouteResponse(
         JSON.stringify({ accepted: false, error: "queue_full" }),

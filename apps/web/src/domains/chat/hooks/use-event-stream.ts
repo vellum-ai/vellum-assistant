@@ -45,7 +45,7 @@ import type {
   WebSyncRouter,
 } from "@/lib/sync/web-sync-router";
 
-import { useConversationStore } from "@/domains/conversations/conversation-store";
+import { useConversationStore } from "@/stores/conversation-store";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import {
   isSending,

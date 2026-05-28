@@ -34,7 +34,7 @@ import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics";
 import { saveDismissedSurfaceIds } from "@/domains/chat/utils/dismissed-surfaces-storage";
 import { isSending, useTurnStore } from "@/domains/messaging/turn-store";
 import { useInteractionStore } from "@/domains/interactions/interaction-store";
-import { useConversationStore } from "@/domains/conversations/conversation-store";
+import { useConversationStore } from "@/stores/conversation-store";
 import {
   findConversation,
   prependConversation,

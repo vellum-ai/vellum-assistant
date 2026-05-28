@@ -64,25 +64,15 @@ function makeContext(): SurfaceConversationContext & {
     surfaceActionRequestIds: new Set<string>(),
     currentTurnSurfaces: [],
     isProcessing: () => false,
-    enqueueMessage: (
-      content,
-      attachments,
-      _onEvent,
-      requestId,
-      surfaceId,
-      _currentPage,
-      _metadata,
-      _options,
-      displayContent,
-    ) => {
+    enqueueMessage: (options) => {
       enqueueCalls.push({
-        content,
-        requestId: requestId ?? "enq-req",
-        attachments,
-        surfaceId,
-        displayContent,
+        content: options.content,
+        requestId: options.requestId ?? "enq-req",
+        attachments: options.attachments ?? [],
+        surfaceId: options.activeSurfaceId,
+        displayContent: options.displayContent,
       });
-      return { queued: false, requestId: requestId ?? "enq-req" };
+      return { queued: false, requestId: options.requestId ?? "enq-req" };
     },
     getQueueDepth: () => 0,
     processMessage: async (

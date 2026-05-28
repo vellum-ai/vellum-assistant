@@ -11,7 +11,7 @@ import {
   type SyncChangedEvent,
 } from "@/lib/sync/types";
 import { getClientId } from "@/lib/telemetry/client-identity";
-import { useConversationStore } from "@/domains/conversations/conversation-store";
+import { useConversationStore } from "@/stores/conversation-store";
 
 export interface ActiveConversationMessagesRefreshResult {
   changed: boolean;

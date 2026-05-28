@@ -120,20 +120,17 @@ async function dispatchUserMessage(params: {
     const requestId = crypto.randomUUID();
     const resolvedChannel = resolveTurnChannel(params.sourceChannel);
     const resolvedInterface = resolveTurnInterface(params.sourceInterface);
-    const result = conversation.enqueueMessage(
-      params.content,
-      resolvedAttachments,
-      undefined,
+    const result = conversation.enqueueMessage({
+      content: params.content,
+      attachments: resolvedAttachments,
       requestId,
-      undefined,
-      undefined,
-      {
+      metadata: {
         userMessageChannel: resolvedChannel,
         assistantMessageChannel: resolvedChannel,
         userMessageInterface: resolvedInterface,
         assistantMessageInterface: resolvedInterface,
       },
-    );
+    });
     return { accepted: !result.rejected };
   }
 

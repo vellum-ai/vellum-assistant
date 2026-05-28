@@ -87,6 +87,7 @@ import {
   loadFromDb as loadFromDbImpl,
 } from "./conversation-lifecycle.js";
 import type {
+  EnqueueMessageOptions,
   PersistMessageOptions,
   RedirectToSecurePromptOptions,
 } from "./conversation-messaging.js";
@@ -831,33 +832,15 @@ export class Conversation {
     );
   }
 
-  enqueueMessage(
-    content: string,
-    attachments: UserMessageAttachment[],
-    onEvent?: (msg: ServerMessage) => void,
-    requestId?: string,
-    activeSurfaceId?: string,
-    currentPage?: string,
-    metadata?: Record<string, unknown>,
-    options?: { isInteractive?: boolean },
-    displayContent?: string,
-    transport?: ConversationTransportMetadata,
-    clientMessageId?: string,
-  ): { queued: boolean; requestId: string; rejected?: boolean } {
-    return enqueueMessageImpl(
-      this,
-      content,
-      attachments,
-      onEvent ?? this.sendToClient,
-      requestId ?? crypto.randomUUID(),
-      activeSurfaceId,
-      currentPage,
-      metadata,
-      options,
-      displayContent,
-      transport,
-      clientMessageId,
-    );
+  enqueueMessage(options: EnqueueMessageOptions): {
+    queued: boolean;
+    requestId: string;
+    rejected?: boolean;
+  } {
+    return enqueueMessageImpl(this, {
+      ...options,
+      onEvent: options.onEvent ?? this.sendToClient,
+    });
   }
 
   getQueueDepth(): number {

@@ -12,7 +12,7 @@ import {
 import { type DisplayMessage, reconcileMessages } from "@/domains/chat/utils/reconcile";
 import { isSending, useTurnStore } from "@/domains/messaging/turn-store";
 import { fetchConversationMessages, type RuntimeMessage } from "@/domains/chat/api/messages";
-import { useConversationStore } from "@/domains/conversations/conversation-store";
+import { useConversationStore } from "@/stores/conversation-store";
 
 const RECONCILE_DELAY_MS = 5000;
 const RECONCILE_MAX_MS = 60_000;
@@ -235,7 +235,7 @@ export function useMessageReconciliation({
         // the active conversation. Without this call the rescue would
         // leave `activeConversationIsProcessing` stuck at `true` — which
         // keeps `canStopGeneration` true and the sidebar processing dot
-        // visible even though the turn has clearly completed (LUM-1952).
+        // visible even though the turn has clearly completed.
         useConversationStore
           .getState()
           .removeProcessingConversationId(snapshotConversationId);

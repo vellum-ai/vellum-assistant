@@ -20,7 +20,7 @@ import {
 
 import { useTurnStore } from "@/domains/messaging/turn-store";
 import { useInteractionStore } from "@/domains/interactions/interaction-store";
-import { useConversationStore } from "@/domains/conversations/conversation-store";
+import { useConversationStore } from "@/stores/conversation-store";
 import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics";
 import { loadDismissedSurfaceIds } from "@/domains/chat/utils/dismissed-surfaces-storage";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";

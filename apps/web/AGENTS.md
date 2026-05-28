@@ -11,6 +11,7 @@ Read these before making changes:
 - **[`docs/EVENT_BUS.md`](./docs/EVENT_BUS.md)** — Cross-domain push signals (SSE, app lifecycle, network). Single connection, typed events, no per-component `visibilitychange` handlers.
 - **[`docs/STYLE_GUIDE.md`](./docs/STYLE_GUIDE.md)** — Naming, imports, TypeScript, component authoring, formatting.
 - **[`docs/CAPACITOR.md`](./docs/CAPACITOR.md)** — Capacitor / iOS patterns: lazy plugin imports, native auth, deep links, autogrowing textareas, streaming watchdogs, OS permission UI, capability detection, keyboard-only affordances. Mandatory reading if any code path you're touching might run inside the iOS WKWebView shell.
+- **[`docs/ELECTRON.md`](./docs/ELECTRON.md)** — Electron renderer patterns: `runtime/` wrapper modules for `window.vellum.*`, domain-owned bridge hooks, the three-file dance for new bridge surfaces. Read this if your change touches anything under `src/runtime/` that uses `window.vellum`.
 
 ## Common pitfalls
 

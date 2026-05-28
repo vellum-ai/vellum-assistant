@@ -19,7 +19,7 @@ import { createElement, type Dispatch, type RefObject, type SetStateAction } fro
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import { INITIAL_TURN_STATE, type TurnState, useTurnStore } from "@/domains/messaging/turn-store";
-import { useConversationStore } from "@/domains/conversations/conversation-store";
+import { useConversationStore } from "@/stores/conversation-store";
 
 // ---------------------------------------------------------------------------
 // Mocks — module mocks MUST come before importing the subject under test.
@@ -376,9 +376,9 @@ describe("reconcileActiveConversation", () => {
     expect(onPollReconciledSpy).toHaveBeenCalledWith("turn-42");
   });
 
-  test("clears active conversation processing key on silent-stall rescue (LUM-1952)", async () => {
-    // Repro for LUM-1952. The send pathway adds the active conversation id
-    // to `processingConversationIds`; the SSE terminal-event handlers
+  test("clears active conversation processing key on silent-stall rescue", async () => {
+    // The send pathway adds the active conversation id to
+    // `processingConversationIds`; the SSE terminal-event handlers
     // (`handleAssistantActivityState(idle)`, `handleMessageComplete`,
     // `handleGenerationCancelled`, error handlers) are the only sites that
     // clear it for the active conversation — the graduation effect in
@@ -420,8 +420,8 @@ describe("reconcileActiveConversation", () => {
   });
 
   test("does NOT touch processing key during a healthy mid-stream sync reconcile", async () => {
-    // Regression guard paired with LUM-1952. The processing-key clear
-    // must only fire on the rescue path. During a healthy mid-stream
+    // Regression guard for the silent-stall rescue: the processing-key
+    // clear must only fire on the rescue path. During a healthy mid-stream
     // reconcile (no content drift, server matches local), the rescue
     // does not fire, and the processing key must stay set — clearing
     // it would prematurely hide the sidebar processing dot while the

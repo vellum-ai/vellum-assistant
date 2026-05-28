@@ -1,9 +1,15 @@
 /**
- * Zustand store for the client-side slice of the conversations domain.
+ * App-level Zustand store for client-side conversation state.
+ *
+ * Lives at `src/stores/` (not inside `domains/conversations/`) because
+ * the state here is consumed by every chat-adjacent domain — chat,
+ * messaging, conversations, onboarding, page routes, sync. Per
+ * `docs/CONVENTIONS.md` ("Top-level shared directories"), state used by
+ * two or more domains belongs at the top level.
  *
  * Server-derived state (conversations, conversation groups) lives in
- * TanStack Query — see `conversation-queries.ts`. This store owns only
- * state that has no server counterpart:
+ * TanStack Query — see `@/domains/conversations/conversation-queries.ts`.
+ * This store owns only state that has no server counterpart:
  *
  * - `activeConversationId` — URL/navigation-local selection
  * - `editingConversationId` — UI mode (app-edit-chat target)
@@ -18,7 +24,7 @@
  * - `attentionConversationIds` — conversations with pending interactions
  *
  * @see https://zustand.docs.pmnd.rs/guides/flux-inspired-practice
- * @see ./conversation-queries.ts for the server-state half
+ * @see @/domains/conversations/conversation-queries.ts for the server-state half
  */
 
 import { create } from "zustand";

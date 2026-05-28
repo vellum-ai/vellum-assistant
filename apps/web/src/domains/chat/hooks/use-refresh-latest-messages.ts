@@ -12,7 +12,7 @@ import {
 } from "@/domains/chat/utils/dismissed-surfaces-storage";
 import { fetchLatestHistoryPage } from "@/domains/chat/api/history";
 import { fetchSurfaceContent } from "@/domains/chat/api/surfaces";
-import { useConversationStore } from "@/domains/conversations/conversation-store";
+import { useConversationStore } from "@/stores/conversation-store";
 import {
   type DisplayMessage,
   reconcileDisplayMessagesWithLatestHistory,

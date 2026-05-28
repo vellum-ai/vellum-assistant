@@ -272,7 +272,6 @@ export interface ChatRouteContentProps {
 
   // Platform
   isMobile: boolean;
-  isKeyboardOpen: boolean;
 
   // Messages
   messages: DisplayMessage[];
@@ -288,8 +287,6 @@ export interface ChatRouteContentProps {
 
   // Loading
   isLoadingHistory: boolean;
-
-
 
   // Conversation
   conversations: Conversation[];
@@ -404,7 +401,6 @@ export function ChatRouteContent({
   deployToVercel,
   doctor: doctorEnabled,
   isMobile,
-  isKeyboardOpen,
   messages,
   setMessages: _setMessages,
   input,
@@ -1394,7 +1390,6 @@ export function ChatRouteContent({
             composerProps={chatBodyComposerProps}
             dragHandlers={attachmentDropHandlers}
             isAttachmentDragOver={isAttachmentDragOver}
-            isKeyboardOpen={isKeyboardOpen}
             showScrollToLatest={
               scrollCoordinator.showScrollToLatest && messages.length > 0
             }
@@ -1467,7 +1462,6 @@ export function ChatRouteContent({
       composerProps={chatBodyComposerProps}
       dragHandlers={attachmentDropHandlers}
       isAttachmentDragOver={isAttachmentDragOver}
-      isKeyboardOpen={isKeyboardOpen}
       showScrollToLatest={
         scrollCoordinator.showScrollToLatest && messages.length > 0
       }

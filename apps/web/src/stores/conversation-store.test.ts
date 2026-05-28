@@ -1,6 +1,6 @@
 import { afterEach, describe, it, expect } from "bun:test";
 
-import { useConversationStore } from "@/domains/conversations/conversation-store";
+import { useConversationStore } from "@/stores/conversation-store";
 
 function getState() {
   return useConversationStore.getState();

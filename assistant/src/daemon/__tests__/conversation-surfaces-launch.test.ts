@@ -44,10 +44,10 @@ mock.module("../../runtime/assistant-event.js", () => ({
   ...realEvent,
   // Pass-through so `focus` / `conversationId` can be asserted directly
   // on the captured event's `message` payload.
-  buildAssistantEvent: (
-    message: unknown,
-    conversationId?: string,
-  ) => ({ message, conversationId }),
+  buildAssistantEvent: (message: unknown, conversationId?: string) => ({
+    message,
+    conversationId,
+  }),
 }));
 
 // Stub DB helpers so the real `launchConversation` can run without a DB.
@@ -108,10 +108,7 @@ let processStartedPromise = new Promise<void>((resolve) => {
 const realProcessMessage = await import("../process-message.js");
 mock.module("../process-message.js", () => ({
   ...realProcessMessage,
-  processMessageInBackground: (
-    conversationId: string,
-    content: string,
-  ) => {
+  processMessageInBackground: (conversationId: string, content: string) => {
     processMessageCalls.push({ conversationId, content });
     markProcessStarted();
     return new Promise((resolve, reject) => {
@@ -178,8 +175,8 @@ function makeContext(
     surfaceActionRequestIds: new Set<string>(),
     currentTurnSurfaces: [],
     isProcessing: () => false,
-    enqueueMessage: (content: string) => {
-      enqueueCalls.push({ content });
+    enqueueMessage: (options) => {
+      enqueueCalls.push({ content: options.content });
       return { queued: false, requestId: "enq-req" };
     },
     getQueueDepth: () => 0,
@@ -257,7 +254,7 @@ describe("handleSurfaceAction — launch_conversation dispatch", () => {
 
   test("launches new conversation with inherited trust context and no chat message", async () => {
     nextKeyStoreResult = { conversationId: "conv-launched-1" };
-    
+
     const originTrustContext: TrustContext = {
       sourceChannel: "vellum",
       trustClass: "guardian",
@@ -352,7 +349,7 @@ describe("handleSurfaceAction — launch_conversation dispatch", () => {
 
   test("omits originTrustContext when origin conversation has none", async () => {
     nextKeyStoreResult = { conversationId: "conv-launched-3" };
-    
+
     // No `trustContext` on the origin context — simulating the
     // no-inherited-guardian path.
     const ctx = makeContext();
@@ -383,7 +380,7 @@ describe("handleSurfaceAction — launch_conversation dispatch", () => {
 
   test("handler returns before the seed turn resolves (fire-and-forget)", async () => {
     nextKeyStoreResult = { conversationId: "conv-nonblocking" };
-    
+
     const ctx = makeContext();
     registerCardSurface(ctx, "surface-4");
 
@@ -414,7 +411,7 @@ describe("handleSurfaceAction — launch_conversation dispatch", () => {
 
   test("seed turn rejection is swallowed by the helper's .catch()", async () => {
     nextKeyStoreResult = { conversationId: "conv-seed-fails" };
-    
+
     const ctx = makeContext();
     registerCardSurface(ctx, "surface-5");
 
@@ -450,7 +447,7 @@ describe("handleSurfaceAction — launch_conversation dispatch", () => {
     // message and triggering a full LLM round-trip on every click. The plan
     // claimed to eliminate that round-trip; this test enforces it.
     nextKeyStoreResult = { conversationId: "conv-pending-set" };
-    
+
     const ctx = makeContext();
     registerCardSurface(ctx, "surface-pending");
     // Simulate `ui_show` having stamped a pending entry for this surface

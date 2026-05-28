@@ -99,14 +99,17 @@ export function RootLayout() {
     visibleViewport !== null &&
     visibleViewport.keyboardHeight > KEYBOARD_OPEN_THRESHOLD_PX;
 
-  const followVisualViewport =
-    keyboardOpen &&
-    visibleViewport !== null &&
-    (visibleViewport.offsetTop !== 0 || visibleViewport.offsetLeft !== 0);
-
-  const innerTransform = followVisualViewport
-    ? `translate3d(${visibleViewport.offsetLeft}px, ${visibleViewport.offsetTop}px, 0)`
-    : undefined;
+  // When the iOS keyboard opens, the system scrolls the layout viewport
+  // down by `offsetTop` to keep the focused input visible. Size the outer
+  // container to `height + offsetTop` and add matching `paddingTop` so the
+  // content area stays exactly `visualViewport.height` (border-box) while
+  // the container's background fills the entire visible region. This
+  // replaces the previous `translate3d(0, offsetTop, 0)` approach which
+  // positioned the content correctly but left the bottom `offsetTop` pixels
+  // outside the container's background, exposing the body's default
+  // background as a visible gap above the keyboard.
+  const keyboardOffsetTop =
+    keyboardOpen && visibleViewport ? visibleViewport.offsetTop : 0;
 
   const outletContext: RootOutletContext = { lifecycle };
 
@@ -118,8 +121,9 @@ export function RootLayout() {
         background: "var(--surface-base)",
         height:
           keyboardOpen && visibleViewport
-            ? `${visibleViewport.height}px`
+            ? `${visibleViewport.height + keyboardOffsetTop}px`
             : "100dvh",
+        paddingTop: keyboardOffsetTop > 0 ? `${keyboardOffsetTop}px` : undefined,
         paddingBottom: keyboardOpen
           ? "0px"
           : "var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))",
@@ -130,20 +134,11 @@ export function RootLayout() {
         isolation: "isolate",
       }}
     >
-      <div
-        className="flex min-w-0 flex-col overflow-hidden h-full w-full"
-        style={{
-          transform: innerTransform,
-          transformOrigin: innerTransform ? "0 0" : undefined,
-        }}
-      >
+      <div className="flex min-w-0 flex-col overflow-hidden h-full w-full">
         <Outlet context={outletContext} />
       </div>
 
-      {/* Portal target for mobile overlays that use `position: fixed`.
-          Lives outside the inner wrapper so the keyboard-following
-          `translate3d(...)` doesn't shift the overlay's containing block.
-          See: https://www.w3.org/TR/css-transforms-1/#transform-rendering */}
+      {/* Portal target for mobile overlays that use `position: fixed`. */}
       <div id="viewport-overlays" />
     </div>
   );

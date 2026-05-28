@@ -13,10 +13,10 @@ const capturedNotifications: {
 
 mock.module("../daemon/conversation-store.js", () => ({
   findConversation: (id: string) => ({
-    enqueueMessage: (content: string) => {
+    enqueueMessage: (options: { content: string }) => {
       capturedNotifications.push({
         parentConversationId: id,
-        message: content,
+        message: options.content,
       });
       return { queued: true };
     },

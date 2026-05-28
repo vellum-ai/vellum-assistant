@@ -21,7 +21,7 @@ import type { ReactNode } from "react";
 import { createElement } from "react";
 
 import * as sdkGen from "@/generated/daemon/sdk.gen";
-import { useConversationStore } from "@/domains/conversations/conversation-store";
+import { useConversationStore } from "@/stores/conversation-store";
 import {
   __resetEventBusForTesting,
   useEventBusStore,
