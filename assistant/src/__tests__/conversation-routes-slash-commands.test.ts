@@ -226,8 +226,13 @@ const _testAuthContext: AuthContext = {
 
 function makeConversation() {
   const persistUserMessage = mock(
-    async (_content: string, _attachments: unknown[], _requestId?: string) =>
-      "persisted-user-id",
+    async (_options: {
+      content: string;
+      attachments?: unknown[];
+      requestId?: string;
+      metadata?: Record<string, unknown>;
+      clientMessageId?: string;
+    }) => ({ id: "persisted-user-id", deduplicated: false }),
   );
   const runAgentLoop = mock(
     async (

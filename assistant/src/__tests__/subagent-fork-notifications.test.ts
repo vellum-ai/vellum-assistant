@@ -20,7 +20,7 @@ mock.module("../daemon/conversation-store.js", () => ({
       });
       return { queued: true };
     },
-    persistUserMessage: async () => "mock-msg",
+    persistUserMessage: async () => ({ id: "mock-msg", deduplicated: false }),
     runAgentLoop: async () => {},
   }),
   addConversation: () => {},
@@ -46,7 +46,7 @@ interface FakeManagedSubagent {
     }>;
     sendToClient: (msg: ServerMessage) => void;
     loadFromDb?: () => Promise<void>;
-    persistUserMessage?: (msg: string) => string;
+    persistUserMessage?: () => { id: string; deduplicated: boolean };
     runAgentLoop?: () => Promise<void>;
     usageStats: {
       inputTokens: number;
@@ -152,7 +152,10 @@ describe("Fork completion notifications", () => {
     injectFakeSubagent(manager, subagentId, state);
 
     const managed = asInternals(manager).subagents.get(subagentId)!;
-    managed.conversation!.persistUserMessage = () => "msg-1";
+    managed.conversation!.persistUserMessage = () => ({
+      id: "msg-1",
+      deduplicated: false,
+    });
     managed.conversation!.runAgentLoop = async () => {};
 
     await asInternals(manager).runSubagent(subagentId, "Analyze data");
@@ -171,7 +174,10 @@ describe("Fork completion notifications", () => {
     injectFakeSubagent(manager, subagentId, state);
 
     const managed = asInternals(manager).subagents.get(subagentId)!;
-    managed.conversation!.persistUserMessage = () => "msg-1";
+    managed.conversation!.persistUserMessage = () => ({
+      id: "msg-1",
+      deduplicated: false,
+    });
     managed.conversation!.runAgentLoop = async () => {};
 
     await asInternals(manager).runSubagent(subagentId, "Analyze data");
@@ -195,7 +201,10 @@ describe("Fork completion notifications", () => {
     injectFakeSubagent(manager, subagentId, state);
 
     const managed = asInternals(manager).subagents.get(subagentId)!;
-    managed.conversation!.persistUserMessage = () => "msg-1";
+    managed.conversation!.persistUserMessage = () => ({
+      id: "msg-1",
+      deduplicated: false,
+    });
     managed.conversation!.runAgentLoop = async () => {
       throw new Error("Context too large");
     };
@@ -260,7 +269,10 @@ describe("Regular sub-agent notifications are unchanged", () => {
     injectFakeSubagent(manager, subagentId, state);
 
     const managed = asInternals(manager).subagents.get(subagentId)!;
-    managed.conversation!.persistUserMessage = () => "msg-1";
+    managed.conversation!.persistUserMessage = () => ({
+      id: "msg-1",
+      deduplicated: false,
+    });
     managed.conversation!.runAgentLoop = async () => {};
 
     await asInternals(manager).runSubagent(subagentId, "Do something");
@@ -283,7 +295,10 @@ describe("Regular sub-agent notifications are unchanged", () => {
     injectFakeSubagent(manager, subagentId, state);
 
     const managed = asInternals(manager).subagents.get(subagentId)!;
-    managed.conversation!.persistUserMessage = () => "msg-1";
+    managed.conversation!.persistUserMessage = () => ({
+      id: "msg-1",
+      deduplicated: false,
+    });
     managed.conversation!.runAgentLoop = async () => {
       throw new Error("Something went wrong");
     };

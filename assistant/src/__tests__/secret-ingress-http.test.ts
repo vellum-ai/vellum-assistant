@@ -188,7 +188,10 @@ function makeRequest(
   });
 }
 
-const persistUserMessageMock = mock(async () => "persisted-id");
+const persistUserMessageMock = mock(async () => ({
+  id: "persisted-id",
+  deduplicated: false,
+}));
 const runAgentLoopMock = mock(async () => undefined);
 
 function makeSendMessageDeps() {

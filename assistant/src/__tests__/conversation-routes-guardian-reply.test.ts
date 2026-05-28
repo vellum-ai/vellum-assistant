@@ -150,7 +150,10 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       replyText: "Access approved. Verification code: 123456.",
     });
 
-    const persistUserMessage = mock(async () => "should-not-be-called");
+    const persistUserMessage = mock(async () => ({
+      id: "should-not-be-called",
+      deduplicated: false,
+    }));
     const runAgentLoop = mock(async () => undefined);
     const session = {
       setTrustContext: () => {},
@@ -234,7 +237,10 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       type: "not_consumed",
     });
 
-    const persistUserMessage = mock(async () => "persisted-user-id");
+    const persistUserMessage = mock(async () => ({
+      id: "persisted-user-id",
+      deduplicated: false,
+    }));
     const runAgentLoop = mock(async () => undefined);
     const session = {
       setTrustContext: () => {},
@@ -313,7 +319,10 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       type: "not_consumed",
     });
 
-    const persistUserMessage = mock(async () => "persisted-user-id");
+    const persistUserMessage = mock(async () => ({
+      id: "persisted-user-id",
+      deduplicated: false,
+    }));
     const runAgentLoop = mock(async () => undefined);
     const session = {
       setTrustContext: () => {},
@@ -398,7 +407,10 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       requestId: "tool-req-code-1",
     });
 
-    const persistUserMessage = mock(async () => "should-not-be-called");
+    const persistUserMessage = mock(async () => ({
+      id: "should-not-be-called",
+      deduplicated: false,
+    }));
     const runAgentLoop = mock(async () => undefined);
     const session = {
       setTrustContext: () => {},
@@ -478,7 +490,10 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       requestId: "pending-reject-1",
     });
 
-    const persistUserMessage = mock(async () => "should-not-be-called");
+    const persistUserMessage = mock(async () => ({
+      id: "should-not-be-called",
+      deduplicated: false,
+    }));
     const runAgentLoop = mock(async () => undefined);
     const session = {
       setTrustContext: () => {},
@@ -552,7 +567,10 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       type: "not_consumed",
     });
 
-    const persistUserMessage = mock(async () => "persisted-user-id");
+    const persistUserMessage = mock(async () => ({
+      id: "persisted-user-id",
+      deduplicated: false,
+    }));
     const runAgentLoop = mock(async () => undefined);
     const session = {
       setTrustContext: () => {},
@@ -628,7 +646,10 @@ describe("handleSendMessage canonical guardian reply interception", () => {
     });
 
     const mockGenerator = mock(async () => ({}));
-    const persistUserMessage = mock(async () => "persisted-user-id");
+    const persistUserMessage = mock(async () => ({
+      id: "persisted-user-id",
+      deduplicated: false,
+    }));
     const runAgentLoop = mock(async () => undefined);
     const session = {
       setTrustContext: () => {},
@@ -705,7 +726,10 @@ describe("handleSendMessage canonical guardian reply interception", () => {
     });
 
     const mockGenerator = mock(async () => ({}));
-    const persistUserMessage = mock(async () => "persisted-user-id");
+    const persistUserMessage = mock(async () => ({
+      id: "persisted-user-id",
+      deduplicated: false,
+    }));
     const runAgentLoop = mock(async () => undefined);
     const session = {
       setTrustContext: () => {},

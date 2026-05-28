@@ -182,21 +182,18 @@ function makeTestConversation() {
     getTurnChannelContext: () => turnChannelContext,
     getTurnInterfaceContext: () => turnInterfaceContext,
     getMessages: () => messages,
-    persistUserMessage: async (
-      content: string,
-      attachments: UserMessageAttachment[],
-      requestId?: string,
-      metadata?: Record<string, unknown>,
-      displayContent?: string,
-    ) =>
-      persistQueuedMessageBody(
-        messagingCtx,
-        content,
-        attachments,
-        requestId ?? "req-display-content",
-        metadata,
-        displayContent,
-      ),
+    persistUserMessage: async (options: {
+      content: string;
+      attachments?: UserMessageAttachment[];
+      requestId?: string;
+      metadata?: Record<string, unknown>;
+      displayContent?: string;
+      clientMessageId?: string;
+    }) =>
+      persistQueuedMessageBody(messagingCtx, {
+        ...options,
+        requestId: options.requestId ?? "req-display-content",
+      }),
     runAgentLoop,
     updateClient: () => {},
     getCurrentSender: () => undefined,
@@ -341,9 +338,9 @@ describe("processMessage displayContent", () => {
     const modelContent =
       '<external_content source="slack">\n\n</external_content>';
 
-    await conversation.persistUserMessage(
-      modelContent,
-      [
+    await conversation.persistUserMessage({
+      content: modelContent,
+      attachments: [
         {
           id: "att-1",
           filename: "attachment.pdf",
@@ -351,10 +348,9 @@ describe("processMessage displayContent", () => {
           data: Buffer.from("pdf bytes").toString("base64"),
         },
       ],
-      "req-display-content",
-      undefined,
-      "",
-    );
+      requestId: "req-display-content",
+      displayContent: "",
+    });
 
     expect(addMessageCalls).toHaveLength(1);
     const persistedBlocks = JSON.parse(addMessageCalls[0]!.content);

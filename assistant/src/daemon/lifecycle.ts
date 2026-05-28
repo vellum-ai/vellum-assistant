@@ -1085,13 +1085,11 @@ export async function runDaemon(): Promise<void> {
           // its own finally block.
           conversation.toolsDisabledDepth++;
           try {
-            const { id: messageId } = await conversation.persistUserMessage(
-              instruction,
-              [],
-              undefined,
-              { pointerInstruction: true },
-              "[Call status event]",
-            );
+            const { id: messageId } = await conversation.persistUserMessage({
+              content: instruction,
+              metadata: { pointerInstruction: true },
+              displayContent: "[Call status event]",
+            });
 
             // Helper: roll back persisted messages on failure, then reload
             // in-memory history from the (now cleaned) DB. Reloading avoids

@@ -1418,14 +1418,12 @@ export async function handleSendMessage(
         userMessageInterface: sourceInterface,
         assistantMessageInterface: sourceInterface,
       };
-      const persisted = await persistQueuedMessageBody(
-        conversation,
-        rawContent,
+      const persisted = await persistQueuedMessageBody(conversation, {
+        content: rawContent,
         attachments,
-        crypto.randomUUID(),
-        greetingMeta,
-        undefined,
-      );
+        requestId: crypto.randomUUID(),
+        metadata: greetingMeta,
+      });
 
       const conversationId = mapping.conversationId;
       const channelMeta = buildChannelMetadata(sourceChannel, sourceInterface, {
@@ -1726,15 +1724,13 @@ export async function handleSendMessage(
         assistantMessageInterface: sourceInterface,
         ...(body.automated === true ? { automated: true } : {}),
       };
-      const persisted = await persistQueuedMessageBody(
-        conversation,
-        rawContent,
+      const persisted = await persistQueuedMessageBody(conversation, {
+        content: rawContent,
         attachments,
-        crypto.randomUUID(),
-        slashMeta,
-        undefined,
+        requestId: crypto.randomUUID(),
+        metadata: slashMeta,
         clientMessageId,
-      );
+      });
       if (persisted.deduplicated) {
         return {
           accepted: true,
@@ -1825,15 +1821,13 @@ export async function handleSendMessage(
     };
     let persisted: Awaited<ReturnType<typeof persistQueuedMessageBody>>;
     try {
-      persisted = await persistQueuedMessageBody(
-        conversation,
-        rawContent,
+      persisted = await persistQueuedMessageBody(conversation, {
+        content: rawContent,
         attachments,
-        crypto.randomUUID(),
-        slashMeta,
-        undefined,
+        requestId: crypto.randomUUID(),
+        metadata: slashMeta,
         clientMessageId,
-      );
+      });
     } catch (err) {
       // The fire-and-forget compaction below owns clearing `processing`, but a
       // throw from this initial persist never reaches it — reset here so the
@@ -1944,15 +1938,13 @@ export async function handleSendMessage(
         userMessageInterface: sourceInterface,
         assistantMessageInterface: sourceInterface,
       };
-      const persisted = await persistQueuedMessageBody(
-        conversation,
-        rawContent,
+      const persisted = await persistQueuedMessageBody(conversation, {
+        content: rawContent,
         attachments,
-        crypto.randomUUID(),
-        slashMeta,
-        undefined,
+        requestId: crypto.randomUUID(),
+        metadata: slashMeta,
         clientMessageId,
-      );
+      });
       if (persisted.deduplicated) {
         return {
           accepted: true,
@@ -2027,14 +2019,13 @@ export async function handleSendMessage(
   const resolvedContent = slashResult.content;
 
   const requestId = crypto.randomUUID();
-  const persistResult = await conversation.persistUserMessage(
-    resolvedContent,
+  const persistResult = await conversation.persistUserMessage({
+    content: resolvedContent,
     attachments,
     requestId,
-    body.automated === true ? { automated: true } : undefined,
-    undefined,
+    metadata: body.automated === true ? { automated: true } : undefined,
     clientMessageId,
-  );
+  });
 
   const messageId = persistResult.id;
 

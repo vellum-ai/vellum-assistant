@@ -34,6 +34,7 @@ import { routeGuardianReply } from "../runtime/guardian-reply-router.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
 import type { CleanResult } from "./conversation.js";
+import type { PersistMessageOptions } from "./conversation-messaging.js";
 import {
   persistQueuedMessageBody,
   serializePersistedUserMessageContent,
@@ -158,12 +159,7 @@ export interface ProcessConversationContext {
   currentTurnChannelCapabilities?: ChannelCapabilities;
   ensureActorScopedHistory(): Promise<void>;
   persistUserMessage(
-    content: string,
-    attachments: UserMessageAttachment[],
-    requestId?: string,
-    metadata?: Record<string, unknown>,
-    displayContent?: string,
-    clientMessageId?: string,
+    options: PersistMessageOptions,
   ): Promise<{ id: string; deduplicated: boolean }>;
   runAgentLoop(
     content: string,
@@ -924,14 +920,14 @@ async function drainSingleMessage(
   // resolves early (no runAgentLoop call), so we must continue draining.
   let persistResult: { id: string; deduplicated: boolean };
   try {
-    persistResult = await conversation.persistUserMessage(
-      resolvedContent,
-      next.attachments,
-      next.requestId,
-      { ...next.metadata, sentAt: next.sentAt },
-      next.displayContent,
-      next.clientMessageId,
-    );
+    persistResult = await conversation.persistUserMessage({
+      content: resolvedContent,
+      attachments: next.attachments,
+      requestId: next.requestId,
+      metadata: { ...next.metadata, sentAt: next.sentAt },
+      displayContent: next.displayContent,
+      clientMessageId: next.clientMessageId,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error(
@@ -1232,24 +1228,21 @@ async function drainBatch(
 
     try {
       let batchPersistResult: { id: string; deduplicated: boolean };
+      const persistOptions = {
+        content: qmContent,
+        attachments: qm.attachments,
+        requestId: qm.requestId,
+        metadata: { ...qm.metadata, sentAt: qm.sentAt },
+        displayContent: qm.displayContent,
+        clientMessageId: qm.clientMessageId,
+      };
       if (i === 0) {
-        batchPersistResult = await conversation.persistUserMessage(
-          qmContent,
-          qm.attachments,
-          qm.requestId,
-          { ...qm.metadata, sentAt: qm.sentAt },
-          qm.displayContent,
-          qm.clientMessageId,
-        );
+        batchPersistResult =
+          await conversation.persistUserMessage(persistOptions);
       } else {
         batchPersistResult = await persistQueuedMessageBody(
           conversation,
-          qmContent,
-          qm.attachments,
-          qm.requestId,
-          { ...qm.metadata, sentAt: qm.sentAt },
-          qm.displayContent,
-          qm.clientMessageId,
+          persistOptions,
         );
       }
       if (batchPersistResult.deduplicated) {
@@ -1895,13 +1888,12 @@ export async function processMessage(
 
   let pmResult: { id: string; deduplicated: boolean };
   try {
-    pmResult = await conversation.persistUserMessage(
-      resolvedContent,
+    pmResult = await conversation.persistUserMessage({
+      content: resolvedContent,
       attachments,
       requestId,
-      undefined,
       displayContent,
-    );
+    });
     publishConversationMessagesChanged(conversation.conversationId);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

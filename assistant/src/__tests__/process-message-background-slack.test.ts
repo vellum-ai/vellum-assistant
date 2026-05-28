@@ -85,12 +85,14 @@ type Deferred<T> = {
 };
 type PersistUserMessageMock = ReturnType<
   typeof mock<
-    (
-      content: string,
-      attachments: unknown[],
-      requestId?: string,
-      metadata?: Record<string, unknown>,
-    ) => Promise<{ id: string; deduplicated: boolean }>
+    (options: {
+      content: string;
+      attachments?: unknown[];
+      requestId?: string;
+      metadata?: Record<string, unknown>;
+      displayContent?: string;
+      clientMessageId?: string;
+    }) => Promise<{ id: string; deduplicated: boolean }>
   >
 >;
 type RunAgentLoopMock = ReturnType<
@@ -210,12 +212,14 @@ function makeConversation(): TestConversation {
       estimatedCost: 0,
     },
     persistUserMessage: mock(
-      async (
-        _content: string,
-        _attachments: unknown[],
-        _requestId?: string,
-        _metadata?: Record<string, unknown>,
-      ) => ({ id: "persisted-user-message-id", deduplicated: false }),
+      async (_options: {
+        content: string;
+        attachments?: unknown[];
+        requestId?: string;
+        metadata?: Record<string, unknown>;
+        displayContent?: string;
+        clientMessageId?: string;
+      }) => ({ id: "persisted-user-message-id", deduplicated: false }),
     ),
     runAgentLoop: mock(async (..._args: unknown[]) => {
       await loopDeferred.promise;
@@ -260,9 +264,9 @@ describe("processMessageInBackground Slack option propagation", () => {
 
     expect(result).toEqual({ messageId: "persisted-user-message-id" });
     expect(activeConversation.persistUserMessage).toHaveBeenCalledTimes(1);
-    expect(activeConversation.persistUserMessage.mock.calls[0][3]).toEqual({
-      slackInbound,
-    });
+    expect(
+      activeConversation.persistUserMessage.mock.calls[0][0].metadata,
+    ).toEqual({ slackInbound });
     expect(activeConversation.runAgentLoop).toHaveBeenCalledTimes(1);
 
     activeConversation.__loopDeferred.resolve();
@@ -325,7 +329,7 @@ describe("processMessageInBackground Slack option propagation", () => {
 
     expect(activeConversation.persistUserMessage).toHaveBeenCalledTimes(1);
     expect(
-      activeConversation.persistUserMessage.mock.calls[0][3],
+      activeConversation.persistUserMessage.mock.calls[0][0].metadata,
     ).toBeUndefined();
     expect(activeConversation.runAgentLoop.mock.calls[0][3]).toEqual({
       isInteractive: false,

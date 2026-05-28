@@ -219,7 +219,10 @@ function makeConversation(overrides: Record<string, unknown> = {}) {
     hasAnyPendingConfirmation: () => false,
     denyAllPendingConfirmations: () => {},
     enqueueMessage: () => ({ queued: true, requestId: "queued-id" }),
-    persistUserMessage: mock(async () => "persisted-user-id"),
+    persistUserMessage: mock(async () => ({
+      id: "persisted-user-id",
+      deduplicated: false,
+    })),
     runAgentLoop: mock(async () => undefined),
     getMessages: () => [] as unknown[],
     assistantId: "self",
@@ -297,7 +300,10 @@ describe("HTTP POST /v1/messages does not intercept recording intents (by design
     // Dedicated /v1/recording/* endpoints handle recording lifecycle.
     // Text-based recording intent interception was retired with the
     // legacy handleUserMessage entry point.
-    const persistUserMessage = mock(async () => "persisted-msg-id");
+    const persistUserMessage = mock(async () => ({
+      id: "persisted-msg-id",
+      deduplicated: false,
+    }));
     const runAgentLoop = mock(async () => undefined);
     const conversation = makeConversation({ persistUserMessage, runAgentLoop });
 
@@ -314,7 +320,10 @@ describe("HTTP POST /v1/messages does not intercept recording intents (by design
     // content, conversationKey, attachmentIds, sourceChannel, and interface.
     // This ensures a future regression that starts parsing commandIntent would
     // be caught.
-    const persistUserMessage = mock(async () => "persisted-msg-id");
+    const persistUserMessage = mock(async () => ({
+      id: "persisted-msg-id",
+      deduplicated: false,
+    }));
     const runAgentLoop = mock(async () => undefined);
     const conversation = makeConversation({ persistUserMessage, runAgentLoop });
 
@@ -328,7 +337,10 @@ describe("HTTP POST /v1/messages does not intercept recording intents (by design
   });
 
   test("stop recording commands pass through to the agent loop", async () => {
-    const persistUserMessage = mock(async () => "persisted-msg-id");
+    const persistUserMessage = mock(async () => ({
+      id: "persisted-msg-id",
+      deduplicated: false,
+    }));
     const runAgentLoop = mock(async () => undefined);
     const conversation = makeConversation({ persistUserMessage, runAgentLoop });
 
@@ -352,7 +364,10 @@ describe("HTTP POST /v1/messages clientTimezone transport metadata", () => {
   });
 
   test("passes canonical clientTimezone through host-proxy transport", async () => {
-    const persistUserMessage = mock(async () => "persisted-msg-id");
+    const persistUserMessage = mock(async () => ({
+      id: "persisted-msg-id",
+      deduplicated: false,
+    }));
     const runAgentLoop = mock(async () => undefined);
     const conversation = makeConversation({ persistUserMessage, runAgentLoop });
     let capturedOptions: Record<string, unknown> | undefined;
@@ -379,7 +394,10 @@ describe("HTTP POST /v1/messages clientTimezone transport metadata", () => {
   });
 
   test("passes canonical clientTimezone through non-host-proxy transport", async () => {
-    const persistUserMessage = mock(async () => "persisted-msg-id");
+    const persistUserMessage = mock(async () => ({
+      id: "persisted-msg-id",
+      deduplicated: false,
+    }));
     const runAgentLoop = mock(async () => undefined);
     const conversation = makeConversation({ persistUserMessage, runAgentLoop });
     let capturedOptions: Record<string, unknown> | undefined;
@@ -406,7 +424,10 @@ describe("HTTP POST /v1/messages clientTimezone transport metadata", () => {
   });
 
   test("drops invalid clientTimezone without rejecting the message", async () => {
-    const persistUserMessage = mock(async () => "persisted-msg-id");
+    const persistUserMessage = mock(async () => ({
+      id: "persisted-msg-id",
+      deduplicated: false,
+    }));
     const runAgentLoop = mock(async () => undefined);
     const conversation = makeConversation({ persistUserMessage, runAgentLoop });
     let capturedOptions: Record<string, unknown> | undefined;

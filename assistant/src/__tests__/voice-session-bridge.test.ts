@@ -265,12 +265,8 @@ describe("voice-session-bridge", () => {
     const session = {
       isProcessing: () => false,
       currentRequestId: undefined as string | undefined,
-      persistUserMessage: (
-        _content: string,
-        _attachments: unknown[],
-        requestId?: string,
-      ) => {
-        session.currentRequestId = requestId;
+      persistUserMessage: (options: { requestId?: string }) => {
+        session.currentRequestId = options.requestId;
         return { id: "test-msg-id", deduplicated: false };
       },
       memoryPolicy: {
@@ -356,12 +352,8 @@ describe("voice-session-bridge", () => {
     const session = {
       isProcessing: () => false,
       currentRequestId: undefined as string | undefined,
-      persistUserMessage: (
-        _content: string,
-        _attachments: unknown[],
-        requestId?: string,
-      ) => {
-        session.currentRequestId = requestId;
+      persistUserMessage: (options: { requestId?: string }) => {
+        session.currentRequestId = options.requestId;
         return { id: "test-msg-id", deduplicated: false };
       },
       memoryPolicy: {
@@ -1409,12 +1401,8 @@ describe("voice-session-bridge", () => {
     const session = {
       isProcessing: () => false,
       currentRequestId: undefined as string | undefined,
-      persistUserMessage: (
-        _content: string,
-        _attachments: unknown[],
-        requestId?: string,
-      ) => {
-        session.currentRequestId = requestId;
+      persistUserMessage: (options: { requestId?: string }) => {
+        session.currentRequestId = options.requestId;
         return { id: "test-msg-id", deduplicated: false };
       },
       memoryPolicy: {

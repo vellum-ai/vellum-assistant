@@ -98,7 +98,7 @@ function injectSubagent(
     sendToClient: () => {},
     usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     enqueueMessage: () => ({ queued: false }),
-    persistUserMessage: () => "msg-1",
+    persistUserMessage: async () => ({ id: "msg-1", deduplicated: false }),
     runAgentLoop: async () => {},
   };
   internals.subagents.set(subagentId, {

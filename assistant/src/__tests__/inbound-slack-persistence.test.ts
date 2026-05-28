@@ -141,12 +141,10 @@ describe("PR 11 — inbound Slack message metadata persistence", () => {
       assistantMessageChannel: "slack",
     });
 
-    await persistQueuedMessageBody(
-      ctx,
-      "Reply inside a thread",
-      [],
-      "req-thread",
-      {
+    await persistQueuedMessageBody(ctx, {
+      content: "Reply inside a thread",
+      requestId: "req-thread",
+      metadata: {
         slackInbound: {
           channelId: "C0123CHANNEL",
           channelName: "engineering",
@@ -156,8 +154,7 @@ describe("PR 11 — inbound Slack message metadata persistence", () => {
           actorExternalUserId: "U_ALICE",
         },
       },
-      undefined,
-    );
+    });
 
     const slackMeta = readPersistedSlackMeta();
     expect(slackMeta).not.toBeNull();
@@ -177,20 +174,17 @@ describe("PR 11 — inbound Slack message metadata persistence", () => {
       assistantMessageChannel: "slack",
     });
 
-    await persistQueuedMessageBody(
-      ctx,
-      "Top-level channel post",
-      [],
-      "req-top",
-      {
+    await persistQueuedMessageBody(ctx, {
+      content: "Top-level channel post",
+      requestId: "req-top",
+      metadata: {
         slackInbound: {
           channelId: "C0123CHANNEL",
           channelTs: "1700000010.222222",
           displayName: "Bob",
         },
       },
-      undefined,
-    );
+    });
 
     const slackMeta = readPersistedSlackMeta();
     expect(slackMeta).not.toBeNull();
@@ -206,20 +200,17 @@ describe("PR 11 — inbound Slack message metadata persistence", () => {
       assistantMessageChannel: "slack",
     });
 
-    await persistQueuedMessageBody(
-      ctx,
-      "@leo can you check this?",
-      [],
-      "req-normalized-content",
-      {
+    await persistQueuedMessageBody(ctx, {
+      content: "@leo can you check this?",
+      requestId: "req-normalized-content",
+      metadata: {
         slackInbound: {
           channelId: "C0123CHANNEL",
           channelTs: "1700000015.123456",
           displayName: "Alice",
         },
       },
-      undefined,
-    );
+    });
 
     expect(JSON.parse(addMessageCalls.at(-1)!.content)).toEqual([
       { type: "text", text: "@leo can you check this?" },
@@ -237,19 +228,16 @@ describe("PR 11 — inbound Slack message metadata persistence", () => {
       assistantMessageChannel: "slack",
     });
 
-    await persistQueuedMessageBody(
-      ctx,
-      "Anonymous channel post",
-      [],
-      "req-anon",
-      {
+    await persistQueuedMessageBody(ctx, {
+      content: "Anonymous channel post",
+      requestId: "req-anon",
+      metadata: {
         slackInbound: {
           channelId: "C0123CHANNEL",
           channelTs: "1700000020.333333",
         },
       },
-      undefined,
-    );
+    });
 
     const slackMeta = readPersistedSlackMeta();
     expect(slackMeta).not.toBeNull();
@@ -262,14 +250,10 @@ describe("PR 11 — inbound Slack message metadata persistence", () => {
       assistantMessageChannel: "telegram",
     });
 
-    await persistQueuedMessageBody(
-      ctx,
-      "Telegram message",
-      [],
-      "req-tg",
-      undefined,
-      undefined,
-    );
+    await persistQueuedMessageBody(ctx, {
+      content: "Telegram message",
+      requestId: "req-tg",
+    });
 
     const metadata = lastPersistedMetadata();
     expect("slackMeta" in metadata).toBe(false);
@@ -285,19 +269,16 @@ describe("PR 11 — inbound Slack message metadata persistence", () => {
       assistantMessageChannel: "telegram",
     });
 
-    await persistQueuedMessageBody(
-      ctx,
-      "Telegram message with stray slackInbound",
-      [],
-      "req-tg-stray",
-      {
+    await persistQueuedMessageBody(ctx, {
+      content: "Telegram message with stray slackInbound",
+      requestId: "req-tg-stray",
+      metadata: {
         slackInbound: {
           channelId: "C0_DOES_NOT_APPLY",
           channelTs: "1700000030.444444",
         },
       },
-      undefined,
-    );
+    });
 
     const metadata = lastPersistedMetadata();
     expect("slackMeta" in metadata).toBe(false);
@@ -313,14 +294,10 @@ describe("PR 11 — inbound Slack message metadata persistence", () => {
       assistantMessageChannel: "slack",
     });
 
-    await persistQueuedMessageBody(
-      ctx,
-      "Slack wake without inbound metadata",
-      [],
-      "req-no-slack-inbound",
-      undefined,
-      undefined,
-    );
+    await persistQueuedMessageBody(ctx, {
+      content: "Slack wake without inbound metadata",
+      requestId: "req-no-slack-inbound",
+    });
 
     const metadata = lastPersistedMetadata();
     expect("slackMeta" in metadata).toBe(false);
@@ -332,19 +309,16 @@ describe("PR 11 — inbound Slack message metadata persistence", () => {
       assistantMessageChannel: "slack",
     });
 
-    await persistQueuedMessageBody(
-      ctx,
-      "Malformed inbound payload",
-      [],
-      "req-malformed",
-      {
+    await persistQueuedMessageBody(ctx, {
+      content: "Malformed inbound payload",
+      requestId: "req-malformed",
+      metadata: {
         slackInbound: {
           // channelTs intentionally missing — simulates a bug upstream.
           channelId: "C0123CHANNEL",
         } as unknown as Record<string, unknown>,
       },
-      undefined,
-    );
+    });
 
     const metadata = lastPersistedMetadata();
     expect("slackMeta" in metadata).toBe(false);
@@ -356,19 +330,16 @@ describe("PR 11 — inbound Slack message metadata persistence", () => {
       assistantMessageChannel: "slack",
     });
 
-    await persistQueuedMessageBody(
-      ctx,
-      "Verify carrier is stripped",
-      [],
-      "req-strip",
-      {
+    await persistQueuedMessageBody(ctx, {
+      content: "Verify carrier is stripped",
+      requestId: "req-strip",
+      metadata: {
         slackInbound: {
           channelId: "C0123CHANNEL",
           channelTs: "1700000040.555555",
         },
       },
-      undefined,
-    );
+    });
 
     const metadata = lastPersistedMetadata();
     expect("slackInbound" in metadata).toBe(false);

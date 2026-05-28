@@ -20,7 +20,7 @@ mock.module("../daemon/conversation-store.js", () => ({
       });
       return { queued: true };
     },
-    persistUserMessage: async () => "mock-msg",
+    persistUserMessage: async () => ({ id: "mock-msg", deduplicated: false }),
     runAgentLoop: async () => {},
   }),
   addConversation: () => {},
@@ -46,7 +46,7 @@ interface FakeManagedSubagent {
     }>;
     sendToClient: (msg: ServerMessage) => void;
     loadFromDb?: () => Promise<void>;
-    persistUserMessage?: (msg: string) => string;
+    persistUserMessage?: () => { id: string; deduplicated: boolean };
     runAgentLoop?: () => Promise<void>;
     usageStats: {
       inputTokens: number;
@@ -298,7 +298,10 @@ describe("SubagentManager notifyParent (via runSubagent)", () => {
 
     // Patch the fake conversation to simulate a successful agent loop.
     const managed = asInternals(manager).subagents.get(subagentId)!;
-    managed.conversation!.persistUserMessage = () => "msg-1";
+    managed.conversation!.persistUserMessage = () => ({
+      id: "msg-1",
+      deduplicated: false,
+    });
     managed.conversation!.runAgentLoop = async () => {};
 
     await asInternals(manager).runSubagent(subagentId, "Do something");
@@ -329,7 +332,10 @@ describe("SubagentManager notifyParent (via runSubagent)", () => {
     // Patch the fake conversation to simulate a failure.
     const managed = asInternals(manager).subagents.get(subagentId)!;
 
-    managed.conversation!.persistUserMessage = () => "msg-1";
+    managed.conversation!.persistUserMessage = () => ({
+      id: "msg-1",
+      deduplicated: false,
+    });
     managed.conversation!.runAgentLoop = async () => {
       throw new Error("API rate limit exceeded");
     };
@@ -362,7 +368,10 @@ describe("SubagentManager notifyParent (via runSubagent)", () => {
 
     const managed = asInternals(manager).subagents.get(subagentId)!;
 
-    managed.conversation!.persistUserMessage = () => "msg-1";
+    managed.conversation!.persistUserMessage = () => ({
+      id: "msg-1",
+      deduplicated: false,
+    });
     managed.conversation!.runAgentLoop = async () => {
       throw new Error("Conversation aborted");
     };
@@ -436,7 +445,10 @@ describe("SubagentManager abort race guard", () => {
     // Patch conversation to simulate successful completion after abort.
     const managed = asInternals(manager).subagents.get(subagentId)!;
 
-    managed.conversation!.persistUserMessage = () => "msg-1";
+    managed.conversation!.persistUserMessage = () => ({
+      id: "msg-1",
+      deduplicated: false,
+    });
     managed.conversation!.runAgentLoop = async () => {};
     managed.conversation!.messages = [
       { role: "assistant", content: [{ type: "text", text: "Done!" }] },

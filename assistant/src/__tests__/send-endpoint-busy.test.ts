@@ -136,13 +136,9 @@ function makeCompletingConversation(): Conversation {
   const messages: unknown[] = [];
   return {
     isProcessing: () => processing,
-    persistUserMessage: (
-      _content: string,
-      _attachments: unknown[],
-      requestId?: string,
-    ) => {
+    persistUserMessage: (options: { requestId?: string }) => {
       processing = true;
-      return { id: requestId ?? "msg-1", deduplicated: false };
+      return { id: options.requestId ?? "msg-1", deduplicated: false };
     },
     memoryPolicy: {
       scopeId: "default",
@@ -193,13 +189,9 @@ function makeHangingConversation(): Conversation {
   }> = [];
   return {
     isProcessing: () => processing,
-    persistUserMessage: (
-      _content: string,
-      _attachments: unknown[],
-      requestId?: string,
-    ) => {
+    persistUserMessage: (options: { requestId?: string }) => {
       processing = true;
-      return { id: requestId ?? "msg-1", deduplicated: false };
+      return { id: options.requestId ?? "msg-1", deduplicated: false };
     },
     memoryPolicy: {
       scopeId: "default",
@@ -278,11 +270,10 @@ function makePendingApprovalConversation(
 
   const conversation = {
     isProcessing: () => processing,
-    persistUserMessage: (
-      _content: string,
-      _attachments: unknown[],
-      reqId?: string,
-    ) => ({ id: reqId ?? "msg-1", deduplicated: false }),
+    persistUserMessage: (options: { requestId?: string }) => ({
+      id: options.requestId ?? "msg-1",
+      deduplicated: false,
+    }),
     memoryPolicy: {
       scopeId: "default",
       includeDefaultFallback: false,

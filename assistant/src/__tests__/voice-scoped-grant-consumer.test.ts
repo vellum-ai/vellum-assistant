@@ -138,7 +138,7 @@ function createMockSession(opts?: {
     setVoiceCallControlPrompt: () => {},
     currentRequestId: requestId,
     abort: () => {},
-    persistUserMessage: async () => "msg-1",
+    persistUserMessage: async () => ({ id: "msg-1", deduplicated: false }),
     updateClient: (cb: (msg: ServerMessage) => void, _reset?: boolean) => {
       clientCallback = cb;
     },

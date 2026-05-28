@@ -86,7 +86,10 @@ import {
   disposeConversation,
   loadFromDb as loadFromDbImpl,
 } from "./conversation-lifecycle.js";
-import type { RedirectToSecurePromptOptions } from "./conversation-messaging.js";
+import type {
+  PersistMessageOptions,
+  RedirectToSecurePromptOptions,
+} from "./conversation-messaging.js";
 import {
   enqueueMessage as enqueueMessageImpl,
   persistUserMessage as persistUserMessageImpl,
@@ -1283,25 +1286,12 @@ export class Conversation {
   }
 
   async persistUserMessage(
-    content: string,
-    attachments: UserMessageAttachment[],
-    requestId?: string,
-    metadata?: Record<string, unknown>,
-    displayContent?: string,
-    clientMessageId?: string,
+    options: PersistMessageOptions,
   ): Promise<{ id: string; deduplicated: boolean }> {
     if (!this.processing) {
       await this.ensureActorScopedHistory();
     }
-    return persistUserMessageImpl(
-      this,
-      content,
-      attachments,
-      requestId,
-      metadata,
-      displayContent,
-      clientMessageId,
-    );
+    return persistUserMessageImpl(this, options);
   }
 
   // ── Agent Loop ───────────────────────────────────────────────────

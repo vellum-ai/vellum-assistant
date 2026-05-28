@@ -342,17 +342,26 @@ export function enqueueMessage(
   return { queued: true, requestId };
 }
 
+// ── PersistMessageOptions ────────────────────────────────────────────
+
+/** Shared options for `persistUserMessage` and `persistQueuedMessageBody`. */
+export interface PersistMessageOptions {
+  content: string;
+  attachments?: UserMessageAttachment[];
+  requestId?: string;
+  metadata?: Record<string, unknown>;
+  displayContent?: string;
+  clientMessageId?: string;
+}
+
 // ── persistUserMessage ───────────────────────────────────────────────
 
 export async function persistUserMessage(
   ctx: MessagingConversationContext,
-  content: string,
-  attachments: UserMessageAttachment[],
-  requestId?: string,
-  metadata?: Record<string, unknown>,
-  displayContent?: string,
-  clientMessageId?: string,
+  options: PersistMessageOptions,
 ): Promise<{ id: string; deduplicated: boolean }> {
+  const { content, attachments = [] } = options;
+
   if (ctx.processing) {
     throw new Error("Conversation is already processing a message");
   }
@@ -361,21 +370,17 @@ export async function persistUserMessage(
     throw new Error("Message content or attachments are required");
   }
 
-  const reqId = requestId ?? uuid();
+  const reqId = options.requestId ?? uuid();
   ctx.currentRequestId = reqId;
   ctx.processing = true;
   ctx.abortController = new AbortController();
 
   try {
-    const result = await persistQueuedMessageBody(
-      ctx,
-      content,
+    const result = await persistQueuedMessageBody(ctx, {
+      ...options,
       attachments,
-      reqId,
-      metadata,
-      displayContent,
-      clientMessageId,
-    );
+      requestId: reqId,
+    });
     if (result.deduplicated) {
       ctx.processing = false;
       ctx.abortController = null;
@@ -403,13 +408,16 @@ export async function persistUserMessage(
  */
 export async function persistQueuedMessageBody(
   ctx: MessagingConversationContext,
-  content: string,
-  attachments: UserMessageAttachment[],
-  requestId: string,
-  metadata: Record<string, unknown> | undefined,
-  displayContent: string | undefined,
-  clientMessageId?: string,
+  options: PersistMessageOptions,
 ): Promise<{ id: string; deduplicated: boolean }> {
+  const {
+    content,
+    attachments = [],
+    requestId = uuid(),
+    metadata,
+    displayContent,
+    clientMessageId,
+  } = options;
   const attachmentInputs = attachments.map((attachment) => ({
     id: attachment.id,
     filename: attachment.filename,

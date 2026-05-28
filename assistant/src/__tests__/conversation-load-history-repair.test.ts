@@ -536,7 +536,7 @@ describe("loadFromDb history repair", () => {
       trustClass: "guardian",
       sourceChannel: "telegram",
     });
-    await conversation.persistUserMessage("Guardian follow-up", []);
+    await conversation.persistUserMessage({ content: "Guardian follow-up" });
     const messagesAfterPersist = conversation.getMessages();
 
     expect(messagesAfterPersist).toHaveLength(5);

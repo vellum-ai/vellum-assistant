@@ -42,7 +42,7 @@ mock.module("../daemon/conversation-store.js", () => ({
       capturedMessages.push(content);
       return { queued: true };
     },
-    persistUserMessage: async () => "mock-msg",
+    persistUserMessage: async () => ({ id: "mock-msg", deduplicated: false }),
     runAgentLoop: async () => {},
   }),
   addConversation: () => {},
@@ -107,7 +107,7 @@ function injectSubagent(
     sendToClient: () => {},
     usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     enqueueMessage: () => ({ queued: false }),
-    persistUserMessage: () => "msg-1",
+    persistUserMessage: async () => ({ id: "msg-1", deduplicated: false }),
     runAgentLoop: async () => {},
   };
   internals.subagents.set(subagentId, {

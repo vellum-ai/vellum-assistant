@@ -508,13 +508,13 @@ export async function processMessage(
   const persistMetadata = options?.slackInbound
     ? { slackInbound: options.slackInbound }
     : undefined;
-  const { id: messageId } = await conversation.persistUserMessage(
-    resolvedContent,
+  const { id: messageId } = await conversation.persistUserMessage({
+    content: resolvedContent,
     attachments,
     requestId,
-    persistMetadata,
-    options?.displayContent,
-  );
+    metadata: persistMetadata,
+    displayContent: options?.displayContent,
+  });
   publishConversationMessagesChanged(conversationId);
 
   if (options?.isInteractive === true) {
@@ -571,13 +571,13 @@ export async function processMessageInBackground(
   const persistMetadata = options?.slackInbound
     ? { slackInbound: options.slackInbound }
     : undefined;
-  const { id: messageId } = await conversation.persistUserMessage(
+  const { id: messageId } = await conversation.persistUserMessage({
     content,
     attachments,
     requestId,
-    persistMetadata,
-    options?.displayContent,
-  );
+    metadata: persistMetadata,
+    displayContent: options?.displayContent,
+  });
   publishConversationMessagesChanged(conversationId);
 
   if (options?.isInteractive === true) {
