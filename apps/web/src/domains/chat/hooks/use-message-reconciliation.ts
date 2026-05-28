@@ -189,6 +189,7 @@ export function useMessageReconciliation({
     (
       serverMessages: RuntimeMessage[],
       snapshotTurnId: string | null,
+      snapshotConversationId: string,
     ): ReconcileActiveConversationResult => {
       const { changed, assistantProgress, messagesAdded } =
         reconcileFromServerDetailed(serverMessages);
@@ -224,6 +225,20 @@ export function useMessageReconciliation({
         useTurnStore.getState().activeTurnId === snapshotTurnId;
       if (wasStuck) {
         useTurnStore.getState().onPollReconciled(snapshotTurnId);
+        // The rescue must also clear the conversation-level processing
+        // key — `processingConversationIds` is set at send time and is
+        // normally cleared by the SSE terminal-event handlers
+        // (`handleAssistantActivityState(idle)`, `handleMessageComplete`,
+        // `handleGenerationCancelled`, error handlers). When SSE drops
+        // the terminal event, those handlers never run, and the
+        // graduation effect in `useAttentionTracking` explicitly skips
+        // the active conversation. Without this call the rescue would
+        // leave `activeConversationIsProcessing` stuck at `true` — which
+        // keeps `canStopGeneration` true and the sidebar processing dot
+        // visible even though the turn has clearly completed (LUM-1952).
+        useConversationStore
+          .getState()
+          .removeProcessingConversationId(snapshotConversationId);
         // `POLL_RECONCILED` is the silent-stall rescue: the server
         // reports assistant progress that the client never observed
         // via SSE, meaning a terminal event (`message_complete`
@@ -341,6 +356,7 @@ export function useMessageReconciliation({
             const { changed } = reconcileFetchedMessages(
               serverMessages,
               snapshotTurnId,
+              ctx.conversationId,
             );
             if (changed) {
               stableCount = 0;
@@ -430,7 +446,11 @@ export function useMessageReconciliation({
           epoch: snapshotEpoch,
           server: summarizeRuntimeMessages(serverMessages),
         });
-        return reconcileFetchedMessages(serverMessages, snapshotTurnId);
+        return reconcileFetchedMessages(
+          serverMessages,
+          snapshotTurnId,
+          ctx.conversationId,
+        );
       } catch {
         // Non-fatal: a fetch failure doesn't prove the turn completed.
         // The .finally() nonce bump reopens SSE to deliver terminal events.

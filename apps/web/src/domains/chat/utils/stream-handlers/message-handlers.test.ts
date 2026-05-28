@@ -152,6 +152,26 @@ describe("handleMessageComplete", () => {
     expect(ctx.startReconciliationLoop).not.toHaveBeenCalled();
   });
 
+  it("prefers event.conversationId over streamContextRef when both differ (LUM-1952)", () => {
+    // streamContextRef is a mirror that may be cleared by a stream
+    // teardown that races the terminal event. When the event itself
+    // carries the canonical conversationId, the handler must use it
+    // — otherwise the processing key for the conversation that
+    // actually completed would never clear.
+    const ctx = makeCtx({
+      streamContextRef: { current: null },
+    });
+    handleMessageComplete(
+      {
+        type: "message_complete",
+        messageId: "msg-1",
+        conversationId: "conv-from-event",
+      },
+      ctx,
+    );
+    expect(ctx.clearProcessingKey).toHaveBeenCalledWith("conv-from-event");
+  });
+
   it("re-anchors a spawned subagent from the streaming id to the server messageId", () => {
     useSubagentStore.getState().reset();
     // Spawn stamped with the optimistic streaming bubble id.
@@ -250,5 +270,16 @@ describe("handleGenerationCancelled", () => {
     expect(ctx.turnActions.cancelGeneration).toHaveBeenCalled();
     expect(ctx.clearProcessingKey).toHaveBeenCalledWith("conv-1");
     expect(ctx.setMessages).toHaveBeenCalled();
+  });
+
+  it("prefers event.conversationId over streamContextRef when both differ (LUM-1952)", () => {
+    const ctx = makeCtx({
+      streamContextRef: { current: null },
+    });
+    handleGenerationCancelled(
+      { type: "generation_cancelled", conversationId: "conv-from-event" },
+      ctx,
+    );
+    expect(ctx.clearProcessingKey).toHaveBeenCalledWith("conv-from-event");
   });
 });

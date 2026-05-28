@@ -217,6 +217,15 @@ beforeEach(async () => {
   mockFetchError = null;
   mockFetchSideEffect = null;
   fetchCallCount = 0;
+  // Zustand stores survive across tests in the same Bun process; reset
+  // the conversation-list state so each test sees a clean slate.
+  useConversationStore.setState({
+    processingConversationIds: new Set(),
+    processingSnapshots: new Map(),
+    attentionConversationIds: new Set(),
+    activeConversationId: null,
+    editingConversationId: null,
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -365,6 +374,95 @@ describe("reconcileActiveConversation", () => {
     await reconcileActiveConversation();
     expect(onPollReconciledSpy).toHaveBeenCalledTimes(1);
     expect(onPollReconciledSpy).toHaveBeenCalledWith("turn-42");
+  });
+
+  test("clears active conversation processing key on silent-stall rescue (LUM-1952)", async () => {
+    // Repro for LUM-1952. The send pathway adds the active conversation id
+    // to `processingConversationIds`; the SSE terminal-event handlers
+    // (`handleAssistantActivityState(idle)`, `handleMessageComplete`,
+    // `handleGenerationCancelled`, error handlers) are the only sites that
+    // clear it for the active conversation — the graduation effect in
+    // `useAttentionTracking` explicitly skips the active conversation. When
+    // SSE drops the terminal event, the silent-stall rescue here is the
+    // last line of defense. If it only clears the turn-store but not the
+    // processing key, `canStopGeneration` and the sidebar processing dot
+    // stay "true" even though the assistant message has already rendered.
+    messages = [makeMessage({ id: "m1", role: "user", content: "Hello" })];
+    mockFetchResult = [
+      { id: "m1", role: "user", content: "Hello" },
+      { id: "m2", role: "assistant", content: "Response" },
+    ];
+    useConversationStore.setState({
+      processingConversationIds: new Set(["conv-1"]),
+    });
+    const stuckTurnState: TurnState = {
+      phase: "thinking",
+      pendingQueuedCount: 0,
+      activeToolCallCount: 0,
+      activeTurnId: "turn-42",
+      lastTerminalReason: null,
+      statusText: null,
+      liveWebActivity: {},
+      autoRoutedProfileLabel: null,
+    };
+    const { reconcileActiveConversation } = createHarness({
+      streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
+      activeConversationId: "conv-1",
+      turnState: stuckTurnState,
+    });
+
+    await reconcileActiveConversation();
+
+    expect(onPollReconciledSpy).toHaveBeenCalledTimes(1);
+    expect(
+      useConversationStore.getState().processingConversationIds.has("conv-1"),
+    ).toBe(false);
+  });
+
+  test("does NOT touch processing key during a healthy mid-stream sync reconcile", async () => {
+    // Regression guard paired with LUM-1952. The processing-key clear
+    // must only fire on the rescue path. During a healthy mid-stream
+    // reconcile (no content drift, server matches local), the rescue
+    // does not fire, and the processing key must stay set — clearing
+    // it would prematurely hide the sidebar processing dot while the
+    // turn is still legitimately running.
+    const msg = makeMessage({ id: "m1", role: "user", content: "Hello" });
+    const assistantMsg = makeMessage({
+      id: "m2",
+      role: "assistant",
+      content: "Working on it...",
+      isStreaming: true,
+    });
+    messages = [msg, assistantMsg];
+    mockFetchResult = [
+      { id: "m1", role: "user", content: "Hello" },
+      { id: "m2", role: "assistant", content: "Working on it..." },
+    ];
+    useConversationStore.setState({
+      processingConversationIds: new Set(["conv-1"]),
+    });
+    const liveStreamingState: TurnState = {
+      phase: "streaming",
+      pendingQueuedCount: 0,
+      activeToolCallCount: 0,
+      activeTurnId: "turn-42",
+      lastTerminalReason: null,
+      statusText: null,
+      liveWebActivity: {},
+      autoRoutedProfileLabel: null,
+    };
+    const { reconcileActiveConversation } = createHarness({
+      streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
+      activeConversationId: "conv-1",
+      turnState: liveStreamingState,
+    });
+
+    await reconcileActiveConversation();
+
+    expect(onPollReconciledSpy).not.toHaveBeenCalled();
+    expect(
+      useConversationStore.getState().processingConversationIds.has("conv-1"),
+    ).toBe(true);
   });
 
   test("does NOT call onPollReconciled when turnId is null", async () => {
