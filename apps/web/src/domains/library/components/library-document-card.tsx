@@ -2,7 +2,7 @@ import { FileText } from "lucide-react";
 
 import type { DocumentSummary } from "@/types/document-types";
 import { cn } from "@/utils/misc";
-import { formatLibraryDate } from "@/domains/library/library-date";
+import { formatFriendlyDate } from "@/utils/format-date";
 
 function formatWordCount(count: number): string {
   return count === 1 ? "1 word" : `${count} words`;
@@ -40,7 +40,7 @@ export function LibraryDocumentCard({ document, onOpen }: LibraryDocumentCardPro
           {document.title}
         </span>
         <span className="text-body-small-default text-[color:var(--content-tertiary)]">
-          {formatLibraryDate(document.updatedAt)}
+          {formatFriendlyDate(new Date(document.updatedAt))}
         </span>
       </button>
     </div>

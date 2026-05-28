@@ -10,6 +10,7 @@ import { Typography } from "@vellum/design-library/components/typography";
 import { organizationsBillingInvoicesRetrieve } from "@/generated/api/sdk.gen";
 import { organizationsBillingInvoicesRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 import type { Invoice, InvoiceListResponse } from "@/generated/api/types.gen";
+import { formatFriendlyDate } from "@/utils/format-date";
 
 const EMPTY_RESPONSE: InvoiceListResponse = { invoices: [] };
 
@@ -50,10 +51,8 @@ function formatAmount(minorUnits: number, currency: string): string {
 
 /** Format a Unix-seconds timestamp as a human-readable date. */
 function formatDate(unixSeconds: number): string {
-  return new Date(unixSeconds * 1000).toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
+  return formatFriendlyDate(new Date(unixSeconds * 1000), {
+    alwaysShowYear: true,
   });
 }
 

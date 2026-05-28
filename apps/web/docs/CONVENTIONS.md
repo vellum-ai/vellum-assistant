@@ -423,6 +423,43 @@ Do not use barrel files (`index.ts` that re-export siblings). Import
 from the source file directly. If you believe this rule should change,
 open a GitHub issue to discuss.
 
+### No single-file directories
+
+A directory that contains exactly one file should be flattened — move
+the file up one level and remove the empty directory. Directories
+exist to organize multiple files, not to wrap a single file.
+
+When flattening, verify the file lands in the **correct parent**
+directory, not just one level up. A Zustand store that was nested in
+`lib/environment/environment-store.ts` should move to `stores/`, not
+just flatten to `lib/`.
+
+### Utility file naming within domains
+
+When a domain has a single utility file, use the `utils-` prefix so
+utility files sort together in the file tree:
+
+```
+domains/home/
+  utils-feed.ts          # ✅ single utility, prefixed
+  home-page.tsx
+```
+
+When a domain accumulates enough utilities to justify grouping, use a
+`utils/` directory with descriptive file names:
+
+```
+domains/chat/
+  utils/
+    chat-utils.ts        # ✅ multiple utilities in a directory
+    risk-utils.ts
+    sub-group-utils.ts
+```
+
+If a utility is generic and not domain-specific (e.g. date formatting,
+string helpers), lift it to top-level `utils/` regardless of where it
+was first created.
+
 ---
 
 ## State management

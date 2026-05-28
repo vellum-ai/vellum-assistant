@@ -21,7 +21,7 @@ import {
 } from "@vellum/design-library";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { cn } from "@/utils/misc";
-import { formatLibraryDate } from "@/domains/library/library-date";
+import { formatFriendlyDate } from "@/utils/format-date";
 
 interface LibraryAppCardProps {
   app: AppSummary;
@@ -122,7 +122,7 @@ export function LibraryAppCard({
           {app.name}
         </span>
         <span className="text-body-small-default text-[color:var(--content-tertiary)]">
-          {formatLibraryDate(app.createdAt)}
+          {formatFriendlyDate(new Date(app.createdAt))}
         </span>
       </button>
     </div>
