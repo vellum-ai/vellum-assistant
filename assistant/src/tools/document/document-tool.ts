@@ -40,13 +40,36 @@ export function canAccessDocument(
   );
 }
 
+function invalidInput(message: string): ToolExecutionResult {
+  return {
+    content: JSON.stringify({
+      success: false,
+      error: `Invalid input: ${message}`,
+    }),
+    isError: true,
+  };
+}
+
+function validateSurfaceId(
+  input: Record<string, unknown>,
+): ToolExecutionResult | string {
+  if (typeof input.surface_id !== "string" || input.surface_id.trim() === "") {
+    return invalidInput(
+      "surface_id is required and must be a non-empty string",
+    );
+  }
+  return input.surface_id;
+}
+
 // ── Exported execute functions ──────────────────────────────────────
 
 export function executeDocumentOpen(
   input: Record<string, unknown>,
   context: ToolContext,
 ): ToolExecutionResult {
-  const surfaceId = input.surface_id as string;
+  const surfaceIdOrError = validateSurfaceId(input);
+  if (typeof surfaceIdOrError !== "string") return surfaceIdOrError;
+  const surfaceId = surfaceIdOrError;
   if (!canAccessDocument(surfaceId, context)) {
     return documentNotFound(surfaceId);
   }
@@ -174,9 +197,21 @@ export function executeDocumentUpdate(
   input: Record<string, unknown>,
   context: ToolContext,
 ): ToolExecutionResult {
-  const surfaceId = input.surface_id as string;
-  const content = input.content as string;
-  const mode = (input.mode as string | undefined) || "append";
+  const surfaceIdOrError = validateSurfaceId(input);
+  if (typeof surfaceIdOrError !== "string") return surfaceIdOrError;
+  const surfaceId = surfaceIdOrError;
+  if (typeof input.content !== "string") {
+    return invalidInput("content is required and must be a string");
+  }
+  if (
+    input.mode !== undefined &&
+    input.mode !== "replace" &&
+    input.mode !== "append"
+  ) {
+    return invalidInput('mode must be "replace" or "append"');
+  }
+  const content = input.content;
+  const mode = (input.mode as "replace" | "append" | undefined) ?? "append";
 
   if (!canAccessDocument(surfaceId, context)) {
     return documentNotFound(surfaceId);
@@ -229,7 +264,9 @@ export function executeDocumentRead(
   input: Record<string, unknown>,
   context: ToolContext,
 ): ToolExecutionResult {
-  const surfaceId = input.surface_id as string;
+  const surfaceIdOrError = validateSurfaceId(input);
+  if (typeof surfaceIdOrError !== "string") return surfaceIdOrError;
+  const surfaceId = surfaceIdOrError;
   if (!canAccessDocument(surfaceId, context)) {
     return documentNotFound(surfaceId);
   }
@@ -286,7 +323,9 @@ export function executeDocumentDelete(
   input: Record<string, unknown>,
   context: ToolContext,
 ): ToolExecutionResult {
-  const surfaceId = input.surface_id as string;
+  const surfaceIdOrError = validateSurfaceId(input);
+  if (typeof surfaceIdOrError !== "string") return surfaceIdOrError;
+  const surfaceId = surfaceIdOrError;
   if (!canAccessDocument(surfaceId, context)) {
     return documentNotFound(surfaceId);
   }
@@ -309,7 +348,9 @@ export function executeDocumentFind(
   input: Record<string, unknown>,
   context: ToolContext,
 ): ToolExecutionResult {
-  const surfaceId = input.surface_id as string;
+  const surfaceIdOrError = validateSurfaceId(input);
+  if (typeof surfaceIdOrError !== "string") return surfaceIdOrError;
+  const surfaceId = surfaceIdOrError;
   const query = input.query as string;
   const regex = (input.regex as boolean | undefined) ?? false;
   const caseSensitive = (input.case_sensitive as boolean | undefined) ?? false;
@@ -360,7 +401,9 @@ export function executeDocumentReplaceText(
   input: Record<string, unknown>,
   context: ToolContext,
 ): ToolExecutionResult {
-  const surfaceId = input.surface_id as string;
+  const surfaceIdOrError = validateSurfaceId(input);
+  if (typeof surfaceIdOrError !== "string") return surfaceIdOrError;
+  const surfaceId = surfaceIdOrError;
   const find = input.find as string;
   const replace = (input.replace as string) ?? "";
   const regex = (input.regex as boolean | undefined) ?? false;
