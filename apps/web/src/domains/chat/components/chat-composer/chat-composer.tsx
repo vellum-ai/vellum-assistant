@@ -380,21 +380,22 @@ export function ChatComposer({
   );
 
   return (
-    <>
-      {noticesAboveFormSlot}
-      <Popover.Root open={emoji.show || slash.show}>
-        <Popover.Anchor asChild>
-          {/* `relative` wrapper anchors the live voice overlay's
-              `absolute bottom-full` directly above the composer form —
-              since the overlay is out of flow, the wrapper's content
-              height collapses to the form's height, so `bottom: 100%`
-              of the wrapper sits flush against the top of the form. */}
-          <div className="relative">
-            {showLiveVoiceOverlay && <LiveVoiceOverlay />}
-            <form
-              onSubmit={onSubmit}
-              className="overflow-hidden rounded-[10px] bg-[var(--surface-lift)] shadow-[0px_2px_2px_rgba(0,0,0,0.05)]"
-            >
+    <Popover.Root open={emoji.show || slash.show}>
+      <Popover.Anchor asChild>
+        {/* `relative` wrapper anchors the live voice overlay's
+            `absolute bottom-full` directly above the composer's notices
+            + form stack. Because `noticesAboveFormSlot` is rendered as
+            an in-flow sibling of the form inside this wrapper, the
+            overlay's `bottom: 100%` clears both notices and form rather
+            than clipping into the notices region (billing banner,
+            maintenance banner, voice errors, etc.). */}
+        <div className="relative">
+          {showLiveVoiceOverlay && <LiveVoiceOverlay />}
+          {noticesAboveFormSlot}
+          <form
+            onSubmit={onSubmit}
+            className="overflow-hidden rounded-[10px] bg-[var(--surface-lift)] shadow-[0px_2px_2px_rgba(0,0,0,0.05)]"
+          >
             <ChatAttachmentsStrip
               attachments={chatAttachments}
               onRemove={onRemoveAttachment}
@@ -704,36 +705,35 @@ export function ChatComposer({
                 )}
               </div>
             </div>
-            </form>
-          </div>
-        </Popover.Anchor>
-        <Popover.Content
-          side="top"
-          align="start"
-          sideOffset={4}
-          className="w-[var(--radix-popover-trigger-width)] rounded-none bg-transparent p-0 shadow-none"
-          onOpenAutoFocus={(e: Event) => e.preventDefault()}
-          onCloseAutoFocus={(e: Event) => e.preventDefault()}
-          onInteractOutside={(e: Event) => e.preventDefault()}
-          onEscapeKeyDown={(e: Event) => e.preventDefault()}
-          onPointerDownOutside={(e: Event) => e.preventDefault()}
-        >
-          {emoji.show && (
-            <EmojiPickerPopup
-              entries={emoji.items}
-              selectedIndex={emoji.selectedIndex}
-              onSelect={insertEmoji}
-            />
-          )}
-          {slash.show && (
-            <SlashCommandPopup
-              commands={slash.items}
-              selectedIndex={slash.selectedIndex}
-              onSelect={handleSlashCommandSelect}
-            />
-          )}
-        </Popover.Content>
-      </Popover.Root>
-    </>
+          </form>
+        </div>
+      </Popover.Anchor>
+      <Popover.Content
+        side="top"
+        align="start"
+        sideOffset={4}
+        className="w-[var(--radix-popover-trigger-width)] rounded-none bg-transparent p-0 shadow-none"
+        onOpenAutoFocus={(e: Event) => e.preventDefault()}
+        onCloseAutoFocus={(e: Event) => e.preventDefault()}
+        onInteractOutside={(e: Event) => e.preventDefault()}
+        onEscapeKeyDown={(e: Event) => e.preventDefault()}
+        onPointerDownOutside={(e: Event) => e.preventDefault()}
+      >
+        {emoji.show && (
+          <EmojiPickerPopup
+            entries={emoji.items}
+            selectedIndex={emoji.selectedIndex}
+            onSelect={insertEmoji}
+          />
+        )}
+        {slash.show && (
+          <SlashCommandPopup
+            commands={slash.items}
+            selectedIndex={slash.selectedIndex}
+            onSelect={handleSlashCommandSelect}
+          />
+        )}
+      </Popover.Content>
+    </Popover.Root>
   );
 }
