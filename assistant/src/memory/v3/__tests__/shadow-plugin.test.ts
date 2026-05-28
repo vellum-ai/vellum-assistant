@@ -16,13 +16,32 @@
  */
 
 import { Database } from "bun:sqlite";
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { migrateAddMemoryV3Selections } from "../../migrations/267-add-memory-v3-selections.js";
 import * as schema from "../../schema.js";
 import type { LeafTree, SelectionSource } from "../types.js";
+
+// `mock.module` is process-global and, in Bun, neither `mock.restore()` nor a
+// re-mock in `afterAll` reverts it for files that load LATER in the same
+// `bun test src/memory/v3/` run. Sibling files (orchestrate.test.ts,
+// tree.test.ts) import these same modules for real, so an unconditional stub
+// here would leak in and break them. Instead each stub below DELEGATES to the
+// real implementation unless this test is actively running (`shadowMockActive`,
+// toggled in beforeEach/afterAll).
+//
+// Snapshot the real exports into plain objects NOW: a module namespace object
+// is a live view, so reading `realTree.loadLeafTree` *after* the stub is
+// installed would resolve back to the stub (infinite recursion).
+const realTree = { ...(await import("../tree.js")) };
+const realCore = { ...(await import("../core.js")) };
+const realNeedle = { ...(await import("../needle.js")) };
+const realOrchestrate = { ...(await import("../orchestrate.js")) };
+const realPlatform = { ...(await import("../../../util/platform.js")) };
+
+let shadowMockActive = false;
 
 // ─── mutable test state, read by the mocks below ────────────────────────────
 
@@ -90,40 +109,69 @@ mock.module("../v2/page-index.js", () => ({
 }));
 
 mock.module("../../../util/platform.js", () => ({
-  getWorkspaceDir: () => "/tmp/shadow-test-workspace",
+  ...realPlatform,
+  getWorkspaceDir: () =>
+    shadowMockActive
+      ? "/tmp/shadow-test-workspace"
+      : realPlatform.getWorkspaceDir(),
 }));
 
 mock.module("../tree.js", () => ({
-  resolveDataDir: () => "/tmp/shadow-test-data",
-  loadLeafTree: async () => {
+  ...realTree,
+  resolveDataDir: () =>
+    shadowMockActive ? "/tmp/shadow-test-data" : realTree.resolveDataDir(),
+  loadLeafTree: async (dataDir: string) => {
+    if (!shadowMockActive) return realTree.loadLeafTree(dataDir);
     treeLoads++;
     return FAKE_TREE;
   },
   membersOf: (tree: LeafTree, leaf: string) =>
-    (tree.leaves.get(leaf) as unknown as { members?: string[] })?.members ?? [],
+    shadowMockActive
+      ? ((tree.leaves.get(leaf) as unknown as { members?: string[] })
+          ?.members ?? [])
+      : realTree.membersOf(tree, leaf),
 }));
 
 mock.module("../core.js", () => ({
-  loadCore: async () => {
+  ...realCore,
+  loadCore: async (dataDir: string) => {
+    if (!shadowMockActive) return realCore.loadCore(dataDir);
     coreLoads++;
     return new Set(["domain-a"]);
   },
 }));
 
 mock.module("../needle.js", () => ({
-  buildNeedleIndex: async () => {
+  ...realNeedle,
+  buildNeedleIndex: async (
+    ...args: Parameters<typeof realNeedle.buildNeedleIndex>
+  ) => {
+    if (!shadowMockActive) return realNeedle.buildNeedleIndex(...args);
     needleBuilds++;
-    return { query: () => [] };
+    return { query: () => [] } as unknown as Awaited<
+      ReturnType<typeof realNeedle.buildNeedleIndex>
+    >;
   },
 }));
 
 mock.module("../orchestrate.js", () => ({
-  orchestrate: orchestrateSpy,
+  ...realOrchestrate,
+  orchestrate: (...args: Parameters<typeof realOrchestrate.orchestrate>) =>
+    shadowMockActive
+      ? orchestrateSpy(...(args as unknown as []))
+      : realOrchestrate.orchestrate(...args),
 }));
 
 // Import AFTER mocks so the plugin binds to them.
 const { runShadowObservation, resetShadowLanesForTests, memoryV3ShadowPlugin } =
   await import("../shadow-plugin.js");
+
+// The module stubs above stay installed for the rest of the process (Bun can't
+// reliably uninstall them), but `shadowMockActive` gates their fake behavior to
+// this file's tests only, so later-loaded sibling files see real behavior.
+afterAll(() => {
+  shadowMockActive = false;
+});
 
 function readRows() {
   return testSqlite
@@ -134,6 +182,7 @@ function readRows() {
 }
 
 beforeEach(() => {
+  shadowMockActive = true;
   flagEnabled = false;
   messages = [
     {

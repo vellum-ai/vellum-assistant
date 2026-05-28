@@ -40,7 +40,7 @@ import type { NeedleIndex } from "./needle.js";
 import { buildNeedleIndex } from "./needle.js";
 import type { OrchestrateResult } from "./orchestrate.js";
 import { orchestrate } from "./orchestrate.js";
-import { loadLeafTree, membersOf, resolveDataDir } from "./tree.js";
+import { coreSlugs, loadLeafTree, resolveDataDir } from "./tree.js";
 import type {
   LeafPath,
   LeafTree,
@@ -183,9 +183,7 @@ function attributeSelections(
   core: Set<LeafPath>,
   result: OrchestrateResult,
 ): SelectionRow[] {
-  const coreSlugs = new Set<Slug>(
-    [...core].flatMap((leaf) => membersOf(tree, leaf)),
-  );
+  const coreOwnedSlugs = coreSlugs(tree, core);
 
   const rows: SelectionRow[] = [];
   const seen = new Set<Slug>();
@@ -193,7 +191,7 @@ function attributeSelections(
     seen.add(sel.slug);
     rows.push({
       slug: sel.slug,
-      source: coreSlugs.has(sel.slug) ? "core+l2" : "l1+l2",
+      source: coreOwnedSlugs.has(sel.slug) ? "core+l2" : "l1+l2",
       pinned: sel.pinned ? 1 : 0,
     });
   }

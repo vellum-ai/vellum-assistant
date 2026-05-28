@@ -27,13 +27,10 @@ import {
   extractToolUse,
   getConfiguredProvider,
 } from "../../providers/provider-send-message.js";
-import type {
-  ContentBlock,
-  Message,
-  ToolDefinition,
-} from "../../providers/types.js";
+import type { Message, ToolDefinition } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
 import { mapLimit } from "../../util/map-limit.js";
+import { cachedTextBlock } from "./provider-blocks.js";
 import { membersOf } from "./tree.js";
 import type { LeafPath, LeafTree, Slug, TurnContext } from "./types.js";
 
@@ -214,18 +211,4 @@ export async function selectAcrossLeaves(
     selectFromLeaf(leaf, turn, tree, pageSummary),
   );
   return perLeaf.flat();
-}
-
-/**
- * Text content block carrying an ephemeral `cache_control` breakpoint. Our
- * internal `TextContent` type omits the field (only the Anthropic provider
- * transforms it onto the wire), so we reach through a `Record` cast — the same
- * approach `./router.ts` uses to keep the core types provider-agnostic.
- */
-function cachedTextBlock(text: string): ContentBlock {
-  const block: ContentBlock = { type: "text", text };
-  (block as unknown as Record<string, unknown>).cache_control = {
-    type: "ephemeral",
-  };
-  return block;
 }
