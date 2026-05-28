@@ -13,7 +13,10 @@
 import { routes } from "@/utils/routes";
 
 import { isLocalMode, hasAssistants } from "@/lib/local-mode";
-import { readOnboardingCompleted } from "@/domains/onboarding/prefs";
+import {
+  readOnboardingCompleted,
+  clearOnboardingCompleted,
+} from "@/domains/onboarding/prefs";
 
 /**
  * Returns the path to redirect to when onboarding should intercept, or
@@ -21,13 +24,14 @@ import { readOnboardingCompleted } from "@/domains/onboarding/prefs";
  *
  * Rules (short-circuit, top to bottom):
  *   1. In local mode with hatched assistants, let the user through.
- *   2. If onboarding is already marked completed, let the user through
- *      — UNLESS local mode has no assistants (stale flag from a prior session).
- *   3. If the intended destination isn't the chat surface itself
+ *   2. In local mode with zero assistants, clear any stale completion flag
+ *      (lockfile was lost/emptied since last onboarding).
+ *   3. If onboarding is already marked completed, let the user through.
+ *   4. If the intended destination isn't the chat surface itself
  *      (`/assistant`), let them through — sibling paths
  *      `/assistant/settings/...`, `/assistant/onboarding/...`,
  *      `/admin/...` etc. shouldn't be gated.
- *   4. Otherwise, route them to `routes.onboarding.privacy`.
+ *   5. Otherwise, route them to `routes.onboarding.privacy`.
  */
 export function resolveOnboardingRedirect({
   intendedDestination,
@@ -35,7 +39,10 @@ export function resolveOnboardingRedirect({
   intendedDestination: string;
 }): string | null {
   if (isLocalMode() && hasAssistants()) return null;
-  if (readOnboardingCompleted() && !(isLocalMode() && !hasAssistants())) return null;
+  if (isLocalMode() && !hasAssistants() && readOnboardingCompleted()) {
+    clearOnboardingCompleted();
+  }
+  if (readOnboardingCompleted()) return null;
 
   // `intendedDestination` may be a bare path or a raw `returnTo` value that
   // survived the callback as an absolute URL (`https://assistant.host/assistant`,
