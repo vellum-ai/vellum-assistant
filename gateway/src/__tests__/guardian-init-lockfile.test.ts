@@ -526,14 +526,26 @@ describe("guardian/reset-bootstrap", () => {
     expect(body.error).toBe("Loopback-only endpoint");
   });
 
-  test("rejects in Docker mode (bootstrap secret set)", async () => {
+  test("rejects without valid bootstrap secret when secrets are configured", async () => {
     process.env.GUARDIAN_BOOTSTRAP_SECRET = "some-secret";
     const handler = createChannelVerificationSessionProxyHandler(makeConfig());
 
     const res = await handler.handleResetBootstrap("127.0.0.1");
     expect(res.status).toBe(403);
     const body = await res.json();
-    expect(body.error).toBe("Reset not available in containerized mode");
+    expect(body.error).toBe("Invalid bootstrap secret");
+  });
+
+  test("allows reset with valid bootstrap secret", async () => {
+    process.env.GUARDIAN_BOOTSTRAP_SECRET = "some-secret";
+    const handler = createChannelVerificationSessionProxyHandler(makeConfig());
+
+    const req = new Request("http://localhost:7830/v1/guardian/reset-bootstrap", {
+      method: "POST",
+      headers: { "x-bootstrap-secret": "some-secret" },
+    });
+    const res = await handler.handleResetBootstrap("127.0.0.1", req);
+    expect(res.status).toBe(200);
   });
 
   test("resets in-flight flag so init can proceed", async () => {
