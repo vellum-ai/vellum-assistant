@@ -531,6 +531,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "migrations/import-preflight", scopes: ["settings.write"] },
   { endpoint: "migrations/import", scopes: ["settings.write"] },
   { endpoint: "migrations/import-from-gcs", scopes: ["settings.write"] },
+  { endpoint: "migrations/preflight-from-gcs", scopes: ["settings.write"] },
   { endpoint: "migrations/jobs", scopes: ["settings.read"] },
 
   // Backups
