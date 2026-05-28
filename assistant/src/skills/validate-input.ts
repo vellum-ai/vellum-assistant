@@ -89,14 +89,14 @@ export function validateInputAgainstSchema(
   const knownKeys = Object.keys(properties);
   const knownKeySet = new Set(knownKeys);
 
-  // 1. Required fields — `in` check, so explicit `undefined`/`null` count as missing.
+  // 1. Required fields — presence-only check per JSON Schema spec.
+  // `required` only requires the property to be present; `null` is a valid
+  // value when the schema allows it (e.g. `type: ["string", "null"]`).
   const required = schema.required;
   if (Array.isArray(required)) {
     for (const key of required) {
       if (typeof key !== "string") continue;
-      const present =
-        key in input && input[key] !== undefined && input[key] !== null;
-      if (!present) {
+      if (!(key in input)) {
         errors.push(`${key} is required`);
       }
     }
@@ -106,10 +106,17 @@ export function validateInputAgainstSchema(
   for (const [key, rawSubSchema] of Object.entries(properties)) {
     if (!(key in input)) continue;
     const value = input[key];
+    // `undefined` / `null` are treated as absent for type-checking purposes
+    // so we never reject a schema that legitimately permits null (e.g. a
+    // plugin schema with `type: ["string","null"]`). Combined with the
+    // presence-only `required` check above, this preserves nullable inputs.
     if (value === undefined || value === null) continue;
     if (!isPlainObject(rawSubSchema)) continue;
 
     const declaredType = rawSubSchema.type;
+    // Skip union types (e.g. `["string", "null"]`) — same lenient treatment
+    // we give `oneOf`/`anyOf`/`$ref`. We only validate single-type schemas.
+    if (Array.isArray(declaredType)) continue;
     if (typeof declaredType === "string" && SUPPORTED_TYPES.has(declaredType)) {
       const type = declaredType as SupportedType;
       if (!matchesType(value, type)) {
