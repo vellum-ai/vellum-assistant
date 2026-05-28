@@ -81,13 +81,27 @@ export function useGhostTextSuggestion({
       conversationId,
       lastCompleteAssistantMsgId,
     ),
-    queryFn: ({ signal }) =>
-      fetchSuggestion(
+    queryFn: async ({ signal }) => {
+      const result = await fetchSuggestion(
         assistantId as string,
         conversationId as string,
         lastCompleteAssistantMsgId as string,
         signal,
-      ),
+      );
+      // `fetchSuggestion` catches the AbortError that React Query
+      // raises on cancellation (e.g. conversation switch while a
+      // fetch is in flight) and resolves to its `EMPTY` constant.
+      // If we returned that, TanStack Query would mark the query
+      // successful, cache `EMPTY` against the active key, and —
+      // because `staleTime: Infinity` keeps it cached — re-suppress
+      // ghost text indefinitely for the same `(assistant,
+      // conversation, msgId)` tuple. Re-throw on abort so TanStack
+      // treats the cancellation as a cancellation, not a success.
+      if (signal.aborted) {
+        throw new DOMException("Suggestion fetch aborted", "AbortError");
+      }
+      return result;
+    },
     enabled,
     // The suggestion never changes for a given (conversation, last
     // assistant message) tuple, so cache it forever per key. The
