@@ -118,9 +118,9 @@ export function PreChatFlow() {
   const showAppStep =
     (isIOSWeb && !readIOSAppDownloaded()) ||
     (isMacOSWeb && !readMacOsAppDownloaded());
-  const prechatOnboardingV3 =
-    useClientFeatureFlagStore.use.prechatOnboardingV3();
-  const preferredFunnelVariant = prechatOnboardingV3
+  const tosGoogleOnlyPrechatFlag =
+    useClientFeatureFlagStore.use.prechatOnboardingTosGoogleOnly();
+  const preferredFunnelVariant = tosGoogleOnlyPrechatFlag
     ? ONBOARDING_FUNNEL_VARIANTS.paredDown
     : ONBOARDING_FUNNEL_VARIANTS.control;
   const webFunnelVariant =

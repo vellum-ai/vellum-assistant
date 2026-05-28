@@ -26,11 +26,11 @@
       "defaultEnabled": false
     },
     {
-      "id": "prechat-onboarding-v3",
+      "id": "prechat-onboarding-tos-google-only",
       "scope": "client",
-      "key": "prechat-onboarding-v3",
-      "label": "Pre-chat Onboarding v3",
-      "description": "Enable the pared-down three-step pre-chat onboarding flow for the 2026-05 A/B test.",
+      "key": "prechat-onboarding-tos-google-only",
+      "label": "TOS and Google-only Pre-chat Onboarding",
+      "description": "Enable the TOS and Google-only pre-chat onboarding flow for the 2026-05 A/B test.",
       "defaultEnabled": false
     },
     {
