@@ -144,9 +144,13 @@ export function BillingOnboardingModal({
     }
 
     if (step === "welcome") {
+      if (onboardingQuery.isError) {
+        return <FetchErrorState onGoToBilling={onClose} />;
+      }
       // Gate "Get started" until the onboarding query settles: advanceFromWelcome
       // routes on domain_setup_available, and a click while it's still pending
       // (undefined) would skip the intended bypass for orgs without domain setup.
+      // On error we show FetchErrorState above rather than routing on stale data.
       return (
         <WelcomeState
           onContinue={advanceFromWelcome}
