@@ -12,6 +12,8 @@ Call this when something happened that the user would want to know about — a c
 
 ## Sending Notifications
 
+Always pass `--title`. Skipping it triggers a fallback that just truncates `--message` to 60 chars and shows it as the title — the user sees the same text twice with no scannability gained.
+
 ```bash
 assistant notifications send \
   --title "Short headline" \
@@ -29,13 +31,15 @@ assistant notifications send --title "..." --message "..." --urgent
 | Flag                  | Required | Description                                  |
 | --------------------- | -------- | -------------------------------------------- |
 | `--message <message>` | Yes      | Notification message the user should receive |
-| `--title <title>`     | No       | Short headline (≤ 8 words). Strongly recommended — auto-derived from `--message` if omitted. |
+| `--title <title>`     | Yes in practice | Short headline (≤ 8 words). Omitting it triggers a body-truncation fallback that shows up as a duplicate of `--message` — always write a real title. |
 | `--urgent`            | No       | Mark as needing attention now/soon           |
 | `--json`              | No       | Output machine-readable JSON                 |
 
 ### Title
 
-Include a deliberate `--title` whenever you can. It's what the user sees in the lock-screen popup and notification list, so a short headline (noun phrase, ≤ 8 words) is much easier to scan than an auto-derived snippet from the message body. Avoid restating the first sentence of `--message` verbatim — the title should add scannability, not duplicate.
+Write a `--title` for every notification. It's the only line the user sees in the lock-screen popup and the collapsed row of the notification list, so a short noun phrase (≤ 8 words) is what makes the notification scannable. If you omit `--title`, the system falls back to the first sentence of `--message` (truncated at 60 chars) — that's almost always worse than what you'd write, because it duplicates body text the user is already going to read.
+
+Avoid restating the first sentence of `--message` verbatim — the title should add scannability, not duplicate.
 
 ### Urgent semantics
 

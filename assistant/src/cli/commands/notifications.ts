@@ -128,7 +128,10 @@ Examples:
           "--source-event-name <name>",
           "Event name for audit, routing, and dedupe grouping (default: assistant.share)",
         )
-        .option("--title <title>", "Optional notification title")
+        .option(
+          "--title <title>",
+          "Short headline (≤ 8 words). Always provide one — the auto-derived fallback just truncates --message.",
+        )
         .option(
           "--urgency <urgency>",
           "Urgency hint: low, medium, high, critical (default: low; use --urgent for critical)",
