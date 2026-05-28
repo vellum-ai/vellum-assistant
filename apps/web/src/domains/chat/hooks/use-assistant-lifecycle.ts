@@ -421,15 +421,15 @@ export function useAssistantLifecycle({
       setAssistantState({ kind: "active", isLocal: true });
       return;
     }
-    // In local mode without a gateway token, the platform API (Django) is
-    // unreachable — calling checkAssistant() would produce a network error.
-    // Redirect to onboarding so the user can hatch a local assistant first.
+    // In local mode without a gateway token, skip checkAssistant() — the
+    // platform API may not be available, and even if it is (user logged in),
+    // auto_hatch would redirect away from the onboarding flow the user is in.
     if (isLocalMode() && !isGatewayAuthMode()) {
       const redirect = resolveOnboardingRedirect({ intendedDestination: window.location.pathname });
       if (redirect) {
         onRedirectRef.current(redirect);
-        return;
       }
+      return;
     }
     if (hasPlatformSession) {
       setSelfHostedConnection(null);
