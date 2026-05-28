@@ -30,14 +30,11 @@ import { useQuery } from "@tanstack/react-query";
 
 import { fetchAssistantIdentity } from "@/assistant/identity";
 import { consumePendingAssistantName } from "@/domains/onboarding/prechat";
+import { assistantIdentityQueryKey } from "@/lib/sync/query-tags";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import type { AssistantState } from "@/domains/chat/hooks/use-assistant-lifecycle";
 
-export const ASSISTANT_IDENTITY_QUERY_KEY = "assistant-identity" as const;
-
-export function assistantIdentityQueryKey(assistantId: string | null) {
-  return [ASSISTANT_IDENTITY_QUERY_KEY, assistantId ?? ""] as const;
-}
+export { assistantIdentityQueryKey } from "@/lib/sync/query-tags";
 
 interface UseAssistantIdentityInitParams {
   assistantId: string | null;

@@ -9,14 +9,13 @@ import {
   flagKeyToStoreKey,
 } from "@/lib/feature-flags/feature-flag-catalog";
 import { useFlagQueryFreshness } from "@/lib/backwards-compat/flag-query-freshness";
+import { CLIENT_FLAG_QUERY_KEY } from "@/lib/sync/query-tags";
 
 interface ClientFlagValuesResponse {
   flags: Record<string, boolean>;
 }
 
 const VALID_KEYS = new Set(Object.keys(CLIENT_FLAG_DEFAULTS));
-
-export const CLIENT_FLAG_QUERY_KEY = ["client-feature-flag-values"] as const;
 
 async function fetchClientFlagValues(): Promise<ClientFlagValuesResponse> {
   const { data, error, response } = await client.get<
