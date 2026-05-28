@@ -14,7 +14,7 @@
 // through `setIdentity`, so the override is uniformly applied without
 // any consumer needing to know about it.
 //
-// Reload-on-change matches the DX of `transcript-scroll-flag.ts`:
+// Reload-on-change rationale:
 //   • some consumers cache version-derived constants at module load
 //     (e.g. anything that wants a stable identity across re-renders);
 //   • SSE handlers re-read from the store on every event but a stale

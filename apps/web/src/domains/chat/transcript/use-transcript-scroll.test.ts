@@ -27,7 +27,7 @@ import {
   PINNED_THRESHOLD_PX,
   SHOW_SCROLL_BUTTON_THRESHOLD_PX,
   type TranscriptHandle,
-} from "@/domains/chat/transcript/use-deprecated-transcript-scroll";
+} from "@/domains/chat/transcript/use-transcript-scroll";
 
 // ---------------------------------------------------------------------------
 // Fixtures

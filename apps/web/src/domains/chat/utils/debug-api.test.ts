@@ -6,7 +6,7 @@ import { describe, expect, test } from "bun:test";
 import type { MutableRefObject } from "react";
 
 import type { ChatEventStream } from "@/domains/chat/api/stream";
-import type { TranscriptHandle } from "@/domains/chat/transcript/use-deprecated-transcript-scroll";
+import type { TranscriptHandle } from "@/domains/chat/transcript/use-transcript-scroll";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import type { RuntimeMessage } from "@/domains/chat/api/messages";

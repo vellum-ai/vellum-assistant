@@ -16,7 +16,6 @@ import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import { LatestTurnRow } from "@/domains/chat/transcript/latest-turn-row";
 import { PullRefreshSpinner } from "@/domains/chat/transcript/pull-refresh-spinner";
 import { TranscriptRow } from "@/domains/chat/transcript/transcript-row";
-import { useTranscriptScrollOnAttach } from "@/domains/chat/transcript/transcript-scroll";
 import {
   PULL_THRESHOLD_PX,
   usePullToRefresh,
@@ -27,7 +26,7 @@ import type { ConfirmationDecision } from "@/domains/chat/api/event-types";
 /** Distance from the bottom (in px) at or below which the transcript is
  *  considered pinned to the latest message. Surfaced through
  *  `TranscriptHandle.getScrollState()` for the debug API. Kept in sync
- *  with the same threshold inside `useDeprecatedTranscriptScroll`. */
+ *  with the same threshold inside `useTranscriptScroll`. */
 const PINNED_THRESHOLD_PX = 64;
 
 /** Outcome of a pull-to-refresh, returned by the consumer's
@@ -156,11 +155,6 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
       props;
     const scrollRef = useRef<HTMLDivElement | null>(null);
     const contentRef = useRef<HTMLDivElement | null>(null);
-    const { scrollContainerCallbackRef, contentCallbackRef } =
-      useTranscriptScrollOnAttach({
-        scrollContainerRef: scrollRef,
-        contentRef,
-      });
     const viewportMinHeight = useViewportMinHeight(scrollRef);
 
     const pullEnabled = !!pullRefreshEnabled && !!onPullRefresh;
@@ -258,7 +252,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
     return (
       <div
         key={conversationId}
-        ref={scrollContainerCallbackRef}
+        ref={scrollRef}
         data-testid="transcript-scroll-container"
         className="flex h-full w-full flex-col overflow-y-auto overscroll-none [overflow-anchor:none]"
       >
@@ -267,7 +261,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
          *  height changes (async min-height settle, late image loads,
          *  streaming growth). Wrapping all rows in a single observed
          *  element is cheaper than observing each row individually. */}
-        <div ref={contentCallbackRef} className="flex w-full flex-col">
+        <div ref={contentRef} className="flex w-full flex-col">
           {/* History items in chronological order — oldest at top. */}
           {partition.historyItems.map((item) => (
             <Fragment key={item.key}>
