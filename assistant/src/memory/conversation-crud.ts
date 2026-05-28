@@ -292,7 +292,7 @@ function monotonicNow(): number {
 interface InsertedMessage {
   id: string;
   conversationId: string;
-  role: string;
+  role: MessageRole;
   content: string;
   createdAt: number;
   metadata?: string;
@@ -410,7 +410,7 @@ async function insertMessageCore(
               return {
                 id: existing.id,
                 conversationId: existing.conversationId,
-                role: existing.role,
+                role: existing.role as MessageRole,
                 content: existing.content,
                 createdAt: existing.createdAt,
                 ...(existing.metadata ? { metadata: existing.metadata } : {}),
