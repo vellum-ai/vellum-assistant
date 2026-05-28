@@ -21,14 +21,22 @@
  */
 import { spawn } from "node:child_process";
 
-const VEL_EDGE_PROXY_URL = "http://localhost:3000";
+// Edge-proxy origin used by the probe — vel up serves the marketing site
+// at the bare root and reverse-proxies `/assistant/*` to apps/web's Vite,
+// so we probe the origin and load `/assistant` (the renderer path) when
+// attaching. apps/web's `vite.config.ts` declares `base: "/assistant/"`,
+// which is the same path Swift Vellum hits today.
+const VEL_EDGE_PROXY_ORIGIN = "http://localhost:3000";
+const VEL_RENDERER_URL = `${VEL_EDGE_PROXY_ORIGIN}/assistant`;
 const PROBE_TIMEOUT_MS = 1_500;
 
 async function isVelUp(): Promise<boolean> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
   try {
-    const res = await fetch(VEL_EDGE_PROXY_URL, { signal: controller.signal });
+    const res = await fetch(VEL_EDGE_PROXY_ORIGIN, {
+      signal: controller.signal,
+    });
     // Any non-5xx response counts — even a 404 means something is
     // listening on that port and serving HTTP, which is enough signal
     // that we're not running cold.
@@ -43,16 +51,16 @@ async function isVelUp(): Promise<boolean> {
 const velRunning = await isVelUp();
 const downstreamScript = velRunning ? "dev:electron-only" : "dev:standalone";
 const env: NodeJS.ProcessEnv = velRunning
-  ? { ...process.env, VELLUM_DEV_URL: VEL_EDGE_PROXY_URL }
+  ? { ...process.env, VELLUM_DEV_URL: VEL_RENDERER_URL }
   : process.env;
 
 if (velRunning) {
   console.log(
-    `[dev] detected vel up at ${VEL_EDGE_PROXY_URL} — attaching Electron`,
+    `[dev] detected vel up at ${VEL_EDGE_PROXY_ORIGIN} — attaching Electron to ${VEL_RENDERER_URL}`,
   );
 } else {
   console.log(
-    `[dev] no vel up at ${VEL_EDGE_PROXY_URL} — running standalone (Vite :5173, no backends)`,
+    `[dev] no vel up at ${VEL_EDGE_PROXY_ORIGIN} — running standalone (Vite :5173, no backends)`,
   );
 }
 
