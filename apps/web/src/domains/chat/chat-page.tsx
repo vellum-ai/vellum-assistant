@@ -59,7 +59,6 @@ import { useChatAttachments } from "@/domains/chat/components/chat-attachments/u
 import { useVoiceInput } from "@/domains/chat/hooks/use-voice-input";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useAssistantReachability } from "@/assistant/use-assistant-reachability";
-import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
 import { useDiskPressureMonitor } from "@/assistant/use-disk-pressure-monitor";
 import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure";
 import { useAppNudges } from "@/domains/chat/hooks/use-app-nudges";
@@ -689,7 +688,7 @@ export function ChatPage() {
   const initialMessageConsumedRef = useRef(false);
   useEffect(() => {
     if (initialMessageConsumedRef.current || !assistantId || !activeConversationId) return;
-    if (reachability.state.phase !== "ready" && !isGatewayAuthMode()) return;
+    if (reachability.state.phase !== "ready") return;
     const message = peekPendingPreChatContext()?.initialMessage;
     if (!message) return;
     initialMessageConsumedRef.current = true;
