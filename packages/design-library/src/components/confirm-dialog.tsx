@@ -1,4 +1,4 @@
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Loader2 } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { Button } from "./button";
@@ -23,6 +23,7 @@ interface ConfirmDialogProps {
   confirmLabel?: string;
   cancelLabel?: string;
   destructive?: boolean;
+  isPending?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -36,6 +37,7 @@ function ConfirmDialog({
   confirmLabel = "Confirm",
   cancelLabel = "Cancel",
   destructive = false,
+  isPending = false,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -43,7 +45,7 @@ function ConfirmDialog({
     <Modal.Root
       open={open}
       onOpenChange={(next) => {
-        if (!next) {
+        if (!next && !isPending) {
           onCancel();
         }
       }}
@@ -64,7 +66,7 @@ function ConfirmDialog({
         onEscapeKeyDown={(event) => {
           event.preventDefault();
           event.stopPropagation();
-          onCancel();
+          if (!isPending) onCancel();
         }}
       >
         <Modal.Header>
@@ -76,12 +78,14 @@ function ConfirmDialog({
           <Modal.Description>{message}</Modal.Description>
         </Modal.Body>
         <Modal.Footer>
-          <Button variant="outlined" onClick={onCancel}>
+          <Button variant="outlined" onClick={onCancel} disabled={isPending}>
             {cancelLabel}
           </Button>
           <Button
             variant={destructive ? "danger" : "primary"}
             onClick={onConfirm}
+            disabled={isPending}
+            leftIcon={isPending ? <Loader2 className="animate-spin" /> : undefined}
             {...{ [CONFIRM_BUTTON_ATTR]: "" }}
           >
             {confirmLabel}
