@@ -20,7 +20,6 @@ export function isFeatureFlagEnabled(key: string): boolean {
     const remote = readRemoteFeatureFlags();
     const remoteValue = remote[key];
     if (remoteValue !== undefined) return remoteValue;
-    return false;
   }
 
   const defaults = loadFeatureFlagDefaults();
