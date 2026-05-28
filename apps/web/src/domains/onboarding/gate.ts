@@ -50,6 +50,15 @@ export function resolveOnboardingRedirect({
   // don't miss absolute URLs whose path is the assistant surface.
   const path = extractPathname(intendedDestination);
   if (path !== routes.assistant) return null;
+  return getOnboardingEntrypoint();
+}
+
+/**
+ * The first screen a user should see when entering the onboarding flow.
+ * Local mode starts at the welcome/hosting selector; platform starts at
+ * privacy/consent.
+ */
+export function getOnboardingEntrypoint(): string {
   return isLocalMode() ? routes.onboarding.welcome : routes.onboarding.privacy;
 }
 

@@ -19,6 +19,7 @@ import type { CharacterTraits } from "@/types/avatar";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { extractErrorMessage } from "@/lib/api-errors";
 import { isLocalMode, hatchLocalAssistant, loadLockfile, setSelectedAssistantId, saveLockfileAssistant, primeLocalGatewayConnection } from "@/lib/local-mode";
+import { getOnboardingEntrypoint } from "@/domains/onboarding/gate";
 import { useRootOutletContext } from "@/root-layout";
 import {
   readAiDataConsent,
@@ -94,7 +95,7 @@ export function decideHatchGate(input: {
   if (input.isLocalMode) return { kind: "proceed" };
   const persistedConsent = input.tosAccepted && input.aiDataConsentAccepted;
   if (!input.cameFromPrivacyScreen && !persistedConsent) {
-    return { kind: "redirect", to: routes.onboarding.privacy };
+    return { kind: "redirect", to: getOnboardingEntrypoint() };
   }
   return { kind: "proceed" };
 }
