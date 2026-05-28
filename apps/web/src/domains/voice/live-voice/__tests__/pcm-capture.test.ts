@@ -101,9 +101,56 @@ class MockGainNode {
 }
 
 class MockAudioContext {
+  /**
+   * Initial `state` for the next-constructed `MockAudioContext`. The
+   * capture instantiates its context internally, so tests use this
+   * static hook to drive the suspended-context branch without reaching
+   * into private state.
+   */
+  static nextInitialState: "suspended" | "running" | "closed" | null = null;
+  /**
+   * Override `resume()` impl for the next-constructed context. Lets
+   * tests simulate a resume rejection without prototype patching.
+   */
+  static nextResumeImpl: (() => Promise<void>) | null = null;
+  static lastInstance: MockAudioContext | null = null;
   audioWorklet = new MockAudioWorklet();
   destination = new MockAudioDestinationNode();
   closed = false;
+  /**
+   * Mirrors the real `AudioContext.state` so the capture's
+   * suspended-context branch can be exercised. Defaults to `"running"`;
+   * tests that need to drive the suspended path set
+   * `MockAudioContext.nextInitialState = "suspended"` before invoking
+   * `start()` and supply a `resumeImpl` via `MockAudioContext.lastInstance`.
+   */
+  state: "suspended" | "running" | "closed" = "running";
+
+  constructor() {
+    if (MockAudioContext.nextInitialState !== null) {
+      this.state = MockAudioContext.nextInitialState;
+      MockAudioContext.nextInitialState = null;
+    }
+    if (MockAudioContext.nextResumeImpl !== null) {
+      this.resumeImpl = MockAudioContext.nextResumeImpl;
+      MockAudioContext.nextResumeImpl = null;
+    }
+    MockAudioContext.lastInstance = this;
+  }
+  /**
+   * Number of times `resume()` has been called. Tests assert this
+   * to verify the suspended-context branch ran.
+   */
+  resumeCalls = 0;
+  /**
+   * Override hook for `resume()` — by default it flips `state` to
+   * `"running"` and resolves. Tests that need to simulate a rejection
+   * (e.g. user-gesture missing) overwrite this with a rejecting impl.
+   */
+  resumeImpl: () => Promise<void> = () => {
+    this.state = "running";
+    return Promise.resolve();
+  };
   lastWorkletNode: MockAudioWorkletNode | null = null;
   lastSourceNode: MockMediaStreamAudioSourceNode | null = null;
   lastGainNode: MockGainNode | null = null;
@@ -116,6 +163,10 @@ class MockAudioContext {
     const node = new MockGainNode(this);
     this.lastGainNode = node;
     return node;
+  }
+  resume(): Promise<void> {
+    this.resumeCalls += 1;
+    return this.resumeImpl();
   }
   close(): Promise<void> {
     this.closed = true;
@@ -195,6 +246,9 @@ beforeEach(() => {
   mockStream = null;
   getUserMediaImpl = () =>
     Promise.reject(new Error("getUserMedia not configured"));
+  MockAudioContext.nextInitialState = null;
+  MockAudioContext.nextResumeImpl = null;
+  MockAudioContext.lastInstance = null;
   installMocks();
 });
 
@@ -451,6 +505,48 @@ describe("LiveVoicePcmCapture", () => {
       capture as unknown as { stream: MockMediaStream | null }
     ).stream;
     expect(internalStream).toBe(streams[1]!);
+  });
+
+  it("resumes a suspended AudioContext before reporting capture started", async () => {
+    // Regression: Chrome's autoplay policy and mobile Safari's tab
+    // lifecycle can leave the AudioContext in `"suspended"` immediately
+    // after construction. Without an explicit `resume()`, the worklet's
+    // `process()` never runs and live voice gets zero PCM chunks while
+    // the UI silently reports "Listening…".
+    mockStream = new MockMediaStream();
+    getUserMediaImpl = () => Promise.resolve(mockStream as MockMediaStream);
+    MockAudioContext.nextInitialState = "suspended";
+
+    const capture = new LiveVoicePcmCapture();
+    const ok = await capture.start({ onChunk: () => undefined });
+
+    expect(ok).toBe(true);
+    const ctx = getInternalContext(capture);
+    expect(ctx.resumeCalls).toBe(1);
+    expect(ctx.state).toBe("running");
+  });
+
+  it("returns false when resuming a suspended AudioContext rejects", async () => {
+    // Regression companion to the suspended-resume test: if the browser
+    // refuses to resume (e.g. no preceding user gesture on Safari),
+    // returning `true` would leave the manager reporting "Listening…"
+    // with no audio flowing. Treat the rejection as a start failure so
+    // the manager can transition the UI to `failed` and offer retry.
+    mockStream = new MockMediaStream();
+    getUserMediaImpl = () => Promise.resolve(mockStream as MockMediaStream);
+    MockAudioContext.nextInitialState = "suspended";
+    MockAudioContext.nextResumeImpl = () =>
+      Promise.reject(new Error("blocked"));
+
+    const capture = new LiveVoicePcmCapture();
+    const ok = await capture.start({ onChunk: () => undefined });
+
+    expect(ok).toBe(false);
+    const ctx = MockAudioContext.lastInstance;
+    expect(ctx).not.toBeNull();
+    expect(ctx!.resumeCalls).toBe(1);
+    // Stream must be released on the failure path.
+    expect(mockStream!.getTracks()[0]!.readyState).toBe("ended");
   });
 
   it("two overlapping start() calls — earlier resolves last, latest still wins", async () => {

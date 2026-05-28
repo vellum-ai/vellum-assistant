@@ -381,7 +381,9 @@ export class LiveVoiceChannelManager {
   // -------------------------------------------------------------------------
 
   private async startCapture(): Promise<void> {
-    const started = await this.capture?.start({
+    const capture = this.capture;
+    if (!capture) return;
+    const started = await capture.start({
       onChunk: (chunk) => {
         this.client?.sendAudio(chunk.pcm16);
       },
@@ -389,7 +391,23 @@ export class LiveVoiceChannelManager {
         this.actions().setInputAmplitude(amplitude);
       },
     });
-    if (!started) return;
+    // A concurrent `end()` / failure may have nulled or replaced
+    // `this.capture` while we awaited start(). If so the session is
+    // gone and we must not clobber the resulting `off` / `failed` state.
+    if (this.capture !== capture) return;
+    if (!started) {
+      // Capture failed to start (mic permission denied, suspended-
+      // context resume rejection, worklet load failure, etc.).
+      // Without audio frames the WS would dangle in `connecting`
+      // forever — its 10s timeout was already cleared by the `ready`
+      // frame. Surface as a connection failure so the overlay shows the
+      // error and the button enters retry mode.
+      this.handleFailure({
+        type: "connectionFailed",
+        message: "Microphone permission denied or unavailable",
+      });
+      return;
+    }
     if (this.currentState() !== "failed") {
       this.actions().setState("listening");
     }
