@@ -30,7 +30,7 @@ assistant notifications send --title "..." --message "..." --urgent
 
 | Flag                  | Required | Description                                  |
 | --------------------- | -------- | -------------------------------------------- |
-| `--message <message>` | Yes      | Notification message the user should receive |
+| `--message <message>` | Yes      | Notification body. Markdown (GFM) renders in the detail panel; the OS banner shows plain text. |
 | `--title <title>`     | Yes in practice | Short headline (≤ 8 words). Omitting it triggers a body-truncation fallback that shows up as a duplicate of `--message` — always write a real title. |
 | `--urgent`            | No       | Mark as needing attention now/soon           |
 | `--json`              | No       | Output machine-readable JSON                 |
@@ -41,6 +41,21 @@ Write a `--title` for every notification. It's the only line the user sees in th
 
 Avoid restating the first sentence of `--message` verbatim — the title should add scannability, not duplicate.
 
+### Message
+
+The body renders as markdown (GFM) in the home feed detail panel — where the user actually opens the notification on web, iOS, and macOS. Light markdown makes multi-fact bodies scannable. The OS lock-screen banner shows the body as plain text, so prefer inline emphasis over heavy structure that looks ugly unrendered.
+
+Supported: `**bold**`, `*italic*`, `` `inline code` ``, fenced code blocks, links, bulleted and numbered lists, blockquotes, headings, GFM tables, `~~strikethrough~~`.
+
+Use it like this:
+
+- **Bold** the headline fact when the body has more than one sentence.
+- Bullets or numbered lists when surfacing multiple discrete items (failures, files touched, missed messages).
+- Inline `code` for identifiers, paths, commands, and short snippets.
+- Fenced code blocks for multi-line output (stack traces, diffs).
+
+Avoid large headings (`#`, `##`) and wide tables — they render fine in the panel but look noisy in the banner preview.
+
 ### Urgent semantics
 
 Use `--urgent` for items needing attention now/soon (blocked work, broken auth, time-sensitive issues). Skip for items the user should see when they have time.
@@ -48,15 +63,15 @@ Use `--urgent` for items needing attention now/soon (blocked work, broken auth, 
 ### Examples
 
 ```bash
-# Plain notification
+# Plain notification — bold the headline fact
 assistant notifications send \
   --title "Backup complete" \
-  --message "Nightly backup finished — 12.4 GB archived to cold storage."
+  --message "Nightly backup finished — **12.4 GB** archived to cold storage across **3** datasets."
 
-# Urgent notification
+# Urgent notification — inline code for the identifier
 assistant notifications send \
   --title "Auth token expired" \
-  --message "Sync is paused until you reauthenticate the GitHub integration." \
+  --message "Sync is paused until you reauthenticate the \`GitHub\` integration." \
   --urgent
 ```
 

@@ -113,7 +113,7 @@ Examples:
         )
         .requiredOption(
           "--message <message>",
-          "Notification message the user should receive",
+          "Notification body. Markdown (GFM) renders in the detail panel; the OS banner shows plain text.",
         )
         .option(
           "--urgent",
