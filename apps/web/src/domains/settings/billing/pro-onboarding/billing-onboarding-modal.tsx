@@ -147,14 +147,16 @@ export function BillingOnboardingModal({
       if (onboardingQuery.isError) {
         return <FetchErrorState onGoToBilling={onClose} />;
       }
-      // Gate "Get started" until the onboarding query settles: advanceFromWelcome
-      // routes on domain_setup_available, and a click while it's still pending
-      // (undefined) would skip the intended bypass for orgs without domain setup.
+      // Gate "Get started" until fresh onboarding data has settled:
+      // advanceFromWelcome routes on domain_setup_available. isPending covers the
+      // cold load; isFetching covers the background refetch from the on-open
+      // invalidation, during which TanStack still serves stale cached data — a
+      // fast click then would route on a pre-checkout domain_setup_available.
       // On error we show FetchErrorState above rather than routing on stale data.
       return (
         <WelcomeState
           onContinue={advanceFromWelcome}
-          continueDisabled={onboardingQuery.isPending}
+          continueDisabled={onboardingQuery.isPending || onboardingQuery.isFetching}
         />
       );
     }
