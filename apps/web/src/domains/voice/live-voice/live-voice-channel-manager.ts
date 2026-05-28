@@ -193,6 +193,14 @@ export class LiveVoiceChannelManager {
 
   async start(conversationId: string): Promise<void> {
     this.sessionGeneration += 1;
+    // Snapshot the generation at handler-registration time. Server frames
+    // that arrive after `end()` / failure (which bump the generation) are
+    // dropped at the dispatch boundary so they cannot leak STT, assistant
+    // text, or TTS playback from a torn-down session into the global
+    // store — e.g. a conversation switch during the 1s `end()` grace
+    // window must not surface frames from the old conversation in the
+    // new conversation's UI.
+    const sessionGen = this.sessionGeneration;
     this.playbackReadyForResponse = false;
     this.isUserMuted = false;
 
@@ -207,8 +215,14 @@ export class LiveVoiceChannelManager {
     this.playback = this.playbackFactory();
     await this.client.start({
       conversationId,
-      onEvent: (event) => this.handleEvent(event),
-      onFailure: (failure) => this.handleFailure(failure),
+      onEvent: (event) => {
+        if (sessionGen !== this.sessionGeneration) return;
+        this.handleEvent(event);
+      },
+      onFailure: (failure) => {
+        if (sessionGen !== this.sessionGeneration) return;
+        this.handleFailure(failure);
+      },
     });
   }
 

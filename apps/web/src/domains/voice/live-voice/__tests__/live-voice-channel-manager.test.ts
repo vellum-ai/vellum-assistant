@@ -826,6 +826,92 @@ describe("LiveVoiceChannelManager", () => {
     });
   });
 
+  describe("stale frame guard after end", () => {
+    test("late server frames after end() do not mutate playback or store", async () => {
+      // Repro of the conversation-switch leak: `end()` is graceful — it
+      // sends the protocol `end` frame and waits up to 1s for the server
+      // to close. During that grace window the WebSocket can still
+      // dispatch frames (sttFinal, assistantTextDelta, ttsAudio, etc.)
+      // and without the generation guard each one would mutate the
+      // global store / playback, leaking the old session's STT and
+      // assistant audio into the new conversation's UI.
+      const harness = makeHarness();
+      const { manager, store } = harness;
+
+      await manager.start("conv-1");
+      const client = harness.client();
+      const playback = harness.playback();
+      client.emit({
+        type: "ready",
+        sessionId: "sess-1",
+        conversationId: "conv-1",
+      });
+      await flushMicrotasks();
+      client.emit({ type: "thinking", turnId: "turn-1" });
+      client.emit({ type: "assistantTextDelta", text: "hello", seq: 1 });
+      expect(store.getState().state).toBe("speaking");
+
+      const enqueueCallsBeforeEnd = playback.enqueueCalls.length;
+
+      // Kick off end() (don't await) — the manager bumps the generation
+      // synchronously inside end() before awaiting `client.end()`, so by
+      // the time we emit the late frame the guard is already in effect.
+      const endPromise = manager.end();
+
+      // Server frames slip in during the grace window. With the guard
+      // in place the dispatcher bails before `handleEvent` runs, so
+      // `playback.enqueueTtsAudio` and `actions.appendAssistantTranscript`
+      // are never called.
+      client.emit({
+        type: "assistantTextDelta",
+        text: " from-old-session",
+        seq: 2,
+      });
+      client.emit({
+        type: "ttsAudio",
+        pcm: new Uint8Array([9, 9, 9]),
+        mimeType: "audio/pcm",
+        sampleRate: 24000,
+        seq: 3,
+      });
+
+      await endPromise;
+      await flushMicrotasks();
+
+      expect(playback.enqueueCalls.length).toBe(enqueueCallsBeforeEnd);
+      expect(store.getState().state).toBe("off");
+      expect(store.getState().assistantTranscript).toBe("");
+    });
+
+    test("late failure callback after end() does not flip state to failed", async () => {
+      // Same race on the failure callback: if the server closes
+      // abnormally during the grace window, the late `onFailure`
+      // dispatch would otherwise clobber the `off` state with `failed`
+      // and surface a confusing error message in the new conversation.
+      const harness = makeHarness();
+      const { manager, store } = harness;
+
+      await manager.start("conv-1");
+      const client = harness.client();
+      client.emit({
+        type: "ready",
+        sessionId: "sess-1",
+        conversationId: "conv-1",
+      });
+      await flushMicrotasks();
+
+      await manager.end();
+      expect(store.getState().state).toBe("off");
+
+      // Late failure callback from the still-open fake — the guard at
+      // the dispatch boundary drops it.
+      client.fail({ type: "abnormalClosure", code: 1006, reason: "boom" });
+
+      expect(store.getState().state).toBe("off");
+      expect(store.getState().errorMessage).toBe("");
+    });
+  });
+
   describe("client factory", () => {
     test("start → end → start uses a fresh client each time", async () => {
       const { manager, clients, store } = makeHarness();
