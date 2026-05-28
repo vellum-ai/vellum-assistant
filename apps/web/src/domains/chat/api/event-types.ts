@@ -6,20 +6,7 @@
  * consumed by event-parser.ts and the stream handler domain modules.
  */
 
-import type {
-  AssistantTextDeltaEvent,
-  AssistantTurnStartEvent,
-  DocumentCommentCreatedEvent,
-  DocumentCommentDeletedEvent,
-  DocumentCommentReopenedEvent,
-  DocumentCommentResolvedEvent,
-  GenerationCancelledEvent,
-  GenerationHandoffEvent,
-  MessageCompleteEvent,
-  OpenUrlEvent,
-  RelationshipStateUpdatedEvent,
-  ToolUseStartEvent,
-} from "@vellumai/assistant-api";
+import type { AssistantEvent as APIAssistantEvent } from "@vellumai/assistant-api";
 import type { DiskPressureStatus } from "@/assistant/types";
 import type { Surface } from "@/domains/chat/types/types";
 import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
@@ -665,11 +652,16 @@ export interface InteractionResolvedEvent {
   kind: InteractionKind;
 }
 
+/**
+ * Every event the chat SSE stream might emit. Schema-validated events
+ * are covered by `APIAssistantEvent` (the inferred union from
+ * `@vellumai/assistant-api`); each new schema added there appears here
+ * automatically. The members listed individually are events still on
+ * the hand-rolled legacy parser path — they peel off this union one by
+ * one as they migrate into the canonical schema.
+ */
 export type AssistantEvent =
-  | AssistantTurnStartEvent
-  | AssistantTextDeltaEvent
-  | MessageCompleteEvent
-  | GenerationHandoffEvent
+  | APIAssistantEvent
   | StreamErrorEvent
   | SecretRequestEvent
   | ConfirmationRequestEvent
@@ -679,16 +671,13 @@ export type AssistantEvent =
   | UISurfaceUpdateEvent
   | UISurfaceDismissEvent
   | UISurfaceCompleteEvent
-  | ToolUseStartEvent
   | ToolResultEvent
   | ToolProgressEvent
   | ConversationListInvalidatedEvent
   | ConversationTitleUpdatedEvent
   | NotificationIntentEvent
   | UsageUpdateEvent
-  | GenerationCancelledEvent
   | AssistantActivityStateEvent
-  | OpenUrlEvent
   | NavigateSettingsEvent
   | IdentityChangedEvent
   | AvatarUpdatedEvent
@@ -702,14 +691,9 @@ export type AssistantEvent =
   | MessageRequestCompleteEvent
   | AssistantSyncChangedEvent
   | HomeFeedUpdatedEvent
-  | RelationshipStateUpdatedEvent
   | SubagentSpawnedEvent
   | SubagentStatusChangedEvent
   | SubagentEventWrapperEvent
-  | DocumentCommentCreatedEvent
-  | DocumentCommentResolvedEvent
-  | DocumentCommentReopenedEvent
-  | DocumentCommentDeletedEvent
   | DocumentEditorUpdateEvent
   | TurnProfileAutoRoutedEvent
   | InteractionResolvedEvent

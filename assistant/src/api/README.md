@@ -16,3 +16,112 @@ type whose wire contract is canonical. The web parser (`event-parser.ts`) tries
 this schema first; events not yet covered fall through to a hand-rolled legacy
 switch. The migration goal is to drain the switch — each event moved here
 shrinks the legacy surface and makes wire-shape drift a compile error.
+
+`AssistantEvent` (re-exported alongside the schema) is `z.infer<typeof
+AssistantEventSchema>`. Consumers reference this single type rather than
+re-listing the individual member types: as new events migrate in, they appear
+in `AssistantEvent` automatically.
+
+## Migration recipe
+
+Each batch follows the same shape. Group cohesive event families (lifecycle,
+streaming, document-comment, ui-surface, etc.) rather than migrating events
+one at a time — the per-batch overhead is the same regardless of count.
+
+### 1. Add the canonical schema
+
+One file per event under `./events/`. Each schema is `.strict()` so unknown
+fields surface as `UnknownEvent` rather than silently passing through.
+
+```ts
+// assistant/src/api/events/my-event.ts
+import { z } from "zod";
+
+export const MyEventSchema = z
+  .object({
+    type: z.literal("my_event"),
+    conversationId: z.string(),
+    // …
+  })
+  .strict();
+
+export type MyEvent = z.infer<typeof MyEventSchema>;
+```
+
+Add the type/schema re-export pair to `./index.ts`, alphabetically, and append
+the schema to the `AssistantEventSchema` discriminated union. No other changes
+to the canonical package are needed — `AssistantEvent` picks the new member
+up automatically.
+
+### 2. Adopt the canonical type in daemon code
+
+In `assistant/src/daemon/message-types/<domain>.ts`, delete the local
+`interface MyEvent { … }` declaration and import the canonical `MyEvent`
+type from `../../api/events/my-event.js`. The domain-level
+`_<Domain>ServerMessages` union alias (consumed by `message-protocol.ts`)
+keeps its existing shape — it just references the canonical types now.
+
+### 3. Cut over web consumers
+
+`apps/web/src/domains/chat/api/event-types.ts` no longer needs to list the
+migrated event in its `AssistantEvent` union — `APIAssistantEvent` covers it.
+Drop the per-event member, leaving the union to peel off legacy entries one
+at a time as each event migrates.
+
+Local handler modules (e.g. `document-comment-events.ts`) keep their handler
+functions but import the wire types directly from `@vellumai/assistant-api`.
+Do **not** re-export the canonical types from intermediate modules — consumers
+import them straight from the canonical package.
+
+### 4. Delete the legacy parser cases
+
+Remove the matching `case "my_event":` blocks from
+`apps/web/src/domains/chat/api/event-parser.ts`. Any per-event helper
+(`parseFooBase`, etc.) goes with them.
+
+### 5. Tests
+
+Add parser tests for each migrated event covering:
+
+- happy path with all fields
+- minimal required only
+- missing required field → `UnknownEvent`
+- strict mode rejects an unknown extra field → `UnknownEvent`
+
+For happy-path tests, inline the discriminator literal in both the input and
+the expected object. `const data = { type: "my_event", … }` widens
+`data.type` to `string`, breaking the discriminated-union match when the
+result is compared with `toEqual(data)`.
+
+Handler-level tests in the consuming domain modules typically need no change
+— the canonical types are wire-compatible with the previous local interfaces.
+
+### 6. Local greenlight gate
+
+Run before push, in order:
+
+```bash
+# In apps/web — regenerate the @vellumai/assistant-api bundle
+bun run scripts/postinstall.ts
+
+# Type-check both packages
+( cd assistant && bunx tsc --noEmit )
+( cd apps/web && bunx tsc --noEmit )
+
+# Targeted tests
+( cd apps/web && bun test src/domains/chat/api/event-parser.test.ts )
+
+# Lint + format the touched files
+bunx eslint <files>
+bunx prettier --write <files>
+```
+
+`format:check` is a distinct CI gate from `lint`; format the touched files
+before push.
+
+## Status
+
+The remaining legacy parser cases are tracked in the **Solve Chat SSE**
+workstream (record `282e972a` in `workspace/data/apps/workstream-command-center/records/`).
+Each batch lands as its own PR under the `API Events Canonical Schemas`
+stream.
