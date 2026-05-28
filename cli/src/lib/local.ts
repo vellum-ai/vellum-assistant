@@ -19,6 +19,7 @@ import { GATEWAY_PORT } from "./constants.js";
 import { httpHealthCheck, waitForDaemonReady } from "./http-client.js";
 import {
   isProcessHealthy,
+  isVellumProcess,
   stopProcess,
   stopProcessByPidFile,
 } from "./process.js";
@@ -367,10 +368,21 @@ async function startDaemonFromSource(
           console.log(`   Assistant already running (pid ${pid})\n`);
           return;
         } else if (alive) {
-          console.log(
-            `   Assistant process alive (pid ${pid}) but not responding — killing and restarting...`,
+          // The process may still be starting up — wait briefly before killing.
+          const becameHealthy = await waitForDaemonReady(
+            resources.daemonPort,
+            10_000,
           );
-          await stopProcess(pid, "assistant");
+          if (becameHealthy) {
+            console.log(`   Assistant already running (pid ${pid})\n`);
+            return;
+          }
+          if (isVellumProcess(pid)) {
+            console.log(
+              `   Assistant process alive (pid ${pid}) but not responding — killing and restarting...`,
+            );
+            await stopProcess(pid, "assistant");
+          }
           try {
             unlinkSync(pidFile);
           } catch {}
@@ -515,10 +527,21 @@ async function startDaemonWatchFromSource(
           console.log(`   Assistant already running (pid ${pid})\n`);
           return;
         } else if (alive) {
-          console.log(
-            `   Assistant process alive (pid ${pid}) but not responding — killing and restarting...`,
+          // The process may still be starting up — wait briefly before killing.
+          const becameHealthy = await waitForDaemonReady(
+            resources.daemonPort,
+            10_000,
           );
-          await stopProcess(pid, "assistant");
+          if (becameHealthy) {
+            console.log(`   Assistant already running (pid ${pid})\n`);
+            return;
+          }
+          if (isVellumProcess(pid)) {
+            console.log(
+              `   Assistant process alive (pid ${pid}) but not responding — killing and restarting...`,
+            );
+            await stopProcess(pid, "assistant");
+          }
           try {
             unlinkSync(pidFile);
           } catch {}
@@ -961,13 +984,27 @@ export async function startLocalDaemon(
             daemonAlive = true;
             console.log(`   Assistant already running (pid ${pid})\n`);
           } else if (alive) {
-            console.log(
-              `   Assistant process alive (pid ${pid}) but not responding — killing and restarting...`,
+            // The process may still be starting up — wait briefly before killing.
+            const becameHealthy = await waitForDaemonReady(
+              resources.daemonPort,
+              10_000,
             );
-            await stopProcess(pid, "assistant");
-            try {
-              unlinkSync(pidFile);
-            } catch {}
+            if (becameHealthy) {
+              daemonAlive = true;
+              console.log(`   Assistant already running (pid ${pid})\n`);
+            } else if (isVellumProcess(pid)) {
+              console.log(
+                `   Assistant process alive (pid ${pid}) but not responding — killing and restarting...`,
+              );
+              await stopProcess(pid, "assistant");
+              try {
+                unlinkSync(pidFile);
+              } catch {}
+            } else {
+              try {
+                unlinkSync(pidFile);
+              } catch {}
+            }
           } else {
             // Process doesn't exist, clean up stale PID file
             try {
