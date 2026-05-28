@@ -3,10 +3,24 @@ import { getClientId } from "@/lib/telemetry/client-identity";
 
 export const ONBOARDING_FUNNEL_VERSION = "onboarding_v3_2026_05";
 const SESSION_STORAGE_KEY = "onboarding.funnelSessionId";
+const VARIANT_STORAGE_KEY = "onboarding.funnelVariant";
+
+export const ONBOARDING_FUNNEL_VARIANTS = {
+  control: "control",
+  paredDown: "pared_down",
+} as const;
+
+export type OnboardingFunnelVariant =
+  (typeof ONBOARDING_FUNNEL_VARIANTS)[keyof typeof ONBOARDING_FUNNEL_VARIANTS];
 
 export const ONBOARDING_FUNNEL_STEPS = {
   privacyTos: { stepName: "privacy_tos", stepIndex: 0 },
   nameVibe: { stepName: "name_vibe", stepIndex: 1 },
+  controlWorkType: { stepName: "work_type", stepIndex: 2 },
+  controlTools: { stepName: "tools", stepIndex: 3 },
+  controlPriorAssistants: { stepName: "prior_assistants", stepIndex: 4 },
+  controlGmailConnect: { stepName: "gmail_connect", stepIndex: 5 },
+  controlGetApp: { stepName: "get_app", stepIndex: 6 },
   gmailConnect: { stepName: "gmail_connect", stepIndex: 2 },
 } as const;
 
@@ -17,6 +31,7 @@ export type OnboardingFunnelStepName = OnboardingFunnelStep["stepName"];
 
 export interface OnboardingFunnelStepCompletedOptions {
   userId?: string | null;
+  variant?: OnboardingFunnelVariant;
 }
 
 export interface OnboardingFunnelEvent {
@@ -30,6 +45,7 @@ export interface OnboardingFunnelEvent {
   completed_at: string;
   user_id: string | null;
   funnel_version: string;
+  ab_variant: OnboardingFunnelVariant;
 }
 
 function stripUndefined(value: object): Record<string, unknown> {
@@ -56,14 +72,51 @@ export function getOnboardingFunnelSessionId(): string {
   return next;
 }
 
+function isOnboardingFunnelVariant(
+  value: string | null,
+): value is OnboardingFunnelVariant {
+  return (
+    value === ONBOARDING_FUNNEL_VARIANTS.control ||
+    value === ONBOARDING_FUNNEL_VARIANTS.paredDown
+  );
+}
+
+export function readOnboardingFunnelVariant(): OnboardingFunnelVariant | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const stored = sessionStorage.getItem(VARIANT_STORAGE_KEY);
+    return isOnboardingFunnelVariant(stored) ? stored : null;
+  } catch {
+    return null;
+  }
+}
+
+export function resolveOnboardingFunnelVariant(
+  preferred: OnboardingFunnelVariant,
+): OnboardingFunnelVariant {
+  const existing = readOnboardingFunnelVariant();
+  if (existing) return existing;
+  if (typeof window === "undefined") return preferred;
+  try {
+    sessionStorage.setItem(VARIANT_STORAGE_KEY, preferred);
+  } catch {
+    // Storage may be unavailable; the current event still carries the variant.
+  }
+  return preferred;
+}
+
 export function buildOnboardingFunnelEvent(
   screen: OnboardingFunnelStep,
   options: OnboardingFunnelStepCompletedOptions = {},
 ): OnboardingFunnelEvent {
   const now = Date.now();
+  const variant =
+    options.variant ??
+    readOnboardingFunnelVariant() ??
+    ONBOARDING_FUNNEL_VARIANTS.control;
   return {
     type: "onboarding",
-    daemon_event_id: `web-onboarding-${crypto.randomUUID()}`,
+    daemon_event_id: crypto.randomUUID(),
     recorded_at: now,
     screen: screen.stepName,
     session_id: getOnboardingFunnelSessionId(),
@@ -72,6 +125,7 @@ export function buildOnboardingFunnelEvent(
     completed_at: new Date(now).toISOString(),
     user_id: options.userId ?? null,
     funnel_version: ONBOARDING_FUNNEL_VERSION,
+    ab_variant: variant,
   };
 }
 
@@ -102,6 +156,7 @@ export function __resetOnboardingFunnelEventsForTests(): void {
   if (typeof window === "undefined") return;
   try {
     sessionStorage.removeItem(SESSION_STORAGE_KEY);
+    sessionStorage.removeItem(VARIANT_STORAGE_KEY);
   } catch {
     // ignore
   }

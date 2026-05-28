@@ -51,6 +51,7 @@ type TestOnboardingRecipe = {
 };
 
 let onboardingCompleted = false;
+let prechatOnboardingV3 = true;
 let fetchOnboardingRecipeImpl: () => Promise<TestOnboardingRecipe | null> =
   async () => null;
 const fetchOnboardingRecipeMock = mock(() => fetchOnboardingRecipeImpl());
@@ -163,6 +164,14 @@ mock.module("@/lib/local-mode", () => ({
   primeLocalGatewayConnection: async () => {},
 }));
 
+mock.module("@/lib/feature-flags/client-feature-flag-store", () => ({
+  useClientFeatureFlagStore: {
+    use: {
+      prechatOnboardingV3: () => prechatOnboardingV3,
+    },
+  },
+}));
+
 mock.module("@/stores/auth-store", () => ({
   useAuthStore: {
     use: {
@@ -222,6 +231,50 @@ mock.module("@/domains/onboarding/screens/name-exchange-screen", () => ({
   ),
 }));
 
+mock.module("@/domains/onboarding/screens/task-tone-selection-screen", () => ({
+  TaskToneSelectionScreen: ({ onContinue }: { onContinue: () => void }) => (
+    <button type="button" data-testid="task-continue" onClick={onContinue}>
+      tasks
+    </button>
+  ),
+}));
+
+mock.module("@/domains/onboarding/screens/tool-selection-screen", () => ({
+  ToolSelectionScreen: ({ onContinue }: { onContinue: () => void }) => (
+    <button type="button" data-testid="tools-continue" onClick={onContinue}>
+      tools
+    </button>
+  ),
+}));
+
+mock.module("@/domains/onboarding/screens/prior-assistant-selection-screen", () => ({
+  PriorAssistantSelectionScreen: ({
+    onContinue,
+  }: {
+    onContinue: () => void;
+  }) => (
+    <button type="button" data-testid="prior-continue" onClick={onContinue}>
+      prior assistants
+    </button>
+  ),
+}));
+
+mock.module("@/domains/onboarding/screens/get-ios-app-screen", () => ({
+  GetIOSAppScreen: ({ onComplete }: { onComplete: () => void }) => (
+    <button type="button" data-testid="ios-app-continue" onClick={onComplete}>
+      iOS app
+    </button>
+  ),
+}));
+
+mock.module("@/domains/onboarding/screens/get-macos-app-screen", () => ({
+  GetMacOSAppScreen: ({ onComplete }: { onComplete: () => void }) => (
+    <button type="button" data-testid="macos-app-continue" onClick={onComplete}>
+      macOS app
+    </button>
+  ),
+}));
+
 const { HatchingScreen } = await import(
   "@/domains/onboarding/pages/hatching-screen"
 );
@@ -233,6 +286,7 @@ beforeEach(() => {
   searchParams = new URLSearchParams();
   checkAssistantImpl = async () => {};
   onboardingCompleted = false;
+  prechatOnboardingV3 = true;
   fetchOnboardingRecipeImpl = async () => null;
   sessionStorage.clear();
   localStorage.clear();
@@ -331,6 +385,17 @@ describe("onboarding lifecycle sync", () => {
         { replace: true },
       ),
     );
+  });
+
+  test("pre-chat keeps the existing full funnel when the v3 flag is off", async () => {
+    prechatOnboardingV3 = false;
+
+    render(<PreChatFlow />);
+
+    fireEvent.click(await screen.findByTestId("name-continue"));
+
+    expect(await screen.findByTestId("task-continue")).toBeTruthy();
+    expect(screen.queryByText("Connect Google")).toBeNull();
   });
 
   test("pre-chat waits for the web recipe decision before showing standard screens", async () => {

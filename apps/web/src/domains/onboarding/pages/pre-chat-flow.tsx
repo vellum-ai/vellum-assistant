@@ -9,6 +9,9 @@ import {
 } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
+import { useIsIOSWeb, useIsMacOSWeb } from "@/runtime/platform-detection";
+import { readIOSAppDownloaded } from "@/hooks/use-ios-app-nudge";
+import { readMacOsAppDownloaded } from "@/hooks/use-macos-app-nudge";
 import {
   fetchOnboardingRecipe,
   type OnboardingRecipe,
@@ -16,10 +19,18 @@ import {
 import {
   emitOnboardingFunnelStepCompleted,
   ONBOARDING_FUNNEL_STEPS,
+  ONBOARDING_FUNNEL_VARIANTS,
+  readOnboardingFunnelVariant,
+  resolveOnboardingFunnelVariant,
 } from "@/domains/onboarding/funnel-events";
+import { GetIOSAppScreen } from "@/domains/onboarding/screens/get-ios-app-screen.js";
+import { GetMacOSAppScreen } from "@/domains/onboarding/screens/get-macos-app-screen.js";
 import { GoogleConnectScreen } from "@/domains/onboarding/screens/google-connect-screen.js";
 import { NameExchangeScreen } from "@/domains/onboarding/screens/name-exchange-screen.js";
 import { NameStepScreen } from "@/domains/onboarding/screens/name-step-screen.js";
+import { PriorAssistantSelectionScreen } from "@/domains/onboarding/screens/prior-assistant-selection-screen.js";
+import { TaskToneSelectionScreen } from "@/domains/onboarding/screens/task-tone-selection-screen.js";
+import { ToolSelectionScreen } from "@/domains/onboarding/screens/tool-selection-screen.js";
 import { VibeStepScreen } from "@/domains/onboarding/screens/vibe-step-screen.js";
 import { assistantsActiveRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen.js";
 import { usePrefilledInput } from "@/hooks/use-prefilled-input.js";
@@ -32,6 +43,10 @@ import {
   DEFAULT_GROUP_ID,
   sampleSuggestionNames,
 } from "@/domains/onboarding/prechat-names";
+import {
+  GOOGLE_TOOL_IDS,
+  stripOtherPrefix,
+} from "@/domains/onboarding/prechat-tools";
 import {
   readOnboardingCompleted,
   readTosAccepted,
@@ -46,6 +61,7 @@ import {
   getSelectedAssistant,
   isLocalMode,
 } from "@/lib/local-mode";
+import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
 import { useIsNativePlatform } from "@/runtime/native-auth.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 import { useRootOutletContext } from "@/root-layout";
@@ -54,12 +70,20 @@ import { routes } from "@/utils/routes.js";
 /**
  * Screen indices for the PreChat flow:
  *   0 = NameExchange (web) / NameStep (native)
- *   1 = GoogleOAuth (web) / VibeStep (native)
+ *   1 = GoogleOAuth (pared-down web) / TaskTone (control web) / VibeStep (native)
+ *   2 = ToolSelection (control web)
+ *   3 = PriorAssistants (control web)
+ *   4 = GoogleOAuth (control web)
+ *   5 = GetApp (control web)
  */
-type Screen = 0 | 1;
+type Screen = 0 | 1 | 2 | 3 | 4 | 5;
 
 const IOS_TOTAL_STEPS = 3;
-const GOOGLE_TOOL_IDS = ["gmail", "google-calendar", "google-drive"];
+const PARED_DOWN_GOOGLE_TOOL_IDS = [
+  "gmail",
+  "google-calendar",
+  "google-drive",
+];
 
 function readLocalPlatformAssistantId(): string | null {
   const selected = getSelectedAssistant();
@@ -89,6 +113,20 @@ export function PreChatFlow() {
 
   const localMode = isLocalMode();
   const isReplay = searchParams.get("replay") === "1";
+  const isMacOSWeb = useIsMacOSWeb();
+  const isIOSWeb = useIsIOSWeb();
+  const showAppStep =
+    (isIOSWeb && !readIOSAppDownloaded()) ||
+    (isMacOSWeb && !readMacOsAppDownloaded());
+  const prechatOnboardingV3 =
+    useClientFeatureFlagStore.use.prechatOnboardingV3();
+  const preferredFunnelVariant = prechatOnboardingV3
+    ? ONBOARDING_FUNNEL_VARIANTS.paredDown
+    : ONBOARDING_FUNNEL_VARIANTS.control;
+  const webFunnelVariant =
+    readOnboardingFunnelVariant() ?? preferredFunnelVariant;
+  const paredDownPrechat =
+    webFunnelVariant === ONBOARDING_FUNNEL_VARIANTS.paredDown;
   const localPlatformAssistantId = localMode
     ? readLocalPlatformAssistantId()
     : null;
@@ -115,6 +153,15 @@ export function PreChatFlow() {
   }, [screenStorageKey]);
 
   const hasPlatformSession = useAuthStore.use.hasPlatformSession();
+  const [selectedTools, setSelectedTools] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [selectedTasks, setSelectedTasks] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [selectedPriorAssistants, setSelectedPriorAssistants] = useState<
+    Set<string>
+  >(() => new Set());
   const { value: userName, onChange: handleUserNameChange } = usePrefilledInput(
     localMode && !hasPlatformSession ? "" : firstName || lastName,
   );
@@ -123,6 +170,8 @@ export function PreChatFlow() {
     () => sampleSuggestionNames(),
   );
   const [assistantName, setAssistantName] = useState<string>("");
+  const [googleConnected, setGoogleConnected] = useState(false);
+  const [googleScopes, setGoogleScopes] = useState<string[]>([]);
 
   const { data: activeAssistant } = useQuery({
     ...assistantsActiveRetrieveOptions(),
@@ -272,29 +321,63 @@ export function PreChatFlow() {
     (readOnboardingCompleted() && !isReplay) ||
     (recipe?.skipPrechat && !isNative && !isReplay);
 
-  async function finish(connectedScopes?: string[]): Promise<void> {
-    const googleConnected = connectedScopes !== undefined;
-    const context: PreChatOnboardingContext = {
-      tools: googleConnected ? [...GOOGLE_TOOL_IDS] : [],
-      tasks: [],
-      tone: selectedGroupId ?? DEFAULT_GROUP_ID,
-      googleConnected,
-    };
+  function emitWebFunnelStep(
+    step: (typeof ONBOARDING_FUNNEL_STEPS)[keyof typeof ONBOARDING_FUNNEL_STEPS],
+    variant = webFunnelVariant,
+  ): void {
+    if (isReplay) return;
+    emitOnboardingFunnelStepCompleted(step, {
+      userId,
+      variant: resolveOnboardingFunnelVariant(variant),
+    });
+  }
+
+  async function finish(
+    connectedScopes?: string[],
+    options: { selectedPriorAssistants?: Set<string> } = {},
+  ): Promise<void> {
+    const selectedPriorAssistantsForContext =
+      options.selectedPriorAssistants ?? selectedPriorAssistants;
+    const connectedWithCurrentAction = connectedScopes !== undefined;
+    const context: PreChatOnboardingContext = paredDownPrechat
+      ? {
+          tools: connectedWithCurrentAction
+            ? [...PARED_DOWN_GOOGLE_TOOL_IDS]
+            : [],
+          tasks: [],
+          tone: selectedGroupId ?? DEFAULT_GROUP_ID,
+          googleConnected: connectedWithCurrentAction,
+        }
+      : {
+          tools: stripOtherPrefix([...selectedTools]),
+          tasks: [...selectedTasks].sort(),
+          tone: selectedGroupId ?? DEFAULT_GROUP_ID,
+        };
     const trimmedUser = userName.trim();
     if (trimmedUser) context.userName = trimmedUser;
     const trimmedAssistant = assistantName.trim();
     if (trimmedAssistant) context.assistantName = trimmedAssistant;
-    if (googleConnected) {
+
+    if (paredDownPrechat) {
+      if (connectedWithCurrentAction) {
+        context.googleScopes = connectedScopes;
+      }
+    } else if (connectedWithCurrentAction) {
+      context.googleConnected = true;
       context.googleScopes = connectedScopes;
+    } else if (googleConnected) {
+      context.googleConnected = true;
+      context.googleScopes = googleScopes;
+    } else {
+      context.googleConnected = false;
+    }
+    if (!paredDownPrechat && selectedPriorAssistantsForContext.size > 0) {
+      context.priorAssistants = stripOtherPrefix([
+        ...selectedPriorAssistantsForContext,
+      ]);
     }
     context.initialMessage = "Wake up, my friend!";
 
-    if (!isNative && !isReplay && screen === 1) {
-      emitOnboardingFunnelStepCompleted(
-        ONBOARDING_FUNNEL_STEPS.gmailConnect,
-        { userId },
-      );
-    }
     setPendingPreChatContext(context);
     if (trimmedAssistant) setPendingAssistantName(trimmedAssistant);
     try {
@@ -393,17 +476,19 @@ export function PreChatFlow() {
     );
   }
 
-  // ── Web flow: NameExchange → Google → Chat ──
+  // ── Web flow:
+  // Control: NameExchange → TaskTone → Tools → PriorAssistants → Google → App
+  // Treatment: NameExchange → Google → Chat
 
   if (screen === 0) {
     const advance = () => {
-      if (!isReplay) {
-        emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.nameVibe, {
-          userId,
-        });
-      }
-      if (!canOfferGoogleStep) {
-        void finish();
+      emitWebFunnelStep(ONBOARDING_FUNNEL_STEPS.nameVibe);
+      if (paredDownPrechat) {
+        if (!canOfferGoogleStep) {
+          void finish();
+          return;
+        }
+        setScreen(1);
         return;
       }
       setScreen(1);
@@ -423,7 +508,7 @@ export function PreChatFlow() {
     );
   }
 
-  if (screen === 1) {
+  if (paredDownPrechat && screen === 1) {
     if (!googleAssistantId) {
       return null;
     }
@@ -432,14 +517,130 @@ export function PreChatFlow() {
         assistantId={googleAssistantId}
         assistantName={assistantName}
         onConnect={(scopes) => {
+          emitWebFunnelStep(ONBOARDING_FUNNEL_STEPS.gmailConnect);
           void finish(scopes);
         }}
         onSkip={() => {
+          emitWebFunnelStep(ONBOARDING_FUNNEL_STEPS.gmailConnect);
           void finish();
         }}
         onBack={() => setScreen(0)}
       />
     );
+  }
+
+  const hasGoogleTool = [...selectedTools].some((id) =>
+    GOOGLE_TOOL_IDS.has(id),
+  );
+
+  const advancePastToolSelection = () => {
+    emitWebFunnelStep(ONBOARDING_FUNNEL_STEPS.controlTools);
+    if (localMode) {
+      void finish();
+      return;
+    }
+    setScreen(3);
+  };
+
+  const advancePastPriorAssistants = (
+    nextPriorAssistants = selectedPriorAssistants,
+  ) => {
+    emitWebFunnelStep(ONBOARDING_FUNNEL_STEPS.controlPriorAssistants);
+    if (hasGoogleTool && canOfferGoogleStep) {
+      setScreen(4);
+    } else if (showAppStep) {
+      setScreen(5);
+    } else {
+      void finish(undefined, {
+        selectedPriorAssistants: nextPriorAssistants,
+      });
+    }
+  };
+
+  if (screen === 1) {
+    const advance = () => {
+      emitWebFunnelStep(ONBOARDING_FUNNEL_STEPS.controlWorkType);
+      setScreen(2);
+    };
+    return (
+      <TaskToneSelectionScreen
+        selectedTasks={selectedTasks}
+        onChange={setSelectedTasks}
+        onBack={() => setScreen(0)}
+        onContinue={advance}
+        onSkip={advance}
+      />
+    );
+  }
+
+  if (screen === 2) {
+    return (
+      <ToolSelectionScreen
+        selectedTools={selectedTools}
+        onChange={setSelectedTools}
+        onBack={() => setScreen(1)}
+        onContinue={advancePastToolSelection}
+        onSkip={advancePastToolSelection}
+      />
+    );
+  }
+
+  if (screen === 3) {
+    return (
+      <PriorAssistantSelectionScreen
+        selectedAssistants={selectedPriorAssistants}
+        onChange={setSelectedPriorAssistants}
+        onBack={() => setScreen(2)}
+        onContinue={() => advancePastPriorAssistants()}
+        onSkip={() => {
+          const emptyPriorAssistants = new Set<string>();
+          setSelectedPriorAssistants(emptyPriorAssistants);
+          advancePastPriorAssistants(emptyPriorAssistants);
+        }}
+      />
+    );
+  }
+
+  if (screen === 4) {
+    if (!googleAssistantId) {
+      return null;
+    }
+    return (
+      <GoogleConnectScreen
+        assistantId={googleAssistantId}
+        assistantName={assistantName}
+        onConnect={(scopes) => {
+          emitWebFunnelStep(ONBOARDING_FUNNEL_STEPS.controlGmailConnect);
+          setGoogleConnected(true);
+          setGoogleScopes(scopes);
+          if (showAppStep) {
+            setScreen(5);
+          } else {
+            void finish(scopes);
+          }
+        }}
+        onSkip={() => {
+          emitWebFunnelStep(ONBOARDING_FUNNEL_STEPS.controlGmailConnect);
+          if (showAppStep) {
+            setScreen(5);
+          } else {
+            void finish();
+          }
+        }}
+        onBack={() => setScreen(3)}
+      />
+    );
+  }
+
+  if (screen === 5) {
+    const completeAppStep = () => {
+      emitWebFunnelStep(ONBOARDING_FUNNEL_STEPS.controlGetApp);
+      void finish();
+    };
+    if (isIOSWeb) {
+      return <GetIOSAppScreen onComplete={completeAppStep} />;
+    }
+    return <GetMacOSAppScreen onComplete={completeAppStep} />;
   }
 
   return null;

@@ -13,6 +13,8 @@ import {
   emitOnboardingFunnelStepCompleted,
   getOnboardingFunnelSessionId,
   ONBOARDING_FUNNEL_STEPS,
+  ONBOARDING_FUNNEL_VARIANTS,
+  resolveOnboardingFunnelVariant,
 } from "@/domains/onboarding/funnel-events";
 import {
   readOnboardingCompleted,
@@ -22,6 +24,7 @@ import {
   useTosAccepted,
 } from "@/domains/onboarding/prefs";
 import { markPrivacyConsent } from "@/domains/onboarding/signals";
+import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useAuthStore } from "@/stores/auth-store";
 import { legalUrl, routes } from "@/utils/routes";
@@ -63,6 +66,11 @@ export function PrivacyScreen() {
   const isReplay = searchParams.get("replay") === "1";
   const userId = useAuthStore.use.user()?.id ?? null;
   const isNative = useIsNativePlatform();
+  const prechatOnboardingV3 =
+    useClientFeatureFlagStore.use.prechatOnboardingV3();
+  const preferredFunnelVariant = prechatOnboardingV3
+    ? ONBOARDING_FUNNEL_VARIANTS.paredDown
+    : ONBOARDING_FUNNEL_VARIANTS.control;
   const [shareAnalytics, setShareAnalytics] = useShareAnalytics();
   const [shareDiagnostics, setShareDiagnostics] = useShareDiagnostics();
   const [tosAccepted, setTosAccepted] = useTosAccepted();
@@ -91,8 +99,10 @@ export function PrivacyScreen() {
     }
     markPrivacyConsent(userId);
     if (!isNative && !isReplay) {
+      const variant = resolveOnboardingFunnelVariant(preferredFunnelVariant);
       emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {
         userId,
+        variant,
       });
     }
     void navigate(
@@ -100,7 +110,17 @@ export function PrivacyScreen() {
         ? `${routes.onboarding.hatching}?replay=1`
         : routes.onboarding.hatching,
     );
-  }, [isReplay, navigate, setShareAnalytics, setShareDiagnostics, shareAnalytics, shareDiagnostics, userId]);
+  }, [
+    isNative,
+    isReplay,
+    navigate,
+    preferredFunnelVariant,
+    setShareAnalytics,
+    setShareDiagnostics,
+    shareAnalytics,
+    shareDiagnostics,
+    userId,
+  ]);
 
   const tosLabel: ReactNode = (
     <span className="text-body-medium-lighter text-[var(--content-default)]">
