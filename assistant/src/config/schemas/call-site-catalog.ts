@@ -121,6 +121,13 @@ const CATALOG_RECORD: CatalogRecord = {
       "Selects which concept pages to inject for the next agent turn by routing over a cached page index.",
     domain: "memory",
   },
+  memoryV3RouteL1: {
+    id: "memoryV3RouteL1",
+    displayName: "Memory V3 L1 Router",
+    description:
+      "Picks which leaves of the topic tree to open for the next agent turn by routing over a cache-warm static leaf block.",
+    domain: "memory",
+  },
   memoryV2Consolidation: {
     id: "memoryV2Consolidation",
     displayName: "Memory V2 Consolidation",
