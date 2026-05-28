@@ -95,6 +95,18 @@ export function LiveVoiceButton({
     };
   }, []);
 
+  // If the gate closes mid-session (flag flips off, assistant switches
+  // and assistantId goes null), the button stops rendering — but the
+  // underlying manager would silently keep the WebSocket and mic open
+  // with no visible control to stop it. Tear it down on every gate
+  // transition to closed so the session ends with the affordance.
+  const gateOpen = voiceModeEnabled && assistantId !== null;
+  useEffect(() => {
+    if (!gateOpen) {
+      void managerRef.current?.end();
+    }
+  }, [gateOpen]);
+
   if (!voiceModeEnabled || !assistantId) return null;
 
   const manager = managerRef.current;

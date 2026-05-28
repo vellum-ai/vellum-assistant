@@ -273,4 +273,49 @@ describe("LiveVoiceButton — lifecycle", () => {
     unmount();
     expect(stub.endCalls).toBe(1);
   });
+
+  test("flipping the voice-mode flag off mid-session ends the manager", () => {
+    const stub = createStubManager();
+    const { rerender } = render(
+      <LiveVoiceButton
+        assistantId={ASSISTANT_ID}
+        conversationId={CONVERSATION_ID}
+        managerFactory={() => stub}
+      />,
+    );
+    expect(stub.endCalls).toBe(0);
+
+    act(() => {
+      useAssistantFeatureFlagStore.setState({ voiceMode: false });
+    });
+    rerender(
+      <LiveVoiceButton
+        assistantId={ASSISTANT_ID}
+        conversationId={CONVERSATION_ID}
+        managerFactory={() => stub}
+      />,
+    );
+    expect(stub.endCalls).toBe(1);
+  });
+
+  test("dropping assistantId mid-session ends the manager", () => {
+    const stub = createStubManager();
+    const { rerender } = render(
+      <LiveVoiceButton
+        assistantId={ASSISTANT_ID}
+        conversationId={CONVERSATION_ID}
+        managerFactory={() => stub}
+      />,
+    );
+    expect(stub.endCalls).toBe(0);
+
+    rerender(
+      <LiveVoiceButton
+        assistantId={null}
+        conversationId={CONVERSATION_ID}
+        managerFactory={() => stub}
+      />,
+    );
+    expect(stub.endCalls).toBe(1);
+  });
 });
