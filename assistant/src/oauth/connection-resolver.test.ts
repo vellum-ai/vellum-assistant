@@ -159,6 +159,42 @@ describe("resolveOAuthConnection", () => {
     expect(result.accountInfo).toBe("user@example.com");
   });
 
+  test("managed path falls back to displayed account label when account_identifier does not match", async () => {
+    mockProvider!.managedServiceConfigKey = "google-oauth";
+    const fetchPaths: string[] = [];
+    mockPlatformClient = {
+      ...makeMockClient(),
+      fetch: mock(async (path: string) => {
+        fetchPaths.push(path);
+        if (path.includes("account_identifier=alice%40example.com")) {
+          return new Response(JSON.stringify({ results: [] }), { status: 200 });
+        }
+        return new Response(
+          JSON.stringify({
+            results: [
+              {
+                id: "platform-conn-1",
+                account_label: "alice@example.com",
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }),
+    };
+
+    const result = await resolveOAuthConnection("google", {
+      account: "alice@example.com",
+    });
+
+    expect(result).toBeInstanceOf(PlatformOAuthConnection);
+    expect(result.accountInfo).toBe("alice@example.com");
+    expect(fetchPaths).toEqual([
+      "/v1/assistants/asst-123/oauth/connections/?provider=google&status=ACTIVE&account_identifier=alice%40example.com",
+      "/v1/assistants/asst-123/oauth/connections/?provider=google&status=ACTIVE",
+    ]);
+  });
+
   test("returns PlatformOAuthConnection when GitHub is in managed mode", async () => {
     mockProvider!.provider = "github";
     mockProvider!.managedServiceConfigKey = "github-oauth";

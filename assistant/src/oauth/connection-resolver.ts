@@ -185,20 +185,26 @@ interface ResolvePlatformConnectionIdOptions {
   account?: string;
 }
 
-/**
- * Fetch the platform-side connection ID for a managed provider by calling
- * the List Connections endpoint.
- */
-async function resolvePlatformConnectionId(
-  options: ResolvePlatformConnectionIdOptions,
-): Promise<string> {
-  const { client, provider, account } = options;
+interface PlatformConnectionEntry {
+  id: string;
+  account_label?: string | null;
+}
 
+/**
+ * Fetch active platform connections for a managed provider by calling the
+ * List Connections endpoint.
+ */
+async function fetchPlatformConnections(options: {
+  client: VellumPlatformClient;
+  provider: string;
+  accountIdentifier?: string;
+}): Promise<PlatformConnectionEntry[]> {
+  const { client, provider, accountIdentifier } = options;
   const params = new URLSearchParams();
   params.set("provider", provider);
   params.set("status", "ACTIVE");
-  if (account) {
-    params.set("account_identifier", account);
+  if (accountIdentifier) {
+    params.set("account_identifier", accountIdentifier);
   }
 
   const path = `/v1/assistants/${client.platformAssistantId}/oauth/connections/?${params.toString()}`;
@@ -219,7 +225,35 @@ async function resolvePlatformConnectionId(
     Array.isArray(body)
       ? body
       : ((body as Record<string, unknown>).results ?? [])
-  ) as Array<{ id: string; account_label?: string }>;
+  ) as PlatformConnectionEntry[];
+  return connections;
+}
+
+/**
+ * Fetch the platform-side connection ID for a managed provider by calling
+ * the List Connections endpoint.
+ */
+async function resolvePlatformConnectionId(
+  options: ResolvePlatformConnectionIdOptions,
+): Promise<string> {
+  const { client, provider, account } = options;
+
+  let connections = await fetchPlatformConnections({
+    client,
+    provider,
+    accountIdentifier: account,
+  });
+
+  if (account && connections.length === 0) {
+    const unfilteredConnections = await fetchPlatformConnections({
+      client,
+      provider,
+    });
+    connections = unfilteredConnections.filter(
+      (connection) =>
+        connection.account_label === account || connection.id === account,
+    );
+  }
 
   if (connections.length === 0) {
     throw new Error(
