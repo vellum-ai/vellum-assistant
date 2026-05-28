@@ -24,6 +24,7 @@
  * chain) does not trip a TDZ.
  */
 
+import { memoryV3ShadowPlugin } from "../../memory/v3/shadow-plugin.js";
 import { registerPlugin, resetPluginRegistryForTests } from "../registry.js";
 import { type Plugin, PluginExecutionError } from "../types.js";
 import { defaultCircuitBreakerPlugin } from "./circuit-breaker.js";
@@ -68,6 +69,7 @@ function getAllDefaultPlugins(): readonly Plugin[] {
     defaultCircuitBreakerPlugin,
     defaultPersistencePlugin,
     defaultTitleGeneratePlugin,
+    memoryV3ShadowPlugin,
   ];
 }
 
