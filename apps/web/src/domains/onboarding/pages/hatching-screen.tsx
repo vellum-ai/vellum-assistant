@@ -78,6 +78,7 @@ export type HatchGateDecision =
 export function decideHatchGate(input: {
   isAuthLoading: boolean;
   isLoggedIn: boolean;
+  isLocalMode: boolean;
   onboardingCompleted: boolean;
   tosAccepted: boolean;
   aiDataConsentAccepted: boolean;
@@ -86,6 +87,7 @@ export function decideHatchGate(input: {
   if (input.isAuthLoading) return { kind: "wait" };
   if (!input.isLoggedIn) return { kind: "redirect", to: routes.account.login };
   if (input.onboardingCompleted) return { kind: "redirect", to: routes.assistant };
+  if (input.isLocalMode) return { kind: "proceed" };
   const persistedConsent = input.tosAccepted && input.aiDataConsentAccepted;
   if (!input.cameFromPrivacyScreen && !persistedConsent) {
     return { kind: "redirect", to: routes.onboarding.privacy };
@@ -142,6 +144,7 @@ export function HatchingScreen() {
     const decision = decideHatchGate({
       isAuthLoading,
       isLoggedIn,
+      isLocalMode: isLocalMode(),
       onboardingCompleted: readOnboardingCompleted(),
       tosAccepted: readTosAccepted(),
       aiDataConsentAccepted: readAiDataConsent(),
