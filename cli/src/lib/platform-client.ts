@@ -521,6 +521,8 @@ export async function hatchAssistant(
   );
 }
 
+const PLATFORM_FETCH_TIMEOUT_MS = 10_000;
+
 /**
  * Lightweight pre-check: returns the first active managed assistant for the
  * authenticated user, or `null` if none exists. Calls `GET /v1/assistants/`
@@ -536,9 +538,18 @@ export async function checkExistingPlatformAssistant(
   const resolvedUrl = platformUrl || getPlatformUrl();
   const url = `${resolvedUrl}/v1/assistants/`;
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(
+    () => controller.abort(),
+    PLATFORM_FETCH_TIMEOUT_MS,
+  );
+
   const response = await fetch(url, {
+    signal: controller.signal,
     headers: await authHeaders(token, platformUrl),
   });
+
+  clearTimeout(timeoutId);
 
   if (!response.ok) {
     // Non-fatal: if the list call fails, fall through and let hatch handle it.
@@ -563,9 +574,18 @@ export async function fetchPlatformAssistants(
   const resolvedUrl = platformUrl || getPlatformUrl();
   const url = `${resolvedUrl}/v1/assistants/`;
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(
+    () => controller.abort(),
+    PLATFORM_FETCH_TIMEOUT_MS,
+  );
+
   const response = await fetch(url, {
+    signal: controller.signal,
     headers: await authHeaders(token, platformUrl),
   });
+
+  clearTimeout(timeoutId);
 
   if (!response.ok) return [];
 
@@ -592,9 +612,19 @@ export async function fetchOrganizationId(
 ): Promise<string> {
   const resolvedUrl = platformUrl || getPlatformUrl();
   const url = `${resolvedUrl}/v1/organizations/`;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(
+    () => controller.abort(),
+    PLATFORM_FETCH_TIMEOUT_MS,
+  );
+
   const response = await fetch(url, {
+    signal: controller.signal,
     headers: { ...tokenAuthHeader(token) },
   });
+
+  clearTimeout(timeoutId);
 
   if (!response.ok) {
     throw new Error(
@@ -627,9 +657,19 @@ export async function fetchCurrentUser(
 ): Promise<PlatformUser> {
   const resolvedUrl = platformUrl || getPlatformUrl();
   const url = `${resolvedUrl}/_allauth/app/v1/auth/session`;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(
+    () => controller.abort(),
+    PLATFORM_FETCH_TIMEOUT_MS,
+  );
+
   const response = await fetch(url, {
+    signal: controller.signal,
     headers: { "X-Session-Token": token },
   });
+
+  clearTimeout(timeoutId);
 
   if (!response.ok) {
     if (

@@ -110,13 +110,28 @@ export function execWithStdin(
 export function execOutput(
   command: string,
   args: string[],
-  options: { cwd?: string } = {},
+  options: { cwd?: string; timeoutMs?: number } = {},
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: options.cwd,
       stdio: ["pipe", "pipe", "pipe"],
     });
+
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    if (options.timeoutMs !== undefined) {
+      timer = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          child.kill("SIGTERM");
+          reject(
+            new Error(`${command} timed out after ${options.timeoutMs}ms`),
+          );
+        }
+      }, options.timeoutMs);
+    }
 
     let stdout = "";
     child.stdout.on("data", (data: Buffer) => {
@@ -129,17 +144,20 @@ export function execOutput(
     });
 
     child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
       if (code === 0) {
         resolve(stdout.trim());
       } else {
-        // execOutput intentionally drops stdout from the error message
-        // (callers that read stdout via the success path don't expect
-        // partial stdout to land in error.message). Stderr is enough
-        // for diagnostics, and the no-args-in-message guarantee from
-        // exec() still holds.
         reject(new Error(buildExecErrorMessage(command, code, stderr, "")));
       }
     });
-    child.on("error", reject);
+    child.on("error", (err) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      reject(err);
+    });
   });
 }

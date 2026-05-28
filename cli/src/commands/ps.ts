@@ -165,19 +165,25 @@ function resolveCloud(entry: AssistantEntry): string {
   return "local";
 }
 
+const REMOTE_SSH_TIMEOUT_MS = 30_000;
+
 async function getRemoteProcessesGcp(entry: AssistantEntry): Promise<string> {
-  return execOutput("gcloud", [
-    "compute",
-    "ssh",
-    `${entry.sshUser ?? entry.assistantId}@${entry.assistantId}`,
-    `--zone=${entry.zone}`,
-    `--project=${entry.project}`,
-    `--command=${REMOTE_PS_CMD}`,
-    "--ssh-flag=-o StrictHostKeyChecking=no",
-    "--ssh-flag=-o UserKnownHostsFile=/dev/null",
-    "--ssh-flag=-o ConnectTimeout=10",
-    "--ssh-flag=-o LogLevel=ERROR",
-  ]);
+  return execOutput(
+    "gcloud",
+    [
+      "compute",
+      "ssh",
+      `${entry.sshUser ?? entry.assistantId}@${entry.assistantId}`,
+      `--zone=${entry.zone}`,
+      `--project=${entry.project}`,
+      `--command=${REMOTE_PS_CMD}`,
+      "--ssh-flag=-o StrictHostKeyChecking=no",
+      "--ssh-flag=-o UserKnownHostsFile=/dev/null",
+      "--ssh-flag=-o ConnectTimeout=10",
+      "--ssh-flag=-o LogLevel=ERROR",
+    ],
+    { timeoutMs: REMOTE_SSH_TIMEOUT_MS },
+  );
 }
 
 async function getRemoteProcessesCustom(
@@ -185,7 +191,9 @@ async function getRemoteProcessesCustom(
 ): Promise<string> {
   const host = extractHostFromUrl(entry.runtimeUrl);
   const sshUser = entry.sshUser ?? "root";
-  return execOutput("ssh", [...SSH_OPTS, `${sshUser}@${host}`, REMOTE_PS_CMD]);
+  return execOutput("ssh", [...SSH_OPTS, `${sshUser}@${host}`, REMOTE_PS_CMD], {
+    timeoutMs: REMOTE_SSH_TIMEOUT_MS,
+  });
 }
 
 interface ProcessSpec {
@@ -203,9 +211,13 @@ interface DetectedProcess {
   watch: boolean;
 }
 
+const LOCAL_CMD_TIMEOUT_MS = 5_000;
+
 async function isWatchMode(pid: string): Promise<boolean> {
   try {
-    const args = await execOutput("ps", ["-p", pid, "-o", "args="]);
+    const args = await execOutput("ps", ["-p", pid, "-o", "args="], {
+      timeoutMs: LOCAL_CMD_TIMEOUT_MS,
+    });
     return args.includes("--watch");
   } catch {
     return false;
@@ -320,12 +332,11 @@ async function getDockerContainerState(
   containerName: string,
 ): Promise<string | null> {
   try {
-    const output = await execOutput("docker", [
-      "inspect",
-      "--format",
-      "{{.State.Status}}",
-      containerName,
-    ]);
+    const output = await execOutput(
+      "docker",
+      ["inspect", "--format", "{{.State.Status}}", containerName],
+      { timeoutMs: LOCAL_CMD_TIMEOUT_MS },
+    );
     return output.trim() || "unknown";
   } catch {
     return null;
@@ -458,9 +469,12 @@ async function showAssistantProcesses(entry: AssistantEntry): Promise<void> {
       process.exit(1);
     }
   } catch (error) {
-    console.error(
-      `Failed to list processes: ${error instanceof Error ? error.message : error}`,
-    );
+    const msg = error instanceof Error ? error.message : String(error);
+    if (msg.includes("timed out")) {
+      console.warn(`Warning: remote process listing timed out — ${msg}`);
+      return;
+    }
+    console.error(`Failed to list processes: ${msg}`);
     process.exit(1);
   }
 
