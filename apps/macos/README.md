@@ -22,10 +22,12 @@ Code signing, notarization, and auto-update wiring live in follow-up tickets.
 ## How it runs
 
 `bun run dev` in this directory is the single command — it spawns the
-`apps/web` Vite dev server, waits for it to come up on
-`http://localhost:5173`, then runs `electron-vite dev` against it. Killing
-the script tears both processes down. Logs from each are prefixed with
-`[web]` / `[electron]`. See `scripts/dev.ts` for the orchestration.
+`apps/web` Vite dev server (with `PORT=5173` so the spawned process
+agrees with what the BrowserWindow loads), waits for it to come up, then
+runs `electron-vite dev` against it. Killing the script tears both
+processes down (SIGTERM, SIGKILL-escalating). Logs from each are prefixed
+with `[web]` / `[electron]`. See `scripts/dev.ts` for the orchestration
+and `src/shared/dev-server.ts` for the shared port/URL constant.
 
 The app shows up as **Vellum Electron** in the menu bar and Dock
 (`app.setName` in `src/main/index.ts`), and writes preferences /
@@ -55,19 +57,15 @@ need a distributable artifact.
 ## Native macOS integration
 
 - **Application menu** (`src/main/menu.ts`). Installs a standard macOS menu
-  bar with `Vellum`, `Edit`, `View`, `Window`, and `Help` submenus, all
-  role-based so they work without renderer IPC. `View > Toggle Developer
-  Tools` is gated to dev builds only so the packaged DMG doesn't expose
-  devtools to end users.
-
-  A `File` menu with `New Conversation` / `Current Conversation` /
-  `Mark Unread` is intentionally absent. Those items need a typed
-  command/hotkey system (main-process command bus → typed preload
-  subscription → renderer dispatcher) and the renderer-side handlers in
-  `apps/web` so they actually do work when clicked. That system lands as
-  one cohesive PR that wires main + preload + renderer together. Shipping
-  menu items that no-op on click would be the kind of dormant surface
-  this codebase has been backing out of.
+  bar with `Vellum`, `File`, `Edit`, `View`, `Window`, and `Help` submenus.
+  Most items are role-based so they work without renderer IPC; the `File`
+  items dispatch through the typed command bus in `src/main/commands.ts`,
+  which broadcasts to the focused window's renderer via a single
+  `vellum:command` IPC channel (subscribed to by `useVellumCommands` in
+  `apps/web/src/runtime/vellum-commands.ts`). Accelerators are read from
+  `settings.hotkeys.<kind>` with defaults from `DEFAULT_ACCELERATORS`.
+  `View > Toggle Developer Tools` is gated to dev builds only so the
+  packaged build doesn't expose devtools to end users.
 
 ## Scripts
 
@@ -91,7 +89,8 @@ apps/macos/
 │   ├── main/commands.ts      # typed command bus + accelerator resolver
 │   ├── main/settings.ts      # electron-store schema + IPC-backed accessors
 │   ├── main/menu.ts          # macOS application menu
-│   └── preload/index.ts      # contextBridge: window.vellum.*
+│   ├── preload/index.ts      # contextBridge: window.vellum.*
+│   └── shared/dev-server.ts  # dev-mode port/URL shared by main + scripts/dev.ts
 └── tsconfig.json
 ```
 

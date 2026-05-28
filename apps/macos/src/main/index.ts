@@ -6,6 +6,7 @@ import path from "node:path";
 
 import { installApplicationMenu } from "./menu";
 import { readSetting, writeSetting } from "./settings";
+import { DEV_SERVER_URL } from "../shared/dev-server";
 
 // Set the app name explicitly so dev runs (`bun run dev`) show "Vellum
 // Electron" in the menu bar / Dock instead of the workspace name
@@ -22,7 +23,6 @@ import { readSetting, writeSetting } from "./settings";
 // no-op against that — the dev path is the only place it matters.
 app.setName("Vellum Electron");
 
-const DEV_SERVER_URL = "http://localhost:5173";
 const DEV_SERVER_ORIGIN = new URL(DEV_SERVER_URL).origin;
 const APP_PROTOCOL = "app";
 const APP_HOST = "vellum.ai";
