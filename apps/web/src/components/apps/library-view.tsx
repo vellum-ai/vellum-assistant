@@ -53,6 +53,7 @@ export function LibraryView({
 
   const {
     apps,
+    documents,
     filteredApps,
     pinnedApps,
     recentApps,
@@ -163,7 +164,7 @@ export function LibraryView({
   }
 
   // --- Render: empty state ---
-  if (apps.length === 0 && filteredDocuments.length === 0) {
+  if (apps.length === 0 && documents.length === 0) {
     return (
       <LibraryEmptyState
         fileInputRef={fileInputRef}
