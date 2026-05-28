@@ -123,6 +123,11 @@ const LEGACY_JOB_TYPES = new Set([
   "generate_capability_cards",
   "generate_thread_starters",
   "memory_v2_rebuild_edges",
+  // Retired memory-v3 job types — handlers were removed in the v3 rip. Kept
+  // here so pre-upgrade rows enqueued by the old write path drop gracefully.
+  "memory_v3_consolidate",
+  "memory_v3_index_maintenance",
+  "memory_v3_edge_learning",
 ]);
 
 export const POLL_INTERVAL_MIN_MS = 1_500;
