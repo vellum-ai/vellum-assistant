@@ -3,6 +3,7 @@ import { credentialKey } from "./credential-key.js";
 import { fetchImpl } from "./fetch.js";
 import { loadFeatureFlagDefaults } from "./feature-flag-defaults.js";
 import { writeRemoteFeatureFlags } from "./feature-flag-remote-store.js";
+import { arePlatformFeaturesEnabled } from "./feature-flag-resolver.js";
 import { getLogger } from "./logger.js";
 
 const log = getLogger("remote-feature-flag-sync");
@@ -301,6 +302,13 @@ export class RemoteFeatureFlagSync {
   }
 
   private async fetchRemoteFeatureFlags(): Promise<RemoteFetchResult> {
+    if (!arePlatformFeaturesEnabled()) {
+      log.debug(
+        "platform-features-in-local-mode is disabled — skipping remote feature flag fetch",
+      );
+      return { status: "missing_credentials" };
+    }
+
     // Wrap credential reads so transient failures (CES unreachable, keychain
     // errors) are treated as retriable errors with backoff, not as "missing
     // credentials" which would pause polling indefinitely.

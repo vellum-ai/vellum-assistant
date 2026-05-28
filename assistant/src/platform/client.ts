@@ -10,6 +10,7 @@ import { resolveManagedProxyContext } from "../providers/platform-proxy/context.
 import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
+import { arePlatformFeaturesEnabled } from "./feature-gate.js";
 
 const log = getLogger("platform-client");
 
@@ -43,6 +44,13 @@ export class VellumPlatformClient {
    * should check `platformAssistantId` themselves.
    */
   static async create(): Promise<VellumPlatformClient | null> {
+    if (!arePlatformFeaturesEnabled()) {
+      log.debug(
+        "platform-features-in-local-mode is disabled — returning null",
+      );
+      return null;
+    }
+
     const ctx = await resolveManagedProxyContext();
 
     let baseUrl = ctx.enabled ? ctx.platformBaseUrl : "";

@@ -134,6 +134,19 @@ export async function materializeManagedToken(
   subject: ManagedSubject,
   options: ManagedMaterializerOptions
 ): Promise<MaterializeResult> {
+  if (
+    process.env.VELLUM_PLATFORM_FEATURES_IN_LOCAL_MODE?.toLowerCase() ===
+    "false"
+  ) {
+    return {
+      ok: false,
+      error: new MaterializationError(
+        "PLATFORM_FEATURES_DISABLED",
+        "Platform features are disabled in local mode",
+      ),
+    };
+  }
+
   // -- Validate prerequisites -----------------------------------------------
   if (!options.platformBaseUrl) {
     return {
