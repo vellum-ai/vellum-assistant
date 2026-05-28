@@ -26,10 +26,17 @@ import { z } from "zod";
 import type { HostProxyCapability } from "../../channels/types.js";
 import { parseInterfaceId, supportsHostProxy } from "../../channels/types.js";
 import { emitContactChange } from "../../contacts/contact-events.js";
+import { readEventsAfter } from "../../daemon/event-log.js";
+import type { ServerMessage } from "../../daemon/message-protocol.js";
 import { getConversation } from "../../memory/conversation-crud.js";
 import { getOrCreateConversation } from "../../memory/conversation-key-store.js";
 import { getLogger } from "../../util/logger.js";
-import { formatSseFrame, formatSseHeartbeat } from "../assistant-event.js";
+import type { AssistantEvent } from "../assistant-event.js";
+import {
+  buildAssistantEvent,
+  formatSseFrame,
+  formatSseHeartbeat,
+} from "../assistant-event.js";
 import type {
   AssistantEventCallback,
   AssistantEventFilter,
@@ -240,10 +247,24 @@ const defaultSseShedReporter: SseShedReporter = (reason, inst) => {
  * Headers (optional):
  *   X-Vellum-Client-Id    -- stable per-install UUID identifying this client.
  *   X-Vellum-Interface-Id -- interface type (e.g. "macos", "ios", "web").
+ *   Last-Event-Id         -- last `seq` the client successfully processed for
+ *                            this conversation. When set, the daemon replays
+ *                            persisted events with `seq > last_event_id` from
+ *                            `conversation_events` before fanning out live
+ *                            events. Standard SSE field — `EventSource`
+ *                            sends it automatically on reconnect. Only honored
+ *                            when the stream is scoped to one conversation
+ *                            (via `conversationId` or `conversationKey`).
  *
- *   When both are present, the subscriber is registered as a client in the
- *   event hub with metadata (interfaceId, capabilities). The hub handles
- *   lifecycle — dispose() unregisters the client automatically.
+ *   When both client-id headers are present, the subscriber is registered as
+ *   a client in the event hub with metadata (interfaceId, capabilities). The
+ *   hub handles lifecycle — dispose() unregisters the client automatically.
+ *
+ * Query params (optional):
+ *   lastEventId       -- alternative to the `Last-Event-Id` header for
+ *                        transports that cannot set arbitrary headers
+ *                        (mobile WKWebView quirks, native SDKs). Header
+ *                        wins if both are supplied.
  *
  * Options (for testing):
  *   hub               -- override the event hub (defaults to process singleton).
@@ -281,6 +302,19 @@ export function handleSubscribeAssistantEvents(
   const rawInterfaceId = headers?.["x-vellum-interface-id"];
   const rawMachineName = headers?.["x-vellum-machine-name"];
   const rawActorPrincipalId = headers?.["x-vellum-actor-principal-id"];
+  // `Last-Event-Id` is the standard SSE reconnect field; `lastEventId` query
+  // param is the fallback for transports that cannot set arbitrary headers.
+  // Header wins when both are supplied so an explicit reconnect always
+  // outranks a stale URL.
+  const rawLastEventId =
+    headers?.["last-event-id"]?.trim() ||
+    queryParams?.lastEventId?.trim() ||
+    "";
+  const lastEventIdParsed = rawLastEventId ? Number(rawLastEventId) : NaN;
+  const lastEventId =
+    Number.isFinite(lastEventIdParsed) && lastEventIdParsed >= 0
+      ? Math.trunc(lastEventIdParsed)
+      : null;
   const clientId = rawClientId?.trim() || null;
   const interfaceId = clientId
     ? parseInterfaceId(rawInterfaceId?.trim())
@@ -357,6 +391,39 @@ export function handleSubscribeAssistantEvents(
     conversationKey: scopeConversationKey,
   };
 
+  // -- Last-Event-Id replay state --------------------------------------------
+  // When the client supplies a `Last-Event-Id`, we replay persisted events
+  // with `seq > lastEventId` from the durable log before delivering live
+  // events. Two pieces of state coordinate the handoff so neither path
+  // delivers a duplicate:
+  //
+  //   - `replayMaxSeq` — the highest seq written to the client during
+  //     replay. Live events with `seq <= replayMaxSeq` are dropped by the
+  //     callback because the replay already covered them.
+  //   - `replayComplete` + `pendingLiveEvents` — until replay finishes,
+  //     live events are buffered in order rather than written directly to
+  //     the SSE stream, so replay and live can never interleave.
+  //
+  // When `lastEventId` is null we skip replay entirely; the callback then
+  // writes live events straight through.
+  const replayRequested =
+    lastEventId !== null && filter.conversationId !== undefined;
+  let replayMaxSeq = lastEventId ?? 0;
+  let replayComplete = !replayRequested;
+  const pendingLiveEvents: AssistantEvent[] = [];
+
+  function writeEventFrame(event: AssistantEvent): void {
+    const controller = controllerRef;
+    if (!controller) return;
+    controller.enqueue(encoder.encode(formatSseFrame(event)));
+    instrumentation.eventsDelivered += 1;
+  }
+
+  function eventSeq(event: AssistantEvent): number | undefined {
+    const msg = event.message as { seq?: unknown };
+    return typeof msg.seq === "number" ? msg.seq : undefined;
+  }
+
   ensureEventLoopDelayMonitorStarted();
 
   function cleanup() {
@@ -381,8 +448,19 @@ export function handleSubscribeAssistantEvents(
         cleanup();
         return;
       }
-      controller.enqueue(encoder.encode(formatSseFrame(event)));
-      instrumentation.eventsDelivered += 1;
+      // Buffer live events until replay completes so the SSE stream observes
+      // replayed-then-live order. After replay, fall through to the dedupe
+      // check that drops events the replay already covered.
+      if (!replayComplete) {
+        pendingLiveEvents.push(event);
+        return;
+      }
+      const seq = eventSeq(event);
+      if (seq !== undefined && seq <= replayMaxSeq) {
+        // Replay already delivered this seq (or a higher one) — drop.
+        return;
+      }
+      writeEventFrame(event);
     } catch {
       sub.dispose();
       cleanup();
@@ -433,6 +511,56 @@ export function handleSubscribeAssistantEvents(
 
         controller.enqueue(encoder.encode(formatSseHeartbeat()));
         instrumentation.heartbeatsSent += 1;
+
+        // Replay persisted events with `seq > lastEventId` for this
+        // conversation, then drain anything the live callback buffered
+        // while we were reading from the DB. Skipping the conversation-
+        // unscoped case is intentional — replay needs a single
+        // conversation to scope the query and is the only mode the
+        // reconnect protocol cares about.
+        if (replayRequested && filter.conversationId) {
+          try {
+            const rows = readEventsAfter(
+              filter.conversationId,
+              lastEventId ?? 0,
+            );
+            for (const row of rows) {
+              try {
+                const payload = JSON.parse(row.payloadJson) as ServerMessage;
+                const replayEvent = buildAssistantEvent(
+                  payload,
+                  filter.conversationId,
+                );
+                writeEventFrame(replayEvent);
+                if (row.seq > replayMaxSeq) replayMaxSeq = row.seq;
+              } catch (err) {
+                log.warn(
+                  {
+                    err,
+                    conversationId: filter.conversationId,
+                    seq: row.seq,
+                  },
+                  "Failed to replay conversation event (skipping)",
+                );
+              }
+            }
+          } catch (err) {
+            log.warn(
+              { err, conversationId: filter.conversationId, lastEventId },
+              "Failed to read events for Last-Event-Id replay",
+            );
+          }
+        }
+
+        // Drain any live events buffered while replay ran, dropping any
+        // whose seq the replay already covered.
+        replayComplete = true;
+        for (const buffered of pendingLiveEvents) {
+          const seq = eventSeq(buffered);
+          if (seq !== undefined && seq <= replayMaxSeq) continue;
+          writeEventFrame(buffered);
+        }
+        pendingLiveEvents.length = 0;
 
         heartbeatTimer = setInterval(() => {
           try {
@@ -517,6 +645,11 @@ export const ROUTES: RouteDefinition[] = [
         name: "conversationKey",
         description:
           "Scope to a single conversation by an external key (non-vellum channels) or the web idempotency key. Materializes a row on first use. Ignored when conversationId is also provided.",
+      },
+      {
+        name: "lastEventId",
+        description:
+          "Last per-conversation seq the client successfully processed. Equivalent to the standard `Last-Event-Id` SSE header; provided as a query param for transports that cannot set arbitrary request headers. The daemon replays persisted events with `seq > lastEventId` before delivering live events.",
       },
     ],
     responseHeaders: {

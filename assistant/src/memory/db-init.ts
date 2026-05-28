@@ -67,6 +67,7 @@ import {
   migrateContactsRolePrincipal,
   migrateContactsUserFileColumn,
   migrateConversationCleanedAt,
+  migrateConversationEvents,
   migrateConversationForkLineage,
   migrateConversationHostAccess,
   migrateConversationInferenceProfileSession,
@@ -466,6 +467,7 @@ export function initializeDb(): void {
     migrateLlmRequestLogCallSite,
     migrateDropProviderConnectionStatus,
     migrateMessagesClientMessageId,
+    migrateConversationEvents,
   ];
 
   // Run each migration step, catching and logging individual failures so one

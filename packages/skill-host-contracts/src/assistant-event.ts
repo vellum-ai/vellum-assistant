@@ -66,13 +66,26 @@ export function buildAssistantEvent<TMessage>(
  *
  * ```
  * event: assistant_event\n
- * id: <event.id>\n
+ * id: <id>\n
  * data: <JSON>\n
  * \n
  * ```
+ *
+ * When the envelope's `message` payload carries a numeric `seq`, that value
+ * is used for the SSE `id:` field so a reconnecting `EventSource` populates
+ * the `Last-Event-Id` header with the daemon's per-conversation sequence
+ * number (which the runtime route uses to drive durable-log replay). The
+ * envelope's UUID `event.id` remains in the JSON payload for legacy
+ * consumers and as a stable correlator across logs.
+ *
+ * The id line is sanitized (newlines stripped, value cast to string) so a
+ * crafted `seq` or `event.id` cannot inject extra SSE fields.
  */
 export function formatSseFrame(event: AssistantEvent): string {
-  const sanitizedId = event.id.replace(/[\n\r]/g, "");
+  const seq = (event.message as { seq?: unknown } | null | undefined)?.seq;
+  const rawId =
+    typeof seq === "number" && Number.isFinite(seq) ? String(seq) : event.id;
+  const sanitizedId = rawId.replace(/[\n\r]/g, "");
   const data = JSON.stringify(event);
   return `event: assistant_event\nid: ${sanitizedId}\ndata: ${data}\n\n`;
 }
