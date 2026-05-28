@@ -13,9 +13,9 @@ import { app, BrowserWindow, ipcMain } from "electron";
  *   1. **Visible window count**, observed via the `browser-window-created`
  *      / per-window `closed` events. No renderer involvement.
  *   2. **Signed-in flag**, published by the renderer over the
- *      `vellum:dock:setSignedIn` IPC channel. Will be re-sourced from
- *      the main-process BFF auth state once LUM-1924 lands; until then,
- *      the renderer is the source of truth.
+ *      `vellum:dock:setSignedIn` IPC channel. Renderer is the source of
+ *      truth today; this side of the bridge becomes a no-op once the
+ *      main-process auth state is the canonical signal.
  *
  * Policy:
  *
@@ -45,11 +45,10 @@ const formatBadge = (count: number): string => {
 
 const POLICY_DEBOUNCE_MS = 100;
 
-// Gate the `accessory` (menu-bar-only) transition until the tray icon
-// from LUM-1965 exists. Going accessory before then would hide the Dock
-// icon with no replacement entry point, leaving the user no way to
-// re-open the window. Flip to `true` in the same PR that lands the
-// tray.
+// Gate the `accessory` (menu-bar-only) transition until a menu-bar
+// (tray) entry point exists. Going accessory before then would hide
+// the Dock icon with no replacement, leaving the user no way to re-open
+// the window. Flip to `true` in the same change that lands the tray.
 const ALLOW_ACCESSORY_MODE = false;
 
 interface DockState {
@@ -119,9 +118,9 @@ export const installDock = (): void => {
     applyBadge();
   });
 
-  // Renderer-published signed-in flag. Becomes redundant once LUM-1924
-  // wires BFF auth into the main process — at that point the source of
-  // truth flips and this handler can be replaced with a subscription.
+  // Renderer-published signed-in flag. Becomes redundant once main
+  // owns the auth state directly — at that point the source of truth
+  // flips and this handler can be replaced with a subscription.
   ipcMain.handle("vellum:dock:setSignedIn", (_event, signedIn: unknown) => {
     state.signedIn = Boolean(signedIn);
     scheduleRefresh();

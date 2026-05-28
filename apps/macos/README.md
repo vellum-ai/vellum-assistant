@@ -153,9 +153,9 @@ The preload script exposes a typed `window.vellum` API to the renderer:
   off Electron); feature code calls
   `useElectronDockSync(conversations)` from `ChatLayout` to keep them in
   sync. The accessory-mode (Dock-hidden) transition is gated on
-  `ALLOW_ACCESSORY_MODE` until the tray icon ships in LUM-1965 — until
-  then the icon stays in the Dock so the user always has an entry
-  point.
+  `ALLOW_ACCESSORY_MODE` until a menu-bar (tray) entry point exists;
+  until then the icon stays in the Dock so the user always has a way
+  back to the window.
 - `auth.*` and `helper.*` — typed stubs that reject with "not implemented yet"
   until the corresponding feature tickets land.
 

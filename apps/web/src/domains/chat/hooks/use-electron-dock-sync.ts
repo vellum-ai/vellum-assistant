@@ -18,9 +18,9 @@ import type { Conversation } from "@/types/conversation-types";
  * Vellum's `unseenVisibleConversationCount` uses — so we don't fetch
  * twice.
  *
- * The signed-in input is temporary: once LUM-1924 wires BFF auth into
- * the main process, main becomes the source of truth and this side of
- * the bridge becomes a no-op.
+ * The signed-in input is temporary: once main owns auth state
+ * directly, main becomes the source of truth and this side of the
+ * bridge becomes a no-op.
  */
 export function useElectronDockSync(conversations: Conversation[]): void {
   const isLoggedIn = useAuthStore.use.isLoggedIn();

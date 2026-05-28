@@ -218,9 +218,9 @@ export function ChatLayout() {
   );
 
   // Mirror the unread count + signed-in flag into the Electron Dock
-  // (no-op off Electron). See `@/hooks/use-electron-dock-sync` for the
-  // derivation — uses the conversation list this component already
-  // subscribes to, so no extra query.
+  // (no-op off Electron). Uses the conversation list this layout
+  // already subscribes to, so there's no extra query — see
+  // `./hooks/use-electron-dock-sync.ts`.
   useElectronDockSync(conversations);
 
   // --- Layout slot state for child route content ---

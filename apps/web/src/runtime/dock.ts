@@ -29,9 +29,9 @@ export async function setDockBadge(count: number): Promise<void> {
  * closes (so the user can re-open from the Dock vs. having to relaunch
  * from /Applications).
  *
- * Temporary — once LUM-1924 wires BFF auth into the main process,
- * main becomes the source of truth and this becomes a no-op the
- * renderer drops. Safe to call from any host — no-op off Electron.
+ * Temporary — once main owns auth state directly, main becomes the
+ * source of truth and this becomes a no-op the renderer drops. Safe to
+ * call from any host — no-op off Electron.
  */
 export async function setDockSignedIn(signedIn: boolean): Promise<void> {
   if (!isElectron()) return;

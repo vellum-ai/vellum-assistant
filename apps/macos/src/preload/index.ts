@@ -52,9 +52,8 @@ export interface VellumBridge {
     /**
      * Publish the user's signed-in state so the main process can decide
      * whether to keep the Dock icon visible after the last window
-     * closes. Temporary until LUM-1924 (BFF auth) makes main the source
-     * of truth — at that point this call becomes a no-op and the
-     * renderer drops it.
+     * closes. Temporary — once main owns auth state directly, this
+     * call becomes a no-op and the renderer drops it.
      */
     setSignedIn(signedIn: boolean): Promise<void>;
   };
