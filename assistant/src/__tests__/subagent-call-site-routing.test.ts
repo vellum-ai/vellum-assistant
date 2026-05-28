@@ -87,7 +87,7 @@ class FakeConversation {
     return Promise.resolve();
   }
   persistUserMessage() {
-    return "msg-id";
+    return { id: "msg-id", deduplicated: false };
   }
   runAgentLoop() {
     return Promise.resolve();
@@ -134,9 +134,17 @@ mock.module("../providers/registry.js", () => ({
 mock.module("../providers/inference/connections.js", () => ({
   getConnection: (_db: unknown, name: string) => {
     if (name === "anthropic-conn")
-      return { name: "anthropic-conn", provider: "anthropic", auth: { type: "platform" } };
+      return {
+        name: "anthropic-conn",
+        provider: "anthropic",
+        auth: { type: "platform" },
+      };
     if (name === "openai-conn")
-      return { name: "openai-conn", provider: "openai", auth: { type: "platform" } };
+      return {
+        name: "openai-conn",
+        provider: "openai",
+        auth: { type: "platform" },
+      };
     return null;
   },
 }));
