@@ -1,7 +1,7 @@
 /**
  * Bus consumer for assistant-level resource cache invalidation.
  *
- * Routes avatar, identity, config, sounds, and schedules
+ * Routes avatar, identity, identity intro, config, sounds, and schedules
  * `sync_changed` tags — plus `home_feed_updated` and
  * `relationship_state_updated` events — into TanStack Query cache
  * invalidations. All operations are simple one-liner invalidations
@@ -23,6 +23,7 @@ import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import {
   assistantDaemonConfigQueryKey,
   assistantIdentityQueryKey,
+  assistantIdentityIntroQueryKey,
   assistantScheduleRunsQueryKey,
   assistantSchedulesQueryKey,
   assistantSoundsAvailableQueryKey,
@@ -35,7 +36,7 @@ import { SYNC_TAGS } from "@/lib/sync/types";
 /**
  * Subscribes to assistant-resource sync events via the event bus.
  *
- * Handles `sync_changed` tags for avatar, identity, config, sounds,
+ * Handles `sync_changed` tags for avatar, identity, identity intro, config, sounds,
  * and schedules, plus `home_feed_updated` / `relationship_state_updated`
  * event types. These are all stateless invalidations — no reconnect
  * handling needed since the underlying `useQuery` hooks refetch
@@ -62,6 +63,14 @@ export function useAssistantResourceSync(
             case SYNC_TAGS.assistantIdentity:
               void queryClient.invalidateQueries({
                 queryKey: assistantIdentityQueryKey(assistantId),
+              });
+              void queryClient.invalidateQueries({
+                queryKey: assistantIdentityIntroQueryKey(assistantId),
+              });
+              break;
+            case SYNC_TAGS.assistantIdentityIntro:
+              void queryClient.invalidateQueries({
+                queryKey: assistantIdentityIntroQueryKey(assistantId),
               });
               break;
             case SYNC_TAGS.assistantConfig:

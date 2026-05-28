@@ -152,6 +152,19 @@ describe("buildSystemPrompt", () => {
     expect(identityIdx).toBeLessThan(soulIdx);
   });
 
+  test("side-chain prompt options still include IDENTITY.md and SOUL.md", () => {
+    writeFileSync(join(TEST_DIR, "IDENTITY.md"), "# Identity\n\nI am Vellum.");
+    writeFileSync(join(TEST_DIR, "SOUL.md"), "# Soul\n\nBe thoughtful.");
+
+    const result = buildSystemPrompt({
+      excludeBootstrap: true,
+      excludeCustomPrefix: true,
+    });
+
+    expect(result).toContain("# Identity\n\nI am Vellum.");
+    expect(result).toContain("# Soul\n\nBe thoughtful.");
+  });
+
   test("ignores empty SOUL.md", () => {
     writeFileSync(join(TEST_DIR, "SOUL.md"), "   \n  \n  ");
     writeFileSync(join(TEST_DIR, "IDENTITY.md"), "# Identity\n\nI am Vellum.");
