@@ -102,7 +102,6 @@ export async function resolveProcessState(
   const result = await isProcessHealthy(pidFile, healthPort);
 
   if (!result.alive) {
-    cleanupPidFile(pidFile);
     return { status: "needs_start", pid: null };
   }
 
